@@ -3,6 +3,9 @@
 //! Physical seeding for one fresh, live-authorized learner.
 
 use super::*;
+#[path = "snapshot_disaster.rs"]
+mod disaster;
+pub(crate) use disaster::DisasterSeed;
 
 /// A fresh learner's physical download. This cannot be constructed from an
 /// archive, a cached membership observation, or a caller-supplied snapshot.
@@ -126,6 +129,7 @@ impl SeedDownload {
 enum SeedPermit {
     Peer(crate::raft::transport::seeds::SeedGrant),
     S3(crate::raft::transport::seeds::ArchiveSeedGrant),
+    Disaster(crate::raft::catalog::DisasterSeedPermit),
 }
 
 impl SeedPermit {
@@ -133,6 +137,7 @@ impl SeedPermit {
         match self {
             Self::Peer(grant) => grant.local(),
             Self::S3(grant) => grant.local(),
+            Self::Disaster(grant) => &grant.local,
         }
     }
 
@@ -144,6 +149,7 @@ impl SeedPermit {
         match self {
             Self::Peer(grant) => grant.authorized(owner, identity),
             Self::S3(grant) => grant.authorized(owner, identity),
+            Self::Disaster(grant) => grant.authorized(owner, identity),
         }
     }
 }

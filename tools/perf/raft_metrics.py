@@ -52,6 +52,7 @@ OPERATIONS = (
     'snapshot_transfer_encode',
     'archive_physical_admission',
     'archive_physical_queue',
+    'engine_purge',
 )
 COUNTERS = (
     'engine_file_read_bytes',
@@ -97,8 +98,36 @@ COUNTERS = (
     'snapshot_prepared_misses',
     'snapshot_prepared_reused_bytes',
 )
+LEGACY_OPERATIONS = ('engine_queue', 'engine_file_sync', 'engine_directory_sync', 'engine_persist',
+              'sql_queue', 'sql_stage', 'sql_prepare', 'sql_publish', 'sql_query',
+              'sql_archive_capture', 'sql_other', 'object_get', 'object_put_create', 'object_put_update',
+              'object_put_overwrite', 'controller_probe', 'controller_action',
+              'transport_control_queue', 'transport_data_queue',
+              'transport_control_exchange', 'transport_data_exchange',
+              'transport_control_admit', 'transport_data_admit')
+LEGACY_COUNTERS = ('engine_file_read_bytes', 'engine_file_write_requested_bytes',
+            'engine_file_write_completed_bytes', 'engine_persist_groups',
+            'engine_persist_entries', 'engine_persist_entry_bytes', 'sql_stage_input_bytes',
+            'sql_prepared_proposal_bytes', 'sql_prepared_ltx_bytes',
+            'sql_query_input_bytes', 'sql_query_output_bytes', 'object_get_body_bytes',
+            'object_put_requested_bytes', 'object_put_confirmed_bytes', 'transport_control_read_bytes',
+            'transport_control_write_bytes', 'transport_data_read_bytes', 'transport_data_write_bytes',
+            'transport_query_read_bytes', 'transport_query_write_bytes')
+ARCHIVE_OPERATIONS = LEGACY_OPERATIONS + ('archive_admission_check', 'archive_admission_wait',
+                                   'archive_publication_batch', 'snapshot_encode')
+ARCHIVE_COUNTERS = LEGACY_COUNTERS + ('archive_admission_granted', 'archive_admission_observation_refused',
+    'archive_admission_retained_bytes_refused', 'archive_admission_retained_entries_refused',
+    'archive_admission_reserved_bytes_deferred', 'archive_admission_reserved_entries_deferred',
+    'archive_publication_cut_succeeded', 'archive_publication_cut_failed',
+    'archive_coverage_advanced', 'archive_coverage_index_advance', 'archive_coverage_image_pending',
+    'archive_coverage_rejected', 'archive_coverage_unchanged', 'archive_coverage_missing_cell')
 BOUNDS = (50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000,
           100000, 250000, 1000000, 5000000, 30000000, 60000000, 120000000, 300000000, 900000000, 1800000000, 3600000000, None)
+LEGACY_BOUNDS = BOUNDS[:15] + (None,)
+SCHEMAS = ((LEGACY_OPERATIONS, LEGACY_COUNTERS, LEGACY_BOUNDS),
+           (ARCHIVE_OPERATIONS, ARCHIVE_COUNTERS, LEGACY_BOUNDS),
+           (ARCHIVE_OPERATIONS + ('engine_purge',), ARCHIVE_COUNTERS, LEGACY_BOUNDS),
+           (OPERATIONS, COUNTERS, BOUNDS))
 FIELDS = ('started', 'succeeded', 'failed', 'abandoned', 'timing_unavailable', 'count', 'sum_us')
 
 
@@ -116,15 +145,15 @@ def decimal(value):
     return result
 
 
-def histogram(operation):
+def histogram(operation, bounds):
     require(operation['count'] == operation['succeeded'] + operation['failed'] + operation['abandoned'],
             'outcome/histogram mismatch')
     require(operation['timing_unavailable'] == 0, 'unavailable operation timing')
     previous, minimum, maximum = 0, 0, 0
-    for index, (bound, count) in enumerate(zip(BOUNDS, operation['buckets'])):
+    for index, (bound, count) in enumerate(zip(bounds, operation['buckets'])):
         require(count >= previous, 'nonmonotone histogram')
         population = count - previous
-        minimum += population * (0 if index == 0 else BOUNDS[index-1] + 1)
+        minimum += population * (0 if index == 0 else bounds[index-1] + 1)
         if bound is None:
             if population:
                 maximum = None
@@ -142,31 +171,36 @@ def snapshot(raw):
     require(raw['available'] is True and raw['saturated'] is False, 'unavailable performance sample')
     require(isinstance(raw['source'], str) and re.fullmatch('[0-9a-f]{32}', raw['source']), 'invalid performance source')
     counters, operations = {}, {}
-    require(isinstance(raw['counters'], list) and len(raw['counters']) == len(COUNTERS), 'counter vocabulary differs')
+    require(isinstance(raw['counters'], list) and isinstance(raw['operations'], list), 'invalid performance inventory')
+    candidates = [(ops, counts, bounds) for ops, counts, bounds in SCHEMAS
+                  if len(ops) == len(raw['operations']) and len(counts) == len(raw['counters'])]
+    require(len(candidates) == 1, 'performance vocabulary differs')
+    expected_operations, expected_counters, bounds = candidates[0]
+    require(isinstance(raw['counters'], list) and len(raw['counters']) == len(expected_counters), 'counter vocabulary differs')
     for counter in raw['counters']:
         require(set(counter) == {'name', 'value'}, 'invalid counter fields')
         name = counter['name']
-        require(name in COUNTERS and name not in counters, 'counter vocabulary differs')
+        require(name in expected_counters and name not in counters, 'counter vocabulary differs')
         counters[name] = decimal(counter['value'])
-    require(isinstance(raw['operations'], list) and len(raw['operations']) == len(OPERATIONS), 'operation vocabulary differs')
+    require(isinstance(raw['operations'], list) and len(raw['operations']) == len(expected_operations), 'operation vocabulary differs')
     for operation in raw['operations']:
         require(set(operation) == {'name', 'buckets', *FIELDS}, 'invalid operation fields')
         name = operation['name']
-        require(name in OPERATIONS and name not in operations, 'operation vocabulary differs')
+        require(name in expected_operations and name not in operations, 'operation vocabulary differs')
         parsed = {field: decimal(operation[field]) for field in FIELDS}
         buckets = operation['buckets']
-        require(isinstance(buckets, list) and len(buckets) == len(BOUNDS), 'histogram bounds differ')
+        require(isinstance(buckets, list) and len(buckets) == len(bounds), 'histogram bounds differ')
         parsed['buckets'] = []
-        for bucket, expected in zip(buckets, BOUNDS):
+        for bucket, expected in zip(buckets, bounds):
             require(set(bucket) == {'upper_us', 'count'}, 'invalid bucket fields')
             bound = None if bucket['upper_us'] is None else decimal(bucket['upper_us'])
             require(bound == expected, 'histogram bounds differ')
             parsed['buckets'].append(decimal(bucket['count']))
-        histogram(parsed)
+        histogram(parsed, bounds)
         require(parsed['started'] >= parsed['count'], 'completions exceed starts')
         operations[name] = parsed
     return {'source': raw['source'], 'sampled_at_us': decimal(raw['sampled_at_us']),
-            'counters': counters, 'operations': operations}
+            'bounds': bounds, 'counters': counters, 'operations': operations}
 
 
 def delta(before_raw, after_raw):
@@ -176,19 +210,23 @@ def delta(before_raw, after_raw):
     def difference(left, right):
         require(right >= left, 'performance counter reset')
         return right - left
-    counters = {name: difference(before['counters'][name], after['counters'][name]) for name in COUNTERS}
+    require(before['counters'].keys() == after['counters'].keys()
+            and before['operations'].keys() == after['operations'].keys()
+            and before['bounds'] == after['bounds'], 'performance vocabulary changed within run')
+    bounds = before['bounds']
+    counters = {name: difference(before['counters'][name], after['counters'][name]) for name in before['counters']}
     operations = {}
-    for name in OPERATIONS:
+    for name in before['operations']:
         left, right = before['operations'][name], after['operations'][name]
         operation = {field: difference(left[field], right[field]) for field in FIELDS}
         operation['buckets'] = [difference(a, b) for a, b in zip(left['buckets'], right['buckets'])]
-        histogram(operation)
+        histogram(operation, bounds)
         operation['inflight_before'] = left['started'] - left['count']
         operation['inflight_after'] = right['started'] - right['count']
         operation['quantile_upper_us'] = {}
         for label, numerator, denominator in [('p50', 1, 2), ('p95', 95, 100), ('p99', 99, 100), ('p99_9', 999, 1000)]:
             rank = (operation['count'] * numerator + denominator - 1) // denominator
-            bound = next((bound for bound, count in zip(BOUNDS, operation['buckets']) if count >= rank), None) if rank else None
+            bound = next((bound for bound, count in zip(bounds, operation['buckets']) if count >= rank), None) if rank else None
             operation['quantile_upper_us'][label] = bound
         operations[name] = operation
     return {'source': before['source'], 'owner_sample_interval_us': after['sampled_at_us'] - before['sampled_at_us'],

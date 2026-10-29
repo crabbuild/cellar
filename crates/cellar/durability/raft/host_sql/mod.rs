@@ -21,7 +21,7 @@ use super::snapshot::{
 use super::transport::snapshots::{ReceivedSnapshot, SourceReservation};
 use crate::application::consensus::client::{AttemptControl, Work};
 use crate::application::consensus::{OperationContract, RaftClass};
-use cellar_logic::consensus::{CommandFailure, CommandIdentity, GroupScope};
+use cellar_logic::consensus::{CommandFailure, CommandIdentity, GroupScope, LogIndex};
 use cellar_ltx::generation::{GenerationLimits, GenerationStore, ImageId, ReadServices};
 use cellar_ltx::LtxHost;
 use futures_util::future::BoxFuture;
@@ -70,6 +70,10 @@ impl ImageView {
 }
 
 pub(crate) enum Action {
+    SealDisasterSeed {
+        received: Box<super::snapshot::DisasterSeed>,
+        storage: CellStorage,
+    },
     SealArchiveSeed {
         received: Box<super::transport::seeds::ReceivedArchiveSeed>,
         storage: CellStorage,
@@ -123,6 +127,9 @@ pub(crate) enum Action {
     CaptureCheckpoint {
         limits: SnapshotLimits,
         reservation: SourceReservation,
+        /// An archive-triggered capture must not advance beyond its confirmed
+        /// local cut if apply progresses while the SQL request is queued.
+        archived: Option<LogIndex>,
     },
     CaptureSnapshot {
         snapshot: Box<::raft::prelude::Snapshot>,
@@ -625,6 +632,31 @@ impl Pool {
         query_pins: &Arc<Budget>,
         accounting: &cellar_ltx::generation::GenerationAccounting,
     ) -> Result<Value, ExecutionError> {
+        if let Action::SealDisasterSeed { received, storage } = action {
+            if cells.contains_key(scope)
+                || cells.len() >= max
+                || received.scope() != scope
+                || storage.rooted.is_some()
+            {
+                return Err(ExecutionError::Invalid("disaster seed owner"));
+            }
+            let images = GenerationStore::open_with_scratch(
+                storage.directory.join("images"),
+                storage.host.filesystem(),
+                storage.images,
+                Some(accounting),
+                storage.snapshot_scratch,
+            )
+            .map_err(super::execution::storage)?;
+            images.retain_only(&[]).map_err(super::execution::storage)?;
+            images
+                .reclaim(storage.images.max_generations)
+                .map_err(super::execution::storage)?;
+            let seed = received
+                .finish(&images, storage.services)
+                .map_err(super::execution::storage)?;
+            return Ok(Value::Seeded(Box::new(seed)));
+        }
         if let Action::SealArchiveSeed { received, storage } = action {
             if cells.contains_key(scope) || cells.len() >= max || received.scope() != scope {
                 return Err(ExecutionError::Invalid("seed cell owner"));
@@ -806,7 +838,8 @@ impl Cell {
 
     fn run(&mut self, action: Action, query_pins: &Arc<Budget>) -> Result<Value, ExecutionError> {
         match action {
-            Action::SealArchiveSeed { .. }
+            Action::SealDisasterSeed { .. }
+            | Action::SealArchiveSeed { .. }
             | Action::SealSeed { .. }
             | Action::Initialize { .. } => Err(ExecutionError::Invalid("duplicate initialization")),
             Action::Stage {
@@ -965,16 +998,30 @@ impl Cell {
             Action::CaptureSeed {
                 limits,
                 reservation,
-            }
-            | Action::CaptureCheckpoint {
-                limits,
-                reservation,
             } => {
                 let capture = self.images.capture_snapshot(
                     &self.group,
                     self.class.schema_digest(),
                     limits,
                 )?;
+                Ok(Value::SnapshotCapture {
+                    capture: Box::new(capture),
+                    reservation,
+                })
+            }
+            Action::CaptureCheckpoint {
+                limits,
+                reservation,
+                archived,
+            } => {
+                let capture = self.images.capture_snapshot(
+                    &self.group,
+                    self.class.schema_digest(),
+                    limits,
+                )?;
+                if archived.is_some_and(|index| capture.position() > index) {
+                    return Err(ExecutionError::Refused(CommandFailure::Overloaded));
+                }
                 Ok(Value::SnapshotCapture {
                     capture: Box::new(capture),
                     reservation,

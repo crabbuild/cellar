@@ -1215,6 +1215,56 @@ class ContainerBindings:
         return tuple(ContainerBindingCapabilities(value["name"], _container_capabilities(value["capabilities"])) for value in values)
 
 
+class Sandboxes:
+    """Durable named children owned by the current root cell.
+
+    Keep full checkpoints for inspect/execute/destroy. Decimal-string revisions
+    preserve identity across every language; a stale checkpoint is refused.
+    """
+
+    def __init__(self, context: "Context") -> None:
+        self._context = context
+
+    async def start(
+        self, name: str, binding: str, parameters: Any = None,
+    ) -> dict[str, Any]:
+        if parameters is None:
+            parameters = {"options": {}}
+        return await self._context._call(
+            "sandbox.start", name=name, binding=binding, parameters=parameters,
+        )
+
+    async def get(self, name: str) -> dict[str, Any] | None:
+        return await self._context._call("sandbox.get", name=name)
+
+    async def list(self, *, after: str | None = None, limit: int = 100) -> dict[str, Any]:
+        return await self._context._call("sandbox.list", after=after, limit=limit)
+
+    async def inspect(self, allocation: dict[str, Any]) -> Any:
+        return await self._context._call("sandbox.inspect", allocation=allocation)
+
+    async def execute(
+        self, allocation: dict[str, Any], operation: str, input: Any = None,
+    ) -> Any:
+        return await self._context._call(
+            "sandbox.execute", allocation=allocation, command=operation,
+            input={} if input is None else input,
+        )
+
+    async def destroy(self, allocation: dict[str, Any]) -> dict[str, Any]:
+        return await self._context._call("sandbox.destroy", allocation=allocation)
+
+    async def parent(self) -> dict[str, Any] | None:
+        return await self._context._call("sandbox.parent")
+
+    async def retire(self) -> dict[str, Any]:
+        return await self._context._call("sandbox.retire")
+
+    async def request_erasure(self) -> None:
+        """Irreversibly erase this parent's data after all cleanup has finished."""
+        await self._context._call("sandbox.erase")
+
+
 class Context:
     def __init__(self, bridge: Any, identity: dict[str, Any] | None, initial_storage=None) -> None:
         self._bridge = bridge
@@ -1241,6 +1291,10 @@ class Context:
     @property
     def container(self) -> Container:
         return Container(self)
+
+    @property
+    def sandboxes(self) -> Sandboxes:
+        return Sandboxes(self)
 
     @property
     def containers(self) -> ContainerBindings:

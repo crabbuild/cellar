@@ -103,6 +103,10 @@ pub struct RaftHostOptions {
     /// Applied entries between automatic checkpoints. Shared log-cache pressure
     /// can trigger an earlier checkpoint; zero disables automatic compaction.
     pub checkpoint_entries: u64,
+    /// Coalesce checkpoints of fully archived applied cuts, even below the
+    /// entry threshold. Zero disables this trigger; `checkpoint_entries = 0`
+    /// still disables all automatic checkpoints. Defaults to one second.
+    pub archive_checkpoint_ms: u64,
     pub archive: RaftArchiveOptions,
     pub max_groups: usize,
     pub blocking_workers: usize,
@@ -139,6 +143,7 @@ impl Default for RaftHostOptions {
             node_profile: None,
             enable_snapshots: true,
             checkpoint_entries: 256,
+            archive_checkpoint_ms: 1000,
             archive: RaftArchiveOptions::default(),
             max_groups: 128,
             blocking_workers: 2,
@@ -180,6 +185,10 @@ impl RaftHostOptions {
             alarms.validate(self)?;
         }
         self.archive.validate()?;
+        anyhow::ensure!(
+            self.archive_checkpoint_ms <= 60_000,
+            "invalid archive checkpoint interval"
+        );
         self.execution.validate()?;
         if let Some(extents) = &self.extents {
             extents.validate(self.execution)?;
@@ -649,6 +658,49 @@ async fn initialize(
             );
             let permit = match placement {
                 RaftCellPlacement::Replica => {
+                    if let Some(permit) =
+                        namespace.disaster_seed_permit(&birth, &service.log).await?
+                    {
+                        anyhow::ensure!(
+                            options.enable_snapshots,
+                            "disaster recovery requires snapshots"
+                        );
+                        let (source, reference) = birth
+                            .disaster_source()
+                            .ok_or_else(|| anyhow::anyhow!("missing disaster source"))?;
+                        let archive = namespace
+                            .cell_archive(source, storage.host.clone(), options.archive.limits)?
+                            .with_scratch_directory(service.log.limits().directory.clone())
+                            .with_snapshot_scratch(service.log.snapshot_scratch());
+                        let bytes = archive.read_memory_bound();
+                        let reservation = service.transport.reserve_disaster_seed(bytes)?;
+                        let set = archive
+                            .with_read_retention(reservation.clone())
+                            .recovery_set_at(reference)
+                            .await?;
+                        let output = pool
+                            .call(
+                                worker,
+                                scope.clone(),
+                                Action::SealDisasterSeed {
+                                    received: Box::new(super::snapshot::DisasterSeed {
+                                        permit,
+                                        set,
+                                        schema: class.schema_digest(),
+                                        limits: snapshot_limits,
+                                        reservation,
+                                    }),
+                                    storage: storage.clone(),
+                                },
+                                None,
+                                None,
+                            )
+                            .await?;
+                        let Value::Seeded(seed) = output.value else {
+                            anyhow::bail!("disaster SQL seed response")
+                        };
+                        service.log.create_seeded(*seed).await?;
+                    }
                     namespace.bootstrap_member(&birth, &service.log).await?
                 }
                 RaftCellPlacement::Joining {
@@ -989,6 +1041,7 @@ async fn initialize(
             local,
             snapshot_limits,
             snapshot_source: None,
+            checkpoint_cursor: None,
             maintenance_at: 0,
             admission_at: 0,
             admission_waiters: VecDeque::new(),
@@ -1135,6 +1188,7 @@ struct Cell {
     apply_inflight: bool,
     checkpoint_busy: bool,
     checkpoint_retry_at: u64,
+    archive_checkpoint_at: u64,
 }
 
 enum StatusPurpose {
@@ -1269,6 +1323,7 @@ struct Driver {
     label: String,
     snapshot_limits: super::snapshot::SnapshotLimits,
     snapshot_source: Option<super::transport::snapshots::SnapshotSource>,
+    checkpoint_cursor: Option<GroupScope>,
     archive_owner: Option<super::host_archive::Owner>,
     extents: Option<extents::Owner>,
     local: Arc<client::Handle>,
@@ -2889,6 +2944,8 @@ impl Driver {
             RuntimeEventKind::Checkpointed { ticket } => {
                 if let Some(cell) = self.cells.get_mut(&ticket.replica().scope) {
                     cell.checkpoint_busy = false;
+                    cell.archive_checkpoint_at = crate::asyncrt::mono_ms()
+                        .saturating_add(self.options.archive_checkpoint_ms);
                 }
             }
             RuntimeEventKind::ReadIndex {

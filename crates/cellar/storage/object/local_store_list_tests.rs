@@ -3,6 +3,30 @@
 use super::*;
 use anyhow::Result;
 
+#[tokio::test]
+async fn listing_decodes_only_the_requested_page_before_later_corruption() -> Result<()> {
+    let domain = crate::sdk::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain.run(async {
+        let directory = tempfile::tempdir()?;
+        let store = LocalStore::open(directory.path().join("objects.sqlite"))?;
+        for index in 0..512 {
+            store.put_sync(format!("queue/{index:04}"), Bytes::new(), PutOptions::default())?;
+        }
+        store.connect()?.execute(
+            "INSERT INTO __sys_local_objects VALUES ('queue/9999', 'invalid-etag', 0, '[]', X'')", [],
+        )?;
+        let mut listed = store.list(Some(&Path::from("queue")));
+        for index in 0..128 {
+            let object = listed.try_next().await?.expect("missing page entry");
+            assert_eq!(object.location.as_ref(), format!("queue/{index:04}"));
+        }
+        assert!(listed.try_collect::<Vec<_>>().await.is_err());
+        Ok(())
+    }).await;
+    domain.shutdown().await;
+    result?
+}
+
 #[test]
 fn prefix_ranges_cover_unicode_boundaries_without_wildcards() -> Result<()> {
     let directory = tempfile::tempdir()?;

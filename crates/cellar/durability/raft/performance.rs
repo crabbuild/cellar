@@ -80,9 +80,10 @@ pub(crate) enum Operation {
     SnapshotTransferEncode,
     ArchivePhysicalAdmission,
     ArchivePhysicalQueue,
+    EnginePurge,
 }
 
-const OPERATIONS: [Operation; 43] = [
+const OPERATIONS: [Operation; 44] = [
     Operation::EngineQueue,
     Operation::EngineFileSync,
     Operation::EngineDirectorySync,
@@ -126,6 +127,7 @@ const OPERATIONS: [Operation; 43] = [
     Operation::SnapshotTransferEncode,
     Operation::ArchivePhysicalAdmission,
     Operation::ArchivePhysicalQueue,
+    Operation::EnginePurge,
 ];
 
 impl Operation {
@@ -174,6 +176,7 @@ impl Operation {
             Self::SnapshotTransferEncode => "snapshot_transfer_encode",
             Self::ArchivePhysicalAdmission => "archive_physical_admission",
             Self::ArchivePhysicalQueue => "archive_physical_queue",
+            Self::EnginePurge => "engine_purge",
         }
     }
 }

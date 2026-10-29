@@ -22,6 +22,25 @@ pub(crate) fn publish(context: &Context) -> Result<()> {
 
 pub(crate) fn recover(context: &Context) -> Result<()> {
     if let Some(identity) = context.identity().filter(|_| context.facet().is_none()) {
+        if crate::storage::sandbox_erasure::load(&identity.scope)?.is_some() {
+            if crate::storage::work::installation(&identity.scope, Reason::SandboxCleanup)?
+                .is_none()
+            {
+                crate::storage::work::set(&identity.scope, Reason::SandboxCleanup, 0)?;
+            }
+            return publish(context);
+        }
+        if context.worker_config.source_recovery {
+            if let Some(parent) = crate::storage::sandbox_catalog::parent(&identity.scope)? {
+                if parent.state == super::SandboxParentState::Active {
+                    crate::storage::sandbox_catalog::retire(
+                        &identity.scope,
+                        &parent.incarnation,
+                        false,
+                    )?;
+                }
+            }
+        }
         sandbox_work::refresh(&identity.scope)?;
         publish(context)?;
     }
@@ -38,6 +57,33 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
         .ok_or_else(|| anyhow::anyhow!("sandbox cleanup has no parent"))?
         .scope
         .clone();
+    if let Some(record) = crate::storage::sandbox_erasure::load(&scope)? {
+        let resources = &storage.0.resources;
+        storage.0.source_admission(
+            resources
+                .source_generation
+                .load(std::sync::atomic::Ordering::Acquire),
+            true,
+        );
+        storage.sync().await?;
+        let (reply, receive) = tokio::sync::oneshot::channel();
+        crate::host_channels::FACET_TX
+            .get()
+            .ok_or_else(|| anyhow::anyhow!("erasure requires a node host"))?
+            .send(crate::host_channels::FacetReq::Erase {
+                request: crate::host_channels::CellErasureRequest {
+                    record,
+                    epoch: storage.0.epoch,
+                },
+                reply,
+            })
+            .map_err(|_| anyhow::anyhow!("erasure host channel closed"))?;
+        receive.await??;
+        storage.delete_alarm()?;
+        storage.clear_work(installation)?;
+        storage.sync().await?;
+        return Ok(Output::Done);
+    }
     let next = sandbox_work::claim(&scope, crate::asyncrt::wall_ms().max(0))?;
     publish(&context)?;
     storage.sync().await?;

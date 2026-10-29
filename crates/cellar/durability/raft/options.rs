@@ -27,6 +27,10 @@ pub struct ReplicaLogOptions {
     pub max_entries_per_group: usize,
     pub target_file_bytes: u64,
     pub purge_threshold_bytes: u64,
+    /// Minimum interval between dirty-engine purge passes on the storage worker.
+    /// `None` leaves physical file reclamation to explicit `ReplicaLog::purge`.
+    /// Purging never advances a group's durable checkpoint.
+    pub purge_interval_ms: Option<u64>,
     /// Shared anonymous snapshot source/index/receive disk and file admission.
     /// Immutable images, private SQLite/WAL and retained logs are separate.
     pub snapshot_scratch: cellar_ltx::stream_snapshot::ScratchLimits,
@@ -54,6 +58,7 @@ impl ReplicaLogOptions {
             max_entries_per_group: 16_384,
             target_file_bytes: 16 * 1024 * 1024,
             purge_threshold_bytes: 64 * 1024 * 1024,
+            purge_interval_ms: Some(1000),
             snapshot_scratch: Default::default(),
         }
     }
@@ -79,6 +84,9 @@ impl ReplicaLogOptions {
             || self.target_file_bytes < 4096
             || self.target_file_bytes > 128 * 1024 * 1024
             || self.purge_threshold_bytes < self.target_file_bytes
+            || self
+                .purge_interval_ms
+                .is_some_and(|ms| !(1..=60_000).contains(&ms))
         {
             return Err(LogError::Invalid("invalid Raft log options".into()));
         }

@@ -5,6 +5,11 @@
 Status: MR-01 through MR-12 are complete at their recorded native boundaries.
 MR-13 through MR-17 remain open. The complete delivery goal is not achieved.
 
+The [zero-quorum disaster protocol](disaster-recovery.md) documents the S3 operator
+API, required infrastructure fencing authority and destructive RustFS fixture.
+Its final 24-group drill recovered after all three voter disks were deleted;
+production fencing adapters, extent seeding and outbox reconciliation remain open.
+
 The [10 GB recovery-time strategy](010-large-cell-recovery-time.md) defines
 RT-01 through RT-06: stage measurements, bounded bulk transfer, archive freshness,
 public extent recovery, verified demand loading and fault/performance qualification.
@@ -14,6 +19,11 @@ target is qualified.
 The [TiKV performance comparison](tikv-performance.md) records the current
 batching and storage investigation, its regression evidence and remaining
 end-to-end qualification.
+
+The [archived-log reclamation experiment](log-reclamation-benchmark.md) records
+thirteen real RustFS runs across 24 three-voter groups, physical log-file
+reclamation, retained-disk restarts and a bounded backend outage. Correctness
+checks passed; overlapping host compilations leave its timing results contended.
 
 Leaders execute private commands; serving replicas apply committed SQLite/LTX
 history and expose explicit follower queries. S3 stores verified committed images,

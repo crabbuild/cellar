@@ -21,6 +21,17 @@ fn read(connection: &Connection) -> anyhow::Result<Option<Record>> {
     let encoded = encoded.ok_or_else(|| anyhow::anyhow!("invalid sandbox child record"))?;
     let record: Record = serde_json::from_str(&encoded)?;
     record.identity.validate()?;
+    if let Some(spec) = &record.container_spec {
+        anyhow::ensure!(
+            record
+                .identity
+                .execution_scope
+                .split_once(':')
+                .is_some_and(|(class, _)| class == spec.class_name),
+            "sandbox cleanup specification belongs to another class"
+        );
+        crate::container::validate_exposed_ports(&spec.exposed_ports)?;
+    }
     Ok(Some(record))
 }
 
@@ -56,19 +67,20 @@ pub(crate) fn save(scope: &str, record: &Record) -> anyhow::Result<()> {
 fn save_in(connection: &Connection, record: &Record, encoded: &str) -> anyhow::Result<()> {
     if let Some(prior) = read(connection)? {
         anyhow::ensure!(
-            prior.identity == record.identity,
+            prior.identity == record.identity && prior.container_spec == record.container_spec,
             "sandbox child identity changed"
         );
         use crate::runtime::sandbox_execution::Phase;
         let allowed = prior.phase == record.phase
             || matches!(
                 (prior.phase, record.phase),
-                (Phase::Unstarted, Phase::Starting | Phase::Deleting)
-                    | (
-                        Phase::Starting,
-                        Phase::Unstarted | Phase::Ready | Phase::Deleting
-                    )
-                    | (Phase::Ready, Phase::Deleting)
+                (
+                    Phase::Unstarted,
+                    Phase::Starting | Phase::Deleting | Phase::Deleted
+                ) | (
+                    Phase::Starting,
+                    Phase::Unstarted | Phase::Ready | Phase::Deleting
+                ) | (Phase::Ready, Phase::Deleting)
                     | (Phase::Deleting, Phase::Deleted)
             );
         anyhow::ensure!(

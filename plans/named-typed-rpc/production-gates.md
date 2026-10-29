@@ -34,6 +34,34 @@ Earlier hosted lease failures and V8/Node timing failures remain unexplained.
 The latest CI success does not establish their causes. Subsequent changes and
 integration with newer `main` need their own checks.
 
+The `2e68fac2` follow-up reproduces and fixes a separate synchronous-turn
+starvation mechanism: a real SQLite busy wait blocks the only async worker and
+prevents an independent timer from releasing the writer. Domain-owned turns
+now hand that worker back while preserving ownership and joined completion.
+A shared-executor fleet test observes lease progress across two unchanged
+one-second lifetimes during a blocked application turn. The preserved Python
+contract passes 400 pre-fix replays, including concurrent runs; its original
+first-write failure remains unexplained. Implementation `a7b3534c` passes both
+full local Python SDK modes, V8/Node streaming and compatibility, JavaScript
+typed RPC, 20 focused native checks, affected Clippy and repository guards.
+Final serial validation records 3,999 unchanged tracked files. Subsequent
+`17ecfb42` hosted GIL RPC CI passes the profile but fails lifecycle after a
+worker-owner lease expires. A focused free-threaded probe also reproduces the
+first-write 500 on its 222nd fresh fleet with logging disabled. A separate
+controlled test identifies synchronous diagnostic-output backpressure; the
+qualifier now queues output and refuses incomplete diagnostic evidence. This
+does not yet establish the cause of the first-write or hosted lease failure.
+The follow-up passes 46 qualifier unit tests and both local 96-case lifecycle
+matrices with mode audits, joined runtimes and zero bridge reservations. Its
+free-threaded Python contract fails cross-domain context isolation with HTTP
+500 before reaching the fleet-write stage; a direct timing-enabled replay passes.
+Both failed observations remain release blockers. The GIL contract and the
+focused first-write probes pass; their success does not close those causes.
+See the
+[current investigation](implementation-status.md#diagnostic-backpressure-and-first-write-reproduction-2026-10-28-release-open)
+and the
+[latest implementation evidence](implementation-status.md#synchronous-turn-timer-starvation-2026-10-28-release-open).
+
 ## Remaining work, in delivery order
 
 | Gate | What is delivered | Required closure evidence |
@@ -67,7 +95,7 @@ does not mean every combination in the release contract has been qualified.
 | T14–T15 | Deadline/cancellation, self calls and cyclic dependencies | Saturation and cleanup composition under retained resource pressure |
 | T16–T17 | Peer framing/loss, Node/V8 lifecycle and Python supervision/cancellation | Wider flood/partial-disconnect combinations and resource accounting |
 | T18 | Dynamic codec identity and offline descriptor/catalog checks | Frozen static binding/package identity and clean-machine qualification |
-| T19 | Hosted JavaScript/Node regressions and Python examples | Broader SDK inventory failure and preserved timing regressions; final regression gates |
+| T19 | Hosted JavaScript/Node regressions and Python examples; follow-up local SDK passes in both Python modes | Preserved timing failures and final hosted SDK/HTTP/WebSocket/lifecycle gates |
 
 No gate permits automatic replay of an uncertain submission, a false rollback
 claim, acknowledgement before durability proof, or admission by a stale owner.

@@ -219,6 +219,7 @@ impl Cell {
             apply_inflight: false,
             checkpoint_busy: false,
             checkpoint_retry_at: 0,
+            archive_checkpoint_at: 0,
         })
     }
 }

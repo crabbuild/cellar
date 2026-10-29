@@ -183,6 +183,7 @@ pub(crate) enum Phase {
 pub(crate) struct Record {
     pub identity: Identity,
     pub phase: Phase,
+    pub container_spec: Option<crate::container::ContainerSpec>,
 }
 
 async fn save(context: &Context, record: &Record) -> Result<()> {
@@ -199,6 +200,11 @@ async fn save(context: &Context, record: &Record) -> Result<()> {
 }
 
 async fn run(context: &Context, authority: Authority, input: Value) -> Result<Value> {
+    ensure!(
+        !context.worker_config.source_recovery
+            || matches!(authority.action, Action::Destroy | Action::Inspect),
+        "removed sandbox classes only admit cleanup and inspection"
+    );
     let scope = &context
         .identity()
         .context("sandbox child has no identity")?
@@ -225,6 +231,12 @@ async fn run(context: &Context, authority: Authority, input: Value) -> Result<Va
     }
     let attach = prior.is_none();
     let mut record = prior.unwrap_or(Record {
+        container_spec: context
+            .worker_config
+            .containers
+            .iter()
+            .find(|spec| scope.starts_with(&format!("{}:", spec.class_name)))
+            .cloned(),
         identity: authority.identity,
         phase: Phase::Unstarted,
     });
@@ -233,8 +245,27 @@ async fn run(context: &Context, authority: Authority, input: Value) -> Result<Va
     if attach {
         save(context, &record).await?;
     }
+    if context.worker_config.source_recovery
+        && executor.requires_native_capacity()
+        && !matches!(record.phase, Phase::Unstarted | Phase::Deleted)
+    {
+        let spec = record
+            .container_spec
+            .clone()
+            .context("native cleanup specification missing")?;
+        crate::container::engine()
+            .await?
+            .attach_retained(scope, std::sync::Arc::new(spec))
+            .await?;
+    }
     match authority.action {
         Action::Start => {
+            ensure!(
+                !executor.requires_native_capacity() || record.container_spec.is_some(),
+                SandboxFailure {
+                    kind: SandboxFailureKind::Refused
+                }
+            );
             ensure!(
                 crate::application::sandbox_catalog::execution::digest(&input)?
                     == record.identity.parameters_digest,
@@ -301,6 +332,13 @@ async fn run(context: &Context, authority: Authority, input: Value) -> Result<Va
             if record.phase == Phase::Deleted {
                 return Ok(json!({"state":"deleted"}));
             }
+            if record.phase == Phase::Unstarted {
+                // This terminal write also preserves the proof that provider
+                // creation never entered; a crash cannot lose that distinction.
+                record.phase = Phase::Deleted;
+                save(context, &record).await?;
+                return Ok(json!({"state":"deleted"}));
+            }
             record.phase = Phase::Deleting;
             save(context, &record).await?;
             executor
@@ -342,8 +380,16 @@ pub(crate) async fn invoke(
     );
     let input = crate::application::decode_rpc(&args)?.to_json()?;
     crate::application::sandbox_catalog::execution::digest(&input)?;
+    let destroy = matches!(authority.action, Action::Destroy);
     let reply = match run(&context, authority, input).await {
-        Ok(value) => Reply::Success(value),
+        Ok(value) => {
+            if destroy {
+                crate::storage::sandbox_erasure::prepare(&context.identity().unwrap().scope)?;
+                crate::application::sandbox_catalog::maintenance::publish(&context)?;
+                context.storage()?.sync().await?;
+            }
+            Reply::Success(value)
+        }
         Err(error) => Reply::Failure(error.downcast_ref::<SandboxFailure>().cloned().unwrap_or(
             SandboxFailure {
                 kind: SandboxFailureKind::Unknown,
@@ -355,6 +401,31 @@ pub(crate) async fn invoke(
     Ok(Output::Rpc(crate::application::encode_rpc(
         &cellar_native::clone::StructuredValue::from_json(value)?,
     )?))
+}
+
+/// Exact authenticated destroy retries survive removal of the child's SQLite.
+/// No other operation or generation can use the permanent receipt.
+pub(crate) async fn retired_reply(
+    runtime: Option<&crate::runtime::RuntimeManager>,
+    authority: Option<&crate::runtime::RpcAuthority>,
+) -> Result<Option<crate::engine_api::RpcData>> {
+    let (Some(runtime), Some(crate::runtime::RpcAuthority::Sandbox(authority))) =
+        (runtime, authority)
+    else {
+        return Ok(None);
+    };
+    let Some(record) = runtime.retirements.get(authority.scope()).await? else {
+        return Ok(None);
+    };
+    ensure!(
+        matches!(authority.action, Action::Destroy)
+            && record.evidence
+                == crate::cell_runtime::retirement::Evidence::child(&authority.identity)?,
+        "sandbox has been permanently retired"
+    );
+    Ok(Some(crate::engine_api::RpcData::Json(
+        serde_json::to_string(&Reply::Success(json!({"state":"deleted"})))?,
+    )))
 }
 
 #[cfg(test)]

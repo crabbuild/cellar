@@ -19,6 +19,10 @@ pub(crate) struct SnapshotCapture {
 }
 
 impl SnapshotCapture {
+    pub(crate) fn position(&self) -> LogIndex {
+        LogIndex::new(self.descriptor.index)
+    }
+
     pub(crate) fn retained(
         group: &GroupLog,
         images: &GenerationStore,
