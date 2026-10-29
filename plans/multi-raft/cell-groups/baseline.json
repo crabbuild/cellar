@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "source_revision": "ec9d277e50416f786fe3c1cd851b4147f9cd4b43",
+  "source_revision": "a0c11969763edbe86ee08fc7d1650129058c8ee0",
   "runtime_revision": "1be27d234d4674d4d014785c60cecbfe394bdab9",
-  "review_note": "2026-10-29: reviewed and qualified CG-02 at ec9d277e50416f786fe3c1cd851b4147f9cd4b43. All five required cases and complete command gate pass. Both physical image modes recover complete selected roots through 30 process-kill cuts; missing/corrupt image, extent and manifest dependencies refuse. Reclamation retains selected and uncertain closures. Existing anchored source hashes/excerpts are unchanged. Production shared-host authoritative inventory, quorum, snapshots/archive, topology, hibernation and real RustFS recovery remain CG-03 through CG-16 work.",
+  "review_note": "2026-10-29: reviewed CG-03 range-directory checkpoint at a0c11969763edbe86ee08fc7d1650129058c8ee0. The catalog.rs diff adds only the six-line range-directory module/export block; namespace and birth excerpts are unchanged and move to lines 110 and 179. Existing birth selection, bootstrap claims and managed admission are unchanged. New directory code verifies bounded immutable AVL ranges, one conditional head with journal/index bindings, historical retry reconciliation and permanent genesis pinning. Eight cell-group catalog cases and thirteen existing fleet catalog cases pass, including 80 split/merge metadata transitions. This is a partial CG-03 checkpoint: no group birth/disk-claim integration, client redirect path, production shared host or live topology authority is qualified. Full hard-cutover implementation remains active.",
   "tikv_revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
   "anchors": {
     "identity": {
@@ -61,14 +61,14 @@
     },
     "catalog": {
       "path": "crates/cellar/durability/raft/catalog.rs",
-      "sha256": "65053cb9c70931f8234041d99e43ccd748c8f64b7479ed299888a57030850e1a",
-      "line": 104,
+      "sha256": "3250b6a2a4d611850dd59c51c3aa4dfaa173ec956bbe4e5d6014e5afbf03b842",
+      "line": 110,
       "excerpt": "pub struct NamespaceConfig {\n    pub cluster: ClusterId,\n    pub namespace: NamespaceId,\n    pub mode: NamespaceMode,\n    pub schema_digest: [u8; 32],\n    pub minimum_durability: Durability,\n    pub voters: VoterPolicy,\n    /// Immutable birth-admission owner. Managed namespaces refuse the ordinary\n    /// creation API; each birth needs an inventoried fleet reservation."
     },
     "birth": {
       "path": "crates/cellar/durability/raft/catalog.rs",
-      "sha256": "65053cb9c70931f8234041d99e43ccd748c8f64b7479ed299888a57030850e1a",
-      "line": 173,
+      "sha256": "3250b6a2a4d611850dd59c51c3aa4dfaa173ec956bbe4e5d6014e5afbf03b842",
+      "line": 179,
       "excerpt": "pub struct BirthProposal {\n    pub scope: GroupScope,\n    pub voters: Vec<InitialMember>,\n    pub learners: Vec<InitialMember>,\n}\n\n/// Constructed only after a canonical immutable record and its reservation have\n/// been read back from the selected namespace. Its placement never overrides\n/// committed Raft configuration once a member has initialized."
     },
     "version": {

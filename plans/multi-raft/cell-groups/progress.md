@@ -3,12 +3,14 @@
 # Cell-group implementation progress
 
 The delivered design and implementation plan covers CG-01 through CG-16 and a
-hard cutover. The user's clarified deliverable is the executable plan; the
-implementation checkpoints below describe existing work for a future executor.
-Intermediate contracts do not qualify a shared runtime. No production
-legacy/shared mode flag is being added.
+hard cutover. The active goal resumes end-to-end implementation after the plan
+handoff recorded below. Intermediate contracts do not qualify a shared runtime.
+No production legacy/shared mode flag is being added.
 
-## Plan handoff — 2026-10-29
+## Historical plan handoff — 2026-10-29
+
+This section records the state at `dcc52840`; the directory checkpoint below
+supersedes its working-diff and source-preflight limitations.
 
 The package validator passes: 16 tasks, 83 required cases, 14 invariants and nine
 profiles. Task briefs include source excerpts, file scope, dependencies, exact
@@ -76,9 +78,10 @@ CG-01 and CG-02 have passed their complete task gates. CG-03 is IN_PROGRESS;
 CG-04 through CG-16 remain TODO. The latest storage qualification is recorded below; the earlier sections
 retain the intermediate checkpoints and their limitations.
 
-The reviewed source baseline is `ec9d277e50416f786fe3c1cd851b4147f9cd4b43`.
-The original anchored source hashes and excerpts remain unchanged. A new executor
-must receive both ignored DONE-task evidence folders before validation.
+The reviewed source baseline is `a0c11969763edbe86ee08fc7d1650129058c8ee0`.
+The catalog anchor adds the directory module/export block; its unchanged namespace
+and birth excerpts move by six lines. Other source anchors remain unchanged. A new
+executor must receive both ignored DONE-task evidence folders before validation.
 
 No shared runtime, split/merge, hibernation latency, real RustFS recovery, measured
 density or final hard cutover is qualified. The release gate remains closed until
@@ -295,3 +298,36 @@ inputs, nine successful checks and a copied native executable. The failed initia
 build/test outputs and a dependency-check environment failure remain retained;
 the latter passed after restoring the Cargo path. This is a partial checkpoint,
 not a CG-03 DONE record.
+
+### CG-03 range-directory checkpoint
+
+Source `a0c11969763edbe86ee08fc7d1650129058c8ee0` adds bounded immutable AVL range
+pages, path-copy replacement, a conditional head selecting the exact mutation
+journal and operation/group indexes, and permanent genesis pinning. Historical
+retry confirmation survives later root updates. Duplicate IDs, stale parents,
+changed coverage, wrong epochs, reused operations and missing/corrupt selected
+dependencies refuse. Retired group IDs remain reserved. A cached discovery path
+does not refresh S3 metadata or list the namespace.
+
+All eight native cell-group catalog tests pass. These include concurrent CAS,
+lost response/restart, initialization racing a later mutation, 128-range bounded
+lookup/path-copy checks, and 80 alternating split/merge metadata transitions. An
+independent flat partition checks every resulting boundary plus unrelated cell
+keys; original views remain readable throughout churn. The 13 existing native
+fleet-catalog regressions also pass with the shared fault adapter. The adapter's
+new barriers are inactive unless explicitly armed for directory operations.
+
+The directory has no serving authority. Birth/disk claims, managed birth
+authorization, deadline/hop-bounded client redirects and the real shared host
+remain outstanding. No live split/merge, Raft quorum or RustFS qualification is
+claimed. CG-03 remains IN_PROGRESS and CG-04 through CG-16 remain TODO. The full
+hard-cutover goal is active; the earlier plan-only handoff does not satisfy it.
+
+The partial record is retained under
+`.cellar/cell-groups-evidence/CG-03-directory/checkpoint.json`. It includes source
+and executable hashes, command output and the corrected initial fixture compile
+failure. This checkpoint is separate from the still-incomplete CG-03 task gate.
+The record binds 63 source inputs, nine successful command logs and two copied
+native executables. All-target Clippy with warnings denied, formatting/layout,
+native dependency isolation, docs, source preflight and all 37 plan-validator
+tests pass at this checkpoint.
