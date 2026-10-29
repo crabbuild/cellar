@@ -17,7 +17,7 @@ pub(crate) struct PhysicalNode {
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Endpoint {
+pub(crate) struct Endpoint {
     node: [u8; 16],
     disk: [u8; 16],
     process: [u8; 16],
@@ -26,7 +26,7 @@ struct Endpoint {
 }
 
 impl Endpoint {
-    fn new(node: &PhysicalNode, label: &str) -> Self {
+    pub(crate) fn new(node: &PhysicalNode, label: &str) -> Self {
         Self {
             node: node.identity.node.bytes(),
             disk: node.identity.disk.bytes(),
@@ -36,7 +36,11 @@ impl Endpoint {
         }
     }
 
-    fn decode(&self) -> Result<PhysicalNode, TransportError> {
+    pub(crate) fn label(&self) -> &str {
+        &self.label
+    }
+
+    pub(crate) fn decode(&self) -> Result<PhysicalNode, TransportError> {
         crate::machine::validate_node_name(&self.label).map_err(|_| TransportError::Identity)?;
         Ok(PhysicalNode {
             identity: NodeIdentity {

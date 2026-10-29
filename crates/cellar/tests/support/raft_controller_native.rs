@@ -836,6 +836,14 @@ pub async fn shutdown_handoff_with_busy_sql(expire: bool) -> Result<()> {
 }
 
 pub async fn bounded_shutdown_report() -> Result<()> {
+    // Keep all four cold histories genuinely behind their archive cut. Empty
+    // configurations now archive normally without a SQL callback.
+    let store = Arc::new(archive_faults::Store::default());
+    store.archive_unavailable.store(true, Ordering::Release);
+    let capture = CaptureFixture {
+        gates: (0..6).map(|_| log_fault::Gate::new(None)).collect(),
+        store,
+    };
     let mut fixture = Fixture::start_with_report_limits(
         4,
         false,
@@ -844,7 +852,7 @@ pub async fn bounded_shutdown_report() -> Result<()> {
             max_groups: 1,
             max_bytes: 4096,
         },
-        None,
+        Some(&capture),
     )
     .await?;
     let result = async {
@@ -870,8 +878,8 @@ pub async fn bounded_shutdown_report() -> Result<()> {
         };
         let closed = report.raft.context("missing Raft report")?.result?;
         ensure!(closed.groups_total == 4 && closed.groups.len() == 1 && closed.omitted_groups == 3);
-        // Empty histories have durable protocol no-ops but no SQL archive.
-        // The aggregate must include all three omitted histories as well.
+        // The refused archive leaves durable protocol progress uncovered.
+        // Count every omitted history while retaining zero SQL callbacks.
         ensure!(closed.groups_with_archive_lag == 4 && closed.unfinished.is_empty());
         ensure!(fixture
             .calls

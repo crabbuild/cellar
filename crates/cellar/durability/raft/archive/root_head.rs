@@ -24,6 +24,7 @@ pub(super) struct RootCut {
     birth_digest: [u8; 32],
     schema: [u8; 32],
     pub position: LogPosition,
+    image_position: LogPosition,
     pub image_bytes: u64,
     pub memory_bytes: usize,
     dependencies: Vec<ArchiveDependency>,
@@ -56,6 +57,7 @@ impl RootCut {
         if dependencies.len() > limits.max_dependencies {
             return Err(ArchiveError::Limit);
         }
+        let image_position = image.position();
         let scope = image.scope().clone();
         let schema = image.application_digest();
         let source = Arc::new(
@@ -101,6 +103,7 @@ impl RootCut {
             birth_digest: group.birth_digest,
             schema,
             position,
+            image_position,
             image_bytes: set.marker().length,
             memory_bytes,
             dependencies,
@@ -131,6 +134,7 @@ pub(super) struct RootHead {
     pub birth_digest: [u8; 32],
     pub schema_digest: [u8; 32],
     snapshot: RootArchiveReference,
+    pub image_position: Position,
     dependencies: Vec<ObjectRef>,
 }
 
@@ -159,6 +163,13 @@ impl RootHead {
             return Err(ArchiveError::Corrupt("root head history/schema binding"));
         }
         let position = self.snapshot.position()?;
+        let origin = self.image_position.decode()?;
+        if origin.index > position.index
+            || origin.term > position.term
+            || origin.index == position.index && origin.term != position.term
+        {
+            return Err(ArchiveError::Corrupt("root archive publication origin"));
+        }
         if self.dependencies.len() > archive.limits.max_dependencies {
             return Err(ArchiveError::Limit);
         }
@@ -287,30 +298,45 @@ impl CellArchive {
                     PutMode::Update(version.clone())
                 });
             if let Some((metadata, _, _)) = previous {
-                let Metadata::Rooted(metadata) = metadata.inner else {
-                    return Err(ArchiveError::Invalid("archive representation changed"));
+                let metadata = match metadata.inner {
+                    Metadata::Materialized(metadata) => {
+                        if !metadata.canonical_empty()?
+                            || metadata.position.index >= cut.position.index
+                            || metadata.position.term > cut.position.term
+                        {
+                            return Err(ArchiveError::Conflict);
+                        }
+                        // Common canonical empty state contains no image, tail
+                        // or Blob. Still consume its validated complete set.
+                        self.load_material(*metadata).await?;
+                        None
+                    }
+                    Metadata::Rooted(metadata) => Some(metadata),
                 };
-                let old = metadata.position;
-                if old.index >= cut.position.index {
-                    if old.term < cut.position.term
-                        || old.index == cut.position.index
-                            && metadata.snapshot.snapshot() != &cut.source.snapshot()
-                    {
+                if let Some(metadata) = metadata {
+                    let old = metadata.position;
+                    if old.index >= cut.position.index {
+                        if old.term < cut.position.term
+                            || old.index == cut.position.index
+                                && metadata.snapshot.snapshot() != &cut.source.snapshot()
+                        {
+                            return Err(ArchiveError::Conflict);
+                        }
+                        return self.load_root_material(*metadata, &cut.store).await;
+                    }
+                    if old.term > cut.position.term {
                         return Err(ArchiveError::Conflict);
                     }
-                    return self.load_root_material(*metadata, &cut.store).await;
+                    // Never hide corrupt selected history by uploading replacement
+                    // objects from the current source before checking the old set.
+                    tracing::info!(event = "raft_archive_phase", phase = "root_previous_verify_start", cell = %self.scope.cell, index = old.index.get());
+                    // Keep only the verified root for this CAS attempt. Drop the
+                    // previous Blob bodies before assembling the new dependency
+                    // set, preserving the existing bounded material admission.
+                    previous_root =
+                        Some(self.load_root_material(*metadata, &cut.store).await?.root);
+                    tracing::info!(event = "raft_archive_phase", phase = "root_previous_verify_done", cell = %self.scope.cell, index = old.index.get());
                 }
-                if old.term > cut.position.term {
-                    return Err(ArchiveError::Conflict);
-                }
-                // Never hide corrupt selected history by uploading replacement
-                // objects from the current source before checking the old set.
-                tracing::info!(event = "raft_archive_phase", phase = "root_previous_verify_start", cell = %self.scope.cell, index = old.index.get());
-                // Keep only the verified root for this CAS attempt. Drop the
-                // previous Blob bodies before assembling the new dependency
-                // set, preserving the existing bounded material admission.
-                previous_root = Some(self.load_root_material(*metadata, &cut.store).await?.root);
-                tracing::info!(event = "raft_archive_phase", phase = "root_previous_verify_done", cell = %self.scope.cell, index = old.index.get());
             }
             let confirmed = self
                 .confirm_root_snapshot(cut.source.clone(), previous_root.as_ref())
@@ -333,6 +359,7 @@ impl CellArchive {
                 birth_digest: self.birth,
                 schema_digest: self.schema,
                 snapshot,
+                image_position: cut.image_position.into(),
                 dependencies: dependencies.into_values().collect(),
             };
             let position = head.validate(self)?;

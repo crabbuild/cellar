@@ -12,7 +12,11 @@ pub(super) struct PendingConfiguration {
     accepted: Option<AcceptedProposal>,
 }
 
-enum Goal {
+pub(super) enum Goal {
+    Fleet {
+        binding: Box<crate::raft::member_state::FleetGroupBinding>,
+        fence: Option<Box<crate::raft::member_state::FleetMembershipPermit>>,
+    },
     Learner(JoiningMember),
     Repair {
         plan: RepairPlan,
@@ -47,21 +51,46 @@ fn join_endpoint(
         .validate_endpoint()
         .map_err(|_| CommandFailure::UnsupportedCapability)?;
     if endpoint.disk != member.disk
-        || route(
-            &cell.group,
-            &cell.birth,
-            &driver.peers,
-            cell.schema_digest,
-            &driver.label,
-            &driver.transport,
-        )?
-        .peers
-        .iter()
-        .any(|p| p.replica.node == member.node)
+        || placement_nodes(&cell.group, &cell.birth)?.contains(&member.node)
     {
         return Err(CommandFailure::CommandConflict);
     }
     Ok(())
+}
+
+pub(super) fn placement_nodes(
+    group: &GroupLog,
+    birth: &GroupBirth,
+) -> Result<Vec<NodeId>, CommandFailure> {
+    let cache = group.read().map_err(|_| CommandFailure::CorruptState)?;
+    super::super::member_state::members(&cache.conf_state)
+        .into_iter()
+        .map(|id| {
+            let member = MemberId::new(id).map_err(|_| CommandFailure::CorruptState)?;
+            member_node(&cache.membership, birth, member)
+        })
+        .collect()
+}
+
+fn member_node(
+    membership: &crate::raft::member_state::GroupMembership,
+    birth: &GroupBirth,
+    member: MemberId,
+) -> Result<NodeId, CommandFailure> {
+    if let Some((joined, _)) = membership
+        .joined(member)
+        .map_err(|_| CommandFailure::CorruptState)?
+    {
+        Ok(joined.node)
+    } else {
+        birth
+            .voters()
+            .iter()
+            .chain(birth.learners())
+            .find(|m| m.member == member)
+            .map(|m| m.node)
+            .ok_or(CommandFailure::CorruptState)
+    }
 }
 
 pub(super) fn route(
@@ -82,17 +111,7 @@ pub(super) fn route(
         let joined = membership
             .joined(member)
             .map_err(|_| CommandFailure::CorruptState)?;
-        let node = if let Some((joined, _)) = &joined {
-            joined.node
-        } else {
-            birth
-                .voters()
-                .iter()
-                .chain(birth.learners())
-                .find(|m| m.member == member)
-                .ok_or(CommandFailure::CorruptState)?
-                .node
-        };
+        let node = member_node(&membership, birth, member)?;
         if member == group.identity().member {
             if node != group.identity().node || !membership.permits(group.identity()) {
                 return Err(CommandFailure::CorruptState);
@@ -121,6 +140,12 @@ pub(super) fn route(
                     .map_or_else(|| transport.query_address(), |peer| peer.query_address),
             });
         } else {
+            if transport
+                .node_isolated(node)
+                .map_err(|_| CommandFailure::Unavailable)?
+            {
+                continue;
+            }
             let peer = peers.get(&node).ok_or(CommandFailure::Unavailable)?;
             if joined
                 .as_ref()
@@ -184,6 +209,9 @@ impl Driver {
                 .group
                 .membership()
                 .map_err(|_| CommandFailure::CorruptState)?;
+            if membership.fleet_status().is_some() {
+                return Err(CommandFailure::UnsupportedCapability);
+            }
             if let Some((existing, at)) = membership
                 .joined(member.member)
                 .map_err(|_| CommandFailure::CorruptState)?
@@ -235,7 +263,12 @@ impl Driver {
         self.propose_configuration(request, change, Goal::Learner(member));
     }
 
-    pub(super) fn begin_repair(&mut self, mut request: Request, plan: RepairPlan) {
+    pub(super) fn begin_repair(
+        &mut self,
+        mut request: Request,
+        plan: RepairPlan,
+        authorization: Option<crate::raft::fleet_catalog::FleetPermitAuthorization>,
+    ) {
         let result = (|| {
             let cell = self
                 .cells
@@ -252,6 +285,12 @@ impl Driver {
                     .group
                     .read()
                     .map_err(|_| CommandFailure::CorruptState)?;
+                super::fleet_control::check_repair(
+                    &cache.membership,
+                    &request.scope,
+                    &plan,
+                    authorization.as_ref(),
+                )?;
                 cache
                     .membership
                     .repair_status()
@@ -273,10 +312,18 @@ impl Driver {
                 .read()
                 .map_err(|_| CommandFailure::CorruptState)?;
             let mut change = ::raft::prelude::ConfChangeV2::default();
-            cache
-                .membership
-                .bind_repair_start(&mut change, &cache.conf_state, &plan)
-                .map_err(|_| CommandFailure::CommandConflict)?;
+            match &authorization {
+                Some(authorization) => cache.membership.bind_managed_repair_start(
+                    &mut change,
+                    &cache.conf_state,
+                    &plan,
+                    authorization.permit(),
+                ),
+                None => cache
+                    .membership
+                    .bind_repair_start(&mut change, &cache.conf_state, &plan),
+            }
+            .map_err(|_| CommandFailure::CommandConflict)?;
             Ok(PlannedChange::Propose {
                 change,
                 goal: Goal::Repair {
@@ -302,6 +349,7 @@ impl Driver {
         id: cellar_logic::consensus::ProposalId,
         step: RepairStep,
         expected: LogIndex,
+        authorization: Option<crate::raft::fleet_catalog::FleetPermitAuthorization>,
     ) {
         let phase = match step {
             RepairStep::PromoteAndRemove => RepairPhase::Joint,
@@ -328,6 +376,12 @@ impl Driver {
                 .repair_status()
                 .map_err(|_| CommandFailure::CorruptState)?
                 .ok_or(CommandFailure::CommandConflict)?;
+            super::fleet_control::check_repair(
+                &cache.membership,
+                &request.scope,
+                &status.plan,
+                authorization.as_ref(),
+            )?;
             if status.plan.id != id {
                 return Err(CommandFailure::CommandConflict);
             }
@@ -338,10 +392,19 @@ impl Driver {
                 return Err(CommandFailure::CommandConflict);
             }
             let mut change = ::raft::prelude::ConfChangeV2::default();
-            cache
-                .membership
-                .bind_repair_step(&mut change, &cache.conf_state, id, step)
-                .map_err(|_| CommandFailure::CommandConflict)?;
+            match &authorization {
+                Some(authorization) => cache.membership.bind_managed_repair_step(
+                    &mut change,
+                    &cache.conf_state,
+                    id,
+                    step,
+                    authorization.permit(),
+                ),
+                None => cache
+                    .membership
+                    .bind_repair_step(&mut change, &cache.conf_state, id, step),
+            }
+            .map_err(|_| CommandFailure::CommandConflict)?;
             Ok(PlannedChange::Propose {
                 change,
                 goal: Goal::Repair {
@@ -361,7 +424,7 @@ impl Driver {
         }
     }
 
-    fn propose_configuration(
+    pub(super) fn propose_configuration(
         &mut self,
         mut request: Request,
         change: ::raft::prelude::ConfChangeV2,
@@ -485,6 +548,23 @@ impl Driver {
             .read()
             .ok()
             .and_then(|cache| match &pending.goal {
+                Goal::Fleet { binding, fence } => match cache.membership.fleet_status() {
+                    Some(status)
+                        if &status.binding == binding.as_ref()
+                            && fence.as_ref().is_none_or(|permit| {
+                                status.permit.as_ref() == Some(permit.as_ref())
+                                    && status.phase
+                                        == Some(crate::raft::member_state::FleetPermitPhase::Fenced)
+                            }) =>
+                    {
+                        (cell.route_revision >= status.changed_at)
+                            .then_some(Ok(Response::Fleet(Some(Box::new(status)))))
+                    }
+                    _ if cache.applied.position.index >= accepted.position.index => {
+                        Some(Err(CommandFailure::CommandConflict))
+                    }
+                    _ => None,
+                },
                 Goal::Learner(member) => match cache.membership.joined(member.member) {
                     Ok(Some((binding, at))) if binding == *member => (cell.route_revision >= at)
                         .then_some(Ok(Response::Learner(client::LearnerReceipt {
@@ -503,7 +583,13 @@ impl Driver {
                         (cell.route_revision >= status.changed_at)
                             .then_some(Ok(Response::Repair(Some(status))))
                     }
-                    Ok(Some(status)) if status.plan != *plan || !status.phase.active() => {
+                    // A prior terminal repair can remain visible after this
+                    // proposal is accepted and before it applies. It cannot
+                    // establish a conflict with the submitted proposal.
+                    Ok(Some(status))
+                        if cache.applied.position.index >= accepted.position.index
+                            && (status.plan != *plan || !status.phase.active()) =>
+                    {
                         Some(Err(CommandFailure::CommandConflict))
                     }
                     Err(_) => Some(Err(CommandFailure::CorruptState)),

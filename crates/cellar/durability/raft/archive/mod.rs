@@ -23,6 +23,7 @@ use std::{collections::BTreeMap, fmt, sync::Arc};
 
 pub(crate) mod bundle;
 mod configuration;
+mod coverage;
 mod physical;
 mod publication;
 mod replay;
@@ -39,6 +40,8 @@ pub use retention::{
 };
 pub use rooted::{RootArchiveReference, RootArchiveSnapshot};
 pub use verifier::ArchiveVerifier;
+
+pub use coverage::VerifiedArchiveCoverage;
 
 const READ_WINDOW: usize = 4;
 
@@ -175,7 +178,9 @@ pub struct ArchiveDependency(pub Vec<u8>);
 /// pins the image even if a newer image replaces it or the archive is unavailable.
 #[derive(Clone)]
 struct MaterializedCut {
-    image: PublishedImage,
+    image: Option<PublishedImage>,
+    scope: GroupScope,
+    schema_digest: [u8; 32],
     birth_digest: [u8; 32],
     position: LogPosition,
     conf_state: Vec<u8>,
@@ -191,8 +196,33 @@ impl MaterializedCut {
         dependencies: Vec<ArchiveDependency>,
         limits: ArchiveLimits,
     ) -> Result<Self, ArchiveError> {
+        let schema = image.application_digest();
+        Self::capture_state(group, Some(image), schema, dependencies, limits)
+    }
+
+    /// Capture a durable configuration before any SQL image exists. This never
+    /// creates SQLite state and refuses a missing publication of applied data.
+    pub fn capture_empty(
+        group: &GroupLog,
+        schema: [u8; 32],
+        limits: ArchiveLimits,
+    ) -> Result<Self, ArchiveError> {
+        Self::capture_state(group, None, schema, Vec::new(), limits)
+    }
+
+    fn capture_state(
+        group: &GroupLog,
+        image: Option<PublishedImage>,
+        schema_digest: [u8; 32],
+        dependencies: Vec<ArchiveDependency>,
+        limits: ArchiveLimits,
+    ) -> Result<Self, ArchiveError> {
         limits.validate()?;
-        if image.scope() != &group.identity().scope || dependencies.len() > limits.max_dependencies
+        if image
+            .as_ref()
+            .is_some_and(|image| image.scope() != &group.identity().scope)
+            || schema_digest == [0; 32]
+            || dependencies.len() > limits.max_dependencies
         {
             return Err(ArchiveError::Invalid("archive cut scope/dependencies"));
         }
@@ -207,11 +237,16 @@ impl MaterializedCut {
         }
         let cache = group.read().map_err(ArchiveError::Log)?;
         let applied = &cache.applied;
-        if applied.image.as_ref() != Some(&marker(&image.pin()))
-            || applied.position.index < image.position().index
-            || applied.position.term < image.position().term
+        if applied.image != image.as_ref().map(|image| marker(&image.pin()))
+            || applied.position.index.get() == 0
+            || applied.position.term.get() == 0
             || applied.position.index.get() > cache.hard_state.commit
-            || cache.term(image.position().index.get()) != Some(image.position().term.get())
+            || cache.term(applied.position.index.get()) != Some(applied.position.term.get())
+            || image.as_ref().is_some_and(|image| {
+                applied.position.index < image.position().index
+                    || applied.position.term < image.position().term
+                    || cache.term(image.position().index.get()) != Some(image.position().term.get())
+            })
         {
             return Err(ArchiveError::Invalid("archive cut is not durably applied"));
         }
@@ -222,15 +257,21 @@ impl MaterializedCut {
         let mut entries = Vec::new();
         let mut bytes = charge
             .checked_add(cache.membership.reserved_bytes())
+            .and_then(|bytes| bytes.checked_add(group.identity().scope.cell.len() + 128))
             .ok_or(ArchiveError::Limit)?;
         if bytes > limits.max_capture_bytes {
             return Err(ArchiveError::Limit);
         }
-        for (_, entry) in cache
-            .entries
-            .range(..=position.index.get())
-            .rev()
-            .take(limits.max_entries)
+        for (_, entry) in
+            cache
+                .entries
+                .range(..=position.index.get())
+                .rev()
+                .take(if image.is_some() {
+                    limits.max_entries
+                } else {
+                    0
+                })
         {
             let next = bytes
                 .checked_add(entry.compute_size() as usize + 128)
@@ -244,6 +285,8 @@ impl MaterializedCut {
         entries.reverse();
         Ok(Self {
             image,
+            scope: group.identity().scope.clone(),
+            schema_digest,
             birth_digest: group.birth_digest,
             position,
             conf_state,
@@ -257,8 +300,14 @@ impl MaterializedCut {
         self.position
     }
 
+    fn image_state(&self) -> Option<Image> {
+        self.image.as_ref().map(|image| image.pin().state().into())
+    }
+
     pub(crate) fn memory_bytes(&self) -> usize {
         self.membership.reserved_bytes()
+            + self.scope.cell.len()
+            + 128
             + self
                 .entries
                 .iter()
@@ -276,14 +325,17 @@ impl MaterializedCut {
         limits: ArchiveLimits,
         activity: Option<IoActivity>,
     ) -> Result<stream_snapshot::SnapshotFile, ArchiveError> {
-        self.image
+        let image = self.image.as_ref().ok_or(ArchiveError::Invalid(
+            "empty archive has no snapshot payload",
+        ))?;
+        image
             .pin()
             .snapshot_with_io_profile(
                 stream_snapshot::Limits {
                     max_image_bytes: limits.max_image_bytes,
                     max_encoded_bytes: limits.max_snapshot_bytes,
                 },
-                physical::io_profile(self.image.pin().state().length),
+                physical::io_profile(image.pin().state().length),
                 activity,
             )
             .map_err(ArchiveError::Images)
@@ -310,7 +362,9 @@ pub struct CellArchive {
     io_domain: Option<crate::asyncrt::DomainToken>,
     read_retention: Option<Arc<super::budget::Permit>>,
     bundle_client: Option<bundle::Client>,
+    verification_deadline: Option<u64>,
     root_store: Option<cellar_ltx::internal::NodeExtentStore>,
+    root_verification: Option<Arc<verifier::ExtentLease>>,
     image_storage: super::catalog::RaftImageStorage,
 }
 
@@ -361,6 +415,29 @@ struct MaterializedMetadata {
     manifest: Manifest,
 }
 
+impl MaterializedMetadata {
+    // Canonical absence of SQL has no image commitment domain. It is shared
+    // across storage modes, never a conversion of a populated image.
+    fn canonical_empty(&self) -> Result<bool, ArchiveError> {
+        let m = &self.manifest;
+        if m.snapshot.image.is_some()
+            || m.snapshot.object.is_some()
+            || m.image.is_some()
+            || m.image_position.is_some()
+            || !m.tails.is_empty()
+            || !m.dependencies.is_empty()
+        {
+            return Ok(false);
+        }
+        configuration::Configuration::new(
+            m.snapshot.position,
+            &m.snapshot.conf_state,
+            m.snapshot.membership.clone(),
+        )?
+        .matches(m.position, &m.conf_state, &m.membership)
+    }
+}
+
 /// Fully downloaded and hash-checked recovery material. This is not a Raft
 /// activation capability or an SDK acknowledgement. `restore` additionally
 /// verifies physical application in an exclusively owned generation store.
@@ -372,7 +449,7 @@ struct MaterializedSet {
     scope: GroupScope,
     position: LogPosition,
     manifest: Manifest,
-    snapshot: stream_snapshot::SnapshotFile,
+    snapshot: Option<stream_snapshot::SnapshotFile>,
     entries: Vec<Entry>,
     dependencies: Vec<(ObjectRef, Vec<u8>)>,
     envelope: EnvelopeLimits,
@@ -426,7 +503,9 @@ impl CellArchive {
             io_domain: crate::asyncrt::runtime_services().domain_token(),
             read_retention: None,
             bundle_client: None,
+            verification_deadline: None,
             root_store: None,
+            root_verification: None,
             image_storage: super::catalog::RaftImageStorage::Materialized,
         }
     }
@@ -515,13 +594,18 @@ impl CellArchive {
     }
 
     fn deadline(&self) -> Result<u64, ArchiveError> {
-        Ok(self
+        let now = self
             .io_domain
             .as_ref()
             .ok_or(ArchiveError::Stopped)?
             .mono_ms()
-            .map_err(|_| ArchiveError::Stopped)?
-            .saturating_add(self.limits.io_timeout_ms))
+            .map_err(|_| ArchiveError::Stopped)?;
+        let deadline = now.saturating_add(self.limits.io_timeout_ms);
+        match self.verification_deadline {
+            Some(operation) if now >= operation => Err(ArchiveError::Timeout),
+            Some(operation) => Ok(deadline.min(operation)),
+            None => Ok(deadline),
+        }
     }
 
     fn key(&self, name: &str) -> Path {
@@ -531,8 +615,9 @@ impl CellArchive {
     /// Refuse a cut from another history or application before advisory I/O.
     fn validate_materialized_cut(&self, cut: &MaterializedCut) -> Result<(), ArchiveError> {
         if self.image_storage != super::catalog::RaftImageStorage::Materialized
-            || cut.image.scope() != &self.scope
-            || cut.image.application_digest() != self.schema
+            && cut.image.is_some()
+            || cut.scope != self.scope
+            || cut.schema_digest != self.schema
             || cut.birth_digest != self.birth
             || !cut.membership.same_birth(&self.initial_membership)
         {
@@ -556,11 +641,12 @@ impl CellArchive {
                 });
             if let Some((metadata, _, _)) = &previous {
                 let old = metadata.manifest.position;
+                let previous_has_image = metadata.manifest.image.is_some();
                 if old.index >= cut.position.index.get() {
                     if old.term < cut.position.term.get()
                         || old.index == cut.position.index.get()
                             && (old.term != cut.position.term.get()
-                                || metadata.manifest.image != Image::from(cut.image.pin().state())
+                                || metadata.manifest.image != cut.image_state()
                                 || metadata.manifest.conf_state != cut.conf_state
                                 || metadata.manifest.membership != cut.membership)
                     {
@@ -584,11 +670,18 @@ impl CellArchive {
                     // with a full base under its original conditional version.
                     drop(set);
                 }
+                if previous_has_image && cut.image.is_none() {
+                    return Err(ArchiveError::Conflict);
+                }
                 if old.term > cut.position.term.get() {
                     return Err(ArchiveError::Conflict);
                 }
             }
             let tail = previous.as_ref().and_then(|(metadata, _, _)| {
+                // Empty configuration archives have no data base or tails.
+                // The first real SQL image always establishes a full snapshot.
+                let image = cut.image.as_ref()?;
+                let snapshot_object = metadata.manifest.snapshot.object.as_ref()?;
                 let next = metadata.manifest.position.index.checked_add(1)?;
                 let entries: Vec<_> = cut
                     .entries
@@ -614,20 +707,14 @@ impl CellArchive {
                 for entry in &entries {
                     tail_bytes = tail_bytes.checked_add(u64::from(entry.compute_size()) + 4)?;
                 }
-                let image_budget = cut
-                    .image
+                let image_budget = image
                     .pin()
                     .state()
                     .length
                     .checked_mul(u64::from(self.limits.max_tail_image_ratio))?;
                 // Dependencies retained by the old base may be released only
                 // by a new snapshot, whose prior material is checked below.
-                let mut bytes = metadata
-                    .manifest
-                    .snapshot
-                    .object
-                    .length
-                    .checked_add(tail_bytes)?;
+                let mut bytes = snapshot_object.length.checked_add(tail_bytes)?;
                 for dependency in &metadata.manifest.dependencies {
                     bytes = bytes.checked_add(dependency.length)?;
                 }
@@ -687,7 +774,9 @@ impl CellArchive {
                         object,
                     });
                     manifest.position = cut.position.into();
-                    manifest.image = cut.image.pin().state().into();
+                    manifest.image = cut.image_state();
+                    manifest.image_position =
+                        cut.image.as_ref().map(|image| image.position().into());
                     manifest.conf_state = cut.conf_state.clone();
                     manifest.membership = cut.membership.clone();
                     PreparedManifest {
@@ -705,14 +794,23 @@ impl CellArchive {
                         None
                     };
                     if let Some(previous) = previous.filter(|previous| {
-                        previous.manifest.snapshot.image == Image::from(cut.image.pin().state())
-                            && previous.manifest.image == Image::from(cut.image.pin().state())
+                        cut.image.is_some()
+                            && previous.manifest.snapshot.image == cut.image_state()
+                            && previous.manifest.image == cut.image_state()
                     }) {
                         let snapshot = self
-                            .rebind_snapshot(previous, cut.image.pin().state(), cut.position.into())
+                            .rebind_snapshot(
+                                previous,
+                                cut.image
+                                    .as_ref()
+                                    .ok_or(ArchiveError::Invalid("snapshot rebind needs an image"))?
+                                    .pin()
+                                    .state(),
+                                cut.position.into(),
+                            )
                             .await?;
                         PreparedManifest {
-                            manifest: self.full_manifest(&cut, snapshot.reference().clone()),
+                            manifest: self.full_manifest(&cut, Some(snapshot.reference().clone())),
                             confirmed_snapshot: Some(snapshot),
                         }
                     } else {
@@ -840,7 +938,13 @@ impl CellArchive {
         &self,
         cut: &MaterializedCut,
     ) -> Result<PreparedManifest, ArchiveError> {
-        tracing::info!(event = "raft_archive_phase", phase = "encode_start", cell = %self.scope.cell, index = cut.position.index.get(), image_bytes = cut.image.pin().state().length, io_profile = ?physical::io_profile(cut.image.pin().state().length));
+        let Some(image) = cut.image.as_ref() else {
+            return Ok(PreparedManifest {
+                manifest: self.full_manifest(cut, None),
+                confirmed_snapshot: None,
+            });
+        };
+        tracing::info!(event = "raft_archive_phase", phase = "encode_start", cell = %self.scope.cell, index = cut.position.index.get(), image_bytes = image.pin().state().length, io_profile = ?physical::io_profile(image.pin().state().length));
         let input = cut.clone();
         let limits = self.limits;
         let activity = self.activity.clone();
@@ -867,12 +971,12 @@ impl CellArchive {
         let snapshot = self.put_snapshot(body, inline, position).await?;
         tracing::info!(event = "raft_archive_phase", phase = "upload_confirmed", cell = %self.scope.cell, index = cut.position.index.get());
         Ok(PreparedManifest {
-            manifest: self.full_manifest(cut, snapshot.reference().clone()),
+            manifest: self.full_manifest(cut, Some(snapshot.reference().clone())),
             confirmed_snapshot: Some(snapshot),
         })
     }
 
-    fn full_manifest(&self, cut: &MaterializedCut, object: ObjectRef) -> Manifest {
+    fn full_manifest(&self, cut: &MaterializedCut, object: Option<ObjectRef>) -> Manifest {
         Manifest {
             scope: (&self.scope).into(),
             root_digest: self.root,
@@ -880,14 +984,15 @@ impl CellArchive {
             schema_digest: self.schema,
             snapshot: Snapshot {
                 position: cut.position.into(),
-                image: cut.image.pin().state().into(),
+                image: cut.image_state(),
                 conf_state: cut.conf_state.clone(),
                 membership: cut.membership.clone(),
                 object,
             },
             tails: Vec::new(),
             position: cut.position.into(),
-            image: cut.image.pin().state().into(),
+            image: cut.image_state(),
+            image_position: cut.image.as_ref().map(|image| image.position().into()),
             conf_state: cut.conf_state.clone(),
             membership: cut.membership.clone(),
             dependencies: Vec::new(),
@@ -902,7 +1007,8 @@ impl CellArchive {
         verifier: &ArchiveVerifier,
     ) -> Result<(), ArchiveError> {
         let position = cut.position;
-        let image = Image::from(cut.image.pin().state());
+        let image = cut.image_state();
+        let image_position = cut.image.as_ref().map(|image| image.position().into());
         let conf = cut.conf_state.clone();
         let membership = cut.membership.clone();
         let verifier = verifier.clone();
@@ -917,6 +1023,7 @@ impl CellArchive {
                 previous.position = position;
                 previous.manifest.position = position.into();
                 previous.manifest.image = image;
+                previous.manifest.image_position = image_position;
                 previous.manifest.conf_state = conf;
                 previous.manifest.membership = membership;
                 previous.validate_payloads()?;
@@ -941,7 +1048,7 @@ impl CellArchive {
             })
             .await
             .map_err(ArchiveError::Worker)??;
-        tracing::info!(event = "raft_archive_phase", phase = "replay_complete", cell = %self.scope.cell, index = set.position.index.get(), reused = verification.replay == verifier::Replay::Reused, image_bytes = set.manifest.image.length, verified_restore_images = verification.work.images, verified_restore_image_bytes = verification.work.image_bytes);
+        tracing::info!(event = "raft_archive_phase", phase = "replay_complete", cell = %self.scope.cell, index = set.position.index.get(), reused = verification.replay == verifier::Replay::Reused, image_bytes = set.manifest.image.map_or(0, |image| image.length), verified_restore_images = verification.work.images, verified_restore_image_bytes = verification.work.image_bytes);
         Ok((set, verification.work))
     }
 
@@ -1014,7 +1121,10 @@ impl CellArchive {
         let manifest = &metadata.manifest;
         // Metadata bounds the retained bodies; physical image parts have
         // independent bounded read windows and disk admission.
-        let objects = std::iter::once(&manifest.snapshot.object)
+        let objects = manifest
+            .snapshot
+            .object
+            .iter()
             .chain(manifest.tails.iter().map(|tail| &tail.object))
             .chain(manifest.dependencies.iter());
         let reads = objects
@@ -1025,10 +1135,14 @@ impl CellArchive {
             .try_collect::<Vec<_>>()
             .await?
             .into_iter();
-        let index = bodies
-            .next()
-            .ok_or(ArchiveError::Corrupt("missing snapshot index"))?;
-        let snapshot = self.get_snapshot(&manifest.snapshot, index).await?;
+        let snapshot = if manifest.snapshot.object.is_some() {
+            let index = bodies
+                .next()
+                .ok_or(ArchiveError::Corrupt("missing snapshot index"))?;
+            Some(self.get_snapshot(&manifest.snapshot, index).await?)
+        } else {
+            None
+        };
         tracing::info!(event = "raft_archive_phase", phase = "material_read_complete", cell = %self.scope.cell, index = manifest.position.index);
         self.finish_material(metadata, snapshot, bodies.collect())
             .await
@@ -1061,13 +1175,13 @@ impl CellArchive {
             .buffered(READ_WINDOW)
             .try_collect::<Vec<_>>()
             .await?;
-        self.finish_material(metadata, snapshot, bodies).await
+        self.finish_material(metadata, Some(snapshot), bodies).await
     }
 
     async fn finish_material(
         &self,
         metadata: MaterializedMetadata,
-        snapshot: stream_snapshot::SnapshotFile,
+        snapshot: Option<stream_snapshot::SnapshotFile>,
         bodies: Vec<Vec<u8>>,
     ) -> Result<MaterializedSet, ArchiveError> {
         let MaterializedMetadata {
@@ -1088,7 +1202,7 @@ impl CellArchive {
         let scope = self.scope.clone();
         let limits = self.limits;
         let activity = self.activity.clone();
-        if let Some(activity) = &activity {
+        if let (Some(activity), Some(snapshot)) = (&activity, &snapshot) {
             snapshot
                 .set_io_activity(activity.clone())
                 .map_err(ArchiveError::Physical)?;
@@ -1320,21 +1434,55 @@ impl CellArchive {
 impl MaterializedSet {
     fn validate_payloads(&mut self) -> Result<(), ArchiveError> {
         self.validated = None;
-        let mut state = self.manifest.snapshot.image.decode()?;
-        if self.snapshot.metadata().image != state {
-            return Err(ArchiveError::Corrupt("archive snapshot/image binding"));
-        }
-        self.snapshot.verify().map_err(ArchiveError::Physical)?;
+        self.check_payloads()?;
+        self.validated = Some(verifier::Validated::record(self)?);
+        Ok(())
+    }
+
+    fn check_payloads(&self) -> Result<(), ArchiveError> {
         let mut configuration = configuration::Configuration::new(
             self.manifest.snapshot.position,
             &self.manifest.snapshot.conf_state,
             self.manifest.snapshot.membership.clone(),
         )?;
+        let Some(snapshot_image) = self.manifest.snapshot.image else {
+            if self.manifest.snapshot.object.is_some()
+                || self.manifest.image.is_some()
+                || self.manifest.image_position.is_some()
+                || !self.manifest.tails.is_empty()
+                || !self.manifest.dependencies.is_empty()
+                || self.snapshot.is_some()
+                || !self.entries.is_empty()
+                || !self.dependencies.is_empty()
+                || !configuration.matches(
+                    self.manifest.position,
+                    &self.manifest.conf_state,
+                    &self.manifest.membership,
+                )?
+            {
+                return Err(ArchiveError::Corrupt("canonical empty archive payload"));
+            }
+            return Ok(());
+        };
+        let mut state = snapshot_image.decode()?;
+        let snapshot = self
+            .snapshot
+            .as_ref()
+            .ok_or(ArchiveError::Corrupt("missing streamed snapshot"))?;
+        if snapshot.metadata().image != state {
+            return Err(ArchiveError::Corrupt("archive snapshot/image binding"));
+        }
+        snapshot.verify().map_err(ArchiveError::Physical)?;
+        let mut data_position = None;
         for entry in &self.entries {
             configuration.step(entry)?;
             if entry.get_entry_type() == EntryType::EntryNormal && !entry.data.is_empty() {
                 let update = self.update(entry, state)?;
                 state = result_state(&update)?;
+                data_position = Some(Position {
+                    index: entry.index,
+                    term: entry.term,
+                });
                 if state.length > self.max_image_bytes {
                     return Err(ArchiveError::Limit);
                 }
@@ -1344,11 +1492,20 @@ impl MaterializedSet {
             self.manifest.position,
             &self.manifest.conf_state,
             &self.manifest.membership,
-        )? || Image::from(state) != self.manifest.image
+        )? || Some(Image::from(state)) != self.manifest.image
         {
             return Err(ArchiveError::Corrupt("archive final image/cut"));
         }
-        self.validated = Some(verifier::Validated::record(self)?);
+        let published = self.manifest.image_position.ok_or(ArchiveError::Corrupt(
+            "missing archive image publication position",
+        ))?;
+        if data_position.is_some_and(|data| {
+            published.index < data.index
+                || published.term < data.term
+                || published.index == data.index && published.term != data.term
+        }) {
+            return Err(ArchiveError::Corrupt("archive publication precedes data"));
+        }
         Ok(())
     }
 

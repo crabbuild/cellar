@@ -2,6 +2,7 @@
 
 //! Capture bounded registered-history metadata through reserved control work.
 use super::*;
+use crate::raft::cache::CachedGroup;
 use crate::raft::inspection::{
     CellInspection, InspectionError, InspectionSnapshot, MemberInspection, NodeInspection,
     ReplicaOccupancy, RESPONSE_RESERVATION,
@@ -35,7 +36,7 @@ impl Driver {
                 .local
                 .bindings
                 .get(&(request.scope.namespace, request.scope.cell.clone()))
-                .ok_or(InspectionError::Refused)?;
+                .map_err(|_| InspectionError::Unavailable)?;
             let birth = self
                 .cells
                 .get(&request.scope)
@@ -187,39 +188,8 @@ impl Driver {
         scope: &GroupScope,
         status: Option<(u64, GroupStatus)>,
     ) -> Result<InspectionSnapshot, CommandFailure> {
-        let mut profile = self
-            .options
-            .node_profile
-            .as_ref()
-            .ok_or(CommandFailure::UnsupportedCapability)?
-            .clone();
-        profile.draining |= self.local.admission.is_draining();
-        let groups = self
-            .log
-            .group_count()
-            .map_err(|_| CommandFailure::Unavailable)?
-            .checked_add(usize::from(self.activating.is_some()))
-            .ok_or(CommandFailure::Overloaded)?;
-        let groups = u32::try_from(groups).map_err(|_| CommandFailure::Overloaded)?;
-        let reserved_bytes = profile
-            .bytes_per_group
-            .checked_mul(u64::from(groups))
-            .ok_or(CommandFailure::Overloaded)?;
-        let local = self.log.limits();
-        let node = NodeInspection {
-            identity: NodeIdentity {
-                node: local.node,
-                disk: local.disk,
-                process: local.process,
-            },
-            storage_instance: self
-                .log
-                .storage_instance()
-                .map_err(|_| CommandFailure::Unavailable)?,
-            profile,
-            groups,
-            reserved_bytes,
-        };
+        let node = self.capture_node_profile()?;
+        let groups = node.groups;
         let leader_load = self.log.domain().mono_ms().ok().and_then(|now| {
             self.leader_load.as_ref()?.view(
                 now,
@@ -243,20 +213,65 @@ impl Driver {
             },
             membership: None,
             configuration: None,
+            publication: None,
         };
+        self.fill_inspection(scope, status, &mut snapshot)?;
+        Ok(snapshot)
+    }
+
+    pub(super) fn capture_node_profile(&self) -> Result<NodeInspection, CommandFailure> {
+        let mut profile = self
+            .options
+            .node_profile
+            .as_ref()
+            .ok_or(CommandFailure::UnsupportedCapability)?
+            .clone();
+        profile.draining |= self.local.admission.application_paused();
+        let groups = self
+            .log
+            .group_count_with_pending(self.activating.as_ref())
+            .map_err(|_| CommandFailure::Unavailable)?;
+        let groups = u32::try_from(groups).map_err(|_| CommandFailure::Overloaded)?;
+        let reserved_bytes = profile
+            .bytes_per_group
+            .checked_mul(u64::from(groups))
+            .ok_or(CommandFailure::Overloaded)?;
+        let local = self.log.limits();
+        Ok(NodeInspection {
+            identity: NodeIdentity {
+                node: local.node,
+                disk: local.disk,
+                process: local.process,
+            },
+            storage_instance: self
+                .log
+                .storage_instance()
+                .map_err(|_| CommandFailure::Unavailable)?,
+            profile,
+            groups,
+            reserved_bytes,
+        })
+    }
+
+    fn fill_inspection(
+        &self,
+        scope: &GroupScope,
+        status: Option<(u64, GroupStatus)>,
+        snapshot: &mut InspectionSnapshot,
+    ) -> Result<(), CommandFailure> {
         if let Some(cell) = self.cells.get(scope) {
             snapshot.view.schema_digest = cell.schema_digest;
             snapshot.view.birth_digest = cell.birth.digest();
             let member = cell.group.identity().member;
             let cache = cell.group.read().map_err(|_| CommandFailure::Unavailable)?;
             if cell.failed {
-                return Ok(snapshot);
+                return Ok(());
             }
             if cell.retired
                 || !crate::raft::member_state::members(&cache.conf_state).contains(&member.get())
             {
                 snapshot.view.occupancy = ReplicaOccupancy::Retired(member);
-                return Ok(snapshot);
+                return Ok(());
             }
             let (started, status) = status.ok_or(CommandFailure::Overloaded)?;
             if status.replica != *cell.group.identity()
@@ -268,10 +283,11 @@ impl Driver {
                 return Err(CommandFailure::Overloaded);
             }
             let published = cell.image.as_ref().map(|image| image.position);
-            if published.is_some_and(|position| {
-                position.index > cache.applied.position.index
-                    || cache.term(position.index.get()) != Some(position.term.get())
-            }) {
+            if cell
+                .image
+                .as_ref()
+                .is_some_and(|image| !valid_published_position(&cache, image))
+            {
                 return Err(CommandFailure::Overloaded);
             }
             let sample_age_ms = self
@@ -300,7 +316,13 @@ impl Driver {
             });
             snapshot.membership = Some(cache.membership.clone());
             snapshot.configuration = Some(cache.conf_state.clone());
-            return Ok(snapshot);
+            snapshot.publication = Some(Publication::capture(
+                &cache.applied,
+                cell.image
+                    .as_ref()
+                    .map(|image| (&image.image, image.position)),
+            )?);
+            return Ok(());
         }
         if let Some(dormant) = self.standbys.get(scope) {
             snapshot.view.schema_digest = dormant.class.schema_digest();
@@ -316,8 +338,31 @@ impl Driver {
                     Err(_) => return Err(CommandFailure::Unavailable),
                 }
             };
-            return Ok(snapshot);
+            return Ok(());
         }
         Err(CommandFailure::UnsupportedCapability)
     }
 }
+
+fn valid_published_position(cache: &CachedGroup, image: &ImageView) -> bool {
+    let position = image.position;
+    if position.index > cache.applied.position.index {
+        return false;
+    }
+    match cache.term(position.index.get()) {
+        Some(term) => term == position.term.get(),
+        // Protocol-only progress can checkpoint beyond the last SQL image.
+        // The exact durable marker proves that this already verified image
+        // still represents applied state, even after its log entry is gone.
+        // A retained conflicting term must never use this fallback.
+        None => {
+            position.index.get() < cache.snapshot.get_metadata().index
+                && cache.coherent_image_position(&image.image, position)
+                    == Some(cache.applied.position)
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "host_inspection_tests.rs"]
+mod tests;

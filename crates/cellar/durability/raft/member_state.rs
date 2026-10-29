@@ -15,6 +15,13 @@ mod repairs;
 use repairs::{RepairIntent, RepairRecord};
 pub use repairs::{RepairPhase, RepairPlan, RepairStatus, RepairStep};
 
+#[path = "member_fleet.rs"]
+mod fleet;
+pub use fleet::{
+    FleetGroupBinding, FleetMembershipPermit, FleetMembershipStatus, FleetPermitPhase,
+};
+use fleet::{FleetIntent, FleetState};
+
 const MAX_BYTES: usize = 16 * 1024;
 const MAX_MEMBERS: usize = 32;
 
@@ -56,6 +63,8 @@ pub struct GroupMembership {
     bindings: Vec<Binding>,
     #[serde(deserialize_with = "required_nullable")]
     repair: Option<RepairRecord>,
+    #[serde(deserialize_with = "required_nullable")]
+    fleet: Option<Box<FleetState>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -66,6 +75,8 @@ struct Intent {
     joins: Vec<Binding>,
     #[serde(deserialize_with = "required_nullable")]
     repair: Option<RepairIntent>,
+    #[serde(deserialize_with = "required_nullable")]
+    fleet: Option<FleetIntent>,
 }
 
 // Marker-1 records use explicit null for no plan. Serde otherwise treats a
@@ -102,6 +113,7 @@ impl GroupMembership {
             revision: 1,
             bindings: vec![],
             repair: None,
+            fleet: None,
         }
     }
 
@@ -114,6 +126,9 @@ impl GroupMembership {
     }
 
     pub(crate) fn permits(&self, replica: &cellar_logic::consensus::ReplicaIdentity) -> bool {
+        if self.validate_scope(&replica.scope).is_err() {
+            return false;
+        }
         self.bindings
             .iter()
             .find(|b| b.member == replica.member.get())
@@ -148,6 +163,7 @@ impl GroupMembership {
         512 + self.initial.capacity() * 24
             + self.bindings.capacity() * 384
             + self.repair.as_ref().map_or(0, RepairRecord::reserved_bytes)
+            + usize::from(self.fleet.is_some()) * 8192
     }
 
     pub(crate) fn validate(&self, conf: &ConfState, applied: u64) -> Result<(), LogError> {
@@ -191,6 +207,7 @@ impl GroupMembership {
             return Err(invalid());
         }
         self.validate_repair(conf, applied)?;
+        self.validate_fleet()?;
         Ok(())
     }
 
@@ -201,7 +218,10 @@ impl GroupMembership {
         change: &mut ConfChangeV2,
         joins: &[JoiningMember],
     ) -> Result<(), LogError> {
-        self.bind_intent(change, joins, None)
+        if self.fleet.is_some() {
+            return Err(invalid());
+        }
+        self.bind_intent(change, joins, None, None)
     }
 
     fn bind_intent(
@@ -209,6 +229,7 @@ impl GroupMembership {
         change: &mut ConfChangeV2,
         joins: &[JoiningMember],
         repair: Option<RepairIntent>,
+        fleet: Option<FleetIntent>,
     ) -> Result<(), LogError> {
         if joins.len() > MAX_MEMBERS {
             return Err(LogError::Overloaded);
@@ -228,6 +249,7 @@ impl GroupMembership {
             expected_revision: self.revision,
             joins: bindings,
             repair,
+            fleet,
         };
         let bytes = serde_json::to_vec(&intent).map_err(|_| invalid())?;
         if bytes.len() > MAX_BYTES {
@@ -247,6 +269,7 @@ impl GroupMembership {
                 expected_revision: self.revision,
                 joins: vec![],
                 repair: None,
+                fleet: None,
             });
         }
         if change.context.len() > MAX_BYTES {
@@ -272,6 +295,7 @@ impl GroupMembership {
             return Err(invalid());
         }
         let intent = self.intent(change)?;
+        self.validate_fleet_change(&intent, change, conf)?;
         self.validate_repair_change(&intent, change, conf)?;
         let active = members(conf);
         let mut new = BTreeSet::new();
@@ -334,6 +358,7 @@ impl GroupMembership {
         next.bindings.retain(|b| active.contains(&b.member));
         next.bindings.sort_by_key(|b| b.member);
         next.apply_repair(&intent, index.get())?;
+        next.apply_fleet(&intent, index.get())?;
         next.validate(after, index.get())?;
         Ok(next)
     }
@@ -356,6 +381,7 @@ impl GroupMembership {
             return Err(invalid());
         }
         self.repair_succeeds(old)?;
+        self.fleet_succeeds(old)?;
         Ok(())
     }
 

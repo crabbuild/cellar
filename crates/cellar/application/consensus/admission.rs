@@ -6,13 +6,20 @@
 use super::CommandFailure;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Mutex, MutexGuard,
+    Arc, Mutex, MutexGuard, OnceLock,
 };
+
+pub(crate) enum Access {
+    Application,
+    Control,
+    Cleanup,
+}
 
 #[derive(Default)]
 pub(crate) struct Admission {
     draining: AtomicBool,
     gate: Mutex<()>,
+    maintenance: OnceLock<Arc<crate::raft::fleet_stop::MaintenanceAdmission>>,
 }
 
 impl Admission {
@@ -20,12 +27,45 @@ impl Admission {
         self.draining.load(Ordering::Acquire)
     }
 
-    pub(crate) fn registration(&self, cleanup: bool) -> Result<MutexGuard<'_, ()>, CommandFailure> {
+    pub(crate) fn registration(
+        &self,
+        access: Access,
+    ) -> Result<MutexGuard<'_, ()>, CommandFailure> {
         let guard = self.gate.lock().map_err(|_| CommandFailure::Unavailable)?;
-        if self.is_draining() && !cleanup {
+        if self.is_draining() && !matches!(access, Access::Cleanup)
+            || matches!(access, Access::Application)
+                && self
+                    .maintenance
+                    .get()
+                    .is_some_and(|gate| gate.raft_closed())
+        {
             return Err(CommandFailure::Unavailable);
         }
         Ok(guard)
+    }
+
+    pub(crate) fn bind_maintenance(
+        &self,
+        gate: Arc<crate::raft::fleet_stop::MaintenanceAdmission>,
+    ) -> Result<(), CommandFailure> {
+        if self
+            .maintenance
+            .get()
+            .is_some_and(|old| Arc::ptr_eq(old, &gate))
+        {
+            return Ok(());
+        }
+        self.maintenance
+            .set(gate)
+            .map_err(|_| CommandFailure::Unavailable)
+    }
+
+    pub(crate) fn application_paused(&self) -> bool {
+        self.is_draining()
+            || self
+                .maintenance
+                .get()
+                .is_some_and(|gate| gate.public_closed())
     }
 
     pub(crate) fn seal(&self) -> Result<(), CommandFailure> {

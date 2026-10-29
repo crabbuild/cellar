@@ -33,29 +33,70 @@ pub use crate::raft::effects::{
     RaftEffectVerificationKey, RaftInbox, RaftNativeEffectSink, RaftOutbox, RaftOutboxLimits,
     RaftOutboxProgress,
 };
+pub use crate::raft::physical_inventory::{RaftPhysicalHistory, RaftPhysicalInventory};
 pub use crate::raft::receipt_maintenance::ReceiptMaintenanceLimits;
 
 pub use crate::raft::archive::ArchiveReference;
 pub use crate::raft::catalog::CatalogError;
 pub use crate::raft::catalog::{
-    BirthProposal, CatalogOptions, DisasterFenceAuthority, DisasterFenceRequest,
-    DisasterRecoveryRequest, InitialMember, NamespaceConfig, RaftImageStorage, VoterPolicy,
+    BirthDisposition, BirthProposal, CatalogOptions, DisasterFenceAuthority, DisasterFenceRequest,
+    DisasterRecoveryRequest, InitialMember, ManagedBirthOwner, NamespaceConfig, RaftImageStorage,
+    VoterPolicy,
 };
 pub use crate::raft::disaster::S3DisasterRecovery;
 pub use cellar_logic::raft_leadership::LeaderPolicy;
 pub use cellar_logic::raft_placement::PlacementPolicy;
 
+pub use crate::raft::fleet_catalog::{
+    fleet_capacity_profile_digest, FleetAbortedMovementCompletion, FleetCapacityAction,
+    FleetCapacityAdmission, FleetCapacityAttestation, FleetCapacityAuthorization,
+    FleetCapacityRequest, FleetFencedMovementCompletion, FleetGroupAuthorization,
+    FleetHostAuthorization, FleetIsolationAttestation, FleetMovementAdmission,
+    FleetMovementCompletion, FleetMovementCompletionRequest, FleetMovementExecutionRequest,
+    FleetMovementPhase, FleetMovementProgress, FleetMovementRequest, FleetNodeEligibility,
+    FleetNodeIsolation, FleetNodeIsolationRequest, FleetNodeSpec, FleetNodeState,
+    FleetPendingMovement, FleetPendingReservation, FleetPermitAuthorization,
+    FleetReplicaSeparation, FleetRequestIdentity, FleetResourceAdmission, FleetResourceAttestation,
+    FleetResourceBounds, FleetResourceRequest,
+};
+pub use crate::raft::fleet_catalog::{
+    FleetDockerIsolation, FleetDockerResourcePolicy, FleetDockerResources,
+    FleetFailureDetectionOptions, FleetFailureDetectionStatus, FleetFailureRecoveryContext,
+    FleetFailureRecoveryOptions, FleetFailureRecoveryPhase, FleetFailureRecoveryPlatform,
+    FleetFailureRecoveryStatus, FleetIsolatedRepairContext, FleetIsolatedRepairEvidence,
+    FleetIsolatedRepairInputs, FleetIsolatedRepairServiceStatus, FleetMovementEvidence,
+    FleetMovementService, FleetMovementServiceEntry, FleetMovementServiceFailure,
+    FleetMovementServiceOptions, FleetMovementServiceStatus, FleetNodeFailureStatus,
+    FleetNodeHealth, FleetRestartService, FleetRestartServiceOptions, FleetRestartServiceStatus,
+    FleetTopologyCollectionOptions, FleetTopologyEvidence, FleetTopologyServiceInputs,
+    FleetTopologyServiceStatus,
+};
+pub use crate::raft::fleet_catalog::{
+    FleetTopologyHistoryResources, FleetTopologyNodeResources, FleetTopologyPlan,
+    FleetTopologyPolicy, FleetTopologyPreview, FleetTopologyRequest, FleetTopologyVerification,
+};
+pub use crate::raft::fleet_catalog::{
+    FleetTopologyIntentRequest, FleetTopologyMovementEntry, FleetTopologyMovementPage,
+    FleetTopologyOperation, FleetTopologyPhase,
+};
+pub use crate::raft::fleet_stop::{
+    FleetBootBinding, FleetStopAcceptance, FleetStopAction, FleetStopRequest, VerifiedFleetClosure,
+};
 pub use crate::raft::host::{
-    RaftArchiveOptions, RaftCellPlacement, RaftCellRegistration, RaftCellsConfig,
-    RaftCellsServices, RaftControllerOptions, RaftControllerStatus, RaftExtentCacheLimits,
-    RaftExtentLimits, RaftExtentOptions, RaftHostOptions, RaftInspectionScanOptions,
-    RaftNodeDirectoryOptions, RaftPeerNode,
+    FleetImageState, FleetMembershipConfiguration, FleetMembershipObservation, FleetPublishedCut,
+    FleetPublishedImage, RaftArchiveOptions, RaftCellPlacement, RaftCellRegistration,
+    RaftCellsConfig, RaftCellsServices, RaftControllerOptions, RaftControllerStatus,
+    RaftExtentCacheLimits, RaftExtentLimits, RaftExtentOptions, RaftHostEnrollmentObservation,
+    RaftHostObservation, RaftHostOptions, RaftHostStartupBounds, RaftInspectionScanOptions,
+    RaftManagedHostOptions, RaftNamespaceRegistration, RaftNodeDirectoryOptions,
+    RaftPeerFleetMembershipObservation, RaftPeerNode, RaftPeerNodeObservation,
 };
 pub use crate::raft::inspection::{
     CellInspection, InspectionError, LeaderLoad, MemberInspection, NodeInspection, RaftNodeProfile,
     ReplicaOccupancy,
 };
 pub use crate::raft::member_state::{
+    FleetGroupBinding, FleetMembershipPermit, FleetMembershipStatus, FleetPermitPhase,
     JoiningMember, RepairPhase, RepairPlan, RepairStatus, RepairStep,
 };
 pub use crate::raft::operations::{
@@ -97,15 +138,16 @@ pub mod verification {
         ArchiveDependency, ArchiveError, ArchiveLimits, ArchiveMetadata, ArchiveRecoverySet,
         ArchiveReference, ArchiveVerifier, CellArchive, CommittedArchiveCut, RootAllocation,
         RootArchiveReference, RootArchiveSnapshot, RootDescriptor, RootIntent, RootProtection,
-        RootReference, RootRegistry, RootRegistryId, RootReservation,
+        RootReference, RootRegistry, RootRegistryId, RootReservation, VerifiedArchiveCoverage,
     };
     pub use crate::raft::cache::{
         CommittedImage, DurableApply, GroupLog, GroupWrite, SnapshotChange,
     };
     pub use crate::raft::catalog::{
-        BirthProposal, BootstrapPermit, Catalog, CatalogError, CatalogOptions, GroupBirth,
-        InitialMember, NamespaceCatalog, NamespaceConfig, NodePublication, NodeRegistration,
-        NodeView, RaftImageStorage, VoterPolicy,
+        BirthDisposition, BirthInventoryCursor, BirthInventoryEntry, BirthInventoryPage,
+        BirthProposal, BootstrapPermit, Catalog, CatalogError, CatalogOptions,
+        FrozenBirthInventory, GroupBirth, InitialMember, NamespaceCatalog, NamespaceConfig,
+        NodePublication, NodeRegistration, NodeView, RaftImageStorage, VoterPolicy,
     };
     pub use crate::raft::completion::{
         AcceptedProposal, ApplyCompletion, ApplyTicket, GroupStatus, RuntimeError, RuntimeEvent,
@@ -116,6 +158,31 @@ pub mod verification {
         CommittedReceipt, ExecutionError, ExecutionLimits, ExecutionStatus, PreparedCommand,
         PrivateExecutor, PrivateOptions, RegisteredQueryOutput, RootPrivateOptions, StageOutcome,
         StoredReceipt,
+    };
+    pub use crate::raft::fleet_catalog::{
+        FleetBirthAuthorization, FleetBirthReservation, FleetCatalog, FleetCatalogError,
+        FleetChange, FleetCommit, FleetCursor, FleetEntry, FleetEvacuationAdmission,
+        FleetEvacuationArchive, FleetEvacuationCancelFence, FleetEvacuationCancelRequest,
+        FleetEvacuationCancellation, FleetEvacuationCandidate, FleetEvacuationVerification,
+        FleetFinalizationAdmission, FleetHistory, FleetHistoryState, FleetImportPhase,
+        FleetInventory, FleetIsolatedRemovalAdmission, FleetIsolatedRemovalRequest, FleetMutation,
+        FleetNamespaceImport, FleetPage, FleetRemovalAdmission, FleetRemovalRequest,
+        FleetRestartAdmission, FleetRestartBirthAction, FleetRestartBirthResolution,
+        FleetRestartGateAdmission, FleetRestartGateCancelRequest, FleetRestartGateRequest,
+        FleetRestartHistoryProgress, FleetRestartOfflineAdmission, FleetRestartOfflineRequest,
+        FleetRestartOperatorAction, FleetRestartOperatorActionAdmission,
+        FleetRestartOperatorActionRequest, FleetRestartOperatorAdmission,
+        FleetRestartOperatorCancelAdmission, FleetRestartOperatorCancelRequest,
+        FleetRestartOperatorCancelled, FleetRestartOperatorCompleted, FleetRestartOperatorDriver,
+        FleetRestartOperatorPhase, FleetRestartOperatorProgress, FleetRestartOperatorRequest,
+        FleetRestartOperatorStatus, FleetRestartPendingWork, FleetRestartReadyAdmission,
+        FleetRestartReadyRequest, FleetRestartRequest, FleetRestartResumeAdmission,
+        FleetRestartResumeCompleteRequest, FleetRestartResumeCompletion, FleetRestartResumePhase,
+        FleetRestartResumeProgress, FleetRestartResumeRequest, FleetRestartResumeVerification,
+        FleetRestartReturnAdmission, FleetRestartReturnRequest, FleetRestartRuntimeCandidate,
+        FleetRestartRuntimeProgress, FleetRestartSettlementBlocker, FleetRestartSettlementProgress,
+        FleetRestartStopAdmission, FleetRestartStopRefreshRequest, FleetRestartStopRequest,
+        FleetRestartVerification, FleetSnapshot, FleetTable,
     };
     pub use crate::raft::inspection::{
         CellInspection, LeaderLoad, MemberInspection, NodeInspection, RaftNodeProfile,

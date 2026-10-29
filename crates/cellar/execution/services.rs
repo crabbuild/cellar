@@ -217,6 +217,10 @@ impl HostServices {
         self.node_operations.get().cloned()
     }
 
+    pub(crate) fn public_maintenance_closed(&self) -> bool {
+        self.raft_lifecycle.public_maintenance_closed()
+    }
+
     pub(crate) fn raft_lifecycle(&self) -> Arc<crate::raft::operations::NodeLifecycle> {
         self.raft_lifecycle.clone()
     }

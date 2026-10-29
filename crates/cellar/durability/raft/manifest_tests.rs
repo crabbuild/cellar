@@ -52,24 +52,24 @@ fn checkpoint() -> Manifest {
     let position = Position { index: 10, term: 2 };
     let snapshot = Snapshot {
         position,
-        image: Image {
+        image: Some(Image {
             epoch: 1,
             txid: 1,
             checksum: 0,
             page_size: 4096,
             length: 4096,
             digest: [4; 32],
-        },
+        }),
         conf_state: encode_conf(&conf).unwrap(),
         membership: GroupMembership::initial(&conf),
-        object: ObjectRef::new(
+        object: Some(ObjectRef::new(
             ObjectKind::Snapshot,
             b"metadata-only fixture",
             Some(PositionRange {
                 first: position,
                 last: position,
             }),
-        ),
+        )),
     };
     Manifest {
         scope: (&GroupScope {
@@ -85,6 +85,7 @@ fn checkpoint() -> Manifest {
         schema_digest: [7; 32],
         position,
         image: snapshot.image,
+        image_position: Some(position),
         conf_state: snapshot.conf_state.clone(),
         membership: snapshot.membership.clone(),
         snapshot,

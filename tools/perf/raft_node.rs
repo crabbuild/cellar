@@ -5,6 +5,7 @@
 #[path = "../../examples/raft-counter/counter.rs"]
 mod counter;
 mod raft_disaster;
+mod raft_fleet;
 mod raft_probe;
 mod raft_workload;
 mod reference_workload;
@@ -222,6 +223,11 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|_| "0".into())
         .parse()?;
     ensure!(generation <= 1, "invalid disaster generation");
+    ensure!(
+        std::env::var_os("RAFT_FLEET_CONFIG").is_none()
+            || (generation == 0 && std::env::var_os("RAFT_DISASTER_ACTION").is_none()),
+        "managed fleet and disaster fixture modes cannot be combined"
+    );
     if let Ok(action) = std::env::var("RAFT_DISASTER_ACTION") {
         ensure!(
             workload && placement.nodes == 3 && generation == 0,
@@ -230,6 +236,54 @@ async fn main() -> Result<()> {
         return raft_disaster::run(&action, store, schema, total).await;
     }
     let class_name = if workload { "Workload" } else { "Counter" };
+    let managed = if let Some(path) = std::env::var_os("RAFT_FLEET_CONFIG") {
+        use std::io::Read;
+        let mut bytes = Vec::new();
+        std::fs::File::open(path)?
+            .take(16 * 1024 + 1)
+            .read_to_end(&mut bytes)?;
+        ensure!(
+            bytes.len() <= 16 * 1024,
+            "fleet configuration exceeds limit"
+        );
+        let fleet_config: raft_fleet::Config = serde_json::from_slice(&bytes)?;
+        ensure!(
+            fleet_config.nodes == placement.nodes,
+            "fleet node count mismatch"
+        );
+        ensure!(
+            fleet_config.group_capacity as usize >= local_count,
+            "fleet capacity is below the planned local replica count"
+        );
+        ensure!(
+            !primary_only,
+            "managed fleet does not use static leadership controls"
+        );
+        let initialize = std::env::var("RAFT_FLEET_INIT").as_deref() == Ok("1");
+        let managed = raft_fleet::Managed::open(
+            bucket,
+            fleet_config,
+            NamespaceConfig::new(cluster, namespace, NamespaceMode::Raft, schema),
+            class_name,
+            initialize,
+        )
+        .await?;
+        if initialize {
+            let result = managed.bootstrap().await;
+            managed.domain.shutdown().await;
+            cellar::cli_output::Output::new(cellar::cli_output::Format::Text)
+                .line(format_args!("{}", result?))?;
+            return Ok(());
+        }
+        Some(Arc::new(managed))
+    } else {
+        ensure!(
+            std::env::var_os("RAFT_FLEET_INIT").is_none(),
+            "fleet initialization requires a configuration"
+        );
+        None
+    };
+
     let reference = if workload {
         Some(raft_workload::Api::new(
             secret.clone(),
@@ -304,6 +358,7 @@ async fn main() -> Result<()> {
         CompiledApplications::default().register(&label, "example", move || Ok(app.clone()))?,
     )
     .await?;
+    let result = async {
     let mut peers = Vec::new();
     for n in 1..=placement.nodes {
         let address = |port| format!("{network}.{}:{port}", n + 10).parse();
@@ -352,10 +407,12 @@ async fn main() -> Result<()> {
         })
         .collect::<Result<Vec<_>>>()?;
     let log_dir = node.info().data_dir.join("raft");
-    let mode = if log_dir.exists() {
-        LogOpenMode::Resume
-    } else {
+    // A fresh mounted filesystem already has a directory. Create validates its
+    // contents and refuses retained state; managed startup never resumes it.
+    let mode = if managed.is_some() || !log_dir.exists() {
         LogOpenMode::Create
+    } else {
+        LogOpenMode::Resume
     };
     let peer = &peers[i as usize - 1];
     let mut host = RaftHostOptions {
@@ -370,33 +427,45 @@ async fn main() -> Result<()> {
     host.archive.max_blocking_jobs = archive_blocking_jobs;
     host.archive.max_batch_groups = archive_batch_groups;
     host.archive.max_unarchived_bytes = archive_max_unarchived_bytes;
+    let mut raft_config = RaftCellsConfig {
+        query_origins: vec![],
+        infrastructure: NodeRaftConfig {
+            log: ReplicaLogOptions::new(log_dir, peer.node, peer.disk, peer.process, mode),
+            consensus: RaftRuntimeOptions {
+                tick_interval_ms: Some(tick_ms),
+                max_requests: queue_items,
+                max_events: queue_items,
+                ..Default::default()
+            },
+            transport: TransportOptions {
+                queue_items,
+                peer_control_bytes: 16 * 1024 * 1024,
+                node_control_bytes: 32 * 1024 * 1024,
+                ..Default::default()
+            },
+        },
+        catalog: CatalogOptions {
+            prefix: "perf/multi-raft".into(),
+            ..Default::default()
+        },
+        cells,
+        peers,
+        host,
+    };
+    if let Some(managed) = &managed {
+        managed
+            .configure(&mut raft_config, NodeId::new([i; 16])?)
+            .await?;
+        raft_config = raft_config
+            .with_extent_image_limit(managed.config.image_bytes, managed.config.extent_options())?;
+        ensure!(
+            mode == LogOpenMode::Create,
+            "managed lab startup requires a fresh volume"
+        );
+    }
     let service = node
         .start_raft_cells(
-            RaftCellsConfig {
-                query_origins: vec![],
-                infrastructure: NodeRaftConfig {
-                    log: ReplicaLogOptions::new(log_dir, peer.node, peer.disk, peer.process, mode),
-                    consensus: RaftRuntimeOptions {
-                        tick_interval_ms: Some(tick_ms),
-                        max_requests: queue_items,
-                        max_events: queue_items,
-                        ..Default::default()
-                    },
-                    transport: TransportOptions {
-                        queue_items,
-                        peer_control_bytes: 16 * 1024 * 1024,
-                        node_control_bytes: 32 * 1024 * 1024,
-                        ..Default::default()
-                    },
-                },
-                catalog: CatalogOptions {
-                    prefix: "perf/multi-raft".into(),
-                    ..Default::default()
-                },
-                cells,
-                peers,
-                host,
-            },
+            raft_config,
             RaftCellsServices {
                 listeners: NodeRaftListeners {
                     control: tokio::net::TcpListener::bind("0.0.0.0:9100").await?,
@@ -426,6 +495,21 @@ async fn main() -> Result<()> {
             .map_err(|_| anyhow::anyhow!("poisoned binding"))? = Some(service.clone());
         raft_workload::router(api)
     };
+    let router = if let Some(managed) = &managed {
+        let container = cellar::docker::ContainerId::new(
+            std::fs::read_to_string(format!("/config/container{i}"))?.trim(),
+        )?;
+        router.merge(raft_fleet::router(
+            managed.clone(),
+            service.clone(),
+            NodeId::new([i; 16])?,
+            secret.clone(),
+            container,
+        )?)
+    } else {
+        router
+    };
+    let is_managed = managed.is_some();
     let metrics = service.clone();
     let metrics_secret = secret.clone();
     let router = router.route("/metrics", axum::routing::get(move |headers: axum::http::HeaderMap| {
@@ -511,6 +595,7 @@ async fn main() -> Result<()> {
                 let result = async {
                     ensure!(authorized, "unauthorized");
                     ensure!(id < total, "invalid cell");
+                    ensure!(!transfer || !is_managed, "managed leadership requires the fleet operator protocol");
                     if let Some(probe_id) = probe_id? {
                         ensure!(!transfer, "only read probes may be timed");
                         probe = Some(probes.start(&probe_id, id)?);
@@ -539,12 +624,12 @@ async fn main() -> Result<()> {
                         if let Some(probe) = &probe { probe.replication_finished(); }
                         let progress = progress.map_err(|e| anyhow::anyhow!("{e:?}"))?;
                         ensure!(progress.term == status.term && progress.membership_revision == status.membership_revision
-                            && progress.replica.member.get() == u64::from(i), "changed replication observation");
-                        ensure!(progress.members.iter().all(|member| member.voter), "unexpected learner");
+                            && (is_managed || progress.replica.member.get() == u64::from(i)), "changed replication observation");
+                        ensure!(is_managed || progress.members.iter().all(|member| member.voter), "unexpected learner");
                         Some(progress)
                     } else { None };
                     let voters = replication.as_ref().map(|progress| {
-                        let mut voters: Vec<_> = progress.members.iter().map(|member| member.member.get()).collect();
+                        let mut voters: Vec<_> = progress.members.iter().filter(|member| member.voter).map(|member| member.member.get()).collect();
                         voters.sort_unstable();
                         voters
                     });
@@ -573,7 +658,7 @@ async fn main() -> Result<()> {
     cellar::note!(
         "raft_perf_ready node={} groups={} tick_ms={} queue_items={} archive_producers={} archive_blocking_jobs={} sql_workers={} sql_worker_queue={} durability={:?} archive=rustfs",
         i,
-        local_count,
+        if is_managed { 0 } else { local_count },
         tick_ms,
         queue_items,
         archive_producers,
@@ -592,9 +677,18 @@ async fn main() -> Result<()> {
         .await;
     probe_domain.shutdown().await;
     served?;
-    node.shutdown(ShutdownMode::Preserve)
-        .await
-        .context("node shutdown")?;
+    Ok::<_, anyhow::Error>(service)
+    }.await;
+    // Join native owners on setup errors as well as normal serving shutdown.
+    let shutdown = node.shutdown(ShutdownMode::Preserve).await;
+    if let Err(error) = &shutdown {
+        tracing::error!("node shutdown failed: {error:#}");
+    }
+    if let Some(managed) = managed {
+        managed.domain.shutdown().await;
+    }
+    let service = result?;
+    shutdown.context("node shutdown")?;
     let report = service
         .close()
         .await

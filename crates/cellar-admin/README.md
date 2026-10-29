@@ -51,11 +51,124 @@ configure the external origin. The private Cellar peer listener stays private.
 ## Configure access
 
 Permissions are independent per fleet: `metadata_read`, `data_read`,
-`data_write`, `operate`, and `configure`. Resource operations resolve declared
+`data_write`, `operate`, `configure`, `fleet_topology`, `fleet_cancel`, `fleet_register`, `fleet_capacity`, and `fleet_maintenance`. Resource operations resolve declared
 application bindings on the server before routing. Do not distribute tokens
 with grants broader than the operator needs. The service currently uses static
 host-configured principals; applications can construct `Console` with their own
 explicit principal provisioning.
+
+## Managed Raft maintenance
+
+`POST /api/v1/fleets/{fleet}/raft/nodes/{node}/prepare-maintenance` requires
+`fleet_maintenance`; cancellation at `cancel-maintenance` requires `fleet_cancel`.
+Both record durable audit intent before backend dispatch. `GET
+/api/v1/fleets/{fleet}/raft/maintenance/{operation}` requires `metadata_read` and
+performs no execution or metadata mutation. Configure and retain the explicit
+Node-owned `RaftFleetControl::start_maintenance_service` in the embedding host;
+HTTP requests and ordinary dashboard construction do not start a controller.
+
+The CLI supports prepare/cancel/status and independent stop/return/resume grants
+with read-only waiting. `POST /nodes/{node}/maintenance-actions` requires
+`fleet_stop` for stop, `fleet_maintenance` for return, and both `fleet_maintenance`
+and `fleet_capacity` for resume. Each grant is audited before dispatch. Stop
+waits for signed joined offline confirmation; return exposes canonical retained
+startup context; resume waits for verified M9 and terminal operator completion.
+The platform starts the retained process separately. Grace/rolling/second-failure
+policy and extent-backed fleet lifecycle proofs remain unfinished. See the
+[operator workflow](../../plans/multi-raft/fleet-operations/operator-workflows.md#intact-maintenance-operator-workflow)
+for payload scope, grants, reconciliation and current limits.
+
+## Managed Raft placement operations
+
+The SDK, admin API and dedicated `cellar raft fleet` CLI expose durable
+keep-set rebalancing, operation status, paginated movement admissions, wait and
+cancellation. Enable this interface explicitly; ordinary dashboard fleets have
+no Raft mutation adapter. The browser does not yet provide placement controls.
+
+For an existing managed fleet, add `raft` to its private dashboard configuration:
+
+```json
+{
+  "cluster_id": "01010101010101010101010101010101",
+  "incarnation_id": "50505050505050505050505050505050",
+  "coordination_prefix": "hosts/",
+  "namespaces": [
+    {
+      "namespace_id": "02020202020202020202020202020202",
+      "schema_digest": "0303030303030303030303030303030303030303030303030303030303030303",
+      "catalog_prefix": "raft/",
+      "scope": "bucket",
+      "managed": true,
+      "image_storage": "Materialized"
+    }
+  ]
+}
+```
+
+These are example identities: use the original cluster, fleet incarnation,
+namespace schema and storage prefixes. Supply the complete rooted namespace
+inventory, including previously imported namespaces with their original
+`managed` setting. Set `image_storage` to the original immutable namespace choice,
+`Materialized` (the default when omitted) or `Extents`; connecting with the wrong
+choice refuses without changing the Root. `bucket` resolves namespace metadata within the fleet's bucket
+prefix; explicit `store_root` is for deployments whose existing namespace metadata
+is outside that prefix. Connection opens existing roots and verifies inventory;
+it never initializes a missing fleet or namespace. A separately started,
+node-owned topology service must execute admitted work with trusted deployment
+resource inputs. This server connection does not start that service.
+
+Grant `metadata_read` for observation, `fleet_topology` for rebalance admission,
+and `fleet_cancel` for cancellation. Neither `operate` nor `configure` grants
+these mutations. The authenticated principal supplies the audit identity;
+request bodies cannot impersonate another principal. Each mutation is audited
+before dispatch. An exact retry reconciles the real catalog even when an earlier
+audit entry exists. A confirmed historical admission cannot be downgraded by a
+later unconfirmed retry.
+
+See the [runnable operator workflow](../../plans/multi-raft/fleet-operations/operator-workflows.md#delivered-keep-set-workflow)
+for commands, catalog-generation pins, API routes and retry semantics. This
+delivery also exposes explicit node registration, qualification and activation.
+Grant `fleet_register` for descriptors and `fleet_capacity` only to a trusted
+deployment authority that may attest platform limits. These grants do not imply
+one another or grant rebalancing. Qualification and activation require an
+embedded server to install a running observer using
+`RaftFleetControl::with_node_observer`; the standalone existing-root connection
+has no observer and returns `unsupported` for these two commands. The adapter
+still owns live authenticated probes and complete inventory checks. Operator
+attestations are explicit trust, not kernel measurements or an infrastructure
+provider. See the [add-capacity workflow](../../plans/multi-raft/fleet-operations/operator-workflows.md#delivered-add-capacity-workflow)
+for request files, exact retries and the distinction between historical admission
+and current readiness.
+
+Graceful node departure adds independent `fleet_evacuate`, `fleet_remove` and
+`fleet_stop` grants. Complete a keep-set redistribution excluding the node,
+then exclude it, prepare the complete-inventory finalization fence, explicitly
+request the exact process stop, and consume its signed joined closure in terminal
+removal. The embedding server must additionally configure
+`RaftFleetControl::with_removal_verifier` with its private bounded replay store;
+extent namespaces additionally require `ArchiveVerifier::with_extent_store`
+with a separate exclusively owned, initially empty `NodeExtentStore`. Never
+supply a live node's inventory. Each proof freshly downloads and seals the exact
+remote extent closure in this scratch owner. Entered physical work retains the
+owner after cancellation; a subsequent attempt reconciles scratch only after that
+work exits. Physical inventory quarantine still refuses verification.
+Standalone existing-root connections cannot perform live proof or dispatch stop.
+Status and exact committed receipt reconciliation remain metadata operations.
+See the [departure workflow](../../plans/multi-raft/fleet-operations/operator-workflows.md#evacuate-and-permanently-remove-a-node)
+for CLI syntax, restart behavior and retained reservation reporting. Removal
+retains volumes and archives.
+
+The `fleet_cancel` grant also authorizes node `cancel-evacuation`. Before
+finalization this is a metadata operation. Afterwards the server owns an exact
+process-fence RPC and requires its synced acknowledgement before Ready and slot
+release. Cancellation refuses after stop acceptance or permanent quarantine. Keep the child
+fence ID across changed-root parent requests; never treat a timeout as successful
+cancellation. Ready invalidates old capacity and retains all resource charges.
+Historical retries need no live observer and cannot rewrite later node state.
+See [cancel and restart](../../plans/multi-raft/fleet-operations/operator-workflows.md#cancel-and-restart-a-departure)
+for the audited recovery sequence and identity rules. In-place certificate
+refresh, maintenance/rejoin, resize and infrastructure provisioning remain
+separate delivery work.
 
 ## Validate changes
 

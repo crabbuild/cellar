@@ -967,3 +967,57 @@ async fn event_lifecycle_requires_both_operate_and_data_write() {
     );
     domain.shutdown().await;
 }
+
+#[test]
+fn raft_node_accepted_audit_cannot_be_downgraded_by_late_failure() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("audit.sqlite");
+    for (index, action) in [
+        "raft_node_register",
+        "raft_node_qualify",
+        "raft_node_activate",
+        "raft_node_evacuate",
+        "raft_node_prepare_removal",
+        "raft_node_stop",
+        "raft_node_remove",
+        "raft_node_cancel",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let store = AuditStore::open(&path).unwrap();
+        let id = format!("node-{index}");
+        store
+            .begin(
+                &id,
+                "alpha",
+                "deployer",
+                "raft/nodes/test",
+                action,
+                "fingerprint",
+            )
+            .unwrap();
+        let mut operation = store
+            .list("alpha")
+            .unwrap()
+            .into_iter()
+            .find(|op| op.id == id)
+            .unwrap();
+        store.finish(&mut operation, "accepted").unwrap();
+        store.finish(&mut operation, "outcome_unknown").unwrap();
+        store.finish(&mut operation, "not_submitted").unwrap();
+        assert_eq!(operation.status, "accepted");
+        drop(store);
+        let reopened = AuditStore::open(&path).unwrap();
+        assert_eq!(
+            reopened
+                .list("alpha")
+                .unwrap()
+                .into_iter()
+                .find(|op| op.id == id)
+                .unwrap()
+                .status,
+            "accepted"
+        );
+    }
+}

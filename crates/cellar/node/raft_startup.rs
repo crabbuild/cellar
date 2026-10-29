@@ -19,9 +19,15 @@ impl Startup<'_> {
         config: RaftCellsConfig,
         services: RaftCellsServices,
     ) -> anyhow::Result<RaftCells> {
-        let starting = crate::asyncrt::services().raft_lifecycle().begin()?;
+        let starting = crate::asyncrt::services().raft_lifecycle().begin(
+            config.host.managed.is_some(),
+            config.host.managed.as_ref().is_some_and(|m| {
+                m.authorization.state()
+                    == crate::raft::fleet_catalog::FleetNodeState::RestartPending
+            }),
+        )?;
         match self.inner(config, services).await {
-            Ok(service) => match starting.install(service.clone()) {
+            Ok((service, stop)) => match starting.install(service.clone(), stop) {
                 Ok(()) => Ok(service),
                 Err(error) => {
                     let _ = service.close().await;
@@ -37,26 +43,53 @@ impl Startup<'_> {
 
     async fn inner(
         &self,
-        config: crate::application::consensus::RaftCellsConfig,
+        mut config: crate::application::consensus::RaftCellsConfig,
         services: crate::application::consensus::RaftCellsServices,
-    ) -> anyhow::Result<crate::application::consensus::RaftCells> {
+    ) -> anyhow::Result<(
+        crate::application::consensus::RaftCells,
+        Option<crate::raft::fleet_stop::Services>,
+    )> {
         use crate::application::consensus::{RaftCellPlacement, RegistrationError};
         anyhow::ensure!(
             config.infrastructure.log.directory == self.data_dir.join("raft"),
             "Raft log must use this node's raft directory"
         );
         config.host.validate()?;
+        anyhow::ensure!(
+            config.host.extents.is_some()
+                || config.host.managed.as_ref().is_none_or(|managed| {
+                    managed.namespaces.iter().all(|entry| {
+                        entry.namespace.image_storage
+                            != crate::application::consensus::RaftImageStorage::Extents
+                    })
+                }),
+            "managed extent namespace requires node extent storage"
+        );
         config.infrastructure.transport.validate()?;
         config
             .infrastructure
             .transport
             .snapshot_limits(config.host.execution.max_image_bytes)?;
         anyhow::ensure!(
-            !config.cells.is_empty() && config.cells.len() <= config.host.max_groups,
+            (!config.cells.is_empty() || config.host.managed.is_some())
+                && config.cells.len() <= config.host.max_groups,
             "invalid registered Raft cell count"
         );
         let mut definitions = Vec::new();
         for cell in &config.cells {
+            anyhow::ensure!(
+                cell.birth.voters.len() <= 32 && cell.birth.learners.len() <= 32,
+                "registered birth membership exceeds the catalog bound"
+            );
+            if let Some(managed) = &config.host.managed {
+                anyhow::ensure!(
+                    managed
+                        .namespaces
+                        .iter()
+                        .any(|n| n.namespace == cell.namespace && n.class == cell.class),
+                    "cell is outside managed host capabilities"
+                );
+            }
             anyhow::ensure!(
                 cell.namespace.image_storage
                     != crate::application::consensus::RaftImageStorage::Extents
@@ -88,54 +121,94 @@ impl Startup<'_> {
             );
             definitions.push(class);
         }
-        let (performance, registrations) = self
+        let mut declared_definitions = Vec::new();
+        if let Some(managed) = &config.host.managed {
+            anyhow::ensure!(
+                managed.authorization.node() == config.infrastructure.log.node
+                    && managed.authorization.disk() == config.infrastructure.log.disk,
+                "managed startup identity mismatch"
+            );
+            for entry in &managed.namespaces {
+                anyhow::ensure!(
+                    !services.application.supports_cell(&entry.class)
+                        && !services.application.supports_workflow(&entry.class),
+                    RegistrationError::UnsupportedFactory(entry.class.clone())
+                );
+                let class = services.application.resolve_raft_class(&entry.class)?;
+                class.validate_host(&config.host)?;
+                anyhow::ensure!(
+                    class.schema_digest() == entry.namespace.schema_digest,
+                    "managed compiled schema mismatch"
+                );
+                declared_definitions.push(class);
+            }
+        }
+        let (performance, registrations, declared_namespaces) = self
             .domain
             .run(async {
                 let performance = crate::raft::performance::Registry::new(self.domain.clone());
                 let store = crate::raft::object_metrics::wrap(services.store, performance.clone());
                 let catalog = crate::raft::catalog::Catalog::new(store, config.catalog)?;
+                let mut declared_namespaces = Vec::new();
+                if let Some(managed) = &mut config.host.managed {
+                    managed.authorization = managed
+                        .authorization
+                        .refresh(std::time::Duration::from_secs(5))
+                        .await?;
+                    if managed.authorization.state()
+                        == crate::raft::fleet_catalog::FleetNodeState::RestartPending
+                    {
+                        crate::asyncrt::services()
+                            .raft_lifecycle()
+                            .hold_startup_maintenance();
+                    }
+                    for (entry, class) in managed.namespaces.iter().zip(declared_definitions) {
+                        let namespace = catalog.existing_namespace(entry.namespace.clone()).await?;
+                        namespace
+                            .require_version_keys(
+                                &services.versions,
+                                u64::try_from(crate::asyncrt::wall_ms())?,
+                            )
+                            .await?;
+                        declared_namespaces
+                            .push(crate::raft::host::NamespaceRegistration { namespace, class });
+                    }
+                }
+                let managed = config.host.managed.is_some();
                 let mut registrations = Vec::new();
                 for (cell, class) in config.cells.into_iter().zip(definitions) {
                     let namespace = match cell.placement {
-                        RaftCellPlacement::Replica => {
+                        RaftCellPlacement::Replica if !managed => {
                             catalog.open_namespace(cell.namespace).await?
                         }
-                        RaftCellPlacement::QueryRouter { .. }
-                        | RaftCellPlacement::Standby
-                        | RaftCellPlacement::Joining { .. }
-                        | RaftCellPlacement::JoiningFromS3 { .. } => {
-                            catalog.existing_namespace(cell.namespace).await?
-                        }
+                        _ => catalog.existing_namespace(cell.namespace).await?,
                     };
                     let now_ms = u64::try_from(crate::asyncrt::wall_ms())?;
                     namespace
                         .require_version_keys(&services.versions, now_ms)
                         .await?;
-                    let birth = match cell.placement {
-                        RaftCellPlacement::Replica => namespace.resolve_birth(cell.birth).await?,
-                        RaftCellPlacement::QueryRouter { .. }
-                        | RaftCellPlacement::Standby
-                        | RaftCellPlacement::Joining { .. }
-                        | RaftCellPlacement::JoiningFromS3 { .. } => {
-                            let mut expected = cell.birth;
-                            expected.voters.sort_by_key(|member| member.member);
-                            expected.learners.sort_by_key(|member| member.member);
-                            let birth =
-                                namespace
-                                    .birth(&expected.scope.cell)
-                                    .await?
-                                    .ok_or_else(|| {
-                                        anyhow::anyhow!("existing member/route birth missing")
-                                    })?;
-                            anyhow::ensure!(
-                                birth.scope() == &expected.scope
-                                    && birth.voters() == expected.voters.as_slice()
-                                    && birth.learners() == expected.learners.as_slice(),
-                                "member/route disagrees with existing birth"
-                            );
-                            birth
-                        }
-                    };
+                    let birth =
+                        match cell.placement {
+                            RaftCellPlacement::Replica if !managed => {
+                                namespace.resolve_birth(cell.birth).await?
+                            }
+                            _ => {
+                                let mut expected = cell.birth;
+                                expected.voters.sort_by_key(|member| member.member);
+                                expected.learners.sort_by_key(|member| member.member);
+                                let birth =
+                                    namespace.birth(&expected.scope.cell).await?.ok_or_else(
+                                        || anyhow::anyhow!("existing member/route birth missing"),
+                                    )?;
+                                anyhow::ensure!(
+                                    birth.scope() == &expected.scope
+                                        && birth.voters() == expected.voters.as_slice()
+                                        && birth.learners() == expected.learners.as_slice(),
+                                    "member/route disagrees with existing birth"
+                                );
+                                birth
+                            }
+                        };
                     registrations.push(crate::raft::host::Registration {
                         placement: cell.placement,
                         namespace,
@@ -143,7 +216,7 @@ impl Startup<'_> {
                         class,
                     });
                 }
-                Ok::<_, anyhow::Error>((performance, registrations))
+                Ok::<_, anyhow::Error>((performance, registrations, declared_namespaces))
             })
             .await??;
         let service = self
@@ -157,12 +230,25 @@ impl Startup<'_> {
         let log = service.log.clone();
         let runtime = service.runtime.clone();
         let transport = service.transport.clone();
+        let stop = config
+            .host
+            .managed
+            .as_ref()
+            .map(|managed| {
+                Ok::<_, anyhow::Error>(crate::raft::fleet_stop::Services {
+                    authorization: managed.authorization.clone(),
+                    log: log.clone(),
+                    signer: crate::asyncrt::services().peer_probe_signer()?,
+                })
+            })
+            .transpose()?;
         let result = self
             .domain
             .run(crate::raft::host::start(
                 service,
                 crate::raft::host::Registrations {
                     cells: registrations,
+                    namespaces: declared_namespaces,
                     peers: config.peers,
                     origins: config.query_origins,
                 },
@@ -183,7 +269,7 @@ impl Startup<'_> {
             transport.close().await;
             let _ = log.close().await;
         }
-        result
+        result.map(|service| (service, stop))
     }
 
     pub(super) async fn infrastructure(

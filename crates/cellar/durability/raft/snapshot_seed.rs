@@ -163,6 +163,10 @@ pub(crate) struct PreparedSeed {
 }
 
 impl PreparedSeed {
+    pub(crate) fn membership(&self) -> &crate::raft::member_state::GroupMembership {
+        &self.descriptor.membership
+    }
+
     pub(crate) fn from_root_archive(
         grant: crate::raft::transport::seeds::ArchiveSeedGrant,
         set: crate::raft::archive::ArchiveRecoverySet,
@@ -173,6 +177,39 @@ impl PreparedSeed {
         reservation: std::sync::Arc<crate::raft::budget::Permit>,
     ) -> Result<Self, SnapshotError> {
         let binding = validate_archive_seed(&grant, &set, birth, schema, limits)?;
+        if set.is_canonical_empty().map_err(SnapshotError::Archive)? {
+            // The fresh grant and committed learner/barrier above remain
+            // mandatory. An empty history has no physical image to convert.
+            let descriptor = Descriptor {
+                format: 1,
+                scope: WireScope::from(birth.scope()),
+                birth: birth.digest(),
+                schema,
+                index: binding.position.index.get(),
+                term: binding.position.term.get(),
+                conf: manifest::encode_conf(&binding.conf)?,
+                membership: binding.membership,
+                image: None,
+                encoded_length: 0,
+                encoded_digest: Sha256::digest([]).into(),
+                transfer_length: 0,
+            };
+            Descriptor::decode_bound(
+                birth.scope(),
+                birth.digest(),
+                &crate::raft::member_state::GroupMembership::initial(&binding.initial),
+                schema,
+                &descriptor.snapshot()?,
+                limits,
+            )?;
+            return Ok(Self {
+                grant: SeedPermit::S3(grant),
+                descriptor,
+                initial: binding.initial,
+                pin: None,
+                _reservation: reservation,
+            });
+        }
         let (snapshot, image) = set.into_root(store).map_err(SnapshotError::Archive)?;
         let descriptor = Descriptor::decode_bound(
             birth.scope(),
@@ -320,8 +357,13 @@ impl PreparedSeed {
                 .try_into()
                 .map_err(|_| SnapshotError::Invalid("archive seed image nonce"))?,
         )?;
-        let pin = set.restore(images, nonce).map_err(SnapshotError::Archive)?;
-        let bytes = encode_image(&pin, limits, stream_snapshot::IoProfile::Compact)?;
+        let pin = set
+            .restore_state(images, nonce)
+            .map_err(SnapshotError::Archive)?;
+        let bytes = pin
+            .as_ref()
+            .map(|pin| encode_image(pin, limits, stream_snapshot::IoProfile::Compact))
+            .transpose()?;
         let descriptor = Descriptor {
             format: 1,
             scope: WireScope::from(birth.scope()),
@@ -332,10 +374,17 @@ impl PreparedSeed {
             conf: manifest::encode_conf(&conf)
                 .map_err(|_| SnapshotError::Invalid("archive seed configuration encoding"))?,
             membership,
-            image: Some(marker(&pin)),
-            encoded_length: bytes.metadata().encoded_length as usize,
-            encoded_digest: bytes.metadata().encoded_digest,
-            transfer_length: bytes.metadata().encoded_length as usize,
+            image: pin.as_ref().map(marker),
+            encoded_length: bytes
+                .as_ref()
+                .map_or(0, |file| file.metadata().encoded_length as usize),
+            encoded_digest: bytes.as_ref().map_or_else(
+                || Sha256::digest([]).into(),
+                |file| file.metadata().encoded_digest,
+            ),
+            transfer_length: bytes
+                .as_ref()
+                .map_or(0, |file| file.metadata().encoded_length as usize),
         };
         Descriptor::decode_bound(
             birth.scope(),
@@ -349,7 +398,7 @@ impl PreparedSeed {
             grant: SeedPermit::S3(grant),
             descriptor,
             initial,
-            pin: Some(SnapshotPin::Materialized(pin)),
+            pin: pin.map(SnapshotPin::Materialized),
             _reservation: reservation,
         })
     }

@@ -27,6 +27,19 @@ pub(super) enum Cut {
 }
 
 impl CommittedArchiveCut {
+    /// Capture canonical empty materialized state without creating SQL data.
+    pub fn capture_empty(
+        group: &GroupLog,
+        schema: [u8; 32],
+        limits: ArchiveLimits,
+    ) -> Result<Self, ArchiveError> {
+        Ok(Self {
+            inner: Cut::Materialized(Box::new(MaterializedCut::capture_empty(
+                group, schema, limits,
+            )?)),
+        })
+    }
+
     pub fn capture(
         group: &GroupLog,
         image: PublishedImage,
@@ -79,7 +92,10 @@ impl CommittedArchiveCut {
 
     pub(super) fn image_bytes(&self) -> u64 {
         match &self.inner {
-            Cut::Materialized(cut) => cut.image.pin().state().length,
+            Cut::Materialized(cut) => cut
+                .image
+                .as_ref()
+                .map_or(0, |image| image.pin().state().length),
             Cut::Rooted(cut) => cut.image_bytes,
         }
     }
@@ -125,6 +141,45 @@ impl ArchiveMetadata {
         }
     }
 
+    /// Selected materialized state. Extent commitments require their own
+    /// representation and cannot be described by a materialized image digest.
+    pub fn image_state(&self) -> Result<Option<ImageState>, ArchiveError> {
+        match &self.inner {
+            Metadata::Materialized(meta) => meta.manifest.image.map(Image::decode).transpose(),
+            Metadata::Rooted(_) => Err(ArchiveError::Invalid(
+                "extent archive has no materialized image state",
+            )),
+        }
+    }
+
+    /// Tagged producer state and exact publication origin, without flattening
+    /// an extent root or inferring data position from a configuration snapshot.
+    pub fn published_image(
+        &self,
+    ) -> Result<Option<crate::raft::host::FleetPublishedImage>, ArchiveError> {
+        use crate::raft::host::{FleetImageState, FleetPublishedImage};
+        match &self.inner {
+            Metadata::Materialized(meta) => {
+                match (meta.manifest.image, meta.manifest.image_position) {
+                    (None, None) => Ok(None),
+                    (Some(image), Some(position)) => {
+                        FleetPublishedImage::new(position.decode()?, image.decode()?)
+                            .map(Some)
+                            .map_err(|_| ArchiveError::Corrupt("materialized publication"))
+                    }
+                    _ => Err(ArchiveError::Corrupt("materialized publication origin")),
+                }
+            }
+            Metadata::Rooted(meta) => FleetPublishedImage::new_state(
+                meta.head.image_position.decode()?,
+                FleetImageState::from_marker(meta.snapshot.marker())
+                    .map_err(|_| ArchiveError::Corrupt("extent publication marker"))?,
+            )
+            .map(Some)
+            .map_err(|_| ArchiveError::Corrupt("extent publication")),
+        }
+    }
+
     pub fn configuration(&self) -> Result<ConfState, ArchiveError> {
         match &self.inner {
             Metadata::Materialized(meta) => manifest::decode_conf(&meta.manifest.conf_state),
@@ -157,6 +212,33 @@ pub(super) enum Recovery {
 }
 
 impl ArchiveRecoverySet {
+    pub(super) fn materialized(&self) -> Result<&MaterializedSet, ArchiveError> {
+        match &self.inner {
+            Recovery::Materialized(set) => Ok(set),
+            Recovery::Rooted(_) => Err(ArchiveError::Invalid(
+                "extent archive requires a node inventory",
+            )),
+        }
+    }
+
+    /// Descriptive selected materialized state; no activation authority.
+    pub fn image_state(&self) -> Result<Option<ImageState>, ArchiveError> {
+        self.materialized()?
+            .manifest
+            .image
+            .map(Image::decode)
+            .transpose()
+    }
+
+    /// Exact producer publication origin, including intact-restore aliases.
+    pub fn image_position(&self) -> Result<Option<LogPosition>, ArchiveError> {
+        self.materialized()?
+            .manifest
+            .image_position
+            .map(Position::decode)
+            .transpose()
+    }
+
     pub(crate) fn birth_digest(&self) -> [u8; 32] {
         match &self.inner {
             Recovery::Materialized(set) => set.manifest.birth_digest,
@@ -208,6 +290,32 @@ impl ArchiveRecoverySet {
         }
     }
 
+    pub fn published_image(
+        &self,
+    ) -> Result<Option<crate::raft::host::FleetPublishedImage>, ArchiveError> {
+        use crate::raft::host::{FleetImageState, FleetPublishedImage};
+        match &self.inner {
+            Recovery::Materialized(set) => {
+                match (set.manifest.image, set.manifest.image_position) {
+                    (None, None) => Ok(None),
+                    (Some(image), Some(position)) => {
+                        FleetPublishedImage::new(position.decode()?, image.decode()?)
+                            .map(Some)
+                            .map_err(|_| ArchiveError::Corrupt("materialized publication"))
+                    }
+                    _ => Err(ArchiveError::Corrupt("materialized publication origin")),
+                }
+            }
+            Recovery::Rooted(set) => FleetPublishedImage::new_state(
+                set.metadata.head.image_position.decode()?,
+                FleetImageState::from_marker(set.metadata.snapshot.marker())
+                    .map_err(|_| ArchiveError::Corrupt("extent publication marker"))?,
+            )
+            .map(Some)
+            .map_err(|_| ArchiveError::Corrupt("extent publication")),
+        }
+    }
+
     pub fn tail_entries(&self) -> usize {
         match &self.inner {
             Recovery::Materialized(set) => set.entries.len(),
@@ -238,6 +346,15 @@ impl ArchiveRecoverySet {
         }
     }
 
+    /// Restore selected materialized state, preserving canonical emptiness.
+    pub fn restore_state(
+        &self,
+        images: &GenerationStore,
+        nonce: ImageId,
+    ) -> Result<Option<GenerationPin>, ArchiveError> {
+        self.materialized()?.restore_state(images, nonce)
+    }
+
     /// Prepare already sealed root material for an existing member's exact
     /// native snapshot ticket. This never flattens or converts commitments.
     pub fn prepare_root(
@@ -266,6 +383,18 @@ impl ArchiveRecoverySet {
             Recovery::Materialized(_) => {
                 Err(ArchiveError::Invalid("extent archive material required"))
             }
+        }
+    }
+
+    /// Canonical absence has no image commitment domain. Check the complete
+    /// empty payload/configuration shape before using it for an extent seed.
+    pub(crate) fn is_canonical_empty(&self) -> Result<bool, ArchiveError> {
+        match &self.inner {
+            Recovery::Materialized(set) if set.manifest.image.is_none() => {
+                set.check_payloads()?;
+                Ok(true)
+            }
+            _ => Ok(false),
         }
     }
 }
@@ -376,13 +505,16 @@ impl CellArchive {
         Ok(Some((metadata, bytes, version)))
     }
 
-    async fn load_metadata(&self, object: &ObjectRef) -> Result<ArchiveMetadata, ArchiveError> {
+    pub(super) async fn load_metadata(
+        &self,
+        object: &ObjectRef,
+    ) -> Result<ArchiveMetadata, ArchiveError> {
         if object.kind != ObjectKind::Manifest || object.bundle.is_some() {
             return Err(ArchiveError::Corrupt("archive head domain"));
         }
         let bytes = self.get_object(object).await?;
         let rooted = bytes.get(8) == Some(&super::root_head::KIND);
-        if rooted != (self.image_storage == super::super::catalog::RaftImageStorage::Extents) {
+        if rooted && self.image_storage != super::super::catalog::RaftImageStorage::Extents {
             return Err(ArchiveError::Corrupt("archive image representation"));
         }
         if rooted {
@@ -392,14 +524,19 @@ impl CellArchive {
                     inner: Metadata::Rooted(Box::new(metadata)),
                 })
         } else {
-            self.decode_materialized_metadata(object, &bytes)
-                .map(|metadata| ArchiveMetadata {
-                    inner: Metadata::Materialized(Box::new(metadata)),
-                })
+            let metadata = self.decode_materialized_metadata(object, &bytes)?;
+            if self.image_storage == super::super::catalog::RaftImageStorage::Extents
+                && !metadata.canonical_empty()?
+            {
+                return Err(ArchiveError::Corrupt("archive image representation"));
+            }
+            Ok(ArchiveMetadata {
+                inner: Metadata::Materialized(Box::new(metadata)),
+            })
         }
     }
 
-    async fn load_recovery_material(
+    pub(super) async fn load_recovery_material(
         &self,
         metadata: ArchiveMetadata,
     ) -> Result<ArchiveRecoverySet, ArchiveError> {

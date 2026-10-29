@@ -34,6 +34,8 @@ struct FleetConfig {
     local_store: Option<PathBuf>,
     #[serde(default)]
     allow_public_peers: bool,
+    #[serde(default)]
+    raft: Option<cellar::sdk::fleet_operations::RaftFleetConnection>,
 }
 
 #[derive(Deserialize)]
@@ -84,13 +86,25 @@ async fn main() -> Result<()> {
                     ),
                 };
                 let id = fleet.id.clone();
+                let mut client =
+                    cellar::management::FleetClient::new(bucket.clone(), fleet.allow_public_peers);
+                if let Some(connection) = fleet.raft {
+                    let control = cellar::sdk::fleet_operations::RaftFleetControl::connect(
+                        &domain,
+                        bucket,
+                        connection,
+                        std::time::Duration::from_secs(30),
+                    )
+                    .await?;
+                    client = client.with_raft_fleet(control);
+                }
                 let value = Fleet {
                     info: FleetInfo {
                         id: fleet.id,
                         name: fleet.name,
                         environment: fleet.environment,
                     },
-                    client: cellar::management::FleetClient::new(bucket, fleet.allow_public_peers),
+                    client,
                 };
                 anyhow::ensure!(fleets.insert(id, value).is_none(), "duplicate fleet ID");
             }

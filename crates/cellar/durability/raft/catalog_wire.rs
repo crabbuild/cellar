@@ -115,7 +115,16 @@ pub(super) struct Root {
     pub storage_prefix: String,
     pub minimum_s3: bool,
     pub single_voter_development: bool,
+    #[serde(deserialize_with = "required_nullable")]
+    pub managed_fleet: Option<ManagedOwner>,
     pub image_storage: RaftImageStorage,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ManagedOwner {
+    fleet: [u8; 16],
+    catalog: [u8; 32],
 }
 
 impl Root {
@@ -129,6 +138,10 @@ impl Root {
             storage_prefix: prefix,
             minimum_s3: config.minimum_durability == cellar_logic::consensus::Durability::S3,
             single_voter_development: config.voters == VoterPolicy::SingleVoterDevelopment,
+            managed_fleet: config.managed_fleet.as_ref().map(|owner| ManagedOwner {
+                fleet: owner.fleet,
+                catalog: owner.catalog,
+            }),
             image_storage: config.image_storage,
         }
     }
@@ -136,6 +149,14 @@ impl Root {
     pub fn validate(&self) -> Result<(), CatalogError> {
         ClusterId::new(self.cluster).map_err(|_| CatalogError::Corrupt("root cluster"))?;
         NamespaceId::new(self.namespace).map_err(|_| CatalogError::Corrupt("root namespace"))?;
+        if let Some(owner) = &self.managed_fleet {
+            cellar_logic::consensus::IncarnationId::new(owner.fleet)
+                .map_err(|_| CatalogError::Corrupt("root fleet"))?;
+            if owner.catalog == [0; 32] || self.mode != Mode::Raft || self.single_voter_development
+            {
+                return Err(CatalogError::Corrupt("managed namespace policy"));
+            }
+        }
         if self.mode == Mode::Fleet && self.image_storage != RaftImageStorage::Materialized {
             return Err(CatalogError::Invalid("extent storage requires Raft mode"));
         }
@@ -151,6 +172,42 @@ impl Root {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn managed_namespace_accepts_both_image_domains_and_enforces_raft_policy() {
+        let mut config = NamespaceConfig::new(
+            ClusterId::new([1; 16]).unwrap(),
+            NamespaceId::new([2; 16]).unwrap(),
+            cellar_logic::NamespaceMode::Raft,
+            [3; 32],
+        );
+        config.image_storage = RaftImageStorage::Extents;
+        let mut root = Root::new(&config, "test".into());
+        root.validate().unwrap();
+        root.managed_fleet = Some(ManagedOwner {
+            fleet: [4; 16],
+            catalog: [5; 32],
+        });
+        for storage in [RaftImageStorage::Materialized, RaftImageStorage::Extents] {
+            root.image_storage = storage;
+            root.validate().unwrap();
+            let mut invalid = root.clone();
+            invalid.single_voter_development = true;
+            assert!(invalid.validate().is_err());
+            invalid = root.clone();
+            invalid.mode = Mode::Fleet;
+            assert!(invalid.validate().is_err());
+            invalid = root.clone();
+            invalid.managed_fleet.as_mut().unwrap().catalog = [0; 32];
+            assert!(invalid.validate().is_err());
+        }
+        root.managed_fleet = None;
+        root.mode = Mode::Fleet;
+        assert!(matches!(
+            root.validate(),
+            Err(CatalogError::Invalid("extent storage requires Raft mode"))
+        ));
+    }
 
     #[test]
     fn root_refuses_earlier_protocols() {
@@ -170,7 +227,28 @@ mod tests {
             "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1",
             "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1",
             "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1/node-probes-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1/node-probes-1/birth-admission-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1/node-probes-1/birth-admission-1/managed-genesis-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1/node-probes-1/birth-admission-1/managed-genesis-1/group-reservations-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1/node-probes-1/birth-admission-1/managed-genesis-1/group-reservations-1/birth-inventory-1/namespace-import-1/fleet-namespaces-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1/node-probes-1/birth-admission-1/managed-genesis-1/group-reservations-1/birth-inventory-1/namespace-import-1/fleet-namespaces-1/catalog-trust-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1/node-probes-1/birth-admission-1/managed-genesis-1/group-reservations-1/birth-inventory-1/namespace-import-1/fleet-namespaces-1/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1/node-probes-1/birth-admission-1/managed-genesis-1/group-reservations-1/birth-inventory-1/namespace-import-1/fleet-namespaces-1/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1/node-probes-1/birth-admission-1/managed-genesis-1/group-reservations-1/birth-inventory-1/namespace-import-1/fleet-namespaces-1/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1/node-probes-1/birth-admission-1/managed-genesis-1/group-reservations-1/birth-inventory-1/namespace-import-1/fleet-namespaces-1/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1/node-probes-1/birth-admission-1/managed-genesis-1/group-reservations-1/birth-inventory-1/namespace-import-1/fleet-namespaces-1/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1/node-probes-1/birth-admission-1/managed-genesis-1/group-reservations-1/birth-inventory-1/namespace-import-1/fleet-namespaces-1/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1/node-probes-1/birth-admission-1/managed-genesis-1/group-reservations-1/birth-inventory-1/namespace-import-1/fleet-namespaces-1/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1/node-probes-1/birth-admission-1/managed-genesis-1/group-reservations-1/birth-inventory-1/namespace-import-1/fleet-namespaces-1/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1/node-probes-1/birth-admission-1/managed-genesis-1/group-reservations-1/birth-inventory-1/namespace-import-1/fleet-namespaces-1/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1/resource-movement-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1/node-probes-1/birth-admission-1/managed-genesis-1/group-reservations-1/birth-inventory-1/namespace-import-1/fleet-namespaces-1/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1/resource-movement-1/movement-completion-1/node-isolation-1/isolated-removal-1/images-1/fenced-movement-1/fleet-execution-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1/node-probes-1/birth-admission-1/managed-genesis-1/group-reservations-1/birth-inventory-1/namespace-import-1/fleet-namespaces-1/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1/resource-movement-1/movement-completion-1/node-isolation-1/isolated-removal-1/images-1/fenced-movement-1/fleet-execution-1/aborted-movement-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1/node-probes-1/birth-admission-1/managed-genesis-1/group-reservations-1/birth-inventory-1/namespace-import-1/fleet-namespaces-1/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1/resource-movement-1/movement-completion-1/node-isolation-1/isolated-removal-1/images-1/fenced-movement-1/fleet-execution-1/aborted-movement-1/topology-bindings-1",
             "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/images-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1/node-probes-1/birth-admission-1/managed-genesis-1/group-reservations-1/birth-inventory-1/namespace-import-1/fleet-namespaces-1/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1/resource-movement-1/movement-completion-1/node-isolation-1/isolated-removal-1/images-1/fenced-movement-1/fleet-execution-1/aborted-movement-1/topology-bindings-1/topology-intent-1",
             "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/images-1/config-tails-1",
         ] {
             root.protocol_digest = Sha256::digest(protocol.as_bytes()).into();
@@ -216,6 +294,18 @@ pub(super) struct Birth {
     pub voters: Vec<Member>,
     pub learners: Vec<Member>,
     pub empty_digest: [u8; 32],
+    #[serde(deserialize_with = "required_nullable")]
+    pub managed_owner: Option<super::catalog::ManagedBirthOwner>,
+    #[serde(deserialize_with = "required_nullable")]
+    pub cancelled_by: Option<[u8; 16]>,
+}
+
+fn required_nullable<'de, T, D>(decoder: D) -> Result<Option<T>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    Option::<T>::deserialize(decoder)
 }
 
 #[derive(Serialize, Deserialize)]

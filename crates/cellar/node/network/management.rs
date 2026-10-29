@@ -50,8 +50,47 @@ pub(super) async fn handle(
             serde_json::json!({"error":"node generation changed; refresh before continuing"}),
         );
     }
+    let managed = match services.raft_lifecycle().managed() {
+        Ok(managed) => managed,
+        Err(_) => {
+            return reply(
+                StatusCode::SERVICE_UNAVAILABLE,
+                serde_json::json!({"error":"node lifecycle unavailable"}),
+            )
+        }
+    };
     match request.action {
+        NodeAction::FleetStop { request } => {
+            let reporter = match services.raft_lifecycle().stop_reporter() {
+                Ok(Some(reporter)) => reporter,
+                _ => {
+                    return reply(
+                        StatusCode::CONFLICT,
+                        serde_json::json!({"error":"no managed fleet stop service"}),
+                    )
+                }
+            };
+            match reporter
+                .submit(*request, std::time::Duration::from_secs(30))
+                .await
+            {
+                Ok(accepted) => reply(
+                    StatusCode::ACCEPTED,
+                    serde_json::json!({"result":{"guard":accepted,"propagation":"guard_admitted","physical_closure":"unconfirmed"}}),
+                ),
+                Err(error) => reply(
+                    StatusCode::CONFLICT,
+                    serde_json::json!({"error":error.to_string()}),
+                ),
+            }
+        }
         NodeAction::Stop { operation_id, mode } => {
+            if managed {
+                return reply(
+                    StatusCode::CONFLICT,
+                    serde_json::json!({"error":"managed Raft hosts require an exact fleet stop/fence request"}),
+                );
+            }
             if app.is_draining() || !app.healthy().await {
                 return reply(
                     StatusCode::CONFLICT,
@@ -117,7 +156,7 @@ pub(super) async fn handle(
                     "authoritative":app.healthy().await,"fleet_ready":app.fleet_ready.load(std::sync::atomic::Ordering::Acquire),
                     "draining":app.is_draining(),"public_in_flight":app.public_in_flight(),
                     "deployment":deployment,"observed_at":now_ms(),
-                    "capabilities":{"balancing":services.node_load().is_some(),"reload":!app.reload.is_closed(),"stop":services.node_operations().is_some()}
+                    "capabilities":{"balancing":services.node_load().is_some(),"reload":!app.reload.is_closed(),"stop":services.node_operations().is_some() && !managed,"fleet_stop":managed}
                 }}),
             )
         }

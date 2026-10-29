@@ -67,6 +67,7 @@ async fn retry_verifies_existing_extents_without_resending_them() -> Result<()> 
     let fixture = Upload::new(24 * 1024 * 1024).await?;
     let result = async {
         ensure!(fixture.unique > 1);
+        let heads_before = archive::heads(fixture.remote.inner.list(None).try_collect().await?);
         // A lost successful PUT response must still be reconciled by exact bytes.
         fixture.remote.fail_after.store(true, Ordering::Release);
         let reference = fixture
@@ -100,9 +101,10 @@ async fn retry_verifies_existing_extents_without_resending_them() -> Result<()> 
             .list(None)
             .try_collect::<Vec<_>>()
             .await?;
-        ensure!(objects
-            .iter()
-            .all(|object| !object.location.as_ref().ends_with("/head")));
+        ensure!(
+            archive::heads(objects.clone()) == heads_before,
+            "snapshot storage created or changed a head"
+        );
         let extent = objects
             .into_iter()
             .find(|object| object.location.as_ref().contains("/root-extents/"))

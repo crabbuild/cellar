@@ -5,6 +5,13 @@
 Status: MR-01 through MR-12 are complete at their recorded native boundaries.
 MR-13 through MR-17 remain open. The complete delivery goal is not achieved.
 
+The [fleet balancing and maintenance delivery package](fleet-operations/README.md)
+defines the next CAS-coordinated fleet design, executable task plan and operator
+workflows for automatic repair, redistribution, scale-out, scale-in and node
+maintenance. Its [implementation progress](fleet-operations/progress.md) records
+the first catalog adapter; the complete operating capability and release gates
+remain open.
+
 The [zero-quorum disaster protocol](disaster-recovery.md) documents the S3 operator
 API, required infrastructure fencing authority and destructive RustFS fixture.
 Its final 24-group drill recovered after all three voter disks were deleted;

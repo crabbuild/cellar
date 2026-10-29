@@ -377,7 +377,9 @@ impl Driver {
                             status.replica.scope.namespace,
                             status.replica.scope.cell.clone(),
                         ))
-                        .is_some_and(|binding| binding.class.has_queries());
+                        .ok()?
+                        .class
+                        .has_queries();
                     let (role, queries) = readiness::capture(
                         cell,
                         status,

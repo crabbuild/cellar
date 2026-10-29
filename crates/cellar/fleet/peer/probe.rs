@@ -48,6 +48,18 @@ impl PeerProbeSigner {
         encode_hex(&self.key.verifying_key().to_bytes())
     }
 
+    pub(crate) fn public_key_bytes(&self) -> [u8; 32] {
+        self.key.verifying_key().to_bytes()
+    }
+
+    /// Only the surrounding host calls this after joining the node domain.
+    /// The domain is disjoint from the public challenge-response protocol.
+    pub(crate) fn fleet_closure_signature(&self, digest: [u8; 32]) -> [u8; 64] {
+        let mut payload = b"cellar-fleet-physical-closure-1\0".to_vec();
+        payload.extend_from_slice(&digest);
+        self.key.sign(&payload).to_bytes()
+    }
+
     pub fn respond(
         &self,
         node: &str,

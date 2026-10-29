@@ -30,6 +30,17 @@ pub enum Begin {
     Existing(Operation),
 }
 
+#[derive(Debug)]
+pub(crate) struct AuditPayloadConflict;
+
+impl std::fmt::Display for AuditPayloadConflict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("operation ID was already used for a different request")
+    }
+}
+
+impl std::error::Error for AuditPayloadConflict {}
+
 impl AuditStore {
     pub fn open(path: &Path) -> Result<Self> {
         let connection = Connection::open(path)?;
@@ -69,15 +80,15 @@ impl AuditStore {
             )
             .optional()?;
         if let Some(existing) = existing {
-            ensure!(
-                existing
-                    == (
-                        fingerprint.to_string(),
-                        target.to_string(),
-                        action.to_string()
-                    ),
-                "operation ID was already used for a different request"
-            );
+            if existing
+                != (
+                    fingerprint.to_string(),
+                    target.to_string(),
+                    action.to_string(),
+                )
+            {
+                return Err(AuditPayloadConflict.into());
+            }
             let record = tx.query_row("SELECT id,fleet,actor,target,action,status,started_at,finished_at FROM operations WHERE fleet=? AND actor=? AND id=?", params![fleet, actor, id], decode)?;
             return Ok(Begin::Existing(record));
         }
@@ -106,7 +117,7 @@ impl AuditStore {
             .lock()
             .map_err(|_| anyhow::anyhow!("audit store unavailable"))?;
         connection.execute(
-                "UPDATE operations SET status=?,finished_at=? WHERE fleet=? AND actor=? AND id=? AND (action NOT IN ('stop','outbox_retry','subscription_change','outbox_destroy','outbox_recreate','stream_retire') OR status NOT IN ('succeeded','incomplete','failed'))",
+                "UPDATE operations SET status=?,finished_at=? WHERE fleet=? AND actor=? AND id=? AND (action NOT IN ('stop','outbox_retry','subscription_change','outbox_destroy','outbox_recreate','stream_retire') OR status NOT IN ('succeeded','incomplete','failed')) AND NOT (action IN ('raft_topology','raft_topology_cancel','raft_node_register','raft_node_qualify','raft_node_activate','raft_node_evacuate','raft_node_prepare_removal','raft_node_stop','raft_node_remove','raft_node_cancel') AND status='accepted')",
                 params![
                     status,
                     finished,
@@ -380,6 +391,37 @@ mod lifecycle_tests {
             ("outbox_destroy", "digest"),
             "accepted"
         )?);
+        Ok(())
+    }
+
+    #[test]
+    fn fleet_confirmed_admission_survives_late_unknown_retry() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let store = AuditStore::open(&dir.path().join("raft.sqlite"))?;
+        for action in ["raft_topology", "raft_topology_cancel"] {
+            let Begin::Started(mut first) =
+                store.begin(action, "fleet", "alice", "catalog/op", action, "digest")?
+            else {
+                panic!("new request")
+            };
+            let Begin::Existing(mut late) =
+                store.begin(action, "fleet", "alice", "catalog/op", action, "digest")?
+            else {
+                panic!("existing request")
+            };
+            store.finish(&mut first, "accepted")?;
+            for status in ["outcome_unknown", "not_submitted", "accepted"] {
+                store.finish(&mut late, status)?;
+                assert_eq!(late.status, "accepted");
+                assert_eq!(late.finished_at, first.finished_at);
+            }
+            let error = match store.begin(action, "fleet", "alice", "catalog/op", action, "changed")
+            {
+                Err(error) => error,
+                Ok(_) => panic!("payload conflict"),
+            };
+            assert!(error.downcast_ref::<AuditPayloadConflict>().is_some());
+        }
         Ok(())
     }
 }

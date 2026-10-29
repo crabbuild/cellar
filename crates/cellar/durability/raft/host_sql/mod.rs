@@ -741,10 +741,12 @@ impl Pool {
             );
             return Ok(Value::Initialized(view));
         }
-        cells
+        let cell = cells
             .get_mut(scope)
-            .ok_or(ExecutionError::Invalid("unregistered cell"))?
-            .run(action, query_pins)
+            .ok_or(ExecutionError::Invalid("unregistered cell"))?;
+        let value = cell.run(action, query_pins)?;
+        cell.release_idle_private()?;
+        Ok(value)
     }
 }
 
@@ -807,6 +809,24 @@ struct Cell {
 }
 
 impl Cell {
+    fn release_idle_private(&mut self) -> Result<(), ExecutionError> {
+        if self.active.is_none()
+            && self
+                .private
+                .as_ref()
+                .is_some_and(|private| !private.has_pending_proposal())
+            && !self.images.private_cache_has_headroom()?
+        {
+            // Only the joined SQL owner closes this disposable cache. Prepared
+            // and submitted commands retain their workspace and uncertainty
+            // fence; publication/receipt handling remains the durability gate.
+            if let Some(private) = self.private.take() {
+                private.close()?;
+            }
+        }
+        Ok(())
+    }
+
     fn discard(&mut self, identity: Option<&CommandIdentity>) -> Result<(), ExecutionError> {
         if self
             .active
@@ -818,15 +838,15 @@ impl Cell {
         }
         // This serial SQL owner has joined staging. A pre-mutation refusal
         // leaves no active proposal and an explicitly Ready private owner.
-        // Preserve that cache through both error cleanup and host discard;
-        // the next stage still checks authority against the published image.
+        // Preserve that cache through error cleanup and host discard while
+        // there is headroom; the next stage still checks the published image.
         if self.active.is_none()
             && self
                 .private
                 .as_ref()
                 .is_some_and(|private| private.status() == ExecutionStatus::Ready)
         {
-            return Ok(());
+            return self.release_idle_private();
         }
         if let Some(private) = self.private.as_mut() {
             private.discard_unsubmitted()?;

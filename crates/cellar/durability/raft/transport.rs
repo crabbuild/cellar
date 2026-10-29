@@ -32,10 +32,20 @@ use tokio::sync::{mpsc, oneshot, watch, Notify, Semaphore};
 mod control_sender;
 #[path = "transport_directory.rs"]
 mod directory;
+#[path = "transport_fleet.rs"]
+mod fleet;
+#[path = "fleet_action_transport.rs"]
+pub(crate) mod fleet_actions;
+#[path = "fleet_inspection_transport.rs"]
+pub(crate) mod fleet_inspections;
+#[path = "fleet_stop_transport.rs"]
+pub(crate) mod fleet_stops;
 #[path = "inspection_transport.rs"]
 pub(crate) mod inspections;
 #[path = "transport_metrics.rs"]
 mod metrics;
+#[path = "node_inspection_transport.rs"]
+pub(crate) mod node_inspections;
 #[path = "query_transport.rs"]
 mod queries;
 #[path = "transport_resources.rs"]
@@ -268,6 +278,7 @@ struct Registry {
     inspection_peers: BTreeMap<NodeId, Arc<Budget>>,
     pools: BTreeMap<NodeId, Arc<Pool>>,
     node_views: BTreeMap<NodeId, crate::raft::catalog::NodeView>,
+    fleet_trust: Option<Arc<crate::raft::fleet_catalog::FleetTrustSnapshot>>,
     seed_peers: BTreeMap<NodeId, directory::SeedPeer>,
 }
 
@@ -432,6 +443,7 @@ impl RaftTransport {
                 inspection_peers: BTreeMap::new(),
                 pools: BTreeMap::new(),
                 node_views: BTreeMap::new(),
+                fleet_trust: None,
                 seed_peers: BTreeMap::new(),
             }),
             outgoing: Banks::new(
@@ -623,6 +635,10 @@ impl RaftTransport {
         registry.groups.insert(route.scope.clone(), Arc::new(route));
         registry.prune_pools();
         drop(registry);
+        // Replacing the route invalidates source leases captured under the old
+        // configuration. Mark them finished now; active I/O retains its own
+        // source and reservation until physical exit.
+        state.invalidate_snapshot_routes();
         state.start_pools(starts)?;
         Ok(())
     }
@@ -633,6 +649,8 @@ impl RaftTransport {
         state.admit(&registry)?;
         registry.groups.remove(scope);
         registry.prune_pools();
+        drop(registry);
+        state.invalidate_snapshot_routes();
         Ok(())
     }
 
@@ -1176,6 +1194,9 @@ impl State {
                     .map_err(|e| TransportError::Tls(e.to_string()))
             })
             .await?;
+        // Mutation budgets include a delayed first prefix and header. Capture
+        // this once per connection, without adding a clock read per Raft frame.
+        let connected_at = self.domain.mono_ms().map_err(|_| TransportError::Closed)?;
         let exporter = stream
             .get_ref()
             .1
@@ -1205,6 +1226,70 @@ impl State {
                     .map_err(|error| TransportError::Tls(error.to_string()))?;
                 return self
                     .receive_inspection(&mut stream, &exporter, prefix)
+                    .await;
+            }
+            if &prefix[..4] == node_inspections::REQUEST_MAGIC {
+                if lane != Lane::Control
+                    || sequence != 0
+                    || !self.inspection_enabled.load(Ordering::Acquire)
+                {
+                    return Err(TransportError::Protocol);
+                }
+                let exporter = stream
+                    .get_ref()
+                    .1
+                    .export_keying_material([0; 32], node_inspections::EXPORT_LABEL, None)
+                    .map_err(|error| TransportError::Tls(error.to_string()))?;
+                return self
+                    .receive_node_inspection(&mut stream, &exporter, prefix)
+                    .await;
+            }
+            if &prefix[..4] == fleet_actions::REQUEST_MAGIC {
+                if lane != Lane::Control
+                    || sequence != 0
+                    || !self.inspection_enabled.load(Ordering::Acquire)
+                {
+                    return Err(TransportError::Protocol);
+                }
+                let exporter = stream
+                    .get_ref()
+                    .1
+                    .export_keying_material([0; 32], fleet_actions::EXPORT_LABEL, None)
+                    .map_err(|error| TransportError::Tls(error.to_string()))?;
+                return self
+                    .receive_fleet_action(&mut stream, &exporter, prefix, connected_at)
+                    .await;
+            }
+            if &prefix[..4] == fleet_stops::REQUEST_MAGIC {
+                if lane != Lane::Control
+                    || sequence != 0
+                    || !self.inspection_enabled.load(Ordering::Acquire)
+                {
+                    return Err(TransportError::Protocol);
+                }
+                let exporter = stream
+                    .get_ref()
+                    .1
+                    .export_keying_material([0; 32], fleet_stops::EXPORT_LABEL, None)
+                    .map_err(|error| TransportError::Tls(error.to_string()))?;
+                return self
+                    .receive_fleet_stop(&mut stream, &exporter, prefix, connected_at)
+                    .await;
+            }
+            if &prefix[..4] == fleet_inspections::REQUEST_MAGIC {
+                if lane != Lane::Control
+                    || sequence != 0
+                    || !self.inspection_enabled.load(Ordering::Acquire)
+                {
+                    return Err(TransportError::Protocol);
+                }
+                let exporter = stream
+                    .get_ref()
+                    .1
+                    .export_keying_material([0; 32], fleet_inspections::EXPORT_LABEL, None)
+                    .map_err(|error| TransportError::Tls(error.to_string()))?;
+                return self
+                    .receive_fleet_inspection(&mut stream, &exporter, prefix)
                     .await;
             }
             if &prefix[..4] == seeds::REQUEST_MAGIC {

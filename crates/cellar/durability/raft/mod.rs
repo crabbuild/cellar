@@ -9,24 +9,31 @@ pub(crate) mod cache;
 pub(crate) mod catalog;
 mod catalog_wire;
 pub(crate) mod completion;
+pub(crate) mod coordination_index;
 pub(crate) mod disaster;
 pub(crate) mod effects;
 pub(crate) mod execution;
 mod filesystem;
+pub(crate) mod fleet_catalog;
+pub(crate) mod fleet_stop;
 pub(crate) mod host;
 mod host_archive;
 mod host_sql;
 pub(crate) use host_sql::ResourceObserver as SqlResourceObserver;
+pub(crate) mod fleet_inspection_wire;
 pub(crate) mod inspection;
 mod inspection_identity;
 mod inspection_wire;
 pub(crate) mod mailbox;
 mod manifest;
 pub(crate) mod member_state;
+mod node_inspection_wire;
 pub(crate) mod object_metrics;
 pub(crate) mod operations;
 pub(crate) mod options;
 pub(crate) mod performance;
+pub(crate) mod physical_inventory;
+
 mod query;
 mod query_identity;
 mod query_route;
@@ -40,6 +47,10 @@ pub(crate) mod rooted;
 pub(crate) mod runtime;
 pub(crate) mod snapshot;
 pub(crate) mod storage;
+#[cfg(test)]
+#[path = "../../tests/support/raft_storage_fault.rs"]
+#[allow(dead_code)]
+mod storage_fault;
 pub(crate) mod transport;
 mod transport_frame;
 pub(crate) mod transport_options;

@@ -105,3 +105,118 @@ async fn prepared_owner_shutdown_joins_even_if_the_stop_waiter_was_never_polled(
     ensure!(fixture.transport.usage().tasks == 0);
     fixture.close().await
 }
+
+#[tokio::test]
+async fn obsolete_snapshot_routes_cancel_sources_without_releasing_live_owners() -> Result<()> {
+    use cellar_logic::consensus::{
+        ClusterId, DiskLineage, GroupId, IncarnationId, NamespaceId, ProcessGeneration,
+    };
+    let scope = GroupScope {
+        cluster: ClusterId::new([1; 16])?,
+        namespace: NamespaceId::new([2; 16])?,
+        cell: "Counter:snapshot-route".into(),
+        group: GroupId::new([3; 16])?,
+        incarnation: IncarnationId::new([4; 16])?,
+    };
+    let fixture = Fixture::start(
+        TransportOptions::default(),
+        vec![crate::raft::storage::GroupBootstrap {
+            scope: scope.clone(),
+            member: MemberId::new(1)?,
+            birth_digest: [10; 32],
+            voters: vec![MemberId::new(1)?, MemberId::new(2)?],
+            learners: vec![],
+        }],
+    )
+    .await?;
+    let state = fixture.transport.handle.0.clone();
+    let group = state.runtime.log().group(&scope)?;
+    // Snapshot descriptors require a committed position beyond genesis.
+    let mut write = crate::raft::cache::GroupWrite::new(&group);
+    write.entries.push(::raft::prelude::Entry {
+        index: 2,
+        term: 1,
+        ..Default::default()
+    });
+    write.hard_state = Some(::raft::prelude::HardState {
+        term: 1,
+        commit: 2,
+        ..Default::default()
+    });
+    write.applied = Some(crate::raft::cache::DurableApply {
+        position: cellar_logic::consensus::LogPosition {
+            index: cellar_logic::consensus::LogIndex::new(2),
+            term: cellar_logic::consensus::Term::new(1),
+        },
+        image: None,
+    });
+    state
+        .runtime
+        .log()
+        .persist(cellar_logic::consensus::OperationId::new(1), vec![write])
+        .await?;
+
+    let mut route = GroupRoute {
+        scope: scope.clone(),
+        schema_digest: [9; 32],
+        revision: 1,
+        peers: vec![
+            RaftPeer {
+                replica: group.identity().clone(),
+                label: "node-1".into(),
+                server_name: "localhost".into(),
+                control_address: fixture.transport.control_address(),
+                data_address: fixture.transport.data_address(),
+                query_address: fixture.transport.query_address(),
+            },
+            RaftPeer {
+                replica: ReplicaIdentity {
+                    scope: scope.clone(),
+                    member: MemberId::new(2)?,
+                    node: NodeId::new([2; 16])?,
+                    disk: DiskLineage::new([3; 16])?,
+                    process: ProcessGeneration::new([4; 16])?,
+                },
+                label: "node-2".into(),
+                server_name: "localhost".into(),
+                control_address: "127.0.0.1:42001".parse()?,
+                data_address: "127.0.0.1:42002".parse()?,
+                query_address: "127.0.0.1:42003".parse()?,
+            },
+        ],
+    };
+    fixture.transport.install_group(route.clone())?;
+    for remove in [false, true] {
+        let package = SnapshotPackage::capture_empty(&group, [9; 32], SnapshotLimits::default())?;
+        let lease = fixture.transport.serve_snapshot(
+            &scope,
+            2,
+            package,
+            fixture.transport.reserve_snapshot_source()?,
+        )?;
+        ensure!(!lease.finished(0));
+        // An unchanged discovery view must not interrupt a valid transfer.
+        fixture.transport.install_group(route.clone())?;
+        ensure!(!lease.finished(0));
+        let retained = lease.0.clone();
+        if remove {
+            fixture.transport.remove_group(&scope)?;
+        } else {
+            route.revision += 1;
+            fixture.transport.install_group(route.clone())?;
+        }
+        ensure!(
+            lease.finished(0),
+            "obsolete route retained a live source lease"
+        );
+        drop(lease);
+        ensure!(
+            state.snapshot_source_budget.usage().1 == 1,
+            "a retained source lost its physical charge"
+        );
+        drop(retained);
+        ensure!(state.snapshot_source_budget.usage() == (0, 0));
+    }
+    fixture.close().await?;
+    Ok(())
+}

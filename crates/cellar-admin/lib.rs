@@ -9,6 +9,10 @@ mod auth;
 mod cron;
 mod events;
 mod nodes;
+mod raft;
+mod raft_lifecycle;
+mod raft_maintenance;
+mod raft_nodes;
 
 pub use audit::{AuditStore, Operation};
 pub use auth::{Permission, Principal};
@@ -60,6 +64,76 @@ pub fn router(console: Console) -> Result<Router> {
     }
     let state = Arc::new(console);
     let api = Router::new()
+        .route("/fleets/{fleet}/raft/status", get(raft::status))
+        .route(
+            "/fleets/{fleet}/raft/maintenance/{operation}",
+            get(raft_maintenance::status),
+        )
+        .route(
+            "/fleets/{fleet}/raft/nodes/{node}/maintenance-actions",
+            post(raft_maintenance::action).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/nodes/{node}/prepare-maintenance",
+            post(raft_maintenance::prepare).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/nodes/{node}/cancel-maintenance",
+            post(raft_maintenance::cancel).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/evacuations/{operation}",
+            get(raft_lifecycle::status),
+        )
+        .route(
+            "/fleets/{fleet}/raft/nodes/{node}/cancel-evacuation",
+            post(raft_lifecycle::cancel).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/nodes/{node}/evacuate",
+            post(raft_lifecycle::evacuate).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/nodes/{node}/prepare-removal",
+            post(raft_lifecycle::prepare).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/nodes/{node}/stop",
+            post(raft_lifecycle::stop).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/nodes/{node}/remove",
+            post(raft_lifecycle::remove).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/nodes",
+            post(raft_nodes::register).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route("/fleets/{fleet}/raft/nodes/{node}", get(raft_nodes::status))
+        .route(
+            "/fleets/{fleet}/raft/nodes/{node}/qualify",
+            post(raft_nodes::qualify).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/nodes/{node}/activate",
+            post(raft_nodes::activate).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/operations",
+            post(raft::begin).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/operations/{operation}",
+            get(raft::operation),
+        )
+        .route(
+            "/fleets/{fleet}/raft/operations/{operation}/movements",
+            get(raft::movements),
+        )
+        .route(
+            "/fleets/{fleet}/raft/operations/{operation}/cancel",
+            post(raft::cancel).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
         .route("/session", get(api::session))
         .route(
             "/fleets/{fleet}/events/retirement-proof",

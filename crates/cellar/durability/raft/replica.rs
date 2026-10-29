@@ -278,6 +278,10 @@ impl Replica {
                 self.transfer_leadership(transfer)?;
                 Ok(Response::Unit)
             }
+            GroupAction::RestartLeadership(check) => {
+                self.restart_leadership(*check)?;
+                Ok(Response::Unit)
+            }
             GroupAction::Checkpoint(checkpoint) => {
                 if self.node.has_ready() || self.apply_ticket.is_some() || !self.apply.is_empty() {
                     return Err(RuntimeError::NotReady);
@@ -327,7 +331,7 @@ impl Replica {
                 let cache = self.log.read()?;
                 cache
                     .membership
-                    .admit(&change, &cache.conf_state)
+                    .admit_scoped(&change, &cache.conf_state, &self.log.identity().scope)
                     .map_err(|error| RuntimeError::Invalid(error.to_string()))?;
                 // A new voter must already be a caught-up member. A freshly
                 // bound identity can enter this history only as a learner.

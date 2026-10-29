@@ -1857,6 +1857,30 @@ impl AppHandle {
         self.draining.load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    pub(crate) fn maintenance_closed(&self) -> bool {
+        self.runtime
+            .as_ref()
+            .is_some_and(|runtime| runtime.host_services().public_maintenance_closed())
+    }
+
+    pub(crate) fn public_admission_closed(&self) -> bool {
+        self.draining.load(Ordering::SeqCst) || self.maintenance_closed()
+    }
+
+    pub(crate) fn admit_peer_application(&self) -> Option<PublicRequestGuard> {
+        if self.maintenance_closed() {
+            return None;
+        }
+        self.public_in_flight.fetch_add(1, Ordering::SeqCst);
+        if self.maintenance_closed() {
+            self.public_in_flight.fetch_sub(1, Ordering::SeqCst);
+            return None;
+        }
+        Some(PublicRequestGuard {
+            in_flight: self.public_in_flight.clone(),
+        })
+    }
+
     pub fn fleet_ready(&self) -> bool {
         self.fleet_ready.load(std::sync::atomic::Ordering::Relaxed)
     }
@@ -1865,11 +1889,11 @@ impl AppHandle {
     /// closes the race where shutdown stores the flag between the first read
     /// and the counter increment: that request backs out before user code runs.
     pub fn admit_public(&self) -> Option<PublicRequestGuard> {
-        if self.draining.load(Ordering::SeqCst) {
+        if self.public_admission_closed() {
             return None;
         }
         self.public_in_flight.fetch_add(1, Ordering::SeqCst);
-        if self.draining.load(Ordering::SeqCst) {
+        if self.public_admission_closed() {
             self.public_in_flight.fetch_sub(1, Ordering::SeqCst);
             return None;
         }

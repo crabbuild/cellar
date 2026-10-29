@@ -147,6 +147,18 @@ impl MaterializedSet {
         images: &GenerationStore,
         nonce: ImageId,
     ) -> Result<GenerationPin, ArchiveError> {
+        self.restore_state(images, nonce)?
+            .ok_or(ArchiveError::Invalid(
+                "canonical empty archive has no SQL image",
+            ))
+    }
+
+    /// Restore a verified selected state. Canonical empty has no SQL image.
+    pub fn restore_state(
+        &self,
+        images: &GenerationStore,
+        nonce: ImageId,
+    ) -> Result<Option<GenerationPin>, ArchiveError> {
         self.restore_with_work(images, nonce).map(|(pin, _)| pin)
     }
 
@@ -154,13 +166,21 @@ impl MaterializedSet {
         &self,
         images: &GenerationStore,
         nonce: ImageId,
-    ) -> Result<(GenerationPin, Work), ArchiveError> {
-        let mut state = self.manifest.snapshot.image.decode()?;
+    ) -> Result<(Option<GenerationPin>, Work), ArchiveError> {
+        let Some(snapshot_image) = self.manifest.snapshot.image else {
+            self.check_payloads()?;
+            return Ok((None, Work::default()));
+        };
+        let mut state = snapshot_image.decode()?;
         let mut sequence = 0;
         let mut pin = None;
         let mut work = Work::default();
         let mut batch = Batch {
-            snapshot: Some(&self.snapshot),
+            snapshot: Some(
+                self.snapshot
+                    .as_ref()
+                    .ok_or(ArchiveError::Corrupt("missing streamed snapshot"))?,
+            ),
             usage: Usage {
                 files: 1,
                 ..Default::default()
@@ -250,10 +270,10 @@ impl MaterializedSet {
             &mut work,
         )?;
         let pin = pin.ok_or(ArchiveError::Corrupt("missing restored archive image"))?;
-        if super::super::manifest::Image::from(pin.state()) != self.manifest.image {
+        if Some(super::super::manifest::Image::from(pin.state())) != self.manifest.image {
             return Err(ArchiveError::Corrupt("restored archive image digest"));
         }
-        Ok((pin, work))
+        Ok((Some(pin), work))
     }
 }
 
