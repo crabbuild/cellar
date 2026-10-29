@@ -1152,7 +1152,7 @@ pub async fn routing_deadline_and_cancellation() -> Result<()> {
     let observed = initial.begin().await?;
     let next = publish_route_split(&f, birth.route(), &request.cell.cell).await?;
     let limits = CellRoutingLimits {
-        timeout: Duration::from_millis(100),
+        timeout: Duration::from_secs(5),
         max_attempts: 4,
     };
     let mut session = f.directory.routing_session(
@@ -1163,6 +1163,10 @@ pub async fn routing_deadline_and_cancellation() -> Result<()> {
     )?;
     let attempt = session.begin().await?;
     session.mark_submitted(&attempt)?;
+    // Spend most of the original budget before redirecting. The two-second
+    // external guard must beat a fresh five-second timeout, but leaves a full
+    // second of scheduling tolerance for the original one-second remainder.
+    tokio::time::sleep(Duration::from_secs(4)).await;
     let gate = Arc::new(fault::RegistryGate::default());
     gate.armed.store(true, Ordering::Release);
     let result = tokio::time::timeout(
