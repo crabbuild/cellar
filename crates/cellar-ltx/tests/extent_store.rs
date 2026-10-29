@@ -276,11 +276,46 @@ fn reused_proofs_refuse_corruption_in_a_later_block_after_descriptor_close() {
     );
     drop(image);
     assert_eq!(scratch.usage().unwrap(), ScratchUsage::default());
+    assert!(
+        matches!(
+            store.seal_root(f.manifest.clone()),
+            Err(StoreError::Unverified)
+        ),
+        "a corrupt query block retained whole-extent admission"
+    );
     assert!(store.verify_extent(id).is_err());
     assert!(matches!(
         store.seal_root(f.manifest.clone()),
         Err(StoreError::Unverified)
     ));
+}
+
+#[test]
+fn a_reused_query_proof_cannot_override_a_concurrent_verification_failure() {
+    let f = Fixture::new(0);
+    let store = f.store();
+    f.fill(&store);
+    let sealed = store.seal_root(f.manifest.clone()).unwrap();
+    let worker = store.clone();
+    let metrics = f.files.metrics.clone();
+    let id = f.objects[0].0;
+    // Interleave the full verification after the reader captures a valid
+    // cached proof but before it finishes opening its independent descriptor.
+    *f.files.metrics.before_file_len.lock().unwrap() = Some(Box::new(move || {
+        metrics.short_read.store(true, Ordering::Release);
+        assert!(worker.verify_extent(id).is_err());
+    }));
+    assert_eq!(f.query(sealed.view()), 7);
+    assert!(f.files.metrics.before_file_len.lock().unwrap().is_none());
+    assert!(
+        matches!(
+            store.seal_root(f.manifest.clone()),
+            Err(StoreError::Unverified)
+        ),
+        "a block-only query promoted a failed full verification"
+    );
+    store.verify_extent(id).unwrap();
+    store.seal_root(f.manifest.clone()).unwrap();
 }
 
 #[test]

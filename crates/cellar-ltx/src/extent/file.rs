@@ -81,7 +81,7 @@ impl ExtentDownload {
         Ok(ExtentFile {
             storage: Arc::new(Storage {
                 file: Mutex::new(self.file),
-                _pin: None,
+                pin: None,
                 _reservation: self.reservation,
                 blocks,
             }),
@@ -93,7 +93,7 @@ impl ExtentDownload {
 // Close the file before releasing local inventory retention or file admission.
 struct Storage {
     file: Mutex<HostFile>,
-    _pin: Option<super::store::RootView>,
+    pin: Option<super::store::RootView>,
     _reservation: ScratchReservation,
     // Derived from independently verified destination bytes only after their
     // complete extent identity matched. At most 64 digests (2 KiB) per file.
@@ -153,7 +153,7 @@ impl ExtentFile {
         };
         let storage = Storage {
             file: Mutex::new(file),
-            _pin: Some(pin),
+            pin: Some(pin),
             _reservation: reservation,
             blocks,
         };
@@ -182,6 +182,10 @@ impl ExtentFile {
         {
             return Err(Error::Limit);
         }
+        self.observe_read(self.chunk_verified(offset, length))
+    }
+
+    fn chunk_verified(&self, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
         let mut file = self
             .storage
             .file
@@ -214,12 +218,28 @@ impl ExtentFile {
     }
 
     pub fn verify(&self) -> Result<(), Error> {
-        let mut file = self
-            .storage
-            .file
-            .lock()
-            .map_err(|_| Error::Invalid("poisoned extent owner"))?;
-        verify_file(&mut file, self.id).map(|_| ())
+        let result = (|| {
+            let mut file = self
+                .storage
+                .file
+                .lock()
+                .map_err(|_| Error::Invalid("poisoned extent owner"))?;
+            verify_file(&mut file, self.id).map(|_| ())
+        })();
+        self.observe_read(result)
+    }
+
+    fn observe_read<T>(&self, result: Result<T, Error>) -> Result<T, Error> {
+        if result.is_err() {
+            if let Some(pin) = &self.storage.pin {
+                // A local I/O or integrity failure invalidates whole-extent
+                // admission too. Existing handles can still check good blocks,
+                // but only a new full verification can restore the seal.
+                pin.invalidate_extent(self.id)
+                    .map_err(|error| Error::Io(std::io::Error::other(error)))?;
+            }
+        }
+        result
     }
 }
 

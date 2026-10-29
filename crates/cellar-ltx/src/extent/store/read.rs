@@ -12,6 +12,14 @@ use crate::stream_snapshot::ScratchReservation;
 mod tests;
 
 impl RootView {
+    pub(crate) fn invalidate_extent(&self, id: ExtentId) -> Result<(), StoreError> {
+        let mut state = self.inner.state()?;
+        let entry = state.objects.get_mut(&id).ok_or(StoreError::Missing)?;
+        entry.verified = false;
+        entry.read_proof = None;
+        Ok(())
+    }
+
     pub(crate) fn cached_extent(
         &self,
         id: ExtentId,
@@ -53,6 +61,7 @@ impl RootView {
                 file.sync_all()?;
                 self.inner.filesystem.sync_all(&self.inner.directory)?;
             }
+            let reused = verified && proof.is_some();
             let file = ExtentFile::from_local(
                 file,
                 reservation,
@@ -60,12 +69,15 @@ impl RootView {
                 id,
                 if verified { proof } else { None },
             )?;
-            let mut state = self.inner.state()?;
-            let entry = state.objects.get_mut(&id).ok_or(StoreError::Missing)?;
-            entry.verified = true;
-            // Keep proof metadata after descriptor eviction. Object count
-            // admission bounds it; reclamation drops it with the inventory.
-            entry.read_proof = Some(file.block_proof());
+            if !reused {
+                let mut state = self.inner.state()?;
+                let entry = state.objects.get_mut(&id).ok_or(StoreError::Missing)?;
+                entry.verified = true;
+                // Only complete verification can restore admission. A read
+                // reusing block hashes must not override another verifier's
+                // failure while this descriptor was being opened.
+                entry.read_proof = Some(file.block_proof());
+            }
             Ok(file)
         })();
         if result.is_err() {

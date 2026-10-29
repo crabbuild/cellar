@@ -10,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
 
@@ -18,6 +18,7 @@ use std::{
 pub struct Metrics {
     pub max_read: AtomicUsize,
     pub read_bytes: AtomicUsize,
+    pub before_file_len: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     pub max_write: AtomicUsize,
     pub random_write_calls: AtomicUsize,
     pub random_write_window_calls: AtomicUsize,
@@ -187,6 +188,10 @@ impl HostFileIo for File {
     }
 
     fn file_len(&mut self) -> io::Result<u64> {
+        let hook = self.metrics.before_file_len.lock().unwrap().take();
+        if let Some(hook) = hook {
+            hook();
+        }
         self.inner.file_len()
     }
 

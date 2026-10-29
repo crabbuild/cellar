@@ -8,7 +8,7 @@ use cellar_ltx::{
     internal::{
         db::{observe_extents, ExtentObservation},
         CacheLimits, ExtentId, ExtentManifest, ExtentWorkspace, Geometry, ImageBinding,
-        NodeExtentStore, SealedImageRoot, WorkspaceOptions, EXTENT_BYTES,
+        NodeExtentStore, SealedImageRoot, StoreError, WorkspaceOptions, EXTENT_BYTES,
     },
     stream_snapshot::{ScratchLimits, ScratchPool, MAX_IMAGE_BYTES},
     CheckpointMode, Db, DirectFileSystem, FileSystem, TXID,
@@ -45,6 +45,7 @@ fn manifest(bytes: &[u8], page_size: u32, txid: u64) -> ExtentManifest {
 struct Fixture {
     directory: tempfile::TempDir,
     base: Arc<SealedImageRoot>,
+    store: NodeExtentStore,
     bytes: Vec<u8>,
     page_size: u32,
 }
@@ -91,6 +92,7 @@ impl Fixture {
         Self {
             directory,
             base,
+            store,
             bytes,
             page_size,
         }
@@ -407,6 +409,13 @@ fn a_corrupt_base_refuses_the_fault_without_caching_or_zero_filling_it() {
             .is_err());
     }
     assert_eq!(workspace.stats().unwrap().bytes_faulted, 0);
+    assert!(
+        matches!(
+            fixture.store.seal_root(fixture.base.manifest().clone()),
+            Err(StoreError::Unverified)
+        ),
+        "failed source verification retained whole-extent admission"
+    );
     std::fs::write(&object, original).unwrap();
     let reader = connection(&workspace, &path);
     assert_eq!(value(&reader), 7);
@@ -536,6 +545,7 @@ fn empty_bootstrap_tracks_sqlite_and_bounds_only_its_own_wal_before_capture() {
     let fixture = Fixture {
         directory,
         base,
+        store,
         bytes: Vec::new(),
         page_size: 4096,
     };

@@ -341,7 +341,8 @@ new query does not re-read entire extents that recovery already verified.
 Each returned block is independently read and checked against its retained
 hash, and the opened descriptor must have the exact extent length. The
 `max_objects` admission bound also bounds this retained hash data to 2 KiB per
-object (32 MiB by default), apart from bounded in-flight verification metadata.
+object (32 MiB by default), apart from proofs held by admitted readers and
+bounded in-flight verification metadata.
 Restart discards every such proof; filenames never reconstruct it. Full-body
 archive reads and closure verification still check the complete extent digest.
 
