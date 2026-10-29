@@ -152,7 +152,8 @@
         "crates/cellar-ltx/src/extent/",
         "crates/cellar-ltx/src/generation.rs",
         "crates/cellar/application/consensus/mod.rs",
-        "crates/cellar/tests/support/raft_ltx_fault.rs"
+        "crates/cellar/tests/support/raft_ltx_fault.rs",
+        "crates/cellar/tests/support/raft_storage_fault.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/cell_groups/mod.rs",
@@ -164,6 +165,7 @@
         "crates/cellar/durability/raft/cell_groups/README.md",
         "crates/cellar/durability/raft/cell_groups/root.rs",
         "crates/cellar/durability/raft/cell_groups/pins.rs",
+        "crates/cellar/durability/raft/cell_groups/retention.rs",
         "crates/cellar/durability/raft/cell_groups/image_pin.rs"
       ],
       "test_target": "native_cell_groups_storage",

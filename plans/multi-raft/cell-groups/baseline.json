@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "source_revision": "b71f62b5841bab473481661bb5d7d6be9f366e29",
+  "source_revision": "f41f470f40f510746ba5d8f3178b35624f3cecb2",
   "runtime_revision": "1be27d234d4674d4d014785c60cecbfe394bdab9",
-  "review_note": "2026-10-29: reviewed incremental preparation at b71f62b5841bab473481661bb5d7d6be9f366e29. The cache now owns persistent manifest pin trees, validates their exact root reference, charges node/ID allocations, and checks the prior root for staged mutations while allowing identical selected retries. Page-store instance binding prevents reuse after reopen. Page reclamation, uncertain-publication retention, full extent recovery and production host cutover remain pending; CG-02 is not complete.",
+  "review_note": "2026-10-29: reviewed reclamation and uncertain-publication checkpoint at f41f470f40f510746ba5d8f3178b35624f3cecb2. Page leases retain the directory lock. Storage reserves old/candidate closures before engine I/O, commits retention after cache publication and preserves both closures on an armed failure. Recovery binds retention to the selected engine marker; bounded collection requires complete owner-supplied root reconciliation and a successful deletion barrier. Existing source excerpts remain unchanged. Complete shared-host inventory integration, root process-kill cuts and full extent-mode qualification remain pending; CG-02 is not complete.",
   "tikv_revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
   "anchors": {
     "identity": {

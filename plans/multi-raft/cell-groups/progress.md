@@ -167,3 +167,41 @@ reviewed source preflight pass. The initial source-drift refusal correctly requi
 review of the changed cache anchor before advancing the baseline. Source and
 executable hashes, failed/corrected test output and final check logs are retained
 under `.cellar/cell-groups-evidence/CG-02-incremental-pins/`.
+
+### CG-02 reclamation and uncertain publication checkpoint
+
+Prepared pin-tree nodes now lease their physical manifest pages and keep the
+directory lock alive. Bounded collection scans an explicit inventory window,
+removes only unleased pages, and refunds page/byte quotas only after the directory
+sync. Remove or sync failure quarantines the owner without speculative refunds.
+Every reopened store requires root inventory reconciliation before collection.
+
+The engine now reserves old/candidate closures before writing and selects the new
+retention reference only after sync and cache publication. Dropping an armed
+reservation on failure keeps both page/image closures and blocks collection until
+recovery; pre-write refusals cancel unarmed reservations. The page owner retains
+uncertain images even after request and engine handles disappear. Complete
+recovery automatically retains a root only when it matches the selected engine
+marker. Additional snapshot/archive/transition roots have an explicit bounded
+retained set, independent of disposable caller handles.
+
+The owning shared host must still supply the complete catalog/checkpoint/transition
+inventory to `reconcile_retained`. This is a trusted owner contract; page filenames
+cannot discover authority, and these storage fixtures do not qualify that future
+host integration. CG-02 also still requires the root-specific process-kill matrix
+and full extent-mode recovery qualification. It remains IN_PROGRESS.
+
+Runtime checkpoint `f41f470f` passes 11 native manifest cases and 19 existing Raft
+storage cases. New checks cover independent snapshot/transition retention,
+collection during stalled apply, quotas after removal/barrier failures, and
+two-group batch refusal before any write. A real failure injected after fsync
+retains both images after request/engine handles drop; restart selects the new
+durable root before reclaiming the superseded image/page.
+
+All-target Clippy with warnings denied, formatting, layout, native dependency
+isolation, docs, source preflight and all 37 plan-validator tests pass. The first
+test build required owned fixture paths; the first lint run required replacing
+an unnecessary clone used to construct a one-element slice. Neither fix weakened
+an assertion. Source hashes, copied test executables and failed/corrected logs
+are retained under `.cellar/cell-groups-evidence/CG-02-reclamation/`. This is a
+storage checkpoint, not the complete CG-02 evidence gate or a RustFS qualification.
