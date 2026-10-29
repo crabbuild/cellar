@@ -1196,10 +1196,16 @@ pub async fn routing_deadline_and_cancellation() -> Result<()> {
     {
         let call = fault::gate_read(f.key("pin").to_string(), gate.clone(), cancelled.begin());
         tokio::pin!(call);
-        tokio::select! {
-            result = &mut call => panic!("stalled discovery completed: {}", result.is_ok()),
-            _ = gate.entered.notified() => {},
-            _ = tokio::time::sleep(Duration::from_secs(2)) => panic!("discovery did not enter the real store"),
+        match tokio::time::timeout(
+            Duration::from_secs(2),
+            futures_util::future::select(&mut call, Box::pin(gate.entered.notified())),
+        )
+        .await?
+        {
+            futures_util::future::Either::Left((result, _)) => {
+                panic!("stalled discovery completed: {}", result.is_ok())
+            }
+            futures_util::future::Either::Right(((), _pending)) => {}
         }
     }
     assert!(matches!(
