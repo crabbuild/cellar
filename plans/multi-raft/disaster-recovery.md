@@ -207,3 +207,12 @@ controller boundary. It does not qualify independent failure domains, Amazon S3,
 production infrastructure fencing, extent-backed disaster seeding, pending-outbox
 reconciliation, fleet-wide atomic restore, capacity, an exhaustive new crash
 matrix, or an RTO service-level objective.
+
+## Extent-backed full-quorum qualification
+
+The subsequent [10 GB extent-backed drill](full-quorum-recovery-qualification.md)
+qualifies full quorum loss with quorum acknowledgements and asynchronous
+archiving on one local RustFS host. It includes three erased original replicas,
+three independently hydrated fresh replicas, new writes and retained-disk restart.
+The materialized Docker result above remains a separate scenario; neither result
+supplies production infrastructure fencing or an RTO guarantee.
