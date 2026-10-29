@@ -27,6 +27,7 @@ pub const HOLD_LOCK_DROP: u8 = 10;
 pub const HOLD_IMAGE_READ: u8 = 11;
 pub const HOLD_SNAPSHOT_TEMP: u8 = 12;
 pub const HOLD_EXTENT_READ: u8 = 13;
+pub const FAIL_AFTER_SYNC: u8 = 14;
 
 pub struct Gate {
     pub mode: AtomicU8,
@@ -187,6 +188,7 @@ impl HostFileIo for FaultFile {
                     | FAIL_SYNC
                     | CRASH_BEFORE_SYNC
                     | CRASH_AFTER_SYNC
+                    | FAIL_AFTER_SYNC
                     | FAIL_SYNC_HOLD_LOCK_DROP
             ) && self
                 .gate
@@ -201,6 +203,10 @@ impl HostFileIo for FaultFile {
             match mode {
                 HOLD_SYNC | CRASH_BEFORE_SYNC => self.gate.pause()?,
                 FAIL_SYNC => return Err(io::Error::other("injected Raft sync failure")),
+                FAIL_AFTER_SYNC => {
+                    self.inner.sync_all()?;
+                    return Err(io::Error::other("injected failure after durable Raft sync"));
+                }
                 FAIL_SYNC_HOLD_LOCK_DROP => {
                     self.gate.mode.store(HOLD_LOCK_DROP, Ordering::Release);
                     return Err(io::Error::other(

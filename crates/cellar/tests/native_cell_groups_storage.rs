@@ -103,6 +103,7 @@ fn manifest_updates_only_changed_path() -> Result<()> {
         fs.clone(),
         4096,
         64 * 1024 * 1024,
+        64,
     )?;
     let tree = ManifestTree::new(route(), ManifestLimits::default())?;
     let mut root = ManifestRoot::default();
@@ -153,7 +154,8 @@ fn manifest_updates_only_changed_path() -> Result<()> {
         Ok(())
     })?;
     drop(pages);
-    let reopened = ManifestPageStore::open(&temp.path().join("pages"), fs, 4096, 64 * 1024 * 1024)?;
+    let reopened =
+        ManifestPageStore::open(&temp.path().join("pages"), fs, 4096, 64 * 1024 * 1024, 64)?;
     assert_eq!(tree.get(&reopened, root, &target)?.unwrap(), value);
     tree.verify(&reopened, root, position(65), |_| Ok(()))?;
     Ok(())
@@ -172,7 +174,7 @@ fn manifest_rejects_conflicts_bounds_and_missing_pages() -> Result<()> {
     let cut = images::Cut::new(&[], &bytes, 0, true, false);
     let pin = generations.prepare(images::id(1), None, &cut.update())?;
     let value = leaf(1, &pin, 1, 1);
-    let mut pages = ManifestPageStore::open(&temp.path().join("pages"), fs, 64, 1024 * 1024)?;
+    let mut pages = ManifestPageStore::open(&temp.path().join("pages"), fs, 64, 1024 * 1024, 64)?;
     let tree = ManifestTree::new(
         route(),
         ManifestLimits {
@@ -223,8 +225,8 @@ fn manifest_ignores_local_image_names_and_quarantines_sync_failure() -> Result<(
     let first = generations.prepare(images::id(1), None, &cut.update())?;
     let second = generations.prepare(images::id(2), None, &cut.update())?;
     let tree = ManifestTree::new(route(), ManifestLimits::default())?;
-    let mut a = ManifestPageStore::open(&temp.path().join("a"), fs.clone(), 64, 1024 * 1024)?;
-    let mut b = ManifestPageStore::open(&temp.path().join("b"), fs, 64, 1024 * 1024)?;
+    let mut a = ManifestPageStore::open(&temp.path().join("a"), fs.clone(), 64, 1024 * 1024, 64)?;
+    let mut b = ManifestPageStore::open(&temp.path().join("b"), fs, 64, 1024 * 1024, 64)?;
     let a_root = tree.update(&mut a, ManifestRoot::default(), leaf(1, &first, 1, 1), None)?;
     let b_root = tree.update(
         &mut b,
@@ -242,7 +244,7 @@ fn manifest_ignores_local_image_names_and_quarantines_sync_failure() -> Result<(
     let filesystem = Arc::new(faults::FaultFileSystem {
         faults: faults.clone(),
     });
-    let mut pages = ManifestPageStore::open(&directory, filesystem.clone(), 64, 1024 * 1024)?;
+    let mut pages = ManifestPageStore::open(&directory, filesystem.clone(), 64, 1024 * 1024, 64)?;
     faults.mode.store(
         faults::FAIL_DIRECTORY_SYNC,
         std::sync::atomic::Ordering::Release,
@@ -265,7 +267,7 @@ fn manifest_ignores_local_image_names_and_quarantines_sync_failure() -> Result<(
         Err(ManifestError::Quarantined)
     ));
     drop(pages);
-    let mut recovered = ManifestPageStore::open(&directory, filesystem, 64, 1024 * 1024)?;
+    let mut recovered = ManifestPageStore::open(&directory, filesystem, 64, 1024 * 1024, 64)?;
     // Retried bytes must be independently checked and synced, even if the
     // interrupted attempt left a complete content-addressed filename.
     let recovered_root = tree.update(
@@ -363,8 +365,13 @@ async fn group_manifest_engine_sync_publication() -> Result<()> {
     let cut = images::Cut::new(&[], &bytes, 0, true, false);
     let pin = generations.prepare(images::id(1), None, &cut.update())?;
     let tree = ManifestTree::new(route(), ManifestLimits::default())?;
-    let mut pages =
-        ManifestPageStore::open(&temp.path().join("pages"), fs.clone(), 256, 4 * 1024 * 1024)?;
+    let mut pages = ManifestPageStore::open(
+        &temp.path().join("pages"),
+        fs.clone(),
+        256,
+        4 * 1024 * 1024,
+        64,
+    )?;
     let root = tree.update(
         &mut pages,
         ManifestRoot::default(),
@@ -448,7 +455,8 @@ async fn group_manifest_engine_sync_publication() -> Result<()> {
         fs.clone(),
         GenerationLimits::default(),
     )?;
-    let mut pages = ManifestPageStore::open(&temp.path().join("pages"), fs, 256, 4 * 1024 * 1024)?;
+    let mut pages =
+        ManifestPageStore::open(&temp.path().join("pages"), fs, 256, 4 * 1024 * 1024, 64)?;
     let restored = tree.prepare_complete(
         &group,
         &mut pages,
@@ -493,8 +501,13 @@ async fn group_manifest_recovery_requires_every_image() -> Result<()> {
             fs.clone(),
             GenerationLimits::default(),
         )?;
-        let mut pages =
-            ManifestPageStore::open(&temp.path().join("pages"), fs.clone(), 256, 4 * 1024 * 1024)?;
+        let mut pages = ManifestPageStore::open(
+            &temp.path().join("pages"),
+            fs.clone(),
+            256,
+            4 * 1024 * 1024,
+            64,
+        )?;
         let mut pins = Vec::new();
         let mut root = ManifestRoot::default();
         for id in 1..=2 {
@@ -551,7 +564,8 @@ async fn group_manifest_recovery_requires_every_image() -> Result<()> {
         fs.clone(),
         GenerationLimits::default(),
     )?;
-    let mut pages = ManifestPageStore::open(&temp.path().join("pages"), fs, 256, 4 * 1024 * 1024)?;
+    let mut pages =
+        ManifestPageStore::open(&temp.path().join("pages"), fs, 256, 4 * 1024 * 1024, 64)?;
     assert!(tree
         .prepare_complete(
             &group,
@@ -606,7 +620,8 @@ async fn incremental_manifest_preserves_images_and_rejects_forks() -> Result<()>
     let page_fs = Arc::new(faults::FaultFileSystem {
         faults: trace.clone(),
     });
-    let mut pages = ManifestPageStore::open(&page_path, page_fs.clone(), 4096, 64 * 1024 * 1024)?;
+    let mut pages =
+        ManifestPageStore::open(&page_path, page_fs.clone(), 4096, 64 * 1024 * 1024, 64)?;
     let tree = ManifestTree::new(route(), ManifestLimits::default())?;
     let mut pins = BTreeMap::new();
     let mut root = ManifestRoot::default();
@@ -729,10 +744,19 @@ async fn incremental_manifest_preserves_images_and_rejects_forks() -> Result<()>
     );
     drop(changed);
     assert_eq!(generations.reclaim(128)?.files, 0);
-    // A previous owner cannot certify a reopened page store, even on the same
-    // directory. Full closure recovery must establish a fresh capability.
+    // Live page pins keep the directory lock even after the store handle drops.
+    // A different owner also cannot accept this preparation capability.
     drop(pages);
-    let mut pages = ManifestPageStore::open(&page_path, page_fs, 4096, 64 * 1024 * 1024)?;
+    assert!(
+        ManifestPageStore::open(&page_path, page_fs.clone(), 4096, 64 * 1024 * 1024, 64).is_err()
+    );
+    let mut pages = ManifestPageStore::open(
+        &temp.path().join("other-pages"),
+        page_fs.clone(),
+        4096,
+        64 * 1024 * 1024,
+        64,
+    )?;
     let mut candidate = next_leaf.clone();
     candidate.last_mutation = position(4);
     assert!(matches!(
@@ -755,6 +779,7 @@ async fn incremental_manifest_preserves_images_and_rejects_forks() -> Result<()>
     drop(group);
     drop(log);
     assert_eq!(generations.reclaim(128)?.files, 64);
+    let _reopened = ManifestPageStore::open(&page_path, page_fs, 4096, 64 * 1024 * 1024, 64)?;
     domain.shutdown().await;
     Ok(())
 }
@@ -784,7 +809,7 @@ async fn incremental_enrollment_preserves_rotated_subtrees() -> Result<()> {
     let cut = images::Cut::new(&[], &bytes, 0, true, false);
     let pin = generations.prepare(images::id(1), None, &cut.update())?;
     let mut pages =
-        ManifestPageStore::open(&temp.path().join("pages"), fs, 4096, 64 * 1024 * 1024)?;
+        ManifestPageStore::open(&temp.path().join("pages"), fs, 4096, 64 * 1024 * 1024, 64)?;
     let tree = ManifestTree::new(route(), ManifestLimits::default())?;
     let mut current = tree.prepare_complete(
         &group,
@@ -850,6 +875,392 @@ async fn incremental_enrollment_preserves_rotated_subtrees() -> Result<()> {
     )?;
     assert_eq!(full.marker(), current.marker());
     assert_eq!(full.pinned_images(), current.pinned_images());
+    log.close().await?;
+    domain.shutdown().await;
+    Ok(())
+}
+
+fn collect_pages(pages: &mut ManifestPageStore) -> Result<usize> {
+    let mut deleted = 0;
+    for _ in 0..257 {
+        let report = pages.reclaim(16)?;
+        assert!(report.scanned <= 16);
+        deleted += report.pages;
+        if report.scanned < 16 {
+            return Ok(deleted);
+        }
+    }
+    anyhow::bail!("bounded fixture inventory did not finish scanning")
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn manifest_pin_reclamation() -> Result<()> {
+    use cellar::application::consensus::verification::{LogOpenMode, ReplicaLog};
+    use cellar::sdk::ExecutionDomain;
+    use cellar_logic::consensus::OperationId;
+    let temp = tempfile::tempdir()?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let fs = Arc::new(DirectFileSystem);
+    let gate = engine_fault::Gate::new(None);
+    let log = domain
+        .run(ReplicaLog::open(
+            engine_options(&temp.path().join("node"), LogOpenMode::Create, 1),
+            Arc::new(engine_fault::FaultFileSystem { gate: gate.clone() }),
+        ))
+        .await??;
+    let group = log.create_group(engine_bootstrap()).await?;
+    let generations = GenerationStore::open(
+        temp.path().join("images"),
+        fs.clone(),
+        GenerationLimits::default(),
+    )?;
+    let bytes = images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES (1);")?;
+    let cut = images::Cut::new(&[], &bytes, 0, true, false);
+    let pin = generations.prepare(images::id(1), None, &cut.update())?;
+    let mut pages =
+        ManifestPageStore::open(&temp.path().join("pages"), fs, 256, 4 * 1024 * 1024, 16)?;
+    let tree = ManifestTree::new(route(), ManifestLimits::default())?;
+    let root = tree.update(
+        &mut pages,
+        ManifestRoot::default(),
+        leaf(1, &pin, 1, 2),
+        None,
+    )?;
+    let old = tree.prepare_complete(&group, &mut pages, root, position(2), 1, |_| {
+        Ok(CellImagePin::Materialized(pin.clone()))
+    })?;
+    log.persist(OperationId::new(1), vec![root_write(&group, old.clone())?])
+        .await?;
+    assert!(
+        pages.reclaim(16).is_err(),
+        "inventory must first be reconciled"
+    );
+    let reader = old.clone();
+    let transition = old.clone();
+    // The stored snapshot reference survives release of the caller's handle.
+    assert!(matches!(
+        pages.reconcile_retained(&vec![old.clone(); 15]),
+        Err(ManifestError::Limit)
+    ));
+    assert!(
+        pages.reclaim(16).is_err(),
+        "failed reconciliation must not open collection"
+    );
+    pages.reconcile_retained(std::slice::from_ref(&old))?;
+    let orphan = tree.update(&mut pages, root, leaf(3, &pin, 1, 3), None)?;
+    let next = tree.prepare_update(
+        &mut pages,
+        &old,
+        leaf(2, &pin, 1, 3),
+        None,
+        CellImagePin::Materialized(pin.clone()),
+    )?;
+    let release = gate.arm(engine_fault::HOLD_SYNC);
+    let writer = log.clone();
+    let write = root_write(&group, next.clone())?;
+    let pending =
+        domain.spawn(async move { writer.persist(OperationId::new(2), vec![write]).await })?;
+    tokio::time::timeout(std::time::Duration::from_secs(5), gate.entered.notified()).await?;
+    assert!(matches!(pages.reclaim(16), Err(ManifestError::Conflict)));
+    assert!(
+        pages.reconcile_retained(&[]).is_err(),
+        "cannot retire roots during publication"
+    );
+    drop(release);
+    pending.await??;
+    assert!(
+        collect_pages(&mut pages)? > 0,
+        "unmarked paths are reclaimable"
+    );
+    assert!(tree
+        .verify(&pages, orphan, position(3), |_| Ok(()))
+        .is_err());
+    tree.verify(&pages, root, position(2), |_| Ok(()))?;
+    drop(old);
+    drop(reader);
+    pages.reconcile_retained(&[])?;
+    collect_pages(&mut pages)?;
+    tree.verify(&pages, root, position(2), |_| Ok(()))?;
+    pages.reconcile_retained(std::slice::from_ref(&transition))?;
+    drop(transition);
+    collect_pages(&mut pages)?;
+    tree.verify(&pages, root, position(2), |_| Ok(()))?;
+    pages.reconcile_retained(&[])?;
+    assert!(collect_pages(&mut pages)? > 0);
+    assert!(tree.verify(&pages, root, position(2), |_| Ok(())).is_err());
+    tree.verify(&pages, next.marker().root(), position(3), |_| Ok(()))?;
+    assert_eq!(pages.usage().pages, 2);
+    drop(next);
+    assert_eq!(
+        collect_pages(&mut pages)?,
+        0,
+        "engine-selected root survives caller release"
+    );
+    log.close().await?;
+    assert!(matches!(pages.reclaim(16), Err(ManifestError::Quarantined)));
+    domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn uncertain_manifest_publication_retains_both_roots() -> Result<()> {
+    use cellar::application::consensus::verification::{LogOpenMode, ReplicaLog};
+    use cellar::sdk::ExecutionDomain;
+    use cellar_logic::consensus::OperationId;
+    let temp = tempfile::tempdir()?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let fs = Arc::new(DirectFileSystem);
+    let gate = engine_fault::Gate::new(None);
+    let node = temp.path().join("node");
+    let log = domain
+        .run(ReplicaLog::open(
+            engine_options(&node, LogOpenMode::Create, 1),
+            Arc::new(engine_fault::FaultFileSystem { gate: gate.clone() }),
+        ))
+        .await??;
+    let group = log.create_group(engine_bootstrap()).await?;
+    let image_path = temp.path().join("images");
+    let page_path = temp.path().join("pages");
+    let generations =
+        GenerationStore::open(image_path.clone(), fs.clone(), GenerationLimits::default())?;
+    let before = images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES (1);")?;
+    let cut = images::Cut::new(&[], &before, 0, true, false);
+    let pin = generations.prepare(images::id(1), None, &cut.update())?;
+    let mut pages = ManifestPageStore::open(&page_path, fs.clone(), 256, 4 * 1024 * 1024, 16)?;
+    let tree = ManifestTree::new(route(), ManifestLimits::default())?;
+    let old_leaf = leaf(1, &pin, 1, 2);
+    let root = tree.update(&mut pages, ManifestRoot::default(), old_leaf.clone(), None)?;
+    let current = tree.prepare_complete(&group, &mut pages, root, position(2), 1, |_| {
+        Ok(CellImagePin::Materialized(pin.clone()))
+    })?;
+    log.persist(
+        OperationId::new(1),
+        vec![root_write(&group, current.clone())?],
+    )
+    .await?;
+    pages.reconcile_retained(&[])?;
+    let after = images::image(Some(&before), "UPDATE value SET n = 2;")?;
+    let changed = images::Cut::new(&before, &after, 1, true, false);
+    let next_pin = generations.prepare(images::id(2), Some(&pin), &changed.update())?;
+    let next = tree.prepare_update(
+        &mut pages,
+        &current,
+        leaf(1, &next_pin, 2, 3),
+        Some(&old_leaf.version),
+        CellImagePin::Materialized(next_pin.clone()),
+    )?;
+    let expected = next.marker().clone();
+    drop(pin);
+    drop(next_pin);
+    drop(current);
+    generations.retain_only(&[])?;
+    let release = gate.arm(engine_fault::FAIL_AFTER_SYNC);
+    assert!(log
+        .persist(OperationId::new(2), vec![root_write(&group, next)?])
+        .await
+        .is_err());
+    drop(release);
+    assert!(log.close().await.is_err());
+    assert!(matches!(pages.reclaim(16), Err(ManifestError::Quarantined)));
+    assert!(pages.reconcile_retained(&[]).is_err());
+    assert_eq!(
+        generations.reclaim(16)?.files,
+        0,
+        "both images survive loss of request and engine authority"
+    );
+    drop(group);
+    drop(log);
+    // The page owner, rather than the failed engine cache, still retains both.
+    assert_eq!(generations.reclaim(16)?.files, 0);
+    drop(pages);
+    drop(generations);
+    let log = domain
+        .run(ReplicaLog::open(
+            engine_options(&node, LogOpenMode::Resume, 2),
+            fs.clone(),
+        ))
+        .await??;
+    let group = log.group(&engine_bootstrap().scope)?;
+    assert_eq!(
+        group.group_manifest()?.as_ref(),
+        Some(&expected),
+        "injected failure was after actual fsync"
+    );
+    let generations = GenerationStore::open(image_path, fs.clone(), GenerationLimits::default())?;
+    let mut pages = ManifestPageStore::open(&page_path, fs, 256, 4 * 1024 * 1024, 16)?;
+    assert!(pages.reclaim(16).is_err());
+    let restored = tree.prepare_complete(
+        &group,
+        &mut pages,
+        expected.root(),
+        expected.position(),
+        expected.membership_revision(),
+        |_| {
+            generations
+                .adopt(images::id(2), changed.result)
+                .map(CellImagePin::Materialized)
+                .map_err(|_| ManifestError::Invalid("recovered image"))
+        },
+    )?;
+    pages.reconcile_retained(&[])?;
+    assert_eq!(collect_pages(&mut pages)?, 1);
+    generations.retain_only(&[])?;
+    assert_eq!(generations.reclaim(16)?.files, 1);
+    let (_, CellImagePin::Materialized(restored_image)) =
+        restored.pin_cell(&CellId::new("cell-1")?).unwrap()
+    else {
+        panic!("materialized fixture");
+    };
+    assert_eq!(images::read(&restored_image)?, after);
+    drop(restored_image);
+    drop(restored);
+    assert_eq!(
+        generations.reclaim(16)?.files,
+        0,
+        "recovery registers selected root retention without a new write"
+    );
+    log.close().await?;
+    domain.shutdown().await;
+    Ok(())
+}
+
+#[test]
+fn manifest_collection_barrier_failure_keeps_quota() -> Result<()> {
+    for mode in [faults::FAIL_REMOVE, faults::FAIL_DIRECTORY_SYNC] {
+        let temp = tempfile::tempdir()?;
+        let path = temp.path().join("pages");
+        let trace = faults::Faults::new(path.clone(), None);
+        let fs = Arc::new(faults::FaultFileSystem {
+            faults: trace.clone(),
+        });
+        let generations = GenerationStore::open(
+            temp.path().join("images"),
+            Arc::new(DirectFileSystem),
+            GenerationLimits::default(),
+        )?;
+        let bytes = images::image(None, "CREATE TABLE value(n);")?;
+        let cut = images::Cut::new(&[], &bytes, 0, true, false);
+        let pin = generations.prepare(images::id(1), None, &cut.update())?;
+        let tree = ManifestTree::new(route(), ManifestLimits::default())?;
+        let mut pages = ManifestPageStore::open(&path, fs.clone(), 64, 1024 * 1024, 8)?;
+        // No engine root was published: every page in this fixture is an orphan.
+        tree.update(
+            &mut pages,
+            ManifestRoot::default(),
+            leaf(1, &pin, 1, 2),
+            None,
+        )?;
+        pages.reconcile_retained(&[])?;
+        let before = pages.usage();
+        trace.mode.store(mode, std::sync::atomic::Ordering::Release);
+        assert!(pages.reclaim(16).is_err());
+        assert_eq!(
+            pages.usage(),
+            before,
+            "uncertain deletion must not refund quota"
+        );
+        assert!(matches!(pages.reclaim(16), Err(ManifestError::Quarantined)));
+        drop(pages);
+        let mut pages = ManifestPageStore::open(&path, fs, 64, 1024 * 1024, 8)?;
+        assert!(pages.reclaim(16).is_err());
+        pages.reconcile_retained(&[])?;
+        collect_pages(&mut pages)?;
+        assert_eq!(pages.usage().pages, 0);
+        assert_eq!(pages.usage().bytes, 0);
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn manifest_batch_retention_refusal_cancels_unwritten_reservations() -> Result<()> {
+    use cellar::application::consensus::verification::{LogOpenMode, ReplicaLog};
+    use cellar::sdk::ExecutionDomain;
+    use cellar_logic::consensus::OperationId;
+    use raft::Storage as _;
+    let temp = tempfile::tempdir()?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let fs = Arc::new(DirectFileSystem);
+    let log = domain
+        .run(ReplicaLog::open(
+            engine_options(&temp.path().join("node"), LogOpenMode::Create, 1),
+            fs.clone(),
+        ))
+        .await??;
+    let first_group = log.create_group(engine_bootstrap()).await?;
+    let mut second_birth = engine_bootstrap();
+    second_birth.scope.group = GroupId::new([33; 16])?;
+    let second_group = log.create_group(second_birth).await?;
+    let mut second_route = route();
+    second_route.history.group = second_group.identity().scope.group;
+    let first_tree = ManifestTree::new(route(), ManifestLimits::default())?;
+    let second_tree = ManifestTree::new(second_route, ManifestLimits::default())?;
+    let generations = GenerationStore::open(
+        temp.path().join("images"),
+        fs.clone(),
+        GenerationLimits::default(),
+    )?;
+    let bytes = images::image(None, "CREATE TABLE value(n);")?;
+    let cut = images::Cut::new(&[], &bytes, 0, true, false);
+    let pin = generations.prepare(images::id(1), None, &cut.update())?;
+    // Capacity admits one group's current/pending pair, never two groups.
+    let mut pages = ManifestPageStore::open(&temp.path().join("pages"), fs, 64, 1024 * 1024, 2)?;
+    let first_root = first_tree.update(
+        &mut pages,
+        ManifestRoot::default(),
+        leaf(1, &pin, 1, 2),
+        None,
+    )?;
+    let second_root = second_tree.update(
+        &mut pages,
+        ManifestRoot::default(),
+        leaf(2, &pin, 1, 2),
+        None,
+    )?;
+    let first = first_tree.prepare_complete(
+        &first_group,
+        &mut pages,
+        first_root,
+        position(2),
+        1,
+        |_| Ok(CellImagePin::Materialized(pin.clone())),
+    )?;
+    let second = second_tree.prepare_complete(
+        &second_group,
+        &mut pages,
+        second_root,
+        position(2),
+        1,
+        |_| Ok(CellImagePin::Materialized(pin.clone())),
+    )?;
+    assert!(log
+        .persist(
+            OperationId::new(1),
+            vec![
+                root_write(&first_group, first.clone())?,
+                root_write(&second_group, second.clone())?
+            ]
+        )
+        .await
+        .is_err());
+    for group in [&first_group, &second_group] {
+        assert!(group.group_manifest()?.is_none());
+        assert_eq!(
+            group.last_index()?,
+            1,
+            "no part of the rejected batch reached storage"
+        );
+    }
+    pages.reconcile_retained(&[])?;
+    assert_eq!(
+        collect_pages(&mut pages)?,
+        0,
+        "prepared apply pins protect both staged roots"
+    );
+    log.persist(OperationId::new(2), vec![root_write(&first_group, first)?])
+        .await?;
+    drop(second);
+    assert_eq!(collect_pages(&mut pages)?, 1);
+    assert_eq!(pages.usage().pages, 1);
     log.close().await?;
     domain.shutdown().await;
     Ok(())

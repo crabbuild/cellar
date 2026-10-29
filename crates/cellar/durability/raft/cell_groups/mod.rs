@@ -7,13 +7,14 @@ mod manifest;
 mod page_store;
 mod page_wire;
 mod pins;
+mod retention;
 mod root;
 
 pub use manifest::{
     CellImageGeometry, CellManifestLeaf, EffectSummary, ManifestError, ManifestLimits,
     ManifestRoot, ManifestTree,
 };
-pub use page_store::{ManifestPageStore, ManifestStoreUsage};
+pub use page_store::{ManifestPageStore, ManifestReclaimReport, ManifestStoreUsage};
 
 pub use image_pin::{cell_image_history_digest, CellImagePin};
 pub(crate) use pins::ManifestPins;

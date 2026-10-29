@@ -79,7 +79,8 @@ pub struct PreparedGroupManifest {
     pub(crate) images: ManifestPins,
     pub(crate) engine_owner: Arc<()>,
     pub(crate) base: Option<GroupManifest>,
-    page_owner: Arc<()>,
+    pub(super) page_owner: Arc<super::page_store::PageOwner>,
+    retention: Arc<super::retention::RootRetentions>,
 }
 
 impl PreparedGroupManifest {
@@ -100,6 +101,14 @@ impl PreparedGroupManifest {
 
     pub(crate) fn reserved_bytes(&self) -> usize {
         self.images.reserved_bytes()
+    }
+
+    pub(crate) fn begin_publication(
+        &self,
+        group: &crate::raft::cache::GroupLog,
+        previous: Option<&GroupManifest>,
+    ) -> Result<super::retention::PublicationPin, ManifestError> {
+        self.retention.begin(group, self, previous)
     }
 }
 
@@ -132,12 +141,23 @@ impl ManifestTree {
         self.verify(store, root, position, |_| Ok(()))?;
         let pins = ManifestPins::complete(self, store, root, &mut image)?;
         store.sync_directory()?;
+        // Recover physical ownership only from the engine's selected marker.
+        // A prospective checkpoint or mutation remains a preparation capability.
+        if group
+            .group_manifest()
+            .map_err(|_| ManifestError::Invalid("closed engine"))?
+            .as_ref()
+            == Some(&marker)
+        {
+            store.retention.recover(group, &marker, &pins)?;
+        }
         Ok(PreparedGroupManifest {
             marker,
             images: pins,
             engine_owner: group.owner.clone(),
             base: None,
             page_owner: store.owner.clone(),
+            retention: store.retention.clone(),
         })
     }
 
@@ -180,6 +200,7 @@ impl ManifestTree {
             engine_owner: previous.engine_owner.clone(),
             base: Some(previous.marker.clone()),
             page_owner: store.owner.clone(),
+            retention: store.retention.clone(),
         })
     }
 }

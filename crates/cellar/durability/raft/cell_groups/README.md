@@ -25,9 +25,10 @@ The page store uses an injected filesystem, a lifetime exclusive lock, bounded
 inventory and byte/page quotas. A new page crosses file and directory sync before
 its reference is returned. Any ambiguous write/sync quarantines the owner until
 reopen. Reopened filenames are only inventory; reads verify length and digest,
-and reuse verifies and syncs bytes again. Pages are never deleted in this initial
-slice, so old roots remain readable. Authoritative root retention, pin-aware
-reclamation and recovery of partial orphan writes remain CG-02 work.
+and reuse verifies and syncs bytes again. Every prepared pin-tree node holds a
+page lease and the directory lock. Dropping a store handle cannot let a replacement
+owner collect pages still selected by old readers. The store explicitly bounds
+retained root slots (2–4096), reserving current and pending slots for each group.
 
 `verify` traverses the entire authenticated closure, checks ordering and the
 selected applied cut, and delegates actual image verification/pinning to its
@@ -61,6 +62,32 @@ prevents generation reclamation after a newer root publishes. Stores still need
 authoritative retention reconciliation before retiring inventory, especially
 after an uncertain engine outcome; a disposable request pin alone is insufficient.
 
+After validating an engine batch, storage reserves physical root pins before
+starting the write. Unarmed reservations can be cancelled without persistence.
+Once armed, dropping the reservation before cache publication finishes quarantines
+the retention owner and keeps both old and candidate closures. Successful cache
+publication selects the candidate and releases the old engine reference. Identical
+retries use the same retention protocol. No retention mutex spans engine or file I/O.
+
+`prepare_complete` automatically registers a recovered root only when it matches
+the engine-selected marker. An existing group cannot publish through an unrecovered
+retention owner. Before collection, the owning service must prepare **every**
+engine-selected root assigned to this directory and call `reconcile_retained` with
+the complete additional snapshot/archive/transition root set. This is a trusted
+inventory handoff, not discovery from page filenames or proof supplied by clients.
+The future shared host must obtain that inventory from its authoritative catalog.
+Replacing the additional set never releases the engine's current roots. Pending
+publication, an uncertain outcome or engine closure prevents reconciliation and
+collection until restart. Reopening requires recovery and reconciliation again.
+
+`reclaim` scans at most the explicit scan limit (1–4096) and resumes from its last
+inventory key. Only pages without physical leases can be selected. Deletions and
+the directory barrier finish before page/byte quotas are refunded; failure keeps
+the prior charge and quarantines the owner. Reader, apply, snapshot and transition
+pins independently protect their closures. Image-store collection still follows
+its own complete durable-reference reconciliation contract; the retained manifest
+pins prevent it from deleting selected or uncertain images in the live process.
+
 The engine persists group root, applied position, membership and log/hard state
 in one synced batch. It requires contiguous apply, matching group/birth/range,
 matching membership revision and the current engine owner. Cached readers see
@@ -76,8 +103,6 @@ automatic migration. The staged image variant supports existing code while the
 remaining production consumers are converted, and is removed at hard cutover.
 Existing disks and archives must be retained, not reset by this component.
 
-Further integration must add authoritative physical root retention/reclamation,
-including page reclamation and uncertain publication reconciliation. Reader, apply,
-snapshot and transfer pins must protect dependencies before deletion. Native
-engine crash cuts and both physical image modes remain required before CG-02
-can be marked DONE.
+Further integration must wire complete catalog/checkpoint/transition inventory
+handoff into the shared host. Native engine process-kill cuts and full qualification
+of both physical image modes remain required before CG-02 can be marked DONE.

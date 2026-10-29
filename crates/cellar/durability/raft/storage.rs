@@ -1172,6 +1172,23 @@ impl Worker {
                 .map_err(engine_error)?;
             candidates.push(next);
         }
+        // Retain both closures before any engine I/O. Failed preflight drops
+        // unarmed reservations; once armed, an unknown outcome keeps both roots
+        // and quarantines collection until recovery reconstructs the selection.
+        let mut publications = Vec::new();
+        for write in &writes {
+            if let Some(prepared) = &write.group_manifest {
+                let previous = write.group.group_manifest()?;
+                publications.push(
+                    prepared
+                        .begin_publication(&write.group, previous.as_ref())
+                        .map_err(|e| LogError::Invalid(e.to_string()))?,
+                );
+            }
+        }
+        for publication in &mut publications {
+            publication.arm();
+        }
         let sequence = self.fence(&mut batch)?;
         // No cache write lock is held during engine I/O. Readers may continue
         // to observe the previous durable prefix while a sync is stalled.
@@ -1190,6 +1207,11 @@ impl Worker {
                 .group
                 .cache_revision
                 .store(sequence, Ordering::Release);
+        }
+        for publication in publications {
+            publication
+                .commit()
+                .map_err(|e| LogError::Corrupt(e.to_string()))?;
         }
         self.cache_bytes = next_bytes;
         self.cache_usage.store(self.cache_bytes, Ordering::Release);

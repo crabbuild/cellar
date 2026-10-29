@@ -15,6 +15,7 @@ use std::{cmp::Ordering, sync::Arc};
 pub(crate) struct ManifestPins(Option<Arc<PinnedPage>>);
 
 struct PinnedPage {
+    _page: super::page_store::ManifestPagePin,
     reference: PageRef,
     key: CellKey,
     leaf: CellManifestLeaf,
@@ -69,6 +70,7 @@ impl ManifestPins {
         image: CellImagePin,
         left: Self,
         right: Self,
+        page: super::page_store::ManifestPagePin,
     ) -> Self {
         let bytes = std::mem::size_of::<PinnedPage>()
             + 2 * std::mem::size_of::<usize>()
@@ -77,6 +79,7 @@ impl ManifestPins {
             + left.reserved_bytes()
             + right.reserved_bytes();
         Self(Some(Arc::new(PinnedPage {
+            _page: page,
             reference,
             key,
             leaf,
@@ -109,7 +112,15 @@ impl ManifestPins {
             tree.route.history.namespace,
             &page.leaf.version.history.cell,
         );
-        Ok(Self::node(reference, key, page.leaf, pin, left, right))
+        Ok(Self::node(
+            reference,
+            key,
+            page.leaf,
+            pin,
+            left,
+            right,
+            store.pin(reference.digest)?,
+        ))
     }
 
     /// Only accepts the root produced by the tree's compare-and-replace method.
@@ -148,6 +159,14 @@ impl ManifestPins {
         };
         let left = self.updated(tree, store, ManifestRoot(page.left), changed, image)?;
         let right = self.updated(tree, store, ManifestRoot(page.right), changed, image)?;
-        Ok(Self::node(reference, key, page.leaf, pin, left, right))
+        Ok(Self::node(
+            reference,
+            key,
+            page.leaf,
+            pin,
+            left,
+            right,
+            store.pin(reference.digest)?,
+        ))
     }
 }
