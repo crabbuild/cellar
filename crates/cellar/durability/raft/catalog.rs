@@ -26,7 +26,9 @@ pub use births::BirthDisposition;
 mod range_directory;
 pub use range_directory::{
     CellGroupBirth, CellGroupBirthRequest, CellGroupBirthSpec, CellGroupBootstrapPermit,
-    DirectoryLimits, DirectoryMutation, DirectoryPublication, DirectoryView, RangeDirectory,
+    CellRouteAttempt, CellRouteOperation, CellRouteRequest, CellRoutingError, CellRoutingFailure,
+    CellRoutingLimits, CellRoutingSession, DirectoryLimits, DirectoryMutation,
+    DirectoryPublication, DirectoryView, RangeDirectory, ResolvedCellRoute,
 };
 
 #[path = "catalog_inventory/mod.rs"]

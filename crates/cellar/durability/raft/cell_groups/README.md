@@ -172,8 +172,8 @@ limits bound individual operations; defaults are not a qualified capacity claim.
 
 Directory publication is metadata only. The future topology owner must obtain
 the seal, installation, archive and activation proofs before exposing replacement
-ownership. Group birth/permanent disk claims, managed admission and bounded client
-redirects remain to be integrated. Native directory tests exercise real conditional
+ownership. Birth/claim admission and invocation-bounded route confirmation are
+described below. Managed admission and production client integration remain open. Native directory tests exercise real conditional
 object-store operations in memory, including races, dropped replies, corruption,
 restart and bounded split/merge churn. They do not qualify live Raft ownership,
 real RustFS or the full CG-03 gate.
@@ -260,3 +260,33 @@ must still match the complete occupied count before encoding or accepting a
 response. Inventory is an occupancy observation, not quorum or release proof.
 The generic physical capture includes shared histories, while the group-native
 accessor refuses a legacy application engine.
+
+
+## Invocation-bounded route confirmation
+
+`RangeDirectory::routing_session` captures an explicit execution domain, original
+monotonic deadline and 1–16 total attempts before discovery. The immutable request
+binds logical cell history, command/enrollment/query identity and the dispatcher's
+canonical request fingerprint. Initial discovery, redirects and same-group retries
+share this budget. A previously resolved route can begin an invocation without
+object-store I/O, even during a catalog outage; it is a potentially stale hint.
+
+A relocation hint is checked against the namespace's configured trusted catalog.
+The session observes a pinned directory root and requires an exact lookup match
+for the requested cell. It refuses foreign namespaces/schemas, wrong ranges,
+non-advancing epochs, unpublished histories and stale attempt tickets. This
+confirms the mapping through catalog trust; it does not authenticate a network
+connection. The production transport must still authenticate peers, and every
+destination must verify the complete route, logical cell incarnation and current
+serving authority. No redirect URL or caller-supplied catalog is followed.
+
+Attempts are consumed before awaiting reads. Cancellation cannot refund a budget
+or make a delayed ticket current. Read timeouts use the original domain clock,
+even when a waiter is polled elsewhere. Marking a command potentially submitted
+makes subsequent routing failures carry its original ambiguous command ID; a
+redirect never proves the earlier proposal uncommitted. Physical command producers
+remain the dispatcher's responsibility and must outlive cancelled waiters.
+
+This component prepares routing for the shared host. Native tests exercise real
+conditional directory changes and controlled reads, not synthetic serving proofs.
+It does not dispatch commands or qualify the production routing integration.

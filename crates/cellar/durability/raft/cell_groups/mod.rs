@@ -19,7 +19,9 @@ pub use page_store::{ManifestPageStore, ManifestReclaimReport, ManifestStoreUsag
 
 pub use crate::raft::catalog::{
     CellGroupBirth, CellGroupBirthRequest, CellGroupBirthSpec, CellGroupBootstrapPermit,
-    DirectoryLimits, DirectoryMutation, DirectoryPublication, DirectoryView, RangeDirectory,
+    CellRouteAttempt, CellRouteOperation, CellRouteRequest, CellRoutingError, CellRoutingFailure,
+    CellRoutingLimits, CellRoutingSession, DirectoryLimits, DirectoryMutation,
+    DirectoryPublication, DirectoryView, RangeDirectory, ResolvedCellRoute,
 };
 pub use enrollment::{
     decide_enrollment, EnrollmentDecision, EnrollmentError, EnrollmentPhase, EnrollmentRecord,

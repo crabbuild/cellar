@@ -324,3 +324,18 @@ fn enrollment_record_is_bounded_canonical_data() {
         Err(EnrollmentError::Protocol(_))
     ));
 }
+
+#[tokio::test]
+async fn routing_redirect_requires_catalog_confirmation() -> anyhow::Result<()> {
+    directory::routing_authentication().await
+}
+
+#[tokio::test]
+async fn routing_cached_requests_preserve_identity_without_catalog_reads() -> anyhow::Result<()> {
+    directory::routing_cache_and_budget().await
+}
+
+#[tokio::test]
+async fn routing_attempt_deadline_survives_redirect_and_cancellation() -> anyhow::Result<()> {
+    directory::routing_deadline_and_cancellation().await
+}

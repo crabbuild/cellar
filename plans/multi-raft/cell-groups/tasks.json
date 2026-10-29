@@ -295,7 +295,8 @@
         "crates/cellar/tests/support/cell_group_directory.rs",
         "crates/cellar/durability/raft/cell_groups/directory/birth.rs",
         "crates/cellar/durability/raft/cell_groups/directory/bootstrap.rs",
-        "crates/cellar/durability/raft/storage_cell_genesis_tests.rs"
+        "crates/cellar/durability/raft/storage_cell_genesis_tests.rs",
+        "crates/cellar/durability/raft/cell_groups/directory/routing.rs"
       ],
       "test_target": "native_cell_groups_catalog",
       "steps": [
@@ -321,7 +322,10 @@
           "action": "Add bounded tree traversal/cache tests, restart races and stale-route redirects with original deadlines/hop budgets. Ordinary known-group commands must not require an S3 catalog request.",
           "tests": [
             "bounded_catalog_discovery",
-            "sealed_range_rejects_enrollment"
+            "sealed_range_rejects_enrollment",
+            "routing_redirect_requires_catalog_confirmation",
+            "routing_cached_requests_preserve_identity_without_catalog_reads",
+            "routing_attempt_deadline_survives_redirect_and_cancellation"
           ]
         }
       ],
@@ -362,6 +366,32 @@
           "oracle": "No delayed enrollment can create a cell beyond a committed seal boundary.",
           "invariants": [
             "I09"
+          ]
+        },
+        {
+          "name": "routing_redirect_requires_catalog_confirmation",
+          "oracle": "An untrusted relocation is followed only after an exact route lookup in the configured trusted catalog; stale tickets, foreign namespace/schema and non-advancing epochs refuse. The logical cell, original command identity, request fingerprint and invocation deadline survive a confirmed split redirect.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I09"
+          ]
+        },
+        {
+          "name": "routing_cached_requests_preserve_identity_without_catalog_reads",
+          "oracle": "Cached route admission and same-group retries perform no object-store reads during a catalog outage. The original finite attempt budget covers retries and redirects; cached bindings cannot cross cells, incarnations or catalog owners. A cached route never grants serving authority.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "routing_attempt_deadline_survives_redirect_and_cancellation",
+          "oracle": "A real held catalog read expires under the captured invocation deadline, preserving command ambiguity. Dropped discovery cannot refund an attempt, and a closed execution domain refuses even cached admission.",
+          "invariants": [
+            "I03",
+            "I12"
           ]
         }
       ],
@@ -416,7 +446,7 @@
       "test_target": "native_cell_groups_execution",
       "steps": [
         {
-          "action": "Split the combined host Cell owner into group consensus state and per-cell execution state. One GroupHistory owns exactly one RawNode per voter; cell count does not allocate additional RawNodes. Reuse shared persistence, transport and SQL pools. Integrate CG-03 enrollment decisions with replicated enrollment and independent SQLite initialization before exposing cell commands. Atomically retain the immutable enrollment creation record with the selected cell state; preserve it through mutations and transfer so retries never reinitialize or restore the initial image over newer state.",
+          "action": "Split the combined host Cell owner into group consensus state and per-cell execution state. One GroupHistory owns exactly one RawNode per voter; cell count does not allocate additional RawNodes. Reuse shared persistence, transport and SQL pools. Integrate CG-03 enrollment decisions with replicated enrollment and independent SQLite initialization before exposing cell commands. Atomically retain the immutable enrollment creation record with the selected cell state; preserve it through mutations and transfer so retries never reinitialize or restore the initial image over newer state. Consume the prepared CellRoutingSession attempts when integrating dispatch: preserve the logical request fingerprint, original domain deadline and total attempt budget across member retries and group redirects. Catalog-confirmed mappings are hints; destination admission must validate the full binding and current authority. Command producers remain domain-owned after a routing waiter is cancelled.",
           "tests": [
             "three_cells_one_rawnode_per_voter",
             "concurrent_enrollment_one_cell"

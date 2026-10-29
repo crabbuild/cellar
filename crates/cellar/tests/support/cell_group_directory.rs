@@ -933,3 +933,285 @@ pub async fn member_fencing() -> Result<()> {
     f.domain.shutdown().await;
     Ok(())
 }
+
+fn route_request() -> CellRouteRequest {
+    use cellar_logic::consensus::{ClientId, CommandId};
+    CellRouteRequest {
+        cell: CellHistory {
+            cluster: route().history.cluster,
+            namespace: route().history.namespace,
+            cell: CellId::new("counter-routing").unwrap(),
+            incarnation: IncarnationId::new([81; 16]).unwrap(),
+        },
+        operation: CellRouteOperation::Command(
+            CommandId::new(ClientId::new([82; 16]).unwrap(), 7).unwrap(),
+        ),
+        fingerprint: Sha256::digest(b"canonical command with input and durability").into(),
+    }
+}
+
+fn routing_limits(max_attempts: u8) -> CellRoutingLimits {
+    CellRoutingLimits {
+        timeout: Duration::from_secs(10),
+        max_attempts,
+    }
+}
+
+async fn publish_route_split(
+    f: &Fixture,
+    parent: &GroupRoute,
+    cell: &CellId,
+) -> Result<GroupRoute> {
+    let view = f.run(f.directory.observe()).await?;
+    let mut children = split(parent, 700);
+    f.reserve(&mut children).await?;
+    let replace = f.directory.prepare_replacement(
+        &view,
+        operation(1000),
+        std::slice::from_ref(parent),
+        &children,
+    )?;
+    f.run(f.directory.publish(&replace)).await?;
+    let key = cell_routing_key(parent.history.namespace, cell);
+    Ok(children
+        .into_iter()
+        .find(|r| r.range.contains(&key))
+        .unwrap())
+}
+
+pub async fn routing_authentication() -> Result<()> {
+    let f = Fixture::new(DirectoryLimits::default()).await?;
+    let birth = selected_birth(&f).await?;
+    let request = route_request();
+    let mut session =
+        f.directory
+            .routing_session(&f.domain, request.clone(), routing_limits(4), None)?;
+    let first = session.begin().await?;
+    assert_eq!(first.route(), birth.route());
+    session.mark_submitted(&first)?;
+    let next = publish_route_split(&f, birth.route(), &request.cell.cell).await?;
+    let second = session.redirect(&first, &next).await?;
+    assert_eq!(second.route(), &next);
+    assert_eq!(second.request(), &request);
+    assert_eq!(second.deadline_ms(), first.deadline_ms());
+    assert_eq!(second.ordinal(), 2);
+    let stale = session.redirect(&first, &next).await.err().unwrap();
+    assert!(matches!(stale.reason, CellRoutingFailure::StaleAttempt));
+    assert!(stale.ambiguous_command.is_some());
+    let third = session.retry(&second).await?;
+    assert_eq!(third.request(), first.request());
+    assert_eq!(third.deadline_ms(), first.deadline_ms());
+
+    // Valid-looking but unpublished history must fail catalog confirmation.
+    let mut forged = next.clone();
+    forged.history.group = GroupId::new([99; 16])?;
+    let mut refused = f.directory.routing_session(
+        &f.domain,
+        request.clone(),
+        routing_limits(4),
+        Some(first.cached_route()),
+    )?;
+    let attempt = refused.begin().await?;
+    refused.mark_submitted(&attempt)?;
+    let (result, reads) = fault::count_reads(refused.redirect(&attempt, &forged)).await;
+    let failure = result.err().unwrap();
+    assert!(matches!(failure.reason, CellRoutingFailure::InvalidHint));
+    assert!(!reads.is_empty());
+    let CellRouteOperation::Command(id) = request.operation else {
+        unreachable!()
+    };
+    assert_eq!(failure.ambiguous_command, Some(id));
+    assert!(matches!(
+        refused.retry(&attempt).await.err().unwrap().reason,
+        CellRoutingFailure::StaleAttempt
+    ));
+
+    // Syntactically valid namespace/schema rebinding is rejected before I/O.
+    for field in 0..4 {
+        let mut wrong = next.clone();
+        match field {
+            0 => wrong.history.namespace = NamespaceId::new([91; 16])?,
+            1 => wrong.history.cluster = ClusterId::new([92; 16])?,
+            2 => wrong.schema_digest = [93; 32],
+            _ => wrong.epoch = birth.route().epoch,
+        }
+        let mut session = f.directory.routing_session(
+            &f.domain,
+            request.clone(),
+            routing_limits(4),
+            Some(first.cached_route()),
+        )?;
+        let attempt = session.begin().await?;
+        let (result, reads) = fault::count_reads(session.redirect(&attempt, &wrong)).await;
+        assert!(matches!(
+            result.err().unwrap().reason,
+            CellRoutingFailure::InvalidHint
+        ));
+        assert!(reads.is_empty());
+    }
+    assert_eq!(f.store.listing_calls.load(Ordering::Acquire), 0);
+    f.domain.shutdown().await;
+    Ok(())
+}
+
+pub async fn routing_cache_and_budget() -> Result<()> {
+    let f = Fixture::new(DirectoryLimits::default()).await?;
+    let birth = selected_birth(&f).await?;
+    let request = route_request();
+    let mut origin =
+        f.directory
+            .routing_session(&f.domain, request.clone(), routing_limits(2), None)?;
+    let first = origin.begin().await?;
+    let cached = first.cached_route();
+    let next = publish_route_split(&f, birth.route(), &request.cell.cell).await?;
+    origin.mark_submitted(&first)?;
+    let second = origin.redirect(&first, &next).await?;
+    let error = origin.retry(&second).await.err().unwrap();
+    assert!(matches!(
+        error.reason,
+        CellRoutingFailure::AttemptsExhausted
+    ));
+    assert!(error.ambiguous_command.is_some());
+
+    // Cached attempts can use a historical route during a catalog outage.
+    // This grants no serving authority: the destination must check its epoch.
+    f.store.fail_read.store(true, Ordering::Release);
+    let mut known = f.directory.routing_session(
+        &f.domain,
+        request.clone(),
+        routing_limits(2),
+        Some(cached.clone()),
+    )?;
+    let (attempt, reads) = fault::count_reads(known.begin()).await;
+    let attempt = attempt?;
+    assert!(reads.is_empty());
+    assert!(f.store.fail_read.load(Ordering::Acquire));
+    assert_eq!(attempt.route(), birth.route());
+    assert_eq!(attempt.request(), &request);
+    let (retry, reads) = fault::count_reads(known.retry(&attempt)).await;
+    assert!(reads.is_empty());
+    assert_eq!(retry?.request(), &request);
+    let foreign_ticket = known.mark_submitted(&first).unwrap_err();
+    assert!(matches!(
+        foreign_ticket.reason,
+        CellRoutingFailure::StaleAttempt
+    ));
+    f.store.fail_read.store(false, Ordering::Release);
+    let foreign = f.reopen().await?;
+    assert!(matches!(
+        foreign
+            .routing_session(
+                &f.domain,
+                request.clone(),
+                routing_limits(2),
+                Some(cached.clone())
+            )
+            .err()
+            .unwrap()
+            .reason,
+        CellRoutingFailure::InvalidRequest
+    ));
+    for field in 0..3 {
+        let mut wrong = request.clone();
+        match field {
+            0 => wrong.cell.cell = CellId::new("another-cell")?,
+            1 => wrong.cell.incarnation = IncarnationId::new([93; 16])?,
+            _ => wrong.fingerprint = [0; 32],
+        }
+        assert!(matches!(
+            f.directory
+                .routing_session(&f.domain, wrong, routing_limits(2), Some(cached.clone()))
+                .err()
+                .unwrap()
+                .reason,
+            CellRoutingFailure::InvalidRequest
+        ));
+    }
+    for maximum in [0, 17, 255] {
+        assert!(f
+            .directory
+            .routing_session(&f.domain, request.clone(), routing_limits(maximum), None)
+            .is_err());
+    }
+    f.domain.shutdown().await;
+    assert!(matches!(
+        origin.retry(&second).await.err().unwrap().reason,
+        CellRoutingFailure::StaleAttempt
+    ));
+    Ok(())
+}
+
+#[allow(clippy::disallowed_methods)]
+pub async fn routing_deadline_and_cancellation() -> Result<()> {
+    let f = Fixture::new(DirectoryLimits::default()).await?;
+    let birth = selected_birth(&f).await?;
+    let request = route_request();
+    let mut initial =
+        f.directory
+            .routing_session(&f.domain, request.clone(), routing_limits(4), None)?;
+    let observed = initial.begin().await?;
+    let next = publish_route_split(&f, birth.route(), &request.cell.cell).await?;
+    let limits = CellRoutingLimits {
+        timeout: Duration::from_millis(100),
+        max_attempts: 4,
+    };
+    let mut session = f.directory.routing_session(
+        &f.domain,
+        request.clone(),
+        limits,
+        Some(observed.cached_route()),
+    )?;
+    let attempt = session.begin().await?;
+    session.mark_submitted(&attempt)?;
+    let gate = Arc::new(fault::RegistryGate::default());
+    gate.armed.store(true, Ordering::Release);
+    let result = tokio::time::timeout(
+        Duration::from_secs(2),
+        fault::gate_read(
+            f.key("pin").to_string(),
+            gate.clone(),
+            session.redirect(&attempt, &next),
+        ),
+    )
+    .await?;
+    assert!(!gate.armed.load(Ordering::Acquire));
+    let error = result.err().unwrap();
+    assert!(matches!(error.reason, CellRoutingFailure::Deadline));
+    assert!(error.ambiguous_command.is_some());
+    assert!(matches!(
+        session.retry(&attempt).await.err().unwrap().reason,
+        CellRoutingFailure::StaleAttempt
+    ));
+
+    // Dropping discovery cannot reset its attempt budget or accept its ticket.
+    let mut cancelled =
+        f.directory
+            .routing_session(&f.domain, request.clone(), routing_limits(3), None)?;
+    let gate = Arc::new(fault::RegistryGate::default());
+    gate.armed.store(true, Ordering::Release);
+    {
+        let call = fault::gate_read(f.key("pin").to_string(), gate.clone(), cancelled.begin());
+        tokio::pin!(call);
+        tokio::select! {
+            result = &mut call => panic!("stalled discovery completed: {}", result.is_ok()),
+            _ = gate.entered.notified() => {},
+            _ = tokio::time::sleep(Duration::from_secs(2)) => panic!("discovery did not enter the real store"),
+        }
+    }
+    assert!(matches!(
+        cancelled.begin().await.err().unwrap().reason,
+        CellRoutingFailure::StaleAttempt
+    ));
+    let mut closed = f.directory.routing_session(
+        &f.domain,
+        request,
+        routing_limits(2),
+        Some(observed.cached_route()),
+    )?;
+    f.domain.shutdown().await;
+    assert!(matches!(
+        closed.begin().await.err().unwrap().reason,
+        CellRoutingFailure::Closed
+    ));
+    Ok(())
+}

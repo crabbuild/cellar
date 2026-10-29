@@ -11,12 +11,23 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 tokio::task_local! {
     static READ_COUNTS: std::cell::RefCell<std::collections::BTreeMap<String, usize>>;
     static MISSING_READ: String;
+    static GATED_READ: (String, std::sync::Arc<RegistryGate>);
 }
 
 // Keep a read fault local to one verifier; running nodes still see the store.
 #[allow(dead_code)]
 pub async fn missing_read<T>(path: String, work: impl std::future::Future<Output = T>) -> T {
     MISSING_READ.scope(path, work).await
+}
+
+// Scope a stalled read to one routing waiter; unrelated metadata continues.
+#[allow(dead_code)]
+pub async fn gate_read<T>(
+    path: String,
+    gate: std::sync::Arc<RegistryGate>,
+    work: impl std::future::Future<Output = T>,
+) -> T {
+    GATED_READ.scope((path, gate), work).await
 }
 
 // Shared fault adapter: only catalog work-count regressions use this scope.
@@ -502,6 +513,13 @@ impl ObjectStore for Store {
         let _ = READ_COUNTS.try_with(|counts| {
             *counts.borrow_mut().entry(path.to_string()).or_default() += 1;
         });
+        let gate = GATED_READ
+            .try_with(|(key, gate)| (key == path.as_ref()).then(|| gate.clone()))
+            .ok()
+            .flatten();
+        if let Some(gate) = gate {
+            gate.pause().await;
+        }
         if MISSING_READ
             .try_with(|missing| missing == path.as_ref())
             .unwrap_or(false)

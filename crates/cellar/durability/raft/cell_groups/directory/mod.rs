@@ -19,12 +19,17 @@ use std::{
 
 mod birth;
 mod bootstrap;
+mod routing;
 mod store;
 mod tree;
 mod wire;
 
 pub use birth::{CellGroupBirth, CellGroupBirthRequest, CellGroupBirthSpec};
 pub use bootstrap::CellGroupBootstrapPermit;
+pub use routing::{
+    CellRouteAttempt, CellRouteOperation, CellRouteRequest, CellRoutingError, CellRoutingFailure,
+    CellRoutingLimits, CellRoutingSession, ResolvedCellRoute,
+};
 
 #[derive(Clone, Copy, Debug)]
 pub struct DirectoryLimits {

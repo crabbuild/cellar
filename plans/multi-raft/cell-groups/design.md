@@ -116,9 +116,13 @@ is replaced by unique range ownership plus replicated enrollment; do not build t
 assignment authorities. While a range is sealed, enrollment is refused/retried.
 
 Cached routes carry group history and routing epoch; every destination verifies
-the complete binding. Redirects are authenticated hints, bounded by the original
-deadline and hop count. An ambiguous submitted command is retried only with its
-original cell-scoped command identity. An unavailable catalog may prevent births
+the complete binding. Relocation hints are authenticated by exact confirmation
+against the configured trusted range directory, bounded by the original invocation deadline and a finite
+total attempt count. Known cached routes need no per-request catalog read. This
+mapping confirmation does not replace transport peer authentication or destination
+admission checks; a peer cannot introduce an arbitrary redirect URL or catalog.
+An ambiguous submitted command is retried only with its original cell-scoped
+command identity. An unavailable catalog may prevent births
 and topology changes; it does not turn a known group's write path into S3 quorum.
 
 ## Runtime and persistence
