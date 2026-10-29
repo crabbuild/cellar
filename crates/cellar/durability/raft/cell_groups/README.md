@@ -132,5 +132,47 @@ and include it in complete snapshots/archives. An exact retry must not initializ
 again or roll the current image back to the initial one. Current-term quorum and
 read authority remain required from the host even for a recognized retry.
 
-Paged range-directory publication, birth reconciliation and host integration are
-still pending. Pure admission tests do not qualify those boundaries.
+## Range directory (CG-03 in progress)
+
+`RangeDirectory` stores a namespace-bound, immutable AVL range tree. Each page
+binds its route, child hashes, subtree bounds, height, count and coverage. A lookup
+descends one path and verifies each page; the cache has independent page and byte
+limits. A pinned `DirectoryView` can remain readable after a topology change and
+requires no head refresh for lookup. A fully cached path performs no S3 requests.
+Views are hints; the destination must check its own current route and quorum
+authority. Observation does not traverse a complete recovery inventory.
+
+Initialization publishes at most 128 contiguous ranges covering the whole routing
+domain. A replacement removes up to 64 exact parent routes and inserts up to 64
+fresh groups covering the identical contiguous union. Children advance the maximum
+parent epoch by one. Paths are copied incrementally; incomplete intermediate trees
+cannot become a selected root. Group IDs remain reserved after retirement.
+
+`DirectoryMutation` contains canonical bounded bytes binding the namespace,
+operation, expected head and exact routes. Persist these bytes before submission;
+after an unknown result, decode and retry the identical request. One conditional
+head update selects the tree, immutable journal and operation/group indexes.
+Read-back confirms the selected operation even after another publisher advances
+the head. Reusing an operation for different bytes refuses. The returned receipt
+describes its historical decision, not the latest route or serving authority.
+
+Genesis writes the head before a permanent pin. An interrupted initializer can
+finish the same genesis, including after another initializer pins and advances it.
+A missing head with a retained pin refuses reinitialization. Head observation
+verifies the pin, selected journal and operation-index binding. Missing or corrupt
+objects refuse instead of returning an empty directory. No namespace-wide listing
+is used, and historical pages/journals are retained; remote metadata GC is not
+implemented here.
+
+Run async operations within the owning execution domain. Each operation has an
+explicit timeout; a timed-out publication is unconfirmed and retains its original
+identity for reconciliation. Cache locks never span I/O. Object and traversal
+limits bound individual operations; defaults are not a qualified capacity claim.
+
+Directory publication is metadata only. The future topology owner must obtain
+the seal, installation, archive and activation proofs before exposing replacement
+ownership. Group birth/permanent disk claims, managed admission and bounded client
+redirects remain to be integrated. Native directory tests exercise real conditional
+object-store operations in memory, including races, dropped replies, corruption,
+restart and bounded split/merge churn. They do not qualify live Raft ownership,
+real RustFS or the full CG-03 gate.

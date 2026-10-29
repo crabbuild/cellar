@@ -59,6 +59,9 @@ impl RegistryGate {
 
 #[derive(Debug, Default)]
 pub struct Store {
+    pub range_before: RegistryGate,
+    pub range_genesis_after: RegistryGate,
+    pub range_page_puts: AtomicUsize,
     pub fail_closure_after: AtomicBool,
     pub fail_fleet_after: AtomicBool,
     pub fail_fleet_confirmation: AtomicBool,
@@ -244,6 +247,14 @@ impl ObjectStore for Store {
         payload: PutPayload,
         options: PutOptions,
     ) -> object_store::Result<PutResult> {
+        if path.as_ref().contains("/cell-groups/ranges/") {
+            self.range_page_puts.fetch_add(1, Ordering::AcqRel);
+        }
+        if path.as_ref().ends_with("/cell-groups/head")
+            && matches!(options.mode, PutMode::Update(_))
+        {
+            self.range_before.pause().await;
+        }
         if path.as_ref().contains("/root-extents/") {
             self.root_extent_puts.fetch_add(1, Ordering::AcqRel);
         }
@@ -374,7 +385,12 @@ impl ObjectStore for Store {
         }
         let fleet_cas =
             path.as_ref().ends_with("/fleet/head") && matches!(options.mode, PutMode::Update(_));
+        let range_genesis =
+            path.as_ref().ends_with("/cell-groups/head") && matches!(options.mode, PutMode::Create);
         let result = self.inner.put_opts(path, payload, options).await?;
+        if range_genesis {
+            self.range_genesis_after.pause().await;
+        }
         if path.as_ref().contains("/closures/")
             && self.fail_closure_after.swap(false, Ordering::AcqRel)
         {

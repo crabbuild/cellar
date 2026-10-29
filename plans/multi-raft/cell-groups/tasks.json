@@ -281,12 +281,17 @@
       "scope": [
         "crates/cellar/durability/raft/",
         "crates/cellar/application/consensus/",
-        "crates/cellar/node/"
+        "crates/cellar/node/",
+        "crates/cellar/tests/support/raft_catalog_fault.rs"
       ],
       "creates": [
-        "crates/cellar/durability/raft/cell_groups/directory.rs",
         "crates/cellar/durability/raft/cell_groups/enrollment.rs",
-        "crates/cellar/tests/native_cell_groups_catalog.rs"
+        "crates/cellar/tests/native_cell_groups_catalog.rs",
+        "crates/cellar/durability/raft/cell_groups/directory/mod.rs",
+        "crates/cellar/durability/raft/cell_groups/directory/wire.rs",
+        "crates/cellar/durability/raft/cell_groups/directory/tree.rs",
+        "crates/cellar/durability/raft/cell_groups/directory/store.rs",
+        "crates/cellar/tests/support/cell_group_directory.rs"
       ],
       "test_target": "native_cell_groups_catalog",
       "steps": [

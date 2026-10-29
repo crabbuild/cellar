@@ -9,6 +9,37 @@ use cellar::application::consensus::{
 };
 use sha2::{Digest, Sha256};
 
+#[path = "support/cell_group_directory.rs"]
+mod directory;
+#[path = "support/raft_catalog_fault.rs"]
+#[allow(dead_code)]
+mod fault;
+
+#[tokio::test]
+async fn range_directory_has_single_owner() -> anyhow::Result<()> {
+    directory::single_owner().await
+}
+
+#[tokio::test]
+async fn bounded_catalog_discovery() -> anyhow::Result<()> {
+    directory::bounded_discovery().await
+}
+
+#[tokio::test]
+async fn directory_reconciles_unknown_and_refuses_missing_state() -> anyhow::Result<()> {
+    directory::recovery().await
+}
+
+#[tokio::test]
+async fn directory_genesis_retry_after_later_mutation() -> anyhow::Result<()> {
+    directory::genesis_race().await
+}
+
+#[tokio::test]
+async fn directory_churn_preserves_exact_partition_and_old_views() -> anyhow::Result<()> {
+    directory::churn().await
+}
+
 fn route() -> GroupRoute {
     GroupRoute {
         history: GroupHistory {
