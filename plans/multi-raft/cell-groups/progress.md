@@ -26,8 +26,15 @@ The new contracts are exposed through the existing unstable verification surface
 while host integration is pending. Existing public runtime consumers still use the
 old contracts and will switch together at CG-07, before legacy removal at CG-16.
 
-Remaining CG-01 work includes the cell-addressed data and typed administrative
-entry codec, bounded decoder tests, complete task checks and source-bound evidence.
+The [entry codec](../../../crates/cellar/application/consensus/group_protocol/README.md)
+now carries cell-addressed mutations and typed enrollment, membership, checkpoint,
+seal/install/activate, park and retire commands in a new marker-1 domain. It bounds
+metadata before allocation and borrows LTX payloads. Enrollment carries its initial
+LTX snapshot in the log instead of relying on an unproven image reference.
+All 7 native contract cases pass, including both remaining required decoder cases,
+an independent byte vector and SQLite reconstruction from the enrollment payload.
+
+Remaining CG-01 work is the complete task checks and source-bound evidence.
 CG-02 and later tasks remain TODO. No task is DONE and no benchmark, RustFS drill,
 hibernation latency, recovery guarantee or production cutover is claimed here.
 

@@ -42,7 +42,11 @@
       "creates": [
         "crates/cellar-logic/cell_group.rs",
         "crates/cellar-logic/cell_group_tests.rs",
-        "crates/cellar/tests/native_cell_groups_contracts.rs"
+        "crates/cellar/tests/native_cell_groups_contracts.rs",
+        "crates/cellar/application/consensus/group_contracts.rs",
+        "crates/cellar/application/consensus/group_protocol/mod.rs",
+        "crates/cellar/application/consensus/group_protocol/types.rs",
+        "crates/cellar/application/consensus/group_protocol/codec.rs"
       ],
       "test_target": "native_cell_groups_contracts",
       "steps": [

@@ -96,7 +96,29 @@ macro_rules! nonzero_counter {
     )+};
 }
 
-nonzero_counter!(MutationSequence, RouteEpoch, MembershipRevision);
+nonzero_counter!(
+    MutationSequence,
+    RouteEpoch,
+    MembershipRevision,
+    ParkGeneration
+);
+
+/// Non-reusable identity of a namespace topology operation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TransitionId([u8; 16]);
+
+impl TransitionId {
+    pub fn new(bytes: [u8; 16]) -> Result<Self, Refusal> {
+        if bytes == [0; 16] {
+            return Err(Refusal::InvalidIdentity);
+        }
+        Ok(Self(bytes))
+    }
+
+    pub const fn bytes(self) -> [u8; 16] {
+        self.0
+    }
+}
 
 /// Ordered hash plus the full ID. Digest collisions never alias distinct cells.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -11,6 +11,7 @@ pub use archive_status::{ArchiveFailure, ArchiveReadiness, ArchiveStatus};
 mod class;
 pub(crate) mod client;
 mod group_contracts;
+pub(crate) mod group_protocol;
 mod performance;
 pub use performance::{
     RaftDurationBucket, RaftOperationPerformance, RaftPerformanceCounter, RaftPerformanceSnapshot,
@@ -210,11 +211,12 @@ pub mod verification {
     /// Contracts under integration into the replacement group runtime.
     pub mod cell_groups {
         pub use super::super::group_contracts::cell_routing_key;
+        pub use super::super::group_protocol::*;
         pub use crate::raft::version::{CellVersionObservation, CellVersionToken};
         pub use cellar_logic::cell_group::{
             CellBound, CellHistory, CellId, CellImage, CellImageCommitment, CellKey, CellRange,
             CellVersion, CommitWitness, GroupHistory, GroupRoute, MembershipRevision,
-            MutationSequence, RouteEpoch,
+            MutationSequence, ParkGeneration, RouteEpoch, TransitionId,
         };
     }
 }
