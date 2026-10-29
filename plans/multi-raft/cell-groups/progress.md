@@ -3,9 +3,42 @@
 # Cell-group implementation progress
 
 The delivered design and implementation plan covers CG-01 through CG-16 and a
-hard cutover. The user has resumed the full implementation goal following the
-plan handoff below. Intermediate contracts do not qualify a shared runtime.
+hard cutover. The latest user clarification selects the plan as this handoff
+deliverable. Intermediate contracts do not qualify a shared runtime.
 No production legacy/shared mode flag is being added.
+
+## Current plan handoff — 2026-10-29
+
+The package supplies the target architecture, protocol state machines, dependency
+ordered executor briefs, exact test commands and source-bound acceptance gates.
+CG-01 and CG-02 retain their historical DONE evidence, CG-03 is IN_PROGRESS, and
+CG-04 through CG-16 remain TODO. The final release gate remains closed.
+
+The branch includes freshly fetched `origin/main` at
+`1be27d234d4674d4d014785c60cecbfe394bdab9`. The supplied TiKV checkout matches the
+investigation pin `b3995dab28308f09cbb7c125bf32f789dbc203fe`.
+
+Uncommitted physical bootstrap, replica-handle and permanent member-claim changes
+remain in this checkout, including two new Rust files and native test changes.
+They are preserved for the next implementation executor and are not qualified by
+this documentation handoff. Review their full diff and test results before
+committing them or advancing the source baseline. Do not restart this work from
+the earlier metadata-only checkpoint.
+
+Package structural validation passes: 16 tasks, 83 required cases, 14 invariants
+and nine profiles. Working-tree source preflight correctly refuses drift in
+`crates/cellar-logic/consensus.rs`; 34 of 37 validator tests pass, with the three
+source-sensitive checks failing against that unfinished source. These failures
+are not waived. The unchanged committed source is checked separately from the
+draft runtime.
+
+Handoff verification: a temporary read-only export of committed source
+`aead5cc04a9788ab2f2ee5f3fba3d6468fde5b75` passes the source preflight function and
+all 37 plan-validator unit tests. This export excludes the draft runtime and
+does not requalify historical DONE evidence. Working-tree structural validation,
+CG-03 brief generation, repository documentation checks and `git diff --check`
+pass. `release` exits nonzero for incomplete implementation evidence, as required.
+The requested MR-13/MR-14 progress JSON files have no diff from `origin/main`.
 
 ## Plan handoff at 462aa2eb — 2026-10-29
 
