@@ -256,6 +256,10 @@ impl FileSystem for FaultFileSystem {
         DirectFileSystem.metadata(path)
     }
 
+    fn symlink_metadata(&self, path: &Path) -> io::Result<HostMetadata> {
+        DirectFileSystem.symlink_metadata(path)
+    }
+
     fn create_read_write(&self, path: &Path) -> io::Result<HostFile> {
         let image_output = path.extension().is_some_and(|p| p == "stage")
             || path.extension().is_some_and(|p| p == "sqlite")

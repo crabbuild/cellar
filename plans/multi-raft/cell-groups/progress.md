@@ -3,8 +3,7 @@
 # Cell-group implementation progress
 
 The delivered design and implementation plan covers CG-01 through CG-16 and a
-hard cutover. The current handoff is the executable plan; further runtime work
-follows its dependency order. Intermediate contracts do not qualify a shared
+hard cutover. Implementation is active and follows the full dependency order. Intermediate contracts do not qualify a shared
 runtime. No production legacy/shared mode flag is being added.
 
 ## CG-01 — complete at the contract boundary
@@ -50,7 +49,7 @@ must include its initial replayable LTX chain.
 
 ## Remaining implementation
 
-CG-02 through CG-16 remain TODO. CG-02 is dependency-eligible and must implement
+CG-02 is IN_PROGRESS; CG-03 through CG-16 remain TODO. CG-02 must complete
 complete paged group manifests, real engine publication, recovery refusal for
 missing dependencies and image/pin reclamation tests in both image modes.
 
@@ -63,3 +62,34 @@ folder before validating this DONE checkpoint.
 No shared runtime, split/merge, hibernation latency, real RustFS recovery, measured
 density or final hard cutover is qualified. The release gate remains closed until
 all task and deployment evidence passes at one final revision.
+
+
+## CG-02 — manifest pages in progress
+
+The first storage slice implements a bounded immutable AVL manifest and an
+exclusively owned filesystem page store. Leaves bind logical versions, geometry,
+last mutation and effect summaries; local image filenames do not affect roots.
+Updates compare the old cell version and copy only the changed tree path.
+Page publication syncs files and directories and quarantines uncertain writes.
+
+The new native storage target uses real SQLite/LTX and sealed generation pins.
+All three current cases pass: path-copy bounds across 64 independently sealed
+SQLite cells, unchanged image commitments and old-root reads; restart and
+malformed/missing page refusal; conflicts/capacity, replica-independent roots and
+injected page-directory sync failure. These are page-store checks; the complete CG-02
+gate has not run. The first build failed on an unavailable error derive and a
+follow-up build caught argument mismatches. The first running suite exposed a
+missing link-aware metadata method in the fault fixture; it now delegates to the
+real filesystem instead of weakening the page-store inventory check.
+
+The engine root marker, image adapters for both representations, physical root
+pins/reclamation and actual engine crash-cut tests remain outstanding. No
+manifest can yet grant shared-group serving authority. The [component contract](../../../crates/cellar/durability/raft/cell_groups/README.md)
+records this boundary. Checkpoint logs are retained under
+`.cellar/cell-groups-evidence/CG-02-manifest-pages/`. The CG-02 scope includes the consensus module's unstable
+verification exports so the native tests exercise the actual component.
+
+Clippy passes for the library and new native target with warnings denied. The
+36 plan-validator tests, source preflight, native dependency isolation and docs
+checks also pass. These checks do not substitute for the still-missing CG-02
+engine publication, pin reclamation and both-image-mode qualification cases.

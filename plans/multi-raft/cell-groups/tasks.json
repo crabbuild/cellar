@@ -134,7 +134,7 @@
     {
       "id": "CG-02",
       "title": "Persist complete group manifests with crash-safe cell image ownership",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "priority": "P1",
       "effort": "L",
       "risk": "HIGH",
@@ -150,13 +150,18 @@
       "scope": [
         "crates/cellar/durability/raft/",
         "crates/cellar-ltx/src/extent/",
-        "crates/cellar-ltx/src/generation.rs"
+        "crates/cellar-ltx/src/generation.rs",
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar/tests/support/raft_ltx_fault.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/cell_groups/mod.rs",
         "crates/cellar/durability/raft/cell_groups/manifest.rs",
         "crates/cellar/durability/raft/cell_groups/manifest_tests.rs",
-        "crates/cellar/tests/native_cell_groups_storage.rs"
+        "crates/cellar/tests/native_cell_groups_storage.rs",
+        "crates/cellar/durability/raft/cell_groups/page_store.rs",
+        "crates/cellar/durability/raft/cell_groups/page_wire.rs",
+        "crates/cellar/durability/raft/cell_groups/README.md"
       ],
       "test_target": "native_cell_groups_storage",
       "steps": [

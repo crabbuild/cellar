@@ -3,7 +3,7 @@
 # Cell group delivery package
 
 Status: executable design and implementation plan delivered on 2026-10-29.
-Existing CG-01 contracts have passed their local evidence gate; CG-02 is next.
+CG-01 contracts have passed their local evidence gate; CG-02 is in progress.
 The production host has not yet cut over to shared groups.
 See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.

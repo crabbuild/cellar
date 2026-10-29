@@ -8,6 +8,7 @@ pub(crate) mod budget;
 pub(crate) mod cache;
 pub(crate) mod catalog;
 mod catalog_wire;
+pub(crate) mod cell_groups;
 pub(crate) mod completion;
 pub(crate) mod coordination_index;
 pub(crate) mod disaster;
