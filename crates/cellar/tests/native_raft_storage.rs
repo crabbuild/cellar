@@ -4,6 +4,8 @@
 #![allow(clippy::disallowed_methods)]
 #[path = "support/raft_storage_fault.rs"]
 mod fault;
+#[path = "support/raft_log_reclaim.rs"]
+mod log_reclaim;
 #[path = "support/raft_node_registration_storage.rs"]
 mod registration_storage;
 
@@ -597,6 +599,7 @@ async fn interrupted_purge_preserves_group() -> Result<()> {
     let mut configuration = options(&path, LogOpenMode::Create, 1);
     configuration.target_file_bytes = 4096;
     configuration.purge_threshold_bytes = 8192;
+    configuration.purge_interval_ms = None;
     let log = start(&domain, configuration, Arc::new(DirectFileSystem)).await?;
     let group = log.create_group(bootstrap(10)).await?;
     for index in 2..=17 {
@@ -744,6 +747,7 @@ async fn storage_process_fixture() -> Result<()> {
     if cut == "purge-delete" {
         configuration.target_file_bytes = 4096;
         configuration.purge_threshold_bytes = 8192;
+        configuration.purge_interval_ms = None;
     }
     let log = start(
         &domain,

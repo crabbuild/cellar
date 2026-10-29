@@ -223,10 +223,16 @@ async fn returned(primary_target: bool, lose_confirmations: bool) -> Result<()> 
     s.f.domain
         .run(cellar::asyncrt::timeout(TIMEOUT, async {
             loop {
-                if cell
-                    .inspect()
-                    .await?
-                    .member
+                // Catch-up can change durable progress between the runtime
+                // and image samples. A refused mixed sample is not proof of
+                // progress; retry inside the original deadline.
+                let observed = match cell.inspect().await {
+                    Ok(observed) => Some(observed),
+                    Err(CommandFailure::Overloaded) => None,
+                    Err(error) => return Err(error.into()),
+                };
+                if observed
+                    .and_then(|view| view.member)
                     .is_some_and(|m| m.applied.index > wanted.index || m.applied == wanted)
                 {
                     return Ok::<_, anyhow::Error>(());

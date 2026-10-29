@@ -1,5 +1,6 @@
 //! Actual move participants must install trust before consuming a fresh permit.
-use super::retirement::{admission, discover, reserve, step, stopped};
+use super::placement::{qualify_capacity, reserve_qualified};
+use super::retirement::{discover, step, stopped};
 use super::*;
 
 #[path = "raft_fleet_trust_store.rs"]
@@ -245,6 +246,7 @@ pub(super) async fn verify_move_trust_acknowledgements() -> Result<()> {
     let (config, services) = f.config_for(&target_node, auth, &spec).await?;
     let target_host = target_node.start_raft_cells(config, services).await?;
     f.state(spec.node, FleetNodeState::Active, 150).await?;
+    qualify_capacity(&f, &nodes[primary].host, &target_host, 159).await?;
     discover(
         &f,
         &[&nodes[0].host, &nodes[1].host, &nodes[2].host, &target_host],
@@ -267,11 +269,11 @@ pub(super) async fn verify_move_trust_acknowledgements() -> Result<()> {
         .await?
         .fleet_trust_revision
         .context("missing target trust cut")?;
-    let (plan, permit) = reserve(
+    let (plan, permit) = reserve_qualified(
         &f,
-        source,
+        &nodes[primary].host,
+        &target_host,
         &proposal.scope,
-        1,
         160,
         MemberId::new(((primary + 1) % 3) as u64 + 1)?,
         JoiningMember {
@@ -339,6 +341,8 @@ pub(super) async fn verify_move_trust_acknowledgements() -> Result<()> {
         .view
         .fleet_trust_revision
         .is_some_and(|r| r >= required));
+    let (queued_index, queued_source, queued_plan, queued_permit) =
+        shutdown_history(&f, &nodes, &target_host, &spec).await?;
     stopped(target_node).await?;
     // An admitted action must remain resumable with an unreachable participant,
     // even when a later authorization carries a newer root revision.
@@ -350,7 +354,7 @@ pub(super) async fn verify_move_trust_acknowledgements() -> Result<()> {
         .await?;
     ensure!(
         source
-            .begin_managed_repair(retry.clone(), plan, TIMEOUT)
+            .begin_managed_repair(retry.clone(), plan.clone(), TIMEOUT)
             .await?
             .phase
             == RepairPhase::Seeding
@@ -365,24 +369,27 @@ pub(super) async fn verify_move_trust_acknowledgements() -> Result<()> {
         .observe_fleet_membership(authorization, TIMEOUT)
         .await?;
     ensure!(proof.status().consumed_sequence == 1 && proof.configuration().learners().is_empty());
-    admission(&f, &proposal.scope, 162, None).await?;
+    let root = f.catalog.read(TIMEOUT).await?;
+    let pending = f.catalog.pending_reservations(&root, TIMEOUT).await?;
+    ensure!(
+        pending.len() == 2
+            && pending.iter().any(|p| p.reservation == [160; 16])
+            && pending.iter().any(|p| p.reservation == [180; 16])
+    );
     write_read(&f, &cells, 3, 1, 13).await?;
     ensure!(target_host.resource_usage().control.bytes == 0);
-    let (plan, permit) = reserve(
-        &f,
-        source,
-        &proposal.scope,
-        2,
-        170,
-        MemberId::new(((primary + 1) % 3) as u64 + 1)?,
-        JoiningMember {
-            member: MemberId::new(5)?,
-            node: spec.node,
-            disk: spec.disk,
-        },
-    )
-    .await?;
-    let unpolled = source.begin_managed_repair(permit, plan, Duration::from_secs(60));
+    // A second history has a real reserved debit but has not begun membership.
+    // Its now-unreachable target cannot acknowledge fresh physical admission.
+    let unpolled =
+        queued_source.begin_managed_repair(queued_permit, queued_plan, Duration::from_secs(60));
+    ensure!(
+        queued_source
+            .fleet_membership_status()
+            .await?
+            .context("queued guard")?
+            .consumed_sequence
+            == 0
+    );
     ensure!(
         source
             .fleet_membership_status()
@@ -395,7 +402,7 @@ pub(super) async fn verify_move_trust_acknowledgements() -> Result<()> {
         .domain
         .run(cellar::asyncrt::timeout(
             TIMEOUT,
-            nodes[primary].host.close(),
+            nodes[queued_index].host.close(),
         ))
         .await???;
     ensure!(
@@ -404,12 +411,12 @@ pub(super) async fn verify_move_trust_acknowledgements() -> Result<()> {
         report.unfinished
     );
     ensure!(
-        nodes[primary].host.resource_usage().control.bytes == 4096,
+        nodes[queued_index].host.resource_usage().control.bytes == 4096,
         "physical admission resources survived shutdown: {:?}",
-        nodes[primary].host.resource_usage().control
+        nodes[queued_index].host.resource_usage().control
     );
     ensure!(matches!(unpolled.await, Err(CommandFailure::Unavailable)));
-    ensure!(nodes[primary].host.resource_usage().control.bytes == 0);
+    ensure!(nodes[queued_index].host.resource_usage().control.bytes == 0);
     let root = f.catalog.read(TIMEOUT).await?;
     ensure!(
         f.catalog
@@ -429,4 +436,66 @@ pub(super) async fn verify_move_trust_acknowledgements() -> Result<()> {
     drop(target_root);
     f.domain.shutdown().await;
     Ok(())
+}
+
+// Keep the shutdown case fresh without replacing or releasing the first
+// history's unreachable physical debt.
+async fn shutdown_history(
+    f: &Fixture,
+    nodes: &[Running],
+    target: &RaftCells,
+    spec: &FleetNodeSpec,
+) -> Result<(usize, RaftCellHandle, RepairPlan, FleetPermitAuthorization)> {
+    let (namespace, mut proposal) = initial_birth(f).await?;
+    proposal.scope.cell = "Counter:trust-shutdown".into();
+    proposal.scope.group = GroupId::new([93; 16])?;
+    proposal.scope.incarnation = IncarnationId::new([94; 16])?;
+    let root = f.catalog.read(TIMEOUT).await?;
+    let reserved = f
+        .catalog
+        .reserve_birth(
+            &root,
+            &Fixture::request(171, root.revision()),
+            &namespace,
+            proposal.clone(),
+            TIMEOUT,
+        )
+        .await?;
+    f.domain
+        .run(namespace.resolve_managed_birth(&reserved.authorization, TIMEOUT))
+        .await??;
+    let root = f.catalog.read(TIMEOUT).await?;
+    f.catalog
+        .confirm_birth(
+            &root,
+            &Fixture::request(172, root.revision()),
+            &namespace,
+            &reserved.authorization,
+            TIMEOUT,
+        )
+        .await?;
+    let root = f.catalog.read(TIMEOUT).await?;
+    let authorization = f
+        .catalog
+        .authorize_group(&root, &proposal.scope, TIMEOUT)
+        .await?;
+    let cells = registered(nodes, &authorization).await?;
+    activate(&cells, &authorization).await?;
+    write_read(f, &cells, 1, 1, 1).await?;
+    let primary = primary(f, &cells).await?;
+    let (plan, permit) = reserve_qualified(
+        f,
+        &nodes[primary].host,
+        target,
+        &proposal.scope,
+        180,
+        MemberId::new(((primary + 1) % 3) as u64 + 1)?,
+        JoiningMember {
+            member: MemberId::new(4)?,
+            node: spec.node,
+            disk: spec.disk,
+        },
+    )
+    .await?;
+    Ok((primary, cells[primary].clone(), plan, permit))
 }

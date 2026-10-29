@@ -321,8 +321,20 @@ impl Slot {
             TurnLane::Stateless => "stateless".to_string(),
             TurnLane::Cell(scope) => scope,
         });
-        let _installed = CurrentSlotGuard::enter(self.me.clone());
-        f(worker)
+        let turn = || {
+            let _installed = CurrentSlotGuard::enter(self.me.clone());
+            f(worker)
+        };
+        // A native turn can synchronously open, write or sync SQLite. Holding
+        // its permit is required; holding the host's async worker is not.
+        #[cfg(not(cellar_internal_tests))]
+        {
+            crate::asyncrt::blocking_region(turn)
+        }
+        #[cfg(cellar_internal_tests)]
+        {
+            turn()
+        }
     }
 
     /// Reserve one event through its complete lifetime, including the reply

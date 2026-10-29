@@ -37,6 +37,9 @@ when you select the unrestricted profile.
 | `LoaderPolicy.max_workers` | 256 | Loaded-worker limit per host |
 | `max_workers_per_principal` | 255 | Shared script/generation principal limit |
 | `max_environment_bytes` / `max_props_bytes` | 1 MiB each | Encoded values; environment includes service route metadata |
+| `ReplicaLogOptions.purge_interval_ms` | `Some(1000)` | Minimum interval between dirty shared Raft-engine purge passes; `None` requires explicit purge; preserves all live group history |
+| `RaftHostOptions.archive_checkpoint_ms` | 1000 | Minimum spacing between checkpoints triggered by confirmed archive coverage; zero disables this trigger |
+| `RaftHostOptions.checkpoint_entries` | 256 | Applied-entry checkpoint threshold; cache pressure may checkpoint earlier; zero disables all automatic checkpoints |
 | `ShutdownPolicy.total_ms` | 40,000 | Absolute semantic stop budget |
 | `token_wait_ms` / `no_progress_ms` | 30,000 / 25,000 | Token wait and stall window within the absolute budget |
 

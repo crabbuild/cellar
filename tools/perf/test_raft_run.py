@@ -553,5 +553,23 @@ class IndependentReport(unittest.TestCase):
                         analyze(root)
 
 
+
+class PayloadPattern(unittest.TestCase):
+    def test_retention_workload_has_deterministic_high_entropy_payloads(self):
+        import zlib
+        from raft_workload import payload_for
+        profile = Profiles().profile()
+        self.assertEqual(payload_for(profile, 'measurement', 1, 1024), 'x' * 1024)
+        profile['payload_pattern'] = 'random_ascii'
+        validate_profile(profile)
+        value = payload_for(profile, 'measurement', 1, 32768)
+        self.assertEqual(len(value), 32768)
+        self.assertGreater(len(zlib.compress(value.encode())), len(value) * .7)
+        self.assertEqual(value, payload_for(profile, 'measurement', 1, 32768))
+        self.assertNotEqual(value, payload_for(profile, 'measurement', 2, 32768))
+        profile['payload_pattern'] = 'unknown'
+        with self.assertRaises(ValueError): validate_profile(profile)
+
+
 if __name__ == '__main__':
     unittest.main()

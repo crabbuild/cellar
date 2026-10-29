@@ -32,7 +32,13 @@ impl NamespaceCatalog {
         if self.config.managed_fleet.is_some() {
             return Err(CatalogError::ManagedAdmissionRequired);
         }
-        self.select_birth(proposal, None, None).await?.live()
+        let scope = proposal.scope.clone();
+        let birth = self.select_birth(proposal, None, None).await?.live()?;
+        let birth = self.follow_recovery(birth).await?;
+        if birth.recovery.is_some() && birth.scope != scope {
+            return Err(CatalogError::Fenced);
+        }
+        Ok(birth)
     }
 
     /// Fence an uncreated cell name with an immutable conditional-create
@@ -235,10 +241,10 @@ impl NamespaceCatalog {
     }
 
     pub async fn birth(&self, cell: &str) -> Result<Option<GroupBirth>, CatalogError> {
-        self.birth_disposition(cell)
-            .await?
-            .map(BirthDisposition::live)
-            .transpose()
+        match self.birth_disposition(cell).await? {
+            Some(disposition) => Ok(Some(self.follow_recovery(disposition.live()?).await?)),
+            None => Ok(None),
+        }
     }
 
     /// Exact-key birth/cancellation observation. `None` is an observation of a
@@ -258,6 +264,26 @@ impl NamespaceCatalog {
     }
 
     async fn decode_birth_disposition(
+        &self,
+        cell: &str,
+        bytes: &[u8],
+    ) -> Result<BirthDisposition, CatalogError> {
+        let birth: wire::Birth = wire::decode(wire::BIRTH, bytes, self.inner.limit)?;
+        self.verify_birth_intent(&birth).await?;
+        self.decode_birth_record(cell, bytes).await
+    }
+
+    // A disaster successor is authorized by its fenced predecessor, rather
+    // than the permanent initial-name intent. Only that path uses this decoder.
+    pub(super) async fn decode_birth(
+        &self,
+        cell: &str,
+        bytes: &[u8],
+    ) -> Result<GroupBirth, CatalogError> {
+        self.decode_birth_record(cell, bytes).await?.live()
+    }
+
+    async fn decode_birth_record(
         &self,
         cell: &str,
         bytes: &[u8],
@@ -288,7 +314,6 @@ impl NamespaceCatalog {
             .collect::<Result<Vec<_>, _>>()?;
         self.check_members(&voters, &learners)?;
         self.verify_group_identity(&scope).await?;
-        self.verify_birth_intent(&birth).await?;
         if let Some(operation) = birth.cancelled_by {
             return Ok(BirthDisposition::Cancelled {
                 scope,
@@ -304,6 +329,7 @@ impl NamespaceCatalog {
             root_digest: self.root_digest,
             catalog_owner: self.inner.owner.clone(),
             managed_owner: birth.managed_owner,
+            recovery: None,
         }))
     }
 

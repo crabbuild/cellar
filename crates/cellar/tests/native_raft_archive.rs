@@ -7,6 +7,8 @@
 #[path = "support/raft_cluster.rs"]
 #[allow(dead_code)]
 mod cluster;
+#[path = "support/raft_disaster.rs"]
+mod disaster;
 #[path = "support/raft_archive_download.rs"]
 mod download;
 #[path = "support/raft_empty_archive.rs"]

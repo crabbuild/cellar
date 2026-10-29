@@ -268,7 +268,12 @@ impl Driver {
         {
             self.snapshot_source.take();
         }
-        for scope in self.cells.keys().cloned().collect::<Vec<_>>() {
+        let mut scopes = self.cells.keys().cloned().collect::<Vec<_>>();
+        if let Some(cursor) = &self.checkpoint_cursor {
+            let start = scopes.partition_point(|scope| scope <= cursor);
+            scopes.rotate_left(start);
+        }
+        for scope in scopes {
             let Some(cell) = self.cells.get_mut(&scope) else {
                 continue;
             };
@@ -353,27 +358,42 @@ impl Driver {
             {
                 continue;
             }
-            let due = cell.group.read().is_ok_and(|cache| {
+            let checkpoint = cell.group.read().ok().and_then(|cache| {
                 let applied_entries = cache
                     .applied
                     .position
                     .index
                     .get()
                     .saturating_sub(cache.snapshot.get_metadata().index);
-                applied_entries >= self.options.checkpoint_entries
+                if applied_entries >= self.options.checkpoint_entries
                     || (cache_pressure && applied_entries > 0 && cache.bytes() >= cache_share)
+                {
+                    // Existing local snapshot policy retains its quorum-only
+                    // recovery contract, including during object-store outage.
+                    Some(None)
+                } else if self.options.archive_checkpoint_ms > 0
+                    && now >= cell.archive_checkpoint_at
+                    && applied_entries > 0
+                    && cell.archived >= cache.applied.position.index
+                {
+                    Some(Some(cell.archived))
+                } else {
+                    None
+                }
             });
-            if !due {
+            let Some(archived) = checkpoint else {
                 continue;
-            }
+            };
             if let Ok(reservation) = self.transport.reserve_snapshot_source() {
                 cell.checkpoint_busy = true;
+                self.checkpoint_cursor = Some(scope.clone());
                 self.sql(
                     &scope,
                     SqlPurpose::Checkpoint,
                     Action::CaptureCheckpoint {
                         limits: self.snapshot_limits,
                         reservation,
+                        archived,
                     },
                 );
             }

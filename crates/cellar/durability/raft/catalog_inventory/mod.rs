@@ -316,6 +316,42 @@ impl NamespaceCatalog {
         Ok(())
     }
 
+    pub(super) async fn require_disaster_namespace(&self) -> Result<(), CatalogError> {
+        match Store(self).current().await?.0.mode {
+            Mode::Open => Ok(()),
+            Mode::Frozen { .. } | Mode::Importing { .. } => Err(CatalogError::BirthsFrozen),
+            _ => Err(CatalogError::ManagedAdmissionRequired),
+        }
+    }
+
+    /// Permanently exclude this namespace from fleet import before admitting a
+    /// disaster successor. The same CAS arbitrates concurrent birth freezing.
+    /// Unknown outcomes retain the claim and are safe to reconcile, never undo.
+    pub(super) async fn claim_disaster_namespace(&self) -> Result<(), CatalogError> {
+        let store = Store(self);
+        for _ in 0..MAX_ATTEMPTS {
+            let (mut head, token) = store.current().await?;
+            match head.mode {
+                Mode::Open => (),
+                Mode::Frozen { .. } | Mode::Importing { .. } => {
+                    return Err(CatalogError::BirthsFrozen);
+                }
+                _ => return Err(CatalogError::ManagedAdmissionRequired),
+            }
+            if head.disaster {
+                return Ok(());
+            }
+            head.disaster = true;
+            head.revision = head.revision.checked_add(1).ok_or(CatalogError::Limit)?;
+            let result = store.cas(&head, token).await;
+            if store.current().await?.0.disaster {
+                return Ok(());
+            }
+            result?;
+        }
+        Err(CatalogError::Unconfirmed)
+    }
+
     pub(super) async fn admit_birth_intent(
         &self,
         proposal: BirthProposal,
@@ -434,6 +470,11 @@ impl NamespaceCatalog {
             let store = Store(self);
             for _ in 0..MAX_ATTEMPTS {
                 let (mut head, token) = store.current().await?;
+                if head.disaster {
+                    return Err(CatalogError::Conflict(
+                        "disaster namespace cannot enter managed ownership",
+                    ));
+                }
                 match head.mode {
                     Mode::Frozen { operation: prior } if prior == operation.bytes() => {
                         return Ok(FrozenBirthInventory {

@@ -2,6 +2,7 @@
 
 //! Capture bounded registered-history metadata through reserved control work.
 use super::*;
+use crate::raft::cache::CachedGroup;
 use crate::raft::inspection::{
     CellInspection, InspectionError, InspectionSnapshot, MemberInspection, NodeInspection,
     ReplicaOccupancy, RESPONSE_RESERVATION,
@@ -282,10 +283,11 @@ impl Driver {
                 return Err(CommandFailure::Overloaded);
             }
             let published = cell.image.as_ref().map(|image| image.position);
-            if published.is_some_and(|position| {
-                position.index > cache.applied.position.index
-                    || cache.term(position.index.get()) != Some(position.term.get())
-            }) {
+            if cell
+                .image
+                .as_ref()
+                .is_some_and(|image| !valid_published_position(&cache, image))
+            {
                 return Err(CommandFailure::Overloaded);
             }
             let sample_age_ms = self
@@ -341,3 +343,26 @@ impl Driver {
         Err(CommandFailure::UnsupportedCapability)
     }
 }
+
+fn valid_published_position(cache: &CachedGroup, image: &ImageView) -> bool {
+    let position = image.position;
+    if position.index > cache.applied.position.index {
+        return false;
+    }
+    match cache.term(position.index.get()) {
+        Some(term) => term == position.term.get(),
+        // Protocol-only progress can checkpoint beyond the last SQL image.
+        // The exact durable marker proves that this already verified image
+        // still represents applied state, even after its log entry is gone.
+        // A retained conflicting term must never use this fallback.
+        None => {
+            position.index.get() < cache.snapshot.get_metadata().index
+                && cache.coherent_image_position(&image.image, position)
+                    == Some(cache.applied.position)
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "host_inspection_tests.rs"]
+mod tests;

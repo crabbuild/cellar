@@ -34,10 +34,14 @@ pub use crate::raft::effects::{
 pub use crate::raft::physical_inventory::{RaftPhysicalHistory, RaftPhysicalInventory};
 pub use crate::raft::receipt_maintenance::ReceiptMaintenanceLimits;
 
+pub use crate::raft::archive::ArchiveReference;
+pub use crate::raft::catalog::CatalogError;
 pub use crate::raft::catalog::{
-    BirthDisposition, BirthProposal, CatalogOptions, InitialMember, ManagedBirthOwner,
-    NamespaceConfig, RaftImageStorage, VoterPolicy,
+    BirthDisposition, BirthProposal, CatalogOptions, DisasterFenceAuthority, DisasterFenceRequest,
+    DisasterRecoveryRequest, InitialMember, ManagedBirthOwner, NamespaceConfig, RaftImageStorage,
+    VoterPolicy,
 };
+pub use crate::raft::disaster::S3DisasterRecovery;
 pub use cellar_logic::raft_leadership::LeaderPolicy;
 pub use cellar_logic::raft_placement::PlacementPolicy;
 

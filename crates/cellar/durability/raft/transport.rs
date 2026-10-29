@@ -635,6 +635,10 @@ impl RaftTransport {
         registry.groups.insert(route.scope.clone(), Arc::new(route));
         registry.prune_pools();
         drop(registry);
+        // Replacing the route invalidates source leases captured under the old
+        // configuration. Mark them finished now; active I/O retains its own
+        // source and reservation until physical exit.
+        state.invalidate_snapshot_routes();
         state.start_pools(starts)?;
         Ok(())
     }
@@ -645,6 +649,8 @@ impl RaftTransport {
         state.admit(&registry)?;
         registry.groups.remove(scope);
         registry.prune_pools();
+        drop(registry);
+        state.invalidate_snapshot_routes();
         Ok(())
     }
 

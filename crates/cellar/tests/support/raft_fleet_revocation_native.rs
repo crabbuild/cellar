@@ -1,6 +1,7 @@
 //! Real superseded connections, retained-engine restart and rooted final revoke.
 //! Catalog lifecycle edits are fixture inputs, not operator removal certificates.
-use super::retirement::{admission, discover, reserve, step, stopped};
+use super::placement::reserve_capacity;
+use super::retirement::{discover, step, stopped};
 use super::*;
 use object_store::{path::Path, ObjectStore};
 
@@ -54,11 +55,11 @@ async fn verify_route_revocation() -> Result<()> {
     let target = target_host
         .register_managed_history(authorization.clone(), TIMEOUT)
         .await?;
-    let (plan, permit) = reserve(
+    let (plan, permit) = reserve_capacity(
         &f,
-        source,
+        &nodes[p].host,
+        &target_host,
         &proposal.scope,
-        1,
         160,
         MemberId::new(((p + 1) % 3) as u64 + 1)?,
         JoiningMember {
@@ -90,7 +91,7 @@ async fn verify_route_revocation() -> Result<()> {
         .storage_instance;
     stopped(target_node).await?;
     let revision = f
-        .state(NodeId::new([7; 16])?, FleetNodeState::RestartPending, 151)
+        .state(NodeId::new([7; 16])?, FleetNodeState::Active, 151)
         .await?;
     let mut old = endpoint::Endpoint::open(&f, target_root.path(), 7, 99).await?;
     let pending = old.block(&f, &nodes[p].host, revision).await?;
@@ -138,7 +139,7 @@ async fn verify_route_revocation() -> Result<()> {
                 .startup_enrollment
                 .context("missing restart enrollment")?
                 .state
-                == FleetNodeState::RestartPending
+                == FleetNodeState::Active
     );
     for node in &nodes {
         let view = f.remote(&node.host, spec.node, revision).await?;
@@ -199,7 +200,11 @@ async fn verify_route_revocation() -> Result<()> {
             .phase
             == RepairPhase::Complete
     );
-    admission(&f, &proposal.scope, 162, None).await?;
+    // Membership completion cannot silently release the original boot's
+    // reservation after a process replacement. Its physical debt stays rooted.
+    let root = f.catalog.read(TIMEOUT).await?;
+    let pending = f.catalog.pending_reservations(&root, TIMEOUT).await?;
+    ensure!(pending.len() == 1 && pending[0].reservation == [160; 16]);
     f.state(spec.node, FleetNodeState::Active, 152).await?;
 
     let (empty_root, empty_node, empty) = f.peer_host(8).await?;

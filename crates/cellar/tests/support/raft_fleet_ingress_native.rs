@@ -233,7 +233,7 @@ async fn fleet_enrollment_unknown_node() -> Result<()> {
         }
         for (lane, address) in [("Control", own.control_address), ("Data", own.data_address)] {
             let raft_protocol: [u8; 32] = Sha256::digest(
-                b"cellar-raft-peer-1:tls13-exporter:hmac-sha256:protobuf2:bounded-strict",
+                b"cellar-raft-peer-1:tls13-exporter:hmac-sha256:protobuf2:bounded-strict:extent-stream",
             )
             .into();
             let request = serde_json::json!({"protocol":raft_protocol,"route":{

@@ -32,6 +32,10 @@ pub use inventory::{
 #[path = "node_directory.rs"]
 mod directory;
 pub use directory::{NodePublication, NodeRegistration, NodeView};
+#[path = "catalog_disaster.rs"]
+mod disaster;
+pub(crate) use disaster::DisasterSeedPermit;
+pub use disaster::{DisasterFenceAuthority, DisasterFenceRequest, DisasterRecoveryRequest};
 
 #[derive(Debug)]
 pub enum CatalogError {
@@ -50,6 +54,9 @@ pub enum CatalogError {
     Log(LogError),
     Runtime(super::completion::RuntimeError),
     Version(super::version::VersionError),
+    Fenced,
+    Fence(String),
+    Archive(super::archive::ArchiveError),
 }
 
 impl fmt::Display for CatalogError {
@@ -181,6 +188,7 @@ pub struct GroupBirth {
     root_digest: [u8; 32],
     catalog_owner: Arc<()>,
     managed_owner: Option<ManagedBirthOwner>,
+    recovery: Option<Arc<disaster::Recovery>>,
 }
 
 impl GroupBirth {
@@ -210,6 +218,7 @@ impl GroupBirth {
 pub struct BootstrapPermit {
     local: GroupLog,
     birth: GroupBirth,
+    namespace: NamespaceCatalog,
 }
 
 impl BootstrapPermit {
@@ -218,6 +227,7 @@ impl BootstrapPermit {
     }
 
     pub async fn attach(&self, runtime: &RaftRuntime) -> Result<(), CatalogError> {
+        self.namespace.require_current(&self.birth).await?;
         let local = runtime
             .log()
             .group(&self.birth.scope)
@@ -507,6 +517,7 @@ impl NamespaceCatalog {
     ) -> Result<BootstrapPermit, CatalogError> {
         self.require_mode(NamespaceMode::Raft)?;
         self.check_birth(birth)?;
+        self.require_current(birth).await?;
         let selected = birth
             .voters
             .iter()
@@ -552,6 +563,11 @@ impl NamespaceCatalog {
                 return Err(CatalogError::ManagedAdmissionRequired);
             }
         }
+        if birth.recovery.is_some() && local.is_none() {
+            return Err(CatalogError::Conflict(
+                "disaster birth requires archived seed",
+            ));
+        }
         // This call either durably creates genesis or verifies the existing
         // mapping's exact member, birth digest and initial ConfState.
         let bootstrap = GroupBootstrap {
@@ -590,6 +606,7 @@ impl NamespaceCatalog {
         Ok(BootstrapPermit {
             local,
             birth: birth.clone(),
+            namespace: self.clone(),
         })
     }
 
@@ -603,6 +620,7 @@ impl NamespaceCatalog {
     ) -> Result<Option<BootstrapPermit>, CatalogError> {
         self.require_mode(NamespaceMode::Raft)?;
         self.check_birth(birth)?;
+        self.require_current(birth).await?;
         if birth
             .voters
             .iter()
@@ -679,6 +697,7 @@ impl NamespaceCatalog {
         Ok(Some(BootstrapPermit {
             local,
             birth: birth.clone(),
+            namespace: self.clone(),
         }))
     }
 
@@ -790,6 +809,14 @@ impl NamespaceCatalog {
     }
 
     fn claim_key(&self, birth: &GroupBirth, member: MemberId) -> Path {
+        if birth.recovery.is_some() {
+            return Path::from(format!(
+                "{}incarnations/{}/claims/{:016x}",
+                self.cell_key(&birth.scope.cell),
+                hex::encode(birth.scope.incarnation.bytes()),
+                member.get()
+            ));
+        }
         Path::from(format!(
             "{}claims/{:016x}",
             self.cell_key(&birth.scope.cell),

@@ -4,6 +4,7 @@
 #![allow(clippy::disallowed_methods)]
 #[path = "../../examples/raft-counter/counter.rs"]
 mod counter;
+mod raft_disaster;
 mod raft_fleet;
 mod raft_probe;
 mod raft_workload;
@@ -218,6 +219,22 @@ async fn main() -> Result<()> {
         counter::definition()?
     };
     let schema = class.schema_digest();
+    let generation: u8 = std::env::var("RAFT_DISASTER_GENERATION")
+        .unwrap_or_else(|_| "0".into())
+        .parse()?;
+    ensure!(generation <= 1, "invalid disaster generation");
+    ensure!(
+        std::env::var_os("RAFT_FLEET_CONFIG").is_none()
+            || (generation == 0 && std::env::var_os("RAFT_DISASTER_ACTION").is_none()),
+        "managed fleet and disaster fixture modes cannot be combined"
+    );
+    if let Ok(action) = std::env::var("RAFT_DISASTER_ACTION") {
+        ensure!(
+            workload && placement.nodes == 3 && generation == 0,
+            "disaster operator fixture requires three reference voters"
+        );
+        return raft_disaster::run(&action, store, schema, total).await;
+    }
     let class_name = if workload { "Workload" } else { "Counter" };
     let managed = if let Some(path) = std::env::var_os("RAFT_FLEET_CONFIG") {
         use std::io::Read;
@@ -346,8 +363,8 @@ async fn main() -> Result<()> {
     for n in 1..=placement.nodes {
         let address = |port| format!("{network}.{}:{port}", n + 10).parse();
         peers.push(RaftPeerNode {
-            node: NodeId::new([n; 16])?,
-            disk: DiskLineage::new([n + 10; 16])?,
+            node: raft_disaster::node_id(n, generation)?,
+            disk: DiskLineage::new([n + 10 + generation * 32; 16])?,
             process: ProcessGeneration::new(
                 std::fs::read(format!("/config/process{n}"))?
                     .try_into()
@@ -367,20 +384,12 @@ async fn main() -> Result<()> {
     let cells = (0..total)
         .filter(|cell| placement.voters(*cell).contains(&i))
         .map(|c| -> Result<_> {
-            let mut group = [5; 16];
-            group[..8].copy_from_slice(&(c as u64 + 1).to_be_bytes());
             Ok(RaftCellRegistration {
                 placement: RaftCellPlacement::Replica,
                 namespace: config.clone(),
                 class: class_name.into(),
                 birth: BirthProposal {
-                    scope: GroupScope {
-                        cluster,
-                        namespace,
-                        cell: format!("{class_name}:{c}"),
-                        group: GroupId::new(group)?,
-                        incarnation: IncarnationId::new([4; 16])?,
-                    },
+                    scope: raft_disaster::scope(c, class_name, generation)?,
                     voters: peers
                         .iter()
                         .enumerate()

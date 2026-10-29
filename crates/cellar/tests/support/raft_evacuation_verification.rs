@@ -517,6 +517,7 @@ async fn fleet_evacuation_candidate_after_voter_replacement() -> Result<()> {
         )
         .await
         .context("activate replacement learner")?;
+    let seeded = target.status().await?.applied;
     ensure!(
         step(&s.f, source, &permit, RepairStep::PromoteAndRemove)
             .await?
@@ -535,7 +536,9 @@ async fn fleet_evacuation_candidate_after_voter_replacement() -> Result<()> {
         .run(cellar::asyncrt::timeout(TIMEOUT, async {
             loop {
                 let cut = s.f.catalog.read(TIMEOUT).await?;
-                let mut complete = true;
+                // Exercise settlement after archive-driven compaction removes
+                // the seeded image's original protocol position.
+                let mut complete = target.status().await?.checkpoint.index > seeded.index;
                 for node in &s.nodes {
                     let observed = node
                         .host

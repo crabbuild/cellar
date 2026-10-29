@@ -200,6 +200,22 @@ struct Chunk {
 }
 
 impl RaftTransport {
+    pub(crate) fn reserve_disaster_seed(
+        &self,
+        bytes: usize,
+    ) -> Result<std::sync::Arc<crate::raft::budget::Permit>, TransportError> {
+        let state = &self.handle.0;
+        if bytes > state.options.max_seed_recovery_bytes {
+            return Err(TransportError::Limit);
+        }
+        Ok(std::sync::Arc::new(
+            state
+                .snapshot_receive_budget
+                .acquire(bytes + memory_bound(&state.options))
+                .ok_or(TransportError::Overloaded)?,
+        ))
+    }
+
     pub(crate) fn prepared_snapshot_cache(&self) -> crate::raft::snapshot::prepared::Cache {
         self.handle.0.prepared_snapshot.clone()
     }
@@ -269,6 +285,12 @@ impl RaftTransport {
             .snapshot_source
             .lock()
             .map_err(|_| TransportError::Closed)? = Some(Arc::downgrade(&source));
+        // Route replacement may race source construction. Publishing before
+        // rechecking closes the gap with install/remove's invalidation pass.
+        state.invalidate_snapshot_routes();
+        if source.finished.load(Ordering::Acquire) {
+            return Err(TransportError::StalePeer);
+        }
         Ok(SnapshotSource(source))
     }
 

@@ -242,6 +242,17 @@ async fn archive_wait_case() -> Result<()> {
         let receipt = joined??;
         observed???;
         ensure!(receipt.durability == Durability::S3);
+        // Archive acknowledgement can precede the independent checkpoint's
+        // physical exit. Final maintenance proof still requires that owner to
+        // release its reservation; the observation above must not wait for it.
+        s.f.domain
+            .run(cellar::asyncrt::timeout(TIMEOUT, async {
+                while s.nodes[p].host.observe_node(TIMEOUT).await?.seed_workers != 0 {
+                    cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                }
+                Ok::<_, anyhow::Error>(())
+            }))
+            .await???;
         finish(&s, walk, p).await
     }
     .await;

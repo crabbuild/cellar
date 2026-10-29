@@ -21,7 +21,7 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | Final hosted gates | Published `fca2c0c5` passes both full typed-RPC jobs (run `40654793964`), JavaScript/Node SDK and Python examples. Both broader SDK jobs fail on standalone inventory. The follow-up fixes that regression, but its full free-threaded package run exposes an intermittent first-fleet-write 500. Require final SDK, JavaScript, typed-RPC and example gates on the follow-up source. |
+| P0 — hosted verification | Final hosted gates | PR #154's `17ecfb42` GIL job passes the portable profile but fails lifecycle after lease expiry. The local first-write probe reproduces the free-threaded 500, and a later contract run fails context isolation. The logging follow-up passes both local 96-case lifecycle matrices; final SDK, JavaScript, typed-RPC and example gates still need to pass on the release source. |
 | P0 | Native and cross-adapter regression timing | A real held-checkpoint regression reproduces a development-store admission bottleneck: the Rust writer mutex remains held after SQLite permits new transactions. Releasing it before COMMIT keeps CAS atomic under SQLite's write lock and lets lease CAS complete within its original 333 ms attempt bound while put/delete checkpoint I/O stays paused. Native I/O reservations and FULL WAL commits remain intact. The final local JavaScript regressions pass unchanged budgets, but their old timing failures and a newly observed Axum lifecycle 503 remain unexplained. Require fresh hosted/original-budget regressions; this controlled cause does not establish the precise phase of earlier CI stalls or resolve the four original 250 ms failures. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve 55 deadline, 128 proof-wait, 80 cycle and 96 Node/V8 lifecycle cases. Provenance now has 112 cases in each observed Python mode, including raw native envelopes through every generated caller over local/peer routes. The host downgrades entered native failures even when custom cells bypass generated finishing; genuine pre-factory refusals retain their proof. Saturation has 144 cases and peer faults now have 128 in both observed Python modes, including 16 admitted-prefix disconnects with unknown outcomes, no replay and zero request reservations after cleanup. Receiving overload stays `ResourceExhausted/unknown`; broader call-specific refusal proof, nested-provider and uncertain partial-submission qualification remain. |
 | P0 | Resource bounds and parser correctness | Source/inbound request and tunnel admission, dense/cooperative collectors, typed receive ceilings, and shared native decoder/stack allowances retain their existing evidence. A shared response pool now precedes provider factories/codecs and collector growth, normalizes backing, and follows byte aliases through proof/transport waits. Both actual Python modes pass 144 saturation and 128 proof-wait cases with zero cleanup reservations. Dense request backing/alias ownership and native response/decoder handoffs now pass the frozen merged-source full matrices. Wider saturation/fault combinations, effective minima and allocator/RSS qualification remain open. |
@@ -33,6 +33,104 @@ does not close schema, resource, packaging or performance requirements.
 Preserve existing durability evidence while addressing these gaps. Further
 recovery-fault variations follow demonstrated correctness risks; expanding the
 Counter fixture alone is not the highest-priority deliverable now.
+
+## Diagnostic backpressure and first-write reproduction (2026-10-28; release open)
+
+PR #154's `17ecfb42` GIL RPC job passes qualifier checks and the 576-call
+portable profile, then fails during the lifecycle suite:
+[job 123067432044](https://github.com/crabbuild/cellar/actions/runs/40759545868/job/123067432044).
+The Node-kill case with a Python caller, local routing and post-sync failure
+loses its bootstrap HTTP response after the worker owner's lease expires.
+Lease phase records show SQLite transaction/commit waits and late timeout
+delivery. One 72 ms attempt is observed after 362 ms. These records do not
+establish that every interval is storage time.
+
+A controlled regression identifies a separate diagnostic-path defect: a slow
+synchronous log sink delays delivery of a 10 ms timeout by 2.018 seconds when
+the cancelled future logs its drop. The qualifier now uses an 8,192-line
+nonblocking queue. Overflow, write failure or incomplete final flush refuse
+qualification without hiding the original run error. Its bounded in-memory
+lease observer remains independent of the output filter. Production CLI logging
+already uses a nonblocking appender; this change is to the qualification host.
+The controlled defect is not proof of the exact cause of the hosted failure.
+
+The new `--runtime-first-write` probe reproduces the free-threaded first-write
+500 without any tracing subscriber. Case index 221 (the 222nd fresh fleet)
+returns `handler exceeded 250ms budget`; request/readback elapsed time is
+260.765 ms and startup is 349.912 ms. The node remains open at observation,
+and joined shutdown reports zero pending tasks, objects, threads, bridge
+operations and reservations. The retained cell has no Counter value. This is
+post-join evidence, not a caller-visible rollback guarantee. The executable,
+failed fleet and observations are preserved in
+`.cellar/rpc/diagnostics/first-write-repro/`; executable SHA-256 is
+`e1848d3ca0ae905e4633308b033fc7dcecc9f9a68878c79a1b1f335512ba2b2a`.
+
+Subsequent probes pass 4,000 free-threaded cases: 1,000 with bounded memory
+tracing, 2,000 across two concurrent traced processes and 1,000 without logging.
+The final GIL probe passes 100 cases. The probe now retains before/after
+interpreter snapshots and a bounded phase-log tail on failure. No mutation is
+retried; the original 250 ms handler and 1,000 ms lease budgets remain unchanged.
+
+The follow-up passes 46 qualifier unit tests, both 96-case lifecycle matrices
+and their interpreter-mode audits, qualifier/Python Clippy and repository
+guards. Both lifecycle reports record joined language runtimes and zero bridge
+reservations. Their 609 free-threaded and 515 GIL lease-wait observations have
+no measured timeout-delivery overrun. The GIL Python contract passes. The
+free-threaded contract fails earlier in cross-domain context isolation with
+HTTP 500 from `/scope-hold`; its error helper does not retain the response body,
+so that failure's category is not established. All shutdown counters are zero.
+A direct replay of that preserved executable with timing logs passes, including
+the first fleet write; it does not replace the failed observation.
+
+Final serial validation retains 4,003 unchanged source/fixture hashes, reports
+and executables in `.cellar/rpc/diagnostics/p0-followup-final/`. These ledger
+updates follow that run. The first-write and context-isolation causes, precise
+hosted lease failure cause and production reliability gate remain open.
+
+## Synchronous-turn timer starvation (2026-10-28; release open)
+
+The follow-up starts from `2e68fac2` after PR #151 merged. A real SQLite busy
+wait inside `Slot::turn` reproduces executor starvation with one async worker:
+the timer responsible for releasing the competing writer cannot run. The
+external writer's one-second fallback releases the lock and the regression
+fails. Domain-owned synchronous turns now hand Tokio's worker to a replacement
+while retaining the original turn, context and joined task. The same regression
+passes without changing any handler or lease timeout.
+
+A real fleet fixture shares one async worker between host and core. While an
+application turn blocks, the observed lease expiry advances by at least two
+unchanged 1,000 ms lifetimes. The application then completes, the next durable
+write succeeds, and handoff shutdown completes. A cancellation regression also
+proves domain shutdown waits for a physically running turn to return. A separate regression
+protects caller-owned `LocalSet` execution: runtime flavor alone is insufficient
+to decide whether Tokio permits handoff. Only a currently polled domain-owned
+task may hand off; current-thread and unowned caller turns remain inline.
+
+The preserved instrumented free-threaded executable passes 400 pre-fix contract
+replays: 100 with diagnostics, 100 without, 40 with four concurrent processes,
+and 160 with eight. Those successes do not explain the original first-write
+500. This controlled starvation fix must not be presented as its proven cause,
+or as closure of older storage-phase and V8/Node failures. Existing uncertain
+outcomes, proof requirements and all production budgets remain unchanged.
+
+Validation of implementation `a7b3534c` passes the full Python package command
+in both actual interpreter modes, V8/Node SSE and WebSockets, Node compatibility
+and restart, both JavaScript typed-RPC tests, 20 focused native tests, affected
+Clippy, format/layout/dependency/docs checks. The native checks include genuine
+core-executor suspension: it still produces `NodeLeaseExpired`. External
+packaged-agent qualification is not enabled; two Python doctests remain ignored.
+
+The final serial free-threaded/JavaScript-RPC/guard run records 3,999 unchanged
+tracked files in `.cellar/rpc/diagnostics/reliability-final/`. Its preserved
+free-threaded bridge SHA-256 is
+`3a46b40246c20003392ade65bf16ebc8469d6888c858ec02f645d4d877add887`.
+An earlier free-threaded command passed runtime tests but failed rustdoc after
+a concurrent local rebuild changed dependency artifacts; it is not counted as
+a package qualification pass. The final serial command passes. Hosted workflows
+for [PR #154](https://github.com/crabbuild/cellar/pull/154) were still queued at
+that checkpoint; the later GIL lifecycle failure is recorded above. Neither
+green local runs nor this controlled regression prove
+the cause of the retained first-write 500.
 
 ## Native wait phases and standalone admission (2026-10-28; release open)
 

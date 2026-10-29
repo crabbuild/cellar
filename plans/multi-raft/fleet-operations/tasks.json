@@ -495,7 +495,7 @@
         },
         {
           "name": "fleet_enrollment_route_revocation",
-          "oracle": "Compose the actual source/target trust-acknowledgement scenario with a seeded learner restart on the same engine and new process. Superseded blocked metadata and consensus/data connections close without stopping the live fleet; old publication cannot replace the new view, verified native SQL catches up, and joint promotion completes. An empty peer keeps a blocked call through RestartPending/ResizePending/Draining/Evacuated; Removed cancels and joins physical I/O, releases metadata reservations, and refuses a valid late directory republication. All owning SDK nodes are joined. Privileged lifecycle fixture edits are not an operator evacuation/removal certificate.",
+          "oracle": "Compose the actual source/target trust-acknowledgement scenario with a resource-backed seeded learner restart on the same engine and new process. Superseded blocked metadata and consensus/data connections close without stopping the live fleet; old publication cannot replace the new view, verified native SQL catches up, and joint promotion completes. Process replacement does not release the old boot resource debit. An empty peer keeps a blocked call through RestartPending/ResizePending/Draining/Evacuated; Removed cancels and joins physical I/O, releases metadata reservations, and refuses valid late directory republication. All owning SDK nodes are joined. Privileged lifecycle fixture edits are not an operator maintenance, evacuation or removal certificate.",
           "invariants": [
             "F01",
             "F02",
@@ -517,7 +517,7 @@
         },
         {
           "name": "fleet_enrollment_retired_binding",
-          "oracle": "A quorum-retired local binding cannot register or bootstrap under a fresh member ID, including an intact engine stopped in joint state before final removal and reopened without a cell registration. Its old ledger and physical slot remain retained; failed learner IDs stay consumed. A different enrolled engine registers, seeds through the managed archive path and serves verified native SQL writes. Registered-to-Active admission needs no restart; startup Active cannot bypass current Draining exclusion. Catalog lifecycle edits in this native fixture grant no evacuation/removal certificate.",
+          "oracle": "An unbacked rooted permit cannot consume a sequence, create a learner or claim a member ID. A real resource-backed replacement retains an intact outgoing engine stopped in joint state before final removal. On reopening without cell registration, its ledger and physical slot remain retained and cannot register or bootstrap under a fresh member ID; unresolved movement debt remains charged. In a separate admitted history, a different enrolled engine resumes its original storage, receives an actual managed archive seed and serves verified native SQL. Current Draining excludes new capacity but permits completion of the exact previously admitted boot-bound learner obligation. Privileged lifecycle fixture edits grant no evacuation/removal certificate.",
           "invariants": [
             "F01",
             "F02",
@@ -1273,7 +1273,7 @@
         },
         {
           "name": "fleet_enrollment_move_trust_acknowledgements",
-          "oracle": "With one target catalog read held, a fresh managed Begin cannot consume its permit or create a learner before the actual source and target processes acknowledge the authorization revision; native SQL continues. Cancellation and expiry leave consumption unchanged. Releasing the read admits the same plan. Exact committed-plan retries and abort still work with an unreachable target and a newer rooted capability. Shutdown joins an unpolled 60-second fresh-admission waiter within the existing bound and retains its unresolved root reservation. This does not qualify complete route revocation or node removal.",
+          "oracle": "With one target catalog read held, a resource-backed managed Begin cannot consume its permit or create a learner before actual source and target processes acknowledge the authorization revision; native SQL continues. Cancellation and expiry leave consumption unchanged. Releasing the read admits the same plan. Exact committed-plan retries and abort work with an unreachable target and a newer rooted capability, retaining unresolved physical debt. A second history obtains an independent real reservation before the target stops. Shutdown joins its unpolled 60-second fresh-admission waiter within the existing bound, releases the physical caller reservation and retains both unresolved catalog debits. This does not qualify complete route revocation or node removal.",
           "invariants": [
             "F01",
             "F02",
@@ -1633,7 +1633,7 @@
         },
         {
           "name": "fleet_evacuation_candidate_after_voter_replacement",
-          "oracle": "Perform real guarded S3 learner seeding, joint promotion/removal and stable RF3 completion. Evacuation candidate verification consumes the new dynamically joined member binding and latest completed permit while the departed original voter retains physical history. Subsequent S3 writes and queries succeed on the three survivors. Consume the candidate through rooted Finalizing and stop the actual retired voter over authenticated Raft control while survivor S3 writes continue. Join its Node without another shutdown command, require retained physical group history in the close report, verify its signed closure, and perform another survivor write. Recreate the controller in Finalizing, re-establish the same fixed business cut from fresh quorum responses, physically replay its archive, atomically certify removal and release the slot, reconcile the retained receipt, admit the next disruption and verify another successful business write.",
+          "oracle": "Perform real guarded S3 learner seeding, joint promotion/removal and stable RF3 completion. Evacuation candidate verification consumes the new dynamically joined member binding and latest completed permit while the departed original voter retains physical history. Subsequent S3 writes and queries succeed on the three survivors. Consume the candidate through rooted Finalizing and stop the actual retired voter over authenticated Raft control while survivor S3 writes continue. Join its Node without another shutdown command, require retained physical group history in the close report, verify its signed closure, and perform another survivor write. Recreate the controller in Finalizing, re-establish the same fixed business cut from fresh quorum responses, physically replay its archive, atomically certify removal and release the slot, reconcile the retained receipt, admit the next disruption and verify another successful business write. Protocol-only checkpointing beyond the SQL image must retain a coherent original publication position after its term entry is compacted.",
           "invariants": [
             "F01",
             "F02",

@@ -141,6 +141,10 @@ pub struct RaftHostOptions {
     /// Applied entries between automatic checkpoints. Shared log-cache pressure
     /// can trigger an earlier checkpoint; zero disables automatic compaction.
     pub checkpoint_entries: u64,
+    /// Coalesce checkpoints of fully archived applied cuts, even below the
+    /// entry threshold. Zero disables this trigger; `checkpoint_entries = 0`
+    /// still disables all automatic checkpoints. Defaults to one second.
+    pub archive_checkpoint_ms: u64,
     pub archive: RaftArchiveOptions,
     pub max_groups: usize,
     pub blocking_workers: usize,
@@ -178,6 +182,7 @@ impl Default for RaftHostOptions {
             managed: None,
             enable_snapshots: true,
             checkpoint_entries: 256,
+            archive_checkpoint_ms: 1000,
             archive: RaftArchiveOptions::default(),
             max_groups: 128,
             blocking_workers: 2,
@@ -234,6 +239,10 @@ impl RaftHostOptions {
             alarms.validate(self)?;
         }
         self.archive.validate()?;
+        anyhow::ensure!(
+            self.archive_checkpoint_ms <= 60_000,
+            "invalid archive checkpoint interval"
+        );
         self.execution.validate()?;
         if let Some(extents) = &self.extents {
             extents.validate(self.execution)?;
@@ -726,147 +735,216 @@ async fn initialize(
                     && !bindings.contains_key(&(scope.namespace, scope.cell.clone())),
                 "duplicate registered cell"
             );
-            let permit = match placement {
-                RaftCellPlacement::Replica => {
-                    if birth.managed_owner().is_some() {
-                        let authorization = authorizations.get(&scope).ok_or_else(|| {
-                            anyhow::anyhow!("managed initial host authorization required")
-                        })?;
-                        namespace
-                            .bootstrap_managed_member(&birth, &service.log, authorization)
-                            .await?
-                    } else {
-                        namespace.bootstrap_member(&birth, &service.log).await?
-                    }
-                }
-                RaftCellPlacement::Joining {
-                    member,
-                    source,
-                    source_node,
-                }
-                | RaftCellPlacement::JoiningFromS3 {
-                    member,
-                    source,
-                    source_node,
-                } => {
-                    let from_s3 = matches!(placement, RaftCellPlacement::JoiningFromS3 { .. });
-                    anyhow::ensure!(
-                        options.enable_snapshots,
-                        "joining requires snapshot recovery"
-                    );
-                    match namespace
-                        .resume_joined(&birth, &service.log, member)
-                        .await?
-                    {
-                        Some(permit) => permit,
-                        None => {
-                            let peer = peers
-                                .get(&source_node)
-                                .ok_or_else(|| anyhow::anyhow!("missing seed source endpoint"))?;
-                            peer.validate_endpoint()?;
-                            let local = service.log.limits();
-                            let identity = ReplicaIdentity {
-                                scope: scope.clone(),
-                                node: local.node,
-                                member,
-                                disk: local.disk,
-                                process: local.process,
-                            };
-                            let source = RaftPeer {
-                                replica: ReplicaIdentity {
-                                    scope: scope.clone(),
-                                    node: peer.node,
-                                    member: source,
-                                    disk: peer.disk,
-                                    process: peer.process,
-                                },
-                                label: peer.label.clone(),
-                                server_name: peer.server_name.clone(),
-                                control_address: peer.control_address,
-                                data_address: peer.data_address,
-                                query_address: peer.query_address,
-                            };
-                            let limits = service
-                                .transport
-                                .snapshot_limits(options.execution.max_image_bytes)?;
-                            let action = if from_s3 {
-                                let archive = namespace
-                                    .cell_archive(
-                                        &birth,
-                                        storage.host.clone(),
-                                        options.archive.limits,
-                                    )?
-                                    .with_scratch_directory(service.log.limits().directory.clone())
-                                    .with_snapshot_scratch(service.log.snapshot_scratch());
-                                let archive = match &storage.rooted {
-                                    Some(rooted) => archive.with_root_store(rooted.store.clone()),
-                                    None => archive,
-                                };
-                                let received = service
-                                    .transport
-                                    .seed_from_archive(
-                                        identity,
-                                        source,
-                                        &birth,
-                                        class.schema_digest(),
-                                        limits,
-                                        archive,
-                                    )
-                                    .await?;
-                                Action::SealArchiveSeed {
-                                    received: Box::new(received),
-                                    storage: storage.clone(),
-                                }
-                            } else {
-                                let received = service
-                                    .transport
-                                    .seed_from_peer(
-                                        identity,
-                                        source,
-                                        &birth,
-                                        class.schema_digest(),
-                                        limits,
-                                        storage.rooted.as_ref().map(|root| root.store.clone()),
-                                    )
-                                    .await?;
-                                Action::SealSeed {
-                                    received: Box::new(received),
-                                    storage: storage.clone(),
-                                }
-                            };
-                            let output =
-                                pool.call(worker, scope.clone(), action, None, None).await?;
-                            let Value::Seeded(seed) = output.value else {
-                                anyhow::bail!("SQL seed response")
-                            };
-                            // Managed fresh learners use registered standby activation
-                            // with an opaque catalog authorization. Retained joined
-                            // state above resumes without creating a new membership.
-                            standby::check_seed_guard(
-                                seed.membership(),
-                                seed.local(),
-                                None,
-                                false,
-                            )?;
-                            service
-                                .log
-                                .performance()
-                                .measure(
-                                    super::performance::Operation::RecoveryInstall,
-                                    service.log.create_seeded(*seed),
-                                )
-                                .await?;
+            // Member bootstrap has large archive and seed futures. Keep their
+            // inline state out of the node enrollment/discovery poll frame.
+            let permit = Box::pin(async {
+                let permit = match placement {
+                    RaftCellPlacement::Replica => {
+                        if birth.managed_owner().is_some() {
+                            let authorization = authorizations.get(&scope).ok_or_else(|| {
+                                anyhow::anyhow!("managed initial host authorization required")
+                            })?;
                             namespace
-                                .resume_joined(&birth, &service.log, member)
+                                .bootstrap_managed_member(&birth, &service.log, authorization)
                                 .await?
-                                .ok_or_else(|| anyhow::anyhow!("seed state missing after fence"))?
+                        } else {
+                            // Keep disaster-only archive reconstruction out of every
+                            // ordinary managed startup poll frame.
+                            Box::pin(async {
+                                if let Some(permit) =
+                                    namespace.disaster_seed_permit(&birth, &service.log).await?
+                                {
+                                    anyhow::ensure!(
+                                        options.enable_snapshots,
+                                        "disaster recovery requires snapshots"
+                                    );
+                                    let (source, reference) =
+                                        birth.disaster_source().ok_or_else(|| {
+                                            anyhow::anyhow!("missing disaster source")
+                                        })?;
+                                    let archive = namespace
+                                        .cell_archive(
+                                            source,
+                                            storage.host.clone(),
+                                            options.archive.limits,
+                                        )?
+                                        .with_scratch_directory(
+                                            service.log.limits().directory.clone(),
+                                        )
+                                        .with_snapshot_scratch(service.log.snapshot_scratch());
+                                    let bytes = archive.read_memory_bound();
+                                    let reservation =
+                                        service.transport.reserve_disaster_seed(bytes)?;
+                                    let set = archive
+                                        .with_read_retention(reservation.clone())
+                                        .recovery_set_at(reference)
+                                        .await?;
+                                    let output = pool
+                                        .call(
+                                            worker,
+                                            scope.clone(),
+                                            Action::SealDisasterSeed {
+                                                received: Box::new(super::snapshot::DisasterSeed {
+                                                    permit,
+                                                    set,
+                                                    schema: class.schema_digest(),
+                                                    limits: snapshot_limits,
+                                                    reservation,
+                                                }),
+                                                storage: storage.clone(),
+                                            },
+                                            None,
+                                            None,
+                                        )
+                                        .await?;
+                                    let Value::Seeded(seed) = output.value else {
+                                        anyhow::bail!("disaster SQL seed response")
+                                    };
+                                    service.log.create_seeded(*seed).await?;
+                                }
+                                Ok::<(), anyhow::Error>(())
+                            })
+                            .await?;
+                            namespace.bootstrap_member(&birth, &service.log).await?
                         }
                     }
-                }
-                RaftCellPlacement::QueryRouter { .. } | RaftCellPlacement::Standby => {
-                    unreachable!("non-replica handled above")
-                }
-            };
+                    RaftCellPlacement::Joining {
+                        member,
+                        source,
+                        source_node,
+                    }
+                    | RaftCellPlacement::JoiningFromS3 {
+                        member,
+                        source,
+                        source_node,
+                    } => {
+                        let from_s3 = matches!(placement, RaftCellPlacement::JoiningFromS3 { .. });
+                        anyhow::ensure!(
+                            options.enable_snapshots,
+                            "joining requires snapshot recovery"
+                        );
+                        match namespace
+                            .resume_joined(&birth, &service.log, member)
+                            .await?
+                        {
+                            Some(permit) => permit,
+                            None => {
+                                let peer = peers.get(&source_node).ok_or_else(|| {
+                                    anyhow::anyhow!("missing seed source endpoint")
+                                })?;
+                                peer.validate_endpoint()?;
+                                let local = service.log.limits();
+                                let identity = ReplicaIdentity {
+                                    scope: scope.clone(),
+                                    node: local.node,
+                                    member,
+                                    disk: local.disk,
+                                    process: local.process,
+                                };
+                                let source = RaftPeer {
+                                    replica: ReplicaIdentity {
+                                        scope: scope.clone(),
+                                        node: peer.node,
+                                        member: source,
+                                        disk: peer.disk,
+                                        process: peer.process,
+                                    },
+                                    label: peer.label.clone(),
+                                    server_name: peer.server_name.clone(),
+                                    control_address: peer.control_address,
+                                    data_address: peer.data_address,
+                                    query_address: peer.query_address,
+                                };
+                                let limits = service
+                                    .transport
+                                    .snapshot_limits(options.execution.max_image_bytes)?;
+                                let action = if from_s3 {
+                                    let archive = namespace
+                                        .cell_archive(
+                                            &birth,
+                                            storage.host.clone(),
+                                            options.archive.limits,
+                                        )?
+                                        .with_scratch_directory(
+                                            service.log.limits().directory.clone(),
+                                        )
+                                        .with_snapshot_scratch(service.log.snapshot_scratch());
+                                    let archive = match &storage.rooted {
+                                        Some(rooted) => {
+                                            archive.with_root_store(rooted.store.clone())
+                                        }
+                                        None => archive,
+                                    };
+                                    let received = service
+                                        .transport
+                                        .seed_from_archive(
+                                            identity,
+                                            source,
+                                            &birth,
+                                            class.schema_digest(),
+                                            limits,
+                                            archive,
+                                        )
+                                        .await?;
+                                    Action::SealArchiveSeed {
+                                        received: Box::new(received),
+                                        storage: storage.clone(),
+                                    }
+                                } else {
+                                    let received = service
+                                        .transport
+                                        .seed_from_peer(
+                                            identity,
+                                            source,
+                                            &birth,
+                                            class.schema_digest(),
+                                            limits,
+                                            storage.rooted.as_ref().map(|root| root.store.clone()),
+                                        )
+                                        .await?;
+                                    Action::SealSeed {
+                                        received: Box::new(received),
+                                        storage: storage.clone(),
+                                    }
+                                };
+                                let output =
+                                    pool.call(worker, scope.clone(), action, None, None).await?;
+                                let Value::Seeded(seed) = output.value else {
+                                    anyhow::bail!("SQL seed response")
+                                };
+                                // Managed fresh learners use registered standby activation
+                                // with an opaque catalog authorization. Retained joined
+                                // state above resumes without creating a new membership.
+                                standby::check_seed_guard(
+                                    seed.membership(),
+                                    seed.local(),
+                                    None,
+                                    false,
+                                )?;
+                                service
+                                    .log
+                                    .performance()
+                                    .measure(
+                                        super::performance::Operation::RecoveryInstall,
+                                        service.log.create_seeded(*seed),
+                                    )
+                                    .await?;
+                                namespace
+                                    .resume_joined(&birth, &service.log, member)
+                                    .await?
+                                    .ok_or_else(|| {
+                                        anyhow::anyhow!("seed state missing after fence")
+                                    })?
+                            }
+                        }
+                    }
+                    RaftCellPlacement::QueryRouter { .. } | RaftCellPlacement::Standby => {
+                        unreachable!("non-replica handled above")
+                    }
+                };
+                Ok::<_, anyhow::Error>(permit)
+            })
+            .await?;
             let group = service.log.group(&scope)?;
             let extent_store = storage.rooted.as_ref().map(|root| root.store.clone());
             let output = pool
@@ -1106,6 +1184,7 @@ async fn initialize(
             local,
             snapshot_limits,
             snapshot_source: None,
+            checkpoint_cursor: None,
             maintenance_at: 0,
             admission_at: 0,
             admission_waiters: VecDeque::new(),
@@ -1252,6 +1331,7 @@ struct Cell {
     apply_inflight: bool,
     checkpoint_busy: bool,
     checkpoint_retry_at: u64,
+    archive_checkpoint_at: u64,
 }
 
 enum StatusPurpose {
@@ -1399,6 +1479,7 @@ struct Driver {
     label: String,
     snapshot_limits: super::snapshot::SnapshotLimits,
     snapshot_source: Option<super::transport::snapshots::SnapshotSource>,
+    checkpoint_cursor: Option<GroupScope>,
     archive_owner: Option<super::host_archive::Owner>,
     extents: Option<extents::Owner>,
     local: Arc<client::Handle>,
@@ -3070,6 +3151,8 @@ impl Driver {
             RuntimeEventKind::Checkpointed { ticket } => {
                 if let Some(cell) = self.cells.get_mut(&ticket.replica().scope) {
                     cell.checkpoint_busy = false;
+                    cell.archive_checkpoint_at = crate::asyncrt::mono_ms()
+                        .saturating_add(self.options.archive_checkpoint_ms);
                 }
             }
             RuntimeEventKind::ReadIndex {

@@ -10,6 +10,7 @@ pub(crate) mod catalog;
 mod catalog_wire;
 pub(crate) mod completion;
 pub(crate) mod coordination_index;
+pub(crate) mod disaster;
 pub(crate) mod effects;
 pub(crate) mod execution;
 mod filesystem;

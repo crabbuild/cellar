@@ -1,6 +1,6 @@
 //! Actual guarded retirement with a deliberately stale, intact old engine.
-//! Catalog permit edits stand in for the pending fleet reconciler; this test
-//! grants no node evacuation/removal or infrastructure-stop certificate.
+//! Managed movement requires a real boot-bound debit. Privileged lifecycle
+//! fixture edits grant no node evacuation/removal or infrastructure-stop proof.
 use super::*;
 use cellar::application::consensus::verification::LogError;
 use object_store::{path::Path, ObjectStore};
@@ -139,6 +139,11 @@ async fn no_claim(f: &Fixture, scope: &GroupScope, member: u64) -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_enrollment_retired_binding() -> Result<()> {
+    Box::pin(retired_engine()).await?;
+    Box::pin(fresh_archive_engine()).await
+}
+
+async fn retired_engine() -> Result<()> {
     let f = Fixture::with_managed_births(true).await?;
     let mut nodes = fleet(&f).await?;
     let (proposal, authorization) = birth(&f).await?;
@@ -166,11 +171,38 @@ async fn fleet_enrollment_retired_binding() -> Result<()> {
         .register_managed_history(authorization.clone(), TIMEOUT)
         .await?;
     ensure!(target.inspect().await?.occupancy == ReplicaOccupancy::Standby);
-    let (plan, permit) = reserve(
+    let (unbacked_plan, unbacked) = reserve(
         &f,
         &source,
         &proposal.scope,
         1,
+        140,
+        obsolete_member,
+        JoiningMember {
+            member: MemberId::new(4)?,
+            node: NodeId::new([7; 16])?,
+            disk: DiskLineage::new([17; 16])?,
+        },
+    )
+    .await?;
+    ensure!(matches!(
+        source
+            .begin_managed_repair(unbacked, unbacked_plan, TIMEOUT)
+            .await,
+        Err(CommandFailure::CommandConflict)
+    ));
+    let proof = source
+        .observe_fleet_membership(authorization.clone(), TIMEOUT)
+        .await?;
+    ensure!(proof.status().consumed_sequence == 0 && proof.configuration().learners().is_empty());
+    ensure!(source.status().await?.member_high_water == 3);
+    no_claim(&f, &proposal.scope, 4).await?;
+    admission(&f, &proposal.scope, 142, None).await?;
+    let (plan, permit) = super::placement::reserve_capacity(
+        &f,
+        &nodes[primary].host,
+        &target_host,
+        &proposal.scope,
         160,
         obsolete_member,
         JoiningMember {
@@ -247,7 +279,9 @@ async fn fleet_enrollment_retired_binding() -> Result<()> {
             && proof.configuration().outgoing_voters().is_empty()
             && !proof.configuration().voters().contains(&obsolete_member)
     );
-    admission(&f, &proposal.scope, 162, None).await?;
+    let cut = f.catalog.read(TIMEOUT).await?;
+    let pending = f.catalog.pending_reservations(&cut, TIMEOUT).await?;
+    ensure!(pending.len() == 1 && pending[0].reservation == [160; 16]);
 
     // The physical engine did not see final removal. It must not be reset just
     // because the current quorum no longer contains its original member.
@@ -303,24 +337,8 @@ async fn fleet_enrollment_retired_binding() -> Result<()> {
         occupied.member() == obsolete_member && occupied.birth_digest() == expected_birth.digest()
     );
     ensure!(physical.view.unattached_engine_histories == 1 && inventory.histories().len() == 1);
-    let (plan, stale_target) = reserve(
-        &f,
-        &source,
-        &proposal.scope,
-        2,
-        170,
-        MemberId::new(4)?,
-        JoiningMember {
-            member: MemberId::new(5)?,
-            node: old_spec.node,
-            disk: old_spec.disk,
-        },
-    )
-    .await?;
-    source
-        .begin_managed_repair(stale_target.clone(), plan, TIMEOUT)
-        .await
-        .context("begin replacement on retired engine")?;
+    // Retained physical occupancy itself refuses a new binding. Do not forge
+    // another permit or discard the earlier move's unresolved resource debt.
     let before = f.calls.load(Ordering::Acquire);
     ensure!(
         matches!(
@@ -343,21 +361,14 @@ async fn fleet_enrollment_retired_binding() -> Result<()> {
             .unattached_engine_histories
             == 1
     );
-    ensure!(
-        step(&f, &source, &stale_target, RepairStep::AbortLearner)
-            .await?
-            .phase
-            == RepairPhase::Aborted
-    );
     let proof = source
         .observe_fleet_membership(authorization.clone(), TIMEOUT)
         .await?;
     ensure!(
-        proof.status().consumed_sequence == 2
-            && proof.status().phase == Some(FleetPermitPhase::Aborted)
+        proof.status().consumed_sequence == 1
+            && proof.status().phase == Some(FleetPermitPhase::Complete)
             && proof.configuration().learners().is_empty()
     );
-    admission(&f, &proposal.scope, 172, None).await?;
     stopped(node).await?;
     let log = f
         .domain
@@ -410,8 +421,27 @@ async fn fleet_enrollment_retired_binding() -> Result<()> {
     no_claim(&f, &proposal.scope, 5).await?;
     log.close().await?;
 
-    // A different enrolled engine is usable; the consumed failed member ID is
-    // retained, and a newer ID receives an actual archive seed and native SQL.
+    stop(nodes).await?;
+    stopped(target_node).await?;
+    drop((target_root, removed.root));
+    f.domain.shutdown().await;
+    Ok(())
+}
+
+// A separate admitted history exercises a usable fresh engine. The retained
+// predecessor above intentionally keeps its unresolved debit and is never reset.
+async fn fresh_archive_engine() -> Result<()> {
+    let f = Fixture::with_managed_births(true).await?;
+    let nodes = fleet(&f).await?;
+    let (proposal, authorization) = birth(&f).await?;
+    let cells = registered(&nodes, &authorization).await?;
+    activate(&cells, &authorization).await?;
+    write_read(&f, &cells, 1, 7, 7).await?;
+    let primary = primary(&f, &cells).await?;
+    let source = cells[primary].clone();
+    let source_member = MemberId::new(primary as u64 + 1)?;
+    let source_node = nodes[primary].spec.node;
+    let (namespace, _) = initial_birth(&f).await?;
     let (fresh_root, fresh_node, original_host) = f.peer_host(8).await?;
     let fresh_instance = original_host
         .observe_node(TIMEOUT)
@@ -448,7 +478,7 @@ async fn fleet_enrollment_retired_binding() -> Result<()> {
     );
     discover(
         &f,
-        &[&nodes[0].host, &nodes[1].host, &target_host, &fresh_host],
+        &[&nodes[0].host, &nodes[1].host, &nodes[2].host, &fresh_host],
     )
     .await
     .context("discover resumed fresh host")?;
@@ -456,23 +486,19 @@ async fn fleet_enrollment_retired_binding() -> Result<()> {
         .register_managed_history(authorization.clone(), TIMEOUT)
         .await?;
     ensure!(target_fresh.inspect().await?.occupancy == ReplicaOccupancy::Standby);
-    let mut current = vec![
-        cells[primary].clone(),
-        cells[(primary + 2) % 3].clone(),
-        target.clone(),
-    ];
+    let mut current = cells.clone();
     write_read(&f, &current, 2, 5, 12)
         .await
         .context("write before archive replacement")?;
-    let (plan, fresh_permit) = reserve(
+    let (plan, fresh_permit) = super::placement::reserve_capacity(
         &f,
-        &source,
+        &nodes[primary].host,
+        &fresh_host,
         &proposal.scope,
-        3,
         180,
-        MemberId::new(4)?,
+        MemberId::new(((primary + 1) % 3) as u64 + 1)?,
         JoiningMember {
-            member: MemberId::new(6)?,
+            member: MemberId::new(4)?,
             node: NodeId::new([8; 16])?,
             disk: DiskLineage::new([18; 16])?,
         },
@@ -493,36 +519,23 @@ async fn fleet_enrollment_retired_binding() -> Result<()> {
     ensure!(receipt.durability == Durability::S3);
     f.state(fresh_spec.node, FleetNodeState::Draining, 154)
         .await?;
-    ensure!(
-        matches!(
-            target_fresh
-                .activate_managed_learner(
-                    fresh_permit.clone(),
-                    LearnerActivation {
-                        member: MemberId::new(6)?,
-                        source: source_member,
-                        source_node,
-                        from_s3: true,
-                        timeout: TIMEOUT,
-                    }
-                )
-                .await,
-            Err(CommandFailure::Unavailable)
-        ),
-        "startup Active bypassed current target exclusion"
-    );
-    no_claim(&f, &proposal.scope, 6).await?;
-    ensure!(
-        target_fresh.inspect().await?.occupancy == ReplicaOccupancy::Standby
-            && fresh_host.observe_node(TIMEOUT).await?.node.groups == 0
-    );
-    f.state(fresh_spec.node, FleetNodeState::Active, 155)
+    let cut = f.catalog.read(TIMEOUT).await?;
+    let excluded = f
+        .catalog
+        .authorize_host(&cut, fresh_spec.node, TIMEOUT)
         .await?;
+    ensure!(
+        excluded.state() == FleetNodeState::Draining && !excluded.eligibility().receive_replicas
+    );
+    // Prior exact-boot resource admission is an obligation to finish during
+    // drain. It permits this learner; startup Active alone never supplies it.
+    no_claim(&f, &proposal.scope, 4).await?;
+    ensure!(target_fresh.inspect().await?.occupancy == ReplicaOccupancy::Standby);
     target_fresh
         .activate_managed_learner(
             fresh_permit.clone(),
             LearnerActivation {
-                member: MemberId::new(6)?,
+                member: MemberId::new(4)?,
                 source: source_member,
                 source_node,
                 from_s3: true,
@@ -561,17 +574,26 @@ async fn fleet_enrollment_retired_binding() -> Result<()> {
         .observe_fleet_membership(authorization.clone(), TIMEOUT)
         .await?;
     ensure!(
-        proof.status().consumed_sequence == 3
-            && proof.configuration().voters().contains(&MemberId::new(6)?)
-            && !proof.configuration().voters().contains(&MemberId::new(4)?)
+        proof.status().consumed_sequence == 1
+            && proof.configuration().voters().contains(&MemberId::new(4)?)
+            && !proof
+                .configuration()
+                .voters()
+                .contains(&MemberId::new(((primary + 1) % 3) as u64 + 1)?)
             && proof.configuration().outgoing_voters().is_empty()
     );
-    admission(&f, &proposal.scope, 182, None).await?;
-    current[2] = target_fresh;
+    let cut = f.catalog.read(TIMEOUT).await?;
+    let pending = f.catalog.pending_reservations(&cut, TIMEOUT).await?;
+    ensure!(pending.len() == 1 && pending[0].reservation == [180; 16]);
+    current = vec![
+        cells[primary].clone(),
+        cells[(primary + 2) % 3].clone(),
+        target_fresh,
+    ];
     write_read(&f, &current, 4, 1, 22)
         .await
         .context("write after archive replacement")?;
-    ensure!(source.status().await?.member_high_water == 6);
+    ensure!(source.status().await?.member_high_water == 4);
     let root = f.catalog.read(TIMEOUT).await?;
     ensure!(
         f.catalog
@@ -581,9 +603,8 @@ async fn fleet_enrollment_retired_binding() -> Result<()> {
             == 1
     );
     stop(nodes).await?;
-    stopped(target_node).await?;
     stopped(fresh_node).await?;
-    drop((target_root, fresh_root, removed.root));
+    drop(fresh_root);
     f.domain.shutdown().await;
     Ok(())
 }

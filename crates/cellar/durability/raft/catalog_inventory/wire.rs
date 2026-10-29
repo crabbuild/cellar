@@ -33,6 +33,8 @@ pub(super) struct Head {
     pub count: u64,
     pub index: Option<[u8; 32]>,
     pub mode: Mode,
+    /// A permanent exclusion from fleet import after disaster recovery admission.
+    pub disaster: bool,
 }
 
 impl Head {
@@ -43,6 +45,7 @@ impl Head {
             revision: 1,
             count: 0,
             index: None,
+            disaster: false,
             mode: namespace
                 .config
                 .managed_fleet
@@ -60,6 +63,7 @@ impl Head {
             || self.revision == 0
             || self.count >= self.revision
             || self.index.is_none() != (self.count == 0)
+            || (self.disaster && !matches!(self.mode, Mode::Open))
         {
             return Err(CatalogError::Corrupt("birth inventory identity/count"));
         }
