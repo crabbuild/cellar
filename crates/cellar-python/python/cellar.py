@@ -631,6 +631,7 @@ class Directory:
         return None if value is None else DirectoryEntry(base64.b64decode(value["name_base64"], validate=True), int(value["inode"]), value["kind"])
 
     async def read_page(self, limit):
+        """Read a positive bounded page; invalid limits preserve the cursor."""
         return [DirectoryEntry(base64.b64decode(value["name_base64"], validate=True), int(value["inode"]), value["kind"]) for value in await self._fs._call("read_page", handle=self._handle, limit=limit)]
 
     async def telldir(self):
@@ -751,6 +752,7 @@ class Filesystem:
         return FileVersion(int(value["inode"]), int(value["version"]))
 
     async def read_dir(self, path, limit=100, cursor=None):
+        """Read a stateless page with a positive limit within the captured bound."""
         page = await self._call("read_dir", path=_filesystem_path(path, "read_dir"), limit=limit, cursor=cursor)
         return DirectoryPage([DirectoryEntry(base64.b64decode(value["name_base64"], validate=True), int(value["inode"]), value["kind"]) for value in page["entries"]], page["next"])
 

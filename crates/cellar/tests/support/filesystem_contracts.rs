@@ -431,6 +431,20 @@ pub(crate) fn directory_mutation(fs: &Filesystem) -> Result<()> {
     let first = fs.read_dir("/enumerate", 1, None)?;
     assert_eq!(first.entries[0].name, b"a");
     let directory = fs.opendir("/enumerate")?;
+    let initial_cookie = directory.telldir()?;
+    for (error, name) in [
+        (directory.read_page(0).unwrap_err(), "filesystem.read_page"),
+        (
+            fs.read_dir("/enumerate", 0, None).unwrap_err(),
+            "filesystem.read_dir",
+        ),
+    ] {
+        assert_eq!(error.errno, Errno::EINVAL);
+        assert_eq!(error.operation, name);
+        assert_eq!(error.outcome, Outcome::NotApplied);
+        assert_eq!(error.completed_bytes, 0);
+    }
+    assert_eq!(directory.telldir()?, initial_cookie);
     assert_eq!(directory.readdir()?.unwrap().name, b".");
     assert_eq!(directory.readdir()?.unwrap().name, b"..");
     assert_eq!(directory.readdir()?.unwrap().name, b"a");

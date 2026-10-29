@@ -191,6 +191,7 @@ impl Filesystem {
 
     /// Stateless bounded continuation. Namespace changes may affect subsequent
     /// pages; a path replaced by another directory invalidates the cursor.
+    /// The limit must be positive and within the configured directory entry bound.
     pub fn read_dir(
         &self,
         path: impl AsRef<[u8]>,
@@ -243,10 +244,11 @@ impl Filesystem {
 
 impl Directory {
     /// A bounded loop over readdir; failure can leave a consumed prefix.
+    /// The limit must be positive and within the configured directory entry bound.
     pub fn read_page(&self, limit: usize) -> Result<Vec<DirEntry>> {
         operation("filesystem.read_page", || {
             self.file.record.check(&self.file.fs)?;
-            if limit > self.file.fs.limits.max_directory_entries {
+            if limit == 0 || limit > self.file.fs.limits.max_directory_entries {
                 return Err(Error::new(
                     Errno::EINVAL,
                     "directory page exceeds entry bound",

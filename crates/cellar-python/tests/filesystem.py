@@ -405,7 +405,12 @@ async def wire_profile(fs, ctx, group):
                 (lambda: file.read_exact(-1), "read_exact"),
             ):
                 await refusal(call, "filesystem." + operation)
-            assert refused == 26
+            for call, operation in (
+                (lambda: directory.read_page(0), "read_page"),
+                (lambda: fs.read_dir("/wire-profile", 0), "read_dir"),
+            ):
+                await refusal(call, "filesystem." + operation, "EINVAL", "Filesystem")
+            assert refused == 28
         else:
             assert group == "batch"
 

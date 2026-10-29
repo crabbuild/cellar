@@ -91,7 +91,7 @@ declares it; Python uses snake_case. Guest transaction composition is the checke
 | O46 | `fs.read_dir()` | Contracts checks continuation across namespace mutations and rejects another directory's cursor; Native/Guests check bounded pages without synthetic dot entries |
 | O47 | `file.read_exact()` | Native/Budget check consumed prefix and offset on UnexpectedEof; Native/Guests check closed empty-helper refusal; Guests check preflight operation/zero progress; Lost replies checks a confirmed prefix with a second processed but undelivered transfer |
 | O48 | `file.write_all()` | Native/Budget check confirmed committed prefixes; Python Budget verifies a saved prefix after restart; Guests check preflight operation/zero progress; Lost replies recovers more committed bytes than the caller can confirm |
-| O49 | `dir.read_page()` | Contracts checks mutation/seek continuation and linked dot entries; removed-directory profiles check empty pages after rewind |
+| O49 | `dir.read_page()` | Contracts checks mutation/seek continuation and linked dot entries; removed-directory profiles check empty pages after rewind; Native/Guests reject a zero page limit without cursor advancement |
 | O50 | `fs.collect_garbage()` | Backend checks pins, discarded revisions and quota retention; native/guest hosts check automatic maintenance/restart; Read-only refuses explicit application GC |
 | O51 | Guest `storage.apply` file checks/effects | Native batch validation checks identity/version; Guests check conflict and rollback after a preceding file mutation; file effects/receipts/checkpoints commit together |
 | O52 | Durable-agent read/write/edit/list/search/rename/delete | Guest tool profiles check results, saved reads, conflicts, stable IDs, request snapshots and receipt caps. Directory-edit refusals replay after namespace deletion and host restart; process crash evidence remains separately scoped in the ledger |
@@ -253,7 +253,7 @@ groups so each retains the fixture's normal handler budget:
 | --- | --- | --- |
 | Unsigned | 81 | Nine descriptor/path/edit fields reject eight malformed decimal forms and one u64 overflow; EINVAL versus EOVERFLOW |
 | Signed | 30 | Current/end seeks and timestamps reject eight malformed forms and both i64 overflow boundaries |
-| Options | 26 | Open/access/seek enums, flag and mode types, counts, page argument types, malformed cookies/cursors and helper bound validation; includes a client serialization refusal for NaN |
+| Options | 28 | Open/access/seek enums, flag and mode types, counts, page argument types, malformed cookies/cursors and helper bound validation; includes a client serialization refusal for NaN and zero-limit read_page/read_dir refusals |
 | Batch | 21 | Strict unsigned checks/edits/truncation, base64/path decoding and inconsistent checks refuse before any file or business put |
 
 Unsigned cases run as three groups of 27. Every one of the original 81

@@ -705,7 +705,12 @@ async function wireProfile(fs, ctx, group) {
         [() => file.readExact(-1), "read_exact"],
       ])
         await refusal(call, `filesystem.${operation}`);
-      check(refused === 26);
+      for (const [call, operation] of [
+        [() => directory.readPage(0), "read_page"],
+        [() => fs.readDir("/wire-profile", 0), "read_dir"],
+      ])
+        await refusal(call, `filesystem.${operation}`, "EINVAL", "Filesystem");
+      check(refused === 28);
     } else {
       check(group === "batch");
       const batch = async (changes, errno) => {

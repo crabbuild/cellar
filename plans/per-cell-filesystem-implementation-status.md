@@ -9,6 +9,18 @@ Status: initial API profile implemented; production qualification in progress,
 scope. This ledger distinguishes implemented behavior from verified behavior.
 FUSE remains a separate proposal.
 
+## Directory page-limit parity, 2026-10-28
+
+The final API audit found that native `Directory::read_page(0)` returned an
+empty success while the shared guest dispatcher refused it with EINVAL.
+The native regression fails on that success before the fix. Both directory
+page helpers now require positive limits in every SDK; rejected limits preserve
+the directory cookie and report the public operation, NotApplied and zero
+progress. All three native filesystem suites pass after the validation fix.
+The Node/V8 and Python option profiles include the same two zero-limit cases;
+their integrated runs remain in progress. Positive-limit paging and storage
+behavior are unchanged.
+
 ## Integrated fixture repairs, 2026-10-28
 
 The follow-up now includes `main` at `f3f2845c`. On production source
