@@ -6,9 +6,10 @@
 use super::*;
 use anyhow::{Context, Result};
 use cellar::application::consensus::verification::{
-    Catalog, CatalogError, CatalogOptions, NamespaceConfig,
+    Catalog, CatalogError, CatalogOptions, InitialMember, NamespaceConfig,
 };
 use cellar::sdk::ExecutionDomain;
+use cellar_logic::consensus::{MemberId, NodeId};
 use object_store::{path::Path, ObjectStore};
 use std::{
     sync::{atomic::Ordering, Arc},
@@ -63,11 +64,37 @@ impl Fixture {
         )?)
     }
 
+    async fn reserve(&self, routes: &mut [GroupRoute]) -> Result<(), CatalogError> {
+        for route in routes {
+            let request = self.directory.prepare_group_birth(birth_spec(route))?;
+            self.run(self.directory.reserve_group_birth(&request))
+                .await?;
+            *route = request.route().clone();
+        }
+        Ok(())
+    }
+
     fn key(&self, name: &str) -> Path {
         Path::from(format!(
             "namespaces/{}/cell-groups/{name}",
             hex::encode(self.config.namespace.bytes())
         ))
+    }
+}
+
+fn birth_spec(route: &GroupRoute) -> CellGroupBirthSpec {
+    CellGroupBirthSpec {
+        history: route.history,
+        range: route.range.clone(),
+        epoch: route.epoch,
+        creation: ProposalId::new(route.history.group.bytes()).unwrap(),
+        voters: (1..=3)
+            .map(|n| InitialMember {
+                member: MemberId::new(n).unwrap(),
+                node: NodeId::new([n as u8; 16]).unwrap(),
+            })
+            .collect(),
+        learners: vec![],
     }
 }
 
@@ -133,7 +160,8 @@ fn split(parent: &GroupRoute, id: u64) -> Vec<GroupRoute> {
 pub async fn single_owner() -> Result<()> {
     let f = Fixture::new(DirectoryLimits::default()).await?;
     let d = &f.directory;
-    let initial = ranges(2);
+    let mut initial = ranges(2);
+    f.reserve(&mut initial).await?;
     let init = d.prepare_initialization(operation(1), &initial)?;
     for bad in [
         vec![],
@@ -153,8 +181,10 @@ pub async fn single_owner() -> Result<()> {
         .is_err());
     f.run(d.publish(&init)).await?;
     let view = f.run(d.observe()).await?;
-    let left = split(&initial[0], 100);
-    let right = split(&initial[1], 200);
+    let mut left = split(&initial[0], 100);
+    let mut right = split(&initial[1], 200);
+    f.reserve(&mut left).await?;
+    f.reserve(&mut right).await?;
     let a = d.prepare_replacement(&view, operation(2), &initial[..1], &left)?;
     let b = d.prepare_replacement(&view, operation(3), &initial[1..], &right)?;
     let mut stale_parent = initial[0].clone();
@@ -216,7 +246,8 @@ pub async fn bounded_discovery() -> Result<()> {
     };
     let f = Fixture::new(limits).await?;
     let d = &f.directory;
-    let initial = ranges(128);
+    let mut initial = ranges(128);
+    f.reserve(&mut initial).await?;
     let init = d.prepare_initialization(operation(1), &initial)?;
     f.run(d.publish(&init)).await?;
     let view = f.run(d.observe()).await?;
@@ -237,7 +268,8 @@ pub async fn bounded_discovery() -> Result<()> {
         assert!(pages <= 4 && bytes <= limits.max_cache_bytes);
     }
     let parent = &initial[63];
-    let children = split(parent, 1000);
+    let mut children = split(parent, 1000);
+    f.reserve(&mut children).await?;
     let mutation =
         d.prepare_replacement(&view, operation(2), std::slice::from_ref(parent), &children)?;
     let before = f.store.range_page_puts.load(Ordering::Acquire);
@@ -249,7 +281,8 @@ pub async fn bounded_discovery() -> Result<()> {
     );
     let after = f.run(d.observe()).await?;
     assert_eq!(after.groups(), 129);
-    let merged = assigned(2000, parent.range.clone(), 3);
+    let mut merged = assigned(2000, parent.range.clone(), 3);
+    f.reserve(std::slice::from_mut(&mut merged)).await?;
     let merge = d.prepare_replacement(
         &after,
         operation(3),
@@ -279,11 +312,13 @@ pub async fn bounded_discovery() -> Result<()> {
 pub async fn recovery() -> Result<()> {
     let f = Fixture::new(DirectoryLimits::default()).await?;
     let d = &f.directory;
-    let initial = ranges(1);
+    let mut initial = ranges(1);
+    f.reserve(&mut initial).await?;
     let init = d.prepare_initialization(operation(1), &initial)?;
     f.run(d.publish(&init)).await?;
     let view = f.run(d.observe()).await?;
-    let children = split(&initial[0], 100);
+    let mut children = split(&initial[0], 100);
+    f.reserve(&mut children).await?;
     let first = d.prepare_replacement(&view, operation(2), &initial, &children)?;
     f.store.fail_head_after.store(true, Ordering::Release);
     f.store
@@ -297,7 +332,8 @@ pub async fn recovery() -> Result<()> {
     let retry = restarted.decode_mutation(first.encode())?;
     let selected = f.run(restarted.observe()).await?;
     assert_eq!(selected.revision(), 2);
-    let second_children = split(&children[0], 200);
+    let mut second_children = split(&children[0], 200);
+    f.reserve(&mut second_children).await?;
     let second =
         restarted.prepare_replacement(&selected, operation(3), &children[..1], &second_children)?;
     let latest_publication = f.run(restarted.publish(&second)).await?;
@@ -386,7 +422,8 @@ pub async fn recovery() -> Result<()> {
 pub async fn genesis_race() -> Result<()> {
     let f = Fixture::new(DirectoryLimits::default()).await?;
     let d = &f.directory;
-    let initial = ranges(1);
+    let mut initial = ranges(1);
+    f.reserve(&mut initial).await?;
     let init = d.prepare_initialization(operation(1), &initial)?;
     f.store
         .range_genesis_after
@@ -400,12 +437,10 @@ pub async fn genesis_race() -> Result<()> {
                 let result = async {
                     let receipt = d.publish(&init).await?;
                     let view = d.observe().await?;
-                    let replacement = d.prepare_replacement(
-                        &view,
-                        operation(2),
-                        &initial,
-                        &split(&initial[0], 100),
-                    )?;
+                    let mut children = split(&initial[0], 100);
+                    f.reserve(&mut children).await?;
+                    let replacement =
+                        d.prepare_replacement(&view, operation(2), &initial, &children)?;
                     d.publish(&replacement).await?;
                     Ok::<_, CatalogError>(receipt)
                 }
@@ -430,7 +465,8 @@ pub async fn churn() -> Result<()> {
     })
     .await?;
     let d = &f.directory;
-    let initial = ranges(16);
+    let mut initial = ranges(16);
+    f.reserve(&mut initial).await?;
     let init = d.prepare_initialization(operation(1), &initial)?;
     f.run(d.publish(&init)).await?;
     let original_view = f.run(d.observe()).await?;
@@ -442,7 +478,7 @@ pub async fn churn() -> Result<()> {
         let view = f.run(d.observe()).await?;
         let position = (step * 7 + 3) % (expected.len() - 1);
         let id = 1000 + step as u64 * 10;
-        let (parents, children) = if step % 2 == 0 {
+        let (parents, mut children) = if step % 2 == 0 {
             let parent = expected[position].clone();
             let children = split(&parent, id);
             (vec![parent], children)
@@ -452,6 +488,7 @@ pub async fn churn() -> Result<()> {
             let epoch = parents.iter().map(|r| r.epoch.get()).max().unwrap() + 1;
             (parents, vec![assigned(id, range, epoch)])
         };
+        f.reserve(&mut children).await?;
         let mutation =
             d.prepare_replacement(&view, operation(step as u64 + 2), &parents, &children)?;
         let receipt = f.run(d.publish(&mutation)).await?;
@@ -482,6 +519,222 @@ pub async fn churn() -> Result<()> {
     let restarted = f.reopen().await?;
     assert_eq!(f.run(restarted.observe()).await?.revision(), 81);
     assert_eq!(f.run(restarted.publish(&init)).await?.revision(), 1);
+    assert_eq!(f.store.listing_calls.load(Ordering::Acquire), 0);
+    f.domain.shutdown().await;
+    Ok(())
+}
+
+pub async fn birth_recovery() -> Result<()> {
+    let f = Fixture::new(DirectoryLimits::default()).await?;
+    let d = &f.directory;
+    let request = d.prepare_group_birth(birth_spec(&ranges(1)[0]))?;
+    let route = request.route();
+    let birth_key = f.key(&format!(
+        "births/{}/{}",
+        hex::encode(route.history.group.bytes()),
+        hex::encode(route.history.incarnation.bytes())
+    ));
+    let init = d.prepare_initialization(operation(99), std::slice::from_ref(route))?;
+    assert!(matches!(
+        f.run(d.publish(&init)).await,
+        Err(CatalogError::Corrupt(_))
+    ));
+    assert!(matches!(
+        f.store.inner.get(&f.key("head")).await,
+        Err(object_store::Error::NotFound { .. })
+    ));
+    f.run(d.reserve_group_birth(&request)).await?;
+    assert!(
+        f.run(d.materialize_group_birth(&request)).await.is_err(),
+        "an unselected reservation is not a birth"
+    );
+    f.run(d.publish(&init)).await?;
+    assert!(
+        matches!(
+            f.store.inner.get(&birth_key).await,
+            Err(object_store::Error::NotFound { .. })
+        ),
+        "range publication must not eagerly materialize groups"
+    );
+    let unknown = fault::missing_read(
+        birth_key.to_string(),
+        f.run(d.materialize_group_birth(&request)),
+    )
+    .await;
+    assert!(matches!(unknown, Err(CatalogError::Unconfirmed)));
+    assert_eq!(
+        f.store.inner.get(&birth_key).await?.bytes().await?.as_ref(),
+        request.encode(),
+        "unknown confirmation follows actual immutable creation"
+    );
+    let restarted = f.reopen().await?;
+    let retry = restarted.decode_group_birth(request.encode())?;
+    assert_eq!(retry.route(), request.route());
+    let birth = f.run(restarted.materialize_group_birth(&retry)).await?;
+    assert_eq!(birth.route(), route);
+    assert_eq!(birth.creation(), request.creation());
+    assert_eq!(birth.voters(), request.voters());
+    assert!(birth.learners().is_empty());
+    f.run(restarted.require_current_group_birth(&birth)).await?;
+    assert!(matches!(
+        f.run(d.require_current_group_birth(&birth)).await,
+        Err(CatalogError::Conflict(_))
+    ));
+    assert!(matches!(
+        fault::missing_read(
+            birth_key.to_string(),
+            f.run(restarted.require_current_group_birth(&birth))
+        )
+        .await,
+        Err(CatalogError::Corrupt(_))
+    ));
+    let mut corrupt = request.encode().to_vec();
+    *corrupt.last_mut().unwrap() ^= 1;
+    f.store.inner.put(&birth_key, corrupt.into()).await?;
+    assert!(matches!(
+        f.run(restarted.require_current_group_birth(&birth)).await,
+        Err(CatalogError::Corrupt(_))
+    ));
+    f.store
+        .inner
+        .put(&birth_key, request.encode().to_vec().into())
+        .await?;
+    let view = f.run(restarted.observe()).await?;
+    let mut children = split(route, 700);
+    f.reserve(&mut children).await?;
+    let replace = restarted.prepare_replacement(
+        &view,
+        operation(100),
+        std::slice::from_ref(route),
+        &children,
+    )?;
+    f.run(restarted.publish(&replace)).await?;
+    assert!(matches!(
+        f.run(restarted.require_current_group_birth(&birth)).await,
+        Err(CatalogError::Fenced)
+    ));
+    assert!(matches!(
+        f.run(restarted.materialize_group_birth(&retry)).await,
+        Err(CatalogError::Fenced)
+    ));
+    assert_eq!(
+        f.store.inner.get(&birth_key).await?.bytes().await?.as_ref(),
+        request.encode()
+    );
+    assert_eq!(f.store.listing_calls.load(Ordering::Acquire), 0);
+    f.domain.shutdown().await;
+    Ok(())
+}
+
+pub async fn birth_reservations() -> Result<()> {
+    let f = Fixture::new(DirectoryLimits::default()).await?;
+    let d = &f.directory;
+    let route = ranges(1).remove(0);
+    let original = d.prepare_group_birth(birth_spec(&route))?;
+    assert_eq!(&original.encode()[..9], b"CLRCAT01\xba");
+    let mut wrong_domain = original.encode().to_vec();
+    wrong_domain[8] = 86;
+    assert!(d.decode_group_birth(&wrong_domain).is_err());
+    let mut unordered = birth_spec(&route);
+    unordered.voters.reverse();
+    assert_eq!(
+        d.prepare_group_birth(unordered)?.encode(),
+        original.encode()
+    );
+    let key = Path::from(format!(
+        "groups/{}",
+        hex::encode(route.history.group.bytes())
+    ));
+    assert!(matches!(
+        fault::missing_read(key.to_string(), f.run(d.reserve_group_birth(&original))).await,
+        Err(CatalogError::Unconfirmed)
+    ));
+    assert_eq!(
+        f.store.inner.get(&key).await?.bytes().await?.as_ref(),
+        original.encode()
+    );
+    f.run(d.reserve_group_birth(&original)).await?;
+    for which in 0..4 {
+        let mut spec = birth_spec(&route);
+        match which {
+            0 => spec.creation = operation(555),
+            1 => spec.history.incarnation = IncarnationId::new([55; 16])?,
+            2 => spec.voters[0].node = NodeId::new([55; 16])?,
+            _ => spec.epoch = RouteEpoch::new(2)?,
+        }
+        let changed = d.prepare_group_birth(spec)?;
+        assert_ne!(changed.encode(), original.encode());
+        assert!(matches!(
+            f.run(d.reserve_group_birth(&changed)).await,
+            Err(CatalogError::Conflict(_))
+        ));
+    }
+    let mut duplicate = birth_spec(&route);
+    duplicate.voters[1].node = duplicate.voters[0].node;
+    assert!(d.prepare_group_birth(duplicate).is_err());
+    let mut wrong_count = birth_spec(&route);
+    wrong_count.voters.pop();
+    assert!(d.prepare_group_birth(wrong_count).is_err());
+    let mut oversized = birth_spec(&route);
+    oversized.learners = vec![oversized.voters[0]; 33];
+    assert!(matches!(
+        d.prepare_group_birth(oversized),
+        Err(CatalogError::Limit)
+    ));
+    for end in 0..original.encode().len() {
+        assert!(d.decode_group_birth(&original.encode()[..end]).is_err());
+    }
+    assert!(d.decode_group_birth(&vec![0; 64 * 1024 + 1]).is_err());
+    let mut config = f.config.clone();
+    config.namespace = NamespaceId::new([42; 16])?;
+    let catalog = Catalog::new(f.store.clone(), CatalogOptions::default())?;
+    let foreign = RangeDirectory::new(
+        f.run(catalog.open_namespace(config.clone())).await?,
+        DirectoryLimits::default(),
+    )?;
+    assert!(matches!(
+        foreign.decode_group_birth(original.encode()),
+        Err(CatalogError::Conflict(_))
+    ));
+    let mut spec = birth_spec(&route);
+    spec.history.namespace = config.namespace;
+    let competing = foreign.prepare_group_birth(spec)?;
+    assert!(matches!(
+        f.run(foreign.reserve_group_birth(&competing)).await,
+        Err(CatalogError::Conflict(_))
+    ));
+    f.run(d.reserve_group_birth(&original)).await?;
+    // The original reservation survives every conflicting attempt unchanged.
+    assert_eq!(
+        f.store.inner.get(&key).await?.bytes().await?.as_ref(),
+        original.encode()
+    );
+    // Configuring a managed policy does not authorize the unmanaged APIs. No
+    // fleet permit is fabricated, and refusal must precede any store access.
+    config.namespace = NamespaceId::new([43; 16])?;
+    config.managed_fleet = Some(serde_json::from_value(serde_json::json!({
+        "fleet": vec![44; 16], "catalog": vec![45; 32],
+    }))?);
+    let managed = RangeDirectory::new(
+        f.run(catalog.open_namespace(config.clone())).await?,
+        DirectoryLimits::default(),
+    )?;
+    let mut spec = birth_spec(&route);
+    spec.history.namespace = config.namespace;
+    assert!(matches!(
+        managed.prepare_group_birth(spec),
+        Err(CatalogError::ManagedAdmissionRequired)
+    ));
+    let (result, reads) = fault::count_reads(f.run(managed.reserve_group_birth(&original))).await;
+    assert!(matches!(
+        result,
+        Err(CatalogError::ManagedAdmissionRequired)
+    ));
+    assert!(reads.is_empty());
+    assert!(matches!(
+        f.run(managed.materialize_group_birth(&original)).await,
+        Err(CatalogError::ManagedAdmissionRequired)
+    ));
     assert_eq!(f.store.listing_calls.load(Ordering::Acquire), 0);
     f.domain.shutdown().await;
     Ok(())

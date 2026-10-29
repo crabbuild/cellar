@@ -25,7 +25,8 @@ pub use births::BirthDisposition;
 #[path = "cell_groups/directory/mod.rs"]
 mod range_directory;
 pub use range_directory::{
-    DirectoryLimits, DirectoryMutation, DirectoryPublication, DirectoryView, RangeDirectory,
+    CellGroupBirth, CellGroupBirthRequest, CellGroupBirthSpec, DirectoryLimits, DirectoryMutation,
+    DirectoryPublication, DirectoryView, RangeDirectory,
 };
 
 #[path = "catalog_inventory/mod.rs"]

@@ -18,7 +18,8 @@ pub use manifest::{
 pub use page_store::{ManifestPageStore, ManifestReclaimReport, ManifestStoreUsage};
 
 pub use crate::raft::catalog::{
-    DirectoryLimits, DirectoryMutation, DirectoryPublication, DirectoryView, RangeDirectory,
+    CellGroupBirth, CellGroupBirthRequest, CellGroupBirthSpec, DirectoryLimits, DirectoryMutation,
+    DirectoryPublication, DirectoryView, RangeDirectory,
 };
 pub use enrollment::{
     decide_enrollment, EnrollmentDecision, EnrollmentError, EnrollmentPhase, EnrollmentRecord,

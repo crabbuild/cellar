@@ -291,7 +291,8 @@
         "crates/cellar/durability/raft/cell_groups/directory/wire.rs",
         "crates/cellar/durability/raft/cell_groups/directory/tree.rs",
         "crates/cellar/durability/raft/cell_groups/directory/store.rs",
-        "crates/cellar/tests/support/cell_group_directory.rs"
+        "crates/cellar/tests/support/cell_group_directory.rs",
+        "crates/cellar/durability/raft/cell_groups/directory/birth.rs"
       ],
       "test_target": "native_cell_groups_catalog",
       "steps": [

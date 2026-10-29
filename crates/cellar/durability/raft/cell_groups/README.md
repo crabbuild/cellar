@@ -143,7 +143,8 @@ Views are hints; the destination must check its own current route and quorum
 authority. Observation does not traverse a complete recovery inventory.
 
 Initialization publishes at most 128 contiguous ranges covering the whole routing
-domain. A replacement removes up to 64 exact parent routes and inserts up to 64
+domain. Every new route must match its permanently reserved group birth before
+publication. A replacement removes up to 64 exact parent routes and inserts up to 64
 fresh groups covering the identical contiguous union. Children advance the maximum
 parent epoch by one. Paths are copied incrementally; incomplete intermediate trees
 cannot become a selected root. Group IDs remain reserved after retirement.
@@ -176,3 +177,34 @@ redirects remain to be integrated. Native directory tests exercise real conditio
 object-store operations in memory, including races, dropped replies, corruption,
 restart and bounded split/merge churn. They do not qualify live Raft ownership,
 real RustFS or the full CG-03 gate.
+
+## Cell-independent group birth (CG-03 in progress)
+
+`CellGroupBirthSpec` binds physical group history, range, route epoch, original
+creation operation and initial members. It has no cell name. The namespace binds
+schema, storage representation and durability policy. Preparation sorts members
+canonically and enforces the namespace voter policy and distinct member/node IDs.
+The bounded marker-1 birth encoding has its own semantic record kind; its digest
+is the route's birth binding. Persist the returned request bytes before submission.
+
+Use `prepare_group_birth`, `reserve_group_birth`, directory publication, then
+`materialize_group_birth`. Reservation conditionally creates the existing global
+group-ID key with the complete canonical birth. Another namespace, incarnation,
+placement or creation operation cannot reuse that ID. Existing records from the
+old catalog also prevent reuse; they are not converted or reinterpreted. Losing
+a directory CAS retains the reservation permanently. Directory publication checks
+every child's exact reservation, but does not eagerly create its birth object.
+
+Materialization verifies the currently selected route and its global reservation,
+conditionally writes the exact birth, then checks selection again. Missing
+confirmation remains unconfirmed; reopen and decode the original request before
+retrying. A retired or replaced range cannot materialize again. A birth observation
+is bound to its catalog owner; `require_current_group_birth` checks current route,
+reservation and selected immutable bytes, and refuses missing or changed state.
+
+These methods expose no voter-start capability and write no permanent member disk
+claim. The physical log still needs cell-independent genesis and recovery identity
+before the new birth can be integrated with actual disk-claim admission. Managed
+namespaces refuse these unmanaged APIs until their rooted fleet authorization is
+connected. This staged boundary does not permit blank-disk recovery, replace
+current quorum membership, or complete CG-03 qualification.

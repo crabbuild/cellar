@@ -8,6 +8,8 @@ pub(super) const HEAD: u8 = 82;
 pub(super) const JOURNAL: u8 = 83;
 pub(super) const PIN: u8 = 84;
 pub(super) const REQUEST: u8 = 85;
+// Fleet maintenance already uses 86 in the shared catalog envelope.
+pub(super) const GROUP_BIRTH: u8 = 186;
 pub(super) const LIMIT: usize = 64 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -228,4 +230,18 @@ pub(super) struct Journal {
     pub revision: u64,
     pub previous: Option<[u8; 32]>,
     pub tree: Reference,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Birth {
+    pub namespace: [u8; 32],
+    pub group: [u8; 16],
+    pub incarnation: [u8; 16],
+    pub lower: Bound,
+    pub upper: Bound,
+    pub epoch: u64,
+    pub creation: [u8; 16],
+    pub voters: Vec<record::Member>,
+    pub learners: Vec<record::Member>,
 }

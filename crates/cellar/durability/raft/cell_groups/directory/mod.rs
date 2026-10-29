@@ -17,9 +17,12 @@ use std::{
     time::Duration,
 };
 
+mod birth;
 mod store;
 mod tree;
 mod wire;
+
+pub use birth::{CellGroupBirth, CellGroupBirthRequest, CellGroupBirthSpec};
 
 #[derive(Clone, Copy, Debug)]
 pub struct DirectoryLimits {
@@ -479,6 +482,11 @@ impl RangeDirectory {
             return Err(CatalogError::Limit);
         }
         let mut tree = base.map(|h| h.tree.clone());
+        // A route can be lazy, but its exact cell-independent birth and global
+        // group identity must be reserved before it can enter the directory.
+        for child in &request.children {
+            self.verify_birth_reservation(&child.decode(self)?).await?;
+        }
         for parent in &request.parents {
             tree = self.remove(tree, parent.clone(), 0).await?;
         }

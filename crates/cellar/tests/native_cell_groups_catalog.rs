@@ -40,6 +40,17 @@ async fn directory_churn_preserves_exact_partition_and_old_views() -> anyhow::Re
     directory::churn().await
 }
 
+#[tokio::test]
+async fn group_birth_is_lazy_and_reconciles_unknown_by_exact_identity() -> anyhow::Result<()> {
+    directory::birth_recovery().await
+}
+
+#[tokio::test]
+async fn group_birth_reservations_bind_global_identity_and_canonical_placement(
+) -> anyhow::Result<()> {
+    directory::birth_reservations().await
+}
+
 fn route() -> GroupRoute {
     GroupRoute {
         history: GroupHistory {
