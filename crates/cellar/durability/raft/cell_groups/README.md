@@ -2,9 +2,9 @@
 
 # Cell-group durable state
 
-This component is under CG-02 implementation. It currently supplies immutable
-manifest pages and their filesystem owner. It is not yet connected to a Raft
-engine apply marker and does not admit requests or establish durability proofs.
+This component is under CG-02 implementation. It supplies immutable manifest pages, their filesystem owner, complete-root
+preparation and atomic Raft Engine root publication. Production host admission
+is not yet wired to these contracts; a stored root is not quorum authority.
 
 A manifest is a persistent AVL tree ordered by the namespace routing digest and
 full cell ID. Each bounded page holds one cell leaf and at most two child
@@ -36,9 +36,31 @@ successful page traversal alone is not an image seal, Raft commit or serving
 capability. Updates compare the expected cell version and require increasing
 sequence, LTX position and group mutation position.
 
-Next integration must sync complete cell images and manifest paths before one
-Raft Engine transaction selects the complete group root and contiguous applied
-position. Recovery must refuse any missing page or image. Reader, apply,
+`prepare_complete` is the full-closure path for bootstrap, recovery and
+checkpoint preparation. Every leaf must match a real materialized generation
+pin, sealed extent image, or canonical empty image. Extent roots bind the stable
+logical cell-history digest and schema. The method verifies and syncs all pages,
+retains physical image pins and binds the preparation to the exact engine owner.
+This full scan is not the ordinary-write path; incremental preparation remains
+required before host cutover.
+
+The engine persists group root, applied position, membership and log/hard state
+in one synced batch. It requires contiguous apply, matching group/birth/range,
+matching membership revision and the current engine owner. Cached readers see
+the old root until sync completes. Old single-image accessors and snapshot writes
+refuse a group root; future group snapshot installation uses its own complete
+closure protocol. Recovery first observes the selected metadata and then repeats
+full closure verification before any serving admission. Missing images or pages
+cannot become empty cells.
+
+The local application record now has explicit image/group semantic domains at
+marker 1. Old bare-image record shapes refuse; there is no old-layout decoder or
+automatic migration. The staged image variant supports existing code while the
+remaining production consumers are converted, and is removed at hard cutover.
+Existing disks and archives must be retained, not reset by this component.
+
+Further integration must add incremental preparation and authoritative physical
+root retention/reclamation. Reader, apply,
 snapshot and transfer pins must protect dependencies before deletion. Native
 engine crash cuts and both physical image modes remain required before CG-02
 can be marked DONE.

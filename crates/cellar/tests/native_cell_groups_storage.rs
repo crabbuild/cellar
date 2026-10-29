@@ -12,6 +12,10 @@ mod images;
 #[allow(dead_code)]
 mod faults;
 
+#[path = "support/raft_storage_fault.rs"]
+#[allow(dead_code)]
+mod engine_fault;
+
 use anyhow::Result;
 use cellar::application::consensus::{
     verification::{cell_groups::*, CommittedImage},
@@ -272,5 +276,304 @@ fn manifest_ignores_local_image_names_and_quarantines_sync_failure() -> Result<(
     )?;
     assert_eq!(a_root, recovered_root);
     assert!(!faults.synced_paths.lock().unwrap().is_empty());
+    Ok(())
+}
+
+fn engine_bootstrap() -> cellar::application::consensus::verification::GroupBootstrap {
+    cellar::application::consensus::verification::GroupBootstrap {
+        scope: GroupScope {
+            cluster: route().history.cluster,
+            namespace: route().history.namespace,
+            group: route().history.group,
+            incarnation: route().history.incarnation,
+            cell: "storage-fixture-group".into(),
+        },
+        member: MemberId::new(1).unwrap(),
+        birth_digest: route().birth_digest,
+        voters: vec![MemberId::new(1).unwrap()],
+        learners: vec![],
+    }
+}
+
+fn engine_options(
+    path: &std::path::Path,
+    mode: cellar::application::consensus::verification::LogOpenMode,
+    process: u8,
+) -> cellar::application::consensus::verification::ReplicaLogOptions {
+    cellar::application::consensus::verification::ReplicaLogOptions::new(
+        path.to_owned(),
+        NodeId::new([8; 16]).unwrap(),
+        DiskLineage::new([9; 16]).unwrap(),
+        ProcessGeneration::new([process; 16]).unwrap(),
+        mode,
+    )
+}
+
+fn root_write(
+    group: &cellar::application::consensus::verification::GroupLog,
+    prepared: PreparedGroupManifest,
+) -> Result<cellar::application::consensus::verification::GroupWrite> {
+    use raft::Storage as _;
+    let index = prepared.marker().position().index.get();
+    let mut write = cellar::application::consensus::verification::GroupWrite::new(group);
+    // Storage fixture payload: application interpretation is qualified by the
+    // group apply owner separately; the real engine still checks term/prefix.
+    write.entries = vec![raft::prelude::Entry {
+        index,
+        term: 1,
+        data: b"manifest-cut".to_vec().into(),
+        ..Default::default()
+    }];
+    let mut hard = group.initial_state()?.hard_state;
+    hard.commit = index;
+    write.hard_state = Some(hard);
+    write.group_manifest = Some(prepared);
+    Ok(write)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn group_manifest_engine_sync_publication() -> Result<()> {
+    use cellar::application::consensus::verification::{
+        DurableApply, GroupWrite, LogOpenMode, ReplicaLog,
+    };
+    use cellar::sdk::ExecutionDomain;
+    use cellar_logic::consensus::OperationId;
+    let temp = tempfile::tempdir()?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let gate = engine_fault::Gate::new(None);
+    let filesystem = Arc::new(engine_fault::FaultFileSystem { gate: gate.clone() });
+    let node = temp.path().join("node");
+    let log = domain
+        .run(ReplicaLog::open(
+            engine_options(&node, LogOpenMode::Create, 1),
+            filesystem.clone(),
+        ))
+        .await??;
+    let group = log.create_group(engine_bootstrap()).await?;
+    let fs = Arc::new(DirectFileSystem);
+    let generations = GenerationStore::open(
+        temp.path().join("images"),
+        fs.clone(),
+        GenerationLimits::default(),
+    )?;
+    let bytes = images::image(
+        None,
+        "CREATE TABLE value(n); INSERT INTO value VALUES (11);",
+    )?;
+    let cut = images::Cut::new(&[], &bytes, 0, true, false);
+    let pin = generations.prepare(images::id(1), None, &cut.update())?;
+    let tree = ManifestTree::new(route(), ManifestLimits::default())?;
+    let mut pages =
+        ManifestPageStore::open(&temp.path().join("pages"), fs.clone(), 256, 4 * 1024 * 1024)?;
+    let root = tree.update(
+        &mut pages,
+        ManifestRoot::default(),
+        leaf(1, &pin, 1, 2),
+        None,
+    )?;
+    assert!(tree
+        .prepare_complete(&group, &mut pages, root, position(2), 1, |_| Ok(
+            CellImagePin::Empty
+        ))
+        .is_err());
+    let prepared = tree.prepare_complete(&group, &mut pages, root, position(2), 1, |_| {
+        Ok(CellImagePin::Materialized(pin.clone()))
+    })?;
+    let expected = prepared.marker().clone();
+    let stale_preparation = prepared.clone();
+    let release = gate.arm(engine_fault::HOLD_SYNC);
+    let write = root_write(&group, prepared)?;
+    let selected = log.clone();
+    let mut pending =
+        domain.spawn(async move { selected.persist(OperationId::new(1), vec![write]).await })?;
+    tokio::time::timeout(std::time::Duration::from_secs(5), gate.entered.notified()).await?;
+    assert!(group.group_manifest()?.is_none());
+    assert_eq!(group.applied()?.position, position(1));
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(30), &mut pending)
+            .await
+            .is_err()
+    );
+    drop(release);
+    pending.await??;
+    assert_eq!(group.group_manifest()?.as_ref(), Some(&expected));
+    assert!(
+        group.applied().is_err(),
+        "legacy empty-image consumers must refuse"
+    );
+    let mut legacy = GroupWrite::new(&group);
+    legacy.applied = Some(DurableApply {
+        position: position(3),
+        image: None,
+    });
+    assert!(log
+        .persist(OperationId::new(2), vec![legacy])
+        .await
+        .is_err());
+    // A complete closure does not permit skipping an unapplied log index.
+    let gap = tree.prepare_complete(&group, &mut pages, root, position(4), 1, |_| {
+        Ok(CellImagePin::Materialized(pin.clone()))
+    })?;
+    assert!(log
+        .persist(OperationId::new(3), vec![root_write(&group, gap)?])
+        .await
+        .is_err());
+    assert_eq!(group.group_manifest()?.as_ref(), Some(&expected));
+    log.close().await?;
+    drop(group);
+    drop(log);
+    drop(pin);
+    drop(generations);
+    drop(pages);
+    let resumed = domain
+        .run(ReplicaLog::open(
+            engine_options(&node, LogOpenMode::Resume, 2),
+            filesystem,
+        ))
+        .await??;
+    let group = resumed.group(&engine_bootstrap().scope)?;
+    let observed = group.group_manifest()?.unwrap();
+    assert_eq!(observed, expected);
+    let mut stale = GroupWrite::new(&group);
+    stale.group_manifest = Some(stale_preparation);
+    assert!(
+        resumed
+            .persist(OperationId::new(4), vec![stale])
+            .await
+            .is_err(),
+        "prepared closure belongs to the old engine instance"
+    );
+    let generations = GenerationStore::open(
+        temp.path().join("images"),
+        fs.clone(),
+        GenerationLimits::default(),
+    )?;
+    let mut pages = ManifestPageStore::open(&temp.path().join("pages"), fs, 256, 4 * 1024 * 1024)?;
+    let restored = tree.prepare_complete(
+        &group,
+        &mut pages,
+        observed.root(),
+        observed.position(),
+        observed.membership_revision(),
+        |_| {
+            generations
+                .adopt(images::id(1), cut.result)
+                .map(CellImagePin::Materialized)
+                .map_err(|_| ManifestError::Invalid("recovery image"))
+        },
+    )?;
+    assert_eq!(restored.marker(), &expected);
+    assert_eq!(restored.pinned_images(), 1);
+    resumed.close().await?;
+    domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn group_manifest_recovery_requires_every_image() -> Result<()> {
+    use cellar::application::consensus::verification::{LogOpenMode, ReplicaLog};
+    use cellar::sdk::ExecutionDomain;
+    use cellar_logic::consensus::OperationId;
+    let temp = tempfile::tempdir()?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let fs = Arc::new(DirectFileSystem);
+    let node = temp.path().join("node");
+    let tree = ManifestTree::new(route(), ManifestLimits::default())?;
+    let mut states = Vec::new();
+    {
+        let log = domain
+            .run(ReplicaLog::open(
+                engine_options(&node, LogOpenMode::Create, 1),
+                fs.clone(),
+            ))
+            .await??;
+        let group = log.create_group(engine_bootstrap()).await?;
+        let generations = GenerationStore::open(
+            temp.path().join("images"),
+            fs.clone(),
+            GenerationLimits::default(),
+        )?;
+        let mut pages =
+            ManifestPageStore::open(&temp.path().join("pages"), fs.clone(), 256, 4 * 1024 * 1024)?;
+        let mut pins = Vec::new();
+        let mut root = ManifestRoot::default();
+        for id in 1..=2 {
+            let bytes = images::image(
+                None,
+                &format!("CREATE TABLE value(n); INSERT INTO value VALUES ({id});"),
+            )?;
+            let cut = images::Cut::new(&[], &bytes, 0, true, false);
+            let pin = generations.prepare(images::id(id), None, &cut.update())?;
+            states.push(cut.result);
+            pins.push(pin.clone());
+            root = tree.update(&mut pages, root, leaf(id, &pin, 1, u64::from(id) + 1), None)?;
+            let prepared = tree.prepare_complete(
+                &group,
+                &mut pages,
+                root,
+                position(u64::from(id) + 1),
+                1,
+                |cell| {
+                    let selected = if cell.version.history.cell.as_str() == "cell-1" {
+                        0
+                    } else {
+                        1
+                    };
+                    Ok(CellImagePin::Materialized(pins[selected].clone()))
+                },
+            )?;
+            log.persist(
+                OperationId::new(u64::from(id)),
+                vec![root_write(&group, prepared)?],
+            )
+            .await?;
+        }
+        log.close().await?;
+    }
+    // Only this owned fixture's image is removed. The actual engine marker and
+    // every manifest page survive; recovering the other cell cannot cover it.
+    std::fs::remove_file(
+        temp.path()
+            .join("images")
+            .join(format!("{}.sqlite", hex::encode(images::id(1).bytes()))),
+    )?;
+    let log = domain
+        .run(ReplicaLog::open(
+            engine_options(&node, LogOpenMode::Resume, 2),
+            fs.clone(),
+        ))
+        .await??;
+    let group = log.group(&engine_bootstrap().scope)?;
+    let marker = group.group_manifest()?.unwrap();
+    assert_eq!(marker.root().cells(), 2);
+    let generations = GenerationStore::open(
+        temp.path().join("images"),
+        fs.clone(),
+        GenerationLimits::default(),
+    )?;
+    let mut pages = ManifestPageStore::open(&temp.path().join("pages"), fs, 256, 4 * 1024 * 1024)?;
+    assert!(tree
+        .prepare_complete(
+            &group,
+            &mut pages,
+            marker.root(),
+            marker.position(),
+            marker.membership_revision(),
+            |cell| {
+                let id = if cell.version.history.cell.as_str() == "cell-1" {
+                    1
+                } else {
+                    2
+                };
+                generations
+                    .adopt(images::id(id), states[usize::from(id - 1)])
+                    .map(CellImagePin::Materialized)
+                    .map_err(|_| ManifestError::Invalid("missing selected cell image"))
+            }
+        )
+        .is_err());
+    assert!(group.applied().is_err());
+    log.close().await?;
+    domain.shutdown().await;
     Ok(())
 }

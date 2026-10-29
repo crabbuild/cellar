@@ -2,6 +2,7 @@
 
 //! Durable storage views. Raft reads these bounded caches without disk I/O.
 
+use super::cell_groups::{CellImagePin, GroupManifest, PreparedGroupManifest};
 use super::member_state::GroupMembership;
 use super::storage::LogError;
 use crate::application::consensus::ImageCommitment;
@@ -104,6 +105,7 @@ pub struct GroupWrite {
     pub conf_state: Option<ConfState>,
     pub membership: Option<GroupMembership>,
     pub applied: Option<DurableApply>,
+    pub group_manifest: Option<PreparedGroupManifest>,
     pub snapshot: Option<SnapshotChange>,
 }
 
@@ -116,6 +118,7 @@ impl GroupWrite {
             conf_state: None,
             membership: None,
             applied: None,
+            group_manifest: None,
             snapshot: None,
         }
     }
@@ -149,6 +152,13 @@ impl GroupWrite {
         if let Some(membership) = &self.membership {
             bytes = bytes
                 .checked_add(membership.reserved_bytes())
+                .ok_or(LogError::Overloaded)?;
+        }
+        if let Some(manifest) = &self.group_manifest {
+            bytes = bytes
+                .checked_add(
+                    16 * 1024 + manifest.pinned_images() * std::mem::size_of::<CellImagePin>(),
+                )
                 .ok_or(LogError::Overloaded)?;
         }
         Ok(bytes)
@@ -189,7 +199,18 @@ impl GroupLog {
     }
 
     pub fn applied(&self) -> Result<DurableApply, LogError> {
-        Ok(self.read()?.applied.clone())
+        let cache = self.read()?;
+        if cache.group_manifest.is_some() {
+            return Err(LogError::Invalid(
+                "cell-group root requires complete-manifest recovery".into(),
+            ));
+        }
+        Ok(cache.applied.clone())
+    }
+
+    /// Engine-selected metadata only. Reverify every page/image before admission.
+    pub fn group_manifest(&self) -> Result<Option<GroupManifest>, LogError> {
+        Ok(self.read()?.group_manifest.clone())
     }
 
     /// Last synced bindings for this group history. This observation alone is
@@ -362,6 +383,8 @@ pub(crate) struct CachedGroup {
     pub snapshot: Snapshot,
     pub entries: BTreeMap<u64, Entry>,
     pub applied: DurableApply,
+    pub group_manifest: Option<GroupManifest>,
+    pub manifest_pins: Option<Arc<[CellImagePin]>>,
 }
 
 impl CachedGroup {
@@ -400,7 +423,9 @@ impl CachedGroup {
     }
 
     pub fn bytes(&self) -> usize {
-        1024 + self.membership.reserved_bytes()
+        1024 + self.group_manifest.as_ref().map_or(0, |m| {
+            16 * 1024 + m.root().cells() as usize * std::mem::size_of::<CellImagePin>()
+        }) + self.membership.reserved_bytes()
             + self.snapshot.compute_size() as usize
             + self.conf_state.compute_size() as usize
             + self
@@ -449,11 +474,35 @@ impl CachedGroup {
         if let Some(image) = &self.applied.image {
             image.validate()?;
         }
+        if let Some(manifest) = &self.group_manifest {
+            manifest
+                .check()
+                .map_err(|e| LogError::Corrupt(e.to_string()))?;
+            if self.applied.image.is_some()
+                || manifest.position() != self.applied.position
+                || manifest.membership_revision() != self.membership.revision().get()
+                || self
+                    .manifest_pins
+                    .as_ref()
+                    .is_some_and(|pins| pins.len() != manifest.root().cells() as usize)
+            {
+                return Err(LogError::Corrupt("incoherent cell-group root".into()));
+            }
+        } else if self.manifest_pins.is_some() {
+            return Err(LogError::Corrupt("image pins without group root".into()));
+        }
         Ok(())
     }
 
     pub fn changed(&self, write: &GroupWrite, max_entries: usize) -> Result<Self, LogError> {
         let mut next = self.clone();
+        if (self.group_manifest.is_some() || write.group_manifest.is_some())
+            && (write.applied.is_some() || write.snapshot.is_some())
+        {
+            return Err(LogError::Invalid(
+                "mixed image/group apply or unsupported group snapshot".into(),
+            ));
+        }
         if let Some(change) = &write.snapshot {
             let snapshot = match change {
                 SnapshotChange::Checkpoint(s) | SnapshotChange::Install { snapshot: s, .. } => s,
@@ -551,6 +600,46 @@ impl CachedGroup {
                 return Err(LogError::Invalid("apply marker regression".into()));
             }
             next.applied = applied.clone();
+        }
+        if let Some(prepared) = &write.group_manifest {
+            let marker = prepared.marker();
+            marker
+                .check()
+                .map_err(|e| LogError::Invalid(e.to_string()))?;
+            if !Arc::ptr_eq(&prepared.engine_owner, &write.group.owner)
+                || !marker.matches_group(&write.group.identity.scope, write.group.birth_digest)
+                || marker.position().index < self.applied.position.index
+                || (marker.position().index == self.applied.position.index
+                    && self.group_manifest.as_ref() != Some(marker))
+                || (marker.position().index > self.applied.position.index
+                    && self.applied.position.index.get().checked_add(1)
+                        != Some(marker.position().index.get()))
+                || self.applied.image.is_some()
+            {
+                return Err(LogError::Invalid(
+                    "invalid cell-group apply binding or prefix".into(),
+                ));
+            }
+            if let Some(previous) = &self.group_manifest {
+                if marker.route() != previous.route() {
+                    return Err(LogError::Invalid(
+                        "group route changed outside topology protocol".into(),
+                    ));
+                }
+            } else if self.applied.position.index.get() != 1
+                || self.snapshot.get_metadata().index != 1
+                || !self.snapshot.data.is_empty()
+            {
+                return Err(LogError::Invalid(
+                    "cell-group state requires a fresh group".into(),
+                ));
+            }
+            next.applied = DurableApply {
+                position: marker.position(),
+                image: None,
+            };
+            next.group_manifest = Some(marker.clone());
+            next.manifest_pins = Some(prepared.images.clone());
         }
         if let Some(conf) = &write.conf_state {
             if next.applied.position.index <= self.applied.position.index
@@ -652,6 +741,8 @@ pub(crate) fn genesis(conf_state: ConfState) -> CachedGroup {
         conf_state,
         snapshot,
         entries: BTreeMap::new(),
+        group_manifest: None,
+        manifest_pins: None,
         applied: DurableApply {
             position: LogPosition {
                 index: LogIndex::new(1),

@@ -157,7 +157,7 @@ impl ManifestRoot {
 /// Retain every root used by apply/read/snapshot/transfer before reclamation.
 /// This layer performs no page deletion and cannot publish serving authority.
 pub struct ManifestTree {
-    route: GroupRoute,
+    pub(super) route: GroupRoute,
     limits: ManifestLimits,
 }
 
@@ -308,7 +308,11 @@ impl ManifestTree {
         )
     }
 
-    fn read(&self, store: &ManifestPageStore, reference: PageRef) -> Result<Page, ManifestError> {
+    pub(super) fn read(
+        &self,
+        store: &ManifestPageStore,
+        reference: PageRef,
+    ) -> Result<Page, ManifestError> {
         let bytes = store.read(reference.digest)?;
         let page = decode(&bytes, &self.route, self.limits)?;
         if page.reference(&bytes, self.limits)? != reference {

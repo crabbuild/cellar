@@ -161,7 +161,9 @@
         "crates/cellar/tests/native_cell_groups_storage.rs",
         "crates/cellar/durability/raft/cell_groups/page_store.rs",
         "crates/cellar/durability/raft/cell_groups/page_wire.rs",
-        "crates/cellar/durability/raft/cell_groups/README.md"
+        "crates/cellar/durability/raft/cell_groups/README.md",
+        "crates/cellar/durability/raft/cell_groups/root.rs",
+        "crates/cellar/durability/raft/cell_groups/image_pin.rs"
       ],
       "test_target": "native_cell_groups_storage",
       "steps": [

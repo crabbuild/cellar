@@ -93,3 +93,30 @@ Clippy passes for the library and new native target with warnings denied. The
 36 plan-validator tests, source preflight, native dependency isolation and docs
 checks also pass. These checks do not substitute for the still-missing CG-02
 engine publication, pin reclamation and both-image-mode qualification cases.
+
+
+### CG-02 engine publication checkpoint
+
+Complete-root preparation now checks each leaf against an actual image pin,
+syncs the manifest closure and holds image pins through engine persistence. The
+root binds group history, range/epoch, birth/schema, membership revision and the
+exact applied position. Raft Engine atomically selects that root with log/hard
+state and publishes its cache only after sync. Legacy image accessors refuse a
+shared-group root, and normal apply cannot skip an index or change its route.
+
+The local application record uses explicit marker-1 image/group domains; old
+bare-image record shapes refuse. No disk migration or deletion is performed.
+The existing image variant remains a staging contract until the public cutover.
+
+New native tests exercise a stalled real-engine sync, restart, missing-cell-image
+refusal and rejection of preparation from a previous engine instance. Five
+manifest cases and the 19-case existing storage suite pass, including the
+engine-instance check. All-target Clippy passes after boxing the larger metadata
+variant; the failed lint output is retained. Final checks are recorded under
+`.cellar/cell-groups-evidence/CG-02-engine-root/`.
+The standalone storage child-process fixture is intentionally ignored and is
+launched by its parent persistence tests.
+
+Incremental apply preparation, durable root/pin reclamation, root-specific process
+kill cuts and full extent-mode recovery tests remain CG-02 work. The production
+shared-group host, topology and final release gates remain pending.

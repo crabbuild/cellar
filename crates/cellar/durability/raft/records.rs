@@ -95,7 +95,18 @@ pub(crate) struct GroupRecord {
     pub last_index: u64,
     pub applied_index: u64,
     pub applied_term: u64,
-    pub image: Option<CommittedImage>,
+    pub application: ApplicationRecord,
+}
+
+// Explicit domains refuse the old bare-image record shape. This staged image
+// variant is removed with legacy runtime consumers at the public hard cutover.
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "domain", content = "state", deny_unknown_fields)]
+pub(crate) enum ApplicationRecord {
+    #[serde(rename = "cellar-image-apply-1")]
+    Image(Option<CommittedImage>),
+    #[serde(rename = "cellar-group-apply-1")]
+    Group(Box<super::cell_groups::GroupManifest>),
 }
 
 impl GroupRecord {
@@ -109,7 +120,10 @@ impl GroupRecord {
             last_index: cache.last_index(),
             applied_index: cache.applied.position.index.get(),
             applied_term: cache.applied.position.term.get(),
-            image: cache.applied.image.clone(),
+            application: match &cache.group_manifest {
+                Some(marker) => ApplicationRecord::Group(Box::new(marker.clone())),
+                None => ApplicationRecord::Image(cache.applied.image.clone()),
+            },
         })
     }
 
@@ -117,18 +131,30 @@ impl GroupRecord {
         if self.mapping.format != 1 {
             return Err(LogError::Corrupt("unsupported group marker".into()));
         }
+        let (image, group_manifest) = match &self.application {
+            ApplicationRecord::Image(image) => (image.clone(), None),
+            ApplicationRecord::Group(marker) => {
+                let scope = self.mapping.scope.clone().decode().map_err(corrupt)?;
+                if !marker.matches_group(&scope, self.mapping.birth_digest) {
+                    return Err(LogError::WrongIdentity);
+                }
+                (None, Some(marker.as_ref().clone()))
+            }
+        };
         Ok(CachedGroup {
             hard_state: HardState::parse_from_bytes(&self.hard_state).map_err(corrupt)?,
             conf_state: ConfState::parse_from_bytes(&self.conf_state).map_err(corrupt)?,
             membership: self.membership.clone(),
             snapshot: Snapshot::parse_from_bytes(&self.snapshot).map_err(corrupt)?,
             entries: Default::default(),
+            group_manifest,
+            manifest_pins: None,
             applied: DurableApply {
                 position: LogPosition {
                     index: LogIndex::new(self.applied_index),
                     term: Term::new(self.applied_term),
                 },
-                image: self.image.clone(),
+                image,
             },
         })
     }

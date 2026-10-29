@@ -293,6 +293,8 @@ impl PreparedSeed {
             membership: self.descriptor.membership.clone(),
             snapshot,
             entries: std::collections::BTreeMap::new(),
+            group_manifest: None,
+            manifest_pins: None,
             applied: crate::raft::cache::DurableApply {
                 position: LogPosition {
                     index: LogIndex::new(self.descriptor.index),

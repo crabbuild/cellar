@@ -126,6 +126,26 @@ impl ManifestPageStore {
         Ok(bytes)
     }
 
+    pub(super) fn sync_page(&mut self, key: [u8; 32]) -> Result<(), ManifestError> {
+        self.read(key)?;
+        self.quarantined = true;
+        self.filesystem
+            .open(&self.directory.join(format!("{}.page", hex::encode(key))))?
+            .sync_all()?;
+        self.quarantined = false;
+        Ok(())
+    }
+
+    pub(super) fn sync_directory(&mut self) -> Result<(), ManifestError> {
+        if self.quarantined {
+            return Err(ManifestError::Quarantined);
+        }
+        self.quarantined = true;
+        self.filesystem.sync_all(&self.directory)?;
+        self.quarantined = false;
+        Ok(())
+    }
+
     pub(super) fn put(&mut self, key: [u8; 32], bytes: &[u8]) -> Result<(), ManifestError> {
         if self.quarantined {
             return Err(ManifestError::Quarantined);
