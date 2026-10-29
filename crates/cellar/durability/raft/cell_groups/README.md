@@ -181,8 +181,9 @@ real RustFS or the full CG-03 gate.
 ## Cell-independent group birth (CG-03 in progress)
 
 `CellGroupBirthSpec` binds physical group history, range, route epoch, original
-creation operation and initial members. It has no cell name. The namespace binds
-schema, storage representation and durability policy. Preparation sorts members
+creation operation and initial members. It has no single-cell ownership field;
+range boundaries still contain full cell keys. The namespace binds schema,
+storage representation and durability policy. Preparation sorts members
 canonically and enforces the namespace voter policy and distinct member/node IDs.
 The bounded marker-1 birth encoding has its own semantic record kind; its digest
 is the route's birth binding. Persist the returned request bytes before submission.

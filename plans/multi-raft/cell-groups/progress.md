@@ -78,9 +78,9 @@ CG-01 and CG-02 have passed their complete task gates. CG-03 is IN_PROGRESS;
 CG-04 through CG-16 remain TODO. The latest storage qualification is recorded below; the earlier sections
 retain the intermediate checkpoints and their limitations.
 
-The reviewed source baseline is `a0c11969763edbe86ee08fc7d1650129058c8ee0`.
-The catalog anchor adds the directory module/export block; its unchanged namespace
-and birth excerpts move by six lines. Other source anchors remain unchanged. A new
+The reviewed source baseline is `40c3c0b143f72496f0345be890413ed855c241ae`.
+The catalog anchor adds directory and birth exports; its unchanged namespace
+and birth excerpts move by seven lines. Other source anchors remain unchanged. A new
 executor must receive both ignored DONE-task evidence folders before validation.
 
 No shared runtime, split/merge, hibernation latency, real RustFS recovery, measured
@@ -331,3 +331,50 @@ The record binds 63 source inputs, nine successful command logs and two copied
 native executables. All-target Clippy with warnings denied, formatting/layout,
 native dependency isolation, docs, source preflight and all 37 plan-validator
 tests pass at this checkpoint.
+
+### CG-03 cell-independent birth checkpoint
+
+Validation source: `40c3c0b143f72496f0345be890413ed855c241ae` (declaration-spacing successor).
+
+Source `9db4ba8fc91e6d67de244c1a684001393bcc9e56` binds a group birth to physical
+history, range/epoch, creation operation, namespace policy and canonical initial
+members. It has no single-cell ownership field; range boundaries still carry full
+cell routing keys. The bounded catalog encoding uses
+the distinct kind 186; the provisional overlapping tag was corrected before this
+checkpoint. No older birth layout is decoded or migrated by the new API.
+
+Global group-ID reservation uses the existing permanent key and the entire
+canonical birth. Different namespaces, incarnations, creation IDs or placements
+cannot reuse that key. The range directory now verifies every new route against
+its exact reserved birth before publication. Losing a topology CAS retains the
+reservation. Selected ranges can remain unmaterialized until their first use.
+
+Lazy materialization checks current range selection and the reservation before
+conditional creation, then checks selection again. Unknown outcomes reconcile
+with the original encoded request. A verified birth observation remains metadata:
+it refuses wrong catalog owners, missing or changed immutable data and retired
+routes, and grants no permission to initialize a voter. Managed namespaces refuse
+the unmanaged APIs before I/O; their rooted fleet authorization remains to be
+integrated.
+
+All ten native catalog tests and all 16 existing node-directory regressions pass,
+including the distinct wire-tag assertion. The new cases cover canonical placement,
+lazy creation, missing confirmations after actual writes, exact retry after reopen,
+global cross-namespace conflicts, retired-range refusal and managed-policy refusal.
+Existing bounded routing, races and the 80-transition churn oracle still pass.
+
+Physical `GroupBootstrap`, engine mappings and replica identities still carry the
+old cell-scoped identity. The next step is to make that durable log path explicitly
+group-scoped, then connect the verified birth to real synced genesis, node storage
+pins and permanent member claims. A synthetic cell name is not an acceptable
+adapter. The required `birth_unknown_and_claimed_blank_refuse` integration case
+remains absent and CG-03 remains IN_PROGRESS. Redirect budgets, the shared host and
+all later task/release gates remain outstanding.
+
+The partial evidence record at
+`.cellar/cell-groups-evidence/CG-03-birth/checkpoint.json` binds 67 source inputs,
+nine successful command logs and two copied native executables. All-target Clippy
+with warnings denied, formatting/layout, native dependency isolation, docs, source
+preflight and all 37 plan-validator tests pass. The failed declaration-spacing
+check is retained with its source revision and corrected result. This is not a
+CG-03 DONE record or proof of shared-group disk-loss recovery.

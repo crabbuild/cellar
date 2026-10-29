@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "source_revision": "a0c11969763edbe86ee08fc7d1650129058c8ee0",
+  "source_revision": "40c3c0b143f72496f0345be890413ed855c241ae",
   "runtime_revision": "1be27d234d4674d4d014785c60cecbfe394bdab9",
-  "review_note": "2026-10-29: reviewed CG-03 range-directory checkpoint at a0c11969763edbe86ee08fc7d1650129058c8ee0. The catalog.rs diff adds only the six-line range-directory module/export block; namespace and birth excerpts are unchanged and move to lines 110 and 179. Existing birth selection, bootstrap claims and managed admission are unchanged. New directory code verifies bounded immutable AVL ranges, one conditional head with journal/index bindings, historical retry reconciliation and permanent genesis pinning. Eight cell-group catalog cases and thirteen existing fleet catalog cases pass, including 80 split/merge metadata transitions. This is a partial CG-03 checkpoint: no group birth/disk-claim integration, client redirect path, production shared host or live topology authority is qualified. Full hard-cutover implementation remains active.",
+  "review_note": "2026-10-29: reviewed cell-independent birth source at 9db4ba8fc91e6d67de244c1a684001393bcc9e56. The only catalog.rs change exports the new birth types; existing namespace and birth excerpts are unchanged and move by one line. New birth requests bind group history, range/epoch, creation identity, canonical members and namespace policy with distinct catalog kind 186. Global identity reservations must match before directory publication; materialization verifies current selection and exact immutable bytes. These are metadata observations, never voter-start permits. Existing physical bootstrap, node pins and disk claims are unchanged and still require cell-independent engine integration. CG-03 remains IN_PROGRESS; full hard cutover is active. Formatting successor 40c3c0b143f72496f0345be890413ed855c241ae adds only the required declaration separator; anchored source hashes and excerpts are unchanged.",
   "tikv_revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
   "anchors": {
     "identity": {
@@ -61,14 +61,14 @@
     },
     "catalog": {
       "path": "crates/cellar/durability/raft/catalog.rs",
-      "sha256": "3250b6a2a4d611850dd59c51c3aa4dfaa173ec956bbe4e5d6014e5afbf03b842",
-      "line": 110,
+      "sha256": "d925a1f3902fd9288d51ab8b252680f062a829e36ad537667d922be34f7cf8fc",
+      "line": 111,
       "excerpt": "pub struct NamespaceConfig {\n    pub cluster: ClusterId,\n    pub namespace: NamespaceId,\n    pub mode: NamespaceMode,\n    pub schema_digest: [u8; 32],\n    pub minimum_durability: Durability,\n    pub voters: VoterPolicy,\n    /// Immutable birth-admission owner. Managed namespaces refuse the ordinary\n    /// creation API; each birth needs an inventoried fleet reservation."
     },
     "birth": {
       "path": "crates/cellar/durability/raft/catalog.rs",
-      "sha256": "3250b6a2a4d611850dd59c51c3aa4dfaa173ec956bbe4e5d6014e5afbf03b842",
-      "line": 179,
+      "sha256": "d925a1f3902fd9288d51ab8b252680f062a829e36ad537667d922be34f7cf8fc",
+      "line": 180,
       "excerpt": "pub struct BirthProposal {\n    pub scope: GroupScope,\n    pub voters: Vec<InitialMember>,\n    pub learners: Vec<InitialMember>,\n}\n\n/// Constructed only after a canonical immutable record and its reservation have\n/// been read back from the selected namespace. Its placement never overrides\n/// committed Raft configuration once a member has initialized."
     },
     "version": {
