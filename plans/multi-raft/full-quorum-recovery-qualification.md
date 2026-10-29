@@ -3,7 +3,7 @@
 # Full-quorum RustFS recovery at 10 GB
 
 The 2026-10-29 UTC trial passed at **9,999,998,976 SQLite bytes** on frozen
-commit `9cdbf2b228db7f42dd5b7539d86940fcf04cea7a`. All three original worker
+commit `cd7712733e5201719b46bbe9f2d9954af5f3a777`. All three original worker
 processes were killed with SIGKILL, joined, and their entire data directories
 erased. Three fresh processes recovered the cell exclusively from RustFS,
 served verified reads and acknowledged a new quorum write. Payload checks,
@@ -25,6 +25,8 @@ verify lag/readiness transitions when publication resumes. A disaster test also
 acknowledges a write beyond the selected archive and verifies restoration stops
 at the confirmed cut, preserving the documented recovery-point boundary.
 
+This trial uses an unmanaged Raft namespace. Managed fleet namespaces refuse
+this disaster API; its admission claim also excludes concurrent fleet import.
 The public disaster API verifies the pinned remote closure before fencing or
 publishing the replacement birth. It uses bounded extent reads and needs no
 10 GB operator-local database. The fixture's infrastructure adapter retains all
@@ -42,10 +44,10 @@ application callback, old membership, old term or old vote is replayed.
 
 | Check | Result |
 | --- | --- |
-| Original processes | 99320, 99321, 99322; all observed exiting with signal 9 |
+| Original processes | 8625, 8626, 8627; all observed exiting with signal 9 |
 | Original disks | All three worker directories erased before operator recovery |
-| Fresh processes | 99812, 99813, 99814; all initially empty |
-| Object-store body bytes before admission | 10,000,170,089; 10,000,170,093; 10,000,170,085 |
+| Fresh processes | 9085, 9086, 9087; all initially empty |
+| Object-store body bytes before admission | 10,000,180,326; 10,000,180,330; 10,000,180,330 |
 | Peer-image recovery bytes | Zero on all three destinations |
 | Restored local reads | All three returned counter 8 and the expected payload hash |
 | Old receipt/token | Original receipt returned without a callback; old history token refused |
@@ -69,22 +71,26 @@ independently verifying three baseline replicas and publishing their archive.
 
 | Interval | Seconds |
 | --- | ---: |
-| Setup through confirmed archive | 280.120017 |
-| SIGKILL through erasure of all three disks | 3.018367 |
-| Operator preflight and fresh-history publication | 6.214762 |
-| Fresh quorum spawn through all three verified seeds | 83.460661 |
-| Total replica loss through verified new quorum write | **103.155392** |
-| Total replica loss through all three payload/receipt checks | 109.911737 |
-| Total replica loss through current archive of the new history | 217.002024 |
-| Native trial through final joined closure, including setup | 515.15 |
+| Setup through confirmed archive | 302.302318 |
+| SIGKILL through erasure of all three disks | 4.916212 |
+| Operator preflight and fresh-history publication | 6.622002 |
+| Fresh quorum spawn through all three verified seeds | 87.673218 |
+| Total replica loss through verified new quorum write | **110.926819** |
+| Total replica loss through all three payload/receipt checks | 120.131072 |
+| Total replica loss through current archive of the new history | 252.255302 |
+| Native trial through final joined closure, including setup | 572.21 |
 
 The new write was acknowledged before the new history's archive became current;
 this is the intended asynchronous policy. A second complete replica loss during
 that gap is bounded by the confirmed archive, not the latest quorum receipt.
 
-The same frozen revision passed the 272 MiB full-quorum drill in 5.275204 seconds
+The same frozen revision passed all 97 archive integration tests, including
+namespace/import exclusion, archive outages, exact older cuts and corrupt or
+missing objects. All 49 Python recovery-runner tests also passed.
+
+It passed the 272 MiB full-quorum drill in 5.759080 seconds
 from fault to verified write. The existing 272 MiB single-owner-loss process drill
-also passed, in 3.853341 seconds. These are individual observations on one Apple
+also passed, in 7.141730 seconds. These are individual observations on one Apple
 M2 Max/32 GiB host with worker data and RustFS on its internal SSD. OS caches were
 not cleared. They are not directly comparable with the earlier external-USB-SSD
 run, nor a cold-OS or distributed-network benchmark.
@@ -105,10 +111,10 @@ test selection, source/executable identity and the unchanged fixture. The
 one-hour capacity transfer budget is recorded; ordinary reads retain their
 60-second deadlines. No compilation ran alongside the full-size physical trial.
 
-The complete raw result is retained as `full-quorum-10gb-1/result.json`, SHA-256
-`c5784545725416dbaae9c5d0ddf7cb1a04116a954b8c573d896075725053ce1d`.
+The complete raw result is retained as `full-quorum-merged-10gb-1/result.json`, SHA-256
+`643d5d033b0c2627fc9624a10ea04d78840536c27744b57e1d1daca04801d36c`.
 The executable SHA-256 is
-`78878e63bb58f632efe06c9856a9f27d25ef6fd5b014ac1561ecac4e0d9de081`.
+`9e3a30ce0385c98d66c0ea90b0308a29f8bf00392b9638744f1881c141a7ebe6`.
 The JSON record binds all build inputs separately from the Git commit. Private
 credentials, raw worker directories and RustFS object bodies stay outside Git.
 
@@ -117,11 +123,17 @@ refused qualification because formatting overlapped source capture. It remains
 recorded as unsuccessful. The subsequent small trial and the frozen-revision
 repeat both passed the unchanged-source guard before the full-size run.
 
+The earlier full-size trial on `9cdbf2b` passed in 103.155392 seconds from fault
+to write. After integrating the managed-fleet changes from `main`, all three
+process scenarios were repeated on the revision above. The JSON retains both
+sets of evidence; neither pair of runs establishes a latency distribution.
+
 ## Remaining production boundaries
 
 This does not qualify independent failure domains, Amazon S3 behavior, production
 infrastructure fencing, every startup crash cut, pending-outbox reconciliation,
-fleet-wide atomic restore, sustained archive lag under load, or a latency SLA.
+managed-fleet disaster orchestration, fleet-wide atomic restore, sustained archive
+lag under load, or a latency SLA.
 Pending old-origin outbox rows continue to refuse admission. Default quorum
 acknowledgements do not promise recovery of an unarchived suffix after every
 replica disk is lost. See the [disaster-recovery contract](disaster-recovery.md).

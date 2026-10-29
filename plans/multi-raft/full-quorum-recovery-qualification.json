@@ -2,7 +2,7 @@
   "format": 1,
   "qualified_scenario": "complete loss of three separate native worker processes and all their disks; archive confirmed before loss; three fresh extent-backed replicas restored from RustFS",
   "production_qualified": false,
-  "recorded_utc": "2026-10-29T03:36:38.793188+00:00",
+  "recorded_utc": "2026-10-29T04:19:26.812101+00:00",
   "environment": {
     "cpu": "Apple M2 Max",
     "model": "Mac14,13",
@@ -16,425 +16,425 @@
     "query_timeout_seconds": 60
   },
   "full_size": {
-    "evidence_directory": "full-quorum-10gb-1",
-    "result_sha256": "c5784545725416dbaae9c5d0ddf7cb1a04116a954b8c573d896075725053ce1d",
+    "evidence_directory": "full-quorum-merged-10gb-1",
+    "result_sha256": "643d5d033b0c2627fc9624a10ea04d78840536c27744b57e1d1daca04801d36c",
     "source": {
-      "commit": "9cdbf2b228db7f42dd5b7539d86940fcf04cea7a",
-      "inputs_sha256": "f50f6f2618dfc94c9995eca3e2e1371622cf0924d3b11aeaa7512f4d6bb040d2"
+      "commit": "cd7712733e5201719b46bbe9f2d9954af5f3a777",
+      "inputs_sha256": "15bedc33e0b2f6fe6ca5106559e51c6f4063edd9cf7ac868a7946a12d8fb0565"
     },
-    "binary_sha256": "78878e63bb58f632efe06c9856a9f27d25ef6fd5b014ac1561ecac4e0d9de081",
+    "binary_sha256": "9e3a30ce0385c98d66c0ea90b0308a29f8bf00392b9638744f1881c141a7ebe6",
     "image_bytes": 9999998976,
     "measurements": {
-      "fault_to_verified_write_seconds": 103.155392,
-      "operator_preflight_and_fence_seconds": 6.214762,
-      "fresh_quorum_start_through_all_seeds_seconds": 83.460661,
+      "fault_to_verified_write_seconds": 110.926819,
+      "operator_preflight_and_fence_seconds": 6.622002,
+      "fresh_quorum_start_through_all_seeds_seconds": 87.673218,
       "per_worker_object_get_body_bytes": [
-        10000170089,
-        10000170093,
-        10000170085
+        10000180326,
+        10000180330,
+        10000180330
       ],
       "peer_recovery_bytes": 0,
       "original_worker_pids": [
-        99320,
-        99321,
-        99322
+        8625,
+        8626,
+        8627
       ],
       "fresh_worker_pids": [
-        99812,
-        99813,
-        99814
+        9085,
+        9086,
+        9087
       ],
       "resumed_worker_pids": [
-        107,
-        108,
-        109
+        9506,
+        9507,
+        9508
       ]
     },
     "phase_times_seconds": [
       {
         "name": "quorum_write_before_loss",
-        "seconds": 189.051939
+        "seconds": 183.824823
       },
       {
         "name": "archive_current_before_loss",
-        "seconds": 280.120017
+        "seconds": 302.302318
       },
       {
         "name": "fault",
-        "seconds": 280.132983
+        "seconds": 302.308472
       },
       {
         "name": "replica_killed_and_erased",
-        "seconds": 281.244924
+        "seconds": 303.716267
       },
       {
         "name": "replica_killed_and_erased",
-        "seconds": 282.011665
+        "seconds": 305.122899
       },
       {
         "name": "replica_killed_and_erased",
-        "seconds": 283.15135
+        "seconds": 307.224684
       },
       {
         "name": "disaster_preflight_started",
-        "seconds": 283.171736
+        "seconds": 307.237752
       },
       {
         "name": "new_history_committed",
-        "seconds": 289.386498
+        "seconds": 313.859754
       },
       {
         "name": "fresh_quorum_spawn_started",
-        "seconds": 289.394527
+        "seconds": 313.866335
       },
       {
         "name": "fresh_process_ready",
-        "seconds": 289.681268
+        "seconds": 314.162123
       },
       {
         "name": "fresh_process_ready",
-        "seconds": 289.690801
+        "seconds": 314.173137
       },
       {
         "name": "fresh_process_ready",
-        "seconds": 289.699809
+        "seconds": 314.184164
       },
       {
         "name": "fresh_seed_installed",
-        "seconds": 371.54035
+        "seconds": 399.728467
       },
       {
         "name": "fresh_seed_installed",
-        "seconds": 372.039931
+        "seconds": 400.228474
       },
       {
         "name": "fresh_seed_installed",
-        "seconds": 372.855188
+        "seconds": 401.539553
       },
       {
         "name": "restored_read",
-        "seconds": 375.111213
+        "seconds": 404.731416
       },
       {
         "name": "restored_read",
-        "seconds": 377.028933
+        "seconds": 406.434315
       },
       {
         "name": "restored_read",
-        "seconds": 379.296888
+        "seconds": 408.249139
       },
       {
         "name": "old_receipt_and_token_verified",
-        "seconds": 381.636156
+        "seconds": 411.459281
       },
       {
         "name": "first_write_verified",
-        "seconds": 383.288375
+        "seconds": 413.235291
       },
       {
         "name": "quorum_payloads_and_receipts_verified",
-        "seconds": 390.04472
+        "seconds": 422.439544
       },
       {
         "name": "new_history_archive_current",
-        "seconds": 497.135007
+        "seconds": 554.563774
       },
       {
         "name": "fresh_worker_joined",
-        "seconds": 497.277881
+        "seconds": 554.702899
       },
       {
         "name": "fresh_worker_joined",
-        "seconds": 497.417832
+        "seconds": 554.831422
       },
       {
         "name": "fresh_worker_joined",
-        "seconds": 497.562522
+        "seconds": 554.959087
       },
       {
         "name": "restart_reads_and_receipts_verified",
-        "seconds": 514.469751
+        "seconds": 571.548595
       },
       {
         "name": "resumed_worker_joined",
-        "seconds": 514.604847
+        "seconds": 571.681633
       },
       {
         "name": "resumed_worker_joined",
-        "seconds": 514.739717
+        "seconds": 571.812897
       },
       {
         "name": "resumed_worker_joined",
-        "seconds": 514.878411
+        "seconds": 571.942961
       },
       {
         "name": "cleanup_joined",
-        "seconds": 514.966423
+        "seconds": 572.031503
       }
     ]
   },
   "fixture_sha256": "24a5f2ff65789e9bbc66b4fa69b470b2f98fe45cd7a3262f1434526d25778764",
   "small_full_quorum": {
-    "evidence_directory": "full-quorum-272mib-3",
-    "result_sha256": "513b296aad0c0d797c695ddb2bd0ca8a8234e0d7c6ca3bb1d60421d23995a026",
+    "evidence_directory": "full-quorum-merged-272mib-1",
+    "result_sha256": "71c0ac46b1448e323fbad765ed1b7b891a2a118bb6b7c84b4a4c6482ff60c60e",
     "source": {
-      "commit": "9cdbf2b228db7f42dd5b7539d86940fcf04cea7a",
-      "inputs_sha256": "f50f6f2618dfc94c9995eca3e2e1371622cf0924d3b11aeaa7512f4d6bb040d2"
+      "commit": "cd7712733e5201719b46bbe9f2d9954af5f3a777",
+      "inputs_sha256": "15bedc33e0b2f6fe6ca5106559e51c6f4063edd9cf7ac868a7946a12d8fb0565"
     },
-    "binary_sha256": "78878e63bb58f632efe06c9856a9f27d25ef6fd5b014ac1561ecac4e0d9de081",
+    "binary_sha256": "9e3a30ce0385c98d66c0ea90b0308a29f8bf00392b9638744f1881c141a7ebe6",
     "image_bytes": 285212672,
     "measurements": {
-      "fault_to_verified_write_seconds": 5.275204,
-      "operator_preflight_and_fence_seconds": 0.196585,
-      "fresh_quorum_start_through_all_seeds_seconds": 2.655366,
+      "fault_to_verified_write_seconds": 5.75908,
+      "operator_preflight_and_fence_seconds": 0.209406,
+      "fresh_quorum_start_through_all_seeds_seconds": 2.756838,
       "per_worker_object_get_body_bytes": [
-        285235460,
-        285235454,
-        285235458
+        285245671,
+        285245663,
+        285245667
       ],
       "peer_recovery_bytes": 0,
       "original_worker_pids": [
-        98577,
-        98578,
-        98579
+        8530,
+        8531,
+        8532
       ],
       "fresh_worker_pids": [
-        98692,
-        98693,
-        98694
+        8549,
+        8550,
+        8551
       ],
       "resumed_worker_pids": [
-        98797,
-        98798,
-        98799
+        8556,
+        8557,
+        8558
       ]
     },
     "phase_times_seconds": [
       {
         "name": "quorum_write_before_loss",
-        "seconds": 6.327275
+        "seconds": 6.351696
       },
       {
         "name": "archive_current_before_loss",
-        "seconds": 8.112024
+        "seconds": 8.237619
       },
       {
         "name": "fault",
-        "seconds": 8.11737
+        "seconds": 8.242153
       },
       {
         "name": "replica_killed_and_erased",
-        "seconds": 8.135871
+        "seconds": 8.26589
       },
       {
         "name": "replica_killed_and_erased",
-        "seconds": 8.156636
+        "seconds": 8.46163
       },
       {
         "name": "replica_killed_and_erased",
-        "seconds": 8.179663
+        "seconds": 8.481236
       },
       {
         "name": "disaster_preflight_started",
-        "seconds": 8.189689
+        "seconds": 8.490638
       },
       {
         "name": "new_history_committed",
-        "seconds": 8.386274
+        "seconds": 8.700044
       },
       {
         "name": "fresh_quorum_spawn_started",
-        "seconds": 8.390918
+        "seconds": 8.704772
       },
       {
         "name": "fresh_process_ready",
-        "seconds": 8.633034
+        "seconds": 8.943476
       },
       {
         "name": "fresh_process_ready",
-        "seconds": 8.642812
+        "seconds": 8.954513
       },
       {
         "name": "fresh_process_ready",
-        "seconds": 8.649767
+        "seconds": 8.963502
       },
       {
         "name": "fresh_seed_installed",
-        "seconds": 10.514685
+        "seconds": 10.908786
       },
       {
         "name": "fresh_seed_installed",
-        "seconds": 10.710792
+        "seconds": 11.028234
       },
       {
         "name": "fresh_seed_installed",
-        "seconds": 11.046284
+        "seconds": 11.46161
       },
       {
         "name": "restored_read",
-        "seconds": 11.838586
+        "seconds": 12.567045
       },
       {
         "name": "restored_read",
-        "seconds": 12.621584
+        "seconds": 13.231196
       },
       {
         "name": "restored_read",
-        "seconds": 12.825085
+        "seconds": 13.422157
       },
       {
         "name": "old_receipt_and_token_verified",
-        "seconds": 13.14972
+        "seconds": 13.76766
       },
       {
         "name": "first_write_verified",
-        "seconds": 13.392574
+        "seconds": 14.001233
       },
       {
         "name": "quorum_payloads_and_receipts_verified",
-        "seconds": 13.979893
+        "seconds": 14.529035
       },
       {
         "name": "new_history_archive_current",
-        "seconds": 14.090941
+        "seconds": 14.992877
       },
       {
         "name": "fresh_worker_joined",
-        "seconds": 14.222859
+        "seconds": 15.131889
       },
       {
         "name": "fresh_worker_joined",
-        "seconds": 14.352843
+        "seconds": 15.276011
       },
       {
         "name": "fresh_worker_joined",
-        "seconds": 14.492251
+        "seconds": 15.437905
       },
       {
         "name": "restart_reads_and_receipts_verified",
-        "seconds": 16.634028
+        "seconds": 17.9313
       },
       {
         "name": "resumed_worker_joined",
-        "seconds": 16.776467
+        "seconds": 18.063377
       },
       {
         "name": "resumed_worker_joined",
-        "seconds": 16.906335
+        "seconds": 18.193164
       },
       {
         "name": "resumed_worker_joined",
-        "seconds": 17.036926
+        "seconds": 18.322353
       },
       {
         "name": "cleanup_joined",
-        "seconds": 17.133388
+        "seconds": 18.412472
       }
     ]
   },
   "owner_loss_regression": {
-    "evidence_directory": "full-quorum-owner-regression-1",
-    "result_sha256": "4201f6c21b4165b64de83af0e3b8a71267e06645b288d8f783800d233df96378",
+    "evidence_directory": "full-quorum-merged-owner-regression-1",
+    "result_sha256": "60f87b6eceb0024a2499f78280d95111cbd73a4b4f9a2a893bf33a256fbd1dc8",
     "source": {
-      "commit": "9cdbf2b228db7f42dd5b7539d86940fcf04cea7a",
-      "inputs_sha256": "f50f6f2618dfc94c9995eca3e2e1371622cf0924d3b11aeaa7512f4d6bb040d2"
+      "commit": "cd7712733e5201719b46bbe9f2d9954af5f3a777",
+      "inputs_sha256": "15bedc33e0b2f6fe6ca5106559e51c6f4063edd9cf7ac868a7946a12d8fb0565"
     },
-    "binary_sha256": "78878e63bb58f632efe06c9856a9f27d25ef6fd5b014ac1561ecac4e0d9de081",
+    "binary_sha256": "9e3a30ce0385c98d66c0ea90b0308a29f8bf00392b9638744f1881c141a7ebe6",
     "image_bytes": 285212672,
     "measurements": {
-      "fault_to_verified_write_seconds": 3.853341,
-      "fresh_process_start_through_seed_seconds": 1.207432,
-      "object_get_body_bytes": 285228745,
+      "fault_to_verified_write_seconds": 7.14173,
+      "fresh_process_start_through_seed_seconds": 1.208771,
+      "object_get_body_bytes": 285237001,
       "peer_recovery_bytes": 0,
       "snapshot_timeout_ms": 3600000,
       "original_worker_pids": [
-        246,
-        247,
-        248
+        9597,
+        9598,
+        9599
       ],
-      "killed_pid": 246,
-      "replacement_pid": 259
+      "killed_pid": 9597,
+      "replacement_pid": 9622
     },
     "phase_times_seconds": [
       {
         "name": "request_before_loss",
-        "seconds": 6.153047
+        "seconds": 6.520233
       },
       {
         "name": "before_fault",
-        "seconds": 6.509191
+        "seconds": 7.572686
       },
       {
         "name": "fault",
-        "seconds": 6.516066
+        "seconds": 7.605438
       },
       {
         "name": "owner_killed",
-        "seconds": 6.564082
+        "seconds": 7.835159
       },
       {
         "name": "local_state_erased",
-        "seconds": 6.630865
+        "seconds": 8.129115
       },
       {
         "name": "admitted",
-        "seconds": 7.452318
+        "seconds": 8.898971
       },
       {
         "name": "archive_ready",
-        "seconds": 8.286123
+        "seconds": 11.647015
       },
       {
         "name": "replacement_spawn_started",
-        "seconds": 8.290263
+        "seconds": 11.651102
       },
       {
         "name": "replacement_process_ready",
-        "seconds": 8.47451
+        "seconds": 11.819112
       },
       {
         "name": "seed_installed",
-        "seconds": 9.497695
+        "seconds": 12.859873
       },
       {
         "name": "first_read",
-        "seconds": 9.631744
+        "seconds": 12.990965
       },
       {
         "name": "promoted",
-        "seconds": 10.011019
+        "seconds": 13.701309
       },
       {
         "name": "request_after_recovery",
-        "seconds": 10.04355
+        "seconds": 13.895129
       },
       {
         "name": "first_write_verified",
-        "seconds": 10.369407
+        "seconds": 14.747168
       },
       {
         "name": "receipts_and_quorum_reads_verified",
-        "seconds": 10.702154
+        "seconds": 15.667323
       },
       {
         "name": "payloads_verified",
-        "seconds": 10.851288
+        "seconds": 15.857816
       },
       {
         "name": "worker_joined",
-        "seconds": 10.921087
+        "seconds": 15.984694
       },
       {
         "name": "worker_joined",
-        "seconds": 11.009973
+        "seconds": 16.169397
       },
       {
         "name": "worker_joined",
-        "seconds": 11.102637
+        "seconds": 16.297796
       },
       {
         "name": "cleanup_joined",
-        "seconds": 11.140384
+        "seconds": 16.349531
       }
     ]
   },
@@ -442,6 +442,106 @@
     "One physical host and one trial per scenario; no independent failure domains or percentile/RTO claim.",
     "Fresh worker directories and process state; OS and RustFS caches were not forcibly cold.",
     "Quorum acknowledgements beyond the selected confirmed archive cut can be lost after all replicas are lost.",
-    "The fixture controller fences only its owned processes; production requires a trusted infrastructure fencing adapter."
-  ]
+    "The fixture controller fences only its owned processes; production requires a trusted infrastructure fencing adapter.",
+    "Managed fleet namespaces refuse this disaster API; managed fleet disaster orchestration is outside this qualification."
+  ],
+  "namespace_admission": "unmanaged Raft namespace; managed fleet namespaces refuse this disaster API",
+  "previous_qualification": {
+    "full_size": {
+      "evidence_directory": "full-quorum-10gb-1",
+      "result_sha256": "c5784545725416dbaae9c5d0ddf7cb1a04116a954b8c573d896075725053ce1d",
+      "source": {
+        "commit": "9cdbf2b228db7f42dd5b7539d86940fcf04cea7a",
+        "inputs_sha256": "f50f6f2618dfc94c9995eca3e2e1371622cf0924d3b11aeaa7512f4d6bb040d2"
+      },
+      "binary_sha256": "78878e63bb58f632efe06c9856a9f27d25ef6fd5b014ac1561ecac4e0d9de081",
+      "image_bytes": 9999998976,
+      "measurements": {
+        "fault_to_verified_write_seconds": 103.155392,
+        "operator_preflight_and_fence_seconds": 6.214762,
+        "fresh_quorum_start_through_all_seeds_seconds": 83.460661,
+        "per_worker_object_get_body_bytes": [
+          10000170089,
+          10000170093,
+          10000170085
+        ],
+        "peer_recovery_bytes": 0,
+        "original_worker_pids": [
+          99320,
+          99321,
+          99322
+        ],
+        "fresh_worker_pids": [
+          99812,
+          99813,
+          99814
+        ],
+        "resumed_worker_pids": [
+          107,
+          108,
+          109
+        ]
+      }
+    },
+    "small_full_quorum": {
+      "evidence_directory": "full-quorum-272mib-3",
+      "result_sha256": "513b296aad0c0d797c695ddb2bd0ca8a8234e0d7c6ca3bb1d60421d23995a026",
+      "source": {
+        "commit": "9cdbf2b228db7f42dd5b7539d86940fcf04cea7a",
+        "inputs_sha256": "f50f6f2618dfc94c9995eca3e2e1371622cf0924d3b11aeaa7512f4d6bb040d2"
+      },
+      "binary_sha256": "78878e63bb58f632efe06c9856a9f27d25ef6fd5b014ac1561ecac4e0d9de081",
+      "image_bytes": 285212672,
+      "measurements": {
+        "fault_to_verified_write_seconds": 5.275204,
+        "operator_preflight_and_fence_seconds": 0.196585,
+        "fresh_quorum_start_through_all_seeds_seconds": 2.655366,
+        "per_worker_object_get_body_bytes": [
+          285235460,
+          285235454,
+          285235458
+        ],
+        "peer_recovery_bytes": 0,
+        "original_worker_pids": [
+          98577,
+          98578,
+          98579
+        ],
+        "fresh_worker_pids": [
+          98692,
+          98693,
+          98694
+        ],
+        "resumed_worker_pids": [
+          98797,
+          98798,
+          98799
+        ]
+      }
+    },
+    "owner_loss_regression": {
+      "evidence_directory": "full-quorum-owner-regression-1",
+      "result_sha256": "4201f6c21b4165b64de83af0e3b8a71267e06645b288d8f783800d233df96378",
+      "source": {
+        "commit": "9cdbf2b228db7f42dd5b7539d86940fcf04cea7a",
+        "inputs_sha256": "f50f6f2618dfc94c9995eca3e2e1371622cf0924d3b11aeaa7512f4d6bb040d2"
+      },
+      "binary_sha256": "78878e63bb58f632efe06c9856a9f27d25ef6fd5b014ac1561ecac4e0d9de081",
+      "image_bytes": 285212672,
+      "measurements": {
+        "fault_to_verified_write_seconds": 3.853341,
+        "fresh_process_start_through_seed_seconds": 1.207432,
+        "object_get_body_bytes": 285228745,
+        "peer_recovery_bytes": 0,
+        "snapshot_timeout_ms": 3600000,
+        "original_worker_pids": [
+          246,
+          247,
+          248
+        ],
+        "killed_pid": 246,
+        "replacement_pid": 259
+      }
+    }
+  }
 }
