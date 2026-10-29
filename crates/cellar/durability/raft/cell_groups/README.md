@@ -104,5 +104,11 @@ remaining production consumers are converted, and is removed at hard cutover.
 Existing disks and archives must be retained, not reset by this component.
 
 Further integration must wire complete catalog/checkpoint/transition inventory
-handoff into the shared host. Native engine process-kill cuts and full qualification
-of both physical image modes remain required before CG-02 can be marked DONE.
+handoff into the shared host. Native recovery fixtures exercise both physical
+image modes with independent SQLite value and receipt rows. Process-kill cuts
+cover image/page writes and sync, engine sync, publication and reclamation;
+restart verifies every selected cell before collecting orphaned objects. Missing
+or corrupt pages, images, extent roots and non-header extents refuse complete-root
+preparation. These are storage-boundary checks, not quorum, SDK deduplication or
+RustFS qualification. CG-02 completion requires the full source-bound evidence
+gate recorded in the delivery plan.

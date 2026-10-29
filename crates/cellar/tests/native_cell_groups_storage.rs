@@ -16,6 +16,9 @@ mod faults;
 #[allow(dead_code)]
 mod engine_fault;
 
+#[path = "support/cell_group_recovery.rs"]
+mod recovery;
+
 use anyhow::Result;
 use cellar::application::consensus::{
     verification::{cell_groups::*, CommittedImage},
@@ -26,6 +29,27 @@ use cellar_ltx::{
     DirectFileSystem,
 };
 use std::{collections::BTreeMap, sync::Arc};
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn both_image_representations_share_contract() -> Result<()> {
+    recovery::both_images().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn missing_cell_image_refuses_group() -> Result<()> {
+    recovery::missing_images().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn manifest_marker_crash_cuts() -> Result<()> {
+    recovery::crash_matrix().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "process-kill fixture, launched only by manifest_marker_crash_cuts"]
+async fn manifest_process_fixture() -> Result<()> {
+    recovery::process_fixture().await
+}
 
 fn route() -> GroupRoute {
     GroupRoute {

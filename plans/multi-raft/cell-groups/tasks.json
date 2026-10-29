@@ -158,7 +158,7 @@
       "creates": [
         "crates/cellar/durability/raft/cell_groups/mod.rs",
         "crates/cellar/durability/raft/cell_groups/manifest.rs",
-        "crates/cellar/durability/raft/cell_groups/manifest_tests.rs",
+        "crates/cellar/tests/support/cell_group_recovery.rs",
         "crates/cellar/tests/native_cell_groups_storage.rs",
         "crates/cellar/durability/raft/cell_groups/page_store.rs",
         "crates/cellar/durability/raft/cell_groups/page_wire.rs",

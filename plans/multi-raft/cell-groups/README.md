@@ -8,6 +8,10 @@ The production host has not yet cut over to shared groups.
 See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.
 
+The design package is delivered; implementation now proceeds toward the complete
+shared-group runtime and hard cutover. Implementation checkpoints are recorded
+separately; delivering this package does not mark the remaining tasks complete.
+
 This package implements the direction selected in the
 [density decision](../density-decision.md). The target is TiKV-style partitioned
 multi-Raft: many cells in a group, many groups on a node, group replication across
@@ -24,7 +28,7 @@ The plan runner requires Python 3.11 or newer and Git; it has no Python package 
    behavior and final release gates; they supersede fixed assignment as the final
    target. Fixed assignment is an intermediate milestone only.
 2. Run the commands below from the repository root. `ready` reports dependency
-   eligibility; `show CG-01` emits a complete executor brief, source excerpts,
+   eligibility; `show CG-02` emits a complete executor brief, source excerpts,
    scope, steps, exact test commands and completion rules. It never runs them.
 3. Implement each task in dependency order on the active PR branch or an explicitly
    assigned branch. Preserve working intermediate commits. Do not expose a second
@@ -43,7 +47,7 @@ The design, task briefs and validator unit tests are committed in this package.
 python3 plans/multi-raft/cell-groups/plan.py validate
 python3 plans/multi-raft/cell-groups/plan.py preflight
 python3 plans/multi-raft/cell-groups/plan.py ready
-python3 plans/multi-raft/cell-groups/plan.py show CG-01
+python3 plans/multi-raft/cell-groups/plan.py show CG-02
 python3 -m unittest discover -s plans/multi-raft/cell-groups -p 'test_*.py'
 ```
 
@@ -59,6 +63,21 @@ The runner accepts no arbitrary shell commands and launches no processes or
 containers apart from read-only Git source inspection. Commands displayed in
 executor briefs are explicitly run by the implementation agent. Destructive
 qualification belongs only to the harness's recorded, owned disposable resources.
+
+### Current executor handoff
+
+Resume CG-02, which is already IN_PROGRESS, before starting CG-03. At this
+checkpoint `ready` lists no new TODO task because CG-03 depends on CG-02's
+completion; an empty list does not mean the project is finished. Read
+[progress](progress.md), inspect the working diff and retain existing work before
+executing the CG-02 brief. Its complete source-bound evidence gate must pass before
+changing its status to DONE. Continue in the generated dependency order afterward.
+
+The implementation executor should deliver code, updated component contracts and
+the required retained evidence for each task on the active PR. The final handoff
+requires CG-16 and the release gate, including the real RustFS and independent
+failure-domain profiles. Successful plan validation alone satisfies this design
+deliverable, not those implementation or deployment gates.
 
 ## Deliverables and source of truth
 

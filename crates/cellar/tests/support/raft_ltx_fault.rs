@@ -27,6 +27,7 @@ pub struct Faults {
     pub directory: PathBuf,
     pub mode: AtomicU8,
     pub fail_reads: AtomicBool,
+    pub all_directory_files: AtomicBool,
     pub collision: AtomicBool,
     pub reads: AtomicUsize,
     pub image_creates: AtomicUsize,
@@ -50,6 +51,7 @@ impl Faults {
             directory,
             mode: AtomicU8::new(0),
             fail_reads: AtomicBool::new(false),
+            all_directory_files: AtomicBool::new(false),
             collision: AtomicBool::new(false),
             reads: AtomicUsize::new(0),
             image_creates: AtomicUsize::new(0),
@@ -136,6 +138,12 @@ impl Drop for File {
 
 impl FaultFileSystem {
     fn wrap(&self, path: &Path, inner: HostFile, image_output: bool) -> HostFile {
+        let image_output = image_output
+            || (self.faults.all_directory_files.load(Ordering::Acquire)
+                && path.parent() == Some(self.faults.directory.as_path())
+                && path
+                    .file_name()
+                    .is_some_and(|name| name != "LOCK" && name != "images.lock"));
         HostFile::from_io(File {
             inner,
             path: path.into(),
