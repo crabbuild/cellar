@@ -262,3 +262,13 @@ root journal, lost birth/root response reconciliation, permanent blank-disk
 refusal integration and bounded route discovery remain CG-03 work. CG-04 must
 connect admission and durable creation records to the real shared group host.
 CG-03 remains IN_PROGRESS; the production hard cutover is not complete.
+
+
+Enrollment checkpoint `b1d27582` passes its three native cases, all-target Clippy
+with warnings denied, formatting/layout, native dependency isolation, docs,
+source preflight and all 37 plan-validator tests. Evidence under
+`.cellar/cell-groups-evidence/CG-03-enrollment/checkpoint.json` binds 40 source
+inputs, nine successful checks and a copied native executable. The failed initial
+build/test outputs and a dependency-check environment failure remain retained;
+the latter passed after restoring the Cargo path. This is a partial checkpoint,
+not a CG-03 DONE record.
