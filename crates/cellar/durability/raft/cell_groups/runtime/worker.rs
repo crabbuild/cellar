@@ -370,6 +370,10 @@ impl Worker {
                                 Command::Campaign => {
                                     group.owner.campaign().map(|()| Response::Unit)
                                 }
+                                Command::Checkpoint(message, checkpoint) => group
+                                    .owner
+                                    .step_checkpoint(message, checkpoint)
+                                    .map(Response::Checkpoint),
                                 Command::Step(message) => {
                                     group.owner.step(message).map(|()| Response::Unit)
                                 }
@@ -426,8 +430,11 @@ impl Worker {
                             if group.pending.is_none() {
                                 group.pending = Some(Ok(effect));
                             } else {
-                                if !matches!(effect, CellGroupEffect::Applied { .. })
-                                    || group.settled.is_some()
+                                if !matches!(
+                                    effect,
+                                    CellGroupEffect::Applied { .. }
+                                        | CellGroupEffect::CheckpointInstalled { .. }
+                                ) || group.settled.is_some()
                                 {
                                     return Err(RuntimeError::Protocol(
                                         "reserved physical completion output".into(),

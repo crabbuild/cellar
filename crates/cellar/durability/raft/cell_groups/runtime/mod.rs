@@ -98,6 +98,7 @@ enum Command {
     EnrollmentState(cellar_logic::cell_group::CellHistory),
     Reconciliation(cellar_logic::cell_group::CellHistory),
     Step(Message),
+    Checkpoint(Message, PreparedCellGroupCheckpoint),
     AdmitStep(Message),
     Propose(Vec<u8>),
     ProposeAtTerm(cellar_logic::consensus::Term, Vec<u8>),
@@ -115,6 +116,7 @@ enum Command {
 
 enum Response {
     Unit,
+    Checkpoint(CellGroupSnapshotAdmission),
     Proposal(CellGroupProposal),
     Submission(crate::raft::execution::CellSubmissionOutcome),
     Execution(Box<CellExecutionAuthority>),
@@ -525,6 +527,36 @@ impl CellGroupRuntime {
         self.call(Some(history), Command::Step(message), bytes + 4096)
             .await
             .map(|_| ())
+    }
+
+    /// Queue a verified snapshot on this group owner. Admission is not a
+    /// persistence receipt; only its post-fence Raft response acknowledges it.
+    pub async fn step_checkpoint(
+        &self,
+        history: GroupHistory,
+        message: Message,
+        checkpoint: PreparedCellGroupCheckpoint,
+    ) -> Result<CellGroupSnapshotAdmission, RuntimeError> {
+        let size = message.compute_size() as usize;
+        if size > self.inner.options.max_message_bytes {
+            return Err(RuntimeError::Overloaded);
+        }
+        let bytes = checkpoint
+            .manifest()
+            .reserved_bytes()
+            .saturating_add(size)
+            .saturating_add(4096);
+        match self
+            .call(
+                Some(history),
+                Command::Checkpoint(message, checkpoint),
+                bytes,
+            )
+            .await?
+        {
+            Response::Checkpoint(outcome) => Ok(outcome),
+            _ => Err(RuntimeError::Protocol("checkpoint admission reply".into())),
+        }
     }
 
     pub async fn propose(

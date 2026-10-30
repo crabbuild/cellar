@@ -5,6 +5,12 @@
 use super::*;
 use std::collections::BTreeMap;
 
+#[path = "cell_group_snapshot_owner.rs"]
+mod snapshot_owner;
+pub(super) use snapshot_owner::{
+    checkpoint_bounds, checkpoint_matching_log, checkpoint_owner, checkpoint_shutdown,
+};
+
 #[path = "cell_group_checkpoint_receive.rs"]
 mod checkpoint_receive;
 pub(super) use checkpoint_receive::{install_checkpoint, refuse_checkpoint};
@@ -129,7 +135,8 @@ impl RuntimeCluster {
                             self.runtimes[n].complete_apply(scope, work, next).await?;
                         }
                     }
-                    CellGroupEffect::Applied { manifest, .. } => {
+                    CellGroupEffect::Applied { manifest, .. }
+                    | CellGroupEffect::CheckpointInstalled { manifest } => {
                         self.applied.get_mut(&scope).context("applied")?[n] =
                             manifest.position().index
                     }

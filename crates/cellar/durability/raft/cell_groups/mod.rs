@@ -83,7 +83,7 @@ pub use root::{GroupManifest, PreparedGroupManifest};
 
 pub use owner::{
     CellGroupApply, CellGroupEffect, CellGroupOwner, CellGroupPersist, CellGroupPersisted,
-    CellGroupProposal, CellGroupStatus, CellGroupTicket,
+    CellGroupProposal, CellGroupSnapshotAdmission, CellGroupStatus, CellGroupTicket,
 };
 
 pub(crate) use dispatch::RemoteMutationRoute;

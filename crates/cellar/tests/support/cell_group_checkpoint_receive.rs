@@ -9,14 +9,14 @@ use cellar_ltx::stream_snapshot::{ScratchLimits, ScratchPool};
 use raft::Storage;
 use std::path::Path;
 
-fn scratch() -> Result<ScratchPool> {
+pub(super) fn scratch() -> Result<ScratchPool> {
     Ok(ScratchPool::new(ScratchLimits {
         max_bytes: 32 * 1024 * 1024,
         max_files: 1,
     })?)
 }
 
-fn config(
+pub(super) fn config(
     images: GenerationStore,
     extents: Option<NodeExtentStore>,
     directory: &Path,

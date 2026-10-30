@@ -28,6 +28,20 @@ pub(super) async fn populated_with_lagging(
     rooted: bool,
     lagging: bool,
 ) -> Result<(Cluster, BTreeMap<String, Vec<u8>>)> {
+    populate(rooted, lagging, false).await
+}
+
+pub(super) async fn populated_partition(
+    rooted: bool,
+) -> Result<(Cluster, BTreeMap<String, Vec<u8>>)> {
+    populate(rooted, false, true).await
+}
+
+async fn populate(
+    rooted: bool,
+    lagging: bool,
+    partition: bool,
+) -> Result<(Cluster, BTreeMap<String, Vec<u8>>)> {
     let mut cluster = Cluster::new().await?;
     cluster.elect().await?;
     cluster.voters[2].paused = lagging;
@@ -86,7 +100,9 @@ pub(super) async fn populated_with_lagging(
             entry.encode(&route, GroupEntryLimits::default())?
         };
         cluster.voters[0].owner.as_mut().unwrap().propose(encoded)?;
-        cluster.drive(false).await?;
+        cluster
+            .drive_partition(false, partition.then_some(2))
+            .await?;
         expected.insert(name.to_owned(), bytes);
     }
     Ok((cluster, expected))

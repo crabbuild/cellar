@@ -15,6 +15,31 @@ mod runtime_fixture;
 mod checkpoint_fixture;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_owner_rejects_overflow_cuts_before_raft() -> Result<()> {
+    runtime_fixture::checkpoint_bounds().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_owner_replays_matching_log_without_install() -> Result<()> {
+    runtime_fixture::checkpoint_matching_log().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_owner_restores_only_after_raft_sync() -> Result<()> {
+    runtime_fixture::checkpoint_owner(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_owner_restores_extents_only_after_raft_sync() -> Result<()> {
+    runtime_fixture::checkpoint_owner(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_runtime_joins_accepted_snapshot_shutdown() -> Result<()> {
+    runtime_fixture::checkpoint_shutdown().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn checkpoint_receive_installs_and_recovers_materialized_closure() -> Result<()> {
     runtime_fixture::install_checkpoint(false).await
 }
@@ -429,9 +454,16 @@ impl Cluster {
     }
 
     async fn drive(&mut self, isolated: bool) -> Result<()> {
+        self.drive_partition(isolated, None).await
+    }
+
+    async fn drive_partition(&mut self, isolated: bool, excluded: Option<usize>) -> Result<()> {
         for _ in 0..2000 {
             let mut progress = false;
             for (n, voter) in self.voters.iter_mut().enumerate() {
+                if excluded == Some(n) {
+                    continue;
+                }
                 let event = voter.owner.as_mut().unwrap().poll()?;
                 let Some(event) = event else { continue };
                 progress = true;
@@ -464,6 +496,12 @@ impl Cluster {
                             Some(manifest.as_ref())
                         );
                     }
+                    CellGroupEffect::CheckpointInstalled { manifest } => {
+                        assert_eq!(
+                            voter.log.cell_groups()?[0].group_manifest()?.as_ref(),
+                            Some(manifest.as_ref())
+                        );
+                    }
                     CellGroupEffect::ReadIndex {
                         term,
                         index,
@@ -474,6 +512,9 @@ impl Cluster {
             for _ in 0..self.network.len() {
                 let message = self.network.pop_front().unwrap();
                 let target = message.to as usize - 1;
+                if excluded == Some(target) || excluded == Some(message.from as usize - 1) {
+                    continue;
+                }
                 match self.voters[target]
                     .owner
                     .as_mut()

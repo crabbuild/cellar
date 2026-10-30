@@ -264,7 +264,7 @@ impl Worker {
                             let work = event.retain_apply().ok_or(CellGroupControllerError::Invalid("apply ticket"))?;
                             self.pending.push_back(Pending { group, work: Work::Prepare(Box::new(work)), retry_at: now });
                         }
-                        CellGroupEffect::Applied { .. } => {
+                        CellGroupEffect::Applied { .. } | CellGroupEffect::CheckpointInstalled { .. } => {
                             // Only this post-sync event advances the published count.
                             self.shared.applied.fetch_add(1, Ordering::Relaxed);
                             self.progress.send_replace(());

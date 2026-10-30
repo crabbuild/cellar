@@ -157,9 +157,20 @@ current/pending publication slots. Recovery reconstructs both complete closures;
 a missing older checkpoint refuses startup and reclamation even when the current
 applied root is complete. Physical recovery never renews quorum authority.
 
-These are verification APIs. The shared runtime still rejects incoming Raft
-snapshots and configuration changes. Snapshot transport, owner completion tickets,
-learner catch-up, joint membership and disk replacement remain CG-05 work.
+These are verification APIs. Ordinary peer ingress still rejects snapshot
+messages. `step_checkpoint` on the owner/runtime accepts an authenticated envelope
+only with its exact receiver-local closure, engine/page owner, selected base and
+membership binding. It requires settled prior apply and delegates restoration to
+RawNode. Admission returns `Restoring` or `Ignored`; neither is a persistence
+receipt. A matching log can advance commit and replay entries without installing
+the received image. A restored snapshot is attached to its exact Ready write;
+only the matching engine completion advances the application view and releases
+Raft responses and `CheckpointInstalled`. Queued work retains the receiver budget
+through engine sync and runtime shutdown.
+
+Source-side local checkpoint publication, snapshot RPC transport, learner catch-up,
+joint membership and disk replacement remain CG-05 work. Configuration entries
+remain closed. The explicit snapshot API does not authorize a new voter.
 
 ## Enrollment admission and ordered preparation
 

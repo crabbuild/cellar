@@ -3,12 +3,14 @@
 //! One physical group owns one RawNode. The node scheduler executes the emitted
 //! effects; this owner performs no image I/O and starts no per-cell tasks.
 
-use super::{CellGroupBootstrapPermit, GroupManifest, PreparedGroupManifest};
+use super::{
+    CellGroupBootstrapPermit, GroupManifest, PreparedCellGroupCheckpoint, PreparedGroupManifest,
+};
 use crate::application::consensus::group_protocol::{
     CellGroupEntry, GroupCommand, GroupEntryLimits,
 };
 use crate::raft::{
-    cache::{ConsensusStorage, GroupLog, GroupWrite},
+    cache::{ConsensusStorage, GroupLog, GroupWrite, SnapshotChange},
     completion::{entry_digest, entry_position, RuntimeError},
     options::RaftRuntimeOptions,
     storage::ReplicaLog,
@@ -95,8 +97,15 @@ pub struct CellGroupApply {
     pub base: PreparedGroupManifest,
 }
 
-/// A ReadIndex result is a barrier to wait for, not permission to serve a cell.
-/// The dispatcher must recheck owner/term and pin an applied coherent cell view.
+/// Snapshot admission does not establish persistence or serving authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CellGroupSnapshotAdmission {
+    /// Raft selected the verified snapshot; persistence is still outstanding.
+    Restoring,
+    /// Raft retained its log. Any resulting hard state/messages still need sync.
+    Ignored,
+}
+
 pub enum CellGroupEffect {
     Persist(Box<CellGroupPersist>),
     Message(Message),
@@ -105,6 +114,11 @@ pub enum CellGroupEffect {
         ticket: CellGroupTicket,
         manifest: Box<GroupManifest>,
     },
+    CheckpointInstalled {
+        manifest: Box<GroupManifest>,
+    },
+    /// A barrier to wait for, not permission to serve a cell. The dispatcher
+    /// must recheck owner/term and pin an applied coherent cell view.
     ReadIndex {
         term: Term,
         index: LogIndex,
@@ -119,7 +133,7 @@ impl CellGroupEffect {
             Self::Message(message) => message.compute_size() as usize,
             Self::Apply(work) => work.entry.compute_size() as usize + work.base.reserved_bytes(),
             Self::ReadIndex { context, .. } => context.len(),
-            Self::Applied { .. } => 1024,
+            Self::Applied { .. } | Self::CheckpointInstalled { .. } => 1024,
         }
     }
 }
@@ -153,6 +167,7 @@ pub struct CellGroupOwner {
     group: GroupLog<GroupHistory>,
     node: RawNode<ConsensusStorage>,
     current: PreparedGroupManifest,
+    checkpoint: Option<PreparedCellGroupCheckpoint>,
     options: RaftRuntimeOptions,
     phase: Option<Phase>,
     waiting: Option<CellGroupTicket>,
@@ -172,7 +187,8 @@ impl CellGroupOwner {
     /// Attach only a claimed initial voter with a completely verified selected
     /// root. The catalog permit is revalidated; serving additionally waits for
     /// the current term's committed/applied Raft barrier. Managed members and
-    /// incoming snapshots remain closed until their complete protocols exist.
+    /// ordinary snapshot messages remain closed; step_checkpoint requires the
+    /// exact independently verified destination closure.
     pub async fn start(
         permit: CellGroupBootstrapPermit,
         current: PreparedGroupManifest,
@@ -238,6 +254,7 @@ impl CellGroupOwner {
             group,
             node,
             current,
+            checkpoint: None,
             proposal_budget: crate::raft::budget::Budget::new(
                 options.max_request_bytes,
                 options.max_requests,
@@ -389,6 +406,7 @@ impl CellGroupOwner {
             committed: LogIndex::new(cache.hard_state.commit),
             ready: self.node.raft.state == StateRole::Leader
                 && self.phase.is_none()
+                && self.checkpoint.is_none()
                 && self.apply_bytes < self.options.max_group_apply_bytes
                 && self.current.marker().position().term.get() == self.node.raft.term
                 && cache.hard_state.term == self.node.raft.term
@@ -398,7 +416,7 @@ impl CellGroupOwner {
 
     pub fn campaign(&mut self) -> Result<(), RuntimeError> {
         self.live()?;
-        if self.phase.is_some() {
+        if self.phase.is_some() || self.checkpoint.is_some() {
             return Err(RuntimeError::NotReady);
         }
         let result = self.node.campaign();
@@ -422,7 +440,7 @@ impl CellGroupOwner {
 
     pub(super) fn report_unreachable(&mut self, member: u64) -> Result<(), RuntimeError> {
         self.live()?;
-        if self.phase.is_some() {
+        if self.phase.is_some() || self.checkpoint.is_some() {
             return Err(RuntimeError::NotReady);
         }
         if member == 0 || self.node.raft.prs().get(member).is_none() {
@@ -432,9 +450,70 @@ impl CellGroupOwner {
         Ok(())
     }
 
+    /// Admit an authenticated snapshot envelope only with its exact complete
+    /// receiver-local closure. This returns protocol admission, never a durable
+    /// acknowledgement. Snapshot messages are emitted after the Ready fence.
+    pub fn step_checkpoint(
+        &mut self,
+        message: Message,
+        checkpoint: PreparedCellGroupCheckpoint,
+    ) -> Result<CellGroupSnapshotAdmission, RuntimeError> {
+        self.live()?;
+        if !self.idle() || self.applying.is_some() || !self.apply.is_empty() {
+            return Err(RuntimeError::NotReady);
+        }
+        self.validate_peer_message(&message, true)?;
+        let root = checkpoint.manifest();
+        if message.get_msg_type() != MessageType::MsgSnapshot
+            || message.get_snapshot() != checkpoint.snapshot()
+            || checkpoint.marker().position().index.get() >= u64::MAX - 2
+            || checkpoint.marker().position().term.get() >= u64::MAX - 2
+            || message.term < self.node.raft.term
+            || message.term < checkpoint.marker().position().term.get()
+            || root.base.as_ref() != Some(self.current.marker())
+            || root.marker().route() != self.current.marker().route()
+            || !Arc::ptr_eq(&root.engine_owner, &self.group.owner)
+            || !Arc::ptr_eq(&root.page_owner, &self.current.page_owner)
+            || !checkpoint.membership().permits_group(self.group.identity())
+            || root.marker().position().index < self.current.marker().position().index
+            || root.marker().root().cells() > self.options.max_cells_per_group
+            || crate::raft::member_state::members(
+                checkpoint.snapshot().get_metadata().get_conf_state(),
+            )
+            .len()
+                > self.options.max_members_per_group
+        {
+            return Err(RuntimeError::Invalid(
+                "checkpoint envelope/owner/base".into(),
+            ));
+        }
+        if root
+            .reserved_bytes()
+            .saturating_add(message.compute_size() as usize)
+            .saturating_add(4096)
+            > self.options.max_ready_bytes
+        {
+            return Err(RuntimeError::Overloaded);
+        }
+        let result = self.node.step(message);
+        self.refresh_execution_fence();
+        result?;
+        if let Some(snapshot) = self.node.snap() {
+            if snapshot != checkpoint.snapshot() {
+                self.failed = Some(RuntimeError::StaleCompletion);
+                self.revoke_execution();
+                return Err(RuntimeError::StaleCompletion);
+            }
+            self.checkpoint = Some(checkpoint);
+            Ok(CellGroupSnapshotAdmission::Restoring)
+        } else {
+            Ok(CellGroupSnapshotAdmission::Ignored)
+        }
+    }
+
     pub fn step(&mut self, message: Message) -> Result<(), RuntimeError> {
         self.live()?;
-        if self.phase.is_some() {
+        if self.phase.is_some() || self.checkpoint.is_some() {
             return Err(RuntimeError::NotReady);
         }
         if self.apply_bytes >= self.options.max_group_apply_bytes {
@@ -604,7 +683,7 @@ impl CellGroupOwner {
         next: PreparedGroupManifest,
     ) -> Result<(), RuntimeError> {
         self.live()?;
-        if self.phase.is_some() {
+        if self.phase.is_some() || self.checkpoint.is_some() {
             return Err(RuntimeError::NotReady);
         }
         if self.applying.as_ref().is_none_or(|t| !t.matches(&ticket))
@@ -644,6 +723,7 @@ impl CellGroupOwner {
 
     pub(super) fn idle(&self) -> bool {
         self.phase.is_none()
+            && self.checkpoint.is_none()
             && self.waiting.is_none()
             && self.effects.is_empty()
             && !self.node.has_ready()
@@ -697,6 +777,9 @@ impl CellGroupOwner {
         };
         (
             ready
+                + self.checkpoint.as_ref().map_or(0, |c| {
+                    c.manifest().reserved_bytes() + c.snapshot().compute_size() as usize
+                })
                 + self
                     .effects
                     .iter()
@@ -821,6 +904,27 @@ impl CellGroupOwner {
             }
             match self.phase.take() {
                 Some(Phase::Ready(mut ready, term)) => {
+                    let installed = if !ready.snapshot().is_empty() {
+                        let checkpoint = self
+                            .checkpoint
+                            .take()
+                            .ok_or(RuntimeError::StaleCompletion)?;
+                        if checkpoint.snapshot() != ready.snapshot()
+                            || self.group.group_manifest()?.as_ref() != Some(checkpoint.marker())
+                            || self.group.checkpoint_manifest()?.as_ref()
+                                != Some(checkpoint.marker())
+                        {
+                            return Err(RuntimeError::StaleCompletion);
+                        }
+                        checkpoint
+                            .manifest()
+                            .require_checkpoint(&self.group)
+                            .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
+                        self.current = checkpoint.manifest().clone();
+                        Some(self.current.marker().position().index.get())
+                    } else {
+                        None
+                    };
                     self.messages(ready.take_messages())?;
                     self.messages(ready.take_persisted_messages())?;
                     let reads = ready.take_read_states();
@@ -849,6 +953,25 @@ impl CellGroupOwner {
                     }
                     self.enqueue(ready.take_committed_entries())?;
                     let light = self.node.advance_append(*ready);
+                    if let Some(index) = installed {
+                        self.node.advance_apply_to(index);
+                        self.proposals.clear();
+                        if self.effects.len() >= self.options.max_events
+                            || self
+                                .effects
+                                .iter()
+                                .map(CellGroupEffect::bytes)
+                                .sum::<usize>()
+                                .saturating_add(5120)
+                                > self.options.max_event_bytes
+                        {
+                            return Err(RuntimeError::Overloaded);
+                        }
+                        self.effects
+                            .push_back(CellGroupEffect::CheckpointInstalled {
+                                manifest: Box::new(self.current.marker().clone()),
+                            });
+                    }
                     let commit = light.commit_index();
                     self.phase = Some(Phase::Light(light));
                     if let Some(commit) = commit {
@@ -906,7 +1029,12 @@ impl CellGroupOwner {
                         && self.apply_bytes < self.options.max_group_apply_bytes
                     {
                         let ready = self.node.ready();
-                        if !ready.snapshot().is_empty() {
+                        if !ready.snapshot().is_empty()
+                            && self
+                                .checkpoint
+                                .as_ref()
+                                .is_none_or(|c| c.snapshot() != ready.snapshot())
+                        {
                             return Err(RuntimeError::Invalid(
                                 "group snapshot is not attached".into(),
                             ));
@@ -927,14 +1055,29 @@ impl CellGroupOwner {
                                 .read_states()
                                 .iter()
                                 .map(|r| r.request_ctx.len() + 128)
-                                .sum::<usize>();
+                                .sum::<usize>()
+                            + ready.snapshot().compute_size() as usize
+                            + self
+                                .checkpoint
+                                .as_ref()
+                                .map_or(0, |c| c.manifest().reserved_bytes());
                         if size > self.options.max_ready_bytes {
                             return Err(RuntimeError::Overloaded);
                         }
-                        let changed = !ready.entries().is_empty() || ready.hs().is_some();
+                        let changed = !ready.entries().is_empty()
+                            || ready.hs().is_some()
+                            || !ready.snapshot().is_empty();
                         let mut write = GroupWrite::new(&self.group);
                         write.entries = ready.entries().clone();
                         write.hard_state = ready.hs().cloned();
+                        if !ready.snapshot().is_empty() {
+                            write.snapshot = Some(SnapshotChange::CellGroup(
+                                self.checkpoint
+                                    .as_ref()
+                                    .ok_or(RuntimeError::StaleCompletion)?
+                                    .clone(),
+                            ));
+                        }
                         self.phase = Some(Phase::Ready(
                             Box::new(ready),
                             Term::new(self.node.raft.term),
@@ -1043,6 +1186,14 @@ impl CellGroupOwner {
     }
 
     pub(super) fn validate_message(&self, message: &Message) -> Result<(), RuntimeError> {
+        self.validate_peer_message(message, false)
+    }
+
+    fn validate_peer_message(
+        &self,
+        message: &Message,
+        checkpoint: bool,
+    ) -> Result<(), RuntimeError> {
         let invalid = || RuntimeError::Invalid("cell-group peer message".into());
         let kind = message.get_msg_type();
         if message.to != self.group.identity().member.get()
@@ -1052,9 +1203,10 @@ impl CellGroupOwner {
             || ::raft::raw_node::is_local_msg(kind)
             || matches!(
                 kind,
-                MessageType::MsgPropose | MessageType::MsgTransferLeader | MessageType::MsgSnapshot
+                MessageType::MsgPropose | MessageType::MsgTransferLeader
             )
-            || !message.get_snapshot().is_empty()
+            || (!checkpoint
+                && (kind == MessageType::MsgSnapshot || !message.get_snapshot().is_empty()))
             || message.entries.len() > 65_536
             || message.compute_size() as usize > self.options.max_message_bytes
             || [
