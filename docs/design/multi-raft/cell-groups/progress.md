@@ -10,6 +10,66 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 controller-owned commands
+
+Qualified source: `8c615ac91bc3c13e6c25da4f4ab584a73e609207`.
+
+`CellGroupController::command` transfers a fresh local invocation into the
+existing node worker. The separate response handle preserves the original
+deadline; dropping or timing out that handle does not cancel SQL preparation,
+submission or receipt resolution. Count/byte admission covers queued commands,
+active resolution and unconsumed responses, including errors. SQL capture/apply
+and result bytes keep their separate pool budgets. Admission refusal returns the
+original invocation, preserving any recovery state. One shared progress timer
+and applied-event notifications drive retries; continuous traffic cannot reset
+the timer and indefinitely postpone progress.
+
+A late preparation that has never attempted submission is sealed across all
+clones and closed through its exact rejection capability. Entering, accepted and
+uncertain attempts cannot produce that seal. An attempted submission error stays
+uncertain; a later capacity refusal cannot prove the earlier attempt absent.
+After submission, resolution requires the exact receipt or the existing newer
+applied-term absence proof. It never replays a callback automatically. Retention
+is bounded by admission, not by a timeout that discards uncertain state. On a
+fatal unresolved command error, the controller retains the invocation through
+physical SQL/runtime joins before releasing ownership.
+
+SQL staging now distinguishes a received completed error from a lost worker
+reply. The former cannot hide an installed producer and releases this invocation
+without closing the node; the latter remains ambiguous and retained. The public
+stage API keeps its existing error type. Physical image capture, callbacks and
+manifest publication continue to run on the existing SQL workers.
+
+Seven new native cases each run in both materialized and extent modes over three
+real in-process TLS endpoints. They hold callbacks or committed manifest sync,
+disconnect or expire responses, assert bounded ownership and exact identity retry,
+verify unconsumed-response charging, and cancel shutdown while physical work is
+held. Completed callback errors permit an explicit successful retry. A physical
+image-capture panic loses the stage reply and requires joined cleanup. Three unit
+cases prove clone sealing, entering/accepted refusal and uncertainty after an
+attempted error. The initial fixture used an invalid retry horizon; the corrected
+fixture preserves one valid horizon. An initial callback-panic injection was
+contained by Cellar's transaction and therefore did not simulate a lost reply;
+the final injection occurs during subsequent physical capture. Failed logs remain
+with the checkpoint and are not counted as qualification.
+
+The gate passes 83 selected Rust cases (65 execution, 15 catalog, three submission)
+and nine commands: affected tests, all-target Clippy for Cellar/cellar-logic/
+cellar-ltx with warnings denied, formatting, layout, dependencies, docs, source
+preflight and 37 plan-validator cases. The partial record at
+`.cellar/cell-groups-evidence/CG-04-command-owner/checkpoint.json` binds 248
+source inputs and three copied test binaries. Transfer its complete directory
+with prior evidence. This qualifies local shared-controller command ownership,
+not real RustFS, separate-process crash, power-loss or load behavior.
+
+CG-04 remains IN_PROGRESS. The critical next delivery is catalog-routed enrollment
+with stable creation identity, then remote shared command/query dispatch and the
+public SDK binding to this owner. Missing origin producers on followers still
+need a safe leader receipt-lookup route. Dynamic roster, per-group failure
+isolation and configuration/cache lifecycle are unresolved runtime gaps.
+Complete-group snapshots/archive, effects, topology, RustFS/load qualification and
+legacy removal remain later gates; the public host has not cut over.
+
 ## CG-04 autonomous event controller
 
 Qualified source: `ee684c3394ffccbfa84bfc5d94876de281f68b0b`.
