@@ -5,10 +5,92 @@
 The executable design and implementation plan is delivered. Remaining
 end-to-end implementation and hard cutover work is specified in the
 [executor handoff](handoff.md).
-CG-01 through CG-03 have passed their scoped gates;
-CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
+CG-01 through CG-04 have passed their scoped gates;
+CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
+
+## CG-04 scoped execution gate complete
+
+CG-04 is DONE at `69e41e865c267dff1dec5bce6f2b3d0966be09db`. All 83 declared acceptance cases pass
+individually, with the required test inventory, all-target check, formatting,
+layout and all-target Clippy commands. The evidence record
+`.cellar/cell-groups-evidence/CG-04-qualified/checkpoint.json` validates through the
+plan runner and retains 98 distinct command records, 288 source hashes
+and 4 copied executables, including the supporting 238-case regression gate.
+Transfer it together with the local-provisioning and predecessor evidence.
+
+The completed scope is native shared-group execution: one Raft owner per group
+replica, independent cell SQLite histories, bounded node services, durable apply,
+cell receipts and reads, authenticated dispatch, response-independent ownership,
+group failure isolation and explicit local provisioning/recovery. All acceptance
+cases remain intact. Completion does not claim production SDK/fleet cutover or
+independent-process, power-loss, shared RustFS or performance qualification.
+
+The critical next task is CG-05: complete-group snapshots, atomic installation,
+learner catch-up and membership recovery. It unlocks CG-06 archive/reclamation and
+then effect/fleet integration. Automatic production request/voter orchestration
+and public SDK binding belong to CG-07; final legacy removal belongs to CG-16.
+Keep those dependencies explicit in subsequent execution.
+
+## CG-04 bounded local provisioning
+
+Qualified source: `69e41e865c267dff1dec5bce6f2b3d0966be09db`.
+
+`CellGroupController::configure_provisioning` installs explicit immutable node
+filesystem, image-store, manifest, peer and preparation limits. `provision`
+accepts an already selected range assignment; it materializes the immutable birth,
+checks configured initial members, acquires permanent member/engine claims,
+recovers the complete selected root on the owning blocking execution domain and
+attaches through the existing runtime and exclusive transport registration. It
+neither assigns ranges nor creates a Raft group for an individual cell. Managed
+fleet bootstrap still refuses pending CG-07 authorization.
+
+Exact directory-owner/group requests share one preparation. Pending and active
+groups share the controller capacity; recovery items, bytes and parallelism have
+explicit bounds. Response waiters have separate admission, including queued and
+unconsumed replies, so preparation does not recursively consume command permits.
+Active stores remain bounded by the configured per-group limits and maximum
+roster size; image stores keep their independent quotas. Settings reject invalid
+physical identities, duplicate endpoints and unbounded paths before I/O.
+
+Failure before recovery frees its preparation and group reservations. After
+recovery, an attachment refusal retains the exact page/root/applier owners and
+their preparation budget. A retry revalidates catalog/bootstrap and reuses these
+owners rather than reopening an engine-pinned directory. The applier enters the
+event roster before attachment can emit events. Registration identity/capacity
+refusals preserve healthy groups; closed services or uncertain shared-engine
+failures remain node-wide. Shutdown joins admitted catalog/filesystem/attachment
+work before transport, SQL and runtime shutdown, even when waiters disconnect.
+Success means locally attached; serving still requires fresh current-term quorum.
+
+Five native cases cover both image modes with real engines, filesystem operations
+and TLS. They exercise same-group coalescing, dropped waiters, bounds and foreign
+bindings, single-command-slot operation, actual enrollment/mutation/exact retry,
+pre-recovery catalog failure and post-recovery attachment refusal with page-owner
+reuse. A blocked physical directory sync retains engine ownership across cancelled
+close. Missing initial peers refuse before genesis; a wrong configured local
+endpoint retains preparation while the existing group still executes a command.
+All voter engines and manifest stores reopen into empty controllers; removing a
+selected page refuses without resetting the marker, restoration permits recovery,
+and fresh quorum returns the original receipt and SQLite value. Image-store
+handles stay in the process, so this is not independent-process/power-loss evidence.
+
+All 238 selected Rust cases and twelve gate commands pass, including all-target
+Clippy, formatting, layout, dependency isolation, docs, source preflight and 37
+validator cases. `.cellar/cell-groups-evidence/CG-04-local-provisioning-final/checkpoint.json`
+binds 288 source inputs and 4 copied executables. Diagnostic failures and
+reruns are retained separately; transfer this ignored directory with predecessors.
+
+The provisioning checkpoint below the full gate is scoped to explicit local
+startup. CG-07 integrates automatic request-driven provisioning and assigned-voter
+startup, preserving original operation identity,
+deadline and captured inputs while using this bounded owner from local and remote
+dispatch. Read/receipt requests must never implicitly enroll missing cells.
+Configuration/membership lifecycle, managed fleet authorization and public
+host/SDK integration remain unfinished. Later CG tasks still own snapshots,
+archive/reclamation, effects, topology, hibernation, fenced recovery, load and
+legacy removal. Shared-group RustFS and load remain unqualified.
 
 ## CG-04 retained group quarantine
 

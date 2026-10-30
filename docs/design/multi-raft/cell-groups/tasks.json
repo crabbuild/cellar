@@ -420,7 +420,7 @@
     {
       "id": "CG-04",
       "title": "Execute many independent SQLite cells through one real Raft group",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P1",
       "effort": "L",
       "risk": "HIGH",
@@ -705,7 +705,7 @@
           ]
         },
         {
-          "action": "Replace the fixed controller roster with bounded dynamic registration, including empty-controller startup. Reserve pending plus active group slots and shared command item/byte admission before transfer. Bind exact engine/history/schema, selected root and applier page owner; install an exclusively owned physical route without adopting a prior registration. Register the applier before polling attachment so early consensus/apply events remain owned. Revalidate the bootstrap catalog through the existing runtime attach path; expose application roster membership only after success, with fresh quorum still required. Retain attachment through response cancellation and join catalog/runtime attachment before closing physical dependencies. Release definite failures before responding; unexpected competing runtime owners or runtime closure keep the conservative node shutdown boundary. Configuration changes, per-group failure isolation and request-driven lazy birth/public SDK binding remain incomplete. Run the full transport and shared runtime suites.",
+          "action": "Replace the fixed controller roster with bounded dynamic registration, including empty-controller startup. Reserve pending plus active group slots and shared command item/byte admission before transfer. Bind exact engine/history/schema, selected root and applier page owner; install an exclusively owned physical route without adopting a prior registration. Register the applier before polling attachment so early consensus/apply events remain owned. Revalidate the bootstrap catalog through the existing runtime attach path; expose application roster membership only after success, with fresh quorum still required. Retain attachment through response cancellation and join catalog/runtime attachment before closing physical dependencies. Release definite failures before responding; unexpected competing runtime owners or runtime closure keep the conservative node shutdown boundary. Complete-group membership changes follow CG-05; production request/voter orchestration and SDK/fleet binding follow CG-07. Run the full transport and shared runtime suites.",
           "tests": [
             "dynamic_registration_preserves_live_groups_and_disconnected_waiters",
             "dynamic_registration_refuses_foreign_owners_and_retries_failed_catalog",
@@ -714,14 +714,14 @@
           ]
         },
         {
-          "action": "Isolate group-local controller apply/runtime/ambiguous command failures through a bounded retained quarantine lifecycle. Reserve a control lane to revoke execution while apply is waiting, refuse new group admission, preserve captured producer/apply owners until joined shutdown, and prevent late persistence completion from restoring authority. Keep failed group capacity charged. Shared engine I/O/corruption/closure and lost shared SQL worker replies still close the node. Expose original group failure and quarantine counts; no in-place replacement or automatic callback replay. Qualify healthy-group SQL progress and node-wide storage failure separately. Request-driven provisioning, configuration lifecycle and public cutover remain unfinished.",
+          "action": "Isolate group-local controller apply/runtime/ambiguous command failures through a bounded retained quarantine lifecycle. Reserve a control lane to revoke execution while apply is waiting, refuse new group admission, preserve captured producer/apply owners until joined shutdown, and prevent late persistence completion from restoring authority. Keep failed group capacity charged. Shared engine I/O/corruption/closure and lost shared SQL worker replies still close the node. Expose original group failure and quarantine counts; no in-place replacement or automatic callback replay. Qualify healthy-group SQL progress and node-wide storage failure separately. Explicit local provisioning uses the lifecycle below; production configuration and public cutover are integrated in CG-07 and CG-16.",
           "tests": [
             "group_quarantine_retains_producer_and_serves_healthy_group",
             "shared_engine_sync_failure_still_stops_all_groups"
           ]
         },
         {
-          "action": "Provision already selected initial-member ranges through the controller with immutable explicit filesystem/image/peer settings. Bound preparation bytes, parallelism, resident failed preparations and response waiters independently from commands. Coalesce by exact physical group and directory owner; preserve recovered page owners across attachment retries. Register appliers before polling attachment and join entered catalog/filesystem work before physical shutdown. This explicit local API does not allocate ranges, orchestrate followers, authorize managed fleet admission or wire automatic request-driven/public SDK startup. Complete those integrations separately.",
+          "action": "Provision already selected initial-member ranges through the controller with immutable explicit filesystem/image/peer settings. Bound preparation bytes, parallelism, resident failed preparations and response waiters independently from commands. Coalesce by exact physical group and directory owner; preserve recovered page owners across attachment retries. Register appliers before polling attachment and join entered catalog/filesystem work before physical shutdown. This explicit local API does not allocate ranges, orchestrate followers, authorize managed fleet admission or wire automatic request-driven/public SDK startup. CG-07 integrates those production paths after its snapshot, archive and effect dependencies.",
           "tests": [
             "provisioning_coalesces_and_serves",
             "provisioning_retries_retained_owner",
@@ -1540,7 +1540,9 @@
         "I05",
         "I12"
       ],
-      "evidence": [],
+      "evidence": [
+        ".cellar/cell-groups-evidence/CG-04-qualified/checkpoint.json"
+      ],
       "stop_conditions": [
         "A current source excerpt no longer matches: review and record the successor baseline before edits.",
         "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",

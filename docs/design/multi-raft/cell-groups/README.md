@@ -3,8 +3,8 @@
 # Cell group delivery package
 
 Status: executable design and implementation plan delivered on 2026-10-29.
-CG-01 contracts, CG-02 storage and CG-03 routing/admission preparation have
-passed their local evidence gates. CG-04 shared execution is in progress.
+CG-01 contracts, CG-02 storage, CG-03 routing/admission preparation and
+CG-04 shared execution have passed their scoped local evidence gates.
 The production host has not yet cut over to shared groups.
 See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.
@@ -30,7 +30,7 @@ The plan runner requires Python 3.11 or newer and Git; it has no Python package 
    behavior and final release gates; they supersede fixed assignment as the final
    target. Fixed assignment is an intermediate milestone only.
 2. Run the commands below from the repository root. `ready` reports dependency
-   eligibility; `show CG-04` emits a complete executor brief, source excerpts,
+   eligibility; `show CG-05` emits a complete executor brief, source excerpts,
    scope, steps, exact test commands and completion rules. It never runs them.
 3. Implement each task in dependency order on the active PR branch or an explicitly
    assigned branch. Preserve working intermediate commits. Do not expose a second
@@ -42,16 +42,18 @@ The plan runner requires Python 3.11 or newer and Git; it has no Python package 
 This checkout retains evidence under the ignored
 `.cellar/cell-groups-evidence/CG-01-ee7f4a8d2dec/`,
 `.cellar/cell-groups-evidence/CG-02-ec9d277e5041/` and
-`.cellar/cell-groups-evidence/CG-03-routing-final/` directories. A fresh checkout must
-receive all three retained directories at the same relative paths before validating
-the DONE checkpoints. Missing evidence fails validation; it is never treated as a pass.
+`.cellar/cell-groups-evidence/CG-03-routing-final/` directories. CG-04 adds
+`.cellar/cell-groups-evidence/CG-04-qualified/` and its supporting
+`.cellar/cell-groups-evidence/CG-04-local-provisioning-final/` directory. A fresh
+checkout must receive these retained directories at the same relative paths
+before validating the four DONE checkpoints. Missing evidence fails validation; it is never treated as a pass.
 The design, task briefs and validator unit tests are committed in this package.
 
 ```sh
 python3 docs/design/multi-raft/cell-groups/plan.py validate
 python3 docs/design/multi-raft/cell-groups/plan.py preflight
 python3 docs/design/multi-raft/cell-groups/plan.py ready
-python3 docs/design/multi-raft/cell-groups/plan.py show CG-04
+python3 docs/design/multi-raft/cell-groups/plan.py show CG-05
 python3 -m unittest discover -s docs/design/multi-raft/cell-groups -p 'test_*.py'
 ```
 
@@ -248,6 +250,21 @@ its capacity and physical work. Real shared-engine faults still stop the node.
 The partial gate passes 233 Rust cases and twelve commands; transfer
 `.cellar/cell-groups-evidence/CG-04-group-quarantine-final/` (283 source inputs,
 4 executables). Bounded request-driven provisioning is next; CG-04 remains open.
+
+At `69e41e86`, the controller provisions selected initial-member ranges with bounded
+coalesced recovery, retained prepared owners and joined shutdown. Actual commands
+and all-voter joined engine/page-store recovery pass in both image modes. The
+partial gate passes 238 Rust cases and twelve commands; transfer
+`.cellar/cell-groups-evidence/CG-04-local-provisioning-final/` (288 source inputs,
+4 executables). The full scoped CG-04 gate below supplements this incremental
+checkpoint. Production integration and shared RustFS/load remain unqualified.
+
+CG-04 is now DONE at `69e41e86` after all 83 declared cases pass individually and
+the plan runner validates every required command. Transfer
+`.cellar/cell-groups-evidence/CG-04-qualified/` and its supporting evidence
+(98 distinct command records, 288 source inputs). CG-05 complete-group
+snapshots and membership recovery is next. Public SDK/fleet cutover belongs to
+CG-07; complete release qualification still requires CG-16.
 
 The implementation executor should deliver code, updated component contracts and
 the required retained evidence for each task on the active PR. The final handoff

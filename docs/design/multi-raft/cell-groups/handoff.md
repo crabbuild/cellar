@@ -15,7 +15,41 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The newest reviewed source baseline is `41121a7d`, adding retained group quarantine.
+CG-04 is now DONE at `69e41e86` after its complete scoped acceptance gate:
+83 individual exact-case passes, all required commands, and the supporting 238-case
+regression gate. `.cellar/cell-groups-evidence/CG-04-qualified/checkpoint.json`
+retains 98 distinct command records and 288 source hashes. The plan runner
+validates the evidence and now selects CG-05 as the next eligible task. Preserve
+all acceptance cases; the task-boundary audit removed no requirements or checks.
+
+Start CG-05 with complete-group snapshots and verified atomic installation, then
+learner/membership recovery. CG-06 follows with archival reclamation. Automatic
+production request/voter startup and public SDK/fleet binding belong to CG-07;
+effects/cache lifecycle belong to CG-08, and final legacy removal to CG-16. Track
+these remaining capabilities in their owning tasks.
+Shared RustFS, independent-process/power-loss and load remain unqualified.
+
+The following records describe the preceding incremental checkpoints.
+
+The newest reviewed source baseline is `69e41e86`, adding bounded explicit local
+provisioning from already selected initial-member assignments. The controller owns
+birth/bootstrap, blocking root recovery and attachment. Exact directory/group
+requests coalesce; waiter admission is independent from commands. Failed recovered
+owners remain charged and retry without reopening pinned page stores. Joined close
+waits for physical work. Registration refusals preserve healthy groups, while
+shared engine uncertainty remains node-wide. Five new native cases cover both
+image modes, actual application receipts, ownership/capacity refusals, cancelled
+physical close and all-voter joined engine/page-store recovery. A missing selected
+page refuses without reset; restored bytes plus fresh quorum recover the receipt.
+The record `.cellar/cell-groups-evidence/CG-04-local-provisioning-final/checkpoint.json`
+binds 238 Rust cases, twelve commands, 288 source inputs and 4 executables.
+Transfer this ignored evidence with its predecessors. This incremental checkpoint
+preceded the complete CG-04 gate above. Automatic production dispatch/voter
+startup and managed fleet authorization remain in CG-07. Membership recovery,
+public cutover, shared RustFS, independent-process/power-loss and load remain
+unqualified under their later task gates.
+
+The preceding reviewed source baseline is `41121a7d`, adding retained group quarantine.
 Group-local failure revokes admission and runtime execution while retaining group
 capacity, apply tickets and ambiguous producers. Captured leader authority refuses;
 late persistence cannot restore it. Shared engine failures and lost shared SQL
@@ -463,23 +497,23 @@ export PATH="$HOME/.cargo/bin:$PATH"
 export CARGO_TARGET_DIR="$HOME/Workspace/crabbuild-target/cellar-3617-cell-groups"
 python3 docs/design/multi-raft/cell-groups/plan.py validate
 python3 docs/design/multi-raft/cell-groups/plan.py preflight
-python3 docs/design/multi-raft/cell-groups/plan.py show CG-04
+python3 docs/design/multi-raft/cell-groups/plan.py show CG-05
 python3 -m unittest discover -s docs/design/multi-raft/cell-groups -p 'test_*.py'
 ```
 
 Choose a different private target directory for a different checkout. The plan
 runner validates and prints commands; it does not execute Rust tests or provision
-infrastructure. `ready` currently returns no TODO task because CG-04 is already
-IN_PROGRESS and its successors depend on it. Resume CG-04 rather than resetting
-statuses. Global preflight rejects any further unreviewed source drift; record
+infrastructure. `ready` now returns CG-05 because CG-01 through CG-04 have passed
+their scoped gates. Start CG-05 under its declared requirements. Global preflight
+rejects any further unreviewed source drift; record
 a reviewed successor source after reconciling each implementation change.
 
-The three DONE records require their retained evidence directories listed in
+The four DONE records require their retained evidence directories listed in
 [README](README.md). Transfer those artifacts with the source when validating on
 another machine. Missing evidence must refuse; do not replace it with a pass flag
 or reset completed tasks merely to bypass validation.
 
-The latest fully passing partial CG-04 record is
+An earlier passing partial CG-04 record is
 `.cellar/cell-groups-evidence/CG-04-apply-final/checkpoint.json` at `c9100ec7`:
 254 selected Rust cases, fifteen successful commands, 202 source inputs and
 12 copied executables. Transfer the entire directory and its failed predecessor
