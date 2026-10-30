@@ -47,7 +47,6 @@ pub(super) struct LegacySendQuery {
     route: Arc<GroupRoute>,
     peer: RaftPeer,
     call: QueryCall,
-    sequence: u64,
     deadline: u64,
     keys: VersionKeys,
     cancel: watch::Receiver<bool>,
@@ -339,11 +338,6 @@ impl RaftTransport {
         {
             return Err(TransportError::StalePeer);
         }
-        let sequence = state
-            .sequence
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_add(1))
-            .map_err(|_| TransportError::Closed)?
-            + 1;
         let (reply, result) = oneshot::channel();
         let (cancel, cancelled) = watch::channel(false);
         pool.query
@@ -352,7 +346,6 @@ impl RaftTransport {
                 route,
                 peer,
                 call,
-                sequence,
                 deadline,
                 keys,
                 cancel: cancelled,
@@ -776,14 +769,8 @@ impl State {
             &request.peer.label,
             request.route.schema_digest,
         )?;
-        let header = wire::RequestHead::new(route, request.sequence, &body);
         let body = self
-            .exchange_query(
-                connection,
-                &RaftPeerNode::from(&request.peer),
-                &header,
-                body,
-            )
+            .exchange_query(connection, &RaftPeerNode::from(&request.peer), route, body)
             .await?;
         if !self.current_query_route(&request.scope, &request.route, &request.peer) {
             return Err(TransportError::StalePeer);
@@ -805,7 +792,7 @@ impl State {
         &self,
         connection: &mut Option<QueryConnection>,
         peer: &RaftPeerNode,
-        header: &wire::RequestHead,
+        route: QueryRoute,
         body: Vec<u8>,
     ) -> Result<Vec<u8>, TransportError> {
         if connection.is_none() {
@@ -827,7 +814,16 @@ impl State {
             *connection = Some((tls, exporter, owner));
         }
         let (stream, exporter, _owner) = connection.as_mut().ok_or(TransportError::Closed)?;
-        let head = wire::request_head(&self.auth, exporter, header, &body, &self.options)?;
+        // Assign in this peer's single sender, after dequeueing. Allocating at
+        // ingress can enqueue concurrent callers in reverse sequence order and
+        // make the receiver correctly refuse an otherwise valid read as replay.
+        let sequence = self
+            .sequence
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_add(1))
+            .map_err(|_| TransportError::Closed)?
+            + 1;
+        let header = wire::RequestHead::new(route, sequence, &body);
+        let head = wire::request_head(&self.auth, exporter, &header, &body, &self.options)?;
         write_head(stream, &head).await?;
         stream.write_all(&body).await?;
         stream.flush().await?;
@@ -837,7 +833,7 @@ impl State {
             &response,
             &self.auth,
             exporter,
-            header,
+            &header,
             &head.tag,
             &self.options,
         )?;

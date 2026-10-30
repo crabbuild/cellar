@@ -191,6 +191,39 @@ pub(crate) async fn remote_queries() -> Result<()> {
             assert_eq!(response.observation().version.history, *cell);
             assert_eq!(response.observation().version.sequence.get(), 1);
         }
+        // Concurrent ingress shares one FIFO peer lane. Wire sequences must be
+        // assigned by its sender, not racing callers before channel admission.
+        for _ in 0..8 {
+            let barrier = Arc::new(tokio::sync::Barrier::new(2));
+            let mut waiters = Vec::new();
+            for cell in [&a, &b] {
+                let cell = cell.clone();
+                let source = source.clone();
+                let dispatch = dispatch.clone();
+                let class = class.clone();
+                let barrier = barrier.clone();
+                waiters.push(fixture.cluster.domain.spawn(async move {
+                    let mut query = invocation(
+                        &dispatch,
+                        &class,
+                        &cell,
+                        CellQueryConsistency::Stale,
+                        Duration::from_secs(5),
+                        b"",
+                    )
+                    .await?;
+                    barrier.wait().await;
+                    let response = query.execute_remote(&source, leader).await?;
+                    assert_eq!(response.result(), cell.cell.as_str().as_bytes());
+                    assert_eq!(response.observation().version.history, cell);
+                    Ok::<_, anyhow::Error>(())
+                })?);
+            }
+            for waiter in waiters {
+                waiter.await??;
+            }
+        }
+        assert_eq!(source.usage().query_items, 0);
         let before = calls.load(Ordering::SeqCst);
         let mut wrong = invocation(
             &dispatch,

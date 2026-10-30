@@ -79,7 +79,6 @@ pub(super) struct SendCellQuery {
     cell: CellHistory,
     call: CellQueryCall,
     keys: VersionKeys,
-    sequence: u64,
     deadline: u64,
     cancel: watch::Receiver<bool>,
     reply: oneshot::Sender<Result<CellRemoteQueryResponse, TransportError>>,
@@ -214,11 +213,6 @@ impl RaftTransport {
         if !state.current_physical(&view, &peer) {
             return Err(TransportError::StalePeer);
         }
-        let sequence = state
-            .sequence
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_add(1))
-            .map_err(|_| TransportError::Closed)?
-            + 1;
         let (reply, result) = oneshot::channel();
         let (cancel, cancelled) = watch::channel(false);
         let _cancel = Cancel(cancel);
@@ -229,7 +223,6 @@ impl RaftTransport {
                 cell: cell.clone(),
                 call,
                 keys,
-                sequence,
                 deadline,
                 cancel: cancelled,
                 reply,
@@ -326,14 +319,8 @@ impl State {
                         &request.cell,
                         request.route.schema_digest,
                     )?;
-                    let header = wire::RequestHead::new(route, request.sequence, &body);
                     let body = self
-                        .exchange_query(
-                            connection,
-                            &RaftPeerNode::from(&request.peer),
-                            &header,
-                            body,
-                        )
+                        .exchange_query(connection, &RaftPeerNode::from(&request.peer), route, body)
                         .await?;
                     if !self.current_physical(&request.route, &request.peer) {
                         return Err(TransportError::StalePeer);
