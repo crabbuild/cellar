@@ -1056,6 +1056,7 @@ impl Worker {
         scope: S,
     ) -> Result<GroupLog<S>, LogError> {
         Ok(GroupLog {
+            consensus_claimed: Arc::new(AtomicBool::new(false)),
             scratch_directory: self.options.directory.clone(),
             snapshot_scratch: self.snapshot_scratch.clone(),
             filesystem: self.filesystem.clone(),

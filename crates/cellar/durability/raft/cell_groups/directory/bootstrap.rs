@@ -22,6 +22,10 @@ pub struct CellGroupBootstrapPermit {
 }
 
 impl CellGroupBootstrapPermit {
+    pub(crate) fn log(&self) -> &ReplicaLog {
+        &self.log
+    }
+
     pub fn group(&self) -> &GroupLog<GroupHistory> {
         &self.group
     }

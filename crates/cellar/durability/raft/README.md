@@ -14,6 +14,28 @@ under implementation.
 The [technical design](../../../../plans/multi-raft/technical-design.md) defines
 the complete contract.
 
+The replacement [cell-group design](../../../../plans/multi-raft/cell-groups/design.md)
+is under implementation. `verification::cell_groups::CellGroupOwner` now owns one
+real RawNode for a physical group history and consumes a verified complete root
+plus a revalidated initial-member bootstrap permit. It emits persistence,
+transport and ordered application effects; it performs no SQLite I/O or
+per-cell task creation. The existing node log worker syncs each write before
+the owner releases dependent messages or advances the selected group root.
+The exclusive ownership lease remains with queued engine work after cancellation,
+so a replacement owner cannot start while that write is still in flight.
+
+Application completions bind the owner instance, exact entry, preceding root,
+engine and manifest store. A slow cell holds the contiguous apply prefix while
+other entries commit. Bounded backlog applies transport/proposal backpressure;
+already collected Ready/LightReady batches retain room for their largest entry.
+ReadIndex output is a barrier only: serving still requires current authority and
+a coherent cell image after application through that index. The adapter currently
+refuses snapshot/configuration/topology administration until those complete-group
+protocols are connected. Shared scheduling, SQL admission, SDK dispatch and the
+production hard cutover remain required; the existing host still uses its prior
+single-cell owner. See the [implementation status](../../../../plans/multi-raft/cell-groups/progress.md)
+for the exact qualification boundary.
+
 Managed empty hosts expose `RaftCells::inspect_peer_node` under rooted fleet
 trust. It authenticates both physical processes and a requested minimum installed
 trust revision without constructing a cell. Current enrollment state/epoch is

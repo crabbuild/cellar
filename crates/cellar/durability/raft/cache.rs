@@ -100,6 +100,7 @@ pub enum SnapshotChange {
 
 #[derive(Clone)]
 pub struct GroupWrite<S = GroupScope> {
+    pub(crate) consensus_pin: Option<Arc<dyn Send + Sync>>,
     pub group: GroupLog<S>,
     pub entries: Vec<Entry>,
     pub hard_state: Option<HardState>,
@@ -113,6 +114,7 @@ pub struct GroupWrite<S = GroupScope> {
 impl<S: Clone> GroupWrite<S> {
     pub fn new(group: &GroupLog<S>) -> Self {
         Self {
+            consensus_pin: None,
             group: group.clone(),
             entries: Vec::new(),
             hard_state: None,
@@ -169,6 +171,7 @@ impl<S: Clone> GroupWrite<S> {
 /// The engine rejects mixed application domains and never casts between them.
 #[derive(Clone)]
 pub struct GroupLog<S = GroupScope> {
+    pub(crate) consensus_claimed: Arc<AtomicBool>,
     pub(crate) scratch_directory: std::path::PathBuf,
     pub(crate) snapshot_scratch: cellar_ltx::stream_snapshot::ScratchPool,
     pub(crate) filesystem: Arc<dyn cellar_ltx::FileSystem>,

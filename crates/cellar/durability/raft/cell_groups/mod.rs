@@ -6,6 +6,7 @@ mod enrollment;
 mod enrollment_apply;
 mod image_pin;
 mod manifest;
+mod owner;
 mod page_store;
 mod page_wire;
 mod pins;
@@ -31,3 +32,8 @@ pub use enrollment_apply::{EnrollmentApply, EnrollmentApplyError, EnrollmentImag
 pub use image_pin::{cell_image_history_digest, CellImagePin};
 pub(crate) use pins::ManifestPins;
 pub use root::{GroupManifest, PreparedGroupManifest};
+
+pub use owner::{
+    CellGroupApply, CellGroupEffect, CellGroupOwner, CellGroupPersist, CellGroupPersisted,
+    CellGroupProposal, CellGroupStatus, CellGroupTicket,
+};
