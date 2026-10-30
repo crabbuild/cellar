@@ -78,7 +78,23 @@ impl GenerationReceive {
         apply::inspect(&mut self.file, &self.expected, None)?;
         self.file.sync_all()?;
         match self.store.pin_prepared(self.id, self.expected) {
-            Ok(pin) => return Ok(pin),
+            Ok(pin) => {
+                // pin_prepared may reuse an in-memory seal. A transfer must
+                // independently inspect the existing destination as well as
+                // the incoming spool, while the pin prevents reclamation.
+                let mut destination = self
+                    .store
+                    .inner
+                    .filesystem
+                    .open(&self.store.inner.directory.join(final_name(self.id)))?;
+                apply::inspect(&mut destination, &self.expected, None)?;
+                destination.sync_all()?;
+                self.store
+                    .inner
+                    .filesystem
+                    .sync_all(&self.store.inner.directory)?;
+                return Ok(pin);
+            }
             Err(GenerationError::Missing) => {}
             Err(error) => return Err(error),
         }

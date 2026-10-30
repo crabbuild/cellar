@@ -443,6 +443,51 @@ pub(crate) async fn refuse_checkpoint() -> Result<()> {
             assert_eq!(scratch.usage()?.reserved_files, 0);
             assert_eq!(pool.usage().sources, 0);
         }
+        if !rooted {
+            // Keep the existing image seal cached while corrupting only this
+            // disposable, unselected destination. Fresh incoming bytes must not
+            // make the stale cached seal an install proof.
+            let mut source = source_pool.capture(
+                &cluster.voters[0].log.cell_group(&route.history)?,
+                cluster.voters[0].owner.as_ref().unwrap().manifest(),
+            )?;
+            let mut receiver =
+                pool.receive(applier.clone(), scratch()?, cluster._root.path().into())?;
+            source.stream(|chunk| receiver.append(chunk))?;
+            drop(source);
+            let prepared = receiver.finish()?;
+            let (_, CellImagePin::Materialized(pin)) = prepared
+                .manifest()
+                .pin_cell(&CellId::new("alpha")?)
+                .context("alpha image")?
+            else {
+                anyhow::bail!("materialized image required");
+            };
+            drop(prepared);
+            let path = cluster
+                ._root
+                .path()
+                .join("node-3/images")
+                .join(format!("{}.sqlite", hex::encode(pin.id().bytes())));
+            let mut file = std::fs::OpenOptions::new().write(true).open(path)?;
+            std::io::Write::write_all(&mut file, b"corrupt")?;
+            file.sync_all()?;
+            drop(file);
+            let mut source = source_pool.capture(
+                &cluster.voters[0].log.cell_group(&route.history)?,
+                cluster.voters[0].owner.as_ref().unwrap().manifest(),
+            )?;
+            let mut receiver =
+                pool.receive(applier.clone(), scratch()?, cluster._root.path().into())?;
+            assert!(
+                source.stream(|chunk| receiver.append(chunk)).is_err(),
+                "cached destination corruption must refuse transfer"
+            );
+            assert!(receiver.finish().is_err());
+            assert_eq!(group.group_manifest()?.as_ref(), Some(&before));
+            assert_eq!(pool.usage().sources, 0);
+            drop(pin);
+        }
         drop(applier);
         drop(group);
         cluster.close().await?;
