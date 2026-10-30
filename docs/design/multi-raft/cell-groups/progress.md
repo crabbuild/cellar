@@ -2,14 +2,59 @@
 
 # Cell-group implementation progress
 
-The current delivery is the executable design and implementation plan; see the
-[executor handoff](handoff.md) for subsequent implementation and hard cutover.
+The executable design and implementation plan is delivered. The active goal
+continues through end-to-end implementation and hard cutover; see the
+[executor handoff](handoff.md).
 CG-01 through CG-03 have passed their scoped gates;
 CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
-## Plan delivery and unfinished SQL draft
+## CG-04 per-cell SQL producer
+
+Implementation source: `f3d48bdc`; qualified successor:
+`f807b2f70e01e3cd8c741557889e1965fd14ec49`.
+
+The synchronous `CellPrivateExecutor` executes one cell's private SQLite and
+receipt transaction, captures its physical LTX update and encodes the actual
+cell-addressed group entry. Materialized and extent-backed images share the
+existing receipt admission, maintenance and transaction implementation. Physical
+capture no longer requires a synthetic cell-scoped group identity.
+
+The real leader issues an authority pin for the selected cell, route and term.
+Another cell can advance without invalidating that base. Leadership loss, owner
+failure or owner drop revokes the observation; the producer checks again after
+capture. Settlement requires fresh authority, the exact committed entry bytes
+and expected cell image/version. Duplicate receipts come from the selected
+immutable cell image without another callback. An unresolved proposal remains
+busy; closing its writer does not establish a failed proposal outcome.
+
+The two new real-three-voter cases use the same client/sequence in two distinct
+cells, commit B before A, refuse settling A with B's authority, then verify each
+receipt and independent SQLite value on all voters. Both image modes also stop
+the consensus owner while a SQL callback is blocked, then require a typed
+Unavailable refusal and unchanged selected cell version after release.
+
+All 133 selected native cases pass: 13 shared execution, 15 catalog, 15 active
+storage, 21 prior execution, 50 rooted and 19 prior runtime cases. Four ignored
+process helpers are invoked by their parent tests; three explicitly ignored
+RustFS cases were not run. All-target Clippy with warnings denied, formatting
+(1,790 Rust files), layout, native dependency isolation, docs, reviewed source
+preflight and all 37 plan-validator tests pass. The partial record at
+`.cellar/cell-groups-evidence/CG-04-cell-sql/checkpoint.json` binds 173 source inputs,
+eight successful command logs and six copied executables. It retains preliminary
+runs and the initial two-fixture Clippy failure; the successor removes only an
+unnecessary result wrapper and borrow, without changing assertions.
+
+The fixed SQL pool, fair per-cell admission, concurrent initialization,
+registered SDK dispatch and coherent read serving still require integration.
+The producer currently reopens after settlement and conservatively refuses
+exact-entry settlement after compaction; receipt reconciliation, preview
+retention and cache lifecycle must be integrated with the owning host. CG-04
+remains IN_PROGRESS. No full cutover, RustFS drill or performance qualification
+is claimed by this checkpoint.
+
+## Earlier plan delivery and SQL draft handoff
 
 The implementation package contains 16 dependency-ordered tasks, 86 required
 cases, 14 invariants and nine qualification profiles. Each task specifies owning
@@ -17,13 +62,11 @@ paths, implementation steps, acceptance oracles and executable test commands.
 The plan runner prints those commands and checks evidence; it does not execute
 the implementation or provision infrastructure.
 
-The current working tree also contains an unfinished per-cell SQL producer,
+At plan delivery the working tree retained an unfinished per-cell SQL producer,
 leader-issued execution authority, shared receipt helpers and tests for both
-image formats. These are preserved for the next implementation session. They
-are not included in the committed runtime checkpoint below, and the latest
-callback revocation extension has not completed its regression gate. The
-handoff records the affected boundaries and next checks. No task status or
-runtime qualification is advanced by this plan delivery.
+image formats. That draft has since been committed and qualified at the partial
+SQL checkpoint above. The plan delivery itself advanced no task status or
+runtime qualification.
 
 Plan delivery checks pass: package validation, reviewed source preflight, all
 37 validator unit tests and repository documentation validation (113 documents,

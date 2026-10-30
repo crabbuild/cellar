@@ -9,12 +9,11 @@ The production host has not yet cut over to shared groups.
 See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.
 
-The requested deliverable is the executable design and implementation plan.
-End-to-end implementation and hard cutover are the executor's target, with
-separate task and release gates. See the [executor handoff](handoff.md) for the
-starting revision, shared-node runtime checkpoint, unfinished working-tree draft,
-reviewed main integration and commands. Plan delivery or an intermediate task
-gate does not qualify the complete shared-group runtime.
+The executable design and implementation plan has been delivered. The active
+implementation goal continues through the end-to-end hard cutover, with separate
+task and release gates. See the [executor handoff](handoff.md) for the current
+source, qualification boundary, reviewed main integration and commands. Plan
+delivery or an intermediate task gate does not qualify the complete runtime.
 
 This package implements the direction selected in the
 [density decision](../density-decision.md). The target is TiKV-style partitioned
@@ -94,8 +93,9 @@ directory along with the earlier DONE-task evidence to the implementation
 executor. CG-04 now retains creation identity with the selected image and
 prepares ordered enrollment and exact retries. Its physical group owner consumes
 the catalog startup permit and verified selected image/manifest closure, and
-obtains current-term quorum before protocol admission. The shared node scheduler now multiplexes these physical owners. Per-cell SQL
-execution, receipt settlement and serving integration remain required. Managed
+obtains current-term quorum before protocol admission. The shared node scheduler now multiplexes these physical owners. The per-cell SQL
+producer and exact receipts now pass their partial regression gate. Fixed-pool
+SQL ownership, fair admission and SDK serving integration remain required. Managed
 fleet integration remains required by CG-07. A birth
 metadata observation alone cannot authorize voter startup.
 
