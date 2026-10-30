@@ -10,6 +10,58 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 nonmember read discovery
+
+Qualified source: `c25f0d97d5c98c6111ea2165b38a11a08613c0ca`.
+
+`RaftTransport::install_cell_query_group` installs explicit trusted discovery for
+physical groups absent from the router. It creates no local group storage,
+RawNode, voting identity or mutation permission. The shared query path uses that
+view or an attached group's view; destination namespace grants, live membership,
+catalog binding and actual read authority are still required. Removing discovery
+invalidates captured routes and retires unused peer pools; it does not revoke the
+destination's independently managed read grant.
+
+Read-only routes share the node's route cap, endpoint consistency checks and peer
+pools with consensus and other queries. They participate in process-view refresh
+and router-route resource accounting. Route revisions cannot move backwards or
+change schema, and existing member identities cannot silently change node/disk.
+The sender revalidates captured route identity before sending and after receiving;
+a late authenticated reply under a replaced route cannot become a success.
+
+Three new native cases run both materialized and extent images over four real TLS
+endpoints in one OS process. The fourth node has no stored cell groups or attached
+Raft owner before or after reads. Discovery alone, a foreign-namespace grant and a
+wrong-process grant refuse before SQL. Explicit permission permits leader strong
+reads and follower stale/AtLeast reads. The current strong-read contract refuses
+a follower; the test verifies that retrying the leader preserves the original
+invocation deadline and attempt budget. Discovery shares three physical pools
+across multiple routes and enforces its configured capacity.
+
+Revocation while a callback is held ends the remote read waiter and drains
+transport reservations while physical SQL remains owned. A stale grant revision
+cannot reopen admission; a newer explicit grant permits a fresh read after cleanup.
+Replacing discovery while SQL is held refuses the old reply and permits a fresh
+attempt. Neither mechanism grants consensus authority or creates a router replica.
+
+All 198 selected Rust cases and eleven gate commands pass, including all-target
+Clippy, formatting, layout, native dependency isolation, docs, source preflight and
+37 plan-validator cases. The source-bound record at
+`.cellar/cell-groups-evidence/CG-04-nonmember-queries/checkpoint.json` contains 262
+source inputs and 4 copied executables. Transfer that complete directory with
+prior checkpoints. Diagnostic targeted runs are retained separately: the first
+used a local-only default Raft message before the intended absent-group assertion;
+the fixture now sends a valid heartbeat. The next assumed follower strong reads;
+the corrected fixture asserts the refusal and preserved-budget leader retry.
+
+CG-04 remains IN_PROGRESS. Discovery is explicitly installed by a trusted caller;
+public-host automatic discovery and SDK binding are still missing. The destination
+still resolves the catalog per RPC: bounded, correctly invalidated routing state
+is the next cost/latency opportunity. Write-authorized command/enrollment RPC and
+safe receipt lookup, lazy birth/dynamic roster, per-group failure isolation and
+configuration/cache lifecycle remain. Complete-group snapshots, shared RustFS
+recovery, independent-process failures, power loss and load remain unqualified.
+
 ## CG-04 shared query RPC
 
 Qualified source: `da79a69604d58be1c7d9663ebb69c3f6ded173f6`.

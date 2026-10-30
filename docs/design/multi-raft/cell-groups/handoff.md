@@ -15,7 +15,19 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The newest reviewed source baseline is `da79a696`, adding attached-peer shared
+The newest reviewed source baseline is `c25f0d97`, adding explicit nonmember
+read discovery on the shared query lane. Discovery allocates no local replica or
+voting identity; namespace/process grants remain independent. New TLS fixtures
+cover both image modes, foreign/missing grants, original-budget leader retries,
+held-SQL revocation, stale grant revisions, late replies under replaced discovery,
+route/peer bounds and cleanup. The record is
+`.cellar/cell-groups-evidence/CG-04-nonmember-queries/checkpoint.json`: 198 Rust cases,
+eleven commands, 262 source inputs and 4 executables. Transfer this directory
+with prior evidence. CG-04 remains IN_PROGRESS. Next address bounded destination
+routing-cache integration, write-authorized mutation/enrollment RPC and safe
+receipt lookup. Public-host automatic discovery and SDK binding, dynamic roster,
+per-group failure isolation and RustFS/load qualification remain incomplete.
+The preceding reviewed source baseline is `da79a696`, adding attached-peer shared
 query RPC on the existing TLS lane. Physical group and logical cell identity,
 route epoch/birth, actual read authority and signed cell observations remain bound.
 Host-owned weak gateway registration checks engine/domain owners; replies retain
@@ -444,8 +456,9 @@ Do not let plan maintenance replace implementation.
    attached group in a fixed roster: integrate lazy birth and dynamic registration.
    Attached-peer shared reads now reuse the separate query connection with
    physical group/logical cell binding and host-owned gateway registration.
-   Complete nonmember shared discovery and real-TLS namespace-grant revocation
-   qualification. Replace the gateway's per-RPC catalog lookup with bounded,
+   Explicit nonmember shared discovery and real-TLS grant revocation now pass
+   scoped tests; public-host automatic discovery/SDK binding remain pending.
+   Replace the gateway's per-RPC catalog lookup with bounded,
    correctly invalidated routing state before claiming steady-state performance.
    Keep query-origin grants read-only; command/enrollment RPC needs explicit write
    authorization, response-independent producers and safe remote receipt lookup.

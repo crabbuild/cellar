@@ -506,7 +506,9 @@
         "crates/cellar/tests/support/cell_group_controller_enrollment.rs",
         "crates/cellar/durability/raft/query_cell_transport.rs",
         "crates/cellar/durability/raft/query_cell_wire.rs",
-        "crates/cellar/tests/support/cell_group_remote_queries.rs"
+        "crates/cellar/tests/support/cell_group_remote_queries.rs",
+        "crates/cellar/durability/raft/query_cell_discovery.rs",
+        "crates/cellar/tests/support/cell_group_query_origins.rs"
       ],
       "test_target": "native_cell_groups_execution",
       "steps": [
@@ -636,6 +638,14 @@
             "shared_remote_queries_bind_cell_versions_and_gateway_owners",
             "shared_remote_queries_retain_cancelled_sql_until_join",
             "shared_remote_queries_retain_expired_sql_until_join"
+          ]
+        },
+        {
+          "action": "Install bounded physical read discovery for nonmember routers without creating a local group or borrowing voting authority. Include it in shared peer-pool lifetime, endpoint consistency, node-process refresh and route admission/observability. Revalidate captured route identity before sending and after receiving. Destination namespace grants remain independently authenticated, revocable and strictly read-only. Qualify absent, foreign-namespace and wrong-process grants and held-callback revocation over real TLS, preserving physical SQL ownership. Integrate trusted discovery publication and selection into the public host in CG-07; this API does not authorize automatic membership or mutation RPC.",
+          "tests": [
+            "shared_nonmember_queries_require_grants_without_local_replicas",
+            "shared_nonmember_query_revocation_retains_physical_sql",
+            "shared_nonmember_query_route_replacement_refuses_stale_reply"
           ]
         }
       ],
@@ -1187,6 +1197,33 @@
         {
           "name": "shared_remote_queries_retain_expired_sql_until_join",
           "oracle": "Expire the original remote-query deadline while SQL is held, in both image modes. Node/peer query admission drains while the SQL owner remains retained. Raft control progress continues and cancelled shutdown waits for physical cleanup. Dropping the final host gateway registration while the original callback is held refuses new reads before any additional callback; in-flight data retention cannot extend admission.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_nonmember_queries_require_grants_without_local_replicas",
+          "oracle": "A fourth real TLS endpoint queries two cells in both image modes without local group storage or a RawNode. Discovery alone and wrong-namespace/process grants refuse before SQL. Explicit grants permit leader strong reads and follower stale/AtLeast reads with authenticated logical observations. A strong attempt at a follower refuses before SQL; retrying the leader preserves the original deadline and total attempt budget. Consensus submission remains refused. Read discovery shares route/peer limits, rejects conflicting endpoints and stale revisions, and releases unused pools on removal.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_nonmember_query_revocation_retains_physical_sql",
+          "oracle": "Revoke the nonmember namespace grant while its remote SQL callback is physically held, in both image modes. The waiter refuses and transport reservations drain while physical SQL remains owned. Stale grant revision cannot reopen admission and new requests cannot enter SQL. A newer explicit grant permits reads after physical cleanup; no local replica appears.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_nonmember_query_route_replacement_refuses_stale_reply",
+          "oracle": "Replace the router discovery revision while remote SQL is held, in both image modes. The complete authenticated reply under the captured old route is refused as stale. A new attempt under the replacement succeeds, without leaking invocation/transport ownership or creating a router replica.",
           "invariants": [
             "I01",
             "I05",

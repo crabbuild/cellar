@@ -194,6 +194,15 @@ bound. The partial gate passes 195 Rust cases and eleven commands; transfer
 RPC and public SDK cutover remain gaps. See [progress](progress.md); CG-04 remains
 IN_PROGRESS and no shared-group RustFS/load qualification is claimed.
 
+At `c25f0d97`, explicit nonmember read discovery uses that same query lane without
+local group storage or voting identity. Four-endpoint TLS fixtures cover read
+permission/process binding, revocation during held SQL, stale discovery replies,
+route bounds and cleanup in both image modes. The partial gate passes 198 Rust
+cases and eleven commands; transfer
+`.cellar/cell-groups-evidence/CG-04-nonmember-queries/` (262 source inputs,
+4 executables). Bounded destination caching, write-authorized RPC and public-host
+automatic discovery/SDK binding remain open. CG-04 remains IN_PROGRESS.
+
 The implementation executor should deliver code, updated component contracts and
 the required retained evidence for each task on the active PR. The final handoff
 requires CG-16 and the release gate, including the real RustFS and independent

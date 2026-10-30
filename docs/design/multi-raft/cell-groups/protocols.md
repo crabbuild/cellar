@@ -111,8 +111,16 @@ through physical cleanup after disconnect, timeout or cancelled shutdown.
 The current shared gateway resolves the destination catalog route for each RPC.
 Bounded routing-cache integration remains a CG-04 performance requirement; this
 intermediate behavior does not establish steady-state request cost or latency.
-Attached-group peer reads are implemented; nonmember shared discovery and
-write-authorized command/enrollment RPC remain separate integration work.
+Attached-peer and explicitly discovered nonmember reads share the same query
+lane. Nonmember discovery creates no local replica and grants no voting or write
+authority. It consumes the same bounded route/peer registries, participates in
+node-process refresh and endpoint consistency, and releases unused pools when
+removed. A replaced discovery view refuses captured requests and late replies;
+removal does not revoke the destination's independently managed namespace grant.
+Grant revocation cancels read waiters without releasing physically entered SQL.
+The public host must supply trusted discovery and explicit permissions; automatic
+discovery/SDK binding and write-authorized command/enrollment RPC remain separate
+integration work.
 
 ## Apply, checkpoint and archive
 
