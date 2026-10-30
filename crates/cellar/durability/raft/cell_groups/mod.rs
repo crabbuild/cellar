@@ -9,6 +9,8 @@ pub use super::host_sql::cell_groups::{
     CellSqlUsage,
 };
 
+pub use crate::raft::transport::{CellQueryGateway, CellRemoteQueryResponse};
+
 mod apply;
 mod controller;
 pub use controller::{

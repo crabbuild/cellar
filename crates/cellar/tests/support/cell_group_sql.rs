@@ -544,3 +544,7 @@ mod controller_enrollment;
 pub(crate) use controller_enrollment::{
     enrollment_requires_registration, owned_enrollment, owned_enrollment_failure,
 };
+
+#[path = "cell_group_remote_queries.rs"]
+mod remote_queries;
+pub(crate) use remote_queries::{remote_queries, remote_query_lifecycle};

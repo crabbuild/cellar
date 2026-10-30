@@ -1460,3 +1460,18 @@ async fn controller_enrollment_joins_lost_worker_reply() -> Result<()> {
 async fn controller_enrollment_requires_registered_initializer() -> Result<()> {
     Box::pin(runtime_fixture::enrollment_requires_registration()).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_remote_queries_bind_cell_versions_and_gateway_owners() -> Result<()> {
+    Box::pin(runtime_fixture::remote_queries()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_remote_queries_retain_cancelled_sql_until_join() -> Result<()> {
+    Box::pin(runtime_fixture::remote_query_lifecycle(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_remote_queries_retain_expired_sql_until_join() -> Result<()> {
+    Box::pin(runtime_fixture::remote_query_lifecycle(true)).await
+}

@@ -705,3 +705,5 @@ pub(super) async fn commands_over_tcp(rooted: bool) -> Result<()> {
 pub(super) use sql::{
     enrollment_requires_registration, owned_enrollment, owned_enrollment_failure,
 };
+
+pub(super) use sql::{remote_queries, remote_query_lifecycle};

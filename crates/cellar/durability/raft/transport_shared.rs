@@ -20,7 +20,7 @@ pub(super) enum SendRoute {
     },
 }
 
-fn permitted(
+pub(super) fn permitted(
     group: &GroupLog<GroupHistory>,
     peers: &[&ReplicaIdentity<GroupHistory>],
 ) -> Result<(), TransportError> {

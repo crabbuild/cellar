@@ -40,6 +40,7 @@ pub enum CellQueryConsistency {
     Linearizable,
 }
 
+#[derive(Clone)]
 pub struct CellQueryRequest {
     pub invocation: ProposalId,
     pub contract: OperationContract,
@@ -55,6 +56,7 @@ pub enum CellDispatchError {
     Runtime(RuntimeError),
     Execution(ExecutionError),
     Version(VersionError),
+    Transport(crate::raft::transport::TransportError),
 }
 
 impl fmt::Display for CellDispatchError {
@@ -78,6 +80,20 @@ pub struct CellGroupDispatcher {
 }
 
 impl CellGroupDispatcher {
+    pub(crate) fn uses_domain(&self, domain: &DomainToken) -> bool {
+        self.domain.same_owner(domain)
+    }
+
+    pub(crate) fn namespace(
+        &self,
+    ) -> (
+        cellar_logic::consensus::ClusterId,
+        cellar_logic::consensus::NamespaceId,
+    ) {
+        let config = self.directory.namespace_config();
+        (config.cluster, config.namespace)
+    }
+
     pub fn new(
         domain: &ExecutionDomain,
         directory: RangeDirectory,
@@ -271,6 +287,91 @@ impl CellQueryInvocation {
             }
             _ = timer => Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
         }
+    }
+
+    /// One remote attempt over the node's existing bounded peer query lane.
+    /// The response owns its transport reservation until the caller drops it.
+    pub async fn execute_remote(
+        &mut self,
+        transport: &crate::raft::transport::RaftTransport,
+        member: cellar_logic::consensus::MemberId,
+    ) -> Result<crate::raft::transport::CellRemoteQueryResponse, CellDispatchError> {
+        let attempt = self
+            .attempt
+            .as_ref()
+            .ok_or(CellDispatchError::Invalid("missing route"))?;
+        self.session
+            .validate_attempt(attempt)
+            .map_err(CellDispatchError::Routing)?;
+        if self.dispatched {
+            return Err(CellDispatchError::Invalid("consumed route attempt"));
+        }
+        self.dispatched = true;
+        if !transport.uses_query_domain(&self.dispatcher.domain) {
+            return Err(CellDispatchError::Invalid("foreign query domain"));
+        }
+        let now = self.dispatcher.domain.mono_ms().map_err(|_| closed())?;
+        let timeout_ms = attempt
+            .deadline_ms()
+            .checked_sub(now)
+            .filter(|ms| *ms > 0)
+            .ok_or(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded))?;
+        let call = crate::raft::query_wire::cell::CellQueryCall {
+            request: self.request.clone(),
+            timeout_ms,
+            route_epoch: attempt.route().epoch.get(),
+            birth_digest: attempt.route().birth_digest,
+        };
+        let timer = self
+            .dispatcher
+            .domain
+            .sleep_until(attempt.deadline_ms())
+            .map_err(|_| closed())?;
+        let response = crate::asyncrt::select! {
+            response = transport.query_cell(attempt.route(), &attempt.request().cell, member, call, self.dispatcher.keys.clone(), attempt.deadline_ms()) => response.map_err(CellDispatchError::Transport)?,
+            _ = timer => return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
+        };
+        self.session
+            .validate_attempt(attempt)
+            .map_err(CellDispatchError::Routing)?;
+        // Authenticate again at the caller boundary, then enforce the requested
+        // minimum independently from the destination's execution path.
+        let observation = self
+            .dispatcher
+            .keys
+            .verify_cell(
+                response.token(),
+                &attempt.request().cell,
+                attempt.route().schema_digest,
+                self.now().await?,
+            )
+            .map_err(CellDispatchError::Version)?;
+        if observation != *response.observation() {
+            return Err(CellDispatchError::Invalid("query observation"));
+        }
+        if let CellQueryConsistency::AtLeast(token) = &self.request.consistency {
+            let minimum = self
+                .dispatcher
+                .keys
+                .verify_cell(
+                    token,
+                    &attempt.request().cell,
+                    attempt.route().schema_digest,
+                    self.now().await?,
+                )
+                .map_err(CellDispatchError::Version)?;
+            if !observation
+                .version
+                .covers(&minimum.version)
+                .map_err(|_| CellDispatchError::Version(VersionError::WrongHistory))?
+            {
+                return Err(CellDispatchError::Runtime(RuntimeError::NotReady));
+            }
+        }
+        self.session
+            .validate_attempt(attempt)
+            .map_err(CellDispatchError::Routing)?;
+        Ok(response)
     }
 
     async fn execute_at(

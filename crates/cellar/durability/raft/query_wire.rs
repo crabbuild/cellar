@@ -17,6 +17,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::time::Duration;
 
+#[path = "query_cell_wire.rs"]
+pub(super) mod cell;
+
 pub(super) const EXPORT_LABEL: &[u8] = b"EXPORTER-cellar-raft-query-1";
 const REQUEST: &[u8] = b"cellar-raft-query-request-1";
 const RESPONSE: &[u8] = b"cellar-raft-query-response-1";
@@ -144,16 +147,7 @@ pub(super) fn encode_result(
             body.extend_from_slice(&length.to_be_bytes());
             body.extend_from_slice(&result.result);
         }
-        Err(failure) => body.push(match failure {
-            CommandFailure::VersionUnavailable => 1,
-            CommandFailure::WrongIncarnation => 2,
-            CommandFailure::UnsupportedCapability => 3,
-            CommandFailure::UnsupportedConsistency => 4,
-            CommandFailure::Overloaded => 5,
-            CommandFailure::CorruptState => 6,
-            CommandFailure::StorageFull => 8,
-            _ => 7,
-        }),
+        Err(failure) => body.push(failure_code(failure)),
     }
     if body.len() > limit {
         return Err(TransportError::Limit);
@@ -192,20 +186,39 @@ pub(super) fn decode_result(
                 served_by,
             })
         }
-        1 => Err(CommandFailure::VersionUnavailable),
-        2 => Err(CommandFailure::WrongIncarnation),
-        3 => Err(CommandFailure::UnsupportedCapability),
-        4 => Err(CommandFailure::UnsupportedConsistency),
-        5 => Err(CommandFailure::Overloaded),
-        6 => Err(CommandFailure::CorruptState),
-        7 => Err(CommandFailure::Unavailable),
-        8 => Err(CommandFailure::StorageFull),
-        _ => return Err(TransportError::Protocol),
+        status => Err(decode_failure(status)?),
     };
     if !body.0.is_empty() {
         return Err(TransportError::Protocol);
     }
     Ok(result)
+}
+
+fn failure_code(failure: &CommandFailure) -> u8 {
+    match failure {
+        CommandFailure::VersionUnavailable => 1,
+        CommandFailure::WrongIncarnation => 2,
+        CommandFailure::UnsupportedCapability => 3,
+        CommandFailure::UnsupportedConsistency => 4,
+        CommandFailure::Overloaded => 5,
+        CommandFailure::CorruptState => 6,
+        CommandFailure::StorageFull => 8,
+        _ => 7,
+    }
+}
+
+fn decode_failure(status: u8) -> Result<CommandFailure, TransportError> {
+    Ok(match status {
+        1 => CommandFailure::VersionUnavailable,
+        2 => CommandFailure::WrongIncarnation,
+        3 => CommandFailure::UnsupportedCapability,
+        4 => CommandFailure::UnsupportedConsistency,
+        5 => CommandFailure::Overloaded,
+        6 => CommandFailure::CorruptState,
+        7 => CommandFailure::Unavailable,
+        8 => CommandFailure::StorageFull,
+        _ => return Err(TransportError::Protocol),
+    })
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -261,7 +274,7 @@ pub(super) fn request_head(
     options: &TransportOptions,
 ) -> Result<FrameHead, TransportError> {
     request.sequence()?;
-    request.route.decode()?;
+    request.route.validate()?;
     request.verify_body(body)?;
     make_head(
         auth,
@@ -284,7 +297,7 @@ pub(super) fn read_request(
     let request: RequestHead =
         serde_json::from_slice(&head.header).map_err(|_| TransportError::Protocol)?;
     request.sequence()?;
-    request.route.decode()?;
+    request.route.validate()?;
     if serde_json::to_vec(&request).map_err(|_| TransportError::Protocol)? != head.header {
         return Err(TransportError::Protocol);
     }

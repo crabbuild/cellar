@@ -5,8 +5,10 @@
 
 use super::transport::TransportError;
 use crate::application::consensus::protocol::WireScope;
+use cellar_logic::cell_group::{CellHistory, CellId, GroupHistory};
 use cellar_logic::consensus::{
-    DiskLineage, MemberId, NodeId, NodeIdentity, ProcessGeneration, ReplicaIdentity,
+    ClusterId, DiskLineage, GroupId, IncarnationId, MemberId, NamespaceId, NodeId, NodeIdentity,
+    ProcessGeneration, ReplicaIdentity,
 };
 use serde::{Deserialize, Serialize};
 
@@ -41,10 +43,22 @@ impl Endpoint {
     }
 }
 
+// Marker-1 hard cutover: no reader for the former untagged query history.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "identity", deny_unknown_fields)]
+enum History {
+    Cell(WireScope),
+    Shared {
+        group: [[u8; 16]; 4],
+        cell: String,
+        incarnation: [u8; 16],
+    },
+}
+
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct QueryRoute {
-    scope: WireScope,
+    scope: History,
     schema: [u8; 32],
     source: Endpoint,
     target: Endpoint,
@@ -59,7 +73,7 @@ impl QueryRoute {
         schema: [u8; 32],
     ) -> Result<Self, TransportError> {
         let route = Self {
-            scope: WireScope::from(&target.scope),
+            scope: History::Cell(WireScope::from(&target.scope)),
             schema,
             source: Endpoint::new(source, source_label, None),
             target: Endpoint::new(target.node_identity(), target_label, Some(target.member)),
@@ -71,15 +85,21 @@ impl QueryRoute {
     /// Request orientation only. A reversed response route is compared with
     /// the exact outstanding request; it cannot decode as another request.
     pub fn decode(&self) -> Result<(NodeIdentity, ReplicaIdentity), TransportError> {
-        if self.source.member.is_some() {
+        let History::Cell(scope) = &self.scope else {
             return Err(TransportError::Identity);
-        }
-        let scope = self
-            .scope
+        };
+        let scope = scope
             .clone()
             .decode()
             .map_err(|_| TransportError::Identity)?;
         scope.validate().map_err(|_| TransportError::Identity)?;
+        self.endpoints(scope)
+    }
+
+    fn endpoints<S>(&self, scope: S) -> Result<(NodeIdentity, ReplicaIdentity<S>), TransportError> {
+        if self.source.member.is_some() || self.schema == [0; 32] {
+            return Err(TransportError::Identity);
+        }
         let member = self
             .target
             .member
@@ -102,6 +122,82 @@ impl QueryRoute {
                 member: MemberId::new(id).map_err(|_| TransportError::Identity)?,
             },
         ))
+    }
+
+    pub fn new_shared(
+        source: NodeIdentity,
+        source_label: &str,
+        target: &ReplicaIdentity<GroupHistory>,
+        target_label: &str,
+        cell: &CellHistory,
+        schema: [u8; 32],
+    ) -> Result<Self, TransportError> {
+        if !target.scope.same_namespace(cell) {
+            return Err(TransportError::Identity);
+        }
+        let g = target.scope;
+        let route = Self {
+            scope: History::Shared {
+                group: [
+                    g.cluster.bytes(),
+                    g.namespace.bytes(),
+                    g.group.bytes(),
+                    g.incarnation.bytes(),
+                ],
+                cell: cell.cell.as_str().into(),
+                incarnation: cell.incarnation.bytes(),
+            },
+            schema,
+            source: Endpoint::new(source, source_label, None),
+            target: Endpoint::new(target.node_identity(), target_label, Some(target.member)),
+        };
+        route.decode_shared()?;
+        Ok(route)
+    }
+
+    pub fn decode_shared(
+        &self,
+    ) -> Result<(NodeIdentity, ReplicaIdentity<GroupHistory>, CellHistory), TransportError> {
+        let History::Shared {
+            group,
+            cell,
+            incarnation,
+        } = &self.scope
+        else {
+            return Err(TransportError::Identity);
+        };
+        let scope = GroupHistory {
+            cluster: ClusterId::new(group[0]).map_err(|_| TransportError::Identity)?,
+            namespace: NamespaceId::new(group[1]).map_err(|_| TransportError::Identity)?,
+            group: GroupId::new(group[2]).map_err(|_| TransportError::Identity)?,
+            incarnation: IncarnationId::new(group[3]).map_err(|_| TransportError::Identity)?,
+        };
+        let cell = CellHistory {
+            cluster: scope.cluster,
+            namespace: scope.namespace,
+            cell: CellId::new(cell).map_err(|_| TransportError::Identity)?,
+            incarnation: IncarnationId::new(*incarnation).map_err(|_| TransportError::Identity)?,
+        };
+        let (source, target) = self.endpoints(scope)?;
+        Ok((source, target, cell))
+    }
+
+    pub fn is_shared(&self) -> bool {
+        matches!(self.scope, History::Shared { .. })
+    }
+
+    pub fn validate(&self) -> Result<(), TransportError> {
+        if self.is_shared() {
+            self.decode_shared()?;
+        } else {
+            self.decode()?;
+        }
+        Ok(())
+    }
+
+    pub fn source(&self) -> Result<NodeIdentity, TransportError> {
+        self.validate()?;
+        self.source.identity()
     }
 
     pub fn schema(&self) -> [u8; 32] {

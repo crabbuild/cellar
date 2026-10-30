@@ -35,6 +35,8 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot, watch, Notify, Semaphore};
 
+#[path = "query_cell_transport.rs"]
+mod cell_queries;
 #[path = "transport_control_send.rs"]
 mod control_sender;
 #[path = "transport_directory.rs"]
@@ -55,6 +57,7 @@ mod metrics;
 pub(crate) mod node_inspections;
 #[path = "query_transport.rs"]
 mod queries;
+pub use cell_queries::{CellQueryGateway, CellRemoteQueryResponse};
 #[path = "transport_resources.rs"]
 mod resources;
 #[path = "transport_send.rs"]
@@ -78,6 +81,7 @@ pub enum TransportError {
     Tls(String),
     Runtime(RuntimeError),
     Authentication,
+    Query(cellar_logic::consensus::CommandFailure),
     Protocol,
     Identity,
     Replay,
@@ -328,6 +332,8 @@ struct State {
     local_control: SocketAddr,
     local_data: SocketAddr,
     local_query: SocketAddr,
+    cell_query_gateways:
+        Mutex<BTreeMap<(ClusterId, NamespaceId), std::sync::Weak<cell_queries::Gateway>>>,
     query_gateway: Mutex<Option<std::sync::Weak<crate::application::consensus::client::Handle>>>,
     registry: Mutex<Registry>,
     outgoing: Banks,
@@ -487,6 +493,7 @@ impl RaftTransport {
             local_data,
             local_query,
             query_gateway: Mutex::new(None),
+            cell_query_gateways: Mutex::new(BTreeMap::new()),
             registry: Mutex::new(Registry {
                 closed: false,
                 tasks: 0,
@@ -1024,6 +1031,9 @@ impl State {
         self.stop.send_replace(true);
         if let Ok(mut gateway) = self.query_gateway.lock() {
             gateway.take();
+        }
+        if let Ok(mut gateways) = self.cell_query_gateways.lock() {
+            gateways.clear();
         }
         if finished {
             if let Ok(mut claim) = self.claim.lock() {

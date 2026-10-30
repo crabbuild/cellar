@@ -353,3 +353,281 @@ fn query_wire_failures_remain_typed() {
         .is_err());
     }
 }
+
+fn cell_observation() -> crate::raft::version::CellVersionObservation {
+    use cellar_logic::cell_group::*;
+    crate::raft::version::CellVersionObservation {
+        version: CellVersion {
+            history: CellHistory::try_from(&identity(1).scope).unwrap(),
+            sequence: MutationSequence::new(7).unwrap(),
+            image: CellImage {
+                epoch: 1,
+                txid: 10,
+                checksum: 17,
+                commitment: CellImageCommitment::Materialized([8; 32]),
+            },
+        },
+        witness: CommitWitness {
+            group: GroupHistory::from(&identity(1).scope),
+            position: LogPosition {
+                index: LogIndex::new(100),
+                term: Term::new(9),
+            },
+            proposal: ProposalId::new([6; 16]).unwrap(),
+        },
+    }
+}
+
+fn cell_call(consistency: crate::raft::cell_groups::CellQueryConsistency) -> cell::CellQueryCall {
+    cell::CellQueryCall {
+        request: crate::raft::cell_groups::CellQueryRequest {
+            invocation: ProposalId::new([91; 16]).unwrap(),
+            contract: call(QueryConsistency::Stale).contract,
+            input: vec![1, 2, 3],
+            consistency,
+        },
+        timeout_ms: 700,
+        route_epoch: 3,
+        birth_digest: [92; 32],
+    }
+}
+
+#[test]
+fn shared_query_wire_preserves_cell_constraints_and_refuses_other_payloads() {
+    use crate::raft::cell_groups::CellQueryConsistency;
+    let token = keys()
+        .issue_cell(&cell_observation(), [9; 32], 1000)
+        .unwrap();
+    for consistency in [
+        CellQueryConsistency::Stale,
+        CellQueryConsistency::Linearizable,
+        CellQueryConsistency::AtLeast(token),
+    ] {
+        let call = cell_call(consistency);
+        let bytes = call.encode(4096).unwrap();
+        let decoded = cell::CellQueryCall::decode(&bytes, 4096).unwrap();
+        assert_eq!(decoded.encode(4096).unwrap(), bytes);
+        assert_eq!(decoded.request.invocation, call.request.invocation);
+        assert_eq!(decoded.request.contract, call.request.contract);
+        assert_eq!(decoded.request.input, call.request.input);
+        assert_eq!(decoded.timeout_ms, 700);
+        assert_eq!(decoded.route_epoch, 3);
+        assert_eq!(decoded.birth_digest, [92; 32]);
+        for end in 0..bytes.len() {
+            assert!(cell::CellQueryCall::decode(&bytes[..end], 4096).is_err());
+        }
+        assert!(QueryCall::decode(&bytes, 4096).is_err());
+        let mut trailing = bytes.clone();
+        trailing.push(0);
+        assert!(cell::CellQueryCall::decode(&trailing, 4096).is_err());
+        assert!(cell::CellQueryCall::decode(&bytes, bytes.len() - 1).is_err());
+    }
+    assert!(cell::CellQueryCall::decode(
+        &call(QueryConsistency::Stale).encode(4096).unwrap(),
+        4096
+    )
+    .is_err());
+    let mut call = cell_call(CellQueryConsistency::Stale);
+    call.request.contract.kind = OperationKind::Command;
+    assert!(call.encode(4096).is_err());
+    call.request.contract.kind = OperationKind::Query;
+    call.timeout_ms = 0;
+    assert!(call.encode(4096).is_err());
+    call.timeout_ms = 700;
+    call.route_epoch = 0;
+    assert!(call.encode(4096).is_err());
+    call.route_epoch = 3;
+    call.birth_digest = [0; 32];
+    assert!(call.encode(4096).is_err());
+}
+
+#[test]
+fn shared_query_route_binds_physical_group_logical_cell_and_process() {
+    use crate::raft::cell_groups::CellQueryConsistency;
+    use cellar_logic::cell_group::{CellId, GroupHistory};
+    let old = identity(2);
+    let target = ReplicaIdentity {
+        scope: GroupHistory::from(&old.scope),
+        node: old.node,
+        disk: old.disk,
+        process: old.process,
+        member: old.member,
+    };
+    let cell = cell_observation().version.history;
+    let source = identity(1).node_identity();
+    let route = Route::new_shared(source, "node-1", &target, "node-2", &cell, [9; 32]).unwrap();
+    assert_eq!(
+        route.decode_shared().unwrap(),
+        (source, target.clone(), cell.clone())
+    );
+    assert!(route.decode().is_err());
+    assert!(route.reversed().decode_shared().is_err());
+    assert!(Route::new(source, "node-1", &old, "node-2", [9; 32])
+        .unwrap()
+        .decode_shared()
+        .is_err());
+    let value = serde_json::to_value(&route).unwrap();
+    assert!(value["source"]["member"].is_null());
+    assert!(serde_json::from_value::<crate::raft::transport_frame::Route>(value.clone()).is_err());
+    for path in [
+        ["source", "node"],
+        ["source", "disk"],
+        ["source", "process"],
+        ["target", "node"],
+        ["target", "disk"],
+        ["target", "process"],
+    ] {
+        let mut changed = value.clone();
+        changed[path[0]][path[1]] = serde_json::to_value([0u8; 16]).unwrap();
+        assert!(serde_json::from_value::<Route>(changed)
+            .unwrap()
+            .decode_shared()
+            .is_err());
+    }
+    let mut changed = value.clone();
+    changed["source"]["member"] = serde_json::json!("1");
+    assert!(serde_json::from_value::<Route>(changed)
+        .unwrap()
+        .decode_shared()
+        .is_err());
+    let mut changed = value.clone();
+    changed["scope"]["identity"]["cell"] = serde_json::json!("bad\ncell");
+    assert!(serde_json::from_value::<Route>(changed)
+        .unwrap()
+        .decode_shared()
+        .is_err());
+    let auth = PeerAuth::new([17; 32], "node-1").unwrap();
+    let options = TransportOptions::default();
+    let body = cell_call(CellQueryConsistency::Linearizable)
+        .encode(4096)
+        .unwrap();
+    let request = RequestHead::new(route.clone(), 17, &body);
+    let head = request_head(&auth, &[3; 32], &request, &body, &options).unwrap();
+    assert!(read_request(&head, &auth, &[3; 32], &options).is_ok());
+    assert!(read_request(&head, &auth, &[4; 32], &options).is_err());
+    let reply = cell::encode_cell_result(&Err(CommandFailure::Overloaded), 4096).unwrap();
+    let response = response_head(&auth, &[3; 32], &request, &head.tag, &reply, &options).unwrap();
+    let mut other_cell = cell.clone();
+    other_cell.cell = CellId::new("neighbor").unwrap();
+    let mut other_group = target.clone();
+    other_group.scope.group = GroupId::new([99; 16]).unwrap();
+    let mut other_process = target.clone();
+    other_process.process = ProcessGeneration::new([99; 16]).unwrap();
+    for (target, cell) in [
+        (&target, &other_cell),
+        (&other_group, &cell),
+        (&other_process, &cell),
+    ] {
+        let wrong = RequestHead::new(
+            Route::new_shared(source, "node-1", target, "node-2", cell, [9; 32]).unwrap(),
+            17,
+            &body,
+        );
+        assert!(read_response(&response, &auth, &[3; 32], &wrong, &head.tag, &options).is_err());
+    }
+    for i in 0..body.len() {
+        let mut altered = body.clone();
+        altered[i] ^= 1;
+        assert!(request.verify_body(&altered).is_err());
+    }
+    let mut wrong_namespace = cell;
+    wrong_namespace.namespace = NamespaceId::new([99; 16]).unwrap();
+    assert!(Route::new_shared(
+        source,
+        "node-1",
+        &target,
+        "node-2",
+        &wrong_namespace,
+        [9; 32]
+    )
+    .is_err());
+}
+
+#[test]
+fn shared_query_result_authenticates_cell_progress_not_group_log_index() {
+    let observation = cell_observation();
+    let token = keys().issue_cell(&observation, [9; 32], 1000).unwrap();
+    let mut bytes = b"CLGCQS01\0".to_vec();
+    string(&mut bytes, token.as_str()).unwrap();
+    bytes.extend_from_slice(&3u32.to_be_bytes());
+    bytes.extend_from_slice(b"yes");
+    let member = MemberId::new(2).unwrap();
+    let decoded = cell::decode_cell_result(
+        &bytes,
+        &observation.version.history,
+        [9; 32],
+        &keys(),
+        1000,
+        4096,
+        member,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(decoded.observation, observation);
+    assert_eq!(decoded.observation.version.sequence.get(), 7);
+    assert_eq!(decoded.observation.witness.position.index.get(), 100);
+    assert_eq!(decoded.result, b"yes");
+    assert_eq!(decoded.served_by, member);
+    let mut wrong = observation.version.history.clone();
+    wrong.incarnation = IncarnationId::new([99; 16]).unwrap();
+    assert!(
+        cell::decode_cell_result(&bytes, &wrong, [9; 32], &keys(), 1000, 4096, member).is_err()
+    );
+    assert!(cell::decode_cell_result(
+        &bytes,
+        &observation.version.history,
+        [8; 32],
+        &keys(),
+        1000,
+        4096,
+        member
+    )
+    .is_err());
+    assert!(cell::decode_cell_result(
+        &bytes,
+        &observation.version.history,
+        [9; 32],
+        &keys(),
+        3000,
+        4096,
+        member
+    )
+    .is_err());
+    assert!(decode_result(
+        &bytes,
+        &identity(1).scope,
+        [9; 32],
+        &keys(),
+        1000,
+        4096,
+        member
+    )
+    .is_err());
+    for end in 0..bytes.len() {
+        assert!(cell::decode_cell_result(
+            &bytes[..end],
+            &observation.version.history,
+            [9; 32],
+            &keys(),
+            1000,
+            4096,
+            member
+        )
+        .is_err());
+    }
+    for error in [
+        CommandFailure::WrongIncarnation,
+        CommandFailure::Overloaded,
+        CommandFailure::VersionUnavailable,
+        CommandFailure::Unavailable,
+        CommandFailure::StorageFull,
+        CommandFailure::CorruptState,
+        CommandFailure::UnsupportedCapability,
+        CommandFailure::UnsupportedConsistency,
+    ] {
+        let bytes = cell::encode_cell_result(&Err(error.clone()), 4096).unwrap();
+        assert!(
+            matches!(cell::decode_cell_result(&bytes, &observation.version.history, [9; 32], &keys(), 1000, 4096, member).unwrap(), Err(actual) if actual == error)
+        );
+    }
+}
