@@ -2,8 +2,8 @@
 
 # Cell-group implementation handoff
 
-This delivery is the executable design and implementation plan requested by the
-user. End-to-end implementation and hard cutover remain the executor's work.
+The active goal is end-to-end implementation and hard cutover from the executable
+design. Continue through the full task and release gates.
 This handoff does not claim completion of the
 shared runtime, a production cutover or measured TiKV
 performance parity. The target is the same partitioned multi-Raft pattern: many
@@ -14,8 +14,8 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [draft PR 160](https://github.com/crabbuild/cellar/pull/160).
-The physical owner implementation and reviewed source baseline are at
-`51e30eabde1ca76bf0b23963dd06d0e8130f8ee7`; see the latest checkpoint in
+The shared-node runtime implementation and reviewed source baseline are at
+`865f253d`; see the latest checkpoint in
 [progress](progress.md) for qualification and remaining work.
 The branch includes `1be27d234d4674d4d014785c60cecbfe394bdab9`. The latest fetch
 found `origin/main` at `8a93ffd7` (documentation consolidation, PR 161), which is
@@ -37,25 +37,19 @@ Read [design](design.md), [protocols](protocols.md),
 dependencies, steps, exact tests and acceptance oracles. `profiles.json` freezes
 candidate workload and performance gates; those numbers are targets, not results.
 
-## Working draft at plan delivery
+## Current implementation checkpoint
 
-The checkout also contains an uncommitted CG-04 node-runtime draft in
-`crates/cellar/durability/raft/cell_groups/runtime/`, owner scheduling changes,
-shared shutdown completion in `crates/cellar/durability/raft/runtime.rs`, and
-native tests in `crates/cellar/tests/support/cell_group_runtime.rs` and
-`crates/cellar/tests/native_cell_groups_execution.rs`. These files are not part
-of the source-bound physical-owner checkpoint. Preserve and review the whole
-diff, including untracked files, before continuing it. A fresh checkout of the
-PR does not contain this working draft.
+The CG-04 node runtime is committed in
+`crates/cellar/durability/raft/cell_groups/runtime/`. It multiplexes physical owners,
+batches engine persistence across groups, retains event admission through apply,
+and joins submitted physical work on close. Native cases use independent SQLite
+images and actual node workers; see [progress](progress.md) for qualification.
+The prior uncommitted runtime draft has been incorporated into this source.
 
-Package validation passes with 16 tasks, 86 required cases, 14 invariants and
-nine qualification profiles. All 37 validator tests pass against a clean export
-of committed revision `55317523ebcb34c82e9f80ad1030f9282d1997a6`. In the working
-checkout, preflight and its corresponding unit test correctly refuse the changed
-`runtime.rs`; the other 36 validator tests pass. Do not refresh its hash merely
-to remove that refusal. Review and qualify the runtime draft, commit its source,
-then update the baseline with that revision and reviewed excerpts. Neither these
-plan checks nor the draft's intermediate test runs complete CG-04.
+The next integration is per-cell SQL ownership and fair admission, concurrent
+initialization, exact receipt settlement and coherent read serving. Preserve the
+node worker's physical completion and cancellation boundaries. Do not treat the
+shared scheduler's isolated tests as completion of the six-case CG-04 gate.
 
 ## First executor session
 
@@ -63,8 +57,9 @@ Inspect `git status` and the existing diff before editing. The physical owner in
 `crates/cellar/durability/raft/cell_groups/owner.rs` and its native execution
 fixture now use real three-voter Raft with complete group manifests and separate
 SQLite images. The initial fixture compilation failures have been repaired.
-The owner is not yet connected to the shared scheduler or public SDK. Preserve
-its persistence, completion and physical lease boundaries during integration;
+The owner now runs on the shared node scheduler; public SDK and per-cell SQL
+integration remain incomplete. Preserve its persistence, completion and physical
+lease boundaries during integration;
 do not mistake the low-level owner cases for the full CG-04 gate.
 
 Run from the repository root with Python 3.11+ and Rust 1.98.1:
@@ -91,9 +86,9 @@ another machine. Missing evidence must refuse; do not replace it with a pass fla
 or reset completed tasks merely to bypass validation.
 
 The current partial CG-04 evidence is retained at
-`.cellar/cell-groups-evidence/CG-04-owner/checkpoint.json`. Transfer that directory
-and the failed gate named by its record when handing off this checkpoint. It
-records six physical-owner cases and the catalog/storage regressions, with
+`.cellar/cell-groups-evidence/CG-04-runtime/checkpoint.json`. Transfer that
+directory alongside the earlier owner checkpoint and failed gate. The runtime
+record covers 59 selected Rust cases and eight verification commands, with
 explicit limitations; it cannot stand in for the complete six-case CG-04 contract.
 
 ## Delivery sequence

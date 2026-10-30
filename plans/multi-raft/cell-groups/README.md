@@ -9,9 +9,9 @@ The production host has not yet cut over to shared groups.
 See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.
 
-The requested deliverable is this executable design and implementation plan.
-See the [executor handoff](handoff.md) for the starting revision, uncommitted
-runtime draft, latest-main integration requirement, commands and completion
+The active goal implements this design end to end and hard cuts over the runtime.
+See the [executor handoff](handoff.md) for the starting revision, shared-node
+runtime checkpoint, latest-main integration requirement, commands and completion
 boundary. Plan delivery or an intermediate task gate does not qualify the
 complete shared-group runtime.
 
@@ -93,7 +93,7 @@ directory along with the earlier DONE-task evidence to the implementation
 executor. CG-04 now retains creation identity with the selected image and
 prepares ordered enrollment and exact retries. Its physical group owner consumes
 the catalog startup permit and verified selected image/manifest closure, and
-obtains current-term quorum before protocol admission. Shared scheduler, SQL
+obtains current-term quorum before protocol admission. The shared node scheduler now multiplexes these physical owners. Per-cell SQL
 execution, receipt settlement and serving integration remain required. Managed
 fleet integration remains required by CG-07. A birth
 metadata observation alone cannot authorize voter startup.

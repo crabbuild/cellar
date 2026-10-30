@@ -2,10 +2,51 @@
 
 # Cell-group implementation progress
 
-The full end-to-end implementation and hard-cutover goal is active again after
-the plan delivery; see the [executor handoff](handoff.md). CG-01 through CG-03 have passed their scoped gates; CG-04 is IN_PROGRESS and
-CG-05 through CG-16 remain TODO. Intermediate contracts do not qualify a shared
-runtime. No production legacy/shared mode flag is being added.
+The end-to-end implementation and hard-cutover goal remains active; see the
+[executor handoff](handoff.md). CG-01 through CG-03 have passed their scoped gates;
+CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
+do not qualify the public shared runtime. No production legacy/shared mode flag
+is being added.
+
+## CG-04 shared-node runtime
+
+Source: `865f253da0a14d730b62f77b17cefc6d1497890b`.
+
+One execution-domain task now multiplexes physical cell-group owners on each
+node. It uses the existing engine, mailbox and admission primitives, with a
+single in-flight persistence batch containing writes from multiple group
+histories. Exact engine receipts complete the corresponding owner tickets.
+Group turns and deferred transport/proposal work remain bounded; ticks coalesce.
+An admitted transport frame is not a persistence or application acknowledgement.
+
+Apply events retain admission through image preparation and physical root
+publication. Completion requests have reserved capacity. Already-started physical
+phases can finish when ordinary event delivery is full; one reserved settlement
+slot permits releasing an apply reservation without admitting more ordinary
+output. A two-slot test exposed the original circular wait, and the fix changes
+phase progress rather than increasing the limit.
+
+Shutdown closes admission and joins submitted engine work before releasing node
+runtime ownership. Cancelling the caller's close waiter cannot release that
+ownership. The existing runtime shares the terminal completion primitive with
+the new worker; its behavior remains covered by its native regression suite.
+
+All 59 selected Rust cases pass: ten execution, 15 catalog, 15 active storage
+and 19 active existing-runtime regressions. Two process helpers are ignored by
+direct execution and exercised by their parent tests. All-target Clippy for
+`cellar`/`cellar-logic` with warnings denied, formatting (1,786 Rust files), layout,
+native dependency isolation, docs, source preflight and all 37 plan-validator
+tests pass. The retained partial record is
+`.cellar/cell-groups-evidence/CG-04-runtime/checkpoint.json`, binding 85 source
+inputs, eight command logs and four native executables. The initial two-slot
+failure and successful intermediate repeats are retained without claiming a
+source-bound intermediate qualification. CG-04 remains IN_PROGRESS.
+
+This is the shared consensus/persistence scheduler. Per-cell SQL preparation and
+fair admission, concurrent initialization, exact receipt settlement and SDK read
+serving still need integration. The full CG-04 gate remains required. Complete
+group snapshots, membership/topology, managed startup, RustFS qualification and
+the final hard cutover remain unfinished.
 
 ## CG-04 physical consensus owner checkpoint
 

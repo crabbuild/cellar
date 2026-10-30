@@ -445,7 +445,10 @@
         "crates/cellar/durability/raft/cell_groups/owner.rs",
         "crates/cellar/tests/native_cell_groups_execution.rs",
         "crates/cellar/durability/raft/cell_groups/enrollment_apply.rs",
-        "crates/cellar/durability/raft/cell_groups/page_wire_tests.rs"
+        "crates/cellar/durability/raft/cell_groups/page_wire_tests.rs",
+        "crates/cellar/durability/raft/cell_groups/runtime/mod.rs",
+        "crates/cellar/durability/raft/cell_groups/runtime/worker.rs",
+        "crates/cellar/tests/support/cell_group_runtime.rs"
       ],
       "test_target": "native_cell_groups_execution",
       "steps": [
