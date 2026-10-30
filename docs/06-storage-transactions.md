@@ -76,7 +76,7 @@ byte paths, quotas, short I/O and durability barriers. Guest code uses `ctx.fs`
 and checked `storage.apply` file batches. The
 [session agent](../examples/filesystem-agent/README.md) saves decisions before
 executing atomic file tools. Qualification remains
-[in progress](../plans/per-cell-filesystem-implementation-status.md); core file
+[in progress](design/per-cell-filesystem-implementation-status.md); core file
 access has no mounting or execution dependency.
 
 ## Durability and external side effects
@@ -96,7 +96,7 @@ established by this framework.
 
 The repository implements a framework outbox for durable stream destinations.
 It remains under development with open fleet/release qualification gates; see
-the [implementation status](../plans/outbox-implementation-status.md) and the
+the [implementation status](design/outbox-implementation-status.md) and the
 [runnable stream example](../examples/durable-streams/README.md). A deployed
 stream binding currently requires a bucket-backed node or fleet, replicated
 storage and durable wake discovery. SQLite-only nodes without that recovery

@@ -7,7 +7,7 @@
 Vite + React + TypeScript + shadcn/ui (Radix) + Lucide. The frontend uses the
 [Cellar management service](../../crates/cellar-admin/README.md), never fleet
 credentials or a node's private listener. See the
-[implemented scope and verification record](../../plans/003-fleet-dashboard.md).
+[implemented scope and verification record](../../docs/design/003-fleet-dashboard.md).
 
 Run from `packages/console/`:
 
@@ -93,7 +93,7 @@ metadata. Values above 1 MiB expose metadata, size, revision and expiry without
 loading their contents into the browser. Query tabs, history and drafts are not
 persisted when leaving this workspace or reloading.
 
-See [implementation and verification](../../plans/004-sql-kv-workspaces.md).
+See [implementation and verification](../../docs/design/004-sql-kv-workspaces.md).
 
 Queue peek results open a read-only message sheet with payload preview, byte
 export, age in the current queue, delivery attempts, visibility, lease expiry
@@ -116,7 +116,7 @@ to its workflow instance and does not claim workflow completion. The owner retai
 256 attempts; history is available with data-read permission and starts with this
 framework version. Removed schedules retain inspection access without rearming.
 
-See [inspector implementation and verification](../../plans/005-resource-inspectors.md).
+See [inspector implementation and verification](../../docs/design/005-resource-inspectors.md).
 
 ## Events and delivery workspaces
 
@@ -158,5 +158,5 @@ browser to preserve 64-bit precision. Requested event payloads are delivered as
 JSON text and rendered without a browser numeric conversion, preserving large
 application integer values too.
 
-See [event console implementation and verification](../../plans/006-event-console.md)
-and [primitive qualification status](../../plans/outbox-implementation-status.md).
+See [event console implementation and verification](../../docs/design/006-event-console.md)
+and [primitive qualification status](../../docs/design/outbox-implementation-status.md).

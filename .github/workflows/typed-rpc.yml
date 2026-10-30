@@ -12,7 +12,7 @@ on:
       - 'tools/python/**'
       - 'tools/perf/run.py'
       - 'tools/perf/test_python_fleet.py'
-      - 'plans/named-typed-rpc/**'
+      - 'docs/design/named-typed-rpc/**'
       - 'proto/**'
       - 'Cargo.toml'
       - 'Cargo.lock'

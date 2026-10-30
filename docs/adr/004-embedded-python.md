@@ -4,7 +4,7 @@
 
 Status: accepted implementation decision; production qualification remains open.
 Owner: Cellar runtime and SDK contributors. Recorded: 2026-10-20.
-Scope: [plan 007](../../plans/007-embedded-python-pyo3.md), extending
+Scope: [plan 007](../design/007-embedded-python-pyo3.md), extending
 [ADR 001](001-native-applications.md).
 
 ## Context
@@ -101,7 +101,7 @@ The [adapter guide](../../crates/cellar-python/README.md),
 [runtime package/source-upgrade qualification](../../tools/python/README.md)
 define executable APIs and checks. Real TERM/INT upgrade tests use different
 Python cell code, retain acknowledged state/receipts and require both joined
-reports to complete. The [implementation plan](../../plans/007-embedded-python-pyo3.md#implementation-milestones-and-acceptance-gates)
+reports to complete. The [implementation plan](../design/007-embedded-python-pyo3.md#implementation-milestones-and-acceptance-gates)
 records milestone status and remaining reliability work. This decision accepts the integration model;
 quorum/binding fault matrices, external dependency attestation, remaining telemetry
 and measured baselines are still release gates, not waived requirements.

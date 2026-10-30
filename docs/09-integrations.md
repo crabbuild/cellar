@@ -230,7 +230,7 @@ container or sandbox services, and select them for Python or JS/TS through
 mutations before provider dispatch. Remote providers must enforce their own
 remote fencing, isolation, cleanup and accounting. Only the native Docker/Podman
 provider ships today. The
-[sandbox provider and compatibility plan](../plans/sandbox-provider-compatibility.md)
+[sandbox provider and compatibility plan](design/sandbox-provider-compatibility.md)
 includes Vercel, E2B, Daytona, Modal and Cloudflare Workers/Containers/Sandbox.
 The primary pattern follows celld: compatible application APIs on Cellar, backed
 by the local engine or another declared execution provider. Local Cloudflare

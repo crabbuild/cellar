@@ -9,7 +9,7 @@ console. The `cellar-dashboard` binary serves the console; the `Console` library
 supports application-owned hosting. Explore nodes and cells, inspect data,
 manage background work and reconcile durable operation receipts.
 
-The [dashboard plan](../../plans/003-fleet-dashboard.md) records scope,
+The [dashboard plan](../../docs/design/003-fleet-dashboard.md) records scope,
 verification and deployment limits. You supply the hosting infrastructure.
 
 [Run](#run-the-dashboard) · [Access](#configure-access) ·
@@ -75,7 +75,7 @@ waits for signed joined offline confirmation; return exposes canonical retained
 startup context; resume waits for verified M9 and terminal operator completion.
 The platform starts the retained process separately. Grace/rolling/second-failure
 policy and extent-backed fleet lifecycle proofs remain unfinished. See the
-[operator workflow](../../plans/multi-raft/fleet-operations/operator-workflows.md#intact-maintenance-operator-workflow)
+[operator workflow](../../docs/design/multi-raft/fleet-operations/operator-workflows.md#intact-maintenance-operator-workflow)
 for payload scope, grants, reconciliation and current limits.
 
 ## Managed Raft placement operations
@@ -125,7 +125,7 @@ before dispatch. An exact retry reconciles the real catalog even when an earlier
 audit entry exists. A confirmed historical admission cannot be downgraded by a
 later unconfirmed retry.
 
-See the [runnable operator workflow](../../plans/multi-raft/fleet-operations/operator-workflows.md#delivered-keep-set-workflow)
+See the [runnable operator workflow](../../docs/design/multi-raft/fleet-operations/operator-workflows.md#delivered-keep-set-workflow)
 for commands, catalog-generation pins, API routes and retry semantics. This
 delivery also exposes explicit node registration, qualification and activation.
 Grant `fleet_register` for descriptors and `fleet_capacity` only to a trusted
@@ -136,7 +136,7 @@ embedded server to install a running observer using
 has no observer and returns `unsupported` for these two commands. The adapter
 still owns live authenticated probes and complete inventory checks. Operator
 attestations are explicit trust, not kernel measurements or an infrastructure
-provider. See the [add-capacity workflow](../../plans/multi-raft/fleet-operations/operator-workflows.md#delivered-add-capacity-workflow)
+provider. See the [add-capacity workflow](../../docs/design/multi-raft/fleet-operations/operator-workflows.md#delivered-add-capacity-workflow)
 for request files, exact retries and the distinction between historical admission
 and current readiness.
 
@@ -154,7 +154,7 @@ owner after cancellation; a subsequent attempt reconciles scratch only after tha
 work exits. Physical inventory quarantine still refuses verification.
 Standalone existing-root connections cannot perform live proof or dispatch stop.
 Status and exact committed receipt reconciliation remain metadata operations.
-See the [departure workflow](../../plans/multi-raft/fleet-operations/operator-workflows.md#evacuate-and-permanently-remove-a-node)
+See the [departure workflow](../../docs/design/multi-raft/fleet-operations/operator-workflows.md#evacuate-and-permanently-remove-a-node)
 for CLI syntax, restart behavior and retained reservation reporting. Removal
 retains volumes and archives.
 
@@ -165,7 +165,7 @@ release. Cancellation refuses after stop acceptance or permanent quarantine. Kee
 fence ID across changed-root parent requests; never treat a timeout as successful
 cancellation. Ready invalidates old capacity and retains all resource charges.
 Historical retries need no live observer and cannot rewrite later node state.
-See [cancel and restart](../../plans/multi-raft/fleet-operations/operator-workflows.md#cancel-and-restart-a-departure)
+See [cancel and restart](../../docs/design/multi-raft/fleet-operations/operator-workflows.md#cancel-and-restart-a-departure)
 for the audited recovery sequence and identity rules. In-place certificate
 refresh, maintenance/rejoin, resize and infrastructure provisioning remain
 separate delivery work.
@@ -370,7 +370,7 @@ revision; source lifecycle pins the observed producer incarnation. Native receip
 page links to receipt lookup after navigation or reload; lookup never replays a
 mutation. Cold inspection can activate a cell and progress existing work.
 
-See [console scope and verification](../../plans/006-event-console.md) and the
+See [console scope and verification](../../docs/design/006-event-console.md) and the
 [SDK event-delivery contract](../../docs/26-event-delivery.md).
 
 ## Node stop receipts

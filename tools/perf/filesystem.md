@@ -107,14 +107,14 @@ successor. Shutdown has a 60-second total and 30-second stall budget.
 This harness does not qualify an external object store, peer proof/failures,
 disk stalls, guest overhead, 4/16 KiB chunk alternatives, small-file density or
 many-cell fairness. Those remain gates in the
-[filesystem implementation plan](../../plans/per-cell-filesystem-implementation.md).
+[filesystem implementation plan](../../docs/design/per-cell-filesystem-implementation.md).
 
 ## Guest read concurrency
 
 The ordinary JavaScript and Python filesystem fixtures include bounded
 concurrent reads and sequential offset/append controls, followed by exact local
 restart checks. See the
-[case profile](../../plans/per-cell-filesystem-conformance.md#concurrent-guest-descriptor-profile).
+[case profile](../../docs/design/per-cell-filesystem-conformance.md#concurrent-guest-descriptor-profile).
 Use a fresh report directory for each runtime/ABI invocation:
 
 ```sh
@@ -146,7 +146,7 @@ external-store failure and optimized deployment evidence are separate profiles.
 
 ## Native fault qualification on S3-compatible storage
 
-The separate [native fault profile](../../plans/per-cell-filesystem-conformance.md#s3-backed-native-recovery-profile)
+The separate [native fault profile](../../docs/design/per-cell-filesystem-conformance.md#s3-backed-native-recovery-profile)
 uses the same file/state/receipt, fencing and failed-recovery assertions as the
 development-store case. Provision a disposable bucket whose name starts with
 `cellar-filesystem-`, supply its static test credentials through `AWS_ACCESS_KEY_ID`

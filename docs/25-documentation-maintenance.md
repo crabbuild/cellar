@@ -11,14 +11,20 @@ explains which files to edit, regenerate and verify.
 
 ## Files and generation
 
-Guides live directly under `docs/`, decisions under `docs/adr/`, and team
-templates under `docs/templates/`. Visuals live under `docs/diagrams/`.
+| Content | Location | Edit rule |
+| --- | --- | --- |
+| Usage guides | `docs/` | Edit Markdown directly |
+| Designs, delivery plans, and qualification ledgers | `docs/design/` | Keep contracts and recorded status distinct |
+| Architecture decisions | `docs/adr/` | Preserve decision provenance |
+| Team templates | `docs/templates/` | Keep reusable fields explicit |
+| Diagrams and PNG previews | `docs/diagrams/` | Edit generator definitions and regenerate |
+| Retained evidence | Beside its design package | Preserve recorded bytes, hashes, and original command paths |
+
 `tools/docs/build.py` generates the catalog, explorer and SVGs from the checked-in
 guide metadata and explicit flow definitions. Static concept diagrams and
 visual-gallery metadata live in `tools/docs/illustrations.py`. Edit those
 sources rather than the generated SVG, catalog or explorer. Edit guide prose directly.
-Regenerate assets when metadata or diagram definitions change; prose-only edits
-do not require regeneration.
+Design documents declare a single-line `Purpose: ...` after their title. The generator uses that line and the title for catalog metadata. Regenerate after adding, moving, or retitling a design, changing its purpose, or editing diagram definitions.
 
 ```sh
 python3 tools/docs/build.py
@@ -52,10 +58,11 @@ it is not an application hosting service.
 
 ### Writing standard
 
-State each page's purpose in its opening paragraph. Use active voice, sentence
-case headings and concrete terms. Define unfamiliar terminology or link to the
-[glossary](24-glossary.md). Keep paragraphs focused on one idea, and put long
-reference contracts under descriptive subsections.
+- State each page’s purpose in its opening paragraph.
+- Use formal, concise language, active voice, and sentence case headings.
+- Keep prose paragraphs below approximately 60 words. Use tables for mappings and lists for parallel requirements.
+- Define unfamiliar terms or link to the [glossary](24-glossary.md).
+- Add focused diagrams and implementation links near the contract they explain.
 
 Introduce code blocks, label fragments as fragments and explain the expected
 result of runnable commands. Preserve error meanings, limits, retry rules and
@@ -66,6 +73,16 @@ Keep observed behavior separate from recommended application patterns and
 future gates. A result from an older image must retain its provenance. Do not
 update a “reviewed at” hash to an uninspected release. Source links remain
 relative so they resolve in the checkout and repository hosting.
+
+## Move a design package
+
+1. Move its Markdown, schemas, task inventories, inspectors, and retained evidence together.
+2. Rebase repository links and current command paths. Update CI path filters and ignore rules.
+3. Adjust inspector repository roots without weakening evidence checks or refreshing historical source hashes.
+4. Preserve raw evidence bytes. Paths inside a retained log describe the original run; they are not current instructions.
+5. Regenerate the catalog and run documentation and inspector checks.
+
+The fleet inspector requires ignored `.cellar/raft-perf/fleet-operations/` completion records and their logs. A fresh checkout can lack them. Restore those artifacts to audit DONE tasks; missing records remain failures.
 
 ## Visual review
 

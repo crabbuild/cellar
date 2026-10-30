@@ -104,4 +104,4 @@ neither generate fresh IDs nor count only successful responses as the oracle.
 Fenced new-history disaster restore needs its own verified deployment fence.
 Stopping containers alone does not prevent an old quorum from returning.
 Release/durability qualification, performance measurement and federation remain
-separate gates in the [roadmap](../../plans/multi-raft/implementation-plan.md).
+separate gates in the [roadmap](../../docs/design/multi-raft/implementation-plan.md).

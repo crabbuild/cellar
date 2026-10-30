@@ -73,7 +73,7 @@ remains open.
 ## Remaining release disposition
 
 The initial API profile is implemented. Production qualification remains open
-in the [release ledger](../../../plans/per-cell-filesystem-implementation-status.md):
+in the [release ledger](../../../docs/design/per-cell-filesystem-implementation-status.md):
 the remaining operation/error/lifetime/resource audit, physical peer/network/disk
 and sustained-GC profiles, supported-target CI, final integrated installed
 artifacts, and a workload/resource envelope with explicit SLO/RPO/RTO.

@@ -141,5 +141,5 @@ ownership-loss cleanup and live expiry behavior remain unqualified.
 | Live E2B account / expiry / orphan / takeover | Still required; manifest qualification remains `not_run` |
 
 Run the commands in the [protocol fixture guide](../../tools/sandbox/e2b/README.md).
-The [implementation ledger](../../plans/sandbox-provider-progress.md) tracks the
+The [implementation ledger](../../docs/design/sandbox-provider-progress.md) tracks the
 full provider plan, including the stronger fencing and cleanup requirements.

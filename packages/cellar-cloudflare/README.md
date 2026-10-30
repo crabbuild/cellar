@@ -5,7 +5,7 @@
 Run selected Workers and Durable Object APIs above Cellar's native ownership,
 SQLite and durability boundaries. This package is **experimental**; complete
 Workers profiles, published Sandbox/image execution and remote providers remain
-under development in the [delivery plan](../../plans/sandbox-provider-compatibility.md).
+under development in the [delivery plan](../../docs/design/sandbox-provider-compatibility.md).
 
 [Module example](#adapt-a-workers-module) · [API coverage](#api-coverage) ·
 [Lifetime](#which-context-can-be-retained) · [Tests](#execution-evidence)
@@ -726,5 +726,5 @@ cargo test --locked -p cellar-javascript --features embed,node \
 
 See the [API inventory](../../tools/sandbox/compat/api-inventory.md),
 [provider guide](../../crates/cellar-container/README.md) and
-[implementation ledger](../../plans/sandbox-provider-progress.md) for precise
+[implementation ledger](../../docs/design/sandbox-provider-progress.md) for precise
 requirements and remaining work.

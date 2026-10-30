@@ -90,5 +90,5 @@ The recipe and selected application checks do not complete FS-04/05. Complete
 the operation/error/authority matrix, remaining transport/credential/disk faults,
 sustained reclamation and fairness, supported runtime/ABI artifacts, and measured
 deployment capacity with approved SLO/RPO/RTO. See the
-[release ledger](../../../plans/per-cell-filesystem-implementation-status.md#release-priorities).
+[release ledger](../../../docs/design/per-cell-filesystem-implementation-status.md#earlier-release-priorities).
 FUSE and additional capability profiles remain separate work.

@@ -5,14 +5,14 @@
 Build-time generation for plan 009. The current generator emits Rust, JS/TS and Python
 messages, typed cell clients, handler interfaces and explicit registrations. The
 cross-language implementation is in progress; see the
-[implementation ledger](../../plans/named-typed-rpc/implementation-status.md).
+[implementation ledger](../../docs/design/named-typed-rpc/implementation-status.md).
 
 Compile a descriptor with imports, then generate its immutable artifact and
 service code (requires `protoc` and Node 24+ on PATH for JS/TS generation):
 
 ```sh
 npm ci --prefix tools/rpc --ignore-scripts
-protoc -I plans/named-typed-rpc --include_imports \
+protoc -I docs/design/named-typed-rpc --include_imports \
   --descriptor_set_out=/tmp/counter.binpb counter.proto
 cargo run --locked -p cellar-rpc-codegen -- \
   --descriptor /tmp/counter.binpb --out /tmp/counter-generated \

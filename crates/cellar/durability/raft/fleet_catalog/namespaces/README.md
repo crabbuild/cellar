@@ -69,7 +69,7 @@ projection and the single disruption slot commit under the exact checked root.
 Omitted namespaces, incomplete imports and lost history references cannot be
 treated as an empty target. Its admission is not a shutdown or removal receipt.
 Capacity activation, terminal lifecycle proofs and runtime reconciliation remain
-in the [delivery plan](../../../../../../plans/multi-raft/fleet-operations/progress.md).
+in the [delivery plan](../../../../../../docs/design/multi-raft/fleet-operations/progress.md).
 Automatic fleet management remains default-off.
 
 The experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1`. Use fresh fleet and

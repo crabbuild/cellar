@@ -1,0 +1,2832 @@
+{
+  "format": 1,
+  "baseline_revision": "1391e94b471b49f0ca8de6432af7b0dbc8e2b564",
+  "status_values": [
+    "TODO",
+    "IN_PROGRESS",
+    "BLOCKED",
+    "DONE"
+  ],
+  "first_release_tasks": [
+    "MR-01",
+    "MR-02",
+    "MR-03",
+    "MR-04",
+    "MR-05",
+    "MR-06",
+    "MR-07",
+    "MR-08",
+    "MR-09",
+    "MR-10",
+    "MR-11",
+    "MR-12",
+    "MR-13",
+    "MR-14",
+    "MR-15"
+  ],
+  "invariants": [
+    "I01",
+    "I02",
+    "I03",
+    "I04",
+    "I05",
+    "I06",
+    "I07",
+    "I08",
+    "I09",
+    "I10",
+    "I11",
+    "I12",
+    "I13",
+    "I14",
+    "I15",
+    "I16"
+  ],
+  "tasks": [
+    {
+      "id": "MR-01",
+      "title": "Define identities, invariants and operation contracts",
+      "phase": "v1",
+      "status": "DONE",
+      "depends_on": [],
+      "modifies": [
+        "crates/cellar-logic/types.rs",
+        "crates/cellar-logic/lib.rs",
+        "crates/cellar/application/mod.rs"
+      ],
+      "creates": [
+        "crates/cellar-logic/consensus.rs",
+        "crates/cellar/tests/support/raft_model.rs",
+        "crates/cellar/tests/native_raft_contract.rs",
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar/application/consensus/protocol.rs"
+      ],
+      "steps": [
+        "Implement pure identity, authority, durability and version types, with explicit Fleet/Raft discrimination.",
+        "Define marker-1 envelope, maximum sizes, canonical digest inputs, token scope and error taxonomy from the design.",
+        "Add a checked-in deterministic protocol-boundary model and fake clock/disk/transport support usable without cellar_internal_tests.",
+        "Model speculative execution, commit, publication, archive and stale-completion events; require the core to reject illegal transitions."
+      ],
+      "acceptance": [
+        "All I01-I16 have a defined responsible boundary and observable failure outcome.",
+        "No raft, async or I/O dependency is added to cellar-logic."
+      ],
+      "stop_conditions": [
+        "Stop if authority cannot be expressed without reusing owner epoch as Raft term.",
+        "Do not implement transport or claim consensus from the boundary model."
+      ],
+      "test_target": "native_raft_contract",
+      "test_cases": [
+        {
+          "name": "mode_isolation",
+          "oracle": "A Fleet proof cannot settle a Raft operation and vice versa",
+          "invariants": [
+            "I01",
+            "I06",
+            "I16"
+          ]
+        },
+        {
+          "name": "incarnation_token_scope",
+          "oracle": "Equal indices in different histories do not satisfy a token",
+          "invariants": [
+            "I08",
+            "I15"
+          ]
+        },
+        {
+          "name": "speculative_visibility_model",
+          "oracle": "Only committed and published state can be observed",
+          "invariants": [
+            "I02",
+            "I04"
+          ]
+        },
+        {
+          "name": "late_completion_model",
+          "oracle": "Old term/process/operation completion cannot release a new request",
+          "invariants": [
+            "I07"
+          ]
+        },
+        {
+          "name": "envelope_bounds",
+          "oracle": "Duplicate fields, trailing bytes, invalid lengths and decoded-size excess are refused",
+          "invariants": [
+            "I13"
+          ]
+        },
+        {
+          "name": "birth_retry_identity",
+          "oracle": "Ambiguous birth/bootstrap claims converge on one identity; missing stable state cannot reset a claimed voter",
+          "invariants": [
+            "I06",
+            "I15"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_contract",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_contract",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ]
+      ],
+      "evidence": [
+        "evidence/MR-01.json"
+      ]
+    },
+    {
+      "id": "MR-02",
+      "title": "Persist Raft entries and metadata in the shared log engine",
+      "phase": "v1",
+      "status": "DONE",
+      "depends_on": [
+        "MR-01"
+      ],
+      "modifies": [
+        "Cargo.toml",
+        "Cargo.lock",
+        "crates/cellar/Cargo.toml",
+        "crates/cellar/lib.rs",
+        "crates/cellar-ltx/src/host.rs",
+        "crates/cellar-ltx/src/lib.rs",
+        "tools/xtask/src/main.rs",
+        "crates/cellar/application/consensus/mod.rs",
+        "Dockerfile",
+        "NOTICE",
+        "tools/perf/Dockerfile",
+        "tools/perf/fleetcare.Dockerfile",
+        "tools/perf/fleetcare-console.Dockerfile",
+        "tools/perf/fleetcare.py",
+        "tools/perf/faults.py",
+        "tools/perf/test_fleetcare.py",
+        "tools/perf/test_build_freshness.py",
+        "crates/cellar/application/consensus/protocol.rs"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/mod.rs",
+        "crates/cellar/durability/raft/storage.rs",
+        "crates/cellar/durability/raft/options.rs",
+        "crates/cellar/tests/native_raft_storage.rs",
+        "crates/cellar/durability/raft/filesystem.rs",
+        "vendor/raft-engine/Cargo.toml",
+        "vendor/raft-engine/UPSTREAM.json",
+        "vendor/raft-proto/Cargo.toml",
+        "vendor/raft-proto/build.rs",
+        "vendor/raft-proto/UPSTREAM.json",
+        "crates/cellar/durability/raft/cache.rs",
+        "crates/cellar/durability/raft/records.rs",
+        "crates/cellar/tests/support/raft_storage_fault.rs",
+        "vendor/.gitattributes",
+        "vendor/raft/Cargo.toml",
+        "vendor/raft/UPSTREAM.json",
+        "vendor/raft/src/raft.rs",
+        "vendor/raft/src/raw_node.rs"
+      ],
+      "steps": [
+        "Pin raft 0.7.0, raft-engine 0.4.2 and required codec/logging dependencies centrally; verify the locked build and license notices.",
+        "Implement Storage over one node-wide engine with durable numeric-key allocation and group/incarnation mapping.",
+        "Persist suffix truncation, entries, HardState, ConfState and snapshot boundaries with explicit sync completions and strict corruption handling.",
+        "Adapt engine filesystem/runtime work through host services, including the narrowly attributed dependency patch in storage-integration.md; expose fault hooks for torn append, lost sync, directory loss and interrupted purge."
+      ],
+      "acceptance": [
+        "The actual pinned crates compile with the repository toolchain and injected lifecycle.",
+        "Entries and metadata survive process kill/reopen at every persistence cut."
+      ],
+      "stop_conditions": [
+        "Stop on incompatible protobuf types, unsupported sync/directory semantics or unowned background tasks.",
+        "Never substitute MemStorage or a weaker recovery mode to pass tests."
+      ],
+      "test_target": "native_raft_storage",
+      "test_cases": [
+        {
+          "name": "vote_survives_restart",
+          "oracle": "A restarted voter cannot grant conflicting votes in one term",
+          "invariants": [
+            "I03"
+          ]
+        },
+        {
+          "name": "append_sync_boundary",
+          "oracle": "No durable completion is emitted before injected sync succeeds",
+          "invariants": [
+            "I03"
+          ]
+        },
+        {
+          "name": "conflicting_suffix_replaced",
+          "oracle": "Only the uncommitted suffix is replaced; boundary terms remain queryable",
+          "invariants": [
+            "I05"
+          ]
+        },
+        {
+          "name": "engine_group_isolation",
+          "oracle": "Reused numeric-key allocation cannot cross group/incarnation data",
+          "invariants": [
+            "I15"
+          ]
+        },
+        {
+          "name": "disk_loss_identity",
+          "oracle": "Missing stable state refuses old voter resume",
+          "invariants": [
+            "I03",
+            "I15"
+          ]
+        },
+        {
+          "name": "corrupt_storage_refused",
+          "oracle": "Corruption is surfaced and closes proof admission",
+          "invariants": [
+            "I01",
+            "I13"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_storage",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_storage",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ]
+      ],
+      "evidence": [
+        "evidence/MR-02.json"
+      ]
+    },
+    {
+      "id": "MR-03",
+      "title": "Drive multiple RawNode instances with ordered Ready handling",
+      "phase": "v1",
+      "status": "DONE",
+      "depends_on": [
+        "MR-02"
+      ],
+      "modifies": [
+        "crates/cellar/durability/raft/mod.rs",
+        "crates/cellar/durability/raft/storage.rs",
+        "crates/cellar/durability/raft/options.rs",
+        "crates/cellar/application/consensus/mod.rs",
+        "vendor/raft/UPSTREAM.json",
+        "NOTICE",
+        "vendor/raft/src/raft.rs",
+        "vendor/raft/src/raw_node.rs",
+        "crates/cellar/durability/raft/cache.rs"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/runtime.rs",
+        "crates/cellar/durability/raft/completion.rs",
+        "crates/cellar/tests/native_raft_runtime.rs",
+        "crates/cellar/durability/raft/replica.rs",
+        "crates/cellar/durability/raft/budget.rs",
+        "crates/cellar/tests/support/raft_runtime_fixture.rs",
+        "crates/cellar/durability/raft/README.md"
+      ],
+      "steps": [
+        "Own each RawNode on one serialized worker; use shared bounded scheduling across groups.",
+        "Implement conservative one-outstanding-Ready processing, persistence batching across groups and LightReady handling.",
+        "Persist commit advancement before publishing applied progress; apply configuration/no-op entries and advance_apply_to in order.",
+        "Emit identity-bound observations to the actor and keep slow storage/apply for one group from blocking the entire service."
+      ],
+      "acceptance": [
+        "At least three independent groups elect different leaders and commit concurrently in an in-process deterministic harness.",
+        "No blocking I/O occurs in actor/consensus loops."
+      ],
+      "stop_conditions": [
+        "Stop if a callback lacks enough identity to reject obsolete work.",
+        "Do not add per-group threads to make the test pass."
+      ],
+      "test_target": "native_raft_runtime",
+      "test_cases": [
+        {
+          "name": "ready_persistence_order",
+          "oracle": "Dependent messages follow successful persistence and Ready lifecycle rules",
+          "invariants": [
+            "I03"
+          ]
+        },
+        {
+          "name": "light_ready_commit_saved",
+          "oracle": "A commit advance delivered by LightReady survives restart",
+          "invariants": [
+            "I03",
+            "I04"
+          ]
+        },
+        {
+          "name": "apply_progress_order",
+          "oracle": "Completion out of order never skips an unapplied entry",
+          "invariants": [
+            "I05"
+          ]
+        },
+        {
+          "name": "stalled_group_isolation",
+          "oracle": "Unrelated groups continue during one delayed disk/apply operation",
+          "invariants": [
+            "I13"
+          ]
+        },
+        {
+          "name": "noop_configuration_progress",
+          "oracle": "Entries without LTX advance protocol state without inventing data changes",
+          "invariants": [
+            "I05",
+            "I11"
+          ]
+        },
+        {
+          "name": "current_term_admission_barrier",
+          "oracle": "New leader admission waits for current-term commit and apply",
+          "invariants": [
+            "I01",
+            "I06"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_runtime",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_runtime",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ]
+      ],
+      "evidence": [
+        "evidence/MR-03.json"
+      ]
+    },
+    {
+      "id": "MR-04",
+      "title": "Add authenticated bounded peer transport",
+      "phase": "v1",
+      "status": "DONE",
+      "depends_on": [
+        "MR-03"
+      ],
+      "modifies": [
+        "crates/cellar/fleet/peer/auth.rs",
+        "crates/cellar/node/embedded.rs",
+        "crates/cellar/node/mod.rs",
+        "crates/cellar/durability/raft/mod.rs",
+        "crates/cellar/durability/raft/runtime.rs",
+        "crates/cellar/durability/raft/budget.rs",
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar/tests/native_node.rs",
+        "crates/cellar/sdk.rs",
+        "crates/cellar/durability/raft/README.md"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/transport.rs",
+        "crates/cellar/tests/support/raft_network.rs",
+        "crates/cellar/tests/native_raft_transport.rs",
+        "crates/cellar/durability/raft/transport_frame.rs",
+        "crates/cellar/durability/raft/transport_options.rs",
+        "crates/cellar/durability/raft/transport_frame_tests.rs",
+        "crates/cellar/durability/raft/transport_tests.rs"
+      ],
+      "steps": [
+        "Define separate Raft peer routes/frames with source/target process, group/incarnation, protocol digest and bounded lengths.",
+        "Authenticate responses as well as requests, use protected transport and verify membership before dispatch.",
+        "Pool connections and multiplex groups; reserve control-message capacity and report unreachable/snapshot failures to raft-rs.",
+        "Implement duplicate/reordering/one-way partition and delayed-response fault injection in real process fixtures."
+      ],
+      "acceptance": [
+        "Three real node processes communicate over the production transport.",
+        "Per-peer byte budgets and cancellation release are observable."
+      ],
+      "stop_conditions": [
+        "Stop if only request signatures are checked.",
+        "A transport timeout must not be translated into an append acknowledgement."
+      ],
+      "test_target": "native_raft_transport",
+      "test_cases": [
+        {
+          "name": "peer_response_authenticated",
+          "oracle": "Forged or wrong-target responses cannot create durable proof",
+          "invariants": [
+            "I01",
+            "I03"
+          ]
+        },
+        {
+          "name": "unknown_group_no_allocation",
+          "oracle": "Untrusted unknown-group traffic cannot initialize state",
+          "invariants": [
+            "I06",
+            "I13"
+          ]
+        },
+        {
+          "name": "stale_incarnation_message",
+          "oracle": "Delayed old-history messages cannot alter a new group",
+          "invariants": [
+            "I07",
+            "I15"
+          ]
+        },
+        {
+          "name": "one_way_partition",
+          "oracle": "Majority progresses without minority commits",
+          "invariants": [
+            "I01",
+            "I06"
+          ]
+        },
+        {
+          "name": "control_traffic_reserved",
+          "oracle": "Saturated data/snapshot queues do not starve control traffic",
+          "invariants": [
+            "I13"
+          ]
+        },
+        {
+          "name": "transport_byte_limits",
+          "oracle": "Encoded and decoded limits reject input before unbounded allocation",
+          "invariants": [
+            "I13"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_transport",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_transport",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ]
+      ],
+      "evidence": [
+        "evidence/MR-04.json"
+      ]
+    },
+    {
+      "id": "MR-05",
+      "title": "Implement verified LTX apply and immutable generations",
+      "phase": "v1",
+      "status": "DONE",
+      "depends_on": [
+        "MR-01"
+      ],
+      "modifies": [
+        "crates/cellar-ltx/src/lib.rs",
+        "crates/cellar-ltx/src/host.rs",
+        "crates/cellar-ltx/src/ltx.rs",
+        "crates/cellar/storage/sqlite/mod.rs",
+        "crates/cellar-ltx/Cargo.toml",
+        "Cargo.lock",
+        "crates/cellar-ltx/README.md"
+      ],
+      "creates": [
+        "crates/cellar-ltx/src/apply.rs",
+        "crates/cellar-ltx/src/generation.rs",
+        "crates/cellar/tests/native_raft_ltx.rs",
+        "crates/cellar-ltx/src/bounded_ltx.rs",
+        "crates/cellar-ltx/src/generation_vfs.rs",
+        "crates/cellar/storage/sqlite/immutable.rs",
+        "crates/cellar/tests/support/raft_ltx_fixture.rs",
+        "crates/cellar/tests/support/raft_ltx_fault.rs"
+      ],
+      "steps": [
+        "Add bounded physical LTX application against a verified base with mandatory envelope image digests, optional LTX database checksums and full file/chain validation.",
+        "Implement unique generation creation, copy/reflink fallback, page growth/truncation and durable directory publication through FileSystem.",
+        "Add a query opener that never initializes framework schema or mutates an immutable generation.",
+        "Make generation pinning and bounded reclamation explicit; exercise corruption and crash cuts through real filesystem tests."
+      ],
+      "acceptance": [
+        "Public library mechanics are tested through ordinary Cellar integration targets.",
+        "No published image is modified in place; unsupported filesystem operations fail explicitly."
+      ],
+      "stop_conditions": [
+        "Stop if exact base/result image digests or LTX file integrity cannot be verified.",
+        "Do not use a live SQLite copy or immutable=1 over a file that is still being patched."
+      ],
+      "test_target": "native_raft_ltx",
+      "test_cases": [
+        {
+          "name": "ltx_exact_base",
+          "oracle": "Wrong mandatory image digest or TXID gap refuses apply, including NoChecksum LTX",
+          "invariants": [
+            "I05"
+          ]
+        },
+        {
+          "name": "ltx_growth_truncation",
+          "oracle": "Database contents and page count match the expected resulting image",
+          "invariants": [
+            "I04",
+            "I05"
+          ]
+        },
+        {
+          "name": "ltx_checksum_corruption",
+          "oracle": "Header/page/trailer or envelope image corruption cannot publish a generation",
+          "invariants": [
+            "I02",
+            "I05"
+          ]
+        },
+        {
+          "name": "immutable_reader_pinning",
+          "oracle": "A long query sees one unchanged image during later publication",
+          "invariants": [
+            "I02",
+            "I04"
+          ]
+        },
+        {
+          "name": "image_sync_before_marker",
+          "oracle": "Failed file or directory sync cannot make the image publishable",
+          "invariants": [
+            "I04"
+          ]
+        },
+        {
+          "name": "bounded_image_reclamation",
+          "oracle": "Pinned generations survive while disk budgets enforce refusal",
+          "invariants": [
+            "I10",
+            "I13"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_ltx",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_ltx",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ]
+      ],
+      "evidence": [
+        "evidence/MR-05.json"
+      ]
+    },
+    {
+      "id": "MR-06",
+      "title": "Stage commands privately and bind results to committed LTX",
+      "phase": "v1",
+      "status": "DONE",
+      "depends_on": [
+        "MR-03",
+        "MR-04",
+        "MR-05"
+      ],
+      "modifies": [
+        "crates/cellar/storage/sqlite/mod.rs",
+        "crates/cellar/durability/raft/mod.rs",
+        "crates/cellar/durability/raft/cache.rs",
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar/tests/native_raft_runtime.rs",
+        "crates/cellar/tests/support/raft_runtime_fixture.rs",
+        "crates/cellar/tests/support/raft_network.rs",
+        "crates/cellar/durability/raft/README.md",
+        "crates/cellar-ltx/README.md"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/execution/mod.rs",
+        "crates/cellar/durability/raft/apply.rs",
+        "crates/cellar/tests/native_raft_execution.rs",
+        "crates/cellar/durability/raft/working.rs",
+        "crates/cellar/durability/raft/receipts.rs",
+        "crates/cellar/storage/sqlite/command.rs"
+      ],
+      "steps": [
+        "Add private execution images, one command transaction and one pending data proposal per cell.",
+        "Persist request digest, bounded result and per-client sequence/expiry floors in the business transaction; capture all intervening LTX/control writes and the frozen result image digest.",
+        "Publish committed image then sync the engine apply marker before returning a covered completion.",
+        "Rebuild private state after rejected/uncertain proposals and leadership changes; retain uncommitted log entries for normal Raft reconciliation."
+      ],
+      "acceptance": [
+        "Leader kill at every command step preserves the client receipt contract.",
+        "No numeric cast maps Fleet output tickets into Raft/LTX versions."
+      ],
+      "stop_conditions": [
+        "Stop if a second command can execute while its base proposal is uncertain.",
+        "Do not expose the leader's writable image to query code."
+      ],
+      "test_target": "native_raft_execution",
+      "test_cases": [
+        {
+          "name": "private_commit_not_visible",
+          "oracle": "A crash before proposal leaves no public read/effect",
+          "invariants": [
+            "I02"
+          ]
+        },
+        {
+          "name": "lost_proposal_rebuild",
+          "oracle": "New commands never build on an abandoned private delta",
+          "invariants": [
+            "I02",
+            "I05"
+          ]
+        },
+        {
+          "name": "duplicate_command_receipt",
+          "oracle": "A retry after lost reply changes business state once",
+          "invariants": [
+            "I12"
+          ]
+        },
+        {
+          "name": "conflicting_command_digest",
+          "oracle": "Reused command identity with different payload is refused",
+          "invariants": [
+            "I12"
+          ]
+        },
+        {
+          "name": "apply_marker_crash_cut",
+          "oracle": "Restart chooses an image and index that were durably published together",
+          "invariants": [
+            "I04"
+          ]
+        },
+        {
+          "name": "oversized_delta_atomic_refusal",
+          "oracle": "An oversized LTX result never leaks a partial mutation",
+          "invariants": [
+            "I02",
+            "I13"
+          ]
+        },
+        {
+          "name": "receipt_expiry_floor",
+          "oracle": "Gaps are refused and an expired client sequence cannot execute as a new request",
+          "invariants": [
+            "I12"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_execution",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_execution",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ]
+      ],
+      "evidence": [
+        "evidence/MR-06.json"
+      ]
+    },
+    {
+      "id": "MR-07",
+      "title": "Integrate Raft authority and command registration with the host",
+      "phase": "v1",
+      "status": "DONE",
+      "depends_on": [
+        "MR-04",
+        "MR-06"
+      ],
+      "modifies": [
+        "crates/cellar-logic/cell.rs",
+        "crates/cellar-logic/output_gate.rs",
+        "crates/cellar-logic/routing.rs",
+        "crates/cellar-logic/types.rs",
+        "crates/cellar/actor/effects.rs",
+        "crates/cellar/actor/production.rs",
+        "crates/cellar/actor/output_proofs.rs",
+        "crates/cellar/node/embedded.rs",
+        "crates/cellar/fleet/ownership.rs",
+        "crates/cellar/application/mod.rs",
+        "crates/cellar/application/cells.rs",
+        "crates/cellar/sdk.rs",
+        "crates/cellar/Cargo.toml",
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar/durability/raft/runtime.rs",
+        "crates/cellar/durability/raft/mod.rs",
+        "crates/cellar/durability/raft/README.md",
+        "crates/cellar/application/consensus/protocol.rs",
+        "crates/cellar/node/mod.rs",
+        "crates/cellar-logic/lib.rs",
+        "crates/cellar/durability/raft/apply.rs",
+        "crates/cellar/durability/raft/execution/mod.rs",
+        "crates/cellar/durability/raft/completion.rs",
+        "crates/cellar/storage/sqlite/immutable.rs",
+        "crates/cellar/tests/native_raft_execution.rs",
+        "crates/cellar/application/README.md",
+        "crates/cellar-axum/application.rs",
+        "crates/cellar-axum/builder.rs",
+        "crates/cellar-axum/tests/builder.rs",
+        "crates/cellar-axum/README.md"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/catalog.rs",
+        "examples/raft-counter/main.rs",
+        "crates/cellar/tests/native_raft_host.rs",
+        "crates/cellar/durability/raft/catalog_wire.rs",
+        "crates/cellar/tests/support/raft_catalog_fault.rs",
+        "crates/cellar-logic/raft_command.rs",
+        "crates/cellar-logic/tests/raft_command.rs",
+        "crates/cellar/application/consensus/class.rs",
+        "crates/cellar/application/consensus/client.rs",
+        "crates/cellar/durability/raft/host.rs",
+        "crates/cellar/durability/raft/host_sql/mod.rs",
+        "crates/cellar/tests/support/raft_node.rs",
+        "examples/raft-counter/counter.rs",
+        "examples/raft-counter/README.md",
+        "examples/raft-counter/smoke.py",
+        "crates/cellar/tests/support/raft_cluster.rs",
+        "docs/design/multi-raft/host-audit.md"
+      ],
+      "steps": [
+        "Implement immutable namespace mode, conditional group birth, durable one-time member bootstrap claims and actor-owned lifecycle registration.",
+        "Route Raft commands through restricted class definitions; reject existing mutable factory registration in that mode.",
+        "Settle core output gates from exact committed/applied receipts and complete authority identity; keep Fleet proofs separate.",
+        "Ship a compiling counter example through native and Axum ingress, adding the Cargo target explicitly."
+      ],
+      "acceptance": [
+        "Normal host command admission works end to end through the public SDK.",
+        "Existing native_storage, native_replication and native_log_protocol targets still pass."
+      ],
+      "stop_conditions": [
+        "Stop if the old owner CAS and Raft can independently grant mutation authority.",
+        "Do not route background writes through Fleet methods as a temporary shortcut."
+      ],
+      "test_target": "native_raft_host",
+      "test_cases": [
+        {
+          "name": "raft_gate_exact_receipt",
+          "oracle": "Only a matching committed applied receipt releases success",
+          "invariants": [
+            "I01",
+            "I07"
+          ]
+        },
+        {
+          "name": "fleet_gate_unchanged",
+          "oracle": "Fleet bucket/follower proof behavior remains unchanged with feature off",
+          "invariants": [
+            "I16"
+          ]
+        },
+        {
+          "name": "namespace_mode_conflict",
+          "oracle": "Conflicting root mode or group birth cannot admit a second writer",
+          "invariants": [
+            "I06"
+          ]
+        },
+        {
+          "name": "retained_handle_fenced",
+          "oracle": "A handle from an old activation cannot modify private state",
+          "invariants": [
+            "I07"
+          ]
+        },
+        {
+          "name": "native_axum_command_parity",
+          "oracle": "Both ingress adapters enforce identical registration and receipt behavior",
+          "invariants": [
+            "I01",
+            "I12"
+          ]
+        },
+        {
+          "name": "unsupported_factory_refused",
+          "oracle": "Normal mutable Cell factories cannot enter the Raft namespace",
+          "invariants": [
+            "I02",
+            "I06"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_host",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_host",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ]
+      ],
+      "evidence": [
+        "evidence/MR-07-catalog-progress.json",
+        "evidence/MR-07-registration-progress.json",
+        "evidence/MR-07-host-progress.json",
+        "evidence/MR-07.json"
+      ]
+    },
+    {
+      "id": "MR-08",
+      "title": "Serve explicit follower query consistency modes",
+      "phase": "v1",
+      "status": "DONE",
+      "depends_on": [
+        "MR-07"
+      ],
+      "modifies": [
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar/application/cells.rs",
+        "crates/cellar/sdk.rs",
+        "crates/cellar-logic/routing.rs",
+        "crates/cellar/application/consensus/client.rs",
+        "crates/cellar/durability/raft/mod.rs",
+        "crates/cellar/durability/raft/apply.rs",
+        "crates/cellar/durability/raft/catalog.rs",
+        "crates/cellar/durability/raft/catalog_wire.rs",
+        "crates/cellar/durability/raft/completion.rs",
+        "crates/cellar/durability/raft/execution/mod.rs",
+        "crates/cellar/durability/raft/host.rs",
+        "crates/cellar/durability/raft/host_sql/mod.rs",
+        "crates/cellar/durability/raft/replica.rs",
+        "crates/cellar/node/embedded.rs",
+        "crates/cellar/tests/native_raft_host.rs",
+        "crates/cellar/tests/support/raft_cluster.rs",
+        "crates/cellar/tests/support/raft_node.rs",
+        "examples/raft-counter/main.rs",
+        "crates/cellar/durability/raft/README.md",
+        "examples/raft-counter/README.md",
+        "crates/cellar/durability/raft/transport.rs",
+        "crates/cellar/durability/raft/transport_frame.rs",
+        "crates/cellar/durability/raft/transport_options.rs",
+        "crates/cellar/durability/raft/transport_tests.rs",
+        "crates/cellar/node/mod.rs",
+        "crates/cellar/tests/native_node.rs",
+        "crates/cellar/tests/native_raft_transport.rs",
+        "crates/cellar/tests/support/raft_network.rs",
+        "crates/cellar/application/consensus/class.rs",
+        "examples/raft-counter/counter.rs",
+        "examples/raft-counter/smoke.py",
+        "crates/cellar-logic/consensus.rs"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/query.rs",
+        "crates/cellar/durability/raft/version.rs",
+        "crates/cellar/tests/native_raft_reads.rs",
+        "crates/cellar/durability/raft/query_route.rs",
+        "crates/cellar/durability/raft/query_wire.rs",
+        "crates/cellar/durability/raft/query_wire_tests.rs",
+        "crates/cellar/durability/raft/query_transport.rs",
+        "docs/design/multi-raft/read-audit.md",
+        "crates/cellar/tests/support/raft_read_context.rs",
+        "crates/cellar/durability/raft/query_identity.rs"
+      ],
+      "steps": [
+        "Implement read-only query registration, snapshot pinning and served-version propagation.",
+        "Implement Stale, AtLeast and safe ReadIndex barriers with unique request correlation and original deadlines.",
+        "Authenticate scope-bound version tokens, rotate verification keys and refuse cross-incarnation comparisons.",
+        "Add bounded replica selection and explicit same-consistency leader fallback."
+      ],
+      "acceptance": [
+        "Run history assertions through follower reads while leaders change.",
+        "Read result metadata names the pinned image rather than a later mutable watermark."
+      ],
+      "stop_conditions": [
+        "Stop if a query shares the private leader execution connection.",
+        "Do not implement lease-based reads in this task."
+      ],
+      "test_target": "native_raft_reads",
+      "test_cases": [
+        {
+          "name": "stale_is_committed_prefix",
+          "oracle": "Stale results correspond to a coherent committed generation",
+          "invariants": [
+            "I02",
+            "I08"
+          ]
+        },
+        {
+          "name": "read_your_writes_follower",
+          "oracle": "AtLeast waits for the actual queryable image covering the token",
+          "invariants": [
+            "I08"
+          ]
+        },
+        {
+          "name": "linearizable_read_barrier",
+          "oracle": "A completed write preceding a query invocation is visible",
+          "invariants": [
+            "I08"
+          ]
+        },
+        {
+          "name": "minority_strong_read_refused",
+          "oracle": "Isolated replicas cannot turn cached progress into a fresh strong read",
+          "invariants": [
+            "I06",
+            "I08"
+          ]
+        },
+        {
+          "name": "query_write_capability_denied",
+          "oracle": "SQL/PRAGMA/ATTACH and ordinary context paths cannot mutate state",
+          "invariants": [
+            "I02"
+          ]
+        },
+        {
+          "name": "query_token_auth_scope",
+          "oracle": "Forged/cross-cell/old-incarnation tokens fail validation",
+          "invariants": [
+            "I08",
+            "I15"
+          ]
+        },
+        {
+          "name": "fallback_preserves_contract",
+          "oracle": "Timeout/fallback never downgrades consistency or extends deadline",
+          "invariants": [
+            "I08",
+            "I13"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_reads",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_reads",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ]
+      ],
+      "evidence": [
+        "evidence/MR-08.json"
+      ]
+    },
+    {
+      "id": "MR-09",
+      "title": "Archive committed history and enforce durability modes",
+      "phase": "v1",
+      "status": "DONE",
+      "depends_on": [
+        "MR-07"
+      ],
+      "modifies": [
+        "crates/cellar/durability/raft/apply.rs",
+        "crates/cellar/durability/raft/catalog.rs",
+        "crates/cellar/storage/object/bucket.rs",
+        "crates/cellar/durability/raft/cache.rs",
+        "crates/cellar/durability/raft/storage.rs",
+        "crates/cellar/durability/raft/mod.rs",
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar/tests/support/raft_catalog_fault.rs",
+        "crates/cellar-ltx/src/generation.rs",
+        "crates/cellar/application/consensus/client.rs",
+        "crates/cellar/durability/raft/execution/mod.rs",
+        "crates/cellar/durability/raft/host.rs",
+        "crates/cellar/durability/raft/host_sql/mod.rs",
+        "crates/cellar/tests/native_raft_ltx.rs",
+        "crates/cellar/tests/support/raft_node.rs",
+        "crates/cellar/tests/support/raft_cluster.rs",
+        "crates/cellar/durability/raft/completion.rs",
+        "crates/cellar/durability/raft/runtime.rs",
+        "crates/cellar-ltx/README.md",
+        "examples/raft-counter/main.rs",
+        "examples/raft-counter/README.md",
+        "crates/cellar/durability/raft/README.md"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/archive/mod.rs",
+        "crates/cellar/durability/raft/manifest.rs",
+        "crates/cellar/tests/native_raft_archive.rs",
+        "crates/cellar/durability/raft/host_archive.rs",
+        "docs/design/multi-raft/archive-audit.md"
+      ],
+      "steps": [
+        "Build immutable committed-prefix archive bundles and manifests including entry metadata and external object dependencies.",
+        "Advance archive heads only after referenced objects are durable; reconcile ambiguous conditional writes.",
+        "Implement Quorum versus S3 output gates, retry strengthening and contiguous archive coverage.",
+        "Pin sufficient log/image recovery material during outages; enforce backlog and disk admission limits."
+      ],
+      "acceptance": [
+        "A new isolated restore from S3 reconstructs every S3-acknowledged command.",
+        "No archive operation becomes a second consensus authority."
+      ],
+      "stop_conditions": [
+        "Stop if object existence is credited before complete manifest/dependency verification.",
+        "Do not promise all-disk-loss survival for unarchived Quorum writes."
+      ],
+      "test_target": "native_raft_archive",
+      "test_cases": [
+        {
+          "name": "archive_never_speculative",
+          "oracle": "Persisted uncommitted LTX cannot enter a recoverable manifest",
+          "invariants": [
+            "I02",
+            "I09"
+          ]
+        },
+        {
+          "name": "archive_head_monotonic",
+          "oracle": "Delayed worker/CAS retries cannot regress or fork archive history",
+          "invariants": [
+            "I09"
+          ]
+        },
+        {
+          "name": "s3_ack_complete_restore_set",
+          "oracle": "S3 success covers snapshot/tail and referenced immutable objects",
+          "invariants": [
+            "I01",
+            "I09"
+          ]
+        },
+        {
+          "name": "quorum_s3_outage",
+          "oracle": "Quorum writes continue only within retained-disk budgets",
+          "invariants": [
+            "I01",
+            "I13"
+          ]
+        },
+        {
+          "name": "s3_timeout_ambiguous",
+          "oracle": "A committed command with failed archive wait is never called rolled back",
+          "invariants": [
+            "I01",
+            "I12"
+          ]
+        },
+        {
+          "name": "retention_preserves_only_copy",
+          "oracle": "Disk pressure cannot delete the only acknowledged unarchived recovery path",
+          "invariants": [
+            "I10"
+          ]
+        },
+        {
+          "name": "retry_strengthens_durability",
+          "oracle": "A stored Quorum result waits before answering a stronger S3 retry",
+          "invariants": [
+            "I01",
+            "I12"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_archive",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_archive",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ]
+      ],
+      "evidence": [
+        "evidence/MR-09.json"
+      ]
+    },
+    {
+      "id": "MR-10",
+      "title": "Install snapshots and recover durable group state",
+      "phase": "v1",
+      "status": "DONE",
+      "depends_on": [
+        "MR-09",
+        "MR-05",
+        "MR-03",
+        "MR-08"
+      ],
+      "modifies": [
+        "crates/cellar/durability/raft/storage.rs",
+        "crates/cellar/durability/raft/apply.rs",
+        "crates/cellar/durability/raft/transport.rs",
+        "crates/cellar/node/embedded.rs",
+        "crates/cellar/durability/raft/host_sql/mod.rs",
+        "crates/cellar/durability/raft/mod.rs",
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar-ltx/src/generation.rs",
+        "crates/cellar/durability/raft/completion.rs",
+        "crates/cellar/durability/raft/replica.rs",
+        "crates/cellar/durability/raft/runtime.rs",
+        "crates/cellar/tests/native_raft_ltx.rs",
+        "crates/cellar/tests/native_raft_runtime.rs",
+        "crates/cellar/tests/support/raft_runtime_fixture.rs",
+        "crates/cellar-ltx/src/apply.rs",
+        "crates/cellar-ltx/src/bounded_ltx.rs",
+        "crates/cellar-ltx/src/ltx.rs",
+        "crates/cellar/durability/raft/archive/mod.rs",
+        "crates/cellar/durability/raft/host.rs",
+        "crates/cellar/tests/native_raft_host.rs",
+        "crates/cellar/durability/raft/options.rs",
+        "crates/cellar/tests/native_raft_transport.rs",
+        "crates/cellar/application/consensus/client.rs",
+        "crates/cellar/durability/raft/transport_options.rs",
+        "crates/cellar/durability/raft/transport_frame.rs",
+        "crates/cellar/tests/support/raft_cluster.rs",
+        "crates/cellar/tests/support/raft_node.rs",
+        "crates/cellar/tests/native_raft_archive.rs",
+        "crates/cellar/durability/raft/README.md",
+        "crates/cellar/durability/raft/query.rs",
+        "crates/cellar/tests/native_raft_reads.rs",
+        "crates/cellar/durability/raft/cache.rs",
+        "crates/cellar/durability/raft/records.rs",
+        "crates/cellar/durability/raft/manifest.rs",
+        "crates/cellar/durability/raft/query_transport.rs",
+        "crates/cellar/durability/raft/catalog_wire.rs",
+        "crates/cellar/application/consensus/protocol.rs",
+        "crates/cellar/tests/native_raft_storage.rs",
+        "crates/cellar/durability/raft/catalog.rs",
+        "crates/cellar/tests/support/raft_catalog_fault.rs",
+        "crates/cellar/execution/domain.rs",
+        "crates/cellar/tests/native_domains.rs",
+        "docs/10-embedding.md"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/snapshot.rs",
+        "crates/cellar/durability/raft/recovery.rs",
+        "crates/cellar/tests/native_raft_snapshot.rs",
+        "docs/design/multi-raft/snapshot-audit.md",
+        "crates/cellar/durability/raft/snapshot_transport.rs",
+        "crates/cellar/durability/raft/host_snapshot.rs",
+        "crates/cellar/durability/raft/member_state.rs",
+        "crates/cellar/durability/raft/member_state_tests.rs",
+        "crates/cellar/durability/raft/host_membership.rs",
+        "crates/cellar/durability/raft/host_seed.rs",
+        "crates/cellar/durability/raft/seed_transport.rs",
+        "crates/cellar/durability/raft/snapshot_seed.rs",
+        "crates/cellar/durability/raft/seed_archive.rs",
+        "crates/cellar/tests/support/raft_seed_fault.rs",
+        "crates/cellar/tests/support/raft_seed_crash.rs"
+      ],
+      "steps": [
+        "Implement bounded snapshot build/download with image, index/term, ConfState and incarnation metadata.",
+        "Atomically publish engine install markers only after the image is durable; retain old reader pins.",
+        "Recover markers and replay durable committed prefixes; preserve uncommitted suffixes for Raft.",
+        "Implement authorized fresh-member seeding from S3 or a peer; explicitly refuse quorumless normal activation."
+      ],
+      "acceptance": [
+        "Crash injection covers every image/marker/snapshot acknowledgement boundary.",
+        "Repeated installs are idempotent and bounded in disk/memory."
+      ],
+      "stop_conditions": [
+        "Stop if restart repairs applied/commit mismatch by inventing progress.",
+        "No response acknowledges snapshot installation before durability."
+      ],
+      "test_target": "native_raft_snapshot",
+      "test_cases": [
+        {
+          "name": "snapshot_install_crash_matrix",
+          "oracle": "Restart never mixes old metadata with a new image",
+          "invariants": [
+            "I04",
+            "I11"
+          ]
+        },
+        {
+          "name": "snapshot_wrong_history",
+          "oracle": "Snapshot identity or base mismatch is refused",
+          "invariants": [
+            "I05",
+            "I15"
+          ]
+        },
+        {
+          "name": "restart_committed_replay",
+          "oracle": "Durable committed commands survive process restart and replay",
+          "invariants": [
+            "I01",
+            "I05"
+          ]
+        },
+        {
+          "name": "compacted_boundary_term",
+          "oracle": "Snapshot boundary term remains usable for log matching",
+          "invariants": [
+            "I05",
+            "I10"
+          ]
+        },
+        {
+          "name": "missing_quorum_restore_refused",
+          "oracle": "Available S3 bytes cannot independently reactivate an existing group",
+          "invariants": [
+            "I06"
+          ]
+        },
+        {
+          "name": "snapshot_old_reader",
+          "oracle": "A query pinned before install remains coherent through install and GC",
+          "invariants": [
+            "I02",
+            "I10"
+          ]
+        },
+        {
+          "name": "maximum_image_retained_snapshot_and_archive_roundtrip",
+          "oracle": "The largest admitted incompressible SQLite image transfers at the exact retained cut and its newer archive restores after local node directories are deleted",
+          "invariants": [
+            "I04",
+            "I09",
+            "I10",
+            "I13"
+          ]
+        },
+        {
+          "name": "retained_checkpoint_capture_never_substitutes_newer_state",
+          "oracle": "Replacement refuses a new request for the old checkpoint while an already pinned transfer remains coherent through GC",
+          "invariants": [
+            "I05",
+            "I07",
+            "I10"
+          ]
+        },
+        {
+          "name": "retained_empty_checkpoint_has_no_image_or_payload",
+          "oracle": "Serving an empty durable checkpoint invents no image or encoded payload",
+          "invariants": [
+            "I04",
+            "I10"
+          ]
+        },
+        {
+          "name": "snapshot_limits_require_full_encoded_image_capacity",
+          "oracle": "Encoded admission covers full-LTX overhead without reducing admitted image size",
+          "invariants": [
+            "I13"
+          ]
+        },
+        {
+          "name": "snapshot_abort_preserves_vote_and_committed_image",
+          "oracle": "Cancellation persists required term/vote over the old committed prefix, refuses late install and preserves the old image/checkpoint across restart",
+          "invariants": [
+            "I04",
+            "I05",
+            "I07",
+            "I11"
+          ]
+        },
+        {
+          "name": "snapshot_abort_joins_older_apply_and_allows_retry",
+          "oracle": "Cancellation joins the existing physical apply before completion; a fresh ticket can install the retried snapshot",
+          "invariants": [
+            "I04",
+            "I07",
+            "I10"
+          ]
+        },
+        {
+          "name": "snapshot_abort_sync_failure_refuses_progress_and_recovers_prefix",
+          "oracle": "Failed cancellation sync releases no progress or acknowledgement and restart recovers the coherent old image/prefix",
+          "invariants": [
+            "I04",
+            "I05",
+            "I11"
+          ]
+        },
+        {
+          "name": "native_snapshot_catchup_resumes_follower_reads",
+          "oracle": "An isolated native follower installs the compacted checkpoint over authenticated bounded chunk RPCs, catches up and serves the retained token without business callbacks",
+          "invariants": [
+            "I02",
+            "I04",
+            "I05",
+            "I10"
+          ]
+        },
+        {
+          "name": "native_snapshot_interrupted_transfer_retries_without_blocking_other_groups",
+          "oracle": "A partial native transfer supplies no read result; deadline/abort and retry restore the follower while a healthy second group keeps writing",
+          "invariants": [
+            "I02",
+            "I07",
+            "I10",
+            "I13"
+          ]
+        },
+        {
+          "name": "native_snapshot_shutdown_joins_partial_transfer",
+          "oracle": "Native close joins partial transfer, sockets, blocking owners and reservations even while network responses remain held",
+          "invariants": [
+            "I07",
+            "I13",
+            "I14"
+          ]
+        },
+        {
+          "name": "native_snapshot_admission_refuses_insufficient_restore_capacity",
+          "oracle": "Native startup rejects encoded/image-slot/copy budgets before creating namespace objects or permanent member storage",
+          "invariants": [
+            "I04",
+            "I13"
+          ]
+        },
+        {
+          "name": "snapshot_member_binding_and_retirement_survive_restart",
+          "oracle": "Joined member/node/disk bindings and retired-ID high-water survive compaction, transfer and restart",
+          "invariants": [
+            "I05",
+            "I06",
+            "I11"
+          ]
+        },
+        {
+          "name": "snapshot_refuses_rebound_binding_and_lost_id_watermark",
+          "oracle": "Canonical higher snapshots cannot rebind an existing member or regress its retired-ID watermark",
+          "invariants": [
+            "I05",
+            "I06",
+            "I15"
+          ]
+        },
+        {
+          "name": "snapshot_same_cut_requires_member_binding_marker",
+          "oracle": "Recovery refuses a snapshot whose same-cut member marker was not atomically installed",
+          "invariants": [
+            "I04",
+            "I06",
+            "I11"
+          ]
+        },
+        {
+          "name": "native_fresh_learner_seed_requires_committed_binding_and_resumes_reads",
+          "oracle": "A committed exact learner binding obtains a fresh follower ReadIndex grant, seals and atomically installs its image, reconciles a permanent claim, resumes reads and later replication, preserves vote zero on restart, and refuses a claimed blank replacement",
+          "invariants": [
+            "I04",
+            "I05",
+            "I06",
+            "I11"
+          ]
+        },
+        {
+          "name": "native_fresh_learner_seed_refuses_missing_quorum",
+          "oracle": "Available S3 data and a committed learner binding cannot seed a blank node without a fresh quorum barrier; refusal leaves no group or permanent claim",
+          "invariants": [
+            "I04",
+            "I05",
+            "I11"
+          ]
+        },
+        {
+          "name": "native_fresh_learner_seed_retries_partial_body_with_fresh_grant",
+          "oracle": "A held partial learner body expires its stream and retries with a fresh authenticated quorum grant under the original deadline, then resumes reads and subsequent replication without invoking seed-time business callbacks",
+          "invariants": [
+            "I04",
+            "I05",
+            "I11",
+            "I13"
+          ]
+        },
+        {
+          "name": "native_fresh_learner_s3_seed_replays_tail_and_resumes_reads",
+          "oracle": "A fresh follower barrier selects an immutable S3 cut; full image/tail replay resumes reads and replication, then full public Node restart with fresh process identities preserves data/votes and refuses strong reads until quorum returns",
+          "invariants": [
+            "I04",
+            "I05",
+            "I06",
+            "I11"
+          ]
+        },
+        {
+          "name": "native_fresh_learner_s3_seed_refuses_missing_quorum",
+          "oracle": "A committed learner binding and available S3 snapshot/tail cannot seed without a fresh quorum barrier; no local group or new claim is created",
+          "invariants": [
+            "I04",
+            "I05",
+            "I11"
+          ]
+        },
+        {
+          "name": "native_s3_seed_does_not_wait_for_private_writer",
+          "oracle": "S3 metadata selection and follower reads proceed while a leader callback holds an unpublished write; only its committed predecessor is visible until release",
+          "invariants": [
+            "I02",
+            "I04",
+            "I11",
+            "I13"
+          ]
+        },
+        {
+          "name": "native_s3_seed_missing_selected_payload_refuses_newer_head_fallback",
+          "oracle": "After grant selection a missing old payload refuses initialization even with a newer complete head; no group or member claim appears",
+          "invariants": [
+            "I04",
+            "I05",
+            "I11"
+          ]
+        },
+        {
+          "name": "native_s3_seed_reconciles_lost_member_claim_response",
+          "oracle": "A lost conditional claim response reconciles by exact readback and attaches the same synced learner without resetting state",
+          "invariants": [
+            "I04",
+            "I05",
+            "I11"
+          ]
+        },
+        {
+          "name": "native_s3_seed_resumes_synced_state_before_member_claim",
+          "oracle": "A failed pre-claim PUT leaves synced nonvoting state; public restart first resumes that exact state and creates its claim without a new blank seed or quorum proof",
+          "invariants": [
+            "I04",
+            "I05",
+            "I06",
+            "I11"
+          ]
+        },
+        {
+          "name": "native_s3_seed_resumes_after_lost_claim_confirmation",
+          "oracle": "A committed claim with a lost confirmation refuses initial attachment, then public restart reconciles that same local state/claim and preserves vote zero",
+          "invariants": [
+            "I04",
+            "I05",
+            "I06",
+            "I11"
+          ]
+        },
+        {
+          "name": "native_peer_seed_crash_matrix",
+          "oracle": "Eight process kills at image fsync, rename, directory fsync, atomic engine sync, engine reply, permanent claim and public attachment preserve an all-or-absent fresh learner checkpoint; public Node restart resumes state and later follower replication without rerunning callbacks",
+          "invariants": [
+            "I01",
+            "I03",
+            "I04",
+            "I06",
+            "I15"
+          ]
+        },
+        {
+          "name": "native_s3_seed_crash_matrix",
+          "oracle": "The same eight public Node seed crash cuts for exact-reference S3 recovery preserve vote zero and claim ordering; incomplete unclaimed seeds need fresh live quorum, while synced joined state resumes without blank reset",
+          "invariants": [
+            "I01",
+            "I03",
+            "I04",
+            "I06",
+            "I09",
+            "I15"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_snapshot",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_snapshot",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ]
+      ],
+      "evidence": [
+        "evidence/MR-10.json",
+        "evidence/MR-10-s3-progress.json",
+        "evidence/MR-10-seed-progress.json",
+        "evidence/MR-10-bindings-progress.json",
+        "evidence/MR-10-native-progress.json",
+        "evidence/MR-10-quorum-progress.json"
+      ]
+    },
+    {
+      "id": "MR-11",
+      "title": "Place replicas and repair membership automatically",
+      "phase": "v1",
+      "status": "DONE",
+      "depends_on": [
+        "MR-10",
+        "MR-04",
+        "MR-07"
+      ],
+      "modifies": [
+        "crates/cellar/durability/raft/catalog.rs",
+        "crates/cellar/durability/raft/runtime.rs",
+        "crates/cellar-logic/rebalance.rs",
+        "crates/cellar-logic/lib.rs",
+        "crates/cellar/durability/raft/member_state.rs",
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar/application/consensus/protocol.rs",
+        "crates/cellar/durability/raft/catalog_wire.rs",
+        "crates/cellar/application/consensus/client.rs",
+        "crates/cellar/durability/raft/host.rs",
+        "crates/cellar/durability/raft/host_membership.rs",
+        "crates/cellar/durability/raft/completion.rs",
+        "crates/cellar/durability/raft/replica.rs",
+        "crates/cellar/durability/raft/transport_frame.rs",
+        "crates/cellar/tests/native_raft_runtime.rs",
+        "crates/cellar/tests/support/raft_cluster.rs",
+        "crates/cellar/tests/support/raft_seed_crash.rs",
+        "crates/cellar/durability/raft/README.md",
+        "crates/cellar/durability/raft/host_sql/mod.rs",
+        "crates/cellar/durability/raft/seed_transport.rs",
+        "crates/cellar/durability/raft/seed_archive.rs",
+        "crates/cellar/node/embedded.rs",
+        "crates/cellar-logic/consensus.rs",
+        "crates/cellar/durability/raft/storage.rs",
+        "crates/cellar/durability/raft/records.rs",
+        "crates/cellar/tests/native_raft_storage.rs",
+        "crates/cellar/tests/support/raft_storage_fault.rs",
+        "crates/cellar/tests/native_raft_host.rs",
+        "crates/cellar/tests/support/raft_catalog_fault.rs",
+        "crates/cellar/tests/native_raft_snapshot.rs",
+        "crates/cellar/durability/raft/transport.rs",
+        "crates/cellar/durability/raft/transport_tests.rs",
+        "crates/cellar/durability/raft/query_transport.rs",
+        "crates/cellar/durability/raft/snapshot_transport.rs",
+        "crates/cellar/durability/raft/filesystem.rs",
+        "crates/cellar/durability/raft/mod.rs",
+        "crates/cellar/tests/native_raft_archive.rs",
+        "crates/cellar/durability/raft/transport_options.rs"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/membership.rs",
+        "crates/cellar/durability/raft/placement.rs",
+        "crates/cellar/tests/native_raft_membership.rs",
+        "docs/design/multi-raft/membership-design.md",
+        "crates/cellar-logic/raft_placement.rs",
+        "crates/cellar/durability/raft/member_plan_tests.rs",
+        "crates/cellar/tests/support/raft_repair_native.rs",
+        "crates/cellar/tests/support/raft_repair_crash.rs",
+        "crates/cellar/durability/raft/replica_leadership.rs",
+        "crates/cellar-logic/raft_leadership.rs",
+        "crates/cellar-logic/raft_leadership_tests.rs",
+        "crates/cellar/durability/raft/host_standby.rs",
+        "crates/cellar/tests/support/raft_standby_native.rs",
+        "docs/design/multi-raft/node-directory-design.md",
+        "crates/cellar/tests/support/raft_node_registration_storage.rs",
+        "crates/cellar/durability/raft/node_directory.rs",
+        "crates/cellar/tests/native_raft_directory.rs",
+        "crates/cellar/durability/raft/host_directory.rs",
+        "crates/cellar/durability/raft/transport_directory.rs",
+        "crates/cellar/durability/raft/transport_directory_tests.rs",
+        "crates/cellar/tests/support/raft_directory_native.rs",
+        "crates/cellar/durability/raft/host_startup_tests.rs",
+        "crates/cellar/durability/raft/mailbox.rs",
+        "crates/cellar/durability/raft/mailbox_tests.rs",
+        "crates/cellar/durability/raft/inspection.rs",
+        "crates/cellar/durability/raft/host_inspection.rs",
+        "crates/cellar/tests/support/raft_inspection_native.rs",
+        "crates/cellar/durability/raft/inspection_auth_tests.rs",
+        "crates/cellar/durability/raft/inspection_identity.rs",
+        "crates/cellar/durability/raft/inspection_transport.rs",
+        "crates/cellar/durability/raft/inspection_wire.rs",
+        "crates/cellar/durability/raft/inspection_wire_tests.rs",
+        "crates/cellar/durability/raft/transport_inspection_tests.rs",
+        "crates/cellar/tests/support/raft_peer_inspection_native.rs",
+        "crates/cellar/durability/raft/host_leader_load.rs",
+        "crates/cellar/durability/raft/host_leader_load_tests.rs",
+        "crates/cellar/durability/raft/host_controller.rs",
+        "crates/cellar/durability/raft/controller_probe.rs",
+        "crates/cellar/durability/raft/controller_action.rs",
+        "crates/cellar/tests/support/raft_controller_native.rs"
+      ],
+      "steps": [
+        "Implement domain-aware desired placement and versioned idempotent controller plans.",
+        "Add learners, install/catch up, promote through ConfChangeV2 and retire obsolete replicas in safe order.",
+        "Resume joint configurations correctly after crashes and throttle concurrent repairs/snapshots.",
+        "Balance eligible leaders and repair missing replicas without incoming application traffic."
+      ],
+      "acceptance": [
+        "A six-node fixture replaces failed members and restores the configured replica count.",
+        "Losing the controller does not invalidate ongoing data-plane authority."
+      ],
+      "stop_conditions": [
+        "Stop if membership comes from directory values instead of the committed configuration.",
+        "Do not remove an old voter merely because its lease expired."
+      ],
+      "test_target": "native_raft_membership",
+      "test_cases": [
+        {
+          "name": "learner_before_promotion",
+          "oracle": "An empty replacement cannot count as a voter before authorized catch-up",
+          "invariants": [
+            "I11"
+          ]
+        },
+        {
+          "name": "joint_configuration_restart",
+          "oracle": "Both-majority transition rules survive leader/process loss",
+          "invariants": [
+            "I11"
+          ]
+        },
+        {
+          "name": "stale_plan_idempotence",
+          "oracle": "Concurrent/stale controller plans cannot duplicate or force membership",
+          "invariants": [
+            "I07",
+            "I11"
+          ]
+        },
+        {
+          "name": "automatic_no_traffic_repair",
+          "oracle": "A failed node triggers repair without requests or manual assignment",
+          "invariants": [
+            "I11"
+          ]
+        },
+        {
+          "name": "insufficient_domain_capacity",
+          "oracle": "Placement refuses unsafe domain concentration when policy requires separation",
+          "invariants": [
+            "I13"
+          ]
+        },
+        {
+          "name": "minority_cannot_reconfigure",
+          "oracle": "Missing quorum cannot be bypassed by S3 plan edits",
+          "invariants": [
+            "I06",
+            "I11"
+          ]
+        },
+        {
+          "name": "leader_balance_with_lag",
+          "oracle": "Transfers select compatible caught-up voters and bound movement",
+          "invariants": [
+            "I11",
+            "I13"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_membership",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_membership",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ]
+      ],
+      "evidence": [
+        "evidence/MR-11.json"
+      ]
+    },
+    {
+      "id": "MR-12",
+      "title": "Integrate committed alarms, outbox and capability gates",
+      "phase": "v1",
+      "status": "DONE",
+      "depends_on": [
+        "MR-08",
+        "MR-09",
+        "MR-11"
+      ],
+      "modifies": [
+        "crates/cellar/application/outbox.rs",
+        "crates/cellar/application/storage/outbox.rs",
+        "crates/cellar/fleet/wake/mod.rs",
+        "crates/cellar-logic/alarm.rs",
+        "crates/cellar/runtime/workers/native/mod.rs",
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar/application/consensus/class.rs",
+        "crates/cellar/durability/raft/mod.rs",
+        "crates/cellar/durability/raft/host.rs",
+        "crates/cellar/durability/raft/host_sql/mod.rs",
+        "crates/cellar/durability/raft/archive/mod.rs",
+        "crates/cellar/node/embedded.rs",
+        "crates/cellar/storage/sqlite/command.rs",
+        "crates/cellar/tests/support/raft_catalog_fault.rs",
+        "crates/cellar/durability/raft/README.md",
+        "crates/cellar/application/consensus/client.rs",
+        "crates/cellar/durability/raft/execution/mod.rs",
+        "crates/cellar/Cargo.toml",
+        "crates/cellar/application/mod.rs",
+        "crates/cellar/durability/raft/host_standby.rs"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/effects.rs",
+        "crates/cellar/tests/native_raft_effects.rs",
+        "crates/cellar/durability/raft/effect_blob.rs",
+        "crates/cellar/durability/raft/effect_blob_tests.rs",
+        "docs/design/multi-raft/effects-design.md",
+        "crates/cellar/durability/raft/effect_alarm.rs",
+        "crates/cellar/durability/raft/host_effects.rs",
+        "crates/cellar/tests/support/raft_alarm_native.rs",
+        "crates/cellar/durability/raft/effect_delivery.rs",
+        "crates/cellar/durability/raft/effect_delivery_tests.rs",
+        "crates/cellar/durability/raft/effect_inbox.rs",
+        "crates/cellar/durability/raft/effect_outbox.rs",
+        "crates/cellar/durability/raft/effect_options.rs",
+        "crates/cellar/durability/raft/effect_scan.rs",
+        "crates/cellar/tests/support/raft_outbox_native.rs",
+        "crates/cellar/tests/support/raft_outbox_loopback.rs",
+        "crates/cellar/tests/support/raft_binding_gate.rs",
+        "examples/raft-effects/main.rs",
+        "examples/raft-effects/effects.rs",
+        "examples/raft-effects/README.md",
+        "examples/raft-effects/smoke.py"
+      ],
+      "steps": [
+        "Add explicit Raft-compatible alarm and outbox adapters using committed intents and command-based progress.",
+        "Recover wake scheduling after election without ordinary cell constructors or user traffic.",
+        "Bind dispatch attempts to current activation while retaining stable receiver idempotency keys across races.",
+        "Validate unsupported existing Workflow/Queue/container/socket capabilities at registration rather than running them under the wrong authority."
+      ],
+      "acceptance": [
+        "Producer/receiver examples demonstrate recovery using durable receipts.",
+        "Follower nodes never run business timers or effect callbacks for followed groups."
+      ],
+      "stop_conditions": [
+        "Stop if external exactly-once behavior is inferred from Raft alone.",
+        "Do not acknowledge a missing object merely because its reference is replicated."
+      ],
+      "test_target": "native_raft_effects",
+      "test_cases": [
+        {
+          "name": "outbox_never_speculative",
+          "oracle": "Uncommitted private intents produce no outbound calls",
+          "invariants": [
+            "I02",
+            "I12"
+          ]
+        },
+        {
+          "name": "effect_leadership_race",
+          "oracle": "Destination receipts suppress duplicate effects after an old request races failover",
+          "invariants": [
+            "I07",
+            "I12"
+          ]
+        },
+        {
+          "name": "alarm_no_traffic_recovery",
+          "oracle": "Committed alarms resume after leader loss without user requests",
+          "invariants": [
+            "I12"
+          ]
+        },
+        {
+          "name": "delivery_progress_replicated",
+          "oracle": "Lost completion retries preserve intent and stable delivery ID",
+          "invariants": [
+            "I12"
+          ]
+        },
+        {
+          "name": "unsupported_binding_gate",
+          "oracle": "Incompatible mutable SDK capability fails before activation",
+          "invariants": [
+            "I06",
+            "I13"
+          ]
+        },
+        {
+          "name": "blob_archive_dependency",
+          "oracle": "Referenced immutable objects exist before the promised acknowledgement",
+          "invariants": [
+            "I01",
+            "I09"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_effects",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_effects",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ]
+      ],
+      "evidence": [
+        "evidence/MR-12.json"
+      ]
+    },
+    {
+      "id": "MR-13",
+      "title": "Bound resources and complete node lifecycle operations",
+      "phase": "v1",
+      "status": "IN_PROGRESS",
+      "depends_on": [
+        "MR-11",
+        "MR-12"
+      ],
+      "modifies": [
+        "crates/cellar/node/embedded.rs",
+        "crates/cellar/actor/output_proofs.rs",
+        "crates/cellar/fleet/management/nodes.rs",
+        "crates/cellar/fleet/management/routing.rs",
+        "crates/cellar/cli/cli_options.rs",
+        "crates/cellar/durability/raft/options.rs",
+        "crates/cellar/application/consensus/client.rs",
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar/durability/raft/effect_delivery.rs",
+        "crates/cellar/durability/raft/host.rs",
+        "crates/cellar/durability/raft/host_controller.rs",
+        "crates/cellar/durability/raft/host_effects.rs",
+        "crates/cellar/durability/raft/host_inspection.rs",
+        "crates/cellar/durability/raft/mod.rs",
+        "crates/cellar/execution/services.rs",
+        "crates/cellar/node/driver.rs",
+        "crates/cellar/node/lifecycle.rs",
+        "crates/cellar/tests/native_raft_membership.rs",
+        "crates/cellar/tests/support/raft_alarm_native.rs",
+        "crates/cellar/tests/support/raft_controller_native.rs",
+        "crates/cellar/tests/support/raft_node.rs",
+        "crates/cellar/tests/support/raft_outbox_loopback.rs",
+        "crates/cellar/tests/support/raft_outbox_native.rs",
+        "crates/cellar/durability/raft/transport_inspection_tests.rs",
+        "crates/cellar/tests/support/raft_repair_native.rs",
+        "crates/cellar/fleet/management/mod.rs",
+        "crates/cellar/fleet/management/operations.rs",
+        "crates/cellar-admin/tests/console.rs",
+        "crates/cellar/tests/support/raft_storage_fault.rs",
+        "crates/cellar/application/consensus/class.rs",
+        "crates/cellar/durability/raft/query.rs",
+        "crates/cellar/tests/native_raft_reads.rs",
+        "crates/cellar/tests/support/raft_cluster.rs",
+        "crates/cellar/durability/raft/budget.rs",
+        "crates/cellar/durability/raft/host_sql/mod.rs",
+        "crates/cellar/node/mod.rs",
+        "crates/cellar-ltx/README.md",
+        "crates/cellar-ltx/src/lib.rs",
+        "crates/cellar-ltx/src/generation.rs",
+        "crates/cellar/durability/raft/host_leader_load.rs",
+        "crates/cellar/durability/raft/host_leader_load_tests.rs",
+        "crates/cellar/durability/raft/transport_tests.rs",
+        "crates/cellar/durability/raft/host_archive.rs",
+        "crates/cellar-python/tests/support/watchdog.rs",
+        "crates/cellar/Cargo.toml",
+        "crates/cellar/README.md",
+        "crates/cellar/cli/daemon.rs",
+        "crates/cellar/execution/domain.rs",
+        "crates/cellar/node/native.rs",
+        "crates/cellar/runtime/generation.rs",
+        "crates/cellar/sdk.rs",
+        "docs/23-cli-reference.md",
+        "crates/cellar/durability/raft/execution/mod.rs",
+        "crates/cellar/durability/raft/receipts.rs",
+        "crates/cellar/tests/native_raft_execution.rs",
+        "crates/cellar/tests/support/raft_seed_crash.rs"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/operations.rs",
+        "crates/cellar/tests/native_raft_operations.rs",
+        "crates/cellar/durability/raft/host_drain.rs",
+        "docs/design/multi-raft/operations-design.md",
+        "crates/cellar/application/consensus/admission.rs",
+        "crates/cellar/application/consensus/admission_tests.rs",
+        "crates/cellar/fleet/management/raft_stop.rs",
+        "crates/cellar/fleet/management/raft_stop_tests.rs",
+        "crates/cellar/tests/support/raft_management_native.rs",
+        "crates/cellar/tests/support/raft_mode_native.rs",
+        "crates/cellar/application/consensus/readiness.rs",
+        "crates/cellar/durability/raft/host_readiness.rs",
+        "crates/cellar/durability/raft/host_readiness_tests.rs",
+        "crates/cellar/tests/support/raft_readiness_native.rs",
+        "crates/cellar/application/consensus/resources.rs",
+        "crates/cellar/tests/support/raft_resources_native.rs",
+        "crates/cellar/node/raft_metrics.rs",
+        "crates/cellar/tests/support/raft_metrics_native.rs",
+        "crates/cellar/application/consensus/resource_metrics.rs",
+        "crates/cellar/application/consensus/resources_tests.rs",
+        "crates/cellar/durability/raft/transport_resources.rs",
+        "crates/cellar-ltx/src/generation_accounting.rs",
+        "crates/cellar/node/native_raft.rs",
+        "crates/cellar/node/raft_startup.rs",
+        "crates/cellar/tests/native_raft_daemon.rs",
+        "crates/cellar/durability/raft/receipt_maintenance.rs",
+        "crates/cellar/durability/raft/receipt_maintenance_tests.rs",
+        "crates/cellar/durability/raft/receipts_tests.rs",
+        "docs/design/multi-raft/receipt-maintenance-design.md",
+        "tools/multi-raft/local.py",
+        "tools/multi-raft/store_probe.py",
+        "tools/multi-raft/README.md"
+      ],
+      "steps": [
+        "Expose explicit limits and metrics for groups, byte queues, apply/archive lag, query pins, snapshot and repair budgets.",
+        "Implement readiness by group role and compatible applied state; avoid aggregate health that conceals unavailable cells.",
+        "Close admission, drain proposals, transfer leadership where possible, persist, cancel and join all tasks on shutdown.",
+        "Add isolated disaster restore/runbook paths with old-deployment fencing, a new namespace/group incarnation, and explicit per-cell recovery-point reporting."
+      ],
+      "acceptance": [
+        "CLI and embedded-node paths use the same explicit policies.",
+        "Operational runbooks describe retained disks, archive lag and incomplete shutdown."
+      ],
+      "stop_conditions": [
+        "Stop if cancellation drops owned blocking work without a truthful join result.",
+        "No force-new-group command may silently overwrite an old incarnation."
+      ],
+      "test_target": "native_raft_operations",
+      "test_cases": [
+        {
+          "name": "bounded_resource_pressure",
+          "oracle": "Saturation yields controlled refusal while control traffic remains live",
+          "invariants": [
+            "I13"
+          ]
+        },
+        {
+          "name": "shutdown_pending_proposal",
+          "oracle": "Returned stop proof distinguishes committed/ambiguous work and joins tasks",
+          "invariants": [
+            "I14"
+          ]
+        },
+        {
+          "name": "shutdown_archive_lag",
+          "oracle": "Quorum stop cannot authorize disk deletion while S3 coverage is incomplete",
+          "invariants": [
+            "I09",
+            "I14"
+          ]
+        },
+        {
+          "name": "disaster_old_quorum_fenced",
+          "oracle": "Restore refuses cutover without the required old-deployment fence evidence",
+          "invariants": [
+            "I06",
+            "I15"
+          ]
+        },
+        {
+          "name": "rollback_mode_guard",
+          "oracle": "Feature disable never opens Raft data with Fleet ownership",
+          "invariants": [
+            "I06",
+            "I16"
+          ]
+        },
+        {
+          "name": "metrics_group_cardinality",
+          "oracle": "Fleet metrics remain bounded while sampled group inspection is available",
+          "invariants": [
+            "I13"
+          ]
+        },
+        {
+          "name": "node_shutdown_hands_off_to_published_voter",
+          "oracle": "An authenticated caught-up published voter receives leadership before joined Node shutdown",
+          "invariants": [
+            "I07",
+            "I11",
+            "I14"
+          ]
+        },
+        {
+          "name": "node_shutdown_reports_submitted_ambiguity",
+          "oracle": "A committed command held below its requested S3 proof remains ambiguous in a bounded Node stop report",
+          "invariants": [
+            "I01",
+            "I09",
+            "I14"
+          ]
+        },
+        {
+          "name": "node_shutdown_report_bounds_preserve_complete_lag_count",
+          "oracle": "Omitted bounded group details do not hide archive lag in complete aggregate counts",
+          "invariants": [
+            "I13",
+            "I14"
+          ]
+        },
+        {
+          "name": "node_shutdown_reports_parked_archive_unknown",
+          "oracle": "A resumed subset reports every durable engine history and explicitly unknown archive coverage for parked histories without executing their callbacks",
+          "invariants": [
+            "I09",
+            "I13",
+            "I14"
+          ]
+        },
+        {
+          "name": "management_stop_seals_raft_before_joined_receipt",
+          "oracle": "Authenticated operator stop seals new Raft work and cannot publish a joined receipt while private SQL remains held",
+          "invariants": [
+            "I14"
+          ]
+        },
+        {
+          "name": "management_stop_reports_raft_archive_lag",
+          "oracle": "Joined durable stop receipt binds the actual engine and preserves archive lag; malformed or absent Raft evidence is refused",
+          "invariants": [
+            "I09",
+            "I14"
+          ]
+        },
+        {
+          "name": "management_stop_keeps_raft_ambiguity_incomplete",
+          "oracle": "A committed command held below S3 proof remains exactly identified and keeps the durable stop receipt incomplete",
+          "invariants": [
+            "I01",
+            "I09",
+            "I14"
+          ]
+        },
+        {
+          "name": "management_stop_raft_cancel_has_no_graceful_proof",
+          "oracle": "Forced cancellation joins held private SQL and publishes a failed receipt without graceful proof",
+          "invariants": [
+            "I14"
+          ]
+        },
+        {
+          "name": "management_stop_raft_close_error_is_incomplete",
+          "oracle": "An actual fsync failure at Raft closure survives in the durable incomplete stop receipt after physical joining",
+          "invariants": [
+            "I14"
+          ]
+        },
+        {
+          "name": "management_stop_raft_physical_join_preserves_deadline",
+          "oracle": "An fsync held beyond the original Node deadline remains physically owned and cannot yield a complete stop receipt",
+          "invariants": [
+            "I14"
+          ]
+        },
+        {
+          "name": "management_stop_raft_cancelled_start_is_incomplete",
+          "oracle": "Cancelled startup joins the held opening fsync and cannot be misreported as an absent Raft host",
+          "invariants": [
+            "I14"
+          ]
+        },
+        {
+          "name": "query_pin_pressure_survives_waiter_cancellation",
+          "oracle": "A cancelled physical reader retains the sole node pin while another worker refuses queries before callbacks and continues commands; release permits exact minimum-version reads",
+          "invariants": [
+            "I07",
+            "I13"
+          ]
+        },
+        {
+          "name": "query_pin_shutdown_waits_for_physical_reader",
+          "oracle": "Node shutdown retains and physically joins a cancelled query reader before its pin reservation reaches zero",
+          "invariants": [
+            "I13",
+            "I14"
+          ]
+        },
+        {
+          "name": "node_shutdown_handoff_waits_for_physical_sql",
+          "oracle": "A held archive-capture worker retains the handoff turn; release permits exact published-voter handoff and joined closure",
+          "invariants": [
+            "I07",
+            "I11",
+            "I14"
+          ]
+        },
+        {
+          "name": "node_shutdown_handoff_sql_wait_is_bounded",
+          "oracle": "A stalled archive capture consumes the original one-second group turn without renewing the Node deadline or inventing a transfer",
+          "invariants": [
+            "I07",
+            "I11",
+            "I14"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_operations",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_operations",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ]
+      ],
+      "evidence": [
+        "evidence/MR-13-shutdown-progress.json",
+        "evidence/MR-13-management-progress.json",
+        "evidence/MR-13-mode-guard-progress.json",
+        "evidence/MR-13-readiness-pins-progress.json",
+        "evidence/MR-13-metrics-progress.json",
+        "evidence/MR-13-resources-progress.json",
+        "evidence/PR-91-ci-repair.json",
+        "evidence/PR-91-fixture-repair.json",
+        "evidence/MR-13-resource-views-progress.json",
+        "evidence/MR-14-handoff-progress.json"
+      ]
+    },
+    {
+      "id": "MR-14",
+      "title": "Batch multi-group work and deliver the workload harness",
+      "phase": "v1",
+      "status": "IN_PROGRESS",
+      "depends_on": [
+        "MR-13"
+      ],
+      "modifies": [
+        "crates/cellar/durability/raft/runtime.rs",
+        "crates/cellar/durability/raft/storage.rs",
+        "crates/cellar/durability/raft/transport.rs",
+        "crates/cellar/Cargo.toml",
+        "tools/perf/README.md",
+        "crates/cellar/durability/raft/host.rs",
+        "crates/cellar/durability/raft/runtime_scheduler_tests.rs",
+        "tools/perf/raft_node.rs",
+        "tools/perf/raft.Dockerfile",
+        "crates/cellar/application/consensus/protocol.rs",
+        "crates/cellar/durability/raft/archive/mod.rs",
+        "crates/cellar/durability/raft/catalog.rs",
+        "crates/cellar/durability/raft/catalog_wire.rs",
+        "crates/cellar/durability/raft/host_archive.rs",
+        "crates/cellar/durability/raft/manifest.rs",
+        "crates/cellar/tests/native_raft_archive.rs",
+        "crates/cellar/tests/support/raft_catalog_fault.rs",
+        "crates/cellar/tests/support/raft_resources_native.rs",
+        "crates/cellar/application/consensus/client.rs",
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar/durability/raft/execution/mod.rs",
+        "crates/cellar/durability/raft/filesystem.rs",
+        "crates/cellar/durability/raft/host_sql/mod.rs",
+        "crates/cellar/durability/raft/mod.rs",
+        "crates/cellar/durability/raft/operations.rs",
+        "crates/cellar/durability/raft/transport_inspection_tests.rs",
+        "crates/cellar/execution/domain.rs",
+        "crates/cellar/node/raft_metrics.rs",
+        "crates/cellar/tests/native_raft_storage.rs",
+        "crates/cellar/tests/support/raft_metrics_native.rs",
+        "crates/cellar/durability/raft/controller_action.rs",
+        "crates/cellar/durability/raft/host_controller.rs",
+        "crates/cellar/durability/raft/inspection_transport.rs",
+        "crates/cellar/durability/raft/query_transport.rs",
+        "crates/cellar/durability/raft/seed_transport.rs",
+        "crates/cellar/durability/raft/snapshot_transport.rs",
+        "crates/cellar/node/embedded.rs",
+        "crates/cellar/node/raft_startup.rs",
+        "crates/cellar/tests/native_raft_reads.rs",
+        "crates/cellar/tests/support/raft_controller_native.rs",
+        "crates/cellar/tests/support/raft_repair_native.rs",
+        "crates/cellar-ltx/src/apply.rs",
+        "crates/cellar-ltx/src/generation.rs",
+        "crates/cellar-ltx/README.md",
+        "crates/cellar/tests/native_raft_ltx.rs",
+        "crates/cellar/durability/raft/transport_tests.rs",
+        "crates/cellar/durability/raft/replica.rs"
+      ],
+      "creates": [
+        "tools/perf/raft_run.py",
+        "tools/perf/raft_workload.rs",
+        "tools/perf/test_raft_run.py",
+        "tools/perf/raft_profiles.json",
+        "crates/cellar/tests/native_raft_multigroup.rs",
+        "tools/perf/raft_workload.py",
+        "tools/perf/raft_analyze.py",
+        "tools/perf/raft-performance.md",
+        "crates/cellar/tests/support/raft_repair_load.rs",
+        "crates/cellar/durability/raft/archive_bundle.rs",
+        "crates/cellar/durability/raft/archive_bundle_tests.rs",
+        "crates/cellar/tests/support/raft_bundle_native.rs",
+        "crates/cellar/application/consensus/performance.rs",
+        "crates/cellar/durability/raft/performance.rs",
+        "crates/cellar/durability/raft/performance_tests.rs",
+        "tools/perf/raft_metrics.py",
+        "tools/perf/test_raft_metrics.py",
+        "crates/cellar/durability/raft/object_metrics.rs",
+        "crates/cellar/durability/raft/object_metrics_tests.rs",
+        "crates/cellar/durability/raft/transport_metrics.rs",
+        "crates/cellar/durability/raft/transport_metrics_tests.rs",
+        "crates/cellar/tests/support/raft_background_admission.rs",
+        "tools/perf/reference_workload.rs",
+        "tools/perf/baseline_node.rs",
+        "tools/perf/baseline_workload.rs",
+        "tools/perf/baseline_tests.rs",
+        "tools/perf/baseline_run.py",
+        "tools/perf/baseline_history.py",
+        "tools/perf/baseline_analyze.py",
+        "tools/perf/compare_runs.py",
+        "tools/perf/test_baseline.py",
+        "tools/perf/raft_topology.py",
+        "crates/cellar/tests/support/raft_archive_wakeup.rs",
+        "tools/perf/raft_faults.py",
+        "tools/perf/raft_slow_follower.json",
+        "tools/perf/test_raft_faults.py",
+        "tools/perf/raft_docker.py",
+        "tools/perf/test_raft_docker.py",
+        "tools/perf/raft_kernel.py",
+        "tools/perf/test_raft_kernel.py",
+        "crates/cellar/durability/raft/transport_send.rs",
+        "crates/cellar/durability/raft/transport_pipeline_tests.rs",
+        "crates/cellar/durability/raft/runtime_persistence_tests.rs",
+        "tools/perf/store_faults.py",
+        "tools/perf/store_fault_profile.json",
+        "tools/perf/test_store_faults.py",
+        "tools/perf/workload_recovery.py",
+        "tools/perf/test_workload_recovery.py",
+        "tools/perf/store_recovery_profile.json",
+        "tools/perf/baseline_restart.py",
+        "tools/perf/baseline_resume.py",
+        "tools/perf/test_baseline_restart.py",
+        "tools/perf/store_fenced_recovery_profile.json"
+      ],
+      "steps": [
+        "Optimize shared log batches, pooled transport and fair scheduling while retaining per-group Ready ordering.",
+        "Deliver the runner interface and reference workload from qualification.md, with executable/image freshness checks.",
+        "Measure copy/apply cost, group density and failure recovery against current fleet and bucket baselines under equivalent contracts.",
+        "Record numeric deployment SLO profiles and offered-load methodology before performance qualification. Reconcile the 4,096-group host bound with Q1's 5,000 average voter replicas per process through bounded implementation and measured density; preserve the Q1 workload gate."
+      ],
+      "acceptance": [
+        "Q0 and preliminary Q1 runs emit raw ledgers, all required metrics and reconciled results.",
+        "Performance claims compare the same durability contract and disclose hardware."
+      ],
+      "stop_conditions": [
+        "Stop if full-image publication dominates the declared SLO; reduce supported size or enter MR-16 design review.",
+        "Do not silently implement unqualified hibernation to meet group-count targets."
+      ],
+      "test_target": "native_raft_multigroup",
+      "test_cases": [
+        {
+          "name": "many_groups_mixed_roles",
+          "oracle": "Nodes concurrently lead and follow independent groups with correct results",
+          "invariants": [
+            "I01",
+            "I05"
+          ]
+        },
+        {
+          "name": "hot_group_fairness",
+          "oracle": "One saturated cell does not starve other groups or elections",
+          "invariants": [
+            "I13"
+          ]
+        },
+        {
+          "name": "cross_group_batch_crash",
+          "oracle": "Batch crash/reopen preserves each group's committed history independently",
+          "invariants": [
+            "I03",
+            "I05"
+          ]
+        },
+        {
+          "name": "repair_budget_under_load",
+          "oracle": "Snapshot/repair work remains within configured budgets during traffic",
+          "invariants": [
+            "I13"
+          ]
+        },
+        {
+          "name": "archive_bundle_group_index",
+          "oracle": "Mixed-group bundles restore only the named exact histories",
+          "invariants": [
+            "I09"
+          ]
+        },
+        {
+          "name": "harness_rejects_stale_binary",
+          "oracle": "Benchmark cannot attribute results to a different executable",
+          "invariants": [
+            "I01"
+          ]
+        },
+        {
+          "name": "archived_progress_wakes_commands_without_maintenance_poll",
+          "oracle": "Eight sequential S3 commands publish actual SQLite/LTX state and confirm archive coverage without waiting for the deliberately slow host maintenance poll; fresh authority and output-proof checks still gate each response",
+          "invariants": [
+            "I05",
+            "I09",
+            "I13"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_multigroup",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_multigroup",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ]
+      ],
+      "evidence": [
+        "evidence/MR-14-performance-progress.json",
+        "evidence/MR-14-repair-budget-progress.json",
+        "evidence/MR-14-archive-bundle-progress.json",
+        "evidence/MR-14-performance-metrics-progress.json",
+        "evidence/MR-14-io-metrics-progress.json",
+        "evidence/MR-14-io-local-progress.json",
+        "evidence/MR-14-background-admission-progress.json",
+        "evidence/MR-14-handoff-progress.json",
+        "evidence/MR-14-baseline-progress.json",
+        "evidence/MR-14-replay-progress.json",
+        "evidence/MR-14-five-node-progress.json",
+        "evidence/MR-14-wakeup-progress.json",
+        "evidence/MR-14-slow-follower-progress.json",
+        "evidence/MR-14-density-progress.json",
+        "evidence/MR-14-pipeline-progress.json",
+        "evidence/MR-14-persistence-progress.json",
+        "evidence/MR-14-store-fault-progress.json",
+        "evidence/MR-14-store-physical-progress.json",
+        "evidence/MR-14-recovery-progress.json",
+        "evidence/MR-14-restart-progress.json",
+        "evidence/MR-14-transport-timing-progress.json",
+        "evidence/MR-14-probe-progress.json",
+        "evidence/MR-14-client-progress.json",
+        "evidence/MR-14-main-merge-progress.json",
+        "evidence/MR-14-client-run-progress.json",
+        "evidence/MR-14-read-accounting-progress.json"
+      ]
+    },
+    {
+      "id": "MR-15",
+      "title": "Qualify failure histories and release the isolated mode",
+      "phase": "v1",
+      "status": "TODO",
+      "depends_on": [
+        "MR-14"
+      ],
+      "modifies": [
+        ".github/workflows/native-sdk.yml",
+        "docs/03-architecture.md",
+        "docs/06-storage-transactions.md",
+        "docs/13-fleet-topology.md",
+        "docs/18-recovery-backup.md",
+        "docs/21-production-readiness.md"
+      ],
+      "creates": [
+        "tools/perf/raft_history.py",
+        "tools/perf/test_raft_history.py",
+        "docs/design/multi-raft/release-evidence.md",
+        "crates/cellar/tests/native_raft_qualification.rs"
+      ],
+      "steps": [
+        "Implement offline reference-model history checking and negative tests that detect known-bad histories.",
+        "Run all named cases and the process/disk/S3 failure matrix, including Q1 24-hour mixed-workload soak.",
+        "Complete repository checks, native/Axum examples, compatible-binary rollback and disaster restore drills.",
+        "Publish source/image/SLO/failure-domain evidence and an explicit supported release envelope; enable only a fresh canary namespace."
+      ],
+      "acceptance": [
+        "All MR-01..MR-14 cases and repository checks pass with evidence; Q0/Q1 safety gates are met.",
+        "Numeric SLOs are met for the advertised topology; limitations and unsupported scale tiers remain explicit."
+      ],
+      "stop_conditions": [
+        "Any hard safety failure blocks release regardless of throughput.",
+        "Missing physical-node evidence prevents corresponding Q2-Q4 claims."
+      ],
+      "test_target": "native_raft_qualification",
+      "test_cases": [
+        {
+          "name": "history_detects_lost_ack",
+          "oracle": "Oracle rejects a missing acknowledged effect or receipt",
+          "invariants": [
+            "I01",
+            "I12"
+          ]
+        },
+        {
+          "name": "history_detects_stale_strong_read",
+          "oracle": "Oracle rejects a strong read violating real-time order",
+          "invariants": [
+            "I08"
+          ]
+        },
+        {
+          "name": "history_accepts_ambiguous_commit",
+          "oracle": "Oracle permits either outcome while enforcing receipt idempotency",
+          "invariants": [
+            "I12"
+          ]
+        },
+        {
+          "name": "all_disk_s3_recovery",
+          "oracle": "New-incarnation archive restore contains every S3-acknowledged effect",
+          "invariants": [
+            "I01",
+            "I09",
+            "I15"
+          ]
+        },
+        {
+          "name": "no_bucket_fallback_after_partition",
+          "oracle": "A minority cannot resume writes when S3 remains available",
+          "invariants": [
+            "I06"
+          ]
+        },
+        {
+          "name": "fleet_regression_matrix",
+          "oracle": "Feature-off existing applications and lifecycle contracts remain valid",
+          "invariants": [
+            "I16"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_qualification",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_qualification",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ]
+      ],
+      "evidence": []
+    },
+    {
+      "id": "MR-16",
+      "title": "Qualify density improvements and larger cluster tiers",
+      "phase": "scale",
+      "status": "TODO",
+      "depends_on": [
+        "MR-15"
+      ],
+      "modifies": [
+        "crates/cellar/durability/raft/runtime.rs",
+        "crates/cellar/durability/raft/placement.rs",
+        "crates/cellar/durability/raft/apply.rs",
+        "tools/perf/raft_profiles.json"
+      ],
+      "creates": [
+        "docs/design/multi-raft/density-decision.md",
+        "crates/cellar/tests/native_raft_density.rs"
+      ],
+      "steps": [
+        "Measure Q2/Q3 bottlenecks and select page-versioned images, hibernation or shared-cell groups through a reviewed protocol update.",
+        "Specify crash recovery, wakeup, ownership and read semantics for the selected optimization before coding it.",
+        "If shared groups are selected, define immutable assignment first and separately qualify source-fenced online transfer.",
+        "Run real-infrastructure Q2/Q3 and then Q4 with bounded control-plane fan-out and domain-loss recovery."
+      ],
+      "acceptance": [
+        "A decision record identifies measured cause and exact optimization; no blanket scale promise.",
+        "Only actually executed physical tiers become supported."
+      ],
+      "stop_conditions": [
+        "Stop if an optimization changes proof boundaries without new fault tests.",
+        "Do not count metadata-only dormant names as active group capacity."
+      ],
+      "test_target": "native_raft_density",
+      "test_cases": [
+        {
+          "name": "density_protocol_restart",
+          "oracle": "Selected optimization retains committed history across its new crash cuts",
+          "invariants": [
+            "I01",
+            "I04"
+          ]
+        },
+        {
+          "name": "idle_wakeup_authority",
+          "oracle": "Idle-state restoration cannot bypass quorum or current-term read barriers",
+          "invariants": [
+            "I06",
+            "I08"
+          ]
+        },
+        {
+          "name": "group_transfer_single_writer",
+          "oracle": "Any implemented transfer admits one writer across the transition",
+          "invariants": [
+            "I06"
+          ]
+        },
+        {
+          "name": "cold_catalog_bounded",
+          "oracle": "Catalog/startup scans and metadata caches remain bounded",
+          "invariants": [
+            "I13"
+          ]
+        },
+        {
+          "name": "domain_loss_scale",
+          "oracle": "Recovery meets the declared tier SLO with reserved resources",
+          "invariants": [
+            "I01",
+            "I13"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_density",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_density",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ]
+      ],
+      "evidence": []
+    },
+    {
+      "id": "MR-17",
+      "title": "Design and qualify federation between independent clusters",
+      "phase": "federation",
+      "status": "TODO",
+      "depends_on": [
+        "MR-16"
+      ],
+      "modifies": [
+        "tools/perf/raft_profiles.json"
+      ],
+      "creates": [
+        "docs/design/multi-raft/federation-design.md",
+        "crates/cellar/fleet/federation.rs",
+        "crates/cellar/tests/native_raft_federation.rs"
+      ],
+      "steps": [
+        "Define partitioned global cell-to-home-cluster directory with versioned ownership and cached routing.",
+        "Specify source-fenced migration, target activation, token scope and rollback through failure at every transfer step.",
+        "Keep regional steady-state consensus and placement independent; define separate contracts for any cross-region synchronous writes.",
+        "Qualify multi-cluster isolation, directory outage, migration and disaster restore before advertising aggregate scale."
+      ],
+      "acceptance": [
+        "Federation has a standalone reviewed protocol and multi-cluster evidence.",
+        "Millions of physical nodes remain an unqualified capacity target unless directly substantiated."
+      ],
+      "stop_conditions": [
+        "Stop if global directory edits can override a live home-cluster quorum.",
+        "Do not multiply a smaller benchmark to claim million-node qualification."
+      ],
+      "test_target": "native_raft_federation",
+      "test_cases": [
+        {
+          "name": "home_cluster_fencing",
+          "oracle": "Conflicting directory observations cannot activate two homes",
+          "invariants": [
+            "I06",
+            "I15"
+          ]
+        },
+        {
+          "name": "migration_failure_cut",
+          "oracle": "Every interrupted transfer preserves one authoritative recoverable state",
+          "invariants": [
+            "I01",
+            "I06"
+          ]
+        },
+        {
+          "name": "directory_outage_cached_route",
+          "oracle": "Existing authorized groups progress without a global metadata write per command",
+          "invariants": [
+            "I06",
+            "I13"
+          ]
+        },
+        {
+          "name": "federated_token_scope",
+          "oracle": "Tokens cannot be misapplied to unrelated cluster/incarnation history",
+          "invariants": [
+            "I08",
+            "I15"
+          ]
+        },
+        {
+          "name": "cluster_failure_isolation",
+          "oracle": "One cluster failure does not invalidate unrelated clusters",
+          "invariants": [
+            "I13"
+          ]
+        }
+      ],
+      "verification": [
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_federation",
+          "--locked",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_federation",
+          "--locked",
+          "--",
+          "--test-threads=1"
+        ]
+      ],
+      "evidence": []
+    }
+  ]
+}

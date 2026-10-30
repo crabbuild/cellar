@@ -6,8 +6,8 @@ Contributor guidance for Cellar. Read any more specific `AGENTS.md` before
 editing a subtree. `CLAUDE.md` links to this file.
 
 Keep this guide focused on stable conventions. Implementation details belong
-in component documentation; plans and validation history belong in `plans/`
-and `docs/`. Link to those sources rather than copying them here.
+in component documentation; design plans and validation history belong in
+`docs/design/`. Link to those sources rather than copying them here.
 
 ## Project and repository map
 
@@ -113,4 +113,4 @@ notices. Reuse an active PR for follow-ups; start from updated `main` after merg
 
 For specialized work, consult the [Axum guide](crates/cellar-axum/README.md),
 [LTX guide](crates/cellar-ltx/README.md), or
-[event-delivery status](plans/outbox-implementation-status.md) as appropriate.
+[event-delivery status](docs/design/outbox-implementation-status.md) as appropriate.

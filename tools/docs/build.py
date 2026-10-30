@@ -5,6 +5,7 @@
 import html
 import json
 from pathlib import Path
+import re
 import textwrap
 
 from illustrations import illustrations, visual_catalog
@@ -320,6 +321,16 @@ def catalog():
     for path, title, summary, category in extras:
         entries.append(dict(path=path,title=title,summary=summary,
                             roles=['builder','platform','operations','team'],category=category))
+    for path in sorted((DOCS / 'design').rglob('*.md')):
+        source = path.read_text()
+        title = re.search(r'^# (.+)$', source, re.M)
+        purpose = re.search(r'^Purpose: (.+)$', source, re.M)
+        if not title or not purpose:
+            raise ValueError(f'{path}: design documents need a title and Purpose line')
+        entries.append(dict(path=str(path.relative_to(DOCS)), title=title[1],
+                            summary=purpose[1],
+                            roles=['builder', 'platform', 'operations', 'team'],
+                            category='Design and evidence'))
     return dict(schema_version=1, baseline=BASELINE, reviewed_date='2026-10-12',
                 documents=entries, visuals=visual_catalog(), flows=[{k:f[k] for k in ('id','title','guide','kind')} for f in FLOWS])
 

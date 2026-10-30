@@ -110,7 +110,7 @@ Sources: [builder](../crates/cellar/cli/native_deploy/build.rs),
 [packaging](../crates/cellar/cli/native_deploy/mod.rs),
 [protocol](../crates/cellar/deployment/protocol.rs).
 
-Embedded CPython projects can declare a target-specific `python_environment` inventory/archive. Native build/publish/install verifies and transports the closure using the `embedded-python-v1` feature gate; the installer requires an explicit immutable `--python-root`. Generation admission also checks the process-bound inventory digest. See the [environment workflow](../tools/python/README.md) and [qualification gates](../plans/007-embedded-python-pyo3.md#implementation-milestones-and-acceptance-gates).
+Embedded CPython projects can declare a target-specific `python_environment` inventory/archive. Native build/publish/install verifies and transports the closure using the `embedded-python-v1` feature gate; the installer requires an explicit immutable `--python-root`. Generation admission also checks the process-bound inventory digest. See the [environment workflow](../tools/python/README.md) and [qualification gates](design/007-embedded-python-pyo3.md#implementation-milestones-and-acceptance-gates).
 
 
 ## Node.js runtime resources

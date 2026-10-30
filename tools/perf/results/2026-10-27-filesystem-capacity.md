@@ -81,4 +81,4 @@ The SDK workflow is configured to execute and upload the 10 MiB case in its ABI
 jobs. This report does not claim a completed remote CI run, an external object
 store, peer-fault qualification, guest overhead, alternative chunk sizes,
 small-file density, many-cell fairness or final installed-package qualification.
-Those gates remain in the [implementation status](../../../plans/per-cell-filesystem-implementation-status.md).
+Those gates remain in the [implementation status](../../../docs/design/per-cell-filesystem-implementation-status.md).

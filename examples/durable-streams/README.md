@@ -12,7 +12,7 @@ own publication loop instead.
 The event primitive remains under implementation. This example demonstrates the
 implemented SDK and one private bucket-backed node. It does not certify a
 production fleet or the complete crash/ownership/response-loss matrix; see the
-[implementation status](../../plans/outbox-implementation-status.md).
+[implementation status](../../docs/design/outbox-implementation-status.md).
 
 The [event delivery guide](../../docs/26-event-delivery.md) explains the SDK
 contract, error handling, replay identities and operating model.
@@ -227,7 +227,7 @@ source HTTP-response loss with a persistent SQLite-backed bucket. They do not
 qualify destination append/ack response loss,
 separate producer/destination/consumer hosts, follower or network/bucket faults,
 power loss, the complete cut-point matrix, or capacity soaks. Those release
-requirements remain in the [design](../../plans/002-outbox-streams-subscriptions.md).
+requirements remain in the [design](../../docs/design/002-outbox-streams-subscriptions.md).
 
 
 ## Independent-process destination recovery

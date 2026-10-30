@@ -69,7 +69,7 @@ correctness and latency checks. The node reports its configured byte budget at
 `/resources`; the runner and independent analyzer verify it at both boundaries.
 Setup continuation cannot change it. Production defaults remain unchanged.
 
-The [same-image 256/512-MiB experiment](../../plans/multi-raft/tikv-performance.md#larger-admission-budget-shifts-waiting-into-sqlite-work)
+The [same-image 256/512-MiB experiment](../../docs/design/multi-raft/tikv-performance.md#larger-admission-budget-shifts-waiting-into-sqlite-work)
 finds no demonstrated throughput improvement: 236.97 versus 237.84 mean TPS,
 with worst p99 increasing from 206 to 234 ms. Both configurations pass exact
 replica/archive checks and zero-error windows, but reduced admission waiting
@@ -86,7 +86,7 @@ fixture endpoint reports actual physical owners and reservation capacity; the
 runner checks these before and after timing, and the independent analyzer
 rejects mismatches. Setup continuation requires the original worker settings.
 
-The latest [bounded-concurrency comparison](../../plans/multi-raft/tikv-performance.md#bounded-sql-and-archive-concurrency-comparison)
+The latest [bounded-concurrency comparison](../../docs/design/multi-raft/tikv-performance.md#bounded-sql-and-archive-concurrency-comparison)
 tested `--sql-workers 4 --sql-worker-queue 16 --archive-producers 4` at twelve
 writers for two 180-second windows. It averaged 206.88 successful writes/sec,
 with worst p99 355.05 ms and zero errors, while verifying all 4,500 replica values
