@@ -158,8 +158,7 @@ impl RaftTransport {
         deadline: u64,
     ) -> Result<CellRemoteQueryResponse, TransportError> {
         let state = &self.handle.0;
-        // This checkpoint uses attached groups. Read-only ingress discovery is
-        // deliberately not implemented by fabricating a local voting identity.
+        // Discovery never creates a local replica or grants voting authority.
         state.runtime.shared()?;
         let (view, peer, pool) = {
             let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
@@ -167,6 +166,7 @@ impl RaftTransport {
             let view = registry
                 .physical_groups
                 .get(&route.history)
+                .or_else(|| registry.cell_query_groups.get(&route.history))
                 .ok_or(TransportError::UnknownGroup)?
                 .clone();
             if view.schema_digest != route.schema_digest || !route.history.same_namespace(cell) {
@@ -210,7 +210,7 @@ impl RaftTransport {
             .acquire(charge)
             .ok_or(TransportError::Overloaded)?;
         drop(call.encode(state.options.max_query_request_bytes)?);
-        if !state.current_physical(&view, &peer) {
+        if !state.current_cell_query_route(&view, &peer) {
             return Err(TransportError::StalePeer);
         }
         let (reply, result) = oneshot::channel();
@@ -296,7 +296,7 @@ impl State {
                 request.cancel.clone(),
                 None,
                 async {
-                    if !self.current_physical(&request.route, &request.peer) {
+                    if !self.current_cell_query_route(&request.route, &request.peer) {
                         return Err(TransportError::StalePeer);
                     }
                     let remaining = request
@@ -322,7 +322,7 @@ impl State {
                     let body = self
                         .exchange_query(connection, &RaftPeerNode::from(&request.peer), route, body)
                         .await?;
-                    if !self.current_physical(&request.route, &request.peer) {
+                    if !self.current_cell_query_route(&request.route, &request.peer) {
                         return Err(TransportError::StalePeer);
                     }
                     let now = u64::try_from(crate::asyncrt::wall_ms())

@@ -548,3 +548,7 @@ pub(crate) use controller_enrollment::{
 #[path = "cell_group_remote_queries.rs"]
 mod remote_queries;
 pub(crate) use remote_queries::{remote_queries, remote_query_lifecycle};
+
+#[path = "cell_group_query_origins.rs"]
+mod query_origins;
+pub(crate) use query_origins::{nonmember_queries, nonmember_query_revocation};

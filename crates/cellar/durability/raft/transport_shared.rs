@@ -106,6 +106,9 @@ impl RaftTransport {
         for peer in &route.peers {
             registry.check_node_view(&RaftPeerNode::from(peer))?;
         }
+        if registry.cell_query_groups.contains_key(&route.scope) {
+            return Err(TransportError::Identity);
+        }
         if let Some(old) = registry.physical_groups.get(&route.scope) {
             if **old == route {
                 return Ok(());
@@ -122,11 +125,7 @@ impl RaftTransport {
                     return Err(TransportError::Identity);
                 }
             }
-        } else if registry.groups.len()
-            + registry.query_groups.len()
-            + registry.physical_groups.len()
-            >= state.options.max_groups
-        {
+        } else if registry.route_count() >= state.options.max_groups {
             return Err(TransportError::Overloaded);
         }
         let physical: Vec<_> = route
@@ -139,6 +138,7 @@ impl RaftTransport {
             if registry
                 .physical_groups
                 .values()
+                .chain(registry.cell_query_groups.values())
                 .filter(|view| view.scope != route.scope)
                 .flat_map(|view| &view.peers)
                 .any(|other| other.replica.node == peer.node && !peer.same_host(other))
@@ -356,6 +356,7 @@ impl Registry {
         if self
             .physical_groups
             .values()
+            .chain(self.cell_query_groups.values())
             .flat_map(|route| &route.peers)
             .any(|other| other.replica.node == peer.node && !peer.same_host(other))
         {

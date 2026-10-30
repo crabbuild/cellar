@@ -105,6 +105,7 @@ impl RaftTransport {
         for old in registry
             .physical_groups
             .values()
+            .chain(registry.cell_query_groups.values())
             .flat_map(|route| &route.peers)
             .filter(|old| old.replica.node == peer.node)
         {
@@ -142,6 +143,7 @@ impl RaftTransport {
                 || registry
                     .physical_groups
                     .values()
+                    .chain(registry.cell_query_groups.values())
                     .any(|route| route.peers.iter().any(|old| old.replica.node == peer.node))
                 || registry
                     .origins
@@ -157,6 +159,7 @@ impl RaftTransport {
         // budget refuses the refresh without partially changing routing.
         let starts = state.prepare_pools(&mut registry, physical)?;
         refresh_routes(&mut registry.physical_groups, peer);
+        refresh_routes(&mut registry.cell_query_groups, peer);
         refresh_routes(&mut registry.groups, peer);
         refresh_routes(&mut registry.query_groups, peer);
         let Registry {

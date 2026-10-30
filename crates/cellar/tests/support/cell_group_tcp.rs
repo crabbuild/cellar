@@ -6,7 +6,7 @@ use cellar::application::consensus::verification::GroupRoute as TransportRoute;
 use cellar::peer_auth::PeerAuth;
 use tokio::net::TcpListener;
 
-fn tls() -> Result<RaftTls> {
+pub(super) fn tls() -> Result<RaftTls> {
     Ok(RaftTls::new(
         vec![include_bytes!("../../transport/tcp/fixtures/ca.der")
             .to_vec()
@@ -53,7 +53,7 @@ impl RuntimeCluster {
         Ok(())
     }
 
-    fn tcp_route(&self, history: GroupHistory) -> Result<TransportRoute<GroupHistory>> {
+    pub(super) fn tcp_route(&self, history: GroupHistory) -> Result<TransportRoute<GroupHistory>> {
         let marker = self.cluster.voters[0]
             .log
             .cell_group(&history)?

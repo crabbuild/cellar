@@ -212,11 +212,7 @@ impl RaftTransport {
             if old.revision >= route.revision || old.schema_digest != route.schema_digest {
                 return Err(TransportError::StalePeer);
             }
-        } else if registry.query_groups.len()
-            + registry.physical_groups.len()
-            + registry.groups.len()
-            >= state.options.max_groups
-        {
+        } else if registry.route_count() >= state.options.max_groups {
             return Err(TransportError::Overloaded);
         }
         for peer in &physical {

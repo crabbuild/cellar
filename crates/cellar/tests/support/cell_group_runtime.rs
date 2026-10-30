@@ -707,3 +707,5 @@ pub(super) use sql::{
 };
 
 pub(super) use sql::{remote_queries, remote_query_lifecycle};
+
+pub(super) use sql::{nonmember_queries, nonmember_query_revocation};

@@ -37,6 +37,8 @@ use tokio::sync::{mpsc, oneshot, watch, Notify, Semaphore};
 
 #[path = "query_cell_transport.rs"]
 mod cell_queries;
+#[path = "query_cell_discovery.rs"]
+mod cell_query_discovery;
 #[path = "transport_control_send.rs"]
 mod control_sender;
 #[path = "transport_directory.rs"]
@@ -284,6 +286,7 @@ struct Registry {
     groups: BTreeMap<GroupScope, Arc<GroupRoute>>,
     physical_groups: BTreeMap<GroupHistory, Arc<GroupRoute<GroupHistory>>>,
     query_groups: BTreeMap<GroupScope, Arc<GroupRoute>>,
+    cell_query_groups: BTreeMap<GroupHistory, Arc<GroupRoute<GroupHistory>>>,
     origins: BTreeMap<(ClusterId, NamespaceId, NodeId), Arc<queries::OriginGrant>>,
     inspection_origins: BTreeMap<(ClusterId, NamespaceId, NodeId), Arc<queries::OriginGrant>>,
     inspection_peers: BTreeMap<NodeId, Arc<Budget>>,
@@ -294,6 +297,13 @@ struct Registry {
 }
 
 impl Registry {
+    fn route_count(&self) -> usize {
+        self.groups.len()
+            + self.physical_groups.len()
+            + self.query_groups.len()
+            + self.cell_query_groups.len()
+    }
+
     fn prune_pools(&mut self) {
         let used: BTreeSet<_> = self
             .groups
@@ -303,6 +313,7 @@ impl Registry {
             .chain(
                 self.physical_groups
                     .values()
+                    .chain(self.cell_query_groups.values())
                     .flat_map(|route| route.peers.iter().map(|peer| peer.replica.node)),
             )
             .chain(
@@ -500,6 +511,7 @@ impl RaftTransport {
                 groups: BTreeMap::new(),
                 physical_groups: BTreeMap::new(),
                 query_groups: BTreeMap::new(),
+                cell_query_groups: BTreeMap::new(),
                 origins: BTreeMap::new(),
                 inspection_origins: BTreeMap::new(),
                 inspection_peers: BTreeMap::new(),
@@ -657,11 +669,7 @@ impl RaftTransport {
                     }
                 }
             }
-        } else if registry.groups.len()
-            + registry.physical_groups.len()
-            + registry.query_groups.len()
-            >= state.options.max_groups
-        {
+        } else if registry.route_count() >= state.options.max_groups {
             return Err(TransportError::Overloaded);
         }
         // Existing peers' physical addresses/process must agree across groups.

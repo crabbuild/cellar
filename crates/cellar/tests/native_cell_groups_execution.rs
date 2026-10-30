@@ -1475,3 +1475,18 @@ async fn shared_remote_queries_retain_cancelled_sql_until_join() -> Result<()> {
 async fn shared_remote_queries_retain_expired_sql_until_join() -> Result<()> {
     Box::pin(runtime_fixture::remote_query_lifecycle(true)).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_nonmember_queries_require_grants_without_local_replicas() -> Result<()> {
+    Box::pin(runtime_fixture::nonmember_queries()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_nonmember_query_revocation_retains_physical_sql() -> Result<()> {
+    Box::pin(runtime_fixture::nonmember_query_revocation(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_nonmember_query_route_replacement_refuses_stale_reply() -> Result<()> {
+    Box::pin(runtime_fixture::nonmember_query_revocation(true)).await
+}

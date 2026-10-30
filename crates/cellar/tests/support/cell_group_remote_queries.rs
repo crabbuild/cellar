@@ -7,7 +7,7 @@ use std::sync::{
     Mutex,
 };
 
-fn dispatcher(
+pub(super) fn dispatcher(
     fixture: &RuntimeCluster,
     class: Arc<RaftClass>,
     keys: VersionKeys,
@@ -25,7 +25,7 @@ fn dispatcher(
     )?)
 }
 
-fn keys(tag: u8) -> Result<VersionKeys> {
+pub(super) fn keys(tag: u8) -> Result<VersionKeys> {
     Ok(VersionKeys::new(
         VersionSigningKey::new([tag; 32], u64::MAX)?,
         vec![],
@@ -33,7 +33,7 @@ fn keys(tag: u8) -> Result<VersionKeys> {
     )?)
 }
 
-async fn invocation(
+pub(super) async fn invocation(
     dispatcher: &CellGroupDispatcher,
     class: &RaftClass,
     cell: &CellHistory,
@@ -59,7 +59,7 @@ async fn invocation(
     Ok(query)
 }
 
-async fn gateways(
+pub(super) async fn gateways(
     fixture: &RuntimeCluster,
     class: Arc<RaftClass>,
 ) -> Result<Vec<CellQueryGateway>> {
@@ -76,7 +76,7 @@ async fn gateways(
     Ok(gateways)
 }
 
-async fn wait_for(mut predicate: impl AsyncFnMut() -> Result<bool>) -> Result<()> {
+pub(super) async fn wait_for(mut predicate: impl AsyncFnMut() -> Result<bool>) -> Result<()> {
     tokio::time::timeout(Duration::from_secs(10), async {
         while !predicate().await? {
             tokio::time::sleep(Duration::from_millis(2)).await;
