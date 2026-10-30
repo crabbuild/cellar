@@ -194,8 +194,13 @@ still requires fresh current-term quorum. Dropping a registration waiter cannot
 cancel this work. Definite failures release their slot before responding. Shutdown
 joins entered catalog/attachment futures before closing transport, SQL and the
 runtime. A competing external runtime owner or runtime-wide failure still closes
-the controller conservatively. Request-driven provisioning/lazy birth, per-group
-failure isolation and configuration lifecycle remain separate unfinished work.
+the controller conservatively. A group-local apply/runtime failure quarantines
+that group: admission refuses, execution authority is revoked through reserved
+runtime control capacity, and unresolved producers/apply tickets remain owned.
+Quarantined groups retain their roster capacity until joined restart. Late shared
+persistence completion cannot restore their serving fence. Shared log-engine
+I/O/corruption/closure and lost shared SQL worker replies still close the node.
+Request-driven provisioning/lazy birth and configuration lifecycle remain open.
 
 The current lane serializes RPC exchanges per peer; this is not load qualification.
 

@@ -10,6 +10,50 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 retained group quarantine
+
+Qualified source: `41121a7d08f283db6a83982ebfcba2feced036ca`.
+
+A group-local apply/runtime failure now quarantines the group instead of closing
+healthy groups on the node. The controller first refuses application admission,
+then revokes runtime execution through reserved control capacity that bypasses a
+waiting apply. Captured leader authority becomes invalid. Pending apply tickets,
+unresolved command/enrollment producers and the group slot remain retained until
+joined shutdown. Quarantine cannot be cleared by re-registration; a late physical
+persistence completion cannot restore the revoked execution fence.
+
+`group_failure` reports the original cause; usage distinguishes active, pending
+and quarantined groups. Shared log-engine I/O/corruption/closure and lost shared
+SQL worker replies still close the node. Unknown group events and controller
+ownership violations also retain the fail-closed boundary. Quarantine does not
+promise capacity beyond the configured node/group budgets; retained work remains
+charged rather than discarded to make another request fit.
+
+Both image modes pass real manifest directory-sync faults while an ambiguous
+producer remains owned. A dynamically registered healthy group then completes
+controller enrollment, command, exact retry and a linearizable SQLite query on
+the same engine, single SQL worker and TLS peers. The failed group's selected root
+stays unchanged, captured authority and retries refuse, callback counts exclude
+replay, and a third registration cannot reuse its occupied capacity. Joined close
+releases the producer. A separate real Raft-engine sync fault still stops both
+groups and refuses replacement runtime admission. Existing physical cancellation
+and lost-worker-reply tests remain in the gate.
+
+All 233 selected Rust cases and twelve gate commands pass, including all-target
+Clippy, formatting, layout, dependency isolation, docs, source preflight and 37
+validator cases. `.cellar/cell-groups-evidence/CG-04-group-quarantine-final/checkpoint.json`
+binds 283 source inputs and 4 copied executables. Initial fixture compilation
+errors and diagnostic reruns are retained with this ignored local evidence;
+transfer it with the predecessor checkpoints.
+
+CG-04 remains IN_PROGRESS. The next critical gap is bounded request-driven group
+provisioning: catalog selection/birth and physical root preparation must transfer
+into the existing registration owner, coalesced by physical group rather than
+cell. Configuration lifecycle and public host/SDK integration remain unfinished.
+Later CG tasks still own snapshots, archive/reclamation, effects, topology,
+hibernation, fenced recovery, load qualification and removal of the legacy host.
+This checkpoint is not independent-process/power-loss, RustFS or load qualification.
+
 ## CG-04 dynamic controller registration
 
 Qualified source: `4326421a94c4f9a257bf6ceb8e0f7e518eacf3de`.

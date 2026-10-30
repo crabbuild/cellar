@@ -526,7 +526,9 @@
         "crates/cellar/durability/raft/receipt_cell_wire.rs",
         "crates/cellar/tests/support/cell_group_receipt_lookup.rs",
         "crates/cellar/durability/raft/cell_groups/controller/registration.rs",
-        "crates/cellar/tests/support/cell_group_registration.rs"
+        "crates/cellar/tests/support/cell_group_registration.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/failure.rs",
+        "crates/cellar/tests/support/cell_group_quarantine.rs"
       ],
       "test_target": "native_cell_groups_execution",
       "steps": [
@@ -704,6 +706,13 @@
             "dynamic_registration_refuses_foreign_owners_and_retries_failed_catalog",
             "dynamic_registration_joins_attachment_before_cancelled_shutdown",
             "dynamic_registration_recovers_selected_roots_into_an_empty_controller"
+          ]
+        },
+        {
+          "action": "Isolate group-local controller apply/runtime/ambiguous command failures through a bounded retained quarantine lifecycle. Reserve a control lane to revoke execution while apply is waiting, refuse new group admission, preserve captured producer/apply owners until joined shutdown, and prevent late persistence completion from restoring authority. Keep failed group capacity charged. Shared engine I/O/corruption/closure and lost shared SQL worker replies still close the node. Expose original group failure and quarantine counts; no in-place replacement or automatic callback replay. Qualify healthy-group SQL progress and node-wide storage failure separately. Request-driven provisioning, configuration lifecycle and public cutover remain unfinished.",
+          "tests": [
+            "group_quarantine_retains_producer_and_serves_healthy_group",
+            "shared_engine_sync_failure_still_stops_all_groups"
           ]
         }
       ],
@@ -1066,7 +1075,7 @@
         },
         {
           "name": "group_controller_apply_failure_and_shutdown_preserve_selected_root",
-          "oracle": "A real manifest sync failure closes the controller without advancing the selected root. Interrupted physical preparation cannot publish or allow premature replacement.",
+          "oracle": "A real manifest sync failure quarantines the group without advancing the selected root. Captured authority refuses; explicit shutdown still joins physical ownership. Interrupted preparation cannot publish or allow premature replacement.",
           "invariants": [
             "I01",
             "I02",
@@ -1076,7 +1085,7 @@
         },
         {
           "name": "rooted_group_controller_apply_failure_and_shutdown_preserve_selected_root",
-          "oracle": "Repeat manifest sync failure and joined controller shutdown with extent images; preserve the engine-selected root.",
+          "oracle": "Repeat group quarantine after manifest sync failure and joined controller shutdown with extent images; preserve the engine-selected root and physical ownership.",
           "invariants": [
             "I01",
             "I02",
@@ -1430,6 +1439,26 @@
         {
           "name": "dynamic_registration_recovers_selected_roots_into_an_empty_controller",
           "oracle": "After registering and mutating a group, join all controllers, close and reopen all engines from the existing voter disks under a new process generation, reopen manifest page owners and recover selected roots into fresh empty controllers. Attachment alone refuses leader authority; fresh quorum then returns the prior exact receipt without another SQL mutation. Verify the persisted value and cell sequence in both image modes. Image-store handles remain in the same process. This is joined engine/runtime/page-store restart, not independent-process or power-loss qualification.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "group_quarantine_retains_producer_and_serves_healthy_group",
+          "oracle": "A real manifest directory-sync failure quarantines one group in both image modes. Preserve its selected root, revoke captured leader authority and new reads/writes, refuse callback replay, and retain its ambiguous producer and group capacity. Dynamically register another group on the same engine/SQL/TLS resources and prove controller enrollment, command, exact retry and linearizable SQLite query remain usable with per-group producer admission. Joined close releases retained command admission.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_engine_sync_failure_still_stops_all_groups",
+          "oracle": "A real shared Raft-engine sync failure remains node-wide in both image modes: both groups refuse serving, controller/physical services join, and replacement runtime admission refuses the uncertain engine.",
           "invariants": [
             "I01",
             "I03",

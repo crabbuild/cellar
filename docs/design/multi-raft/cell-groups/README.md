@@ -243,6 +243,12 @@ commands; transfer `.cellar/cell-groups-evidence/CG-04-dynamic-registration/`
 (281 source inputs, 4 executables). Per-group failure isolation and
 request-driven lazy birth are next; CG-04 and public cutover remain incomplete.
 
+At `41121a7d`, group-local failures quarantine only the owning group while retaining
+its capacity and physical work. Real shared-engine faults still stop the node.
+The partial gate passes 233 Rust cases and twelve commands; transfer
+`.cellar/cell-groups-evidence/CG-04-group-quarantine-final/` (283 source inputs,
+4 executables). Bounded request-driven provisioning is next; CG-04 remains open.
+
 The implementation executor should deliver code, updated component contracts and
 the required retained evidence for each task on the active PR. The final handoff
 requires CG-16 and the release gate, including the real RustFS and independent
