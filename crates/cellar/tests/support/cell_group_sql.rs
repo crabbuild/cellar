@@ -59,8 +59,7 @@ impl RuntimeCluster {
             limits: ExecutionLimits::default(),
         };
         let extents = self.cluster.voters[0].extents.clone();
-        Ok(self
-            .cluster
+        self.cluster
             .domain
             .blocking(move || -> Result<_> {
                 if let Some(store) = extents {
@@ -90,7 +89,7 @@ impl RuntimeCluster {
                     Ok(CellPrivateExecutor::open(options, authority)?)
                 }
             })?
-            .await??)
+            .await?
     }
 }
 

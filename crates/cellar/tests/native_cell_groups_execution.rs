@@ -499,8 +499,7 @@ fn prepare_cell_image(
                     empty.root(),
                     empty.encode()?.len().try_into()?,
                 )?);
-            let header =
-                cellar_ltx::ltx::Header::parse(&files.last().context("extent LTX")?.bytes)?;
+            let header = cellar_ltx::ltx::Header::parse(files.last().context("extent LTX")?.bytes)?;
             let geometry = Geometry::new(
                 header.page_size,
                 u64::from(header.page_size) * u64::from(header.commit),
