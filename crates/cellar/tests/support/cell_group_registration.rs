@@ -8,11 +8,11 @@ use std::sync::atomic::Ordering;
 #[allow(dead_code)]
 mod catalog_fault;
 
-struct Prepared {
+pub(super) struct Prepared {
     directory: RangeDirectory,
-    birth: CellGroupBirth,
+    pub(super) birth: CellGroupBirth,
     store: Arc<catalog_fault::Store>,
-    inputs: Vec<CellGroupRegistration>,
+    pub(super) inputs: Vec<CellGroupRegistration>,
     number: u8,
 }
 
@@ -30,7 +30,7 @@ fn class() -> Result<Arc<RaftClass>> {
     ))
 }
 
-async fn prepare(f: &RuntimeCluster, number: u8, a: &CellHistory) -> Result<Prepared> {
+pub(super) async fn prepare(f: &RuntimeCluster, number: u8, a: &CellHistory) -> Result<Prepared> {
     let store = Arc::new(catalog_fault::Store::default());
     let old = f.cluster.birth.route();
     let scope = GroupHistory {
@@ -174,7 +174,7 @@ async fn duplicate(
     })
 }
 
-fn dispatcher(
+pub(super) fn dispatcher(
     f: &RuntimeCluster,
     prepared: &Prepared,
     class: Arc<RaftClass>,
@@ -194,7 +194,7 @@ fn dispatcher(
     )?)
 }
 
-async fn enroll(
+pub(super) async fn enroll(
     f: &RuntimeCluster,
     controller: &CellGroupController,
     dispatch: &CellGroupDispatcher,
@@ -522,7 +522,7 @@ pub(crate) async fn registration_close() -> Result<()> {
     Ok(())
 }
 
-async fn mutate(
+pub(super) async fn mutate(
     f: &RuntimeCluster,
     controller: &CellGroupController,
     dispatch: &CellGroupDispatcher,

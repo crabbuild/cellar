@@ -333,7 +333,7 @@ transport ownership. The public host cutover remains unfinished.
 `CellGroupController::register` adds a prepared group to a running node, including
 one whose initial roster is empty. The caller supplies a bootstrap permit,
 verified selected root, the applier owning that root's manifest page store, and
-an authenticated physical peer route. Pending and active groups share the group
+an authenticated physical peer route. Pending, active and quarantined groups share the group
 limit; attachment and unconsumed replies also use the shared item/byte budget.
 Admission failure returns the prepared owners. After admission, dropping the
 response does not cancel attachment.
@@ -345,7 +345,15 @@ route registration refuses adopting an existing route; cleanup checks exact rout
 identity. Failed attachment releases its group slot before publishing a refusal.
 Shutdown joins attachment before closing transport, SQL and consensus ownership.
 
-A fatal group apply/command currently closes the controller. Per-group failure
-isolation, request-driven group provisioning, configuration lifecycle and public
-SDK integration remain unfinished. See the delivery package for qualification
-status; dynamic registration does not establish those later capabilities.
+Group-local apply/runtime failure or an unresolved command failure quarantines
+its group. `group_failure` preserves the original cause and `usage` reports active
+and quarantined groups separately. A reserved runtime control request revokes
+leader authority even while apply is waiting. New group work refuses; pending
+apply and ambiguous command owners remain charged through physical shutdown.
+Quarantine cannot be cleared by registration. Recovery requires joined restart;
+a late persistence completion cannot restore the revoked serving fence.
+
+Shared log-engine I/O/corruption/closure and lost shared SQL worker replies still
+close the node. Unknown events and controller ownership violations fail closed.
+Request-driven group provisioning, configuration lifecycle and public SDK
+integration remain unfinished. See the delivery package for qualification status.

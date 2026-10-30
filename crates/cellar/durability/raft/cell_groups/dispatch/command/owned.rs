@@ -32,6 +32,10 @@ impl CellCommandInvocation {
         Ok((self.request.id, deadline, bytes))
     }
 
+    pub(crate) fn unresolved_group(&self) -> Option<cellar_logic::cell_group::GroupHistory> {
+        self.origin.as_ref().map(|origin| origin.route.history)
+    }
+
     pub(crate) fn unresolved(&self) -> bool {
         self.origin.is_some()
     }

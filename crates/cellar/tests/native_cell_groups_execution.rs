@@ -1565,3 +1565,13 @@ async fn dynamic_registration_joins_attachment_before_cancelled_shutdown() -> Re
 async fn dynamic_registration_recovers_selected_roots_into_an_empty_controller() -> Result<()> {
     runtime_fixture::registration_recovery().await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn group_quarantine_retains_producer_and_serves_healthy_group() -> Result<()> {
+    runtime_fixture::group_quarantine_retains_producer_and_serves_healthy_group().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_engine_sync_failure_still_stops_all_groups() -> Result<()> {
+    runtime_fixture::shared_engine_sync_failure_still_stops_all_groups().await
+}

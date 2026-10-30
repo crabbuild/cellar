@@ -9,39 +9,98 @@ use crate::raft::transport::{GroupRoute, PhysicalRegistration};
 use cellar_logic::cell_group::GroupHistory;
 use tokio::sync::{mpsc, oneshot};
 
+enum GroupState {
+    Pending,
+    Active,
+    Quarantined(CellGroupControllerError),
+}
+
 pub(crate) struct GroupRoster {
-    groups: Mutex<BTreeMap<GroupHistory, bool>>,
+    groups: Mutex<BTreeMap<GroupHistory, GroupState>>,
     limit: usize,
 }
 
 impl GroupRoster {
     pub(super) fn new(groups: impl Iterator<Item = GroupHistory>, limit: usize) -> Arc<Self> {
         Arc::new(Self {
-            groups: Mutex::new(groups.map(|g| (g, true)).collect()),
+            groups: Mutex::new(groups.map(|g| (g, GroupState::Active)).collect()),
             limit,
         })
     }
 
     pub(crate) fn contains(&self, group: &GroupHistory) -> Result<bool, RuntimeError> {
-        Ok(self
+        match self
             .groups
             .lock()
             .map_err(|_| RuntimeError::Closed)?
             .get(group)
-            == Some(&true))
+        {
+            Some(GroupState::Active) => Ok(true),
+            Some(GroupState::Quarantined(_)) => Err(RuntimeError::GroupQuarantined),
+            _ => Ok(false),
+        }
+    }
+
+    pub(super) fn quarantine(
+        &self,
+        group: GroupHistory,
+        error: CellGroupControllerError,
+    ) -> Result<(), RuntimeError> {
+        let mut groups = self.groups.lock().map_err(|_| RuntimeError::Closed)?;
+        let state = groups.get_mut(&group).ok_or(RuntimeError::NotFound)?;
+        if !matches!(state, GroupState::Quarantined(_)) {
+            *state = GroupState::Quarantined(error);
+        }
+        Ok(())
+    }
+
+    pub(super) fn failure(
+        &self,
+        group: &GroupHistory,
+    ) -> Result<Option<CellGroupControllerError>, RuntimeError> {
+        Ok(
+            match self
+                .groups
+                .lock()
+                .map_err(|_| RuntimeError::Closed)?
+                .get(group)
+            {
+                Some(GroupState::Quarantined(error)) => Some(error.clone()),
+                _ => None,
+            },
+        )
     }
 
     pub(super) fn len(&self) -> usize {
         self.groups
             .lock()
-            .map(|g| g.values().filter(|active| **active).count())
+            .map(|g| {
+                g.values()
+                    .filter(|s| matches!(s, GroupState::Active))
+                    .count()
+            })
             .unwrap_or(0)
     }
 
     pub(super) fn pending(&self) -> usize {
         self.groups
             .lock()
-            .map(|g| g.values().filter(|active| !**active).count())
+            .map(|g| {
+                g.values()
+                    .filter(|s| matches!(s, GroupState::Pending))
+                    .count()
+            })
+            .unwrap_or(0)
+    }
+
+    pub(super) fn quarantined(&self) -> usize {
+        self.groups
+            .lock()
+            .map(|g| {
+                g.values()
+                    .filter(|s| matches!(s, GroupState::Quarantined(_)))
+                    .count()
+            })
             .unwrap_or(0)
     }
 
@@ -53,7 +112,7 @@ impl GroupRoster {
         if groups.len() >= self.limit {
             return Err(RuntimeError::Overloaded);
         }
-        groups.insert(group, false);
+        groups.insert(group, GroupState::Pending);
         Ok(Reservation {
             roster: self.clone(),
             group,
@@ -76,7 +135,10 @@ impl Reservation {
             .lock()
             .map_err(|_| RuntimeError::Closed)?;
         let entry = groups.get_mut(&self.group).ok_or(RuntimeError::NotFound)?;
-        *entry = true;
+        if !matches!(entry, GroupState::Pending) {
+            return Err(RuntimeError::GroupQuarantined);
+        }
+        *entry = GroupState::Active;
         self.active = true;
         Ok(())
     }
@@ -86,7 +148,9 @@ impl Drop for Reservation {
     fn drop(&mut self) {
         if !self.active {
             if let Ok(mut groups) = self.roster.groups.lock() {
-                groups.remove(&self.group);
+                if matches!(groups.get(&self.group), Some(GroupState::Pending)) {
+                    groups.remove(&self.group);
+                }
             }
         }
     }

@@ -211,6 +211,15 @@ impl Worker {
             reply(request, Err(RuntimeError::NotFound));
             return;
         };
+        if matches!(request.command, Command::Quarantine) {
+            if group.failed.is_none() {
+                group.fail(RuntimeError::GroupQuarantined);
+                group.wake(history, &mut self.order);
+            }
+            reply(request, Ok(Response::Unit));
+            self.refresh(history);
+            return;
+        }
         if let Some(error) = &group.failed {
             reply(request, Err(error.clone()));
             return;
@@ -558,6 +567,11 @@ impl Worker {
                         .groups
                         .get_mut(&job.history)
                         .ok_or(RuntimeError::NotFound)?;
+                    // The physical batch must join even after quarantine. Its
+                    // successful sync cannot restore the revoked execution fence.
+                    if group.failed.is_some() {
+                        continue;
+                    }
                     group.owner.complete_persist(CellGroupPersisted {
                         ticket: job.work.ticket,
                         sequence: receipt.sequence,
@@ -577,6 +591,9 @@ impl Worker {
                         .groups
                         .get_mut(&job.history)
                         .ok_or(RuntimeError::NotFound)?;
+                    if group.failed.is_some() {
+                        continue;
+                    }
                     group.write = Some(job.work);
                     group.write_bytes = job.bytes;
                     self.writes.push_front(job.history);

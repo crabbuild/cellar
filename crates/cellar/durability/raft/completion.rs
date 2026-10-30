@@ -26,6 +26,8 @@ pub enum RuntimeError {
     AlreadyAttached,
     Overloaded,
     StaleCompletion,
+    /// This process retains the failed group; serving requires recovery on restart.
+    GroupQuarantined,
     Closed,
 }
 

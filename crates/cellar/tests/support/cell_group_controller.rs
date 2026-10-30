@@ -75,6 +75,33 @@ async fn applied(fixture: &RuntimeCluster, group: GroupHistory, index: LogIndex)
     .await
 }
 
+pub(super) async fn add_second(
+    fixture: &mut RuntimeCluster,
+    primary: GroupHistory,
+) -> Result<GroupHistory> {
+    let second = fixture.add_group(31).await?;
+    for node in 0..3 {
+        let pool = fixture.appliers[&(node, primary)].0.clone();
+        let voter = &mut fixture.extra.get_mut(&second).context("extra")?[node];
+        let applier = CellGroupApplier::new(
+            voter.log.cell_group(&second)?,
+            voter.pages.take().context("pages")?,
+            CellGroupApplyImages::Materialized {
+                images: voter.images.clone(),
+                services: cellar_ltx::generation::ReadServices {
+                    now_unix_millis: Arc::new(|| 10),
+                    fill_random: Arc::new(|bytes| bytes.fill(17)),
+                },
+            },
+            ManifestLimits::default(),
+            GroupEntryLimits::default(),
+            100,
+        )?;
+        fixture.appliers.insert((node, second), (pool, applier));
+    }
+    Ok(second)
+}
+
 pub(crate) async fn controller_replication(rooted: bool) -> Result<()> {
     let calls = Arc::new(AtomicUsize::new(0));
     let count = calls.clone();
@@ -99,26 +126,7 @@ pub(crate) async fn controller_replication(rooted: bool) -> Result<()> {
         },
     )?);
     let (mut fixture, route, a, _) = Box::pin(registered::setup(rooted, &class)).await?;
-    let second = fixture.add_group(31).await?;
-    for node in 0..3 {
-        let pool = fixture.appliers[&(node, route.history)].0.clone();
-        let voter = &mut fixture.extra.get_mut(&second).context("extra")?[node];
-        let applier = CellGroupApplier::new(
-            voter.log.cell_group(&second)?,
-            voter.pages.take().context("pages")?,
-            CellGroupApplyImages::Materialized {
-                images: voter.images.clone(),
-                services: cellar_ltx::generation::ReadServices {
-                    now_unix_millis: Arc::new(|| 10),
-                    fill_random: Arc::new(|bytes| bytes.fill(17)),
-                },
-            },
-            ManifestLimits::default(),
-            GroupEntryLimits::default(),
-            100,
-        )?;
-        fixture.appliers.insert((node, second), (pool, applier));
-    }
+    let second = add_second(&mut fixture, route.history).await?;
     let controllers = start(&mut fixture).await?;
     fixture.runtimes[0].campaign(second).await?;
     wait_for(async || Ok(fixture.runtimes[0].status(second).await?.ready)).await?;
@@ -349,11 +357,17 @@ pub(crate) async fn controller_apply_faults(rooted: bool) -> Result<()> {
             )
             .await?;
         if mode == 0 {
-            let result =
-                tokio::time::timeout(Duration::from_secs(10), controllers[0].wait()).await?;
+            wait_for(async || Ok(controllers[0].group_failure(route.history)?.is_some())).await?;
             assert!(
-                matches!(result, Err(CellGroupControllerError::Apply(ref error)) if matches!(error.as_ref(), ExecutionError::Storage(_)))
+                matches!(controllers[0].group_failure(route.history)?, Some(CellGroupControllerError::Apply(ref error)) if matches!(error.as_ref(), ExecutionError::Storage(_)))
             );
+            assert!(!controllers[0].usage().closing);
+            assert_eq!(controllers[0].usage().quarantined_groups, 1);
+            assert!(matches!(
+                fixture.runtimes[0].status(route.history).await,
+                Err(RuntimeError::GroupQuarantined)
+            ));
+            controllers[0].close().await?;
             assert_eq!(
                 faults.mode.load(Ordering::Acquire),
                 0,

@@ -18,7 +18,7 @@ async fn wait_for(mut predicate: impl AsyncFnMut() -> Result<bool>) -> Result<()
     .await?
 }
 
-async fn invocation(
+pub(super) async fn invocation(
     dispatcher: &CellGroupDispatcher,
     class: &RaftClass,
     cell: &CellHistory,

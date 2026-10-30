@@ -6,6 +6,7 @@
 mod calls;
 mod commands;
 mod enrollments;
+mod failure;
 mod registration;
 mod requests;
 pub use enrollments::{CellEnrollmentAdmissionError, CellEnrollmentCall};
@@ -73,6 +74,8 @@ impl From<RuntimeError> for CellGroupControllerError {
 pub struct CellGroupControllerUsage {
     pub groups: usize,
     pub pending_registrations: usize,
+    /// Retained failed groups still consume the registration capacity.
+    pub quarantined_groups: usize,
     pub active_apply: usize,
     pub pending_apply: usize,
     pub applied: u64,
@@ -254,12 +257,22 @@ impl CellGroupController {
         Ok(handle)
     }
 
+    /// Original failure retained for a quarantined group. Recovery requires a
+    /// joined restart; registration cannot replace the failed owner in place.
+    pub fn group_failure(
+        &self,
+        group: cellar_logic::cell_group::GroupHistory,
+    ) -> Result<Option<CellGroupControllerError>, RuntimeError> {
+        self.handle.0.groups.failure(&group)
+    }
+
     pub fn usage(&self) -> CellGroupControllerUsage {
         let shared = &self.handle.0;
         let (command_bytes, retained_commands) = shared.commands.usage();
         CellGroupControllerUsage {
             groups: shared.groups.len(),
             pending_registrations: shared.groups.pending(),
+            quarantined_groups: shared.groups.quarantined(),
             command_bytes,
             retained_commands,
             active_apply: shared.active_apply.load(Ordering::Acquire),
@@ -294,9 +307,13 @@ impl CellGroupController {
             return Err(super::CellDispatchError::Runtime(RuntimeError::Closed));
         }
         invocation.begin().await?;
-        if !invocation
+        let attempt = invocation
             .attempt()
-            .is_some_and(|a| shared.groups.contains(&a.route().history).unwrap_or(false))
+            .ok_or(super::CellDispatchError::Runtime(RuntimeError::NotFound))?;
+        if !shared
+            .groups
+            .contains(&attempt.route().history)
+            .map_err(super::CellDispatchError::Runtime)?
         {
             return Err(super::CellDispatchError::Runtime(RuntimeError::NotFound));
         }

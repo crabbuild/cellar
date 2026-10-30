@@ -194,6 +194,10 @@ impl CellEnrollmentInvocation {
         Ok((self.creation, deadline))
     }
 
+    pub(crate) fn unresolved_group(&self) -> Option<cellar_logic::cell_group::GroupHistory> {
+        self.origin.as_ref().map(|origin| origin.route.history)
+    }
+
     pub(crate) fn unresolved(&self) -> bool {
         self.origin.is_some()
     }

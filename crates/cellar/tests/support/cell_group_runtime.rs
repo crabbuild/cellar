@@ -721,3 +721,8 @@ pub(super) use sql::{receipt_lookup_cancelled, receipt_lookup_ingress, receipt_l
 pub(super) use sql::{
     registration_close, registration_live, registration_recovery, registration_refusals,
 };
+
+pub(super) use sql::{
+    group_quarantine_retains_producer_and_serves_healthy_group,
+    shared_engine_sync_failure_still_stops_all_groups,
+};

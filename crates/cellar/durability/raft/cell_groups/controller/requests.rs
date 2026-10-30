@@ -15,6 +15,13 @@ pub(super) enum Completed {
 }
 
 impl Completed {
+    pub fn group(&self) -> Option<cellar_logic::cell_group::GroupHistory> {
+        match self {
+            Self::Command(done) => done.invocation.unresolved_group(),
+            Self::Enrollment(done) => done.invocation.unresolved_group(),
+        }
+    }
+
     pub fn failure(&self) -> Option<CellGroupControllerError> {
         match self {
             Self::Command(done) if done.invocation.unresolved() => Some(done.error.clone().map_or(

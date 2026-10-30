@@ -91,6 +91,7 @@ struct Handle {
 
 enum Command {
     Attach(Box<CellGroupOwner>),
+    Quarantine,
     Campaign,
     Execution(cellar_logic::cell_group::CellHistory),
     Enrollment(cellar_logic::cell_group::CellHistory),
@@ -273,7 +274,7 @@ impl CellGroupRuntime {
         bytes: usize,
     ) -> Result<Response, RuntimeError> {
         self.admit()?;
-        let completion = matches!(command, Command::Apply(..));
+        let completion = matches!(command, Command::Apply(..) | Command::Quarantine);
         let budget = if completion {
             &self.inner.completions
         } else {
@@ -327,6 +328,16 @@ impl CellGroupRuntime {
         let result = wait.await.map_err(|_| RuntimeError::Closed)?;
         self.admit()?;
         result
+    }
+
+    /// Revoke this group's authority without retiring its physical owners. This
+    /// control request bypasses the waiting apply/ordinary queues and shares the
+    /// reserved completion lane. Only joined node shutdown releases the claim.
+    pub(crate) async fn quarantine(&self, group: GroupHistory) -> Result<(), RuntimeError> {
+        match self.call(Some(group), Command::Quarantine, 4096).await? {
+            Response::Unit => Ok(()),
+            _ => Err(RuntimeError::Protocol("quarantine reply".into())),
+        }
     }
 
     pub async fn attach(

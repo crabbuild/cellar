@@ -6,6 +6,7 @@ use cellar_logic::{cell_group::GroupHistory, consensus::CommandFailure};
 use futures_util::{future::BoxFuture, stream::FuturesUnordered, StreamExt};
 use std::collections::{BTreeSet, VecDeque};
 
+#[derive(Clone)]
 enum Work {
     Prepare(Box<CellGroupApply>),
     Publish(Box<CellGroupPreparedApply>),
@@ -17,7 +18,11 @@ struct Pending {
     retry_at: u64,
 }
 
-type Completed = (GroupHistory, Result<Option<Work>, CellGroupControllerError>);
+type Completed = (
+    GroupHistory,
+    Result<Option<Work>, CellGroupControllerError>,
+    Work,
+);
 
 pub(super) struct Worker {
     runtime: CellGroupRuntime,
@@ -33,7 +38,9 @@ pub(super) struct Worker {
     hints: FuturesUnordered<BoxFuture<'static, ()>>,
     requests: tokio::sync::mpsc::Receiver<requests::Request>,
     commands: FuturesUnordered<BoxFuture<'static, requests::Completed>>,
-    failed_command: Option<requests::Completed>,
+    failed_commands: Vec<requests::Completed>,
+    quarantined: BTreeSet<GroupHistory>,
+    retained_apply: Vec<Work>,
     registrations: FuturesUnordered<BoxFuture<'static, registration::Completed>>,
     routes: BTreeMap<GroupHistory, crate::raft::transport::PhysicalRegistration>,
     progress: tokio::sync::watch::Sender<()>,
@@ -63,7 +70,9 @@ impl Worker {
             hints: FuturesUnordered::new(),
             requests,
             commands: FuturesUnordered::new(),
-            failed_command: None,
+            failed_commands: Vec::new(),
+            quarantined: BTreeSet::new(),
+            retained_apply: Vec::new(),
             registrations: FuturesUnordered::new(),
             routes: BTreeMap::new(),
             progress: tokio::sync::watch::channel(()).0,
@@ -80,6 +89,10 @@ impl Worker {
             let Some(job) = self.pending.pop_front() else {
                 break;
             };
+            if self.quarantined.contains(&job.group) {
+                self.retained_apply.push(job.work);
+                continue;
+            }
             if job.retry_at > now || self.active.contains(&job.group) {
                 self.pending.push_back(job);
                 continue;
@@ -89,8 +102,9 @@ impl Worker {
             let applier = self.roster[&job.group].clone();
             let runtime = self.runtime.clone();
             self.jobs.push(Box::pin(async move {
+                let retained = job.work.clone();
                 let result = apply(sql, applier, runtime, job.work).await;
-                (job.group, result)
+                (job.group, result, retained)
             }));
         }
         self.shared
@@ -99,6 +113,25 @@ impl Worker {
         self.shared
             .pending_apply
             .store(self.pending.len(), Ordering::Release);
+    }
+
+    async fn quarantine(
+        &mut self,
+        group: GroupHistory,
+        error: CellGroupControllerError,
+    ) -> Result<(), CellGroupControllerError> {
+        if failure::node_wide(&error) {
+            return Err(error);
+        }
+        if self.quarantined.insert(group) {
+            // Stop application admission first. Runtime revocation then bypasses
+            // any waiting apply, fences captured leader authority and refuses
+            // new direct/transport work without dropping the RawNode claim.
+            self.shared.groups.quarantine(group, error)?;
+            self.runtime.quarantine(group).await?;
+            self.progress.send_replace(());
+        }
+        Ok(())
     }
 
     pub(super) async fn run(
@@ -147,7 +180,9 @@ impl Worker {
                         Ok(Some(guard)) => { self.routes.insert(group, guard); }
                         Ok(None) => unreachable!("active registration completion"),
                         Err(error) => {
-                            self.roster.remove(&group);
+                            if !self.quarantined.contains(&group) {
+                                self.roster.remove(&group);
+                            }
                             if uncertain { return Err(error); }
                         }
                     }
@@ -156,15 +191,24 @@ impl Worker {
                     if let Some(error) = completed.failure() {
                         // Retain the invocation and its permit through physical
                         // shutdown even after delivering the error to its caller.
-                        self.failed_command = Some(completed);
-                        return Err(error);
+                        let group = completed.group().ok_or(CellGroupControllerError::Invalid("unresolved command without group"))?;
+                        self.failed_commands.push(completed);
+                        self.quarantine(group, error).await?;
                     }
                 }
-                Some((group, result)) = self.jobs.next(), if !self.jobs.is_empty() => {
+                Some((group, result, retained)) = self.jobs.next(), if !self.jobs.is_empty() => {
                     self.active.remove(&group);
-                    if let Some(work) = result? {
-                        self.shared.apply_retries.fetch_add(1, Ordering::Relaxed);
-                        self.pending.push_back(Pending { group, work, retry_at: now.saturating_add(self.limits.retry_interval_ms) });
+                    match result {
+                        Err(error) => {
+                            self.retained_apply.push(retained);
+                            self.quarantine(group, error).await?;
+                        }
+                        Ok(Some(work)) if self.quarantined.contains(&group) => self.retained_apply.push(work),
+                        Ok(Some(work)) => {
+                            self.shared.apply_retries.fetch_add(1, Ordering::Relaxed);
+                            self.pending.push_back(Pending { group, work, retry_at: now.saturating_add(self.limits.retry_interval_ms) });
+                        }
+                        Ok(None) => (),
                     }
                 }
                 Some(()) = self.hints.next(), if !self.hints.is_empty() => (),
@@ -174,7 +218,20 @@ impl Worker {
                     if !self.roster.contains_key(&group) {
                         return Err(CellGroupControllerError::Invalid("unregistered group event"));
                     }
-                    match event.effect().map_err(Clone::clone)? {
+                    if self.quarantined.contains(&group) {
+                        if let Some(work) = event.retain_apply() {
+                            self.retained_apply.push(Work::Prepare(Box::new(work)));
+                        }
+                        continue;
+                    }
+                    let effect = match event.effect() {
+                        Ok(effect) => effect,
+                        Err(error) => {
+                            self.quarantine(group, error.clone().into()).await?;
+                            continue;
+                        }
+                    };
+                    match effect {
                         CellGroupEffect::Message(message) => {
                             if let Err(error) = self.transport.submit_physical(&group, message.clone()) {
                                 if !matches!(error, TransportError::Overloaded | TransportError::UnknownGroup | TransportError::StalePeer) {
