@@ -52,13 +52,34 @@ A callback must recheck it after capture, and settlement requires a fresh author
 the exact committed entry and that cell's expected image/version. A receipt retry
 reads the selected immutable cell image and does not invoke the callback again.
 The synchronous executor must run on an owning blocking worker. It currently
-reopens after settlement; it is not yet the production SQL pool or registered SDK
-operation dispatcher. Receipt proof alone does not provide S3 coverage.
+reopens after settlement. Receipt proof alone does not provide S3 coverage.
 
-Per-cell SQL admission, SDK dispatch and the production hard cutover remain
-required; the existing host still uses its prior single-cell owner. Transport
-authentication and actual image preparation remain the caller's responsibility
-at this verification boundary. See the [implementation status](../../../../docs/design/multi-raft/cell-groups/progress.md)
+`CellGroupSqlPool` now sends cell-history requests through the existing fixed
+`host_sql::Pool` workers and fair request queue. A stable cell key chooses its
+worker; the node does not create a thread or task for each enrolled cell. One
+admission lease covers queued SQL, the physical callback and its unresolved
+proposal even when the waiting caller is cancelled. Node/group byte and item
+reservations cover capture and retained outputs. Finished capture refunds its
+transient buffer budget while prepared/receipt responses retain their payload
+charge, including clones. Extent workspace creation and final cleanup run on the
+admitted blocking worker. An exclusive engine lease prevents a second node SQL
+pool until workers, the handle and retained outputs release their ownership. A lost stage response can recover the same prepared proposal without
+another callback. Admission checks the authority's exact engine owner.
+
+Each worker has one reserved progress slot, independent of its ordinary queue.
+Submission marking is idempotent for the retained proposal. Settlement still
+requires the exact committed receipt; group progress cannot release another
+cell's lease. Pool close stops admission and its domain cleanup owner joins every
+physical callback/worker even if a close waiter is cancelled. Closing a writer or
+pool does not establish a failed submitted outcome or authorize replay; the host
+must reconcile pending commands against committed state before admitting again.
+
+Registered SDK dispatch, concurrent initialization, coherent query serving and
+the production hard cutover remain required; the existing host still uses its
+prior single-cell owner. The new pool's callback entry point remains a verification
+boundary. Transport authentication and actual image preparation are also caller
+responsibilities at that boundary. See the
+[implementation status](../../../../docs/design/multi-raft/cell-groups/progress.md)
 for the exact qualification boundary.
 
 Managed empty hosts expose `RaftCells::inspect_peer_node` under rooted fleet

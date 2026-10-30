@@ -63,10 +63,49 @@ pub(crate) struct Permit {
     bytes: usize,
 }
 
+impl Permit {
+    /// Refund transient capture capacity while keeping the operation slot and
+    /// the retained payload charged. A reservation can never grow here.
+    pub(crate) fn shrink_to(&mut self, bytes: usize) -> bool {
+        if bytes > self.bytes {
+            return false;
+        }
+        let released = self.bytes - bytes;
+        self.bytes = bytes;
+        self.owner.bytes.fetch_sub(released, Ordering::AcqRel);
+        if released != 0 {
+            self.owner.wake.notify_one();
+        }
+        true
+    }
+}
+
 impl Drop for Permit {
     fn drop(&mut self) {
         self.owner.bytes.fetch_sub(self.bytes, Ordering::AcqRel);
         self.owner.items.fetch_sub(1, Ordering::AcqRel);
         self.owner.wake.notify_one();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shrink_refunds_bytes_but_keeps_the_operation_slot() {
+        let budget = Budget::new(100, 2);
+        let mut capture = budget.acquire(100).unwrap();
+        assert!(budget.acquire(1).is_none());
+        assert!(capture.shrink_to(20));
+        let next = budget.acquire(80).unwrap();
+        assert_eq!(budget.usage(), (100, 2));
+        assert!(budget.acquire(0).is_none());
+        assert!(!capture.shrink_to(21));
+        assert_eq!(budget.usage(), (100, 2));
+        drop(capture);
+        assert_eq!(budget.usage(), (80, 1));
+        drop(next);
+        assert_eq!(budget.usage(), (0, 0));
     }
 }

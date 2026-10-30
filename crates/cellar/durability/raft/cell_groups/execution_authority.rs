@@ -48,6 +48,10 @@ impl CellExecutionAuthority {
         Ok(authority)
     }
 
+    pub(crate) fn belongs_to_engine(&self, owner: &Arc<()>) -> bool {
+        Arc::ptr_eq(&self.group.owner, owner)
+    }
+
     pub fn route(&self) -> &GroupRoute {
         &self.route
     }

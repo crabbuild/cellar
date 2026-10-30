@@ -173,6 +173,7 @@ struct LogHandle {
     options: ReplicaLogOptions,
     closing: Arc<AtomicBool>,
     runtime_claimed: AtomicBool,
+    sql_claimed: AtomicBool,
     abort: Arc<AtomicBool>,
     closed: Arc<AtomicBool>,
     terminal: Arc<Terminal>,
@@ -258,6 +259,15 @@ enum Work {
 /// Exclusive consensus ownership; normal release follows a final storage fence.
 pub(crate) struct RuntimeLease(Arc<LogHandle>);
 
+/// Held by the SQL owner, physical workers and retained response admission.
+pub(crate) struct SqlPoolLease(Arc<LogHandle>);
+
+impl Drop for SqlPoolLease {
+    fn drop(&mut self) {
+        self.0.sql_claimed.store(false, Ordering::Release);
+    }
+}
+
 impl RuntimeLease {
     /// Dropping an unfenced worker deliberately leaves the claim poisoned.
     pub(crate) fn release(self) {
@@ -314,6 +324,15 @@ impl ReplicaLog {
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .map_err(|_| LogError::AlreadyExists)?;
         Ok(RuntimeLease(self.inner.clone()))
+    }
+
+    pub(crate) fn claim_sql_pool(&self) -> Result<Arc<SqlPoolLease>, LogError> {
+        self.admit()?;
+        self.inner
+            .sql_claimed
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| LogError::AlreadyExists)?;
+        Ok(Arc::new(SqlPoolLease(self.inner.clone())))
     }
 
     pub(crate) fn domain(&self) -> crate::asyncrt::DomainToken {
@@ -390,6 +409,7 @@ impl ReplicaLog {
                 options: options.clone(),
                 closing: closing.clone(),
                 runtime_claimed: AtomicBool::new(false),
+                sql_claimed: AtomicBool::new(false),
                 abort: abort.clone(),
                 closed: closed.clone(),
                 terminal: terminal.clone(),

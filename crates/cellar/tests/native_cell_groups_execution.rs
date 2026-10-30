@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Real raft-rs owners, three independent engines and cell-addressed SQLite/LTX.
-//! This boundary does not qualify SDK dispatch, worker fairness or snapshots.
+//! Selected fixed-pool and consensus boundaries; not SDK or snapshot qualification.
 #![allow(clippy::disallowed_methods)]
 
 #[path = "support/raft_storage_fault.rs"]
@@ -44,6 +44,16 @@ async fn cell_receipt_not_group_progress() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn rooted_cell_receipt_not_group_progress() -> Result<()> {
     runtime_fixture::cell_receipts(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_group_fair_admission() -> Result<()> {
+    runtime_fixture::sql_pool_admission(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_shared_group_fair_admission() -> Result<()> {
+    runtime_fixture::sql_pool_admission(true).await
 }
 
 #[path = "support/raft_ltx_fixture.rs"]

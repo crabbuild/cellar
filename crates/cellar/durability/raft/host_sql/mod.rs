@@ -4,6 +4,7 @@
 //! cancellation joins a running callback before these owners release locks.
 
 use super::apply::ImageApplier;
+pub(crate) mod cell_groups;
 mod images;
 use super::archive::{ArchiveLimits, CommittedArchiveCut};
 use super::budget::{Budget, Permit};
@@ -211,15 +212,53 @@ struct Request {
     _slot: tokio::sync::OwnedSemaphorePermit,
 }
 
-struct RequestQueue {
-    receiver: mpsc::Receiver<Request>,
-    pending: VecDeque<Request>,
+trait Scheduled {
+    fn same_cell(&self, other: &Self) -> bool;
+
+    fn progress_priority(&self) -> bool;
+}
+
+impl Scheduled for Request {
+    fn same_cell(&self, other: &Self) -> bool {
+        self.scope == other.scope
+    }
+
+    fn progress_priority(&self) -> bool {
+        self.action.progress_priority()
+    }
+}
+
+enum Envelope {
+    Legacy(Box<Request>),
+    Shared(cell_groups::Request),
+}
+
+impl Scheduled for Envelope {
+    fn same_cell(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Legacy(a), Self::Legacy(b)) => a.same_cell(b),
+            (Self::Shared(a), Self::Shared(b)) => a.cell == b.cell,
+            _ => false,
+        }
+    }
+
+    fn progress_priority(&self) -> bool {
+        match self {
+            Self::Legacy(request) => request.progress_priority(),
+            Self::Shared(request) => request.progress_priority(),
+        }
+    }
+}
+
+struct RequestQueue<T> {
+    receiver: mpsc::Receiver<T>,
+    pending: VecDeque<T>,
     capacity: usize,
     progress_streak: usize,
 }
 
-impl RequestQueue {
-    fn new(receiver: mpsc::Receiver<Request>, capacity: usize) -> Self {
+impl<T: Scheduled> RequestQueue<T> {
+    fn new(receiver: mpsc::Receiver<T>, capacity: usize) -> Self {
         Self {
             receiver,
             pending: VecDeque::new(),
@@ -228,7 +267,7 @@ impl RequestQueue {
         }
     }
 
-    fn next(&mut self) -> Result<Request, mpsc::RecvTimeoutError> {
+    fn next(&mut self) -> Result<T, mpsc::RecvTimeoutError> {
         if self.pending.is_empty() {
             self.pending
                 .push_back(self.receiver.recv_timeout(Duration::from_millis(10))?);
@@ -250,12 +289,12 @@ impl RequestQueue {
                 .iter()
                 .enumerate()
                 .find(|(index, request)| {
-                    request.action.progress_priority()
+                    request.progress_priority()
                         && !self
                             .pending
                             .iter()
                             .take(*index)
-                            .any(|earlier| earlier.scope == request.scope)
+                            .any(|earlier| earlier.same_cell(request))
                 })
                 .map_or(0, |(index, _)| index)
         } else {
@@ -265,7 +304,7 @@ impl RequestQueue {
             .pending
             .remove(index)
             .ok_or(mpsc::RecvTimeoutError::Disconnected)?;
-        self.progress_streak = if request.action.progress_priority() {
+        self.progress_streak = if request.progress_priority() {
             self.progress_streak.saturating_add(1).min(3)
         } else {
             0
@@ -291,7 +330,8 @@ impl Action {
 pub(crate) struct Pool {
     performance: Arc<Performance>,
     domain: crate::asyncrt::DomainToken,
-    senders: Vec<mpsc::SyncSender<Request>>,
+    senders: Vec<mpsc::SyncSender<Envelope>>,
+    completion_slots: Vec<Arc<Semaphore>>,
     slots: Vec<Arc<Semaphore>>,
     workers: Vec<crate::asyncrt::TaskHandle<Result<(), ExecutionError>>>,
     stopped: Arc<AtomicBool>,
@@ -363,7 +403,8 @@ pub(crate) struct Budgets {
 pub(crate) struct Worker {
     performance: Arc<Performance>,
     domain: crate::asyncrt::DomainToken,
-    sender: mpsc::SyncSender<Request>,
+    sender: mpsc::SyncSender<Envelope>,
+    completion_slots: Arc<Semaphore>,
     slots: Arc<Semaphore>,
     stopped: Arc<AtomicBool>,
 }
@@ -388,6 +429,7 @@ impl Pool {
             performance: performance.clone(),
             domain: domain.clone(),
             senders: vec![],
+            completion_slots: vec![],
             slots: vec![],
             workers: vec![],
             stopped: stopped.clone(),
@@ -396,7 +438,10 @@ impl Pool {
             images: images.clone(),
         };
         for _ in 0..count {
-            let (sender, receiver) = mpsc::sync_channel::<Request>(queue);
+            let capacity = queue
+                .checked_add(1)
+                .ok_or(ExecutionError::Invalid("SQL queue capacity"))?;
+            let (sender, receiver) = mpsc::sync_channel::<Envelope>(capacity);
             let owner = domain.clone();
             let performance = performance.clone();
             let stopped = stopped.clone();
@@ -412,7 +457,8 @@ impl Pool {
                     // retire this physical worker count.
                     let _running = Running::enter(running);
                     let mut cells = BTreeMap::<GroupScope, Cell>::new();
-                    let mut requests = RequestQueue::new(receiver, queue);
+                    let mut shared = cell_groups::Cells::default();
+                    let mut requests = RequestQueue::new(receiver, capacity);
                     let result = loop {
                         if stopped.load(Ordering::Acquire) || owner.mono_ms().is_err() {
                             break Ok(());
@@ -421,6 +467,19 @@ impl Pool {
                             Ok(request) => request,
                             Err(mpsc::RecvTimeoutError::Timeout) => continue,
                             Err(mpsc::RecvTimeoutError::Disconnected) => break Ok(()),
+                        };
+                        let request = match request {
+                            Envelope::Shared(request) => {
+                                shared.execute(
+                                    request,
+                                    max_cells.saturating_sub(cells.len()),
+                                    &owner,
+                                    &stopped,
+                                    &performance,
+                                );
+                                continue;
+                            }
+                            Envelope::Legacy(request) => *request,
                         };
                         let Request {
                             queued,
@@ -484,7 +543,7 @@ impl Pool {
                         let timer = performance.timer(measured);
                         let result = Self::execute(
                             &mut cells,
-                            max_cells,
+                            max_cells.saturating_sub(shared.len()),
                             &scope,
                             action,
                             &query_pins,
@@ -547,7 +606,7 @@ impl Pool {
                     };
                     // Keep joining/closing every resource even when one reports an
                     // error. Their locks are released on this blocking owner.
-                    let mut cleanup = Ok(());
+                    let mut cleanup = shared.close();
                     for (_, mut cell) in cells {
                         if let Some(private) = cell.private.take() {
                             if let Err(error) = private.close() {
@@ -560,6 +619,7 @@ impl Pool {
                 .map_err(|_| ExecutionError::Refused(CommandFailure::Unavailable))?;
             pool.senders.push(sender);
             pool.slots.push(Arc::new(Semaphore::new(queue)));
+            pool.completion_slots.push(Arc::new(Semaphore::new(1)));
             pool.workers.push(task);
         }
         Ok(pool)
@@ -599,6 +659,7 @@ impl Pool {
             performance: self.performance.clone(),
             domain: self.domain.clone(),
             sender,
+            completion_slots: self.completion_slots[worker].clone(),
             slots: self.slots[worker].clone(),
             stopped: self.stopped.clone(),
         })
@@ -606,7 +667,7 @@ impl Pool {
 
     pub fn stop(&self) {
         self.stopped.store(true, Ordering::Release);
-        for slots in &self.slots {
+        for slots in self.slots.iter().chain(&self.completion_slots) {
             slots.close();
         }
     }
@@ -764,6 +825,7 @@ impl Worker {
             sender,
             slots,
             stopped,
+            completion_slots: _,
         } = self.clone();
         Box::pin(async move {
             let queued = performance.timer(Measured::SqlQueue);
@@ -776,7 +838,7 @@ impl Worker {
             }
             let (reply, result) = oneshot::channel();
             sender
-                .try_send(Request {
+                .try_send(Envelope::Legacy(Box::new(Request {
                     queued,
                     scope,
                     action,
@@ -784,7 +846,7 @@ impl Worker {
                     _work: work,
                     cancel,
                     _slot: slot,
-                })
+                })))
                 .map_err(|_| ExecutionError::Refused(CommandFailure::Unavailable))?;
             result
                 .await

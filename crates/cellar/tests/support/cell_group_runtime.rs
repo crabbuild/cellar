@@ -508,3 +508,7 @@ mod sql;
 pub(super) async fn cell_receipts(rooted: bool) -> Result<()> {
     sql::cell_receipts(rooted).await
 }
+
+pub(super) async fn sql_pool_admission(rooted: bool) -> Result<()> {
+    sql::pool_admission(rooted).await
+}

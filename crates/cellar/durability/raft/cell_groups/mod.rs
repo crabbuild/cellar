@@ -2,6 +2,11 @@
 
 //! Complete group-state storage. A synced page is data, not Raft authority.
 
+pub use super::host_sql::cell_groups::{
+    CellGroupSqlPool, CellSqlLimits, CellSqlOptions, CellSqlOutcome, CellSqlPrepared,
+    CellSqlReceipt, CellSqlRootOptions, CellSqlUsage,
+};
+
 mod execution_authority;
 pub use execution_authority::CellExecutionAuthority;
 

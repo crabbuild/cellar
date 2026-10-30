@@ -33,6 +33,41 @@ impl RuntimeCluster {
         let authority = self.runtimes[0]
             .execution_authority(self.cluster.birth.route().history, cell.clone())
             .await?;
+        let options = self.cell_options(cell).await?;
+        self.cluster
+            .domain
+            .blocking(move || match options {
+                CellSqlOptions::Materialized(o) => CellPrivateExecutor::open(o, authority),
+                CellSqlOptions::Extents(o) => {
+                    let workspace = o
+                        .images
+                        .create_workspace(
+                            cell_image_history_digest(&authority.cell().version.history),
+                            RootPrivateOptions::workspace_bounds(o.limits)?,
+                        )
+                        .map_err(|e| ExecutionError::Storage(e.into()))?;
+                    CellPrivateExecutor::open_rooted(
+                        RootPrivateOptions {
+                            workspace,
+                            host: o.host,
+                            sqlite_vfs: o.sqlite_vfs,
+                            images: o.images,
+                            query_services: o.query_services,
+                            application_digest: o.application_digest,
+                            limits: o.limits,
+                            cache_directory: o.cache_directory,
+                            cache_pool: o.cache_pool,
+                            cache: o.cache,
+                        },
+                        authority,
+                    )
+                }
+            })?
+            .await?
+            .map_err(Into::into)
+    }
+
+    async fn cell_options(&self, cell: &CellHistory) -> Result<CellSqlOptions> {
         let options = PrivateOptions {
             directory: self
                 .cluster
@@ -63,11 +98,7 @@ impl RuntimeCluster {
             .domain
             .blocking(move || -> Result<_> {
                 if let Some(store) = extents {
-                    let rooted = RootPrivateOptions {
-                        workspace: store.create_workspace(
-                            cell_image_history_digest(&authority.cell().version.history),
-                            RootPrivateOptions::workspace_bounds(options.limits)?,
-                        )?,
+                    let rooted = CellSqlRootOptions {
                         host: options.host,
                         sqlite_vfs: None,
                         images: store,
@@ -84,16 +115,18 @@ impl RuntimeCluster {
                             max_cached_extents: 1,
                         },
                     };
-                    Ok(CellPrivateExecutor::open_rooted(rooted, authority)?)
+                    Ok(CellSqlOptions::Extents(rooted))
                 } else {
-                    Ok(CellPrivateExecutor::open(options, authority)?)
+                    Ok(CellSqlOptions::Materialized(options))
                 }
             })?
             .await?
     }
 }
 
-pub(super) async fn cell_receipts(rooted: bool) -> Result<()> {
+async fn enrolled_sql_cells(
+    rooted: bool,
+) -> Result<(RuntimeCluster, GroupRoute, CellHistory, CellHistory)> {
     let mut fixture = RuntimeCluster::new().await?;
     let route = fixture.cluster.birth.route().clone();
     if rooted {
@@ -110,7 +143,8 @@ pub(super) async fn cell_receipts(rooted: bool) -> Result<()> {
     fixture.drive(None).await?;
     let a = history(&route, "sql-a")?;
     let b = history(&route, "sql-b")?;
-    for cell in [&a, &b] {
+    let c = history(&route, "sql-c")?;
+    for cell in [&a, &b, &c] {
         let bytes = images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES (0);")?;
         let cut = images::Cut::new(&[], &bytes, 0, true, false);
         let bytes = if rooted {
@@ -144,6 +178,11 @@ pub(super) async fn cell_receipts(rooted: bool) -> Result<()> {
         let proposed = fixture.runtimes[0].propose(route.history, bytes).await?;
         fixture.drive(Some(proposed.position.index)).await?;
     }
+    Ok((fixture, route, a, b))
+}
+
+pub(super) async fn cell_receipts(rooted: bool) -> Result<()> {
+    let (mut fixture, route, a, b) = enrolled_sql_cells(rooted).await?;
     assert!(matches!(
         fixture.runtimes[1]
             .execution_authority(route.history, a.clone())
@@ -373,4 +412,11 @@ pub(super) async fn cell_receipts(rooted: bool) -> Result<()> {
     assert_eq!(leaf.version, stale.cell().version);
     drop(stale);
     fixture.close().await
+}
+
+#[path = "cell_group_sql_pool.rs"]
+mod pool;
+
+pub(super) async fn pool_admission(rooted: bool) -> Result<()> {
+    pool::admission(rooted).await
 }
