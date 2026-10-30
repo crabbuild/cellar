@@ -15,13 +15,19 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The reviewed source baseline is `1ec2eeaa`, adding selected-image recovery and
-physical apply fault coverage in both image modes. Its retained checkpoint is
-`.cellar/cell-groups-evidence/CG-04-apply-recovery/checkpoint.json`: 260 selected
-Rust cases, fifteen commands, 205 source inputs and twelve executables. Transfer
-that entire directory, including failed intermediate output, with prior evidence.
-This qualifies joined cold restart, not whole-process kill or power loss. The preceding `c9100ec7`
-checkpoint qualifies committed preparation on shared workers (`2085cc96`). The preceding `ed84df5d` checkpoint retains exact
+The reviewed source baseline is `b28078af`, adding registered commands on shared
+SQL workers and logical command/effect identities. Its partial checkpoint is
+`.cellar/cell-groups-evidence/CG-04-registered/checkpoint.json`: 295 selected Rust
+cases, seventeen successful commands, 221 source inputs and fifteen selected
+executables. Transfer its entire directory with prior evidence. It does not
+complete CG-04, qualify shared effect scheduling or implement the public cutover.
+The preceding `1ec2eeaa`
+checkpoint qualifies selected-image recovery and physical apply fault coverage.
+Its retained record is `.cellar/cell-groups-evidence/CG-04-apply-recovery/checkpoint.json`:
+260 selected Rust cases, fifteen commands, 205 source inputs and twelve executables.
+Transfer that entire directory with prior evidence. It qualifies joined cold
+restart, not whole-process kill or power loss. The preceding `c9100ec7` checkpoint
+qualifies committed preparation on shared workers (`2085cc96`). The preceding `ed84df5d` checkpoint retains exact
 cell-version witnesses in authenticated manifests and query/receipt observations. The preceding read
 checkpoint at `3da4481e` decouples pin capacity from transport limits and repairs
 the fixture macro. The initial read implementation is `88c4717d`. Earlier checkpoints cover prepared submission sealing
@@ -128,12 +134,12 @@ the old proof. Accepted preparations retain their original position/digest even
 after apply; this remains provisional acceptance, never commitment. Prepared
 submission also closes byte-only proposal entry points on that owner.
 
-Next integrate catalog routing sessions and registered SDK creation/command
-callbacks, and registered query/version-token serving. Use `CellSqlPrepared::submit` and its typed result;
+Next connect catalog routing and SDK creation/commands to the registered worker
+entry point, and integrate registered query/version-token serving. Use `CellSqlPrepared::submit` and its typed result;
 never release a producer from generic overload or same-term absence. Preserve
 the original request fingerprint, deadline and attempt budget across redirects. Do not synthesize a legacy `GroupScope` to
-satisfy callback/effect identities. The callback APIs added here remain verification
-boundaries, not registered SDK entry points. Real compaction/production retries
+satisfy callback/effect identities. The arbitrary-callback `stage` API remains a verification boundary; use
+`stage_registered` for compiled commands. Public SDK routing is still pending. Real compaction/production retries
 and preview/cache lifecycle remain required. These cases do not complete CG-04.
 
 The remaining coupling is concrete: `execution::CommandAuthority` binds the
@@ -145,14 +151,21 @@ Reuse the existing receipt transaction and callback machinery; do not manufactur
 a synthetic cell-scoped group to satisfy the old interfaces.
 A later mutation of another cell must not settle the first cell's pending output.
 
-The registered callback boundary also needs a real identity conversion:
-`application/consensus/class.rs::CommandContext::identity` currently exposes
-`GroupScope`, and command identity validation/invocation passes that same scope
-to inbox and system-effect authentication. Carry logical `CellHistory` through
-this boundary and keep physical consensus proof separate. Do not enable effects
-with a fabricated group scope; preserve the CG-08-before-CG-07 dependency. Reuse
-the new `host_sql::Pool` cell-history path and joined shutdown; do not create a
-second node worker pool or a task per enrolled cell.
+The registered command boundary now carries `CellHistory` through
+`CommandContext`, inbox authentication, effect targets and system-client identity.
+`CellGroupSqlPool::stage_registered` validates the operation, full class schema,
+normalized input digest and authenticated identity before receipt lookup, then
+uses the existing shared worker and exact proposal settlement path. Signed effect
+wire and the class manifest use distinct marker-1 domains; there is no old-wire
+reader. The temporary single-cell host projects its actual logical binding.
+The shared command path derives identity directly from cell execution authority.
+
+Registered query contexts still expose `CommittedVersion`/`GroupScope`. Replace
+that boundary with the selected logical cell version and witness before the public
+cutover; never infer a mutation sequence from group progress. The catalog/SDK
+adapter must select the authorized class and preserve invocation deadline,
+fingerprint and retry budget. Full shared effect scheduling remains CG-08 work
+before CG-07. Reuse the existing SQL workers and joined shutdown.
 A cancelled caller cannot release physical callback ownership or allow a second
 producer for that cell.
 
@@ -231,8 +244,8 @@ at `ed84df5d` qualifies exact entry matching, unchanged-cell and older-pin
 provenance, restart/image-collection recovery and token round-trips in both image
 modes. Actual log-compaction and group-snapshot integration remain unqualified.
 
-Next integrate registered callbacks and catalog invocation sessions without
-synthesizing legacy group identities. Preserve original invocation deadlines,
+Next integrate registered query callbacks and connect catalog invocation sessions
+to the registered command workers without synthesizing legacy group identities. Preserve original invocation deadlines,
 contracts and retry identities. Query callbacks must receive logical cell versions;
 returned tokens must use the selected observation. `CellGroupApplier` now consumes the startup manifest-page owner, and
 `CellGroupSqlPool::prepare_apply` prepares committed cell images and complete
@@ -329,23 +342,26 @@ boundary. At the end of each turn, record the completed behavior, evidence and
 limits, then identify the most critical remaining gap and the concrete next step.
 Do not let plan maintenance replace implementation.
 
-1. Integrate catalog invocation sessions and registered command/query callbacks
-   with logical cell identity and version observations. Start at
-   `application/consensus/class.rs`: command/query contexts still expose legacy
-   `GroupScope`, and queries expose `CommittedVersion`. Carry `CellHistory` and
-   selected cell observations through callbacks, receipts and effect validation;
-   keep physical quorum proof separate. Preserve original deadlines, request
-   fingerprints and the total retry budget. Never fabricate legacy group scopes.
-2. Complete CG-04's production retry/cache lifecycle and configuration-entry
-   handling at the owning boundary. The new `CellGroupApplier::recover` provides
-   selected-image startup with the same page owner; use it in the dispatcher.
-   The actual image/manifest directory-sync cancellation and failure cuts now pass.
-   Add whole-process kill/restart coverage before claiming crash qualification;
-   joined cold reopen does not establish power-loss behavior.
-3. Run the entire CG-04 gate before marking it DONE. Full snapshot/membership
-   qualification follows in CG-05; archive/reclamation in CG-06 must preserve the
-   complete group recovery closure. Preserve CG-08-before-CG-07 for effect identity
-   and public cutover.
+1. Integrate registered query contexts with logical cell versions and selected
+   decision witnesses. `QueryContext` still exposes the old `CommittedVersion`;
+   the shared read path already provides `CellVersionObservation`. Preserve
+   read-only callback restrictions and version-token authentication. Do not map
+   group log progress to a cell mutation sequence. The remaining old constructors
+   are `execution/mod.rs::query_registered_controlled` and
+   `rooted/query.rs::query_registered_rooted_controlled`; both construct only a
+   group-position `CommittedVersion`. The new worker lives in
+   `host_sql/cell_groups/query.rs` and already retains the exact observation.
+2. Connect catalog invocation sessions and the production SDK dispatcher to
+   `CellGroupSqlPool::stage_registered`, initialization, coherent queries and exact
+   receipt settlement. Select classes from authorized namespace bindings, and
+   preserve original deadlines, request fingerprints and total retry budgets.
+   Do not manufacture legacy group scopes or create another worker pool.
+3. Complete CG-04's production retry/cache lifecycle and configuration-entry
+   handling, then its full gate before DONE. Use the selected-root recovery API
+   at startup. Whole-process kill/power-loss remains distinct from the qualified
+   directory-sync faults and joined cold restart. Full snapshots/membership follow
+   in CG-05, archive/reclamation in CG-06, and shared effect scheduling/cache
+   lifecycle in CG-08 before the CG-07 public cutover.
 
 The opportunity is to reuse the now-shared consensus, SQL, read and apply paths in
 one dispatcher. Additional per-cell workers, a second production mode or a demo

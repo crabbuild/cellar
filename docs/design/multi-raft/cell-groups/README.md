@@ -122,6 +122,15 @@ All 260 selected Rust cases and fifteen commands pass; transfer the retained
 `.cellar/cell-groups-evidence/CG-04-apply-recovery/` directory with prior evidence.
 Whole-process kill and power-loss cuts remain unqualified. See the newest
 [progress checkpoint](progress.md) for the committed-source gate and evidence.
+Registered command callbacks now run on shared SQL workers at `b28078af` with
+logical cell identity, pre-receipt validation and exact receipt settlement.
+Command/effect identities exclude the physical group; old signed effect layouts
+refuse under the marker-1 cutover. Shared query context, effect scheduling and
+production catalog/SDK dispatch remain incomplete. All 295 selected Rust cases
+and seventeen commands pass; transfer
+`.cellar/cell-groups-evidence/CG-04-registered/` with the previous evidence. Its
+checkpoint binds 221 source inputs and fifteen selected executables. See the newest
+progress record for scope and retained failures.
 Registered SDK/catalog routing, query/version-token integration,
 production retry/compaction integration and cache lifecycle remain required. Managed
 fleet integration remains required by CG-07. A birth

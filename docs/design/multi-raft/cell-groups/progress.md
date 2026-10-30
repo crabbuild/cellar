@@ -10,6 +10,57 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 registered commands and logical effect identity
+
+Qualified source: `b28078afbd243c18ac7c671a481a3e369c086ab2`.
+
+`CellGroupSqlPool::stage_registered` now dispatches a real compiled `RaftClass`
+on the existing fixed workers. Its retained input is bounded by the producer
+budget. The worker verifies operation kind/contract, full class schema, normalized
+input digest and authenticated inbox/reserved client identity before receipt
+lookup, including duplicates. It uses the existing private receipt transaction,
+prepared submission and exact committed settlement paths. The shared path obtains
+logical identity from `CellExecutionAuthority`; it never constructs `GroupScope`.
+
+`CommandContext::identity()` and `RaftEffectTarget` carry `CellHistory`. System
+clients and signed effect lanes/requests bind the logical cell, so normal physical
+group reassignment preserves identity and a fresh cell incarnation separates it.
+Canonical marker-1 records omit physical groups and use distinct signature/lane
+and compiled-class domains. Old group-bearing payloads and old signatures refuse;
+there is no compatibility reader. The temporary old host projects its actual
+logical binding into the same command/effect interfaces.
+
+The new real three-voter tests use two cells and production image preparation in
+both storage modes. Callbacks see the exact cell history and persist alarm state.
+A's receipt survives B advancing group progress; duplicates do not run callbacks.
+Wrong contract, input digest, operation and schema produce their specific typed
+errors even on duplicate requests, without retaining cell admission. Unit cases
+cover placement-independent signed identity, new-incarnation separation, and old
+wire/domain refusal. This does not qualify live transfers or shared effect dispatch.
+
+All 295 selected Rust cases pass: 256 native cases across twelve suites, 30 Cellar
+library cases, five pure cell-group core cases and four LTX image-store cases.
+The native gate includes the existing alarm/outbox/inbox, extent-host and host
+regressions. All seventeen commands pass, including all-target Clippy for
+Cellar/cellar-logic/cellar-ltx with warnings denied, formatting (1,818 Rust files),
+layout, dependency isolation, docs, source preflight and all 37 plan-validator
+cases. The retained checkpoint is
+`.cellar/cell-groups-evidence/CG-04-registered/checkpoint.json`, binding 221 source
+inputs and fifteen selected executables. Failed compile, missing test delimiter,
+Clippy type-alias and omitted test submission-transition attempts are retained
+with the corrected targeted runs. Six process helpers run through parent tests;
+three RustFS-specific cases remain unrun. The branch contains latest fetched
+`origin/main` at `8a93ffd7`.
+
+CG-04 remains IN_PROGRESS and CG-08 remains TODO. The most critical next gap is
+registered query context and version observations, followed by catalog/SDK routing
+into these workers with original deadline, fingerprint and retry budgets. Query
+contexts still carry the old committed group version; never invent a cell sequence
+from that index. Production cache/retry and configuration handling, process-kill
+cuts, shared effects and later snapshot/archive/RustFS/performance gates remain.
+The opportunity is to complete one dispatcher over the existing consensus, SQL,
+read and recovery owners, then remove the superseded production host.
+
 ## CG-04 physical apply faults and selected-image recovery
 
 Qualified source: `1ec2eeaab2beaa8d8e82c834cbb5dbf692b5e7d1`.
