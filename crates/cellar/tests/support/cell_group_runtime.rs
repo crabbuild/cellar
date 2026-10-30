@@ -84,10 +84,16 @@ impl RuntimeCluster {
                             assert!(held.insert(scope, work).is_none());
                         } else {
                             if let Some((pool, applier)) = self.appliers.get(&(n, scope)) {
-                                pool.prepare_apply(applier, work)
-                                    .await?
-                                    .complete(&self.runtimes[n])
-                                    .await?;
+                                // Keep the physical apply future out of every
+                                // caller's inline transport/recovery state.
+                                Box::pin(async {
+                                    pool.prepare_apply(applier, work)
+                                        .await?
+                                        .complete(&self.runtimes[n])
+                                        .await?;
+                                    Ok::<_, anyhow::Error>(())
+                                })
+                                .await?;
                                 continue;
                             }
                             let voter = if scope == primary {
