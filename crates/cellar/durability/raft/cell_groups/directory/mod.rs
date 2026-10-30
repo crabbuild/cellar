@@ -19,7 +19,10 @@ use std::{
 
 mod birth;
 mod bootstrap;
+mod route_cache;
 mod routing;
+pub use route_cache::CellRouteCacheUsage;
+pub(crate) use route_cache::RouteCache;
 mod store;
 mod tree;
 mod wire;

@@ -28,6 +28,10 @@ use std::{fmt, sync::Arc};
 
 #[derive(Clone, Copy)]
 pub struct CellDispatchLimits {
+    /// Maximum retained group-range hints shared by this registration's clones.
+    pub max_cached_routes: usize,
+    /// Conservative reserved hint capacity; at least 8 KiB, at most 64 MiB.
+    pub route_cache_bytes: usize,
     pub max_invocations: usize,
     pub retained_bytes: usize,
     pub max_input_bytes: usize,
@@ -77,6 +81,7 @@ pub struct CellGroupDispatcher {
     domain: DomainToken,
     limits: CellDispatchLimits,
     budget: Arc<Budget>,
+    routes: Arc<crate::raft::catalog::RouteCache>,
 }
 
 impl CellGroupDispatcher {
@@ -117,7 +122,16 @@ impl CellGroupDispatcher {
             return Err(CellDispatchError::Invalid("invocation limits"));
         }
         let domain = domain.services().domain_token().ok_or_else(closed)?;
+        let routes = Arc::new(
+            crate::raft::catalog::RouteCache::new(
+                directory.clone(),
+                limits.max_cached_routes,
+                limits.route_cache_bytes,
+            )
+            .map_err(|_| CellDispatchError::Invalid("route cache limits"))?,
+        );
         Ok(Self {
+            routes,
             directory,
             class,
             keys,
@@ -125,6 +139,24 @@ impl CellGroupDispatcher {
             limits,
             budget: Budget::new(limits.retained_bytes, limits.max_invocations),
         })
+    }
+
+    /// Retained namespace range hints, never per-cell execution or authority.
+    pub fn route_cache_usage(&self) -> Result<CellRouteCacheUsage, CellDispatchError> {
+        self.routes.usage().map_err(catalog_failure)
+    }
+
+    /// Observe a verified current directory head and retire all older range hints.
+    /// This is host-driven metadata refresh, not a serving lease or a timer task.
+    pub async fn refresh_routes(&self) -> Result<u64, CellDispatchError> {
+        let view = self
+            .domain
+            .run(self.directory.observe())
+            .await
+            .map_err(|_| closed())?
+            .map_err(catalog_failure)?;
+        self.routes.observe(&view).map_err(catalog_failure)?;
+        Ok(view.revision())
     }
 
     pub fn usage(&self) -> (usize, usize) {
@@ -180,7 +212,8 @@ impl CellGroupDispatcher {
                 cached,
                 started_at,
             )
-            .map_err(CellDispatchError::Routing)?;
+            .map_err(CellDispatchError::Routing)?
+            .using_cache(self.routes.clone());
         Ok(CellQueryInvocation {
             dispatcher: self.clone(),
             request,
@@ -213,6 +246,20 @@ impl CellQueryInvocation {
         let attempt = self
             .session
             .begin()
+            .await
+            .map_err(CellDispatchError::Routing)?;
+        self.attempt = Some(attempt);
+        self.dispatched = false;
+        Ok(())
+    }
+
+    // The destination still needs fresh catalog binding until replicated transfer
+    // seals are integrated. Caller-side hints cannot replace that admission check.
+    pub(crate) async fn begin_current(&mut self) -> Result<(), CellDispatchError> {
+        self.dispatched = true;
+        let attempt = self
+            .session
+            .begin_current()
             .await
             .map_err(CellDispatchError::Routing)?;
         self.attempt = Some(attempt);
@@ -482,4 +529,11 @@ fn fingerprint(
         }
     }
     hash.finalize().into()
+}
+
+fn catalog_failure(error: crate::raft::catalog::CatalogError) -> CellDispatchError {
+    CellDispatchError::Routing(CellRoutingError {
+        reason: CellRoutingFailure::Catalog(error),
+        ambiguous_command: None,
+    })
 }

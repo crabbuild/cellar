@@ -552,3 +552,7 @@ pub(crate) use remote_queries::{remote_queries, remote_query_lifecycle};
 #[path = "cell_group_query_origins.rs"]
 mod query_origins;
 pub(crate) use query_origins::{nonmember_queries, nonmember_query_revocation};
+
+#[path = "cell_group_dispatch_cache_execution.rs"]
+mod dispatch_cache_execution;
+pub(crate) use dispatch_cache_execution::cached_dispatch_execution;

@@ -121,6 +121,7 @@ pub struct CellRoutingSession {
     active: bool,
     submitted: bool,
     cached: Option<ResolvedCellRoute>,
+    route_cache: Option<Arc<RouteCache>>,
     owner: Arc<()>,
 }
 
@@ -193,12 +194,26 @@ impl RangeDirectory {
             active: false,
             submitted: false,
             cached,
+            route_cache: None,
             owner: Arc::new(()),
         })
     }
 }
 
 impl CellRoutingSession {
+    pub(crate) fn using_cache(mut self, cache: Arc<RouteCache>) -> Self {
+        self.route_cache = Some(cache);
+        self
+    }
+
+    pub(crate) async fn begin_current(&mut self) -> Result<CellRouteAttempt, CellRoutingError> {
+        if self.attempts != 0 {
+            return Err(self.error(CellRoutingFailure::StaleAttempt));
+        }
+        self.cached = None;
+        self.next(None, false).await
+    }
+
     pub(crate) fn deadline_ms(&self) -> u64 {
         self.deadline
     }
@@ -255,7 +270,7 @@ impl CellRoutingSession {
         if self.attempts != 0 {
             return Err(self.error(CellRoutingFailure::StaleAttempt));
         }
-        self.next(None).await
+        self.next(None, true).await
     }
 
     /// Same-group retry, including a different member, under the same budget.
@@ -264,7 +279,7 @@ impl CellRoutingSession {
         previous: &CellRouteAttempt,
     ) -> Result<CellRouteAttempt, CellRoutingError> {
         self.check_attempt(previous)?;
-        self.next(None).await
+        self.next(None, true).await
     }
 
     /// A relocation hint is untrusted until an exact lookup in the configured
@@ -276,12 +291,13 @@ impl CellRoutingSession {
         hint: &GroupRoute,
     ) -> Result<CellRouteAttempt, CellRoutingError> {
         self.check_attempt(previous)?;
-        self.next(Some(hint)).await
+        self.next(Some(hint), true).await
     }
 
     async fn next(
         &mut self,
         hint: Option<&GroupRoute>,
+        use_cache: bool,
     ) -> Result<CellRouteAttempt, CellRoutingError> {
         // Consume the previous ticket and attempt before any await. Dropping a
         // discovery future cannot refund attempts or authorize a late response.
@@ -306,6 +322,21 @@ impl CellRoutingSession {
                 return Err(self.error(CellRoutingFailure::InvalidHint));
             }
         }
+        if use_cache && hint.is_none() && self.cached.is_none() {
+            if let Some(cache) = &self.route_cache {
+                if let Some((route, revision)) = cache
+                    .get(&self.request.cell)
+                    .map_err(|e| self.error(CellRoutingFailure::Catalog(e)))?
+                {
+                    self.cached = Some(ResolvedCellRoute {
+                        cell: self.request.cell.clone(),
+                        route,
+                        revision,
+                        owner: self.directory.namespace.inner.owner.clone(),
+                    });
+                }
+            }
+        }
         if self.cached.is_none() || hint.is_some() {
             let minimum = self.cached.as_ref().map_or(0, |route| route.revision);
             let work = async {
@@ -327,6 +358,11 @@ impl CellRoutingSession {
                 .map_err(|error| self.error(CellRoutingFailure::Catalog(error)))?;
             if view.revision() < minimum || hint.is_some_and(|hint| &route != hint) {
                 return Err(self.error(CellRoutingFailure::InvalidHint));
+            }
+            if let Some(cache) = &self.route_cache {
+                cache
+                    .remember(&view, &route)
+                    .map_err(|e| self.error(CellRoutingFailure::Catalog(e)))?;
             }
             self.cached = Some(ResolvedCellRoute {
                 cell: self.request.cell.clone(),

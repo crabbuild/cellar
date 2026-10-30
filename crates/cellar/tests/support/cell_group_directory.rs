@@ -26,6 +26,10 @@ struct Fixture {
 
 impl Fixture {
     async fn new(limits: DirectoryLimits) -> Result<Self> {
+        Self::with_schema(limits, route().schema_digest).await
+    }
+
+    async fn with_schema(limits: DirectoryLimits, schema: [u8; 32]) -> Result<Self> {
         let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         let store = Arc::new(fault::Store::default());
         store.reject_listing.store(true, Ordering::Release);
@@ -34,7 +38,7 @@ impl Fixture {
             route.history.cluster,
             route.history.namespace,
             cellar_logic::NamespaceMode::Raft,
-            route.schema_digest,
+            schema,
         );
         let catalog = Catalog::new(store.clone(), CatalogOptions::default())?;
         let namespace = domain.run(catalog.open_namespace(config.clone())).await??;
@@ -964,6 +968,9 @@ async fn publish_route_split(
 ) -> Result<GroupRoute> {
     let view = f.run(f.directory.observe()).await?;
     let mut children = split(parent, 700);
+    for child in &mut children {
+        child.schema_digest = parent.schema_digest;
+    }
     f.reserve(&mut children).await?;
     let replace = f.directory.prepare_replacement(
         &view,
@@ -1225,3 +1232,9 @@ pub async fn routing_deadline_and_cancellation() -> Result<()> {
     ));
     Ok(())
 }
+
+#[path = "cell_group_routing_cache.rs"]
+mod routing_cache;
+pub(crate) use routing_cache::{
+    bounded_route_hints, cached_operation_discovery, stale_cache_refill,
+};

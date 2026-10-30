@@ -127,7 +127,8 @@ impl CellGroupDispatcher {
                 cached,
                 started,
             )
-            .map_err(|e| error(CellDispatchError::Routing(e)))?;
+            .map_err(|e| error(CellDispatchError::Routing(e)))?
+            .using_cache(self.routes.clone());
         Ok(CellEnrollmentInvocation {
             dispatcher: self.clone(),
             cell,

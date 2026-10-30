@@ -100,6 +100,8 @@ pub(crate) async fn owned_commands(phase: u8, mode: u8) -> Result<()> {
             class.clone(),
             keys.clone(),
             CellDispatchLimits {
+                max_cached_routes: 32,
+                route_cache_bytes: 256 * 1024,
                 max_invocations: 8,
                 retained_bytes: 1024 * 1024,
                 max_input_bytes: 1024,
@@ -397,6 +399,8 @@ pub(crate) async fn owned_command_failure(lost_reply: bool) -> Result<()> {
                 Duration::from_secs(30),
             )?,
             CellDispatchLimits {
+                max_cached_routes: 32,
+                route_cache_bytes: 256 * 1024,
                 max_invocations: 8,
                 retained_bytes: 1024 * 1024,
                 max_input_bytes: 1024,

@@ -339,3 +339,18 @@ async fn routing_cached_requests_preserve_identity_without_catalog_reads() -> an
 async fn routing_attempt_deadline_survives_redirect_and_cancellation() -> anyhow::Result<()> {
     directory::routing_deadline_and_cancellation().await
 }
+
+#[tokio::test]
+async fn dispatcher_route_cache_shares_ranges_across_operations() -> anyhow::Result<()> {
+    directory::cached_operation_discovery().await
+}
+
+#[tokio::test]
+async fn dispatcher_route_cache_bounds_and_refreshes_hints() -> anyhow::Result<()> {
+    directory::bounded_route_hints().await
+}
+
+#[tokio::test]
+async fn dispatcher_route_cache_refuses_superseded_inflight_refill() -> anyhow::Result<()> {
+    directory::stale_cache_refill().await
+}

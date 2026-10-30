@@ -88,6 +88,8 @@ pub(crate) async fn routed(rooted: bool) -> Result<()> {
         Duration::from_secs(10),
     )?;
     let bounds = CellDispatchLimits {
+        max_cached_routes: 32,
+        route_cache_bytes: 256 * 1024,
         max_invocations: 1,
         retained_bytes: 1024 * 1024,
         max_input_bytes: 256 * 1024,

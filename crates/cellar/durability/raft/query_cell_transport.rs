@@ -449,7 +449,7 @@ impl Gateway {
             },
             None,
         )?;
-        query.begin().await?;
+        query.begin_current().await?;
         let selected = query
             .attempt()
             .ok_or(CellDispatchError::Invalid("missing query route"))?

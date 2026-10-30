@@ -51,6 +51,8 @@ fn dispatcher(fixture: &RuntimeCluster, class: Arc<RaftClass>) -> Result<CellGro
             Duration::from_secs(30),
         )?,
         CellDispatchLimits {
+            max_cached_routes: 32,
+            route_cache_bytes: 256 * 1024,
             max_invocations: 8,
             retained_bytes: 1024 * 1024,
             max_input_bytes: 1024,

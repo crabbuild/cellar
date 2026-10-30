@@ -24,10 +24,11 @@ pub use births::BirthDisposition;
 
 #[path = "cell_groups/directory/mod.rs"]
 mod range_directory;
+pub(crate) use range_directory::RouteCache;
 pub use range_directory::{
     CellGroupBirth, CellGroupBirthRequest, CellGroupBirthSpec, CellGroupBootstrapPermit,
-    CellRouteAttempt, CellRouteOperation, CellRouteRequest, CellRoutingError, CellRoutingFailure,
-    CellRoutingLimits, CellRoutingSession, DirectoryLimits, DirectoryMutation,
+    CellRouteAttempt, CellRouteCacheUsage, CellRouteOperation, CellRouteRequest, CellRoutingError,
+    CellRoutingFailure, CellRoutingLimits, CellRoutingSession, DirectoryLimits, DirectoryMutation,
     DirectoryPublication, DirectoryView, RangeDirectory, ResolvedCellRoute,
 };
 

@@ -230,6 +230,7 @@ struct Cluster {
     _root: tempfile::TempDir,
     domain: ExecutionDomain,
     directory: RangeDirectory,
+    store: Arc<object_store::memory::InMemory>,
     birth: CellGroupBirth,
     voters: Vec<Voter>,
     network: VecDeque<Message>,
@@ -275,10 +276,8 @@ impl Cluster {
             group: GroupId::new([3; 16])?,
             incarnation: IncarnationId::new([4; 16])?,
         };
-        let catalog = Catalog::new(
-            Arc::new(object_store::memory::InMemory::new()),
-            CatalogOptions::default(),
-        )?;
+        let store = Arc::new(object_store::memory::InMemory::new());
+        let catalog = Catalog::new(store.clone(), CatalogOptions::default())?;
         let namespace = domain
             .run(catalog.open_namespace(NamespaceConfig::new(
                 history.cluster,
@@ -372,6 +371,7 @@ impl Cluster {
             _root: root,
             domain,
             directory,
+            store,
             birth,
             voters,
             network: VecDeque::new(),
@@ -1489,4 +1489,9 @@ async fn shared_nonmember_query_revocation_retains_physical_sql() -> Result<()> 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn shared_nonmember_query_route_replacement_refuses_stale_reply() -> Result<()> {
     Box::pin(runtime_fixture::nonmember_query_revocation(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_cached_dispatch_preserves_authority_during_catalog_outage() -> Result<()> {
+    Box::pin(runtime_fixture::cached_dispatch_execution()).await
 }
