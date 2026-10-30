@@ -22,6 +22,8 @@ fail_constructor = False
 proof_sync_completed = False
 proof_python_returned = False
 proof_attempts = {}
+proof_committed = set()
+proof_state_reads = 0
 instances = weakref.WeakSet()
 native_snapshot_ready = asyncio.Event()
 native_snapshot_release = asyncio.Event()
@@ -65,7 +67,9 @@ async def fetch(request, ctx):
         proof_sync_completed = proof_python_returned = False
         return Response.json(True)
     if request.path == "/proof/progress":
-        return Response.json({"sync": proof_sync_completed, "returned": proof_python_returned})
+        return Response.json({"sync": proof_sync_completed, "returned": proof_python_returned,
+                              "failure_committed": "failure" in proof_committed,
+                              "state_reads": proof_state_reads})
     if request.path == "/proof/attempts":
         return Response.json(proof_attempts)
     if request.path == "/loop-lag":
@@ -331,6 +335,7 @@ class Counter:
     async def fetch(self, request, ctx):
         global fence_result
         global proof_sync_completed, proof_python_returned
+        global proof_state_reads
         storage = ctx.storage
         if request.path == "/durable-alarm-arm":
             original_alarm = await storage.get_alarm()
@@ -360,6 +365,7 @@ class Counter:
         if request.path == "/overload-state":
             return Response.json(await storage.get_json("overload-committed"))
         if request.path == "/proof/state":
+            proof_state_reads += 1
             return Response.json({key: await storage.get_json("proof:" + key) for key in ("sync", "output", "failure")})
         if request.path.startswith("/proof/"):
             operation = request.path.rsplit("/", 1)[1]
@@ -367,6 +373,7 @@ class Counter:
             key = "proof:" + operation
             snapshot = await storage.read_json(key)
             await storage.apply(checks={key: snapshot}, puts={key: (snapshot.value if snapshot.present else 0) + 1})
+            proof_committed.add(operation)
             if request.path in ("/proof/sync", "/proof/failure"):
                 await storage.sync()
                 proof_sync_completed = True
