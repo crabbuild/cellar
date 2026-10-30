@@ -9,9 +9,8 @@ The production host has not yet cut over to shared groups.
 See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.
 
-The executable design and implementation plan has been delivered. The active
-implementation goal continues through the end-to-end hard cutover, with separate
-task and release gates. See the [executor handoff](handoff.md) for the current
+This delivery is the executable design and implementation plan. End-to-end
+implementation and hard cutover remain tracked as separate task and release gates. See the [executor handoff](handoff.md) for the current
 source, qualification boundary, reviewed main integration and commands. Plan
 delivery or an intermediate task gate does not qualify the complete runtime.
 
@@ -97,9 +96,11 @@ obtains current-term quorum before protocol admission. The shared node scheduler
 producer and exact receipts now pass their partial regression gate, followed by
 fixed-pool SQL ownership and admission at `51dff0e5`. Applied-barrier receipt
 reconciliation is implemented at `8a0cf640`, followed by read-only receipt lookup
-and saturated-capacity/expiry/conflict cases at `91c3ecfc`. Production retry and
-compaction integration, concurrent enrollment, coherent reads and registered SDK
-serving remain required. Managed
+and saturated-capacity/expiry/conflict cases at `91c3ecfc`. Initialization and
+concurrent enrollment now run on that pool at `6e09bbc7`, including original
+creation retries, follower resolution and atomic preparation-term proposal checks.
+Registered SDK/catalog routing, configured group capacity, coherent reads,
+production retry/compaction integration and cache lifecycle remain required. Managed
 fleet integration remains required by CG-07. A birth
 metadata observation alone cannot authorize voter startup.
 

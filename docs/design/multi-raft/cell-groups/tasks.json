@@ -457,7 +457,10 @@
         "crates/cellar/durability/raft/host_sql/cell_groups/admission.rs",
         "crates/cellar/durability/raft/host_sql/cell_groups/worker.rs",
         "crates/cellar/tests/support/cell_group_sql_pool.rs",
-        "crates/cellar/tests/support/cell_group_sql_reconcile.rs"
+        "crates/cellar/tests/support/cell_group_sql_reconcile.rs",
+        "crates/cellar/durability/raft/cell_groups/enrollment_authority.rs",
+        "crates/cellar/durability/raft/execution/enrollment.rs",
+        "crates/cellar/tests/support/cell_group_sql_enrollment.rs"
       ],
       "test_target": "native_cell_groups_execution",
       "steps": [
@@ -469,13 +472,13 @@
           ]
         },
         {
-          "action": "Admit one unresolved proposal per cell with fair cell queues and group/node byte quotas. Allow independent cells to prepare concurrently, then publish committed entries through one contiguous group prefix with per-cell base/version checks.",
+          "action": "Admit one unresolved proposal per cell with fair cell queues and group/node byte quotas. Allow independent cells to prepare concurrently, then publish committed entries through one contiguous group prefix with per-cell base/version checks. Enforce configured group enrollment capacity on the actual owner before append, counting applied cells and pending accepted logical creations. Exact creation retries consume no additional slot; competing creations cannot exceed the limit before apply. Verify capacity refusal leaves existing cells available and release reservations only with proven resolution.",
           "tests": [
             "shared_group_fair_admission"
           ]
         },
         {
-          "action": "Implement exact per-cell output settlement and receipt retry. Group no-ops/configuration entries advance group apply without changing cell version. Reject stale term/activation/completion tickets and preserve unknown proposed outcomes.",
+          "action": "Implement exact per-cell output settlement and receipt retry. Group no-ops/configuration entries advance group apply without changing cell version. Reject stale term/activation/completion tickets and preserve unknown proposed outcomes. Check the prepared term atomically with proposal admission on the actual Raft owner. Bind same-term acceptance retries to the original proposal identity and bytes; a lost acceptance response must recover retained acceptance or reconcile the original receipt without appending the same mutation again. Reject changed payloads under a reused identity, and retain uncertainty across elections until an applied barrier proves resolution.",
           "tests": [
             "cell_receipt_not_group_progress"
           ]
@@ -500,14 +503,14 @@
         },
         {
           "name": "shared_group_fair_admission",
-          "oracle": "Concurrent cells receive bounded fair admission; cancellation retains physical accounting and busy SQL never blocks consensus ticks.",
+          "oracle": "Concurrent cells receive bounded fair admission; cancellation retains physical accounting and busy SQL never blocks consensus ticks. Pending distinct enrollments cannot exceed configured group capacity before apply; identical retries reserve once and capacity refusal does not fail the group.",
           "invariants": [
             "I12"
           ]
         },
         {
           "name": "cell_receipt_not_group_progress",
-          "oracle": "A later update to B cannot settle or replace A; identical client/sequence in A and B remains independent.",
+          "oracle": "A later update to B cannot settle or replace A; identical client/sequence in A and B remains independent. Lost proposal acceptance responses and exact retries in the same term append at most one mutation; changed payloads with the same identity refuse and old prepared terms cannot append after leadership returns.",
           "invariants": [
             "I02",
             "I03"

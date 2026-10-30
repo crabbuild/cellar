@@ -39,6 +39,14 @@ later mutations and normal transfers; comparing a retry to the latest image woul
 confuse a successful earlier creation with a conflict. The initial commitment is
 provenance, not a requirement to retain the superseded initial image forever.
 Snapshots and archives carry the record with the selected current cell state.
+Initialization runs on the bounded node SQL workers under actual-leader authority.
+Reserve the logical cluster/namespace/cell name before entering the callback;
+competing incarnations must not obtain independent producer leases. Capture initial
+SQLite/LTX bytes once, carry the preparation term with the output, and check that
+term on the RawNode owner atomically with proposal admission. A node that loses
+leadership and later regains it must reject retained output from its older term.
+Cancellation retains physical ownership until the callback and cleanup complete.
+
 Admission decisions must be checked again in committed log order against the
 current lifecycle state. Recognizing an exact retry grants neither current-term
 authority nor permission to restore the initial image over newer mutations.

@@ -2,13 +2,64 @@
 
 # Cell-group implementation progress
 
-The executable design and implementation plan is delivered. The active goal
-continues through end-to-end implementation and hard cutover; see the
+The executable design and implementation plan is delivered. Remaining
+end-to-end implementation and hard cutover work is specified in the
 [executor handoff](handoff.md).
 CG-01 through CG-03 have passed their scoped gates;
 CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
+
+## CG-04 shared-worker initialization and enrollment
+
+Implementation source: `6e09bbc7`.
+
+`CellEnrollmentAuthority` now binds an actual leader, current-term applied prefix,
+route and logical cell name before a cell image exists. Initialization uses the
+existing fixed SQL workers and admission budgets. One logical name reservation
+covers commands and initializers, so a competing incarnation cannot bypass a
+running or unresolved producer. Worker-owned SQLite initialization captures and
+verifies its complete initial LTX image; followers apply those bytes without
+running the callback. Root workspace preparation is shared with ordinary commands.
+
+Prepared SQL outputs now carry their preparation term. `propose_at_term` checks
+that fence on the real RawNode owner in the same turn as proposal admission.
+Retained output cannot be appended under a newer term even after the original
+node becomes leader again. The raw unfenced protocol API remains a verification
+boundary; registered dispatch must use the fenced path.
+
+Committed retries return the immutable creation record without opening SQLite or
+rerunning initialization after later mutations. `CellEnrollmentState` observes
+verified current-term applied creation state on followers as well as leaders.
+Exact records prove commitment; missing/conflicting records retire old producers
+only after a strictly newer applied term. Resolution closes the writer before
+releasing name admission, while retained outputs keep their byte reservation.
+Cancelled request and close waiters cannot release an entered initializer.
+
+Four native cases cover both image modes: competing histories of one name,
+cancelled initialization and exact resume, another cell committing while its peer
+initializer is blocked, three independent cells under one physical group on each
+voter, creation retries after mutation, conflicting creation refusal, cancelled
+close and workspace release, follower resolution of absent/conflicting/committed
+creations, and rejection of old prepared output after leadership returns.
+
+All 191 selected Rust cases pass at `6e09bbc7`: 176 native cases across seven
+suites, 11 SQL queue/extent-worker unit tests and four receipt unit tests.
+All-target Clippy passes with warnings denied. The retained partial checkpoint
+at `.cellar/cell-groups-evidence/CG-04-initialization/checkpoint.json` binds 184
+source inputs, eight copied executables and the command logs. The gate stopped
+at two formatting differences; that failure is retained. `82ae6877` changes only
+line wrapping in those two authority checks. Successor verification is recorded
+separately in `CG-04-initialization-format/gate-commands.json`: formatting
+(1,798 Rust files), layout, dependency isolation, documentation, source preflight
+and all 37 plan-validator tests pass. No Rust behavior changed and the Rust tests
+were not repeated for line wrapping. Four process helpers execute through parent
+tests; three RustFS cases remain explicitly unrun. No task status advances.
+
+Configured group capacity policy, catalog routing sessions, registered SDK
+creation/command callbacks, coherent reads,
+production retry/compaction integration and preview/cache lifecycle remain open.
+This is partial CG-04 implementation, not the final hard cutover or release gate.
 
 ## CG-04 receipt lookup independent from admission
 

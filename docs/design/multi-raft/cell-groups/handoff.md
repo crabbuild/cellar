@@ -2,9 +2,9 @@
 
 # Cell-group implementation handoff
 
-The executable design and implementation plan is delivered. The active goal
-continues through end-to-end implementation and hard cutover, including the full
-task and release gates.
+The executable design and implementation plan is delivered. This handoff scopes
+the remaining end-to-end implementation and hard cutover, including the full task
+and release gates, for subsequent execution.
 This handoff does not claim completion of the
 shared runtime, a production cutover or measured TiKV
 performance parity. The target is the same partitioned multi-Raft pattern: many
@@ -15,11 +15,12 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The reviewed source baseline is `91c3ecfc`, separating committed receipt lookup
-from admission after applied-barrier reconciliation at `8a0cf640` and the fixed
-SQL pool at `51dff0e5`, following
-the SQL producer at `f807b2f7` and shared-node runtime at `aec4029e`; see the latest checkpoint in
-[progress](progress.md) for qualification and remaining work.
+The reviewed source baseline is `82ae6877`, a formatting-only successor to
+`6e09bbc7`, which adds shared-worker initialization,
+logical-name admission and prepared-term proposal fencing after receipt lookup at
+`91c3ecfc`, applied-barrier reconciliation at `8a0cf640`, the fixed SQL pool at
+`51dff0e5`, the SQL producer at `f807b2f7` and shared-node runtime at `aec4029e`.
+See the latest checkpoint in [progress](progress.md) for qualification and limits.
 The branch integrates `origin/main` at `8a93ffd7` (documentation consolidation,
 PR 161). The design package now lives in `docs/design/multi-raft/cell-groups/`;
 use the commands below. Historical evidence keeps its original tested source,
@@ -74,20 +75,41 @@ admission retains both ceilings. Native fixtures now cover saturated identity
 tables, replicated expiry floors and conflicting identities in both image modes,
 including callback suppression and later successful command admission.
 
-Next integrate concurrent initialization through the existing bounded SQL pool
-and replicated enrollment decisions, then coherent reads and registered SDK
-dispatch. Real compaction and production retry integration, plus preview/cache
-lifecycle, remain required. Preserve physical completion and cancellation
-boundaries. These cases alone do not complete the six-case CG-04 gate.
+Initialization now runs through `CellGroupSqlPool::initialize` and
+`CellPrivateEnrollment`, using `CellEnrollmentAuthority` from the real leader.
+Logical name admission covers both commands and initialization, including competing
+incarnations. `CellEnrollmentState` reads verified current-term applied creation
+state on leaders or followers; `resolve_enrollment` preserves the original record,
+requires a newer applied term for absent/conflicting old producers, and never
+reexecutes callbacks. Prepared outputs carry their term; use `propose_at_term` so
+the actual owner rejects old output even after that node regains leadership.
+The four native cases exercise materialized/extents, concurrent creation, other
+cell progress, three cells in one group, retries after mutation, cancelled close,
+and absent/conflicting/committed enrollment recovery. All 191 selected Rust cases
+and all-target Clippy pass at `6e09bbc7`. The retained partial checkpoint is
+`.cellar/cell-groups-evidence/CG-04-initialization/checkpoint.json`; it includes the
+initial formatting failure. Formatting-only successor verification is recorded in
+`.cellar/cell-groups-evidence/CG-04-initialization-format/gate-commands.json`: all
+six checks pass, including formatting, layout, dependencies, docs, preflight and
+37 validator tests. These records do not mark CG-04 DONE.
 
-For enrollment, `ManifestTree::prepare_enrollment` already preserves creation
-identity at ordered apply; current native fixtures construct initial SQLite images
-manually. Add actual-leader enrollment admission and initialization jobs on the
-existing SQL workers. Reserve the logical cell name before choosing a new history,
-so competing incarnations cannot bypass single-producer admission. Reuse current
-node/group budgets and joined callback ownership. An existing committed enrollment
-must return its retained creation record without rerunning initialization or
-replacing the current image; do not manufacture a legacy `GroupScope` adapter.
+Next implement configured group enrollment capacity admission on the actual owner,
+including pending accepted creations rather than only the applied cell count. The
+manifest layer already enforces its bounds; admission must refuse before appending
+a creation that cannot apply, rather than turn capacity pressure into group failure.
+Also complete same-term proposal retry handling: `propose_at_term` fences old
+terms but does not deduplicate a repeated mutation envelope. A lost proposal
+acceptance response must reuse retained acceptance state or reconcile receipts;
+blindly appending the same cell mutation twice can invalidate its second base.
+Enrollment's exact retry is idempotent at apply, but its pending capacity accounting
+must still count logical creations rather than repeated entries.
+
+Then integrate catalog routing sessions and registered SDK creation/command
+callbacks, and coherent reads. Preserve the original request fingerprint, deadline
+and attempt budget across redirects. Do not synthesize a legacy `GroupScope` to
+satisfy callback/effect identities. The callback APIs added here remain verification
+boundaries, not registered SDK entry points. Real compaction/production retries
+and preview/cache lifecycle remain required. These cases do not complete CG-04.
 
 The remaining coupling is concrete: `execution::CommandAuthority` binds the
 old `GroupLog`/`GroupStatus`; `execution::images::Published` exposes `GroupScope`;
