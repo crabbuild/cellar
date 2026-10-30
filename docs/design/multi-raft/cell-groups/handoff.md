@@ -15,7 +15,21 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The newest reviewed source baseline is `8c615ac9`, adding bounded command
+The newest reviewed source baseline is `f77d0d93`, adding registered,
+catalog-routed local enrollment to the shared controller. Initializer digests bind
+voting schema; old-host validation refuses this unsupported registration. Creation
+identity and captured inputs remain owned independently from response lifetime.
+Commands and enrollments share admission, response deadlines and physical shutdown.
+Exact enrollment records survive subsequent mutations; conflicts refuse without
+reinitialization. The partial record is
+`.cellar/cell-groups-evidence/CG-04-enrollment-controller-qualified/checkpoint.json`: 90
+selected Rust cases, ten commands, 254 source inputs and four executables.
+Eight new native cases cover registration and lifecycle/fault boundaries, with
+seven running both image modes. Transfer this directory with prior evidence.
+CG-04 remains IN_PROGRESS; public SDK/remote RPC integration, lazy birth/dynamic
+roster, per-group failure isolation and configuration/cache lifecycle are pending.
+The public host has not cut over; shared-group RustFS/load remains unqualified.
+The preceding reviewed source baseline is `8c615ac9`, adding bounded command
 ownership to the shared node controller. Response disconnect/deadline cannot drop
 entered SQL or ambiguous submission ownership. Only never-attempted preparations
 can be sealed; exact receipts or newer applied-term proof resolve submitted work.
@@ -404,19 +418,23 @@ boundary. At the end of each turn, record the completed behavior, evidence and
 limits, then identify the most critical remaining gap and the concrete next step.
 Do not let plan maintenance replace implementation.
 
-1. Complete catalog-routed enrollment with a stable creation identity on the
-   shared controller and SQL pool. Reuse the existing enrollment authority,
-   original producer and applied-term reconciliation; preserve cancellation and
-   ambiguous-result ownership just qualified for commands. Then connect remote
-   shared command/query dispatch and the public `RaftCellHandle` binding. Fresh
-   local commands now belong to `CellGroupController`, independently of response
-   lifetime. Preserve their original deadline and bounded resolution admission;
-   do not add per-cell tasks or an expiry that drops uncertainty. Missing origin
-   producers on followers still need safe leader receipt lookup; missing local
-   state is never proof of non-commit. Requested and namespace S3 durability must
-   continue to refuse until CG-06 supplies real archive proofs. The controller
-   still has a fixed roster and node-wide fatal-error handling; implement dynamic
-   registration and per-group failure isolation before runtime completion.
+1. Connect public `RaftCellHandle` operations and remote shared command/query/
+   enrollment dispatch to the existing controller and SQL pool. Local registered
+   creation now uses catalog routing and immutable creation records, preserving
+   response cancellation/deadline ownership and exact retries after mutation.
+   Reuse those owners and captured identities; do not add per-cell workers or
+   replay uncertain callbacks. Confirm route changes through the catalog and
+   provide safe leader receipt lookup when a follower has no original producer.
+   Missing local state never proves non-commit. Enrollment still requires an
+   attached group in a fixed roster: integrate lazy birth and dynamic registration.
+   Reuse the separate query connection in `query_transport.rs`, replacing its
+   old cell-scoped route/result binding with physical group and logical cell
+   identity. Keep existing namespace query-origin grants read-only; mutation RPC
+   needs explicit write authorization and must not inherit those grants.
+   The old host refuses registered initializers until its actual replacement;
+   do not remove that refusal without a functioning shared serving path. Request
+   and namespace S3 minima must continue refusing until CG-06 provides real archive
+   proofs. Add per-group failure isolation before claiming runtime completion.
 2. Complete CG-04's production retry/cache lifecycle and configuration-entry
    handling, then its full gate before DONE. Use selected-root recovery at startup.
    Whole-process kill/power-loss remains distinct from the qualified directory-sync

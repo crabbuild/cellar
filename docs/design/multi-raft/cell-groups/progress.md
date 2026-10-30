@@ -10,6 +10,70 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 controller-owned enrollment
+
+Qualified source: `f77d0d939347ead7129b39e72f76fcff11b99635`.
+
+`RaftClass::initializer` registers one compiled initialization callback with an
+explicit contract digest. That digest participates in the voting schema identity;
+changing or omitting it cannot claim the same namespace schema. Declaration order
+with commands does not change the resulting identity. Existing old-host class
+validation refuses this registration rather than silently ignoring the callback.
+Shared initialization receives the logical cell history and captured host inputs
+through its private transaction on the existing bounded SQL workers.
+
+`CellGroupDispatcher::enroll` freezes creation identity, schema and host inputs
+before catalog discovery. `CellGroupController::enroll` takes fresh local
+invocations into the same queue and byte/item budget used by commands. Both use
+one response-deadline implementation and one physical shutdown owner. A dropped
+or expired response cannot discard entered initialization or ambiguous submission.
+Unconsumed creation replies remain charged. The SQL pool distinguishes completed
+initialization errors from lost worker replies, preserving unresolved ownership
+through controller failure and joined cleanup.
+
+The driver seals only never-attempted late preparations. Submitted creations
+resolve through their original immutable enrollment record or the existing newer
+applied-term absence/conflict proof, without automatic initializer replay. A
+retry after later cell mutations returns the original creation record and never
+restores the initial image. A different creation ID or logical incarnation is a
+conflict. Request/namespace S3 minima continue to refuse without archive proof.
+
+Eight new native cases cover registration refusal plus lifecycle/fault behavior;
+seven run both materialized and extent modes over three in-process TLS endpoints.
+They hold initialization or committed manifest sync, disconnect/expire responses,
+verify command/enrollment shared admission, preserve exact creation identity after
+mutation, refuse conflicts without callbacks, and cancel shutdown while physical
+work is held. Completed initializer errors permit an explicit retry; a physical
+capture panic exercises a lost worker reply and joined cleanup. A unit case checks
+initializer digest compatibility, declaration order, invalid/duplicate registration
+and old-host validation refusal. The existing command-manifest compatibility case
+also passes. The initial lifecycle fixture incorrectly began a new cell's client
+sequence at 2; production correctly refused it. The fixture now starts at 1.
+A subsequent compile caught a missing Box constructor in the common completion
+envelope; that was corrected before qualification. The `bd3069d7` gate passed all
+90 Rust cases, then Clippy rejected a redundant unit expression. That expression
+was removed and the complete gate repeated at this successor. Both gates and
+diagnostic logs are retained.
+
+All 90 selected Rust cases pass: 73 shared execution, 15 catalog, one initializer
+unit case and one existing host compatibility case. All ten gate commands pass,
+including all-target Clippy for Cellar/cellar-logic/cellar-ltx with warnings denied,
+formatting, layout, dependency isolation, docs, source preflight and 37 validator
+cases. The partial record at
+`.cellar/cell-groups-evidence/CG-04-enrollment-controller-qualified/checkpoint.json` binds
+254 source inputs and four copied executables. Transfer its complete directory
+with prior evidence. The gate does not qualify shared-group RustFS, separate-process
+crashes, power loss or load behavior.
+
+CG-04 remains IN_PROGRESS. The critical gap is now integration of public handles
+and remote command/query/enrollment dispatch with these shared owners, including
+catalog-confirmed retries and safe follower receipt lookup. Enrollment currently
+requires a group already attached to the fixed controller roster; lazy group birth
+and dynamic registration remain required. Per-group failure isolation and
+configuration/cache lifecycle are also incomplete. Complete-group snapshots,
+archive/reclamation, effects, topology, RustFS/load and legacy removal remain later
+gates. The public host has not cut over.
+
 ## CG-04 controller-owned commands
 
 Qualified source: `8c615ac91bc3c13e6c25da4f4ab584a73e609207`.

@@ -173,15 +173,16 @@ production controller ownership and reconciliation after caller disconnect remai
 required, followed by routed enrollment and SDK/shared-query RPC integration.
 Those fixtures still drive runtime events. See [progress](progress.md) for exact limits.
 
-At `8c615ac9`, the shared controller owns fresh commands independently of
-response disconnect/deadline. Exact receipt resolution, never-attempted preparation
-sealing, bounded retained responses and joined physical shutdown pass seven new
-native cases in both image modes plus three submission unit cases. The partial
-gate passes 83 Rust cases and nine commands; transfer
-`.cellar/cell-groups-evidence/CG-04-command-owner/` (248 source inputs, three
-executables) with prior evidence. The next critical delivery is routed enrollment,
-then remote shared command/query dispatch and public SDK integration. Fixed roster
-and node-wide failure handling also remain gaps. See [progress](progress.md).
+At `f77d0d93`, registered initialization and catalog-routed local enrollment
+run on the shared controller. Commands and creations share bounded admission and
+response-independent ownership. Exact creation records survive later mutations;
+conflicts do not replay initialization. The partial gate passes 90 Rust cases
+and ten commands; transfer
+`.cellar/cell-groups-evidence/CG-04-enrollment-controller-qualified/` (254 source inputs,
+four executables) with prior evidence. Next connect public handles and remote
+shared dispatch, including safe receipt routing. Lazy birth/dynamic roster,
+per-group failure isolation and configuration/cache lifecycle remain gaps.
+See [progress](progress.md); CG-04 is not complete.
 
 The implementation executor should deliver code, updated component contracts and
 the required retained evidence for each task on the active PR. The final handoff
