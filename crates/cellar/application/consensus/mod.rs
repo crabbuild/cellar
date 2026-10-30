@@ -107,7 +107,8 @@ pub use crate::raft::operations::{
 };
 pub use crate::raft::options::{LogOpenMode, RaftRuntimeOptions, ReplicaLogOptions};
 pub use crate::raft::transport_options::{
-    NamespaceInspectionOrigin, NamespaceQueryOrigin, RaftTls, TransportOptions,
+    NamespaceCommandOrigin, NamespaceInspectionOrigin, NamespaceQueryOrigin, RaftTls,
+    TransportOptions,
 };
 pub use crate::raft::version::{
     VersionError, VersionKeys, VersionSigningKey, VersionToken, VersionVerificationKey,
@@ -213,7 +214,8 @@ pub mod verification {
         Delivery, GroupRoute, Lane, RaftPeer, RaftTransport, TransportError, TransportUsage,
     };
     pub use crate::raft::transport_options::{
-        NamespaceInspectionOrigin, NamespaceQueryOrigin, RaftTls, TransportOptions,
+        NamespaceCommandOrigin, NamespaceInspectionOrigin, NamespaceQueryOrigin, RaftTls,
+        TransportOptions,
     };
     /// Contracts under integration into the replacement group runtime.
     pub mod cell_groups {

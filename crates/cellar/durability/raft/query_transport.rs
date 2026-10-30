@@ -40,6 +40,7 @@ impl Drop for QueryDelivery {
 pub(super) enum SendQuery {
     Legacy(Box<LegacySendQuery>),
     Shared(Box<super::cell_queries::SendCellQuery>),
+    Command(Box<super::cell_commands::SendCellCommand>),
 }
 
 pub(super) struct LegacySendQuery {
@@ -394,6 +395,9 @@ impl State {
         &self,
         wire: &QueryRoute,
     ) -> Result<(Arc<Pool>, Option<watch::Receiver<bool>>), TransportError> {
+        if wire.is_command() {
+            return self.authorize_cell_command(wire);
+        }
         if wire.is_shared() {
             return self.authorize_cell_query(wire);
         }
@@ -722,6 +726,10 @@ impl State {
                         _peer: peer_bytes,
                     }));
                     failed
+                }
+                SendQuery::Command(request) => {
+                    self.send_cell_command(&pool, *request, &mut connection)
+                        .await
                 }
                 SendQuery::Shared(request) => {
                     self.send_cell_query(&pool, *request, &mut connection).await

@@ -10,16 +10,16 @@ use std::sync::{
 };
 use tokio::net::TcpListener;
 
-struct Router {
-    log: ReplicaLog,
+pub(super) struct Router {
+    pub(super) log: ReplicaLog,
     runtime: CellGroupRuntime,
     events: CellGroupRuntimeEvents,
-    transport: RaftTransport,
-    peer: RaftPeerNode,
+    pub(super) transport: RaftTransport,
+    pub(super) peer: RaftPeerNode,
 }
 
 impl Router {
-    async fn start(fixture: &RuntimeCluster) -> Result<Self> {
+    pub(super) async fn start(fixture: &RuntimeCluster) -> Result<Self> {
         let node = NodeId::new([4; 16])?;
         let disk = DiskLineage::new([14; 16])?;
         let process = ProcessGeneration::new([20; 16])?;
@@ -77,7 +77,7 @@ impl Router {
         })
     }
 
-    fn grant(&self, fixture: &RuntimeCluster, revision: u64) -> Result<()> {
+    pub(super) fn grant(&self, fixture: &RuntimeCluster, revision: u64) -> Result<()> {
         let history = fixture.cluster.birth.route().history;
         for transport in &fixture.transports {
             transport.grant_query_origin(NamespaceQueryOrigin {
@@ -90,7 +90,7 @@ impl Router {
         Ok(())
     }
 
-    async fn close(self) -> Result<()> {
+    pub(super) async fn close(self) -> Result<()> {
         self.transport.close().await;
         self.runtime.close().await?;
         drop(self.events);

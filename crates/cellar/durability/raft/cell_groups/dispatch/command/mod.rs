@@ -3,6 +3,7 @@
 //! Routed commands retain their originating producer until exact resolution.
 //! The node controller drives publication; acceptance is only provisional.
 mod owned;
+mod remote;
 
 use super::*;
 use crate::application::consensus::command_request_digest;
@@ -11,6 +12,7 @@ use crate::storage::CommandInputs;
 use cellar_logic::consensus::{CommandFailure, CommandId, Durability};
 use cellar_ltx::generation::ImageId;
 
+#[derive(Clone)]
 pub struct CellCommandRequest {
     pub id: CommandId,
     pub contract: OperationContract,
@@ -99,6 +101,7 @@ pub struct CellCommandInvocation {
     dispatched: bool,
     ambiguous: bool,
     origin: Option<Origin>,
+    remote_route: Option<super::RemoteCommandRoute>,
     _admission: Permit,
 }
 
@@ -106,9 +109,21 @@ impl CellGroupDispatcher {
     pub async fn command(
         &self,
         cell: CellHistory,
+        request: CellCommandRequest,
+        limits: CellRoutingLimits,
+        cached: Option<ResolvedCellRoute>,
+    ) -> Result<CellCommandInvocation, CellCommandError> {
+        self.command_with_inputs(cell, request, limits, cached, None)
+            .await
+    }
+
+    pub(crate) async fn command_with_inputs(
+        &self,
+        cell: CellHistory,
         mut request: CellCommandRequest,
         limits: CellRoutingLimits,
         cached: Option<ResolvedCellRoute>,
+        captured: Option<CommandInputs>,
     ) -> Result<CellCommandInvocation, CellCommandError> {
         let error = |cause| CellCommandError {
             command: request.id,
@@ -150,19 +165,22 @@ impl CellGroupDispatcher {
             .ok_or_else(|| error(CellDispatchError::Runtime(RuntimeError::Overloaded)))?;
         request.input = request.input.into_boxed_slice().into_vec();
         request.contract.operation = request.contract.operation.into_boxed_str().into_string();
-        let inputs = self
-            .domain
-            .run(async {
-                use rand::RngCore as _;
-                let mut random = [0; 32];
-                crate::asyncrt::rng("cell-group-command-inputs").fill_bytes(&mut random);
-                CommandInputs {
-                    now_unix_millis: crate::asyncrt::wall_ms().max(0) as u64,
-                    random,
-                }
-            })
-            .await
-            .map_err(|_| error(closed()))?;
+        let inputs = if let Some(inputs) = captured {
+            inputs
+        } else {
+            self.domain
+                .run(async {
+                    use rand::RngCore as _;
+                    let mut random = [0; 32];
+                    crate::asyncrt::rng("cell-group-command-inputs").fill_bytes(&mut random);
+                    CommandInputs {
+                        now_unix_millis: crate::asyncrt::wall_ms().max(0) as u64,
+                        random,
+                    }
+                })
+                .await
+                .map_err(|_| error(closed()))?
+        };
         let session = self
             .directory
             .routing_session_in(
@@ -188,6 +206,7 @@ impl CellGroupDispatcher {
             dispatched: false,
             ambiguous: false,
             origin: None,
+            remote_route: None,
             _admission: admission,
         })
     }
@@ -226,12 +245,23 @@ impl CellCommandInvocation {
 
     pub async fn begin(&mut self) -> Result<(), CellCommandError> {
         self.dispatched = true;
-        let result = self
-            .session
-            .begin()
-            .await
-            .map_err(CellDispatchError::Routing);
-        self.attempt = Some(result.map_err(|e| self.error(e))?);
+        let result = if self.remote_route.is_some() {
+            self.session.begin_current().await
+        } else {
+            self.session.begin().await
+        }
+        .map_err(CellDispatchError::Routing);
+        let attempt = result.map_err(|e| self.error(e))?;
+        if self
+            .remote_route
+            .as_ref()
+            .is_some_and(|expected| !expected.matches(attempt.route()))
+        {
+            return Err(self.error(CellDispatchError::Invalid(
+                "remote command destination route",
+            )));
+        }
+        self.attempt = Some(attempt);
         self.dispatched = false;
         Ok(())
     }

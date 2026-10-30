@@ -1495,3 +1495,18 @@ async fn shared_nonmember_query_route_replacement_refuses_stale_reply() -> Resul
 async fn shared_cached_dispatch_preserves_authority_during_catalog_outage() -> Result<()> {
     Box::pin(runtime_fixture::cached_dispatch_execution()).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_remote_commands_require_write_grants_and_exact_receipts() -> Result<()> {
+    Box::pin(runtime_fixture::remote_commands()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_remote_commands_survive_disconnected_sql_waiters() -> Result<()> {
+    Box::pin(runtime_fixture::remote_command_lifecycle(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_remote_command_revocation_preserves_admitted_ownership() -> Result<()> {
+    Box::pin(runtime_fixture::remote_command_lifecycle(true)).await
+}

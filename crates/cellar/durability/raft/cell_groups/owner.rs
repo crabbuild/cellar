@@ -275,6 +275,11 @@ impl CellGroupOwner {
         cell: &CellHistory,
     ) -> Result<super::CellExecutionAuthority, RuntimeError> {
         let status = self.status()?;
+        // Role refusal is distinct from a leader still awaiting durable apply.
+        // Remote callers must not retry a follower as generic unavailability.
+        if self.node.raft.state != StateRole::Leader {
+            return Err(RuntimeError::NotLeader);
+        }
         if !status.ready || status.applied.index != status.committed {
             return Err(RuntimeError::NotReady);
         }

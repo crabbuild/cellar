@@ -631,3 +631,192 @@ fn shared_query_result_authenticates_cell_progress_not_group_log_index() {
         );
     }
 }
+
+fn command_call() -> command::CellCommandCall {
+    command::CellCommandCall {
+        request: crate::raft::cell_groups::CellCommandRequest {
+            id: CommandId::new(ClientId::new([71; 16]).unwrap(), 3).unwrap(),
+            contract: OperationContract {
+                operation: "Add".into(),
+                digest: [72; 32],
+                kind: OperationKind::Command,
+            },
+            input: vec![1, 2, 3],
+            durability: Durability::Quorum,
+            retry_until_ms: 9000,
+        },
+        inputs: crate::storage::CommandInputs {
+            now_unix_millis: 1000,
+            random: [73; 32],
+        },
+        timeout_ms: 1000,
+        route_epoch: 3,
+        birth_digest: [74; 32],
+    }
+}
+
+#[test]
+fn shared_command_wire_preserves_inputs_and_refuses_query_payloads() {
+    let call = command_call();
+    let bytes = call.encode(4096).unwrap();
+    let decoded = command::CellCommandCall::decode(&bytes, 4096).unwrap();
+    assert_eq!(decoded.encode(4096).unwrap(), bytes);
+    assert_eq!(decoded.inputs.random, call.inputs.random);
+    assert_eq!(decoded.inputs.now_unix_millis, call.inputs.now_unix_millis);
+    assert_eq!(decoded.request.id, call.request.id);
+    assert!(cell::CellQueryCall::decode(&bytes, 4096).is_err());
+    assert!(command::CellCommandCall::decode(
+        &cell_call(crate::raft::cell_groups::CellQueryConsistency::Stale)
+            .encode(4096)
+            .unwrap(),
+        4096
+    )
+    .is_err());
+    for end in 0..bytes.len() {
+        assert!(command::CellCommandCall::decode(&bytes[..end], 4096).is_err());
+    }
+    let mut trailing = bytes.clone();
+    trailing.push(0);
+    assert!(command::CellCommandCall::decode(&trailing, 4096).is_err());
+    assert!(command::CellCommandCall::decode(&bytes, bytes.len() - 1).is_err());
+    let mut call = call;
+    call.request.durability = Durability::S3;
+    assert!(call.encode(4096).is_err());
+}
+
+#[test]
+fn shared_command_purpose_is_authenticated_and_cannot_reuse_read_reply() {
+    use cellar_logic::cell_group::GroupHistory;
+    let old = identity(2);
+    let target = ReplicaIdentity {
+        scope: GroupHistory::from(&old.scope),
+        member: old.member,
+        node: old.node,
+        disk: old.disk,
+        process: old.process,
+    };
+    let cell = cell_observation().version.history;
+    let read = Route::new_shared(
+        identity(1).node_identity(),
+        "node-1",
+        &target,
+        "node-2",
+        &cell,
+        [9; 32],
+    )
+    .unwrap();
+    let write = read.clone().for_command().unwrap();
+    assert!(write.is_command());
+    assert!(!read.is_command());
+    let auth = PeerAuth::new([17; 32], "node-1").unwrap();
+    let options = TransportOptions::default();
+    let body = command_call().encode(4096).unwrap();
+    let request = RequestHead::new(write.clone(), 3, &body);
+    let head = request_head(&auth, &[3; 32], &request, &body, &options).unwrap();
+    let mut value = serde_json::to_value(&request).unwrap();
+    value["route"]["command"] = serde_json::json!(false);
+    let changed = FrameHead {
+        prefix: head.prefix,
+        header: serde_json::to_vec(&value).unwrap(),
+        tag: head.tag,
+        payload_len: head.payload_len,
+    };
+    assert!(read_request(&changed, &auth, &[3; 32], &options).is_err());
+    let response_body =
+        command::encode_result(&Err(CommandFailure::CommandConflict), 4096).unwrap();
+    let response = response_head(
+        &auth,
+        &[3; 32],
+        &request,
+        &head.tag,
+        &response_body,
+        &options,
+    )
+    .unwrap();
+    let read_request = RequestHead::new(read, 3, &body);
+    assert!(read_response(
+        &response,
+        &auth,
+        &[3; 32],
+        &read_request,
+        &head.tag,
+        &options
+    )
+    .is_err());
+    let mut missing = serde_json::to_value(write).unwrap();
+    missing.as_object_mut().unwrap().remove("command");
+    assert!(serde_json::from_value::<Route>(missing).is_err());
+}
+
+#[test]
+fn shared_command_results_bind_identity_history_and_typed_refusals() {
+    let call = command_call();
+    let observation = cell_observation();
+    let cell = &observation.version.history;
+    let token = keys().issue_cell(&observation, [9; 32], 1000).unwrap();
+    let mut body = b"CLGCCS01".to_vec();
+    body.push(0);
+    body.extend_from_slice(&call.request.id.client.bytes());
+    body.extend_from_slice(&call.request.id.sequence().to_be_bytes());
+    body.extend_from_slice(&9000u64.to_be_bytes());
+    string(&mut body, token.as_str()).unwrap();
+    body.extend_from_slice(&2u32.to_be_bytes());
+    body.extend_from_slice(b"ok");
+    let decoded = command::decode_result(
+        &body,
+        (call.request.id, cell),
+        [9; 32],
+        &keys(),
+        1001,
+        4096,
+        MemberId::new(2).unwrap(),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(decoded.value.observation, observation);
+    assert_eq!(decoded.value.result, b"ok");
+    let wrong = CommandId::new(call.request.id.client, 4).unwrap();
+    assert!(command::decode_result(
+        &body,
+        (wrong, cell),
+        [9; 32],
+        &keys(),
+        1001,
+        4096,
+        MemberId::new(2).unwrap()
+    )
+    .is_err());
+    let mut other = cell.clone();
+    other.incarnation = IncarnationId::new([78; 16]).unwrap();
+    assert!(command::decode_result(
+        &body,
+        (call.request.id, &other),
+        [9; 32],
+        &keys(),
+        1001,
+        4096,
+        MemberId::new(2).unwrap()
+    )
+    .is_err());
+    for failure in [
+        CommandFailure::CommandConflict,
+        CommandFailure::CommandExpired,
+        CommandFailure::SequenceGap { next: 9 },
+        CommandFailure::NotLeader {
+            leader: Some(MemberId::new(2).unwrap()),
+        },
+    ] {
+        let body = command::encode_result(&Err(failure.clone()), 4096).unwrap();
+        let decoded = command::decode_result(
+            &body,
+            (call.request.id, cell),
+            [9; 32],
+            &keys(),
+            1001,
+            4096,
+            MemberId::new(2).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(decoded.err(), Some(failure));
+    }
+}

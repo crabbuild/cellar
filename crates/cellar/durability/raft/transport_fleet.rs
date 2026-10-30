@@ -163,9 +163,14 @@ impl RaftTransport {
         let Registry {
             origins,
             inspection_origins,
+            command_origins,
             ..
         } = &mut *registry;
-        for grant in origins.values_mut().chain(inspection_origins.values_mut()) {
+        for grant in origins
+            .values_mut()
+            .chain(inspection_origins.values_mut())
+            .chain(command_origins.values_mut())
+        {
             if grant.peer.as_ref().is_some_and(|peer| !allowed(peer)) {
                 grant.stop.send_replace(true);
                 // A boot supersession cancels this physical owner, but the

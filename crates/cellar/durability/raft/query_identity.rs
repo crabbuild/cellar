@@ -58,6 +58,7 @@ enum History {
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct QueryRoute {
+    command: bool,
     scope: History,
     schema: [u8; 32],
     source: Endpoint,
@@ -73,6 +74,7 @@ impl QueryRoute {
         schema: [u8; 32],
     ) -> Result<Self, TransportError> {
         let route = Self {
+            command: false,
             scope: History::Cell(WireScope::from(&target.scope)),
             schema,
             source: Endpoint::new(source, source_label, None),
@@ -85,6 +87,9 @@ impl QueryRoute {
     /// Request orientation only. A reversed response route is compared with
     /// the exact outstanding request; it cannot decode as another request.
     pub fn decode(&self) -> Result<(NodeIdentity, ReplicaIdentity), TransportError> {
+        if self.command {
+            return Err(TransportError::Identity);
+        }
         let History::Cell(scope) = &self.scope else {
             return Err(TransportError::Identity);
         };
@@ -137,6 +142,7 @@ impl QueryRoute {
         }
         let g = target.scope;
         let route = Self {
+            command: false,
             scope: History::Shared {
                 group: [
                     g.cluster.bytes(),
@@ -182,6 +188,16 @@ impl QueryRoute {
         Ok((source, target, cell))
     }
 
+    pub fn for_command(mut self) -> Result<Self, TransportError> {
+        self.decode_shared()?;
+        self.command = true;
+        Ok(self)
+    }
+
+    pub fn is_command(&self) -> bool {
+        self.command
+    }
+
     pub fn is_shared(&self) -> bool {
         matches!(self.scope, History::Shared { .. })
     }
@@ -214,6 +230,7 @@ impl QueryRoute {
 
     pub fn reversed(&self) -> Self {
         Self {
+            command: self.command,
             scope: self.scope.clone(),
             schema: self.schema,
             source: self.target.clone(),

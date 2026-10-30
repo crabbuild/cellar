@@ -537,3 +537,20 @@ fn catalog_failure(error: crate::raft::catalog::CatalogError) -> CellDispatchErr
         ambiguous_command: None,
     })
 }
+
+/// Receiver-side destination constraint, checked against a fresh catalog lookup.
+pub(crate) struct RemoteCommandRoute {
+    pub group: cellar_logic::cell_group::GroupHistory,
+    pub schema: [u8; 32],
+    pub epoch: u64,
+    pub birth: [u8; 32],
+}
+
+impl RemoteCommandRoute {
+    fn matches(&self, route: &GroupRoute) -> bool {
+        self.group == route.history
+            && self.schema == route.schema_digest
+            && self.epoch == route.epoch.get()
+            && self.birth == route.birth_digest
+    }
+}

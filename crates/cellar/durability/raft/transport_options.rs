@@ -31,6 +31,16 @@ pub struct NamespaceQueryOrigin {
     pub peer: RaftPeerNode,
 }
 
+/// Explicit command permission for an exact namespace and physical process.
+/// Read grants, discovery and Raft membership never create this permission.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NamespaceCommandOrigin {
+    pub cluster: ClusterId,
+    pub namespace: NamespaceId,
+    pub revision: u64,
+    pub peer: RaftPeerNode,
+}
+
 /// Explicit namespace inspection permission for a physical node process.
 /// Query grants and directory observations cannot create this permission.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -46,6 +56,7 @@ pub struct TransportOptions {
     pub max_peers: usize,
     pub max_groups: usize,
     pub max_query_origins: usize,
+    pub max_command_origins: usize,
     pub max_connections_per_lane: usize,
     pub max_header_bytes: usize,
     pub max_message_bytes: usize,
@@ -77,6 +88,7 @@ impl Default for TransportOptions {
             max_peers: 128,
             max_groups: 4096,
             max_query_origins: 4096,
+            max_command_origins: 4096,
             max_connections_per_lane: 128,
             max_header_bytes: 8192,
             max_message_bytes: 20 * 1024 * 1024,
@@ -129,6 +141,8 @@ impl TransportOptions {
             || self.max_peers > 4096
             || self.max_groups == 0
             || self.max_groups > 32_768
+            || self.max_command_origins == 0
+            || self.max_command_origins > 65_536
             || self.max_query_origins == 0
             || self.max_query_origins > 65_536
             || self.max_connections_per_lane == 0

@@ -35,8 +35,13 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot, watch, Notify, Semaphore};
 
+#[path = "command_cell_transport.rs"]
+mod cell_commands;
 #[path = "query_cell_transport.rs"]
 mod cell_queries;
+#[path = "command_origins.rs"]
+mod command_origins;
+pub use cell_commands::{CellCommandGateway, CellRemoteCommandResponse};
 #[path = "query_cell_discovery.rs"]
 mod cell_query_discovery;
 #[path = "transport_control_send.rs"]
@@ -84,6 +89,7 @@ pub enum TransportError {
     Runtime(RuntimeError),
     Authentication,
     Query(cellar_logic::consensus::CommandFailure),
+    Command(cellar_logic::consensus::CommandFailure),
     Protocol,
     Identity,
     Replay,
@@ -287,6 +293,7 @@ struct Registry {
     physical_groups: BTreeMap<GroupHistory, Arc<GroupRoute<GroupHistory>>>,
     query_groups: BTreeMap<GroupScope, Arc<GroupRoute>>,
     cell_query_groups: BTreeMap<GroupHistory, Arc<GroupRoute<GroupHistory>>>,
+    command_origins: BTreeMap<(ClusterId, NamespaceId, NodeId), Arc<queries::OriginGrant>>,
     origins: BTreeMap<(ClusterId, NamespaceId, NodeId), Arc<queries::OriginGrant>>,
     inspection_origins: BTreeMap<(ClusterId, NamespaceId, NodeId), Arc<queries::OriginGrant>>,
     inspection_peers: BTreeMap<NodeId, Arc<Budget>>,
@@ -319,6 +326,7 @@ impl Registry {
             .chain(
                 self.origins
                     .values()
+                    .chain(self.command_origins.values())
                     .filter_map(|grant| grant.peer.as_ref().map(|peer| peer.node)),
             )
             .collect();
@@ -343,6 +351,8 @@ struct State {
     local_control: SocketAddr,
     local_data: SocketAddr,
     local_query: SocketAddr,
+    cell_command_gateways:
+        Mutex<BTreeMap<(ClusterId, NamespaceId), std::sync::Weak<cell_commands::Gateway>>>,
     cell_query_gateways:
         Mutex<BTreeMap<(ClusterId, NamespaceId), std::sync::Weak<cell_queries::Gateway>>>,
     query_gateway: Mutex<Option<std::sync::Weak<crate::application::consensus::client::Handle>>>,
@@ -504,6 +514,7 @@ impl RaftTransport {
             local_data,
             local_query,
             query_gateway: Mutex::new(None),
+            cell_command_gateways: Mutex::new(BTreeMap::new()),
             cell_query_gateways: Mutex::new(BTreeMap::new()),
             registry: Mutex::new(Registry {
                 closed: false,
@@ -512,6 +523,7 @@ impl RaftTransport {
                 physical_groups: BTreeMap::new(),
                 query_groups: BTreeMap::new(),
                 cell_query_groups: BTreeMap::new(),
+                command_origins: BTreeMap::new(),
                 origins: BTreeMap::new(),
                 inspection_origins: BTreeMap::new(),
                 inspection_peers: BTreeMap::new(),
@@ -1039,6 +1051,9 @@ impl State {
         self.stop.send_replace(true);
         if let Ok(mut gateway) = self.query_gateway.lock() {
             gateway.take();
+        }
+        if let Ok(mut gateways) = self.cell_command_gateways.lock() {
+            gateways.clear();
         }
         if let Ok(mut gateways) = self.cell_query_gateways.lock() {
             gateways.clear();

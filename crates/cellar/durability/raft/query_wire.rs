@@ -19,6 +19,8 @@ use std::time::Duration;
 
 #[path = "query_cell_wire.rs"]
 pub(super) mod cell;
+#[path = "command_cell_wire.rs"]
+pub(super) mod command;
 
 pub(super) const EXPORT_LABEL: &[u8] = b"EXPORTER-cellar-raft-query-1";
 const REQUEST: &[u8] = b"cellar-raft-query-request-1";

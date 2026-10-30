@@ -223,7 +223,7 @@ pub(super) async fn cell_receipts(rooted: bool) -> Result<()> {
         fixture.runtimes[1]
             .execution_authority(route.history, a.clone())
             .await,
-        Err(RuntimeError::NotReady)
+        Err(RuntimeError::NotLeader)
     ));
     let mut wrong = a.clone();
     wrong.incarnation = IncarnationId::new([99; 16])?;
@@ -556,3 +556,7 @@ pub(crate) use query_origins::{nonmember_queries, nonmember_query_revocation};
 #[path = "cell_group_dispatch_cache_execution.rs"]
 mod dispatch_cache_execution;
 pub(crate) use dispatch_cache_execution::cached_dispatch_execution;
+
+#[path = "cell_group_remote_commands.rs"]
+mod remote_commands;
+pub(crate) use remote_commands::{remote_command_lifecycle, remote_commands};

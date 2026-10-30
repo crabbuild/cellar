@@ -354,6 +354,14 @@ impl Registry {
         peer: &RaftPeerNode,
     ) -> Result<(), TransportError> {
         if self
+            .command_origins
+            .values()
+            .filter_map(|grant| grant.peer.as_ref())
+            .any(|old| old.node == peer.node && old != peer)
+        {
+            return Err(TransportError::StalePeer);
+        }
+        if self
             .physical_groups
             .values()
             .chain(self.cell_query_groups.values())

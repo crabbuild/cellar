@@ -544,3 +544,91 @@ async fn query_grants_are_scoped_revocable_and_never_voting_authority() -> anyho
         .await??;
     fixture.close().await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn command_grants_bound_tombstones_without_changing_read_permission() -> anyhow::Result<()> {
+    use crate::raft::transport_options::NamespaceCommandOrigin;
+    let fixture = Fixture::start(
+        TransportOptions {
+            max_command_origins: 2,
+            ..Default::default()
+        },
+        vec![],
+    )
+    .await?;
+    fixture
+        .domain
+        .run(async {
+            let peer = RaftPeerNode {
+                node: NodeId::new([4; 16])?,
+                disk: DiskLineage::new([5; 16])?,
+                process: ProcessGeneration::new([6; 16])?,
+                label: "node-4".into(),
+                server_name: "localhost".into(),
+                control_address: "127.0.0.1:41000".parse()?,
+                data_address: "127.0.0.1:41001".parse()?,
+                query_address: "127.0.0.1:41002".parse()?,
+            };
+            let grant = NamespaceCommandOrigin {
+                cluster: ClusterId::new([1; 16])?,
+                namespace: NamespaceId::new([2; 16])?,
+                revision: 1,
+                peer: peer.clone(),
+            };
+            let key = (grant.cluster, grant.namespace, peer.node);
+            let transport = &fixture.transport;
+            transport.grant_command_origin(grant.clone())?;
+            transport.grant_command_origin(grant.clone())?;
+            let old = {
+                let registry = transport.handle.0.registry.lock().unwrap();
+                assert!(registry.origins.is_empty());
+                assert_eq!(registry.command_origins.len(), 1);
+                registry.command_origins[&key].clone()
+            };
+            assert_eq!(transport.usage().peers, 1);
+            let mut foreign = grant.clone();
+            foreign.namespace = NamespaceId::new([3; 16])?;
+            transport.grant_command_origin(foreign.clone())?;
+            let mut full = grant.clone();
+            full.namespace = NamespaceId::new([7; 16])?;
+            assert_eq!(
+                transport.grant_command_origin(full.clone()),
+                Err(TransportError::Overloaded)
+            );
+            transport.revoke_command_origin(grant.cluster, grant.namespace, peer.node, 2)?;
+            assert!(*old.stop.borrow());
+            assert_eq!(
+                transport.grant_command_origin(grant.clone()),
+                Err(TransportError::StalePeer)
+            );
+            assert_eq!(
+                transport.revoke_command_origin(full.cluster, full.namespace, peer.node, 2),
+                Err(TransportError::Overloaded)
+            );
+            // A read grant neither removes the write tombstone nor grants writes.
+            transport.grant_query_origin(NamespaceQueryOrigin {
+                cluster: grant.cluster,
+                namespace: grant.namespace,
+                revision: 1,
+                peer: peer.clone(),
+            })?;
+            {
+                let registry = transport.handle.0.registry.lock().unwrap();
+                assert_eq!(registry.command_origins.len(), 2);
+                assert!(registry.command_origins[&key].peer.is_none());
+                assert!(registry.origins[&key].peer.is_some());
+            }
+            let mut restored = grant.clone();
+            restored.revision = 3;
+            transport.grant_command_origin(restored)?;
+            transport.revoke_command_origin(grant.cluster, grant.namespace, peer.node, 4)?;
+            transport.revoke_command_origin(foreign.cluster, foreign.namespace, peer.node, 2)?;
+            assert_eq!(transport.usage().peers, 1); // Independent read grant retains its pool.
+            transport.revoke_query_origin(grant.cluster, grant.namespace, peer.node, 2)?;
+            assert_eq!(transport.usage().peers, 0);
+            assert!(fixture.log.groups()?.is_empty());
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+    fixture.close().await
+}

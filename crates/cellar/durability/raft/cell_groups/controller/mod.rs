@@ -79,6 +79,7 @@ pub struct CellGroupControllerUsage {
 }
 
 struct Shared {
+    runtime: CellGroupRuntime,
     groups: BTreeSet<cellar_logic::cell_group::GroupHistory>,
     limits: CellGroupControllerLimits,
     domain: crate::asyncrt::DomainToken,
@@ -146,6 +147,10 @@ pub struct CellGroupController {
 }
 
 impl CellGroupController {
+    pub(crate) fn belongs_to(&self, runtime: &CellGroupRuntime) -> bool {
+        self.handle.0.runtime.same_owner(runtime)
+    }
+
     /// Consume the exclusive event receiver after validating exact engine and
     /// runtime ownership. Every listed group must already be attached. Later
     /// attachment requires a future roster API; an unknown event fails closed.
@@ -192,6 +197,7 @@ impl CellGroupController {
         let domain = runtime.log().domain();
         let (requests, receiver) = tokio::sync::mpsc::channel(limits.max_commands);
         let shared = Arc::new(Shared {
+            runtime: runtime.clone(),
             groups: roster.keys().copied().collect(),
             limits,
             domain: domain.clone(),

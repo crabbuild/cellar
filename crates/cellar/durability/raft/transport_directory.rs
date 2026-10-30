@@ -117,6 +117,7 @@ impl RaftTransport {
             .origins
             .values()
             .chain(registry.inspection_origins.values())
+            .chain(registry.command_origins.values())
             .filter_map(|grant| grant.peer.as_ref())
             .filter(|old| old.node == peer.node)
         {
@@ -149,6 +150,7 @@ impl RaftTransport {
                     .origins
                     .values()
                     .chain(registry.inspection_origins.values())
+                    .chain(registry.command_origins.values())
                     .any(|grant| grant.peer.as_ref().is_some_and(|old| old.node == peer.node)));
         let physical = if registry.pools.contains_key(&peer.node) || routed {
             std::slice::from_ref(peer)
@@ -165,11 +167,13 @@ impl RaftTransport {
         let Registry {
             origins,
             inspection_origins,
+            command_origins,
             ..
         } = &mut *registry;
         for grant in origins
             .values_mut()
             .chain(inspection_origins.values_mut())
+            .chain(command_origins.values_mut())
             .filter(|grant| {
                 grant
                     .peer
