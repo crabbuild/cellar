@@ -15,8 +15,9 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The reviewed source baseline is `8a0cf640`, adding applied-barrier receipt
-reconciliation after the fixed SQL pool at `51dff0e5`, following
+The reviewed source baseline is `91c3ecfc`, separating committed receipt lookup
+from admission after applied-barrier reconciliation at `8a0cf640` and the fixed
+SQL pool at `51dff0e5`, following
 the SQL producer at `f807b2f7` and shared-node runtime at `aec4029e`; see the latest checkpoint in
 [progress](progress.md) for qualification and remaining work.
 The branch integrates `origin/main` at `8a93ffd7` (documentation consolidation,
@@ -67,14 +68,26 @@ cell pins and an unapplied new-term barrier refuse without releasing ownership.
 Missing producers report uncertainty. Production retry dispatch and real
 snapshot/compaction integration remain required.
 
-Next, separate reconciliation lookup from new-client capacity admission:
-`receipts::preflight_identity` currently checks capacity for an absent new client,
-so saturation can keep an older absent producer unresolved unnecessarily. Use a
-read-only identity/receipt lookup while preserving all command admission limits,
-and add saturated-client, expiry-floor and conflicting-identity cases. Then
-integrate concurrent initialization, coherent reads and registered SDK dispatch.
-Preview/cache lifecycle also remains required. Preserve physical completion and
-cancellation boundaries. These cases alone do not complete the six-case CG-04 gate.
+Receipt lookup now uses `receipts::lookup_identity`, preserving identity, floor,
+sequence and allocation checks independently from new-client admission. Command
+admission retains both ceilings. Native fixtures now cover saturated identity
+tables, replicated expiry floors and conflicting identities in both image modes,
+including callback suppression and later successful command admission.
+
+Next integrate concurrent initialization through the existing bounded SQL pool
+and replicated enrollment decisions, then coherent reads and registered SDK
+dispatch. Real compaction and production retry integration, plus preview/cache
+lifecycle, remain required. Preserve physical completion and cancellation
+boundaries. These cases alone do not complete the six-case CG-04 gate.
+
+For enrollment, `ManifestTree::prepare_enrollment` already preserves creation
+identity at ordered apply; current native fixtures construct initial SQLite images
+manually. Add actual-leader enrollment admission and initialization jobs on the
+existing SQL workers. Reserve the logical cell name before choosing a new history,
+so competing incarnations cannot bypass single-producer admission. Reuse current
+node/group budgets and joined callback ownership. An existing committed enrollment
+must return its retained creation record without rerunning initialization or
+replacing the current image; do not manufacture a legacy `GroupScope` adapter.
 
 The remaining coupling is concrete: `execution::CommandAuthority` binds the
 old `GroupLog`/`GroupStatus`; `execution::images::Published` exposes `GroupScope`;
@@ -145,12 +158,19 @@ another machine. Missing evidence must refuse; do not replace it with a pass fla
 or reset completed tasks merely to bypass validation.
 
 The latest partial CG-04 record is
+`.cellar/cell-groups-evidence/CG-04-receipt-lookup/checkpoint.json` at `91c3ecfc`:
+187 selected Rust cases, ten successful commands, 181 source inputs and eight
+copied executables. Transfer its entire directory with the earlier checkpoints.
+It qualifies saturated-capacity lookup, replicated expiry/conflict and existing
+reconciliation paths in both image modes; it does not complete CG-04.
+
+The prior reconciliation record is
 `.cellar/cell-groups-evidence/CG-04-reconciliation/checkpoint.json` at `8a0cf640`:
 181 selected Rust cases, nine successful commands, 179 source inputs and eight
 copied executables. Transfer its entire directory along with the prior records.
 It qualifies the new pool reconciliation boundary in both image modes, not actual
 compaction, production retry dispatch or the full task gate. See [progress](progress.md)
-for tested behavior and remaining receipt lookup/refusal work.
+for the historical tested boundary and subsequent lookup/refusal qualification.
 
 The prior partial CG-04 evidence is retained at
 `.cellar/cell-groups-evidence/CG-04-sql-pool/checkpoint.json`. Transfer that entire

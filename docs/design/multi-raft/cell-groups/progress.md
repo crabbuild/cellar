@@ -10,6 +10,42 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 receipt lookup independent from admission
+
+Qualified source: `91c3ecfc020e0d42738e4a6395045eb8a44c51f9`.
+
+Reconciliation now uses a read-only identity lookup that preserves sequence/floor,
+request identity and result-allocation checks independently from capacity for new
+clients or retained receipts. The command path still enforces both ceilings and
+uses the same identity inspection; no extra client lookup is added to normal
+admission. A full identity table can no longer leave an absent older-term
+producer unresolved merely because it cannot admit a new client.
+
+Both native image-mode fixtures fill the selected cell's identity capacity with
+another committed client after leadership changes, then reconcile the original
+absent request. The changed cell image forces actual receipt lookup. A subsequent
+new-client command still refuses at the original limit; increasing its explicit
+capacity allows a fresh command from the committed base. Separate cases replicate
+bounded receipt maintenance through the real group and return CommandExpired for
+the pruned original receipt, and CommandConflict for a different request that won
+the same client sequence. They prove callback suppression, producer admission
+release, retained-output accounting and a valid next command after the refusals.
+Private SQLite tests preserve capacity admission, sequence gaps, floors and result
+allocation bounds.
+
+All 187 selected Rust cases pass: 172 native cases across seven suites, 11 SQL
+queue/extent-worker unit tests and four receipt unit tests. All-target Clippy
+with warnings denied, formatting (1,795 Rust files), layout, dependency isolation,
+docs, source preflight and all 37 plan-validator tests pass. The checkpoint at
+`.cellar/cell-groups-evidence/CG-04-receipt-lookup/checkpoint.json` binds 181 source
+inputs, ten successful command logs and eight copied executables. The preliminary
+four-case native pass is retained separately. Four process helpers execute through
+parent tests; three RustFS cases remain explicitly unrun. No task status advances.
+
+This remains partial CG-04 implementation. Concurrent initialization, coherent
+reads, registered dispatch, production retry and actual compaction integration,
+and preview/cache lifecycle remain required before its complete gate.
+
 ## CG-04 applied-barrier receipt reconciliation
 
 Implementation source: `8a0cf640ae70f3280f02e281f81b55a8823205fd`.

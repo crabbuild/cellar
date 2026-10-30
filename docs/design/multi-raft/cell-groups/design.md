@@ -174,6 +174,9 @@ explicit refusal with unknown historical outcome. Reject changed route/history,
 foreign engine and stale pin proofs. Close the private writer before releasing
 cell admission; retained responses keep their byte reservations. Lost resolution
 responses require receipt lookup, never an inferred failure or blind callback replay.
+Receipt inspection preserves identity/floor/sequence and allocation checks but does
+not admit a new client or receipt. Full admission tables cannot obscure absence;
+subsequent new commands still obey their client and receipt ceilings.
 
 ## Reads, caches and effects
 
