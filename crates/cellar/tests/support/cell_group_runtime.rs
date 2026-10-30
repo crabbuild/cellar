@@ -6,6 +6,7 @@ use super::*;
 use std::collections::BTreeMap;
 
 struct RuntimeCluster {
+    appliers: BTreeMap<(usize, GroupHistory), (CellGroupSqlPool, CellGroupApplier)>,
     cluster: Cluster,
     runtimes: Vec<CellGroupRuntime>,
     events: Vec<CellGroupRuntimeEvents>,
@@ -51,6 +52,7 @@ impl RuntimeCluster {
         }
         let applied = BTreeMap::from([(cluster.birth.route().history, applied)]);
         Ok(Self {
+            appliers: BTreeMap::new(),
             cluster,
             runtimes,
             events,
@@ -81,6 +83,13 @@ impl RuntimeCluster {
                         if n == 0 && hold.contains(&scope) {
                             assert!(held.insert(scope, work).is_none());
                         } else {
+                            if let Some((pool, applier)) = self.appliers.get(&(n, scope)) {
+                                pool.prepare_apply(applier, work)
+                                    .await?
+                                    .complete(&self.runtimes[n])
+                                    .await?;
+                                continue;
+                            }
                             let voter = if scope == primary {
                                 &mut self.cluster.voters[n]
                             } else {
@@ -171,6 +180,10 @@ impl RuntimeCluster {
     }
 
     async fn close(self) -> Result<()> {
+        for (pool, _) in self.appliers.values() {
+            pool.close().await?;
+        }
+        drop(self.appliers);
         for runtime in &self.runtimes {
             runtime.close().await?;
         }
@@ -333,7 +346,7 @@ impl RuntimeCluster {
             voters.push(Voter {
                 log,
                 owner: None,
-                pages,
+                pages: Some(pages),
                 images,
                 extents: None,
                 tree,
@@ -626,3 +639,5 @@ pub(super) async fn submission_rejections(rooted: bool) -> Result<()> {
 }
 
 pub(super) use sql::{coherent_reads, query_lifecycle};
+
+pub(super) use sql::apply_images;

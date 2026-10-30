@@ -37,6 +37,13 @@ identities, files, cached images and persistent storage live together in
 [`src/extent/`](src/extent/mod.rs), with the node inventory in `store/`.
 Public `Db`/`db` paths and the `internal` verification facade remain unchanged.
 
+`GenerationStore::pin_prepared` reopens an exactly identified materialized image
+for a preparation retry. It verifies cold image bytes and persistence barriers,
+preserves the existing host retention flag, and refuses missing or mismatched
+images. Its pin prevents reclamation while borrowed; it supplies no apply,
+publication or serving authority. The caller must obtain the expected state from
+its committed input and publish the resulting complete manifest separately.
+
 `RootView::read_extent` supplies one complete dependency to an admitted blocking
 transfer owner. The caller reserves its at-most-4-MiB output. It refuses objects
 outside the pinned root and returns bytes only after the full extent identity

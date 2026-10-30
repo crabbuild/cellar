@@ -202,6 +202,10 @@ pub struct ManifestTree {
 }
 
 impl ManifestTree {
+    pub(crate) fn route(&self) -> &GroupRoute {
+        &self.route
+    }
+
     pub fn new(route: GroupRoute, limits: ManifestLimits) -> Result<Self, ManifestError> {
         limits.validate()?;
         for bound in [route.range.lower(), route.range.upper()] {

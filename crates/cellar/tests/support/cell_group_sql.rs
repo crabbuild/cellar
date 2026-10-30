@@ -328,7 +328,11 @@ pub(super) async fn cell_receipts(rooted: bool) -> Result<()> {
                 .context("selected root")?;
             let leaf = voter
                 .tree
-                .get(&voter.pages, marker.root(), &cell.cell)?
+                .get(
+                    voter.pages.as_ref().context("fixture page owner")?,
+                    marker.root(),
+                    &cell.cell,
+                )?
                 .context("selected cell")?;
             let query = match leaf.version.image.commitment {
                 CellImageCommitment::Materialized(digest) => {
@@ -427,7 +431,14 @@ pub(super) async fn cell_receipts(rooted: bool) -> Result<()> {
         .context("selected root")?;
     let leaf = fixture.cluster.voters[0]
         .tree
-        .get(&fixture.cluster.voters[0].pages, marker.root(), &a.cell)?
+        .get(
+            fixture.cluster.voters[0]
+                .pages
+                .as_ref()
+                .context("fixture page owner")?,
+            marker.root(),
+            &a.cell,
+        )?
         .context("selected cell")?;
     assert_eq!(leaf.version, stale.cell().version);
     drop(stale);
@@ -474,3 +485,7 @@ pub(super) async fn submission_rejections(rooted: bool) -> Result<()> {
 mod reads;
 
 pub(crate) use reads::{coherent as coherent_reads, lifecycle as query_lifecycle};
+
+#[path = "cell_group_sql_apply.rs"]
+mod apply;
+pub(crate) use apply::apply_images;

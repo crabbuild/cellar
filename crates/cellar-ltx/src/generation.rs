@@ -959,6 +959,27 @@ impl GenerationStore {
         id: ImageId,
         expected: ImageState,
     ) -> Result<GenerationPin, GenerationError> {
+        self.pin_existing(id, expected, true)
+    }
+
+    /// Reopen an exactly identified prepared image without changing its host
+    /// retention flag. Cold images are independently verified and synced before
+    /// returning a pin. This is physical preparation only: the caller must prove
+    /// the expected image from its committed input and separately publish it.
+    pub fn pin_prepared(
+        &self,
+        id: ImageId,
+        expected: ImageState,
+    ) -> Result<GenerationPin, GenerationError> {
+        self.pin_existing(id, expected, false)
+    }
+
+    fn pin_existing(
+        &self,
+        id: ImageId,
+        expected: ImageState,
+        retain: bool,
+    ) -> Result<GenerationPin, GenerationError> {
         expected.validate(&self.inner.limits.apply)?;
         let token = {
             let mut state = self.lock()?;
@@ -970,7 +991,7 @@ impl GenerationStore {
                 if image.state != expected {
                     return Err(GenerationError::Identity);
                 }
-                entry.retained = true;
+                entry.retained |= retain;
                 return Ok(GenerationPin {
                     inner: self.inner.clone(),
                     image: image.clone(),
@@ -980,7 +1001,7 @@ impl GenerationStore {
                 return Err(GenerationError::Missing);
             }
             entry.busy = true;
-            entry.retained = true;
+            entry.retained |= retain;
             entry.token.clone()
         };
         let mut reservation = Reservation {

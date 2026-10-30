@@ -152,7 +152,7 @@ use std::{collections::VecDeque, sync::Arc, time::Duration};
 struct Voter {
     log: ReplicaLog,
     owner: Option<CellGroupOwner>,
-    pages: ManifestPageStore,
+    pages: Option<ManifestPageStore>,
     images: GenerationStore,
     extents: Option<cellar_ltx::internal::NodeExtentStore>,
     tree: ManifestTree,
@@ -273,7 +273,7 @@ impl Cluster {
             voters.push(Voter {
                 log,
                 owner: Some(owner),
-                pages,
+                pages: Some(pages),
                 images,
                 extents: None,
                 tree,
@@ -459,7 +459,7 @@ impl Cluster {
                 log,
                 owner: Some(owner),
                 tree,
-                pages,
+                pages: Some(pages),
                 images,
                 extents: None,
                 gate,
@@ -628,7 +628,7 @@ fn prepare_cell_image(
 fn prepare(voter: &mut Voter, apply: &CellGroupApply) -> Result<PreparedGroupManifest> {
     if apply.entry.data.is_empty() {
         return Ok(voter.tree.prepare_unchanged(
-            &voter.pages,
+            voter.pages.as_ref().context("fixture page owner")?,
             &apply.base,
             apply.ticket.position(),
         )?);
@@ -641,7 +641,7 @@ fn prepare(voter: &mut Voter, apply: &CellGroupApply) -> Result<PreparedGroupMan
     match decoded.command {
         GroupCommand::Enroll { cell, image, files } => {
             let (next, _) = voter.tree.prepare_enrollment(
-                &mut voter.pages,
+                voter.pages.as_mut().context("fixture page owner")?,
                 &apply.base,
                 EnrollmentApply {
                     position: apply.ticket.position(),
@@ -692,7 +692,7 @@ fn prepare(voter: &mut Voter, apply: &CellGroupApply) -> Result<PreparedGroupMan
                 effects: old.effects,
             };
             Ok(voter.tree.prepare_update(
-                &mut voter.pages,
+                voter.pages.as_mut().context("fixture page owner")?,
                 &apply.base,
                 leaf,
                 Some(&old.version),
@@ -990,7 +990,7 @@ async fn apply_prefix_never_skips_slow_cell() -> Result<()> {
         .context("old cell")?
         .0;
     let forged = voter.tree.prepare_update(
-        &mut voter.pages,
+        voter.pages.as_mut().context("fixture page owner")?,
         &apply.base,
         forged_leaf,
         Some(&old.version),
@@ -1005,10 +1005,11 @@ async fn apply_prefix_never_skips_slow_cell() -> Result<()> {
         Err(RuntimeError::Invalid(_))
     ));
     assert_eq!(voter.owner.as_ref().unwrap().manifest().marker(), &before);
-    let unchanged =
-        voter
-            .tree
-            .prepare_unchanged(&voter.pages, &apply.base, apply.ticket.position())?;
+    let unchanged = voter.tree.prepare_unchanged(
+        voter.pages.as_ref().context("fixture page owner")?,
+        &apply.base,
+        apply.ticket.position(),
+    )?;
     assert!(matches!(
         voter
             .owner
@@ -1237,4 +1238,14 @@ async fn cell_query_pins_deadline_and_cancelled_cleanup() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn rooted_cell_query_pins_deadline_and_cancelled_cleanup() -> Result<()> {
     runtime_fixture::query_lifecycle(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_workers_prepare_committed_cell_images() -> Result<()> {
+    runtime_fixture::apply_images(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_shared_workers_prepare_committed_cell_images() -> Result<()> {
+    runtime_fixture::apply_images(true).await
 }

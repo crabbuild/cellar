@@ -3,6 +3,9 @@
 //! Cell-history admission and commands on the existing fixed node SQL workers.
 
 mod admission;
+mod apply;
+pub(in crate::raft::host_sql) use apply::ApplyRequest;
+pub use apply::CellGroupPreparedApply;
 mod query;
 mod worker;
 pub use query::CellSqlQueryResult;
@@ -38,6 +41,8 @@ pub struct CellSqlLimits {
     pub queue_per_worker: usize,
     pub max_pending_cells: usize,
     pub group_pending_cells: usize,
+    /// Each of the SQL producer and independent apply budgets has this ceiling.
+    /// Configure their combined envelope as twice this value.
     pub node_bytes: usize,
     pub group_bytes: usize,
 }
@@ -248,6 +253,9 @@ pub enum CellSqlReconciliation {
 }
 
 pub struct CellSqlUsage {
+    /// Independent progress budget; not included in SQL producer retention.
+    pub apply_retained_bytes: usize,
+    pub apply_retained_operations: usize,
     pub active_cells: usize,
     pub retained_bytes: usize,
     pub retained_operations: usize,
@@ -267,6 +275,7 @@ struct Handle {
     workers: Vec<Worker>,
     resources: ResourceObserver,
     admission: Arc<Admission>,
+    apply_admission: Arc<Budget>,
     closing: Arc<AtomicBool>,
     stop: Arc<Notify>,
     terminal: Arc<Terminal>,
@@ -319,6 +328,7 @@ impl CellGroupSqlPool {
             workers,
             resources,
             admission: Admission::new(limits, lease.clone()),
+            apply_admission: Budget::new(limits.node_bytes, log.limits().max_groups),
             closing: closing.clone(),
             stop: stop.clone(),
             terminal: terminal.clone(),
@@ -347,7 +357,10 @@ impl CellGroupSqlPool {
     pub fn usage(&self) -> Result<CellSqlUsage, ExecutionError> {
         let (active_cells, retained_bytes, retained_operations) = self.inner.admission.usage()?;
         let resources = self.inner.resources.capture().ok_or_else(unavailable)?;
+        let (apply_retained_bytes, apply_retained_operations) = self.inner.apply_admission.usage();
         Ok(CellSqlUsage {
+            apply_retained_bytes,
+            apply_retained_operations,
             active_cells,
             retained_bytes,
             retained_operations,

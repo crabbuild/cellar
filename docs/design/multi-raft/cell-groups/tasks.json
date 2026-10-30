@@ -439,7 +439,9 @@
       "scope": [
         "crates/cellar/durability/raft/",
         "crates/cellar/application/consensus/",
-        "crates/cellar-logic/"
+        "crates/cellar-logic/",
+        "crates/cellar-ltx/src/generation.rs",
+        "crates/cellar-ltx/tests/private_clone.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/cell_groups/owner.rs",
@@ -468,7 +470,13 @@
         "crates/cellar/durability/raft/cell_groups/read_authority.rs",
         "crates/cellar/durability/raft/cell_groups/runtime/reads.rs",
         "crates/cellar/durability/raft/host_sql/cell_groups/query.rs",
-        "crates/cellar/tests/support/cell_group_sql_reads.rs"
+        "crates/cellar/tests/support/cell_group_sql_reads.rs",
+        "crates/cellar/durability/raft/cell_groups/apply/mod.rs",
+        "crates/cellar/durability/raft/cell_groups/apply/images.rs",
+        "crates/cellar/durability/raft/cell_groups/apply/summary.rs",
+        "crates/cellar/durability/raft/cell_groups/apply/summary_tests.rs",
+        "crates/cellar/durability/raft/host_sql/cell_groups/apply.rs",
+        "crates/cellar/tests/support/cell_group_sql_apply.rs"
       ],
       "test_target": "native_cell_groups_execution",
       "steps": [
@@ -505,6 +513,13 @@
             "rooted_strong_read_at_group_barrier",
             "cell_query_pins_deadline_and_cancelled_cleanup",
             "rooted_cell_query_pins_deadline_and_cancelled_cleanup"
+          ]
+        },
+        {
+          "action": "Run physical group apply on the existing node SQL workers with independent bounded progress admission. Transfer the startup manifest-page owner, verify the exact committed entry/base, prepare either cell image representation and derive bounded scheduling summaries. Retain preparation through response cancellation and physical publication. Materialized retries may pin only the exact verified prepared image; they cannot infer publication or reset retirement. Test the physical image store retry across restart and corruption, and reject malformed effect tables rather than reporting idle. Keep membership/topology administrative apply explicitly refused until its owning tasks implement it.",
+          "tests": [
+            "shared_workers_prepare_committed_cell_images",
+            "rooted_shared_workers_prepare_committed_cell_images"
           ]
         }
       ],
@@ -637,6 +652,26 @@
           "invariants": [
             "I01",
             "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_workers_prepare_committed_cell_images",
+          "oracle": "The existing fixed SQL workers prepare committed enrollment and mutation images on all three voters. Wrong engines and forged entries refuse; exact duplicate preparations yield the same manifest; stale bases refuse after publication. Business admission saturation does not prevent apply. Derived scheduling hints match actual SQLite state. Preparation leaves the old root selected, and its independent reservation survives clones and blocked physical publication until the owner completion is consumed.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_shared_workers_prepare_committed_cell_images",
+          "oracle": "The existing fixed SQL workers prepare committed enrollment and mutation images on all three voters. Wrong engines and forged entries refuse; exact duplicate preparations yield the same manifest; stale bases refuse after publication. Business admission saturation does not prevent apply. Derived scheduling hints match actual SQLite state. Preparation leaves the old root selected, and its independent reservation survives clones and blocked physical publication until the owner completion is consumed.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
             "I12"
           ]
         }

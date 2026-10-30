@@ -204,7 +204,11 @@ pub(super) async fn concurrent(rooted: bool) -> Result<()> {
         for cell in [&a, &b, &c] {
             let leaf = voter
                 .tree
-                .get(&voter.pages, marker.root(), &cell.cell)?
+                .get(
+                    voter.pages.as_ref().context("fixture page owner")?,
+                    marker.root(),
+                    &cell.cell,
+                )?
                 .context("enrolled cell")?;
             assert_eq!(leaf.version.sequence.get(), 1);
         }

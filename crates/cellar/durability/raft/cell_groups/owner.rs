@@ -42,6 +42,7 @@ pub struct CellGroupTicket {
     position: LogPosition,
     digest: [u8; 32],
     pub(super) admission: Option<Arc<crate::raft::budget::Permit>>,
+    pub(crate) preparation: Option<Arc<crate::raft::budget::Permit>>,
 }
 
 impl CellGroupTicket {
@@ -713,6 +714,7 @@ impl CellGroupOwner {
             position,
             digest,
             admission: None,
+            preparation: None,
         })
     }
 

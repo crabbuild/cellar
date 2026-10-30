@@ -231,6 +231,7 @@ impl Scheduled for Request {
 enum Envelope {
     Legacy(Box<Request>),
     Shared(cell_groups::Request),
+    GroupApply(Box<cell_groups::ApplyRequest>),
 }
 
 impl Scheduled for Envelope {
@@ -238,6 +239,7 @@ impl Scheduled for Envelope {
         match (self, other) {
             (Self::Legacy(a), Self::Legacy(b)) => a.same_cell(b),
             (Self::Shared(a), Self::Shared(b)) => a.cell == b.cell,
+            (Self::GroupApply(a), Self::GroupApply(b)) => a.group == b.group,
             _ => false,
         }
     }
@@ -246,6 +248,7 @@ impl Scheduled for Envelope {
         match self {
             Self::Legacy(request) => request.progress_priority(),
             Self::Shared(request) => request.progress_priority(),
+            Self::GroupApply(_) => true,
         }
     }
 }
@@ -469,6 +472,10 @@ impl Pool {
                             Err(mpsc::RecvTimeoutError::Disconnected) => break Ok(()),
                         };
                         let request = match request {
+                            Envelope::GroupApply(request) => {
+                                request.execute(&owner, &stopped);
+                                continue;
+                            }
                             Envelope::Shared(request) => {
                                 shared.execute(
                                     request,

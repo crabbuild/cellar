@@ -1,0 +1,233 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+//! Worker-owned physical preparation; only the Raft owner can publish its result.
+
+mod images;
+mod summary;
+pub use images::CellGroupApplyImages;
+
+use super::*;
+use crate::application::consensus::group_protocol::{
+    CellGroupEntry, GroupCommand, GroupEntryLimits,
+};
+use crate::raft::{
+    cache::GroupLog,
+    completion::{entry_digest, entry_position},
+    execution::{storage, ExecutionError},
+};
+use cellar_logic::cell_group::{CommitWitness, GroupHistory};
+use std::sync::{Arc, Mutex};
+
+struct Storage {
+    tree: ManifestTree,
+    pages: ManifestPageStore,
+    images: CellGroupApplyImages,
+    limits: GroupEntryLimits,
+    max_effect_rows: u32,
+}
+
+/// Owns the already opened manifest directory and shared physical image stores.
+/// Construction performs no I/O. Opening/recovering the stores belongs on the
+/// owning execution domain; transfer the same page owner used for startup.
+#[derive(Clone)]
+pub struct CellGroupApplier {
+    group: GroupLog<GroupHistory>,
+    storage: Arc<Mutex<Storage>>,
+}
+
+impl CellGroupApplier {
+    pub fn new(
+        group: GroupLog<GroupHistory>,
+        pages: ManifestPageStore,
+        images: CellGroupApplyImages,
+        manifest_limits: ManifestLimits,
+        limits: GroupEntryLimits,
+        max_effect_rows: u32,
+    ) -> Result<Self, ExecutionError> {
+        limits.validate().map_err(storage)?;
+        images.validate()?;
+        if !(1..=1_000_000).contains(&max_effect_rows) {
+            return Err(ExecutionError::Invalid("apply effect summary limit"));
+        }
+        let marker = group
+            .group_manifest()
+            .map_err(storage)?
+            .ok_or(ExecutionError::Invalid("group manifest missing"))?;
+        let tree = ManifestTree::new(marker.route().clone(), manifest_limits).map_err(storage)?;
+        Ok(Self {
+            group,
+            storage: Arc::new(Mutex::new(Storage {
+                tree,
+                pages,
+                images,
+                limits,
+                max_effect_rows,
+            })),
+        })
+    }
+
+    pub fn history(&self) -> GroupHistory {
+        self.group.identity().scope
+    }
+
+    pub(crate) fn belongs_to_engine(&self, engine: &Arc<()>) -> bool {
+        Arc::ptr_eq(&self.group.owner, engine)
+    }
+
+    pub(crate) fn reservation_bytes(&self, work: &CellGroupApply) -> Result<usize, ExecutionError> {
+        self.check(work)?;
+        let owner = self.storage.try_lock().map_err(|error| match error {
+            std::sync::TryLockError::WouldBlock => ExecutionError::Busy,
+            std::sync::TryLockError::Poisoned(_) => {
+                ExecutionError::Invalid("poisoned group applier")
+            }
+        })?;
+        work.base
+            .reserved_bytes()
+            .checked_add(work.entry.data.len())
+            .and_then(|n| n.checked_add(owner.images.memory_bound()))
+            .and_then(|n| n.checked_add(4096))
+            .ok_or(ExecutionError::Invalid("apply reservation overflow"))
+    }
+
+    fn check(&self, work: &CellGroupApply) -> Result<(), ExecutionError> {
+        if !Arc::ptr_eq(&self.group.owner, &work.base.engine_owner)
+            || work.base.marker().route().history != self.history()
+            || work.ticket.position() != entry_position(&work.entry)
+            || work.entry.get_entry_type() != ::raft::prelude::EntryType::EntryNormal
+        {
+            return Err(ExecutionError::Invalid("group apply identity/entry"));
+        }
+        let cache = self.group.read().map_err(storage)?;
+        if cache.group_manifest.as_ref() != Some(work.base.marker())
+            || cache.hard_state.commit < work.entry.index
+            || cache.entries.get(&work.entry.index) != Some(&work.entry)
+            || !cache.membership.permits_group(self.group.identity())
+        {
+            return Err(ExecutionError::Invalid("group apply committed base"));
+        }
+        drop(cache);
+        if work.ticket.entry_digest() != entry_digest(&work.entry).map_err(storage)? {
+            return Err(ExecutionError::Invalid("group apply entry digest"));
+        }
+        Ok(())
+    }
+
+    /// Called only by the shared blocking SQL worker. The try-lock detects an
+    /// invalid concurrent owner instead of blocking one worker behind another.
+    pub(crate) fn prepare(
+        &self,
+        work: &CellGroupApply,
+    ) -> Result<PreparedGroupManifest, ExecutionError> {
+        self.check(work)?;
+        let mut owner = self.storage.try_lock().map_err(|error| match error {
+            std::sync::TryLockError::WouldBlock => ExecutionError::Busy,
+            std::sync::TryLockError::Poisoned(_) => {
+                ExecutionError::Invalid("poisoned group applier")
+            }
+        })?;
+        let Storage {
+            tree,
+            pages,
+            images,
+            limits,
+            max_effect_rows,
+        } = &mut *owner;
+        // Check page owner and contiguous prefix before any image allocation/I/O.
+        let unchanged = tree
+            .prepare_unchanged(pages, &work.base, work.ticket.position())
+            .map_err(storage)?;
+        if work.entry.data.is_empty() {
+            return Ok(unchanged);
+        }
+        let decoded = CellGroupEntry::decode(&work.entry.data, work.base.marker().route(), *limits)
+            .map_err(storage)?;
+        let witness = CommitWitness {
+            group: self.history(),
+            position: work.ticket.position(),
+            proposal: decoded.binding.proposal,
+        };
+        let next = match decoded.command {
+            GroupCommand::Enroll { cell, image, files } => {
+                let decision = decide_enrollment(
+                    tree.route(),
+                    EnrollmentPhase::Active,
+                    &work.entry.data,
+                    work.base
+                        .pin_cell(&cell.cell)
+                        .map(|(leaf, _)| &leaf.enrollment),
+                    *limits,
+                );
+                match decision {
+                    Ok(EnrollmentDecision::Existing(_)) | Err(EnrollmentError::Conflict) => {
+                        unchanged
+                    }
+                    Ok(EnrollmentDecision::Propose(record)) => {
+                        let prepared = images.prepare(images::ImageApply {
+                            cell: &cell,
+                            sequence: 1,
+                            schema: tree.route().schema_digest,
+                            base: None,
+                            image,
+                            files: &files,
+                            max_effect_rows: *max_effect_rows,
+                        })?;
+                        let leaf = CellManifestLeaf {
+                            enrollment: record,
+                            version: cellar_logic::cell_group::CellVersion {
+                                history: cell,
+                                sequence: cellar_logic::cell_group::MutationSequence::new(1)
+                                    .map_err(storage)?,
+                                image: image.into(),
+                            },
+                            geometry: prepared.geometry,
+                            last_mutation: work.ticket.position(),
+                            witness,
+                            effects: prepared.effects,
+                        };
+                        tree.prepare_update(pages, &work.base, leaf, None, prepared.pin)
+                            .map_err(storage)?
+                    }
+                    Err(error) => return Err(storage(error)),
+                }
+            }
+            GroupCommand::Mutation(mutation) => {
+                let (old, base) = work
+                    .base
+                    .pin_cell(&mutation.cell.cell)
+                    .ok_or(ExecutionError::Invalid("apply cell missing"))?;
+                mutation.check_base(&old.version).map_err(storage)?;
+                let prepared = images.prepare(images::ImageApply {
+                    cell: &mutation.cell,
+                    sequence: mutation.sequence.get(),
+                    schema: tree.route().schema_digest,
+                    base: Some(&base),
+                    image: mutation.result,
+                    files: &mutation.files,
+                    max_effect_rows: *max_effect_rows,
+                })?;
+                let leaf = CellManifestLeaf {
+                    enrollment: old.enrollment.clone(),
+                    version: cellar_logic::cell_group::CellVersion {
+                        history: mutation.cell,
+                        sequence: mutation.sequence,
+                        image: mutation.result.into(),
+                    },
+                    geometry: prepared.geometry,
+                    last_mutation: work.ticket.position(),
+                    witness,
+                    effects: prepared.effects,
+                };
+                tree.prepare_update(pages, &work.base, leaf, Some(&old.version), prepared.pin)
+                    .map_err(storage)?
+            }
+            _ => {
+                return Err(ExecutionError::Invalid(
+                    "unsupported group apply administration",
+                ))
+            }
+        };
+        self.check(work)?;
+        Ok(next)
+    }
+}

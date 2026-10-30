@@ -3,10 +3,14 @@
 //! Complete group-state storage. A synced page is data, not Raft authority.
 
 pub use super::host_sql::cell_groups::{
-    CellGroupSqlPool, CellSqlEnrollment, CellSqlEnrollmentResolution, CellSqlLimits,
-    CellSqlOptions, CellSqlOutcome, CellSqlPrepared, CellSqlQueryResult, CellSqlReceipt,
-    CellSqlReconciliation, CellSqlRejection, CellSqlRootOptions, CellSqlSubmission, CellSqlUsage,
+    CellGroupPreparedApply, CellGroupSqlPool, CellSqlEnrollment, CellSqlEnrollmentResolution,
+    CellSqlLimits, CellSqlOptions, CellSqlOutcome, CellSqlPrepared, CellSqlQueryResult,
+    CellSqlReceipt, CellSqlReconciliation, CellSqlRejection, CellSqlRootOptions, CellSqlSubmission,
+    CellSqlUsage,
 };
+
+mod apply;
+pub use apply::{CellGroupApplier, CellGroupApplyImages};
 
 mod execution_authority;
 pub use execution_authority::{CellExecutionAuthority, CellReconciliationAuthority};
