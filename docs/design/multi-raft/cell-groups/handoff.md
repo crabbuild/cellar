@@ -22,8 +22,12 @@ retains 98 distinct command records and 288 source hashes. The plan runner
 validates the evidence and now selects CG-05 as the next eligible task. Preserve
 all acceptance cases; the task-boundary audit removed no requirements or checks.
 
-Start CG-05 with complete-group snapshots and verified atomic installation, then
-learner/membership recovery. CG-06 follows with archival reclamation. Automatic
+CG-05 is now IN_PROGRESS. Its native source captures an exact selected complete
+root, configuration and membership, and retains an admitted immutable closure
+through bounded streaming and cancellation. Both image forms and empty enrollment
+are represented. See the latest [progress](progress.md) for source evidence and
+limits. Continue with bounded receiver staging and verified atomic engine
+installation, then whole-group transport and learner/membership recovery. CG-06 follows with archival reclamation. Automatic
 production request/voter startup and public SDK/fleet binding belong to CG-07;
 effects/cache lifecycle belong to CG-08, and final legacy removal to CG-16. Track
 these remaining capabilities in their owning tasks.

@@ -26,6 +26,32 @@ struct PinnedPage {
 }
 
 impl ManifestPins {
+    /// Walk the immutable closure without cloning its cells or allocating a
+    /// second inventory. Verified AVL height bounds the recursive stack to 32.
+    pub(super) fn visit<E>(
+        &self,
+        visitor: &mut impl FnMut(
+            PageRef,
+            &CellManifestLeaf,
+            &CellImagePin,
+            Option<PageRef>,
+            Option<PageRef>,
+        ) -> Result<(), E>,
+    ) -> Result<(), E> {
+        if let Some(page) = &self.0 {
+            page.left.visit(visitor)?;
+            visitor(
+                page.reference,
+                &page.leaf,
+                &page.image,
+                page.left.root().0,
+                page.right.root().0,
+            )?;
+            page.right.visit(visitor)?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn len(&self) -> usize {
         self.0.as_ref().map_or(0, |p| p.reference.cells as usize)
     }

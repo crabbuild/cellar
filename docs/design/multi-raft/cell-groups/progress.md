@@ -6,9 +6,41 @@ The executable design and implementation plan is delivered. Remaining
 end-to-end implementation and hard cutover work is specified in the
 [executor handoff](handoff.md).
 CG-01 through CG-04 have passed their scoped gates;
-CG-05 through CG-16 remain TODO. Intermediate contracts
+CG-05 is IN_PROGRESS; CG-06 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
+
+## CG-05 complete-root capture and bounded streaming
+
+The first source-side snapshot slice adds a shared checkpoint pool and a
+non-cloneable physical source. Capture checks the exact selected group root,
+engine owner, committed/applied cut and membership revision. It copies membership
+and configuration under that same cache lock, and retains the complete immutable
+closure. The source streams canonical manifest pages, including empty enrollment,
+plus materialized image bytes or extent manifests and verified objects. It does
+not aggregate group images or consult a later mutable manifest during transfer.
+
+Admission accounts for source slots, retained metadata, bounded stream workspace,
+cell count and total transfer size. Borrowed chunks are at most 64 KiB, one extent
+buffer is at most 4 MiB, and the source keeps its charge until its physical worker
+releases it. Missing/corrupt data, a closed engine or a sink error fails the stream;
+failed sources cannot be reused. Streaming grants no receiver or voting authority.
+
+The CG-05 test scope now includes the existing three-voter execution fixture and
+`support/cell_group_checkpoint.rs` so this slice exercises real Raft commits,
+SQLite/LTX, both image stores and engine-selected roots without duplicating that
+fixture. The five full snapshot acceptance cases remain unchanged and outstanding.
+The shared fixture additionally handles canonical empty enrollment; existing
+execution regression checks cover that helper change.
+
+Critical gaps for the next turn: build the receiver's bounded staged closure,
+verify/sync every dependency, and publish snapshot metadata plus the group root
+atomically through the engine. Then connect whole-group transport, learner
+catch-up, joint membership and lost-disk replacement. The current header denotes
+active groups only; topology/park state must become part of the durable root before
+those operations are enabled. CG-05 remains IN_PROGRESS. No RustFS/load, receiver
+install, membership-change, independent-process or power-loss qualification is
+claimed by this capture slice.
 
 ## CG-04 scoped execution gate complete
 

@@ -1558,7 +1558,7 @@
     {
       "id": "CG-05",
       "title": "Snapshot and rebuild complete groups through membership changes",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "priority": "P1",
       "effort": "L",
       "risk": "HIGH",
@@ -1573,7 +1573,9 @@
       ],
       "scope": [
         "crates/cellar/durability/raft/",
-        "crates/cellar-ltx/src/"
+        "crates/cellar-ltx/src/",
+        "crates/cellar/tests/native_cell_groups_execution.rs",
+        "crates/cellar/tests/support/cell_group_checkpoint.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/cell_groups/checkpoint.rs",

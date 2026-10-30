@@ -15,6 +15,12 @@ pub use crate::raft::transport::{
 };
 
 mod apply;
+mod checkpoint;
+pub use checkpoint::{
+    CellGroupCheckpoint, CellGroupCheckpointChunk, CellGroupCheckpointError,
+    CellGroupCheckpointLimits, CellGroupCheckpointPart, CellGroupCheckpointPool,
+    CellGroupCheckpointUsage,
+};
 mod controller;
 pub use controller::{
     CellCommandAdmissionError, CellCommandCall, CellEnrollmentAdmissionError, CellEnrollmentCall,

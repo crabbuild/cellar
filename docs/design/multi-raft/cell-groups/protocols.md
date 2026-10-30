@@ -226,6 +226,23 @@ and verify the receiver's own synced closure before atomic install. A successful
 transfer is not proof that another replica has installed it. A new voter receives
 fresh member/disk identity and joins only through committed membership changes.
 
+The native checkpoint source now captures only an exact engine-selected complete
+root. It snapshots configuration and membership under the same cache lock, retains
+all immutable manifest/image pins, and streams canonical pages plus materialized
+bytes or extent manifests/objects. Empty enrollment remains an authenticated leaf.
+The source pool charges both retained metadata and a bounded streaming workspace;
+its non-cloneable source and borrowed chunks prevent overlapping streams on one
+reservation. Run capture and streaming on a joined blocking owner. A cancelled
+waiter does not release the source's physical pins or quota. Flat-image integrity
+is final only at EOF, so partial output must never be selected by a receiver.
+
+This source contract currently represents active groups only: the shared owner
+still refuses topology and park entries. Those owning tasks must extend the durable
+root and checkpoint transition binding together. Receiver decoding/staging, atomic
+engine installation, retained-checkpoint selection, transport admission and
+membership catch-up are not implemented by this source API. Successful streaming
+supplies no receiver-install, voter, serving, archive-coverage or reclamation proof.
+
 An archive publishes a complete checkpoint plus a contiguous committed tail to K.
 The tail addresses cells and validates each base chain; administrative entries
 also replay. Do not rerun commands. Publish coverage only after all dependencies

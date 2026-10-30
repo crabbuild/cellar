@@ -11,6 +11,29 @@ mod fault;
 #[path = "support/cell_group_runtime.rs"]
 mod runtime_fixture;
 
+#[path = "support/cell_group_checkpoint.rs"]
+mod checkpoint_fixture;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_capture_streams_one_cut_during_writes() -> Result<()> {
+    checkpoint_fixture::coherent().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_capture_rejects_stale_foreign_and_unpublished_roots() -> Result<()> {
+    checkpoint_fixture::refusals().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_capture_retains_bounds_until_physical_release() -> Result<()> {
+    checkpoint_fixture::ownership().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_stream_detects_corruption_and_closed_engine() -> Result<()> {
+    checkpoint_fixture::corruption().await
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn controller_owned_commands_survive_sql_disconnect() -> Result<()> {
     runtime_fixture::owned_commands(0, 0).await
@@ -625,6 +648,17 @@ fn prepare_cell_image(
     use cellar_ltx::internal::{
         ExtentManifest, ExtentRootReference, Geometry, ImageBinding, ImageRootUpdate, EXTENT_BYTES,
     };
+    if image.txid == 0 {
+        anyhow::ensure!(base.is_none() && files.is_empty());
+        return Ok(EnrollmentImage {
+            pin: CellImagePin::Empty,
+            geometry: CellImageGeometry {
+                length: 0,
+                page_size: 512,
+            },
+            effects: EffectSummary::default(),
+        });
+    }
     let (pin, geometry) = match image.commitment {
         ImageCommitment::Sha256(_) => {
             let base = match base {
