@@ -15,8 +15,9 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The reviewed source baseline is `88c4717d`, adding coherent read selection and
-immutable cell queries. Earlier checkpoints cover prepared submission sealing
+The reviewed source baseline is `3da4481e`, qualifying coherent read selection
+and immutable cell queries after decoupling pin capacity from transport limits
+and repairing the fixture macro. The initial read implementation is `88c4717d`. Earlier checkpoints cover prepared submission sealing
 and exact rejection cleanup (`0cf89c40`) and bounded proposal acceptance and
 enrollment capacity (`446dd905`). Earlier checkpoints cover shared-worker initialization
 and term fencing (`6e09bbc7`, formatted at `82ae6877`), receipt lookup (`91c3ecfc`),
@@ -192,13 +193,18 @@ command against the authoritative cell receipt before admitting another producer
 gate printed by `show CG-04`. Registered SDK dispatch and registered strong-read serving
 remain absent; the low-level read-authority and immutable-query paths exist.
 
-The first repair steps are recorded in [progress](progress.md): replace the
-forbidden fixture `tokio::select!` macro and decouple logical image-pin capacity
-from transport request bytes. The current read checkpoint passed 203 selected
-Rust cases but failed Clippy; later commands in that gate were not run. Preserve
-`.cellar/cell-groups-evidence/CG-04-reads/` as failed intermediate evidence. Rerun
-the full source-bound gate after the repairs; do not carry forward a passing
-qualification label from the previous submission checkpoint.
+The read fixture macro and independent pin-byte capacity are repaired and
+qualified at `3da4481e`; the earlier failed read gate is retained as intermediate
+evidence. Next persist the selected version's complete commit witness in the
+authenticated cell leaf and carry it through read/query results before registered
+SDK token issuance. `raft/version.rs::CellVersionObservation` already requires
+`CommitWitness`; the current leaf stores only `last_mutation` and the original
+enrollment record, so a later mutation's proposal ID cannot be reconstructed
+after log compaction. Validate the witness against the actual applied entry,
+retain it across unchanged-cell group progress and restart, and exercise tokens
+from both image modes. Keep physical apply position separate from provenance
+when later implementing group transfer. Then integrate registered callbacks and
+catalog invocation sessions without synthesizing legacy group identities.
 
 Run from the repository root with Python 3.11+ and Rust 1.98.1:
 
@@ -224,6 +230,14 @@ another machine. Missing evidence must refuse; do not replace it with a pass fla
 or reset completed tasks merely to bypass validation.
 
 The latest fully passing partial CG-04 record is
+`.cellar/cell-groups-evidence/CG-04-reads-final/checkpoint.json` at `3da4481e`:
+204 selected Rust cases, twelve successful commands, 194 source inputs and eight
+copied executables. Transfer the entire directory, including intermediate failures,
+with the prior evidence. This qualifies low-level coherent reads and immutable
+SQL in both image modes; it does not complete registered SDK query serving,
+production compaction, CG-04 or the release gate.
+
+The preceding submission record is
 `.cellar/cell-groups-evidence/CG-04-submission/checkpoint.json` at `0cf89c40`:
 197 selected Rust cases, ten successful commands, 189 source inputs and eight
 copied executables. Transfer the entire directory, including intermediate failures,

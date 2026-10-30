@@ -10,6 +10,38 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 read-pin capacity and repaired qualification
+
+Qualified source: `3da4481e09c3767face30469ffc855d302a7c142`.
+
+Read-image retention now uses `RaftRuntimeOptions::max_read_pin_bytes`, independently
+of transport request capacity. The default remains 64 MiB. Node and group read
+reservations use the explicit pin ceiling; ordinary peer/apply admission remains
+separate. Validation bounds configured capacity by the native image-size envelope
+and pending-read count using wide arithmetic. The new unit case admits the full
+native image limit without raising transport limits, accepts the minimum metadata
+reservation and upper envelope, and refuses out-of-range settings. The native
+read fixture now uses `cellar::asyncrt::select!`.
+
+All 204 selected Rust cases pass: 186 native cases across seven suites, 11 SQL
+queue/extent-worker tests, four receipt tests, two budget tests and one runtime
+configuration test. All-target Clippy for Cellar/cellar-logic with warnings denied,
+formatting (1,806 Rust files), layout, dependency isolation, docs, source preflight
+and all 37 plan-validator tests pass. The checkpoint at
+`.cellar/cell-groups-evidence/CG-04-reads-final/checkpoint.json` binds 194 source
+inputs, eight copied executables and twelve successful command logs. It retains
+the failed full gate at `88c4717d` and earlier targeted compile/stack diagnostics
+separately. No test limits or assertions were relaxed. Four process helpers run
+through parent tests; three RustFS-specific cases remain unrun.
+
+This qualifies the low-level coherent-read and immutable-query boundary in both
+image modes. CG-04 remains IN_PROGRESS. Registered SDK/catalog dispatch, callback
+identity and version-token integration, real compaction/retry dispatch and cache
+lifecycle remain required. In particular, the selected leaf retains its last
+mutation position but not the corresponding mutation proposal ID: preserve a
+complete authenticated cell commit witness before issuing SDK version observations
+from that image after log compaction. Group progress is never that witness.
+
 ## CG-04 coherent cell reads and immutable SQL queries
 
 Implementation source: `88c4717d`.
@@ -49,17 +81,15 @@ The retained gate at `.cellar/cell-groups-evidence/CG-04-reads/gate-commands.jso
 completed four test commands: 203 selected Rust cases passed. The fifth command,
 all-target Clippy, failed because `tests/support/cell_group_sql_reads.rs` uses the
 forbidden `tokio::select!` macro. Subsequent commands in that gate did not run.
-This is an unqualified source checkpoint; the latest fully passing partial
-checkpoint remains `0cf89c40`. No task status advances.
+This source was unqualified at that point; the repaired source and full gate are
+recorded above. No task status advances.
 
-Before resuming qualification, replace that fixture macro with
-`cellar::asyncrt::select!`. Also separate the logical read-image pin budget from
+The repair required replacing that fixture macro with
+`cellar::asyncrt::select!` and separating the logical read-image pin budget from
 `RaftRuntimeOptions::max_request_bytes`: the current transport ceiling is 512 MiB,
-whereas valid native images can reach 10,000,000,000 bytes. Add an explicit bounded
-pin-byte option, validate its arithmetic and supported image envelope, and test
-that pin configuration does not require raising transport limits. Preserve
-node/group accounting, count limits and cancellation ownership. Retain the failed
-gate, then run a fresh full gate against the repaired source revision.
+whereas valid native images can reach 10,000,000,000 bytes. The repair above adds
+the explicit bounded pin-byte option and validation test, preserves node/group accounting, count limits
+and cancellation ownership, and retains this failed gate separately.
 
 Registered SDK dispatch, callback identity and version-token integration, catalog
 sessions, production retry/compaction and cache lifecycle remain required. This
