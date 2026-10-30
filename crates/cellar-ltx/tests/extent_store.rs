@@ -711,6 +711,66 @@ fn monotonic_references_survive_view_closure_and_stale_release_or_resurrection()
 }
 
 #[test]
+fn repeated_root_seal_reuses_only_live_persistence_barriers() {
+    let f = Fixture::new(0);
+    let store = f.store();
+    f.fill(&store);
+    let mut buffer = vec![0; EXTENT_BYTES as usize];
+    let image = store
+        .seal_image_root(f.manifest.clone(), &mut buffer)
+        .unwrap();
+    f.files.metrics.file_sync_calls.store(0, Ordering::Release);
+    f.files.metrics.dir_sync_calls.store(0, Ordering::Release);
+    let repeated = store
+        .seal_image_root(f.manifest.clone(), &mut buffer)
+        .unwrap();
+    assert_eq!(image.reference(), repeated.reference());
+    assert_eq!(
+        f.files.metrics.file_sync_calls.load(Ordering::Acquire),
+        0,
+        "an unchanged durable root repeated its file barrier"
+    );
+    assert_eq!(
+        f.files.metrics.dir_sync_calls.load(Ordering::Acquire),
+        0,
+        "an unchanged durable root repeated its directory barrier"
+    );
+}
+
+#[test]
+fn root_metadata_barrier_is_reestablished_after_restart_or_failed_read() {
+    for restart in [false, true] {
+        for directory_sync in [false, true] {
+            let f = Fixture::new(0);
+            let store = f.store();
+            f.fill(&store);
+            drop(store.seal_root(f.manifest.clone()).unwrap());
+            let store = if restart {
+                drop(store);
+                f.store()
+            } else {
+                f.files
+                    .metrics
+                    .corrupt_read_countdown
+                    .store(1, Ordering::Release);
+                assert!(store.stage_root(f.manifest.clone()).is_err());
+                store
+            };
+            if directory_sync {
+                f.files.metrics.fail_dir_sync.store(true, Ordering::Release);
+            } else {
+                f.files.metrics.fail_sync.store(true, Ordering::Release);
+            }
+            assert!(
+                store.stage_root(f.manifest.clone()).is_err(),
+                "an unproved root bypassed its persistence barrier"
+            );
+            store.stage_root(f.manifest.clone()).unwrap();
+        }
+    }
+}
+
+#[test]
 fn root_metadata_failure_does_not_refund_data_or_change_an_existing_root() {
     let f = Fixture::new(0);
     let store = f.store();
@@ -966,8 +1026,10 @@ fn sealed_image_retention_never_waits_for_another_physical_operation() {
     let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
     let metadata = std::thread::spawn(move || {
         let result = worker
-            .retain_image_reference([3; 32], 1, &root)
-            .and_then(|()| worker.release_reference([3; 32], 1));
+            .validate_image_seal(&root)
+            .and_then(|()| worker.retain_image_reference([3; 32], 1, &root))
+            .and_then(|()| worker.release_reference([3; 32], 1))
+            .and_then(|()| worker.retire_image_root(&root));
         done_tx.send(result).unwrap();
     });
     let completed = done_rx.recv_timeout(std::time::Duration::from_secs(5));
@@ -1017,6 +1079,15 @@ fn sealed_retention_requires_this_owner_live_revision_and_healthy_inventory() {
         .seal_image_root(other.manifest.clone(), &mut vec![0; EXTENT_BYTES as usize])
         .unwrap();
     assert_eq!(image.reference(), foreign_image.reference());
+    store.validate_image_seal(&image).unwrap();
+    assert!(matches!(
+        store.validate_image_seal(&foreign_image),
+        Err(StoreError::Layout)
+    ));
+    assert!(matches!(
+        store.retire_image_root(&foreign_image),
+        Err(StoreError::Layout)
+    ));
     assert!(matches!(
         store.retain_image_reference([1; 32], 1, &foreign_image),
         Err(StoreError::Layout)
@@ -1037,9 +1108,76 @@ fn sealed_retention_requires_this_owner_live_revision_and_healthy_inventory() {
         .is_err());
     assert!(store.usage().unwrap().quarantined);
     assert!(matches!(
+        store.validate_image_seal(&image),
+        Err(StoreError::Quarantined)
+    ));
+    assert!(matches!(
         store.retain_image_reference([1; 32], 4, &image),
         Err(StoreError::Quarantined)
     ));
+    assert!(matches!(
+        store.retire_image_root(&image),
+        Err(StoreError::Quarantined)
+    ));
+}
+
+#[test]
+fn sealed_retirement_preserves_pins_and_active_marker_references() {
+    let f = Fixture::new(0);
+    let store = f.store();
+    f.fill(&store);
+    let image = store
+        .seal_image_root(f.manifest.clone(), &mut vec![0; EXTENT_BYTES as usize])
+        .unwrap();
+    store.retain_only(&[]).unwrap();
+    store.retain_image_reference([1; 32], 1, &image).unwrap();
+    store.retire_image_root(&image).unwrap();
+    assert_eq!(store.reclaim(32).unwrap(), 0);
+    drop(image);
+    assert_eq!(
+        store.reclaim(32).unwrap(),
+        0,
+        "native marker lost its image"
+    );
+    store.release_reference([1; 32], 1).unwrap();
+    assert_eq!(store.reclaim(32).unwrap(), f.objects.len() + 1);
+    assert_eq!(store.usage().unwrap().bytes, 0);
+}
+
+#[test]
+fn live_image_seal_cannot_override_a_failed_local_read() {
+    let f = Fixture::new(0);
+    let store = f.store();
+    f.fill(&store);
+    let image = store
+        .seal_image_root(f.manifest.clone(), &mut vec![0; EXTENT_BYTES as usize])
+        .unwrap();
+    store.validate_image_seal(&image).unwrap();
+    f.files
+        .metrics
+        .corrupt_read_countdown
+        .store(1, Ordering::Release);
+    let id = f.manifest.extent(0).unwrap();
+    assert!(image.view().read_extent(id).is_err());
+    assert!(matches!(
+        store.validate_image_seal(&image),
+        Err(StoreError::Unverified)
+    ));
+    store
+        .seal_image_root(f.manifest.clone(), &mut vec![0; EXTENT_BYTES as usize])
+        .unwrap();
+    store.validate_image_seal(&image).unwrap();
+    f.files
+        .metrics
+        .corrupt_read_countdown
+        .store(1, Ordering::Release);
+    assert!(store.stage_root(f.manifest.clone()).is_err());
+    assert!(matches!(
+        store.validate_image_seal(&image),
+        Err(StoreError::Unverified)
+    ));
+    store.stage_root(f.manifest.clone()).unwrap();
+    store.validate_image_seal(&image).unwrap();
 }
 
 #[test]
@@ -1160,4 +1298,397 @@ fn root_publication_crash_keeps_exact_marker_selection() {
     assert_eq!(store.reclaim(10).unwrap(), 1);
     assert_eq!(store.usage().unwrap().roots, 1);
     assert_eq!(f.query(&store.open_root(old_ref).unwrap()), 7);
+}
+
+#[test]
+fn parallel_publications_allow_independent_objects_without_waiting_for_a_blocked_source() {
+    let f = Fixture::new(0);
+    let store = NodeExtentStore::open_parallel(
+        f.root.path().join("store"),
+        f.files.clone(),
+        f.limits(),
+        2,
+        false,
+    )
+    .unwrap();
+    let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+    let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+    let first = store.clone();
+    let task = std::thread::spawn(move || {
+        first.put_extent(ExtentId::of(&[3; 4096]).unwrap(), |_, n| {
+            entered_tx.send(()).map_err(io::Error::other)?;
+            release_rx.recv().map_err(io::Error::other)?;
+            Ok(vec![3; n])
+        })
+    });
+    entered_rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+    let second = store.clone();
+    let other = std::thread::spawn(move || {
+        done_tx
+            .send(second.put_extent_bytes(ExtentId::of(&[4; 4096]).unwrap(), &[4; 4096]))
+            .unwrap()
+    });
+    let independent = done_rx.recv_timeout(std::time::Duration::from_secs(1));
+    release_tx.send(()).unwrap();
+    task.join().unwrap().unwrap();
+    other.join().unwrap();
+    independent
+        .expect("independent publication waited for unrelated source I/O")
+        .unwrap();
+    assert_eq!(store.usage().unwrap().objects, 2);
+    assert_eq!(store.usage().unwrap().bytes, 8192);
+}
+
+#[test]
+fn parallel_publications_bound_sources_and_release_capacity_after_completion() {
+    let f = Fixture::new(0);
+    let store = NodeExtentStore::open_parallel(
+        f.root.path().join("store"),
+        f.files.clone(),
+        f.limits(),
+        2,
+        false,
+    )
+    .unwrap();
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+    let mut releases = Vec::new();
+    let mut tasks = Vec::new();
+    for index in 0..3 {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        releases.push(tx);
+        let worker = store.clone();
+        let entered = entered_tx.clone();
+        tasks.push(std::thread::spawn(move || {
+            worker.put_extent(ExtentId::of(&[index + 1; 4096]).unwrap(), |_, n| {
+                entered.send(index).map_err(io::Error::other)?;
+                rx.recv().map_err(io::Error::other)?;
+                Ok(vec![index + 1; n])
+            })
+        }));
+        if index < 2 {
+            assert_eq!(
+                entered_rx
+                    .recv_timeout(std::time::Duration::from_secs(5))
+                    .unwrap(),
+                index
+            );
+        }
+    }
+    let third_waited = entered_rx
+        .recv_timeout(std::time::Duration::from_millis(50))
+        .is_err();
+    releases[0].send(()).unwrap();
+    let resumed = entered_rx.recv_timeout(std::time::Duration::from_secs(5));
+    for release in releases {
+        let _ = release.send(());
+    }
+    for task in tasks {
+        task.join().unwrap().unwrap();
+    }
+    assert!(third_waited, "more than two publication sources entered");
+    assert_eq!(resumed.unwrap(), 2);
+    assert_eq!(store.usage().unwrap().objects, 3);
+    assert!(!store.usage().unwrap().busy);
+}
+
+#[test]
+fn parallel_publications_exclude_duplicate_object_writers_and_charge_once() {
+    let f = Fixture::new(0);
+    let store = NodeExtentStore::open_parallel(
+        f.root.path().join("store"),
+        f.files.clone(),
+        f.limits(),
+        2,
+        true,
+    )
+    .unwrap();
+    let id = ExtentId::of(&[8; 4096]).unwrap();
+    let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+    let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+    let first = store.clone();
+    let task = std::thread::spawn(move || {
+        first.put_extent(id, |_, n| {
+            entered_tx.send(()).map_err(io::Error::other)?;
+            release_rx.recv().map_err(io::Error::other)?;
+            Ok(vec![8; n])
+        })
+    });
+    entered_rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    let second = store.clone();
+    let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+    let other = std::thread::spawn(move || {
+        done_tx.send(second.put_extent(id, |_, _| {
+        panic!("duplicate publication read its source instead of verifying the existing object")
+    })).unwrap()
+    });
+    let waited = done_rx
+        .recv_timeout(std::time::Duration::from_millis(50))
+        .is_err();
+    release_tx.send(()).unwrap();
+    task.join().unwrap().unwrap();
+    other.join().unwrap();
+    done_rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap()
+        .unwrap();
+    assert!(waited);
+    assert_eq!(store.usage().unwrap().objects, 1);
+    assert_eq!(store.usage().unwrap().bytes, 4096);
+}
+
+#[test]
+fn parallel_publications_reserve_quota_before_sources_and_gc_waits_for_inflight_files() {
+    for gc in [false, true] {
+        let f = Fixture::new(0);
+        let mut limits = f.limits();
+        if !gc {
+            limits.max_bytes = 4096;
+        }
+        let store = NodeExtentStore::open_parallel(
+            f.root.path().join("store"),
+            f.files.clone(),
+            limits,
+            2,
+            true,
+        )
+        .unwrap();
+        store.retain_only(&[]).unwrap();
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let first = store.clone();
+        let task = std::thread::spawn(move || {
+            first.put_extent(ExtentId::of(&[5; 4096]).unwrap(), |_, n| {
+                entered_tx.send(()).map_err(io::Error::other)?;
+                release_rx.recv().map_err(io::Error::other)?;
+                Ok(vec![5; n])
+            })
+        });
+        entered_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        assert_eq!(store.usage().unwrap().bytes, 4096);
+        if !gc {
+            assert!(matches!(
+                store.put_extent(ExtentId::of(&[6; 4096]).unwrap(), |_, _| panic!(
+                    "over-quota source ran"
+                )),
+                Err(StoreError::Limit)
+            ));
+            release_tx.send(()).unwrap();
+            task.join().unwrap().unwrap();
+            assert_eq!(store.usage().unwrap().bytes, 4096);
+        } else {
+            let worker = store.clone();
+            let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+            let collector = std::thread::spawn(move || done_tx.send(worker.reclaim(32)).unwrap());
+            let waited = done_rx
+                .recv_timeout(std::time::Duration::from_millis(50))
+                .is_err();
+            release_tx.send(()).unwrap();
+            task.join().unwrap().unwrap();
+            collector.join().unwrap();
+            assert_eq!(
+                done_rx
+                    .recv_timeout(std::time::Duration::from_secs(5))
+                    .unwrap()
+                    .unwrap(),
+                1
+            );
+            assert!(
+                waited,
+                "GC entered while a new file had no complete publication proof"
+            );
+            assert_eq!(store.usage().unwrap().bytes, 0);
+        }
+    }
+}
+
+#[test]
+fn parallel_publications_exclude_same_root_until_its_file_and_directory_are_durable() {
+    let f = Fixture::new(0);
+    let store = NodeExtentStore::open_parallel(
+        f.root.path().join("store"),
+        f.files.clone(),
+        f.limits(),
+        2,
+        true,
+    )
+    .unwrap();
+    let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+    let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+    let release = std::sync::Mutex::new(release_rx);
+    let first = std::sync::atomic::AtomicBool::new(true);
+    *f.files.metrics.before_file_sync.lock().unwrap() = Some(Arc::new(move |root| {
+        if root && first.swap(false, Ordering::AcqRel) {
+            entered_tx.send(()).map_err(io::Error::other)?;
+            release.lock().unwrap().recv().map_err(io::Error::other)?;
+        }
+        Ok(())
+    }));
+    f.files.metrics.file_sync_calls.store(0, Ordering::Release);
+    let owner = store.clone();
+    let manifest = f.manifest.clone();
+    let a = std::thread::spawn(move || owner.stage_root(manifest));
+    entered_rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    let owner = store.clone();
+    let manifest = f.manifest.clone();
+    let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+    let b = std::thread::spawn(move || done_tx.send(owner.stage_root(manifest)).unwrap());
+    let waited = done_rx
+        .recv_timeout(std::time::Duration::from_millis(50))
+        .is_err();
+    release_tx.send(()).unwrap();
+    let a = a.join().unwrap().unwrap();
+    b.join().unwrap();
+    let b = done_rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap()
+        .unwrap();
+    *f.files.metrics.before_file_sync.lock().unwrap() = None;
+    assert!(
+        waited,
+        "same-root publication bypassed an unfinished file barrier"
+    );
+    assert_eq!(a.reference(), b.reference());
+    assert_eq!(store.usage().unwrap().roots, 1);
+    assert_eq!(
+        store.usage().unwrap().bytes,
+        f.manifest.encode().unwrap().len() as u64
+    );
+    assert_eq!(f.files.metrics.file_sync_calls.load(Ordering::Acquire), 1);
+}
+
+#[test]
+fn parallel_publications_wake_waiters_on_panic_and_keep_uncertain_charges() {
+    let f = Fixture::new(0);
+    let store = NodeExtentStore::open_parallel(
+        f.root.path().join("store"),
+        f.files.clone(),
+        f.limits(),
+        2,
+        true,
+    )
+    .unwrap();
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+    let mut releases = Vec::new();
+    let mut tasks = Vec::new();
+    for index in 0..2 {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        releases.push(tx);
+        let worker = store.clone();
+        let entered = entered_tx.clone();
+        tasks.push(std::thread::spawn(move || {
+            worker.put_extent(ExtentId::of(&[index + 1; 4096]).unwrap(), |_, n| {
+                entered.send(index).map_err(io::Error::other)?;
+                rx.recv().map_err(io::Error::other)?;
+                assert_ne!(index, 0, "injected source panic");
+                Ok(vec![index + 1; n])
+            })
+        }));
+        assert_eq!(
+            entered_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap(),
+            index
+        );
+    }
+    let worker = store.clone();
+    let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+    let waiter = std::thread::spawn(move || {
+        done_tx
+            .send(
+                worker.put_extent(ExtentId::of(&[9; 4096]).unwrap(), |_, _| {
+                    panic!("quarantined waiter entered a source")
+                }),
+            )
+            .unwrap()
+    });
+    releases[0].send(()).unwrap();
+    let awakened = done_rx.recv_timeout(std::time::Duration::from_secs(5));
+    releases[1].send(()).unwrap();
+    let second = tasks.pop().unwrap().join().unwrap();
+    assert!(tasks.pop().unwrap().join().is_err());
+    waiter.join().unwrap();
+    assert!(matches!(awakened.unwrap(), Err(StoreError::Quarantined)));
+    assert!(matches!(second, Err(StoreError::Quarantined)));
+    assert!(store.usage().unwrap().quarantined);
+    assert!(!store.usage().unwrap().busy);
+    assert_eq!(store.usage().unwrap().bytes, 8192);
+}
+
+#[test]
+fn a_directory_barrier_never_covers_names_registered_after_it_started() {
+    let f = Fixture::new(0);
+    let store = NodeExtentStore::open_parallel(
+        f.root.path().join("store"),
+        f.files.clone(),
+        f.limits(),
+        2,
+        true,
+    )
+    .unwrap();
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+    let (first_tx, first_rx) = std::sync::mpsc::sync_channel(1);
+    let (second_tx, second_rx) = std::sync::mpsc::sync_channel(1);
+    let first = std::sync::Mutex::new(first_rx);
+    let second = std::sync::Mutex::new(second_rx);
+    let calls = AtomicUsize::new(0);
+    *f.files.metrics.before_directory_sync.lock().unwrap() = Some(Arc::new(move || {
+        let index = calls.fetch_add(1, Ordering::AcqRel);
+        entered_tx.send(index).map_err(io::Error::other)?;
+        match index {
+            0 => first.lock().unwrap().recv().map_err(io::Error::other)?,
+            1 => second.lock().unwrap().recv().map_err(io::Error::other)?,
+            _ => panic!("unexpected directory barrier"),
+        }
+        Ok(())
+    }));
+    let first = store.clone();
+    let a = std::thread::spawn(move || {
+        first.put_extent_bytes(ExtentId::of(&[1; 4096]).unwrap(), &[1; 4096])
+    });
+    assert_eq!(
+        entered_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap(),
+        0
+    );
+    let second = store.clone();
+    let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+    let b = std::thread::spawn(move || {
+        done_tx
+            .send(second.put_extent_bytes(ExtentId::of(&[2; 4096]).unwrap(), &[2; 4096]))
+            .unwrap()
+    });
+    // B has a later namespace epoch, regardless of what the underlying first
+    // fsync happens to flush. It must receive another completed barrier.
+    let waited_first = done_rx
+        .recv_timeout(std::time::Duration::from_millis(50))
+        .is_err();
+    first_tx.send(()).unwrap();
+    assert_eq!(
+        entered_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap(),
+        1
+    );
+    let waited_second = done_rx
+        .recv_timeout(std::time::Duration::from_millis(50))
+        .is_err();
+    second_tx.send(()).unwrap();
+    a.join().unwrap().unwrap();
+    b.join().unwrap();
+    done_rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap()
+        .unwrap();
+    *f.files.metrics.before_directory_sync.lock().unwrap() = None;
+    assert!(waited_first && waited_second);
 }

@@ -382,7 +382,7 @@ impl Images {
         match (self, preview) {
             (Self::Materialized(store), Preview::Materialized(pin)) => Ok(store.retire(pin.id())?),
             (Self::Extents { store, .. }, Preview::Rooted(root)) => {
-                Ok(store.retire_root(root.reference())?)
+                Ok(store.retire_image_root(root)?)
             }
             _ => anyhow::bail!("preview storage kind differs"),
         }

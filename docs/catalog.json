@@ -554,6 +554,42 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/client-ledger-optimization-2026-10-29.md",
+      "title": "Benchmark client ledger optimization",
+      "summary": "Record bounded client evidence, compatible ledger barriers, and matched read-throughput verification.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/dense-durability-2026-10-28.md",
+      "title": "Dense cell state durability experiment — 2026-10-28–29",
+      "summary": "Record the three-node RustFS durability experiment with ten one-GiB cells and its qualification limits.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/empty-state-durability-2026-10-29.md",
+      "title": "Empty-state durability experiment — 2026-10-29",
+      "summary": "Compare Quorum, Fleet, and Bucket durability using ten initially empty cells on the same constrained nodes.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/javascript-bridge-performance-2026-10-22.md",
       "title": "JS/TS bridge performance — 2026-10-22",
       "summary": "Compare recorded V8 and Node bridge measurements, failure cases, workload assumptions, and reproduction inputs.",
@@ -1157,6 +1193,78 @@
       "path": "design/per-cell-filesystem-implementation.md",
       "title": "Per-cell filesystem primitive implementation and qualification plan",
       "summary": "Sequence filesystem delivery packages, acceptance oracles, cross-language coverage, and release evidence.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/quorum-append-segments-2026-10-29.md",
+      "title": "Append-segment image persistence",
+      "summary": "Describe opt-in append-segment image persistence, group barriers, recovery and GC boundaries, and matched verification.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/quorum-image-optimization-2026-10-29.md",
+      "title": "Quorum image pipeline optimization — 2026-10-29",
+      "summary": "Record image staging, preparation, and publication optimizations with preserved durability proof boundaries.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/quorum-parallel-publication-2026-10-29.md",
+      "title": "Quorum image publication: bounded concurrency and persistence batching",
+      "summary": "Record bounded independent publication, compatible persistence barriers, detailed phase timers, and latency experiments.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/quorum-throughput-diagnosis-2026-10-29.md",
+      "title": "Quorum versus Fleet throughput diagnosis — 2026-10-29",
+      "summary": "Explain the measured Quorum versus Fleet write gap using leader and follower image-persistence stages.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/read-performance-verification-2026-10-29.md",
+      "title": "Read performance verification",
+      "summary": "Verify warm follower read throughput and latency for file and append inventories without per-response evidence syncs.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/readers-32-64-verification-2026-10-29.md",
+      "title": "Verification at 32 and 64 readers",
+      "summary": "Verify shared-cell read throughput, tail latency, evidence persistence, and reader participation at concurrency 32 and 64.",
       "roles": [
         "builder",
         "platform",

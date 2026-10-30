@@ -20,6 +20,12 @@ pub(crate) enum Change {
     Initialize {
         database_bytes: usize,
     },
+    /// Dense benchmark setup only; each block contains one MiB of hash output.
+    Populate {
+        seed: u64,
+        block: usize,
+        blocks: usize,
+    },
     Transfer {
         expected_revision: u64,
         value: i64,
@@ -68,7 +74,6 @@ impl Sql for CommandTransaction<'_> {
     }
 }
 
-#[cfg(test)]
 impl Sql for rusqlite::Connection {
     fn execute(&self, statement: &str, params: &[rusqlite::types::Value]) -> Result<usize> {
         Ok(self.execute(statement, rusqlite::params_from_iter(params))?)
@@ -80,6 +85,36 @@ impl Sql for rusqlite::Connection {
 }
 
 pub(crate) fn apply(sql: &impl Sql, change: Change) -> Result<Transition> {
+    if let Change::Populate {
+        seed,
+        block,
+        blocks,
+    } = change
+    {
+        ensure!(
+            (1..=4).contains(&blocks) && block.checked_add(blocks).is_some_and(|end| end <= 1024),
+            "dense seed bound"
+        );
+        sql.execute("CREATE TABLE IF NOT EXISTS dense_padding(block INTEGER PRIMARY KEY, bytes BLOB NOT NULL)", &[])?;
+        for index in block..block + blocks {
+            let mut bytes = Vec::with_capacity(1024 * 1024);
+            for offset in 0..32768u64 {
+                let mut hash = Sha256::new();
+                hash.update(seed.to_le_bytes());
+                hash.update((index as u64).to_le_bytes());
+                hash.update(offset.to_le_bytes());
+                bytes.extend_from_slice(&hash.finalize());
+            }
+            sql.execute(
+                "INSERT INTO dense_padding VALUES(?1,?2)",
+                &[i64::try_from(index)?.into(), bytes.into()],
+            )?;
+        }
+        return Ok(Transition {
+            state: sql.state()?,
+            changed: true,
+        });
+    }
     if let Change::Initialize { database_bytes } = change {
         ensure!(database_bytes <= 8 * 1024 * 1024, "database seed bound");
         sql.execute("CREATE TABLE workload(id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL, left_value INTEGER NOT NULL, right_value INTEGER NOT NULL, payload_sha256 TEXT NOT NULL, payload BLOB NOT NULL)", &[])?;
@@ -109,7 +144,7 @@ pub(crate) fn apply(sql: &impl Sql, change: Change) -> Result<Transition> {
             value,
             payload,
         } => (expected_revision, Some(value), payload),
-        Change::Initialize { .. } => unreachable!(),
+        Change::Initialize { .. } | Change::Populate { .. } => unreachable!(),
     };
     ensure!(payload.len() <= 64 * 1024, "payload bound");
     let Some(left) = left.filter(|left| (0..=1000000).contains(left)) else {
@@ -140,6 +175,52 @@ pub(crate) fn apply(sql: &impl Sql, change: Change) -> Result<Transition> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dense_blocks_are_real_bounded_and_unique() -> Result<()> {
+        let sql = rusqlite::Connection::open_in_memory()?;
+        apply(&sql, Change::Initialize { database_bytes: 0 })?;
+        let before = sql.state()?;
+        apply(
+            &sql,
+            Change::Populate {
+                seed: 0,
+                block: 0,
+                blocks: 2,
+            },
+        )?;
+        let (count, bytes): (i64, i64) = sql.query_row(
+            "SELECT count(*),sum(length(bytes)) FROM dense_padding",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        assert_eq!((count, bytes), (2, 2 * 1024 * 1024));
+        let first: Vec<u8> =
+            sql.query_row("SELECT bytes FROM dense_padding WHERE block=0", [], |row| {
+                row.get(0)
+            })?;
+        assert!(first.iter().any(|byte| *byte != 0));
+        assert_eq!(sql.state()?, before);
+        assert!(apply(
+            &sql,
+            Change::Populate {
+                seed: 0,
+                block: 0,
+                blocks: 1
+            }
+        )
+        .is_err());
+        assert!(apply(
+            &sql,
+            Change::Populate {
+                seed: 0,
+                block: usize::MAX,
+                blocks: 4
+            }
+        )
+        .is_err());
+        Ok(())
+    }
 
     #[test]
     fn conditional_results_and_payloads_survive_sqlite_reopen() -> Result<()> {

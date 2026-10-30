@@ -25,6 +25,19 @@ The library connects each contract to implementation and evidence. Recorded test
 | Sandbox providers | [Compatibility and delivery](sandbox-provider-compatibility.md) | [Implementation ledger](sandbox-provider-progress.md) | [Provider SDK](../../crates/cellar-container/README.md) |
 | Durable agents | [Live trial](vercel-agent-live-qualification.md) | [RustFS recovery trial](vercel-agent-rustfs-qualification.md) | [Agent example](../../examples/vercel-agent/README.md) |
 
+## Image persistence performance
+
+These experiments use constrained three-node fleets and retain their original
+source identities and qualification limits. Append segments remain opt-in.
+
+| Read when investigating | Record |
+| --- | --- |
+| Dense and initially empty cells | [One-GiB experiment](dense-durability-2026-10-28.md), [empty-state comparison](empty-state-durability-2026-10-29.md) |
+| Quorum versus Fleet latency | [Pipeline diagnosis](quorum-throughput-diagnosis-2026-10-29.md) |
+| Staging, preparation and publication | [Image optimization](quorum-image-optimization-2026-10-29.md), [parallel publication and barrier batching](quorum-parallel-publication-2026-10-29.md) |
+| Append-segment storage and recovery | [Contract and matched results](quorum-append-segments-2026-10-29.md) |
+| Read throughput and client evidence | [File/append comparison](read-performance-verification-2026-10-29.md), [client ledger optimization](client-ledger-optimization-2026-10-29.md), [32/64 readers](readers-32-64-verification-2026-10-29.md) |
+
 ## Completed foundation and console work
 
 These records describe completed local implementation boundaries. Their evidence does not qualify later releases or broader deployment targets.

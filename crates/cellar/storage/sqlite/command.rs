@@ -138,6 +138,9 @@ impl CommandDatabase {
         inputs: CommandInputs,
         callback: impl FnOnce(&Connection, &CommandTransaction<'_>) -> Result<T>,
     ) -> Result<T> {
+        let _sql = cellar_ltx::internal::image_timing::span(
+            cellar_ltx::internal::image_timing::Phase::Sql,
+        );
         super::as_storage_transaction(|| self.connection.execute_batch("BEGIN IMMEDIATE"))?;
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             callback(
