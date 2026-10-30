@@ -230,7 +230,9 @@ impl Cells {
                 if authority.state().cell() != &cell {
                     return Err(ExecutionError::Invalid("initialization cell history"));
                 }
-                authority.check().map_err(crate::raft::execution::authority_failure)?;
+                authority
+                    .check()
+                    .map_err(crate::raft::execution::authority_failure)?;
                 if let Some(record) = authority.state().record() {
                     if record.cell() != &cell || record.creation() != attempt.creation {
                         return Err(ExecutionError::Refused(CommandFailure::CommandConflict));

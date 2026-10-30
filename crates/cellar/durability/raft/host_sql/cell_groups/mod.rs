@@ -438,7 +438,9 @@ impl CellGroupSqlPool {
         {
             return Err(ExecutionError::Invalid("cell SQL engine owner"));
         }
-        authority.check().map_err(crate::raft::execution::authority_failure)?;
+        authority
+            .check()
+            .map_err(crate::raft::execution::authority_failure)?;
         if options.application_digest() != authority.state().route().schema_digest {
             return Err(ExecutionError::Invalid("enrollment schema"));
         }
