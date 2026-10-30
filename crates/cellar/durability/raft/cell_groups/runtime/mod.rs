@@ -180,7 +180,7 @@ impl CellGroupRuntime {
                 domain: domain.clone(),
                 budget: Budget::new(options.max_request_bytes, options.max_requests),
                 completions: Budget::new(options.max_ready_bytes, COMPLETION_SLOTS),
-                read_pins: Budget::new(options.max_request_bytes, options.max_pending_reads),
+                read_pins: Budget::new(options.max_read_pin_bytes, options.max_pending_reads),
                 options: options.clone(),
                 requests: sender,
                 closing: closing.clone(),

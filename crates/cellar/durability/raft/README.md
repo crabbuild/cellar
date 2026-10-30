@@ -162,11 +162,14 @@ Neither path needs a new quorum. Future versions wait under the same original
 deadline, while wrong histories or inconsistent equal-sequence images refuse.
 
 Waiting reads and returned pins use a separate node budget of `max_pending_reads`
-items and `max_request_bytes` bytes; each group admits at most
+items and `max_read_pin_bytes` bytes; each group admits at most
 `(max_pending_reads / 8).clamp(1, 32)` items under the same byte ceiling. Selecting
 an image extends the reservation to its logical bytes plus metadata, refusing
 before delivery if the ceiling is exceeded. This is a conservative pin-retention
-bound, not a claim that every image byte is resident. Reads release ordinary peer
+bound, not a claim that every image byte is resident. The pin-byte limit defaults
+to 64 MiB and can cover the native image-size envelope independently of transport
+limits; configure it for the largest admitted images and concurrent reads.
+Reads release ordinary peer
 queue slots before waiting for quorum/apply. Cancellation, deadlines and shutdown
 retire pending waiters; returned pins keep their reservations until consumed or
 dropped.

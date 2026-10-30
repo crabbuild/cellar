@@ -51,7 +51,7 @@ impl Reads {
             groups: BTreeMap::new(),
             nonce,
             sequence: 0,
-            max_bytes: options.max_request_bytes,
+            max_bytes: options.max_read_pin_bytes,
             max_items: (options.max_pending_reads / 8).clamp(1, 32),
         }
     }

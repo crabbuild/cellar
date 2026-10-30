@@ -42,7 +42,7 @@ async fn selected(
     );
     tokio::pin!(read);
     loop {
-        tokio::select! {
+        cellar::asyncrt::select! {
             result = &mut read => return result.map_err(Into::into),
             result = async {
                 fixture.pump(&[], &mut BTreeMap::new()).await?;

@@ -122,9 +122,13 @@ pub struct RaftRuntimeOptions {
     pub max_proposal_bytes: usize,
     pub max_members_per_group: usize,
     /// Bounds protocol read states and a separate shared-cell read/pin budget.
-    /// That budget charges logical image bytes against max_request_bytes, with
-    /// at most (max_pending_reads / 8).clamp(1, 32) read pins per group.
+    /// At most (max_pending_reads / 8).clamp(1, 32) read pins belong to one group.
     pub max_pending_reads: usize,
+    /// Logical image bytes plus 4 KiB per waiting read or selected pin, retained
+    /// through query execution. Separate from transport request capacity; both
+    /// node and group pin admission use this byte ceiling. No memory is allocated
+    /// merely by configuring this limit.
+    pub max_read_pin_bytes: usize,
     /// Shared-group creation admission counts applied cells and pending accepted
     /// enrollments. A lower limit does not prevent existing cells from serving.
     /// max_requests also bounds leader-local pending cell acceptance records.
@@ -149,6 +153,7 @@ impl Default for RaftRuntimeOptions {
             max_proposal_bytes: 16 * 1024 * 1024,
             max_members_per_group: 7,
             max_pending_reads: 256,
+            max_read_pin_bytes: 64 * 1024 * 1024,
             max_cells_per_group: 1_000_000,
         }
     }
@@ -185,6 +190,10 @@ impl RaftRuntimeOptions {
             || self.max_members_per_group > 16
             || self.max_pending_reads == 0
             || self.max_pending_reads > 4096
+            || self.max_read_pin_bytes < 4096
+            || self.max_read_pin_bytes as u128
+                > (cellar_ltx::stream_snapshot::MAX_IMAGE_BYTES as u128 + 4096)
+                    * self.max_pending_reads as u128
             || self.max_cells_per_group == 0
             || self.max_cells_per_group > 1_000_000
         {
@@ -193,5 +202,41 @@ impl RaftRuntimeOptions {
             ));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_pin_capacity_is_independent_of_transport_and_bounds_images() {
+        let log = ReplicaLogOptions::new(
+            PathBuf::from("read-bounds"),
+            NodeId::new([1; 16]).unwrap(),
+            DiskLineage::new([2; 16]).unwrap(),
+            ProcessGeneration::new([3; 16]).unwrap(),
+            LogOpenMode::Create,
+        );
+        let mut options = RaftRuntimeOptions::default();
+        assert!(options.validate(&log).is_ok());
+        let maximum_pin = cellar_ltx::stream_snapshot::MAX_IMAGE_BYTES as u128 + 4096;
+        // On narrower platforms the accounting type itself bounds the image.
+        options.max_read_pin_bytes = usize::try_from(maximum_pin).unwrap_or(usize::MAX);
+        assert_eq!(options.max_request_bytes, 64 * 1024 * 1024);
+        assert!(options.validate(&log).is_ok());
+        options.max_read_pin_bytes = 4095;
+        assert!(options.validate(&log).is_err());
+        options.max_read_pin_bytes = 4096;
+        assert!(options.validate(&log).is_ok());
+        let envelope = maximum_pin * options.max_pending_reads as u128;
+        if let Ok(envelope) = usize::try_from(envelope) {
+            options.max_read_pin_bytes = envelope;
+            assert!(options.validate(&log).is_ok());
+            if let Some(too_large) = envelope.checked_add(1) {
+                options.max_read_pin_bytes = too_large;
+                assert!(options.validate(&log).is_err());
+            }
+        }
     }
 }
