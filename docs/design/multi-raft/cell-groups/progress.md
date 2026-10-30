@@ -10,6 +10,57 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 remote enrollment through the shared write owner
+
+Qualified source: `0fe665d0267f1b831b172aad5e8d435f5bf0cd39`.
+
+`CellEnrollmentInvocation` now consumes catalog attempts over the same bounded
+write exchange as commands. An authenticated mandatory purpose distinguishes
+Query, Command and Enrollment; marker 1 has no reader for the old boolean purpose.
+The existing exact controller registration and namespace/process write grants
+admit compiled initializers. Read permission, discovery and voter membership
+cannot authorize creation. The router still allocates no local group replica.
+
+Creation identity, captured clock/random inputs and preview identity are frozen
+before discovery and retained through retries. Original attempt/deadline budgets
+remain in force. The receiver checks fresh catalog group/schema/epoch/birth and
+actual leader authority before handing initialization to the controller. Followers
+return NotLeader; a leader awaiting apply still returns NotReady internally.
+Disconnect, permission revocation and response expiry cannot discard accepted
+controller ownership. A possibly transmitted invocation cannot be reused as fresh
+local enrollment.
+
+Success returns the exact committed creation record with bounded reply admission.
+The original enrollment image survives later mutations; duplicate retries return
+that record without initialization or reverting current cell state. The record
+is not a current-version token. Creation/incarnation conflicts remain typed.
+Command and enrollment requests share physical TLS exchange and reservation code,
+so there is no second per-peer write connection or independent budget.
+
+Four new native cases run four TLS endpoints in one OS process in both image
+modes. They cover missing/read-only write permission, voter/follower refusal,
+exact creation receipts, duplicate creation after a later remote command,
+creation/incarnation conflicts, consumed attempts, original deadlines, reply
+reservations, gateway drop and refusal to treat routed work as fresh local work.
+Held initialization tests disconnect and revocation. A held committed manifest
+publication tests response expiry followed by exact creation recovery. Three
+wire cases verify captured inputs/preview, bounded payloads, authenticated purpose
+separation and creation/cell/schema/image reply binding.
+
+All 216 selected Rust cases and eleven gate commands pass, including all-target
+Clippy, formatting, layout, native dependency isolation, docs, source preflight
+and 37 plan-validator cases. The record at
+`.cellar/cell-groups-evidence/CG-04-enrollment-rpc/checkpoint.json` binds 276
+source inputs and 4 copied executables. Transfer this entire directory with
+prior checkpoints. Targeted runs remain diagnostic evidence.
+
+CG-04 remains IN_PROGRESS. The next request-path gap is standalone safe receipt
+lookup after an ambiguous response. Public SDK/discovery, dynamic roster and
+lazy group birth, per-group failure isolation and configuration lifecycle remain.
+The shared lane still serializes exchanges per peer. Complete-group snapshots,
+archive/reclamation, shared RustFS recovery, independent-process faults and load
+remain unqualified; no throughput or latency improvement is claimed.
+
 ## CG-04 write-authorized remote commands
 
 Qualified source: `5fd4443796a6e990fbe70c16acb7fa5578b7e763`.

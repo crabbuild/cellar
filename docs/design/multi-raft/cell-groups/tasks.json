@@ -518,7 +518,10 @@
         "crates/cellar/durability/raft/command_cell_wire.rs",
         "crates/cellar/durability/raft/command_cell_transport.rs",
         "crates/cellar/durability/raft/cell_groups/dispatch/command/remote.rs",
-        "crates/cellar/tests/support/cell_group_remote_commands.rs"
+        "crates/cellar/tests/support/cell_group_remote_commands.rs",
+        "crates/cellar/durability/raft/enrollment_cell_wire.rs",
+        "crates/cellar/durability/raft/cell_groups/dispatch/enrollment_remote.rs",
+        "crates/cellar/tests/support/cell_group_remote_enrollment.rs"
       ],
       "test_target": "native_cell_groups_execution",
       "steps": [
@@ -665,11 +668,20 @@
           ]
         },
         {
-          "action": "Connect remote shared commands to the existing bounded RPC lane and controller. Authenticate command purpose separately from read payloads, require independent bounded namespace/process write grants even for voters, and include those grants in endpoint consistency, process refresh, fleet revocation and pool lifecycle. Preserve captured inputs, immutable command identity, remaining timeout and attempt budget. Destination fresh catalog binding precedes actual leader/SQL authority; only committed exact receipts and signed cell observations return success. Disconnect/revocation cannot cancel already admitted ownership. Also run all query_wire tests, including shared_command_wire_preserves_inputs_and_refuses_query_payloads, shared_command_purpose_is_authenticated_and_cannot_reuse_read_reply and shared_command_results_bind_identity_history_and_typed_refusals. Remote enrollment and standalone safe receipt lookup remain separate required integration. Run command_grants_bound_tombstones_without_changing_read_permission in the full transport suite to qualify independent read grants, write tombstone caps and shared-pool cleanup. Distinguish follower execution-authority requests as NotLeader from leaders awaiting durable apply (NotReady); preserve stale captured-authority checks.",
+          "action": "Connect remote shared commands to the existing bounded RPC lane and controller. Authenticate command purpose separately from read payloads, require independent bounded namespace/process write grants even for voters, and include those grants in endpoint consistency, process refresh, fleet revocation and pool lifecycle. Preserve captured inputs, immutable command identity, remaining timeout and attempt budget. Destination fresh catalog binding precedes actual leader/SQL authority; only committed exact receipts and signed cell observations return success. Disconnect/revocation cannot cancel already admitted ownership. Also run all query_wire tests, including shared_command_wire_preserves_inputs_and_refuses_query_payloads, shared_command_purpose_is_authenticated_and_cannot_reuse_read_reply and shared_command_results_bind_identity_history_and_typed_refusals. Standalone safe receipt lookup remains required integration; remote enrollment is specified in the following step. Run command_grants_bound_tombstones_without_changing_read_permission in the full transport suite to qualify independent read grants, write tombstone caps and shared-pool cleanup. Distinguish follower execution-authority requests as NotLeader from leaders awaiting durable apply (NotReady); preserve stale captured-authority checks.",
           "tests": [
             "shared_remote_commands_require_write_grants_and_exact_receipts",
             "shared_remote_commands_survive_disconnected_sql_waiters",
             "shared_remote_command_revocation_preserves_admitted_ownership"
+          ]
+        },
+        {
+          "action": "Route enrollment through the same bounded write RPC exchange, explicit namespace/process grants and exact controller registration as commands. Authenticate Query, Command and Enrollment as distinct mandatory purposes under marker 1, with no legacy reader. Preserve creation identity, captured inputs, preview identity and original routing budget. Recheck fresh destination catalog and leader authority before transferring initialization to the controller; return only the exact committed creation record, never treat the initial image as a current version token. Reuse shared reply budgets and preserve ownership after response disconnect, revocation and publication deadline. Run all query_wire tests including shared_enrollment_wire_preserves_captured_identity_and_inputs, shared_enrollment_purpose_cannot_be_reinterpreted_as_command_or_read and shared_enrollment_reply_binds_creation_cell_schema_and_initial_image, plus all existing command/query and controller enrollment regressions. Standalone safe receipt lookup, dynamic roster and public SDK cutover remain open.",
+          "tests": [
+            "shared_remote_enrollment_requires_write_grants_and_exact_creation",
+            "shared_remote_enrollment_survives_disconnected_initializer",
+            "shared_remote_enrollment_revocation_retains_admitted_creation",
+            "shared_remote_enrollment_resolves_after_publication_deadline"
           ]
         }
       ],
@@ -1286,6 +1298,46 @@
         {
           "name": "shared_remote_command_revocation_preserves_admitted_ownership",
           "oracle": "During a held admitted command, revoke the explicit write grant. The remote response terminates ambiguously while controller ownership remains. Stale grant revisions refuse; after physical completion a newer grant allows the original committed receipt to be returned without another callback. Run both image modes with no read grant.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_remote_enrollment_requires_write_grants_and_exact_creation",
+          "oracle": "Over real TLS in both image modes, nonmember ingress without write grants, read-only ingress and voter membership cannot enroll. A fully registered follower with a write grant returns NotLeader before initialization. Leader admission returns the exact creation identity and original image; duplicate enrollment after a later remote command preserves the original record without rerunning initialization. Creation/incarnation conflicts refuse. Consumed attempts, original deadlines, response admission and gateway drop remain enforced; routed work cannot masquerade as fresh local work.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_remote_enrollment_survives_disconnected_initializer",
+          "oracle": "Hold entered initialization, disconnect the remote waiter, and verify controller ownership survives while network admission drains. Release SQL and retry the exact creation identity; one initialized cell and the committed creation record survive in both image modes.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_remote_enrollment_revocation_retains_admitted_creation",
+          "oracle": "Revoke explicit write permission while initialization is physically held. The remote error remains ambiguous and controller ownership remains until the creation resolves. Renew permission and recover the exact record without rerunning initialization, in both image modes.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_remote_enrollment_resolves_after_publication_deadline",
+          "oracle": "Hold committed manifest publication until the remote deadline expires. The caller receives an ambiguous error while the controller retains accepted creation. Release publication and retry the same identity; the exact original record returns with one initialization in both image modes.",
           "invariants": [
             "I01",
             "I03",

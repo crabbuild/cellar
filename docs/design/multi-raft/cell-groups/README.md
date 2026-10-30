@@ -220,6 +220,14 @@ cases and eleven commands; transfer `.cellar/cell-groups-evidence/CG-04-command-
 (273 source inputs, 4 executables). Remote enrollment, standalone receipt lookup
 and the public SDK cutover remain open; CG-04 remains IN_PROGRESS.
 
+At `0fe665d0`, remote enrollment shares the bounded command exchange, explicit
+write grants and exact controller registration. Creation receipts survive later
+mutations and retries; admitted initialization survives disconnect/revocation and
+publication deadline. The partial gate passes 216 Rust cases and eleven commands;
+transfer `.cellar/cell-groups-evidence/CG-04-enrollment-rpc/` (276 source inputs,
+4 executables). Safe standalone receipt lookup and public SDK cutover remain;
+CG-04 remains IN_PROGRESS.
+
 The implementation executor should deliver code, updated component contracts and
 the required retained evidence for each task on the active PR. The final handoff
 requires CG-16 and the release gate, including the real RustFS and independent

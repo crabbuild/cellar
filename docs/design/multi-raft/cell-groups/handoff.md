@@ -15,7 +15,24 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The newest reviewed source baseline is `5fd44437`, adding remote commands over
+The newest reviewed source baseline is `0fe665d0`, adding remote enrollment over
+the same bounded write exchange and exact controller registration as commands.
+Query, Command and Enrollment have distinct authenticated mandatory purposes.
+Explicit namespace/process write grants gate initialization; discovery/read grants
+and voter membership do not. Captured creation identity, inputs, preview and
+original routing budget survive transport. Receiver fresh catalog/leader checks
+precede controller ownership, which survives disconnect, revocation and expiry.
+Exact committed creation records survive later mutations and duplicate retries.
+Four both-image native cases plus three wire cases qualify these boundaries.
+The record at `.cellar/cell-groups-evidence/CG-04-enrollment-rpc/checkpoint.json`
+binds 216 Rust cases, eleven commands, 276 source inputs and 4 executables.
+Transfer this directory with previous evidence. CG-04 remains IN_PROGRESS. Next
+implement standalone safe receipt lookup: validate the registered contract and
+request identity, inspect the committed cell image without invoking application
+code, and keep absence ambiguous unless the existing reconciliation proof excludes
+the original proposal. Public SDK/discovery, dynamic roster and per-group failure
+isolation follow. Shared RustFS recovery and load remain unqualified.
+The preceding reviewed source baseline is `5fd44437`, adding remote commands over
 the bounded TLS application RPC lane. Mandatory authenticated command purpose and
 independent namespace/process write grants prevent read/voter authority from
 becoming write permission. The exact controller owns accepted work through
@@ -492,8 +509,8 @@ Do not let plan maintenance replace implementation.
    requires replicated transfer seals and serving-admission invalidation, linked
    to CG-09. Do not substitute a TTL or cached hint for that authority contract.
    Remote commands now use explicit write grants and response-independent
-   controller producers. Keep read grants independent. Add remote enrollment and
-   standalone safe receipt lookup without treating missing local state as proof
+   controller producers; enrollment now shares that write path. Keep read grants
+   independent. Add standalone safe receipt lookup without treating missing state as proof
    of non-commit or replaying unresolved callbacks.
    The old host refuses registered initializers until its actual replacement;
    do not remove that refusal without a functioning shared serving path. Request

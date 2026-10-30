@@ -130,7 +130,7 @@ removed. A replaced discovery view refuses captured requests and late replies;
 removal does not revoke the destination's independently managed namespace grant.
 Grant revocation cancels read waiters without releasing physically entered SQL.
 The public host must supply trusted discovery and explicit permissions; automatic
-discovery/SDK binding, remote enrollment and standalone receipt lookup remain
+discovery/SDK binding and standalone receipt lookup remain
 integration work.
 
 Remote commands use the same bounded application RPC lane with a mandatory,
@@ -151,6 +151,17 @@ exact committed command identity/result and an authenticated logical cell token;
 conflict, expiration and sequence-gap refusals remain typed. Retain caller reply
 byte admission through consumption. Retry the same identity and input under the
 original budget; a committed duplicate must not re-execute application code.
+Remote enrollment uses the same bounded write exchange, namespace/process grants
+and exact controller registration. The mandatory authenticated purpose distinguishes
+Query, Command and Enrollment under marker 1. A command payload cannot be decoded
+as an initializer call. Capture creation identity, host inputs and preview identity
+before discovery; retries retain them and the original route/deadline budget.
+Receiver enrollment verifies a fresh catalog binding and actual leader authority
+before initialization. Its admitted controller owner survives disconnect,
+revocation and response deadline. Return only the exact committed creation record,
+including the original enrollment image after later mutations. That record is not
+a current-version token. Conflicting creation/incarnation refuses without replay.
+
 The current lane serializes RPC exchanges per peer; this is not load qualification.
 
 ## Apply, checkpoint and archive
