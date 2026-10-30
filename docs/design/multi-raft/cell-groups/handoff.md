@@ -15,7 +15,26 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The newest reviewed source baseline is `fbc15053`, adding standalone local and
+The newest reviewed source baseline is `4326421a`, adding bounded dynamic group
+registration and empty-controller startup. Exact engine/root/applier page ownership
+and exclusive transport registration precede existing bootstrap revalidation.
+The applier is registered before attachment can emit events; active membership
+still requires a successful attachment and serving requires current-term quorum.
+Pending groups share capacity with active groups, and queued/unconsumed work uses
+the existing item/byte budget. Lost waiters cannot abandon attachment; shutdown
+joins it before closing physical services. Failed slots release before response.
+Four native cases cover both image modes, live TLS progress during a catalog
+stall, ownership/capacity refusals, failed registration retry, cancelled close,
+and all-voter joined engine/page-store restart into empty controllers with exact
+receipt replay. Image-store handles remain live in one process.
+The record `.cellar/cell-groups-evidence/CG-04-dynamic-registration/checkpoint.json`
+binds 231 Rust cases, twelve commands, 281 source inputs and 4 executables.
+Transfer this ignored evidence directory with previous checkpoints. CG-04 remains
+IN_PROGRESS. Next isolate group-local failures without closing healthy groups
+(shared engine sync failures still quarantine the engine), then wire
+request-driven provisioning/lazy birth into registration. Configuration lifecycle,
+public SDK cutover and shared RustFS/load remain unfinished.
+The preceding reviewed source baseline is `fbc15053`, adding standalone local and
 remote receipt inspection with distinct authenticated purpose and explicit command
 permission. Registered contract/digest/identity validation precedes immutable SQL
 on a fresh catalog-bound quorum image. Exact retained results and ambiguous
@@ -508,24 +527,24 @@ boundary. At the end of each turn, record the completed behavior, evidence and
 limits, then identify the most critical remaining gap and the concrete next step.
 Do not let plan maintenance replace implementation.
 
-1. Deliver bounded dynamic controller registration and lazy group birth. The
-   current controller has a fixed roster, although command, enrollment, query and
-   receipt dispatch now reuse its shared owners. Define one registration lifecycle
-   spanning runtime, transport and applier; revalidate catalog admission before
-   serving and retain physical ownership through cancellation or close. Test
-   duplicate/foreign registration, capacity, attach/close races, failed birth and
-   selected-root restart while another group continues serving. Pair this with
-   per-group failure isolation: quarantine a failed group without closing healthy
-   groups or discarding retained SQL/apply work. These are the critical gaps for
-   continuing CG-04, before exposing the public SDK replacement.
-   Keep explicit write grants independent from read grants. Standalone lookup now
-   preserves ambiguous absence and never replays or retires unresolved callbacks.
-   Destination routing still requires fresh catalog admission: removing that read
-   depends on replicated transfer seals and serving-admission invalidation in
-   CG-09. A TTL or cached hint cannot substitute for that authority.
-   Connect public `RaftCellHandle` and automatic discovery only through the actual
-   shared host. Keep the old host's initializer refusal until replacement.
-   Request and namespace S3 minima must refuse until CG-06 provides archive proofs.
+1. Deliver per-group failure isolation. Dynamic registration now adds groups
+   without rebuilding the controller, but a group-local fatal apply/command/event
+   still closes the node. Add an explicit quarantined group lifecycle that revokes
+   serving, keeps ambiguous producers and physical apply ownership, and permits
+   unrelated groups to progress. Qualify group-local apply failure and unresolved command
+   ownership while another group serves; do not discard work to make it continue.
+   Separately verify that a shared log-engine sync failure still quarantines all
+   groups on that engine, as required by design.md.
+   Then connect request-driven group provisioning/lazy birth to register(). The
+   caller currently prepares the exact bootstrap permit and selected root; a host
+   must bound catalog selection, physical preparation and concurrent birth before
+   transferring them. Reuse the existing admission and cancellation owners.
+   Keep read and command grants independent. Receipt absence remains ambiguous.
+   Destination catalog caching still depends on replicated transfer seals and
+   serving-admission invalidation in CG-09. Do not substitute a TTL for authority.
+   Connect public RaftCellHandle/discovery only through the actual replacement
+   host, preserving the old initializer refusal until cutover. Quorum/S3 minima
+   must refuse unsupported archive guarantees until CG-06 supplies real proofs.
 2. Complete CG-04's production retry/cache lifecycle and configuration-entry
    handling, then its full gate before DONE. Use selected-root recovery at startup.
    Whole-process kill/power-loss remains distinct from the qualified directory-sync

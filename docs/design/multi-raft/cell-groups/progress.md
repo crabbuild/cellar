@@ -10,6 +10,58 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 dynamic controller registration
+
+Qualified source: `4326421a94c4f9a257bf6ceb8e0f7e518eacf3de`.
+
+`CellGroupController::register` now adds a group without replacing the controller
+or creating per-cell workers. Controllers may start empty. Pending and active
+groups share a capacity bound; queued attachment and unconsumed replies retain
+the existing item/byte budget. Command, enrollment and receipt dispatch consult
+the live roster under short locks rather than copying it for each invocation.
+
+Admission binds the bootstrap permit, selected root, applier and physical route
+to the same engine/history/schema. The applier must own the exact manifest page
+store that verified the root. Its event registration precedes polling attachment,
+so early consensus and apply events remain owned. Runtime attachment revalidates
+the catalog permit before active membership is published. Registration alone
+never grants application authority; current-term quorum remains required.
+
+The transport registration refuses adoption of an existing route. Its cleanup
+compares exact route ownership so it cannot erase a replacement. A disconnected
+waiter cannot abandon attachment or release its group slot. Definite failures
+release group capacity before responding. Shutdown joins entered catalog/runtime
+attachment before closing physical dependencies. Unexpected competing runtime
+owners or runtime-wide closure keep the existing conservative node shutdown.
+
+Four new native cases run both image modes over real engines and TLS. Held
+catalog reads leave an already active group serving. Duplicate and pending/active
+capacity checks, foreign engines/roots/page owners, failed catalog retry and
+cancelled close exercise ownership boundaries. Recovery joins all controllers,
+closes and reopens all voter engines under a new process generation, reopens page
+stores and registers selected roots into empty controllers. Fresh quorum returns
+the prior exact receipt without another SQL mutation. Image-store handles remain
+in the same process; this does not qualify independent-process or power loss.
+The first diagnostic run exposed an obsolete catalog stall key and an attempted
+page-store reopen while the engines correctly retained page pins. The corrected
+fixtures preserve those safeguards and are retained with the passing evidence.
+
+All 231 selected Rust cases and twelve commands pass, including all-target Clippy,
+formatting, layout, dependency isolation, docs, source preflight and 37 validator
+cases. `.cellar/cell-groups-evidence/CG-04-dynamic-registration/checkpoint.json`
+binds 281 source inputs and 4 copied executables. Transfer this ignored
+local directory with prior checkpoints; it is not included in the PR.
+
+CG-04 remains IN_PROGRESS. The critical next gap is per-group failure isolation:
+a group-local apply/command failure currently closes the node controller.
+Quarantine that group, revoke serving authority and retain its physical owners
+through cleanup, while proving that a healthy group continues. Shared log-engine
+sync failure must still quarantine every group on the affected engine.
+Request-driven provisioning/lazy birth must still connect catalog selection and
+bounded local preparation to this registration API. Configuration lifecycle and public SDK discovery/cutover remain
+open, followed by the CG-05–16 dependencies. Shared-group RustFS recovery and load
+remain unqualified; no throughput or latency gain is claimed.
+
 ## CG-04 standalone receipt inspection
 
 Qualified source: `fbc15053f8dcfd3b46078abad3cbbae7b68da8d6`.

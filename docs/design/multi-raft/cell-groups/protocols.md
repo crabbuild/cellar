@@ -179,6 +179,24 @@ and sequence-gap failures. Only a sequence-1 image can lack both receipt tables;
 partial schema or later schema loss refuses as corruption. Missing and an empty
 committed result have distinct wire encodings and API results.
 
+The controller accepts bounded dynamic group registrations, including startup
+with an empty roster. A registration supplies the exact bootstrap permit, verified
+selected root, applier owning the same manifest page store, and physical peer
+route. Pending and active groups share the group limit; pending work and unconsumed
+replies also retain the existing item/byte budget. A pre-existing physical route
+cannot be silently adopted. Cleanup removes only the exact registered route and
+cannot erase a replacement view.
+
+The worker installs the applier before polling runtime attachment so early
+consensus events cannot escape ownership. Attachment revalidates catalog claims;
+only successful completion publishes application roster membership, and serving
+still requires fresh current-term quorum. Dropping a registration waiter cannot
+cancel this work. Definite failures release their slot before responding. Shutdown
+joins entered catalog/attachment futures before closing transport, SQL and the
+runtime. A competing external runtime owner or runtime-wide failure still closes
+the controller conservatively. Request-driven provisioning/lazy birth, per-group
+failure isolation and configuration lifecycle remain separate unfinished work.
+
 The current lane serializes RPC exchanges per peer; this is not load qualification.
 
 ## Apply, checkpoint and archive

@@ -524,7 +524,9 @@
         "crates/cellar/tests/support/cell_group_remote_enrollment.rs",
         "crates/cellar/durability/raft/cell_groups/dispatch/receipt.rs",
         "crates/cellar/durability/raft/receipt_cell_wire.rs",
-        "crates/cellar/tests/support/cell_group_receipt_lookup.rs"
+        "crates/cellar/tests/support/cell_group_receipt_lookup.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/registration.rs",
+        "crates/cellar/tests/support/cell_group_registration.rs"
       ],
       "test_target": "native_cell_groups_execution",
       "steps": [
@@ -693,6 +695,15 @@
             "shared_receipt_lookup_requires_grants_and_never_executes_commands",
             "shared_receipt_lookup_keeps_unresolved_producers_at_capacity",
             "shared_receipt_lookup_cancellation_preserves_active_writer"
+          ]
+        },
+        {
+          "action": "Replace the fixed controller roster with bounded dynamic registration, including empty-controller startup. Reserve pending plus active group slots and shared command item/byte admission before transfer. Bind exact engine/history/schema, selected root and applier page owner; install an exclusively owned physical route without adopting a prior registration. Register the applier before polling attachment so early consensus/apply events remain owned. Revalidate the bootstrap catalog through the existing runtime attach path; expose application roster membership only after success, with fresh quorum still required. Retain attachment through response cancellation and join catalog/runtime attachment before closing physical dependencies. Release definite failures before responding; unexpected competing runtime owners or runtime closure keep the conservative node shutdown boundary. Configuration changes, per-group failure isolation and request-driven lazy birth/public SDK binding remain incomplete. Run the full transport and shared runtime suites.",
+          "tests": [
+            "dynamic_registration_preserves_live_groups_and_disconnected_waiters",
+            "dynamic_registration_refuses_foreign_owners_and_retries_failed_catalog",
+            "dynamic_registration_joins_attachment_before_cancelled_shutdown",
+            "dynamic_registration_recovers_selected_roots_into_an_empty_controller"
           ]
         }
       ],
@@ -1379,6 +1390,46 @@
         {
           "name": "shared_receipt_lookup_cancellation_preserves_active_writer",
           "oracle": "Hold a local controller command inside SQL, queue a remote lookup on a bounded two-slot fixture worker, then disconnect the lookup. Network admission drains while the active writer remains controller-owned. Release SQL, join the cancelled read, and inspect the committed receipt without a second command callback in both image modes.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "dynamic_registration_preserves_live_groups_and_disconnected_waiters",
+          "oracle": "Three real voter controllers register a second group while its catalog reads are held; the first group continues replicated SQL apply. Pending and active slots enforce the same capacity, duplicate attachment refuses, and disconnected registration waiters cannot abandon ownership. After revalidation the new group establishes quorum and runs registered enrollment and exact creation retry through the shared SQL workers and TLS pools, in both image modes.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "dynamic_registration_refuses_foreign_owners_and_retries_failed_catalog",
+          "oracle": "Reject foreign engines, roots and a different page owner on the same engine. Refuse adoption of an existing transport route. A real bootstrap catalog-read failure releases only the failed registration slot/route; an already serving group continues. Retry the same prepared history successfully and enroll after real quorum, in both image modes.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "dynamic_registration_joins_attachment_before_cancelled_shutdown",
+          "oracle": "Hold real catalog revalidation after registration admission, drop the response and cancel the close waiter. The controller retains the pending slot and runtime engine claim until attachment joins. After release, close finishes and a replacement runtime may start; run both image modes.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "dynamic_registration_recovers_selected_roots_into_an_empty_controller",
+          "oracle": "After registering and mutating a group, join all controllers, close and reopen all engines from the existing voter disks under a new process generation, reopen manifest page owners and recover selected roots into fresh empty controllers. Attachment alone refuses leader authority; fresh quorum then returns the prior exact receipt without another SQL mutation. Verify the persisted value and cell sequence in both image modes. Image-store handles remain in the same process. This is joined engine/runtime/page-store restart, not independent-process or power-loss qualification.",
           "invariants": [
             "I01",
             "I03",

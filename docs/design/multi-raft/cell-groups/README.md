@@ -236,6 +236,13 @@ returns signed observations and keeps absence ambiguous. The partial gate passes
 4 executables). Dynamic group lifecycle/lazy birth and per-group failure
 isolation are next; CG-04 remains IN_PROGRESS and public cutover is still pending.
 
+At `4326421a`, controllers admit bounded dynamic registrations and may start empty.
+Catalog/root/page ownership, fresh quorum, response-independent attachment and
+joined shutdown remain enforced. The partial gate passes 231 Rust cases and twelve
+commands; transfer `.cellar/cell-groups-evidence/CG-04-dynamic-registration/`
+(281 source inputs, 4 executables). Per-group failure isolation and
+request-driven lazy birth are next; CG-04 and public cutover remain incomplete.
+
 The implementation executor should deliver code, updated component contracts and
 the required retained evidence for each task on the active PR. The final handoff
 requires CG-16 and the release gate, including the real RustFS and independent
