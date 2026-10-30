@@ -180,6 +180,9 @@ pub struct Store {
     pub view_waiting: AtomicBool,
     pub view_resume: tokio::sync::Notify,
     pub fail_directory_reads: AtomicBool,
+    pub hold_group_head_reads: AtomicBool,
+    pub active_group_head_reads: AtomicUsize,
+    pub group_head_reads_resume: tokio::sync::Notify,
     pub hold_view_reads: AtomicBool,
     pub view_reads: AtomicUsize,
     pub active_view_reads: AtomicUsize,
@@ -581,6 +584,26 @@ impl ObjectStore for Store {
             && self.fail_directory_reads.load(Ordering::Acquire)
         {
             return Err(failure());
+        }
+        if path.filename() == Some("head") {
+            struct Reading<'a>(&'a AtomicUsize);
+
+            impl Drop for Reading<'_> {
+                fn drop(&mut self) {
+                    self.0.fetch_sub(1, Ordering::AcqRel);
+                }
+            }
+            self.active_group_head_reads.fetch_add(1, Ordering::AcqRel);
+            let _reading = Reading(&self.active_group_head_reads);
+            loop {
+                let resumed = self.group_head_reads_resume.notified();
+                tokio::pin!(resumed);
+                resumed.as_mut().enable();
+                if !self.hold_group_head_reads.load(Ordering::Acquire) {
+                    break;
+                }
+                resumed.await;
+            }
         }
         if path.filename() == Some("view") {
             self.view_reads.fetch_add(1, Ordering::AcqRel);

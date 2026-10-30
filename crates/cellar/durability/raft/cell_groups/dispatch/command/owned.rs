@@ -2,7 +2,6 @@
 
 //! Controller-only execution: response expiry never cancels a physical phase.
 use super::*;
-use std::collections::BTreeSet;
 use tokio::sync::watch;
 
 impl CellCommandInvocation {
@@ -76,7 +75,7 @@ impl CellCommandInvocation {
         runtime: &CellGroupRuntime,
         sql: &CellGroupSqlPool,
         options: CellSqlOptions,
-        roster: &BTreeSet<cellar_logic::cell_group::GroupHistory>,
+        roster: &crate::raft::cell_groups::controller::GroupRoster,
         progress: &mut watch::Receiver<()>,
     ) -> Result<CellCommandResponse, CellCommandError> {
         self.begin().await?;
@@ -89,7 +88,7 @@ impl CellCommandInvocation {
         runtime: &CellGroupRuntime,
         sql: &CellGroupSqlPool,
         options: CellSqlOptions,
-        roster: &BTreeSet<cellar_logic::cell_group::GroupHistory>,
+        roster: &crate::raft::cell_groups::controller::GroupRoster,
         progress: &mut watch::Receiver<()>,
     ) -> Result<CellCommandResponse, CellDispatchError> {
         let attempt = self
@@ -100,7 +99,10 @@ impl CellCommandInvocation {
         self.session
             .validate_attempt(&attempt)
             .map_err(CellDispatchError::Routing)?;
-        if !roster.contains(&attempt.route().history) {
+        if !roster
+            .contains(&attempt.route().history)
+            .map_err(CellDispatchError::Runtime)?
+        {
             return Err(CellDispatchError::Runtime(RuntimeError::NotFound));
         }
         self.dispatched = true;

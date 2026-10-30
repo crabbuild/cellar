@@ -570,3 +570,9 @@ mod receipt_lookup;
 pub(crate) use receipt_lookup::{
     receipt_lookup_cancelled, receipt_lookup_ingress, receipt_lookup_pending,
 };
+
+#[path = "cell_group_registration.rs"]
+mod registration;
+pub(crate) use registration::{
+    registration_close, registration_live, registration_recovery, registration_refusals,
+};

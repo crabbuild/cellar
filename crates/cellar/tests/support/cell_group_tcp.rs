@@ -21,7 +21,10 @@ pub(super) fn tls() -> Result<RaftTls> {
     )?)
 }
 
-async fn start(runtime: &CellGroupRuntime, n: usize) -> Result<RaftTransport, TransportError> {
+pub(super) async fn start(
+    runtime: &CellGroupRuntime,
+    n: usize,
+) -> Result<RaftTransport, TransportError> {
     RaftTransport::start_shared(
         runtime.clone(),
         Arc::new(

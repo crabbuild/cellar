@@ -34,6 +34,8 @@ pub(super) struct Worker {
     requests: tokio::sync::mpsc::Receiver<requests::Request>,
     commands: FuturesUnordered<BoxFuture<'static, requests::Completed>>,
     failed_command: Option<requests::Completed>,
+    registrations: FuturesUnordered<BoxFuture<'static, registration::Completed>>,
+    routes: BTreeMap<GroupHistory, crate::raft::transport::PhysicalRegistration>,
     progress: tokio::sync::watch::Sender<()>,
 }
 
@@ -62,6 +64,8 @@ impl Worker {
             requests,
             commands: FuturesUnordered::new(),
             failed_command: None,
+            registrations: FuturesUnordered::new(),
+            routes: BTreeMap::new(),
             progress: tokio::sync::watch::channel(()).0,
         }
     }
@@ -125,7 +129,28 @@ impl Worker {
                         .saturating_add(self.limits.retry_interval_ms);
                 },
                 Some(request) = self.requests.recv() => {
-                    self.commands.push(Box::pin(requests::drive(request, self.runtime.clone(), self.sql.clone(), self.shared.clone(), self.progress.subscribe())));
+                    match request {
+                        requests::Request::Registration(request) => {
+                            let group = request.registration.applier.history();
+                            if self.roster.insert(group, request.registration.applier.clone()).is_some() {
+                                return Err(CellGroupControllerError::Invalid("duplicate registered applier"));
+                            }
+                            self.registrations.push(Box::pin(registration::drive(*request, self.runtime.clone(), self.transport.clone())));
+                        }
+                        other => self.commands.push(Box::pin(requests::drive(other, self.runtime.clone(), self.sql.clone(), self.shared.clone(), self.progress.subscribe()))),
+                    }
+                }
+                Some(completed) = self.registrations.next(), if !self.registrations.is_empty() => {
+                    let group = completed.group;
+                    let uncertain = completed.uncertain();
+                    match completed.finish(false) {
+                        Ok(Some(guard)) => { self.routes.insert(group, guard); }
+                        Ok(None) => unreachable!("active registration completion"),
+                        Err(error) => {
+                            self.roster.remove(&group);
+                            if uncertain { return Err(error); }
+                        }
+                    }
                 }
                 Some(completed) = self.commands.next(), if !self.commands.is_empty() => {
                     if let Some(error) = completed.failure() {
@@ -190,6 +215,13 @@ impl Worker {
     }
 
     pub(super) async fn finish(&mut self) -> Result<(), CellGroupControllerError> {
+        self.requests.close();
+        while self.requests.try_recv().is_ok() {}
+        // Attachment may already own a RawNode/claim or be inside catalog I/O.
+        // Poll it through completion before closing its physical dependencies.
+        while let Some(completed) = self.registrations.next().await {
+            let _ = completed.finish(true);
+        }
         self.transport.close().await;
         let sql = self
             .sql

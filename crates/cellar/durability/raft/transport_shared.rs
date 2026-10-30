@@ -56,6 +56,25 @@ impl RaftTransport {
     /// Install already-authorized physical membership. This creates no group,
     /// grants no serving authority and changes no committed configuration.
     pub fn install_physical_group(&self, route: PhysicalRoute) -> Result<(), TransportError> {
+        self.install_physical(route, false).map(|_| ())
+    }
+
+    pub(crate) fn register_physical_group(
+        &self,
+        route: PhysicalRoute,
+    ) -> Result<PhysicalRegistration, TransportError> {
+        let route = self.install_physical(route, true)?;
+        Ok(PhysicalRegistration {
+            state: Arc::downgrade(&self.handle.0),
+            route,
+        })
+    }
+
+    fn install_physical(
+        &self,
+        route: PhysicalRoute,
+        exclusive: bool,
+    ) -> Result<Arc<PhysicalRoute>, TransportError> {
         let state = &self.handle.0;
         let runtime = state.runtime.shared()?;
         let group = runtime
@@ -110,8 +129,11 @@ impl RaftTransport {
             return Err(TransportError::Identity);
         }
         if let Some(old) = registry.physical_groups.get(&route.scope) {
+            if exclusive {
+                return Err(TransportError::Identity);
+            }
             if **old == route {
-                return Ok(());
+                return Ok(old.clone());
             }
             if old.revision >= route.revision || old.schema_digest != route.schema_digest {
                 return Err(TransportError::StalePeer);
@@ -159,12 +181,20 @@ impl RaftTransport {
             }
         }
         let starts = state.prepare_pools(&mut registry, &physical)?;
-        registry
-            .physical_groups
-            .insert(route.scope, Arc::new(route));
+        let route = Arc::new(route);
+        registry.physical_groups.insert(route.scope, route.clone());
         registry.prune_pools();
         drop(registry);
-        state.start_pools(starts)
+        if let Err(error) = state.start_pools(starts) {
+            if exclusive {
+                drop(PhysicalRegistration {
+                    state: Arc::downgrade(state),
+                    route,
+                });
+            }
+            return Err(error);
+        }
+        Ok(route)
     }
 
     pub fn remove_physical_group(&self, history: &GroupHistory) -> Result<(), TransportError> {
@@ -371,5 +401,29 @@ impl Registry {
             return Err(TransportError::StalePeer);
         }
         Ok(())
+    }
+}
+
+/// Removing an old registration must never remove a replacement route.
+pub(crate) struct PhysicalRegistration {
+    state: std::sync::Weak<State>,
+    route: Arc<PhysicalRoute>,
+}
+
+impl Drop for PhysicalRegistration {
+    fn drop(&mut self) {
+        let Some(state) = self.state.upgrade() else {
+            return;
+        };
+        if let Ok(mut registry) = state.registry.lock() {
+            if registry
+                .physical_groups
+                .get(&self.route.scope)
+                .is_some_and(|r| Arc::ptr_eq(r, &self.route))
+            {
+                registry.physical_groups.remove(&self.route.scope);
+                registry.prune_pools();
+            }
+        };
     }
 }

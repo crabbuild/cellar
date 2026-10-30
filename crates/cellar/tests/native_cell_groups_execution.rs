@@ -1545,3 +1545,23 @@ async fn shared_receipt_lookup_keeps_unresolved_producers_at_capacity() -> Resul
 async fn shared_receipt_lookup_cancellation_preserves_active_writer() -> Result<()> {
     Box::pin(runtime_fixture::receipt_lookup_cancelled()).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn dynamic_registration_preserves_live_groups_and_disconnected_waiters() -> Result<()> {
+    runtime_fixture::registration_live().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn dynamic_registration_refuses_foreign_owners_and_retries_failed_catalog() -> Result<()> {
+    runtime_fixture::registration_refusals().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn dynamic_registration_joins_attachment_before_cancelled_shutdown() -> Result<()> {
+    runtime_fixture::registration_close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn dynamic_registration_recovers_selected_roots_into_an_empty_controller() -> Result<()> {
+    runtime_fixture::registration_recovery().await
+}

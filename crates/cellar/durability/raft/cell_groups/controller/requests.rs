@@ -4,6 +4,7 @@
 use super::*;
 
 pub(super) enum Request {
+    Registration(Box<registration::Request>),
     Command(Box<commands::Request>),
     Enrollment(Box<enrollments::Request>),
 }
@@ -39,6 +40,7 @@ pub(super) async fn drive(
     progress: tokio::sync::watch::Receiver<()>,
 ) -> Completed {
     match request {
+        Request::Registration(_) => unreachable!("registration has its own physical join owner"),
         Request::Command(request) => Completed::Command(Box::new(
             commands::drive(*request, runtime, sql, shared, progress).await,
         )),

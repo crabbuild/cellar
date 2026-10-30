@@ -75,6 +75,25 @@ impl CellGroupApplier {
         Arc::ptr_eq(&self.group.owner, engine)
     }
 
+    pub(crate) fn check_startup(&self, root: &PreparedGroupManifest) -> Result<(), ExecutionError> {
+        let owner = self.storage.try_lock().map_err(|error| match error {
+            std::sync::TryLockError::WouldBlock => ExecutionError::Busy,
+            std::sync::TryLockError::Poisoned(_) => {
+                ExecutionError::Invalid("poisoned registration applier")
+            }
+        })?;
+        if !self.belongs_to_engine(&root.engine_owner)
+            || self.history() != root.marker().route().history
+            || !Arc::ptr_eq(&owner.pages.owner, &root.page_owner)
+            || self.group.group_manifest().map_err(storage)?.as_ref() != Some(root.marker())
+        {
+            return Err(ExecutionError::Invalid(
+                "registration selected root/page owner",
+            ));
+        }
+        Ok(())
+    }
+
     pub(crate) fn reservation_bytes(&self, work: &CellGroupApply) -> Result<usize, ExecutionError> {
         self.check(work)?;
         let owner = self.storage.try_lock().map_err(|error| match error {

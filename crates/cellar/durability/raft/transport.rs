@@ -22,6 +22,7 @@ use ::raft::prelude::{Message, MessageType};
 use cellar_logic::consensus::{ClusterId, GroupScope, NamespaceId, NodeId, ReplicaIdentity};
 use protobuf::Message as _;
 use serde::{Deserialize, Serialize};
+pub(crate) use shared::PhysicalRegistration;
 use shared::SendRoute;
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;

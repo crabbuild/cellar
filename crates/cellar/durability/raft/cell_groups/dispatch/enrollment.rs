@@ -9,7 +9,6 @@ use crate::raft::execution::CellEnrollmentAttempt;
 use crate::storage::CommandInputs;
 use cellar_logic::consensus::{CommandFailure, Durability};
 use cellar_ltx::generation::ImageId;
-use std::collections::BTreeSet;
 use tokio::sync::watch;
 
 #[derive(Clone, Copy)]
@@ -204,7 +203,7 @@ impl CellEnrollmentInvocation {
         runtime: &CellGroupRuntime,
         sql: &CellGroupSqlPool,
         options: CellSqlOptions,
-        roster: &BTreeSet<cellar_logic::cell_group::GroupHistory>,
+        roster: &crate::raft::cell_groups::controller::GroupRoster,
         progress: &mut watch::Receiver<()>,
     ) -> Result<CellSqlEnrollment, CellEnrollmentError> {
         self.started = true;
@@ -218,7 +217,7 @@ impl CellEnrollmentInvocation {
         runtime: &CellGroupRuntime,
         sql: &CellGroupSqlPool,
         options: CellSqlOptions,
-        roster: &BTreeSet<cellar_logic::cell_group::GroupHistory>,
+        roster: &crate::raft::cell_groups::controller::GroupRoster,
         progress: &mut watch::Receiver<()>,
     ) -> Result<CellSqlEnrollment, CellDispatchError> {
         let attempt = if self.remote_route.is_some() {
@@ -239,7 +238,10 @@ impl CellEnrollmentInvocation {
         self.session
             .validate_attempt(&attempt)
             .map_err(CellDispatchError::Routing)?;
-        if !roster.contains(&attempt.route().history) {
+        if !roster
+            .contains(&attempt.route().history)
+            .map_err(CellDispatchError::Runtime)?
+        {
             return Err(CellDispatchError::Runtime(RuntimeError::NotFound));
         }
         let authority = runtime

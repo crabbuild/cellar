@@ -1,6 +1,6 @@
 <!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
 
-# Cell-group durable state
+# Cell-group state and execution
 
 CG-02's storage boundary is qualified. The component supplies immutable manifest pages, their filesystem owner, complete-root
 preparation and atomic Raft Engine root publication. Production host admission
@@ -323,6 +323,29 @@ makes subsequent routing failures carry its original ambiguous command ID; a
 redirect never proves the earlier proposal uncommitted. Physical command producers
 remain the dispatcher's responsibility and must outlive cancelled waiters.
 
-This component prepares routing for the shared host. Native tests exercise real
-conditional directory changes and controlled reads, not synthetic serving proofs.
-It does not dispatch commands or qualify the production routing integration.
+The directory supplies routing observations, not serving authority. The shared
+dispatcher and controller combine those observations with actual quorum, SQL and
+transport ownership. The public host cutover remains unfinished.
+
+
+## Dynamic controller registration
+
+`CellGroupController::register` adds a prepared group to a running node, including
+one whose initial roster is empty. The caller supplies a bootstrap permit,
+verified selected root, the applier owning that root's manifest page store, and
+an authenticated physical peer route. Pending and active groups share the group
+limit; attachment and unconsumed replies also use the shared item/byte budget.
+Admission failure returns the prepared owners. After admission, dropping the
+response does not cancel attachment.
+
+The worker registers the applier before polling runtime attachment, revalidates
+the catalog permit through the existing runtime, and activates roster membership
+only after success. Current-term quorum is still required for serving. Physical
+route registration refuses adopting an existing route; cleanup checks exact route
+identity. Failed attachment releases its group slot before publishing a refusal.
+Shutdown joins attachment before closing transport, SQL and consensus ownership.
+
+A fatal group apply/command currently closes the controller. Per-group failure
+isolation, request-driven group provisioning, configuration lifecycle and public
+SDK integration remain unfinished. See the delivery package for qualification
+status; dynamic registration does not establish those later capabilities.

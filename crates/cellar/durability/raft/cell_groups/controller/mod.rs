@@ -1,13 +1,18 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Owns a fixed roster's consensus events, transport dispatch and physical apply.
+//! Owns registered groups' consensus events, transport dispatch and physical apply.
 //! Admitted command ownership survives response cancellation and expiry.
 
 mod calls;
 mod commands;
 mod enrollments;
+mod registration;
 mod requests;
 pub use enrollments::{CellEnrollmentAdmissionError, CellEnrollmentCall};
+pub(crate) use registration::GroupRoster;
+pub use registration::{
+    CellGroupRegistration, CellGroupRegistrationCall, CellGroupRegistrationError,
+};
 mod worker;
 pub use commands::{CellCommandAdmissionError, CellCommandCall};
 
@@ -18,7 +23,7 @@ use crate::raft::{
     transport::{RaftTransport, TransportError},
 };
 use futures_util::FutureExt;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     Arc, Mutex,
@@ -31,7 +36,7 @@ pub struct CellGroupControllerLimits {
     pub max_parallel_apply: usize,
     /// One node timer backs off transient SQL admission, never one timer per cell.
     pub retry_interval_ms: u64,
-    /// Shared by commands and enrollments, including queued work, resolution
+    /// Shared by commands, enrollments and registrations, including queued work, resolution
     /// and unconsumed responses.
     pub max_commands: usize,
     /// Invocation/input/options retention. SQL capture, apply and result bytes
@@ -67,6 +72,7 @@ impl From<RuntimeError> for CellGroupControllerError {
 #[derive(Clone, Copy, Debug)]
 pub struct CellGroupControllerUsage {
     pub groups: usize,
+    pub pending_registrations: usize,
     pub active_apply: usize,
     pub pending_apply: usize,
     pub applied: u64,
@@ -81,7 +87,7 @@ pub struct CellGroupControllerUsage {
 struct Shared {
     runtime: CellGroupRuntime,
     sql: crate::raft::host_sql::cell_groups::WeakCellGroupSqlPool,
-    groups: BTreeSet<cellar_logic::cell_group::GroupHistory>,
+    groups: Arc<GroupRoster>,
     limits: CellGroupControllerLimits,
     domain: crate::asyncrt::DomainToken,
     commands: Arc<crate::raft::budget::Budget>,
@@ -138,7 +144,7 @@ impl Drop for Handle {
     }
 }
 
-/// One worker per node, with a bounded fixed roster and no cell-specific tasks.
+/// One worker per node, with a bounded dynamic roster and no cell-specific tasks.
 /// Dropping the final public handle requests joined shutdown. An explicit close
 /// is required to observe its result. Runtime/transport/pool clones remain
 /// usable during operation; closing this owner closes all three services.
@@ -153,8 +159,8 @@ impl CellGroupController {
     }
 
     /// Consume the exclusive event receiver after validating exact engine and
-    /// runtime ownership. Every listed group must already be attached. Later
-    /// attachment requires a future roster API; an unknown event fails closed.
+    /// runtime ownership. Initial groups must already be attached. Later groups
+    /// enter through register(); unknown events still fail closed.
     pub async fn start(
         runtime: CellGroupRuntime,
         events: CellGroupRuntimeEvents,
@@ -168,7 +174,6 @@ impl CellGroupController {
             || limits.max_parallel_apply == 0
             || limits.max_parallel_apply > limits.max_groups.min(256)
             || !(1..=60_000).contains(&limits.retry_interval_ms)
-            || appliers.is_empty()
             || appliers.len() > limits.max_groups
             || !(1..=65_536).contains(&limits.max_commands)
             || limits.max_command_bytes < 8192
@@ -200,7 +205,7 @@ impl CellGroupController {
         let shared = Arc::new(Shared {
             runtime: runtime.clone(),
             sql: sql.downgrade(),
-            groups: roster.keys().copied().collect(),
+            groups: GroupRoster::new(roster.keys().copied(), limits.max_groups),
             limits,
             domain: domain.clone(),
             commands: commands::budget(limits),
@@ -254,6 +259,7 @@ impl CellGroupController {
         let (command_bytes, retained_commands) = shared.commands.usage();
         CellGroupControllerUsage {
             groups: shared.groups.len(),
+            pending_registrations: shared.groups.pending(),
             command_bytes,
             retained_commands,
             active_apply: shared.active_apply.load(Ordering::Acquire),
@@ -290,7 +296,7 @@ impl CellGroupController {
         invocation.begin().await?;
         if !invocation
             .attempt()
-            .is_some_and(|a| shared.groups.contains(&a.route().history))
+            .is_some_and(|a| shared.groups.contains(&a.route().history).unwrap_or(false))
         {
             return Err(super::CellDispatchError::Runtime(RuntimeError::NotFound));
         }
