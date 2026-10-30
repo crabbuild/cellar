@@ -15,7 +15,15 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The reviewed source baseline is `b28078af`, adding registered commands on shared
+The reviewed source baseline is `7a79511d`, adding registered queries with exact
+cell observations on the existing workers. Its partial checkpoint is
+`.cellar/cell-groups-evidence/CG-04-registered-queries/checkpoint.json`: 319 selected
+Rust cases, seventeen successful commands, 225 source inputs and sixteen selected
+executables. Transfer its entire directory with prior evidence. Catalog/SDK
+integration remains the next critical gap; CG-04 remains IN_PROGRESS. The
+explicit temporary `QueryVersion::GroupCut` and `invoke_group_query` must be
+removed with the old host by CG-16.
+The preceding baseline is `b28078af`, adding registered commands on shared
 SQL workers and logical command/effect identities. Its partial checkpoint is
 `.cellar/cell-groups-evidence/CG-04-registered/checkpoint.json`: 295 selected Rust
 cases, seventeen successful commands, 221 source inputs and fifteen selected
@@ -134,8 +142,8 @@ the old proof. Accepted preparations retain their original position/digest even
 after apply; this remains provisional acceptance, never commitment. Prepared
 submission also closes byte-only proposal entry points on that owner.
 
-Next connect catalog routing and SDK creation/commands to the registered worker
-entry point, and integrate registered query/version-token serving. Use `CellSqlPrepared::submit` and its typed result;
+Next connect catalog routing and SDK creation/commands/queries to the registered
+worker entry points and their exact cell-version observations. Use `CellSqlPrepared::submit` and its typed result;
 never release a producer from generic overload or same-term absence. Preserve
 the original request fingerprint, deadline and attempt budget across redirects. Do not synthesize a legacy `GroupScope` to
 satisfy callback/effect identities. The arbitrary-callback `stage` API remains a verification boundary; use
@@ -235,8 +243,8 @@ owning host. Reuse the old executor's current-term
 applied-barrier rule when replacing it: a submitted producer cannot be discarded
 from a sampled leader status, timeout or missing response. Resolve the original
 command against the authoritative cell receipt before admitting another producer. These regressions supplement, and do not replace, the full task
-gate printed by `show CG-04`. Registered SDK dispatch and registered strong-read serving
-remain absent; the low-level read-authority and immutable-query paths exist.
+gate printed by `show CG-04`. Registered SDK dispatch remains absent; registered query callbacks now consume
+the existing read-authority and immutable-query paths.
 
 The selected version's complete commit witness now persists in the authenticated
 cell leaf and flows through query and receipt observations. The source-bound gate
@@ -244,8 +252,8 @@ at `ed84df5d` qualifies exact entry matching, unchanged-cell and older-pin
 provenance, restart/image-collection recovery and token round-trips in both image
 modes. Actual log-compaction and group-snapshot integration remain unqualified.
 
-Next integrate registered query callbacks and connect catalog invocation sessions
-to the registered command workers without synthesizing legacy group identities. Preserve original invocation deadlines,
+Next connect catalog invocation sessions to registered command and query workers
+without synthesizing legacy group identities. Preserve original invocation deadlines,
 contracts and retry identities. Query callbacks must receive logical cell versions;
 returned tokens must use the selected observation. `CellGroupApplier` now consumes the startup manifest-page owner, and
 `CellGroupSqlPool::prepare_apply` prepares committed cell images and complete
@@ -342,26 +350,25 @@ boundary. At the end of each turn, record the completed behavior, evidence and
 limits, then identify the most critical remaining gap and the concrete next step.
 Do not let plan maintenance replace implementation.
 
-1. Integrate registered query contexts with logical cell versions and selected
-   decision witnesses. `QueryContext` still exposes the old `CommittedVersion`;
-   the shared read path already provides `CellVersionObservation`. Preserve
-   read-only callback restrictions and version-token authentication. Do not map
-   group log progress to a cell mutation sequence. The remaining old constructors
-   are `execution/mod.rs::query_registered_controlled` and
-   `rooted/query.rs::query_registered_rooted_controlled`; both construct only a
-   group-position `CommittedVersion`. The new worker lives in
-   `host_sql/cell_groups/query.rs` and already retains the exact observation.
-2. Connect catalog invocation sessions and the production SDK dispatcher to
-   `CellGroupSqlPool::stage_registered`, initialization, coherent queries and exact
-   receipt settlement. Select classes from authorized namespace bindings, and
+1. Connect catalog invocation sessions and the production SDK dispatcher to
+   `CellGroupSqlPool::stage_registered`, `query_registered`, initialization and
+   exact receipt settlement. Select classes from authorized namespace bindings;
    preserve original deadlines, request fingerprints and total retry budgets.
-   Do not manufacture legacy group scopes or create another worker pool.
-3. Complete CG-04's production retry/cache lifecycle and configuration-entry
-   handling, then its full gate before DONE. Use the selected-root recovery API
-   at startup. Whole-process kill/power-loss remains distinct from the qualified
-   directory-sync faults and joined cold restart. Full snapshots/membership follow
-   in CG-05, archive/reclamation in CG-06, and shared effect scheduling/cache
-   lifecycle in CG-08 before the CG-07 public cutover.
+   Start with one actual catalog-routed invocation spanning enrollment, a command
+   and a linearizable query in the real three-voter fixture. Exercise a lost
+   response and catalog-confirmed redirect without replenishing the deadline or
+   attempt budget. Retain physical command producers after waiter cancellation.
+2. Complete CG-04's production retry/cache lifecycle and configuration-entry
+   handling, then its full gate before DONE. Use selected-root recovery at startup.
+   Whole-process kill/power-loss remains distinct from the qualified directory-sync
+   faults and joined cold restart. Full snapshots/membership follow in CG-05,
+   archive/reclamation in CG-06, and shared effect scheduling/cache lifecycle in
+   CG-08 before the CG-07 public cutover.
+3. Remove `QueryVersion::GroupCut` and `RaftClass::invoke_group_query` with the old
+   host by CG-16. They explicitly preserve the old in-memory group observation
+   during integration; they must not become a permanent alternate serving mode.
+   Final `QueryContext` exposes the actual cell observation directly. Never derive
+   a cell sequence or witness from a group log position.
 
 The opportunity is to reuse the now-shared consensus, SQL, read and apply paths in
 one dispatcher. Additional per-cell workers, a second production mode or a demo

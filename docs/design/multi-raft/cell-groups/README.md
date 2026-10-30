@@ -125,14 +125,21 @@ Whole-process kill and power-loss cuts remain unqualified. See the newest
 Registered command callbacks now run on shared SQL workers at `b28078af` with
 logical cell identity, pre-receipt validation and exact receipt settlement.
 Command/effect identities exclude the physical group; old signed effect layouts
-refuse under the marker-1 cutover. Shared query context, effect scheduling and
-production catalog/SDK dispatch remain incomplete. All 295 selected Rust cases
+refuse under the marker-1 cutover. At that checkpoint shared query context, effect scheduling and
+production catalog/SDK dispatch were incomplete. All 295 selected Rust cases
 and seventeen commands pass; transfer
 `.cellar/cell-groups-evidence/CG-04-registered/` with the previous evidence. Its
 checkpoint binds 221 source inputs and fifteen selected executables. See the newest
 progress record for scope and retained failures.
-Registered SDK/catalog routing, query/version-token integration,
-production retry/compaction integration and cache lifecycle remain required. Managed
+Registered shared query callbacks now receive exact logical cell observations at
+`7a79511d`, preserving selected witnesses, read-only SQL and retained physical
+ownership through cancellation and joined shutdown. The old adapters expose a
+distinct temporary group cut that CG-16 must delete. See [progress](progress.md)
+for this checkpoint's qualification: all 319 selected Rust cases and seventeen
+commands pass. Transfer `.cellar/cell-groups-evidence/CG-04-registered-queries/`
+with prior evidence; its checkpoint binds 225 source inputs and sixteen selected
+executables. Registered SDK/catalog routing, production
+retry/compaction integration and cache lifecycle remain required. Managed
 fleet integration remains required by CG-07. A birth
 metadata observation alone cannot authorize voter startup.
 

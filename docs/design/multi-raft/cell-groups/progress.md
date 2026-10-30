@@ -10,6 +10,58 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 registered queries with exact cell observations
+
+Qualified source: `7a79511d4b8606d11177778a3fe8adf71a8d901a`.
+
+`CellGroupSqlPool::query_registered` dispatches compiled queries through the
+existing coherent query owner and fixed SQL workers. It validates operation
+kind/contract and full schema before opening the selected image, bounds retained
+operation/input storage, and preserves the original authority deadline. The
+callback receives the exact `CellHistory` and `CellVersionObservation` returned
+in its result, including the selected cell's decision witness. It never derives
+a mutation sequence from group log progress.
+
+The two new three-voter cases exercise materialized and extent images. An older
+A pin returns its historical state after A and B mutate; a fresh linearizable A
+query returns A's sequence and witness independently of B's later group progress.
+Tokens round-trip the selected observation. Invalid contract, kind, operation,
+schema and input refuse before callback execution. Read-only restrictions,
+contained panics and SQL deadline interruption remain enforced. Cancelled waiters
+retain input/image/worker ownership, and shutdown joins entered callbacks before
+releasing reservations.
+
+The temporary old adapters explicitly use `QueryVersion::GroupCut` and
+`RaftClass::invoke_group_query`. These preserve the actual old in-memory group cut
+without fabricating a cell sequence. CG-16 requires removing both with the old
+host; the final context exposes the selected cell observation directly. This is
+an integration checkpoint, not a second permanent production mode.
+
+All 319 selected Rust cases pass: 280 native cases across thirteen suites,
+30 Cellar library cases, five pure cell-group core cases and four LTX image-store
+cases. The existing native read suite additionally covers current-term barriers,
+minority refusal, follower catch-up, delayed replies and version authentication.
+Six process helpers run through parent cases; three RustFS-specific cases remain
+unrun. These results do not qualify the new shared dispatcher or infrastructure.
+
+All seventeen commands pass, including all-target Clippy for
+Cellar/cellar-logic/cellar-ltx with warnings denied, formatting (1,819 Rust files),
+layout, dependency isolation, docs, source preflight and all 37 plan-validator
+cases. The retained checkpoint is
+`.cellar/cell-groups-evidence/CG-04-registered-queries/checkpoint.json`, binding
+225 source inputs and sixteen selected executables. Pre-commit library, targeted
+query, format and Clippy logs are retained separately. The branch contains latest
+fetched `origin/main` at `8a93ffd7`; the requested MR-13/MR-14 JSON files remain
+unchanged from main.
+
+CG-04 remains IN_PROGRESS. The most critical gap is catalog invocation sessions
+and production SDK dispatch into registered enrollment, command and query workers,
+with namespace-authorized classes, exact receipt settlement and original deadline,
+fingerprint and attempt budgets. Next qualify that actual routed path under lost
+responses and redirects. Reuse the existing owners instead of adding a worker
+pool. Retry/cache and configuration handling, shared effects, complete-group
+snapshots/archive, process-kill cuts and real RustFS/load gates remain unfinished.
+
 ## CG-04 registered commands and logical effect identity
 
 Qualified source: `b28078afbd243c18ac7c671a481a3e369c086ab2`.
