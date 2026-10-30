@@ -357,7 +357,15 @@ pub(crate) async fn controller_apply_faults(rooted: bool) -> Result<()> {
             )
             .await?;
         if mode == 0 {
-            wait_for(async || Ok(controllers[0].group_failure(route.history)?.is_some())).await?;
+            // The diagnostic roster changes before the runtime control request
+            // completes; wait for the actual authority fence, not scheduler timing.
+            wait_for(async || {
+                Ok(matches!(
+                    fixture.runtimes[0].status(route.history).await,
+                    Err(RuntimeError::GroupQuarantined)
+                ))
+            })
+            .await?;
             assert!(
                 matches!(controllers[0].group_failure(route.history)?, Some(CellGroupControllerError::Apply(ref error)) if matches!(error.as_ref(), ExecutionError::Storage(_)))
             );
