@@ -101,7 +101,9 @@ concurrent enrollment now run on that pool at `6e09bbc7`, including original
 creation retries, follower resolution and atomic preparation-term proposal checks.
 Bounded proposal acceptance and configured enrollment capacity are implemented at
 `446dd905`, including pending creations, exact acceptance retries, stale-base
-refusal and a shared node metadata budget. Registered SDK/catalog routing, coherent
+refusal and a shared node metadata budget. Prepared submission sealing and exact
+rejection cleanup are implemented at `0cf89c40`; see the latest checkpoint for
+qualification. Registered SDK/catalog routing, coherent
 reads, production retry/compaction integration and cache lifecycle remain required. Managed
 fleet integration remains required by CG-07. A birth
 metadata observation alone cannot authorize voter startup.

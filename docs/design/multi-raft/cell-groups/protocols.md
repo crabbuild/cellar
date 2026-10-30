@@ -56,6 +56,18 @@ replacement, resolve the receipt/creation record rather than append an old base.
 A stale-base refusal does not prove non-commitment. New leaders must apply their
 current-term barrier before admitting creations against recovered capacity.
 
+A definitive owner capacity refusal before append may retire a preparation only
+with an exact preparation-bound rejection proof. Issuing that proof irreversibly
+seals every clone against later submission, even after capacity returns. A generic
+queue error, lost response or same-term receipt absence proves nothing about an
+earlier attempt. Remember an accepted preparation's original position/digest;
+returning that acceptance again grants no commit or current authority. Keep raw
+byte submission closed once the owner receives prepared SQL work so queued raw
+retries cannot bypass the seal. A proof for another engine, cell or replacement
+preparation refuses even when the business proposal ID matches. Cleanup closes
+the private writer on its worker before releasing logical-name admission; queued
+submissions and retained outputs/proofs keep their byte reservations.
+
 Admission decisions must be checked again in committed log order against the
 current lifecycle state. Recognizing an exact retry grants neither current-term
 authority nor permission to restore the initial image over newer mutations.

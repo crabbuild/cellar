@@ -462,7 +462,9 @@
         "crates/cellar/durability/raft/execution/enrollment.rs",
         "crates/cellar/tests/support/cell_group_sql_enrollment.rs",
         "crates/cellar/durability/raft/cell_groups/proposal_admission.rs",
-        "crates/cellar/tests/support/cell_group_admission.rs"
+        "crates/cellar/tests/support/cell_group_admission.rs",
+        "crates/cellar/durability/raft/execution/submission.rs",
+        "crates/cellar/tests/support/cell_group_sql_submission.rs"
       ],
       "test_target": "native_cell_groups_execution",
       "steps": [
@@ -482,11 +484,13 @@
           ]
         },
         {
-          "action": "Implement exact per-cell output settlement and receipt retry. Group no-ops/configuration entries advance group apply without changing cell version. Reject stale term/activation/completion tickets and preserve unknown proposed outcomes. Check the prepared term atomically with proposal admission on the actual Raft owner. Bind same-term acceptance retries to the original proposal identity and bytes; a lost acceptance response must recover retained acceptance or reconcile the original receipt without appending the same mutation again. Reject changed payloads under a reused identity, and retain uncertainty across elections until an applied barrier proves resolution.",
+          "action": "Implement exact per-cell output settlement and receipt retry. Group no-ops/configuration entries advance group apply without changing cell version. Reject stale term/activation/completion tickets and preserve unknown proposed outcomes. Check the prepared term atomically with proposal admission on the actual Raft owner. Bind same-term acceptance retries to the original proposal identity and bytes; a lost acceptance response must recover retained acceptance or reconcile the original receipt without appending the same mutation again. Reject changed payloads under a reused identity, and retain uncertainty across elections until an applied barrier proves resolution. A definitive pre-append owner refusal must irreversibly seal all clones of that preparation before returning an identity-bound rejection proof. Generic queue errors cannot retire a submitted SQL producer. Close rejected producers on their owning worker before releasing name admission; delayed retries and proofs from another preparation must not affect a replacement producer.",
           "tests": [
             "cell_receipt_not_group_progress",
             "proposal_acceptance_retries_do_not_append_twice",
-            "inherited_enrollments_count_after_applied_term_barrier"
+            "inherited_enrollments_count_after_applied_term_barrier",
+            "sql_submission_rejection_seals_delayed_retries",
+            "rooted_sql_submission_rejection_seals_delayed_retries"
           ]
         },
         {
@@ -579,6 +583,26 @@
           "oracle": "Pending acceptance in one physical group exhausts the shared node budget and refuses a different group, while exact retries retain their original position. Peer persistence and durable apply still progress under saturation, releasing capacity for the other group on all voters.",
           "invariants": [
             "I04",
+            "I12"
+          ]
+        },
+        {
+          "name": "sql_submission_rejection_seals_delayed_retries",
+          "oracle": "Actual three-voter SQL initialization and mutation distinguish queue overload from definitive owner refusal. Lost rejection responses are recovered from the sealed preparation; foreign-engine, wrong-cell and same-proposal replacement proofs refuse. Old clones remain rejected after capacity returns, remembered acceptance never re-appends after apply, and worker cleanup releases names while retained outputs keep bounded reservations. Both image modes return all retained resources on close.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_sql_submission_rejection_seals_delayed_retries",
+          "oracle": "Actual three-voter SQL initialization and mutation distinguish queue overload from definitive owner refusal. Lost rejection responses are recovered from the sealed preparation; foreign-engine, wrong-cell and same-proposal replacement proofs refuse. Old clones remain rejected after capacity returns, remembered acceptance never re-appends after apply, and worker cleanup releases names while retained outputs keep bounded reservations. Both image modes return all retained resources on close.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
             "I12"
           ]
         }

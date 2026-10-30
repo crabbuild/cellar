@@ -10,6 +10,50 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 prepared submission and rejection cleanup
+
+Qualified source: `0cf89c403f4a500d18116499b8fc0f219195cd54`.
+
+A prepared SQL attempt now carries its engine, group and preparation term, with
+one submission decision shared by all clones. Exact accepted retries return the
+original provisional position/digest, including after apply. Only an actual
+owner's definitive pre-append capacity refusal seals the preparation and returns
+a rejection proof. A queue overload remains uncertain. A lost rejection response
+can be recovered from the local seal without contacting a closed runtime.
+The first prepared submission closes raw byte-only proposal paths on that owner;
+an uncertain append observation fails the owner closed rather than permitting
+another append or manufacturing a rejection proof.
+
+SQL workers match rejection proofs to the exact preparation, not merely the
+business proposal ID. Foreign engines, other cells and replacement producers
+refuse old proofs. Cleanup closes the writer before releasing logical-name
+admission. Queued submissions, prepared outputs and retained proofs keep their
+original byte/operation reservations through cancellation and lost responses.
+The real three-voter tests cover initialization and mutation in both image modes,
+including a fresh preparation with the same proposal identity after rejection.
+
+Intermediate failures exposed two fixture accounting issues. A one-slot runtime
+could refuse a read-only status poll while retaining admitted peer work; the
+fixture now retries that poll while pumping the cluster under its existing
+deadline. Completed enrollment outputs then correctly exhausted the SQL pool's
+four retained-operation reservations. The fixture now asserts that accounting,
+drops the completed phase's outputs, and asserts zero reservations/bytes before
+preparing mutations. Resource limits and rejection assertions remain unchanged.
+All 197 selected Rust cases pass at this source: 182 native cases across seven
+suites, 11 SQL queue/extent-worker unit tests and four receipt unit tests.
+All-target Clippy with warnings denied, formatting (1,802 Rust files), layout,
+dependency isolation, docs, source preflight and all 37 plan-validator tests pass.
+The checkpoint at `.cellar/cell-groups-evidence/CG-04-submission/checkpoint.json`
+binds 189 source inputs, ten successful command logs and eight copied executables.
+It retains the initial failures, diagnostic backtraces and repaired targeted run
+separately. Four process helpers run through parent tests; three RustFS-specific
+cases remain unrun.
+
+The two new cases raise the CG-04 contract to 12 required cases and the package
+to 92. No task status advances. Registered SDK/catalog dispatch, coherent reads,
+production retry/compaction integration and cache lifecycle remain required;
+this checkpoint does not qualify the complete CG-04 or release gate.
+
 ## CG-04 bounded proposal acceptance and enrollment capacity
 
 Qualified source: `446dd9057f10c8221122d0d3a9a21254adeb448f`.

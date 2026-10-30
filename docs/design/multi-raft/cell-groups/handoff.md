@@ -15,8 +15,9 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The reviewed source baseline is `446dd905`, adding bounded proposal acceptance
-and enrollment capacity. Earlier checkpoints cover shared-worker initialization
+The reviewed source baseline is `0cf89c40`, adding prepared submission sealing
+and exact rejection cleanup after bounded proposal acceptance and enrollment
+capacity (`446dd905`). Earlier checkpoints cover shared-worker initialization
 and term fencing (`6e09bbc7`, formatted at `82ae6877`), receipt lookup (`91c3ecfc`),
 applied-barrier reconciliation (`8a0cf640`), the fixed SQL pool (`51dff0e5`),
 the SQL producer (`f807b2f7`) and shared-node runtime (`aec4029e`).
@@ -81,8 +82,9 @@ Logical name admission covers both commands and initialization, including compet
 incarnations. `CellEnrollmentState` reads verified current-term applied creation
 state on leaders or followers; `resolve_enrollment` preserves the original record,
 requires a newer applied term for absent/conflicting old producers, and never
-reexecutes callbacks. Prepared outputs carry their term; use `propose_at_term` so
-the actual owner rejects old output even after that node regains leadership.
+reexecutes callbacks. Prepared outputs carry their term; the guarded submission
+path checks it on the actual owner before append, including after that node
+regains leadership. Cached acceptance grants no new authority.
 The four native cases exercise materialized/extents, concurrent creation, other
 cell progress, three cells in one group, retries after mutation, cancelled close,
 and absent/conflicting/committed enrollment recovery. All 191 selected Rust cases
@@ -107,14 +109,20 @@ source inputs and eight copied executables. See [progress](progress.md) for the
 retained intermediate failures and qualification limits. This does not complete
 CG-04.
 
+Prepared SQL submission now shares an irreversible decision across clones. Only
+an actual owner's definitive pre-append capacity refusal seals the preparation;
+a generic queue error leaves its outcome unresolved. The exact seal can be
+recovered locally after a lost response, and the worker accepts it only for that
+same preparation and engine. It closes the private producer before releasing
+name admission. A fresh preparation with the same proposal ID cannot be closed by
+the old proof. Accepted preparations retain their original position/digest even
+after apply; this remains provisional acceptance, never commitment. Prepared
+submission also closes byte-only proposal entry points on that owner.
+
 Next integrate catalog routing sessions and registered SDK creation/command
-callbacks, and coherent reads. Admission errors do not yet settle a SQL producer
-already marked submitted: an `Overloaded` response may come from a queue before
-the owner sees a retry of an earlier unknown attempt. Do not release that producer
-from a generic error or same-term receipt absence. Production dispatch needs an
-identity-bound owner rejection proof when it can establish non-acceptance, or
-must preserve uncertainty and reconcile through the existing applied-barrier path. Preserve the original request fingerprint, deadline
-and attempt budget across redirects. Do not synthesize a legacy `GroupScope` to
+callbacks, and coherent reads. Use `CellSqlPrepared::submit` and its typed result;
+never release a producer from generic overload or same-term absence. Preserve
+the original request fingerprint, deadline and attempt budget across redirects. Do not synthesize a legacy `GroupScope` to
 satisfy callback/effect identities. The callback APIs added here remain verification
 boundaries, not registered SDK entry points. Real compaction/production retries
 and preview/cache lifecycle remain required. These cases do not complete CG-04.
@@ -197,6 +205,15 @@ another machine. Missing evidence must refuse; do not replace it with a pass fla
 or reset completed tasks merely to bypass validation.
 
 The latest partial CG-04 record is
+`.cellar/cell-groups-evidence/CG-04-submission/checkpoint.json` at `0cf89c40`:
+197 selected Rust cases, ten successful commands, 189 source inputs and eight
+copied executables. Transfer the entire directory, including intermediate failures,
+with the prior evidence. Both image modes exercise rejection cleanup for creation
+and mutation, exact proof matching, remembered acceptance and delayed retries.
+This remains a partial CG-04 checkpoint; it does not qualify production dispatch,
+coherent reads, RustFS or the hard cutover.
+
+The earlier receipt-lookup partial CG-04 record is
 `.cellar/cell-groups-evidence/CG-04-receipt-lookup/checkpoint.json` at `91c3ecfc`:
 187 selected Rust cases, ten successful commands, 181 source inputs and eight
 copied executables. Transfer its entire directory with the earlier checkpoints.
@@ -216,7 +233,7 @@ The prior partial CG-04 evidence is retained at
 directory, including copied binaries and intermediate/successful logs, with the
 prior SQL-producer, runtime/owner and DONE-task evidence. The pool checkpoint
 binds 178 source inputs, eight executables, 184 selected Rust cases and ten
-verification commands. It cannot stand in for the complete six-case CG-04
+verification commands. It cannot stand in for the complete CG-04
 contract. Three RustFS-specific cases remain explicitly unrun at this checkpoint.
 
 ## Delivery sequence
@@ -236,7 +253,8 @@ an old-format migration reader; preserve marker 1 with explicit domain separatio
 and refuse unsupported persisted layouts. Never delete existing user data as
 part of the hard cutover.
 
-CG-04 needs all six named real-Raft cases: `three_cells_one_rawnode_per_voter`,
+CG-04 needs its six core real-Raft cases, plus the admission and submission cases
+listed in `tasks.json`: `three_cells_one_rawnode_per_voter`,
 `concurrent_enrollment_one_cell`, `shared_group_fair_admission`,
 `cell_receipt_not_group_progress`, `strong_read_at_group_barrier` and
 `apply_prefix_never_skips_slow_cell`. Fixing a prototype's compilation or passing
