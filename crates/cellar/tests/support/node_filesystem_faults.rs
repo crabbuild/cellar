@@ -360,7 +360,7 @@ async fn exercise(
     };
     let (isolated, delayed_lease) = if matches!(backend, Backend::S3Stalls) {
         let (bucket, delay) = StoreOutage::wrap(&isolated)?;
-        delay.delay_node_renewals(400);
+        delay.renewal_delay_ms.store(400, Ordering::Release);
         (bucket, Some(delay))
     } else {
         (isolated, None)
@@ -403,7 +403,7 @@ async fn exercise(
     ready(&owner).await?;
     if let Some(delay) = &delayed_lease {
         tokio::time::timeout(Duration::from_secs(10), async {
-            while delay.delayed_renewals() < 2 {
+            while delay.delayed_renewals.load(Ordering::Acquire) < 2 {
                 ensure!(
                     !owner.is_closed(),
                     "owner fenced before the intentional storage fault"
@@ -626,7 +626,7 @@ async fn exercise(
         "predecessor_local_data_removed":true,"successor_local_data_removed":true,
         "owner_fenced":true,"caller_executor_preserved":true,"remaining_nodes_joined":true,
         "lease_ttl_ms":lease_ttl_ms,
-        "healthy_delayed_renewals":delayed_lease.as_ref().map_or(0, |delay| delay.delayed_renewals()),
+        "healthy_delayed_renewals":delayed_lease.as_ref().map_or(0, |delay| delay.delayed_renewals.load(Ordering::Acquire)),
     });
     let names = if matches!(backend, Backend::S3Stalls) {
         [

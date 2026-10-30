@@ -18,8 +18,8 @@ pub struct Outage {
     isolated: AtomicBool,
     refused: AtomicUsize,
     lease_prefix: String,
-    renewal_delay_ms: AtomicU64,
-    delayed_renewals: AtomicUsize,
+    pub(crate) renewal_delay_ms: AtomicU64,
+    pub(crate) delayed_renewals: AtomicUsize,
 }
 
 impl Outage {
@@ -54,14 +54,6 @@ impl Outage {
 
     pub fn is_isolated(&self) -> bool {
         self.isolated.load(Ordering::Acquire)
-    }
-
-    pub fn delay_node_renewals(&self, millis: u64) {
-        self.renewal_delay_ms.store(millis, Ordering::Release);
-    }
-
-    pub fn delayed_renewals(&self) -> usize {
-        self.delayed_renewals.load(Ordering::Acquire)
     }
 
     fn check(&self) -> object_store::Result<()> {
