@@ -10,6 +10,56 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 fixed node SQL pool
+
+Qualified source: `51dff0e5abec7c2355a80e84d1b2e3ae2504e3b1`.
+
+`CellGroupSqlPool` now uses the existing fixed blocking worker pool and fairness
+queue. Requests have typed logical cell keys; the old host adapter remains
+separate during the staged cutover. The node creates no worker per enrolled cell.
+A cell's admission lease remains with queued work, its physical callback and its
+unresolved proposal, including when a caller cancels. A lost stage response can
+resume the retained proposal without running another callback. Exact settlement
+releases that cell; unrelated group progress cannot do so.
+
+Node/group quotas reserve capture capacity before queueing. Once capture ends,
+the reservation shrinks to the retained entry/result bound while keeping its
+operation slot. Prepared-response clones and receipt delivery retain that charge.
+A separate progress slot per worker permits settlement without needing ordinary
+queue admission. Extent workspaces are created and destroyed on the admitted
+blocking worker, so rejected requests cannot release their last physical workspace
+on an async executor.
+
+The pool validates the exact engine behind execution authority and claims an
+exclusive SQL lease on that engine. Its cleanup task owns every worker join;
+cancelling a close waiter cannot release a blocked callback. The engine lease
+also survives through retained response admission, preventing a replacement pool
+from bypassing live output reservations. Queue/stage/publication timers use the
+existing node performance registry.
+
+All 184 selected Rust tests pass: 168 native cases across seven suites, 11 SQL
+queue/extent-worker unit tests and five budget tests. Both new pool cases use
+actual three-voter replication and cover blocked/cancelled callbacks, independent
+cell progress, group quota refusal, exact resume, duplicate receipts, engine
+fencing, cancelled close and retained-response ownership. Four process helpers
+are invoked by parent tests; three RustFS-specific cases remain explicitly unrun.
+
+All-target Clippy with warnings denied, formatting (1,794 Rust files), module
+layout, dependency isolation, docs, reviewed source preflight and all 37 plan
+validator tests pass. The partial checkpoint at
+`.cellar/cell-groups-evidence/CG-04-sql-pool/checkpoint.json` binds 178 source inputs,
+ten command logs and eight copied executables. Intermediate logs retain the
+initial verification-export compilation error and direct-Tokio-select Clippy
+failure, as well as passes preceding the final ownership refinements. Only the
+final gate qualifies the committed source; no task status advances here.
+
+Registered SDK dispatch, concurrent enrollment, strong-read serving, preview/cache
+lifecycle and receipt reconciliation after leadership changes or compaction
+still need integration.
+Closing SQL does not prove an ambiguous submitted command failed; the owning host
+must reconcile against committed receipts before admitting a new producer. CG-04
+and the full hard-cutover goal remain incomplete.
+
 ## CG-04 per-cell SQL producer
 
 Implementation source: `f3d48bdc`; qualified successor:

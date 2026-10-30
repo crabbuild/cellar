@@ -15,8 +15,8 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The reviewed source baseline is `f807b2f7`, qualifying the SQL producer after
-the shared-node runtime at `aec4029e`; see the latest checkpoint in
+The reviewed source baseline is `51dff0e5`, adding the fixed SQL pool after
+the SQL producer at `f807b2f7` and shared-node runtime at `aec4029e`; see the latest checkpoint in
 [progress](progress.md) for qualification and remaining work.
 The branch integrates `origin/main` at `8a93ffd7` (documentation consolidation,
 PR 161). The design package now lives in `docs/design/multi-raft/cell-groups/`;
@@ -51,17 +51,26 @@ It separates a selected cell image/version from group progress and requires exac
 receipt settlement in both image modes. The partial gate passes at `f807b2f7`:
 133 native tests and eight verification commands. It does not complete CG-04.
 
-The next integration is per-cell SQL ownership and fair admission, concurrent
-initialization, exact receipt settlement and coherent read serving. Preserve the
-node worker's physical completion and cancellation boundaries. Do not treat the
-shared scheduler's isolated tests as completion of the six-case CG-04 gate.
+The fixed SQL pool now accepts cell-history jobs on the existing blocking workers.
+Admission, pending proposals and retained outputs survive waiter cancellation;
+node/group quotas and an exclusive engine lease bound their ownership. Extent
+workspaces are created and closed on those workers. The partial gate passes at
+`51dff0e5`: 184 selected Rust tests and ten verification commands. It does not
+complete CG-04 or qualify the production dispatcher.
+
+The next integration is per-cell reconciliation across leadership changes and
+compaction, then concurrent initialization, coherent reads and registered SDK
+dispatch. Preview/cache lifecycle also remains required. Preserve the physical
+completion and cancellation boundaries. These pool cases alone do not complete
+the six-case CG-04 gate.
 
 The remaining coupling is concrete: `execution::CommandAuthority` binds the
 old `GroupLog`/`GroupStatus`; `execution::images::Published` exposes `GroupScope`;
-and `host_sql::Pool` keys execution owners by that scope. Adapt those owning
-components to a cell history and exact manifest/image pin, with group authority
-kept separately. Reuse the existing receipt transaction and callback machinery;
-do not manufacture a synthetic cell-scoped group to satisfy the old interfaces.
+and the old `host_sql::Cell` still keys its execution state by that scope. The
+new pool path already keys by cell history and exact image pins; replace the
+production dispatcher with that path while keeping group authority separate.
+Reuse the existing receipt transaction and callback machinery; do not manufacture
+a synthetic cell-scoped group to satisfy the old interfaces.
 A later mutation of another cell must not settle the first cell's pending output.
 
 The registered callback boundary also needs a real identity conversion:
@@ -70,8 +79,8 @@ The registered callback boundary also needs a real identity conversion:
 to inbox and system-effect authentication. Carry logical `CellHistory` through
 this boundary and keep physical consensus proof separate. Do not enable effects
 with a fabricated group scope; preserve the CG-08-before-CG-07 dependency. Reuse
-`host_sql::Pool`'s fixed execution-domain workers and joined shutdown while making
-cell admission, queued ordering and unresolved proposals key on cell history.
+the new `host_sql::Pool` cell-history path and joined shutdown; do not create a
+second node worker pool or a task per enrolled cell.
 A cancelled caller cannot release physical callback ownership or allow a second
 producer for that cell.
 
@@ -91,9 +100,12 @@ The SQL checkpoint includes `native_raft_execution` and `native_raft_rooted`
 as well as the shared-group execution suite. Both cell receipt cases include
 the final callback/owner-close extension. Preserve authority revocation, exact
 committed entry matching and duplicate callback suppression during integration.
-Receipt reconciliation after compaction and preview/cache retention still need
-the owning host. These regressions supplement, and do not replace, the full task
-gate printed by `show CG-04`. Fair per-cell queues and registered SDK dispatch
+Receipt reconciliation after leadership changes or compaction and preview/cache
+retention still need the owning host. Reuse the old executor's current-term
+applied-barrier rule when replacing it: a submitted producer cannot be discarded
+from a sampled leader status, timeout or missing response. Resolve the original
+command against the authoritative cell receipt before admitting another producer. These regressions supplement, and do not replace, the full task
+gate printed by `show CG-04`. Registered SDK dispatch and strong-read serving
 remain absent.
 
 Run from the repository root with Python 3.11+ and Rust 1.98.1:
@@ -120,12 +132,12 @@ another machine. Missing evidence must refuse; do not replace it with a pass fla
 or reset completed tasks merely to bypass validation.
 
 The current partial CG-04 evidence is retained at
-`.cellar/cell-groups-evidence/CG-04-cell-sql/checkpoint.json`. Transfer that entire
-directory, including copied binaries, failed and successful logs, with the prior
-runtime/owner and DONE-task evidence. The SQL checkpoint binds 173 source inputs,
-six executables, 133 selected Rust cases and eight verification commands. It
-cannot stand in for the complete six-case CG-04 contract. Three RustFS-specific
-cases remain explicitly unrun at this checkpoint.
+`.cellar/cell-groups-evidence/CG-04-sql-pool/checkpoint.json`. Transfer that entire
+directory, including copied binaries and intermediate/successful logs, with the
+prior SQL-producer, runtime/owner and DONE-task evidence. The pool checkpoint
+binds 178 source inputs, eight executables, 184 selected Rust cases and ten
+verification commands. It cannot stand in for the complete six-case CG-04
+contract. Three RustFS-specific cases remain explicitly unrun at this checkpoint.
 
 ## Delivery sequence
 

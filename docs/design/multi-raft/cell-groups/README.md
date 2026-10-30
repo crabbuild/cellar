@@ -94,8 +94,10 @@ executor. CG-04 now retains creation identity with the selected image and
 prepares ordered enrollment and exact retries. Its physical group owner consumes
 the catalog startup permit and verified selected image/manifest closure, and
 obtains current-term quorum before protocol admission. The shared node scheduler now multiplexes these physical owners. The per-cell SQL
-producer and exact receipts now pass their partial regression gate. Fixed-pool
-SQL ownership, fair admission and SDK serving integration remain required. Managed
+producer and exact receipts now pass their partial regression gate, followed by
+fixed-pool SQL ownership and admission at `51dff0e5`. Leadership/compaction
+reconciliation, concurrent enrollment, coherent reads and registered SDK serving
+integration remain required. Managed
 fleet integration remains required by CG-07. A birth
 metadata observation alone cannot authorize voter startup.
 
