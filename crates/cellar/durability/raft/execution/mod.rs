@@ -13,6 +13,7 @@ pub(crate) use cell::authority_failure;
 pub use submission::{CellPreparedCommand, CellProposalRejection, CellSubmissionOutcome};
 mod command;
 mod enrollment;
+mod registered;
 pub use enrollment::{CellEnrollmentAttempt, CellEnrollmentResolution, CellPrivateEnrollment};
 mod images;
 pub use cell::{CellCommittedReceipt, CellPrivateExecutor, CellReconciliation, CellStageOutcome};
@@ -633,43 +634,19 @@ impl PrivateExecutor {
         allow_new: bool,
         system: bool,
     ) -> Result<StageOutcome, ExecutionError> {
-        let contract = OperationContract {
-            operation: attempt.request.operation.clone(),
-            kind: OperationKind::Command,
-            digest: attempt.request.contract_digest,
-        };
-        if system {
-            class.validate_system_operation(&contract)
-        } else {
-            class.validate_operation(&contract)
-        }
-        .map_err(ExecutionError::Registration)?;
-        if class.schema_digest() != self.options.application_digest {
-            return Err(ExecutionError::Registration(
-                RegistrationError::ContractMismatch,
-            ));
-        }
-        if input.len() > self.options.limits.envelope.max_payload_bytes {
-            return Err(ExecutionError::Refused(CommandFailure::Overloaded));
-        }
-        if command_request_digest(input) != attempt.request.request_digest {
-            return Err(ExecutionError::Refused(CommandFailure::CommandConflict));
-        }
-        let scope = self.authority.replica.scope.clone();
+        let scope = cellar_logic::cell_group::CellHistory::try_from(&self.authority.replica.scope)
+            .map_err(storage)?;
+        let contract = registered::validate(
+            self.options.limits,
+            self.options.application_digest,
+            &scope,
+            &attempt,
+            class,
+            input,
+            system,
+        )?;
         let command = attempt.request.id;
         let durability = attempt.request.durability;
-        if !system {
-            class
-                .validate_command_identity(&scope, &contract, command, durability, input)
-                .map_err(|error| {
-                    ExecutionError::Refused(
-                        error
-                            .downcast_ref::<CommandFailure>()
-                            .cloned()
-                            .unwrap_or(CommandFailure::UnsupportedCapability),
-                    )
-                })?;
-        }
         self.stage_admitted(attempt, allow_new, |transaction| {
             if system {
                 class.invoke_system_command(

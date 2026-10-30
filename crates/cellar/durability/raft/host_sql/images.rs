@@ -505,7 +505,8 @@ impl ImageOwner {
                     let database = options.database(&image)?;
                     scan::scan_connection(
                         database.connection(),
-                        image.scope(),
+                        &cellar_logic::cell_group::CellHistory::try_from(image.scope())
+                            .map_err(storage)?,
                         image.position(),
                         class,
                         now,

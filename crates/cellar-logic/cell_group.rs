@@ -59,6 +59,23 @@ pub struct CellHistory {
     pub incarnation: IncarnationId,
 }
 
+/// Projects the actual logical binding from the temporary single-cell host.
+/// No physical group identity becomes part of the logical history. This does
+/// not migrate stored state or confer execution authority.
+impl TryFrom<&crate::consensus::GroupScope> for CellHistory {
+    type Error = Refusal;
+
+    fn try_from(scope: &crate::consensus::GroupScope) -> Result<Self, Refusal> {
+        scope.validate()?;
+        Ok(Self {
+            cluster: scope.cluster,
+            namespace: scope.namespace,
+            cell: CellId::new(&scope.cell)?,
+            incarnation: scope.incarnation,
+        })
+    }
+}
+
 /// A physical Raft history; deliberately contains no cell identifier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GroupHistory {

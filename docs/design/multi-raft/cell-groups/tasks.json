@@ -479,7 +479,10 @@
         "crates/cellar/tests/support/cell_group_sql_apply.rs",
         "crates/cellar/durability/raft/cell_groups/apply/recovery.rs",
         "crates/cellar/tests/support/cell_group_sql_apply_faults.rs",
-        "crates/cellar/tests/support/cell_group_sql_apply_recovery.rs"
+        "crates/cellar/tests/support/cell_group_sql_apply_recovery.rs",
+        "crates/cellar/durability/raft/execution/registered.rs",
+        "crates/cellar/durability/raft/effect_history.rs",
+        "crates/cellar/tests/support/cell_group_sql_registered.rs"
       ],
       "test_target": "native_cell_groups_execution",
       "steps": [
@@ -534,6 +537,13 @@
             "rooted_shared_apply_sync_failure_preserves_selected_root",
             "shared_apply_recovers_selected_images_before_replay",
             "rooted_shared_apply_recovers_selected_images_before_replay"
+          ]
+        },
+        {
+          "action": "Use logical CellHistory at registered command and signed-effect identity boundaries. Dispatch namespace-authorized classes on the existing shared SQL workers; validate operation, schema, input and authenticated inbox identity before receipt lookup. Preserve exact proposal submission/settlement and cancellation ownership. Group placement is absent from effect identity; fresh cell incarnations remain fenced. Marker-1 old group-bearing effect wire and old signature domains refuse. Registered query/version and catalog dispatch remain separate integration work.",
+          "tests": [
+            "registered_commands_use_cell_identity_and_receipts",
+            "rooted_registered_commands_use_cell_identity_and_receipts"
           ]
         }
       ],
@@ -742,6 +752,26 @@
         {
           "name": "rooted_shared_apply_recovers_selected_images_before_replay",
           "oracle": "Close all previous runtime, engine, manifest and image owners. Recover the engine-selected manifest and physical image closure in a new process generation, ignoring an already prepared but unpublished cell. Replay that committed entry without inventing fresh quorum/serving authority. After another cold restart, missing selected image files must refuse recovery without changing the persisted marker.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "registered_commands_use_cell_identity_and_receipts",
+          "oracle": "Dispatch a real registered class through the shared SQL pool and production image applier on three voters. Two logical cells in one group receive their exact histories, mutate independently and retain alarm hints. After B advances group progress, A returns its original receipt without rerunning its callback. Wrong contract, input digest, operation and class schema refuse even on a receipt retry, releasing physical admission.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_registered_commands_use_cell_identity_and_receipts",
+          "oracle": "Dispatch a real registered class through the shared SQL pool and production image applier on three voters. Two logical cells in one group receive their exact histories, mutate independently and retain alarm hints. After B advances group progress, A returns its original receipt without rerunning its callback. Wrong contract, input digest, operation and class schema refuse even on a receipt retry, releasing physical admission.",
           "invariants": [
             "I01",
             "I02",

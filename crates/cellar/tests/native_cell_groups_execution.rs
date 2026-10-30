@@ -191,6 +191,18 @@ impl Cluster {
         root: tempfile::TempDir,
         filesystem: Arc<dyn cellar_ltx::FileSystem>,
     ) -> Result<Self> {
+        Box::pin(Self::with_storage_schema(
+            options, root, filesystem, [6; 32],
+        ))
+        .await
+    }
+
+    async fn with_storage_schema(
+        options: RaftRuntimeOptions,
+        root: tempfile::TempDir,
+        filesystem: Arc<dyn cellar_ltx::FileSystem>,
+        schema: [u8; 32],
+    ) -> Result<Self> {
         let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         let history = GroupHistory {
             cluster: ClusterId::new([1; 16])?,
@@ -207,7 +219,7 @@ impl Cluster {
                 history.cluster,
                 history.namespace,
                 cellar_logic::NamespaceMode::Raft,
-                [6; 32],
+                schema,
             )))
             .await??;
         let directory = RangeDirectory::new(namespace, DirectoryLimits::default())?;
@@ -1287,4 +1299,14 @@ async fn shared_apply_recovers_selected_images_before_replay() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn rooted_shared_apply_recovers_selected_images_before_replay() -> Result<()> {
     runtime_fixture::recover_apply(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn registered_commands_use_cell_identity_and_receipts() -> Result<()> {
+    runtime_fixture::registered_commands(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_registered_commands_use_cell_identity_and_receipts() -> Result<()> {
+    runtime_fixture::registered_commands(true).await
 }

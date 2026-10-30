@@ -3,12 +3,14 @@
 //! Authenticated, immutable delivery envelopes. Transport success alone cannot
 //! settle an intent: the destination signs its transaction result and releases
 //! it through the ordinary command durability gate.
+use super::history::WireHistory;
 use crate::application::consensus::{
-    protocol::WireScope, ClientId, CommandFailure, CommandId, Durability, GroupScope,
-    OperationContract, OperationKind, RaftCellHandle,
+    ClientId, CommandFailure, CommandId, Durability, OperationContract, OperationKind,
+    RaftCellHandle,
 };
 use anyhow::{ensure, Result};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use cellar_logic::cell_group::CellHistory;
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use futures_util::future::BoxFuture;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -27,12 +29,12 @@ pub(crate) const MAX_REQUEST: usize = 60 * 1024;
 pub(crate) const MAX_RECEIPT: usize = 16 * 1024;
 pub(crate) const MAX_PAYLOAD: usize = 32 * 1024;
 pub(crate) const MAX_RESULT: usize = 4 * 1024;
-const REQUEST_DOMAIN: &[u8] = b"cellar-raft-delivery-request-1";
-const RECEIPT_DOMAIN: &[u8] = b"cellar-raft-delivery-receipt-1";
+const REQUEST_DOMAIN: &[u8] = b"cellar-cell-delivery-request-1";
+const RECEIPT_DOMAIN: &[u8] = b"cellar-cell-delivery-receipt-1";
 const CLIENT_PREFIX: &[u8; 4] = b"RFX1";
 
 pub(crate) fn protocol_identity() -> [u8; 32] {
-    Sha256::digest(b"cellar-raft-delivery-1/definition-target-1").into()
+    Sha256::digest(b"cellar-cell-delivery-1/definition-target-1").into()
 }
 
 /// Deployment-owned material shared by compatible replicas. Debug never
@@ -80,7 +82,7 @@ impl RaftEffectVerificationKey {
 /// compiled schema; that manifest can contain self/cyclic delivery bindings.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RaftEffectTarget {
-    pub(crate) scope: GroupScope,
+    pub(crate) scope: CellHistory,
     pub(crate) definition: [u8; 32],
     pub(crate) contract: OperationContract,
     pub(crate) key: RaftEffectVerificationKey,
@@ -89,13 +91,12 @@ pub struct RaftEffectTarget {
 
 impl RaftEffectTarget {
     pub fn new(
-        scope: GroupScope,
+        scope: CellHistory,
         definition: [u8; 32],
         contract: OperationContract,
         receipt_key: RaftEffectVerificationKey,
         durability: Durability,
     ) -> Result<Self> {
-        scope.validate()?;
         ensure!(
             definition != [0; 32]
                 && contract.kind == OperationKind::Command
@@ -114,7 +115,7 @@ impl RaftEffectTarget {
         })
     }
 
-    pub fn scope(&self) -> &GroupScope {
+    pub fn scope(&self) -> &CellHistory {
         &self.scope
     }
 
@@ -132,7 +133,7 @@ impl RaftEffectTarget {
 
     pub(crate) fn wire(&self) -> Target {
         Target {
-            scope: WireScope::from(&self.scope),
+            scope: WireHistory::from(&self.scope),
             definition: self.definition,
             operation: self.contract.operation.clone(),
             contract: self.contract.digest,
@@ -194,11 +195,12 @@ impl RaftEffectSourceGrant {
 
     fn accepts(&self, request: &Request) -> Result<bool> {
         let scope = request.origin.clone().decode()?;
-        scope.validate()?;
+
         Ok(scope.cluster == self.cluster
             && scope.namespace == self.namespace
             && scope
                 .cell
+                .as_str()
                 .split_once(':')
                 .is_some_and(|(class, _)| class == self.class)
             && request.binding == self.binding
@@ -283,7 +285,7 @@ fn verify<T: Serialize>(
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Target {
-    scope: WireScope,
+    scope: WireHistory,
     definition: [u8; 32],
     operation: String,
     contract: [u8; 32],
@@ -295,7 +297,7 @@ pub(crate) struct Target {
 #[serde(deny_unknown_fields)]
 pub(crate) struct Request {
     marker: u8,
-    pub(crate) origin: WireScope,
+    origin: WireHistory,
     origin_schema: [u8; 32],
     pub(crate) binding: String,
     binding_digest: [u8; 32],
@@ -330,7 +332,7 @@ impl fmt::Debug for RaftDeliveryRequest {
 }
 
 pub(crate) struct DeliveryOrigin<'a> {
-    pub scope: &'a GroupScope,
+    pub scope: &'a CellHistory,
     pub schema: [u8; 32],
     pub binding: &'a str,
     pub digest: [u8; 32],
@@ -351,7 +353,7 @@ impl RaftDeliveryRequest {
             digest,
             sequence,
         } = origin;
-        origin.validate()?;
+
         ensure!(
             schema != [0; 32]
                 && valid_name(binding)
@@ -362,7 +364,7 @@ impl RaftDeliveryRequest {
         );
         let request = Request {
             marker: 1,
-            origin: WireScope::from(origin),
+            origin: WireHistory::from(origin),
             origin_schema: schema,
             binding: binding.into(),
             binding_digest: digest,
@@ -446,7 +448,7 @@ fn identity(request: &Request) -> Result<[u8; 32]> {
         &request.binding_digest,
         &request.target,
     ))?;
-    Ok(Sha256::digest(message(b"cellar-raft-delivery-lane-1", &body)).into())
+    Ok(Sha256::digest(message(b"cellar-cell-delivery-lane-1", &body)).into())
 }
 
 fn command_id(request: &Request) -> Result<CommandId> {
@@ -473,7 +475,7 @@ pub(crate) struct Incoming {
 pub(crate) fn authenticate(
     bytes: &[u8],
     grants: &[RaftEffectSourceGrant],
-    target: &GroupScope,
+    target: &CellHistory,
     definition: [u8; 32],
     contract: &OperationContract,
     key: RaftEffectVerificationKey,
@@ -568,7 +570,7 @@ pub struct RaftNativeEffectSink {
 #[derive(Clone)]
 struct NativeEndpoint {
     handle: Weak<crate::application::consensus::client::Handle>,
-    scope: GroupScope,
+    scope: CellHistory,
 }
 
 impl RaftNativeEffectSink {
@@ -589,11 +591,13 @@ impl RaftNativeEffectSink {
         Ok(Arc::new(Self {
             endpoints: endpoints
                 .into_iter()
-                .map(|endpoint| NativeEndpoint {
-                    handle: Arc::downgrade(&endpoint.handle),
-                    scope: endpoint.scope().clone(),
+                .map(|endpoint| {
+                    Ok(NativeEndpoint {
+                        handle: Arc::downgrade(&endpoint.handle),
+                        scope: CellHistory::try_from(endpoint.scope())?,
+                    })
                 })
-                .collect(),
+                .collect::<Result<Vec<_>>>()?,
             timeout,
             retry_window_ms,
         }))
@@ -620,14 +624,15 @@ impl RaftEffectSink for RaftNativeEffectSink {
                 };
                 let binding = match handle
                     .bindings
-                    .get(&(hint.scope.namespace, hint.scope.cell))
+                    .get(&(hint.scope.namespace, hint.scope.cell.as_str().to_owned()))
                 {
                     Ok(binding) => binding,
                     Err(CommandFailure::Unavailable) => continue,
                     Err(error) => return Err(error),
                 };
                 let endpoint = RaftCellHandle { handle, binding };
-                if endpoint.scope() != request.inner.target.scope()
+                if CellHistory::try_from(endpoint.scope()).as_ref().ok()
+                    != Some(request.inner.target.scope())
                     || endpoint.binding.class.definition_digest() != request.inner.target.definition
                 {
                     continue;

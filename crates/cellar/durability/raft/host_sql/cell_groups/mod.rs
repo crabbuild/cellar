@@ -437,6 +437,53 @@ impl CellGroupSqlPool {
         allow_new: bool,
         callback: impl FnOnce(&CommandTransaction<'_>) -> anyhow::Result<Vec<u8>> + Send + 'static,
     ) -> Result<CellSqlOutcome, ExecutionError> {
+        self.stage_callback(
+            options,
+            authority,
+            attempt,
+            allow_new,
+            worker::Callback::Verification(Box::new(callback)),
+        )
+        .await
+    }
+
+    /// Dispatch an authorized namespace's compiled class on the same fixed
+    /// workers and receipt path. The class is checked against the selected route
+    /// schema; contract, input digest and inbox identity are checked on the worker
+    /// before receipt lookup. Cancellation retains the same physical ownership.
+    pub async fn stage_registered(
+        &self,
+        options: CellSqlOptions,
+        authority: CellExecutionAuthority,
+        attempt: CommandAttempt,
+        class: Arc<crate::application::consensus::RaftClass>,
+        input: Vec<u8>,
+        allow_new: bool,
+    ) -> Result<CellSqlOutcome, ExecutionError> {
+        if input.len() > options.limits().envelope.max_payload_bytes {
+            return Err(overloaded());
+        }
+        self.stage_callback(
+            options,
+            authority,
+            attempt,
+            allow_new,
+            worker::Callback::Registered {
+                class,
+                input: input.into_boxed_slice(),
+            },
+        )
+        .await
+    }
+
+    async fn stage_callback(
+        &self,
+        options: CellSqlOptions,
+        authority: CellExecutionAuthority,
+        attempt: CommandAttempt,
+        allow_new: bool,
+        callback: worker::Callback,
+    ) -> Result<CellSqlOutcome, ExecutionError> {
         self.admit()?;
         if !authority.belongs_to_engine(&self.inner.engine_owner) {
             return Err(ExecutionError::Invalid("cell SQL engine owner"));
@@ -446,6 +493,10 @@ impl CellGroupSqlPool {
         }
         let limits = options.limits();
         limits.validate()?;
+        let input_bytes = match &callback {
+            worker::Callback::Verification(_) => 0,
+            worker::Callback::Registered { input, .. } => input.len(),
+        };
         // Bound simultaneous encoded capture, entry, preview verification and
         // result buffers before queueing or opening SQLite. Disk/workspace
         // reservation is separately enforced by the chosen image owner.
@@ -453,6 +504,7 @@ impl CellGroupSqlPool {
             .envelope
             .max_payload_bytes
             .checked_mul(4)
+            .and_then(|n| n.checked_add(input_bytes))
             .and_then(|n| n.checked_add(limits.max_result_bytes))
             .and_then(|n| n.checked_add(4096))
             .ok_or_else(overloaded)?;
@@ -468,7 +520,7 @@ impl CellGroupSqlPool {
                 authority,
                 attempt,
                 allow_new,
-                callback: Box::new(callback),
+                callback,
                 lease,
                 bytes,
             })),

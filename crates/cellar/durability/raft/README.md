@@ -1760,3 +1760,31 @@ require their fleet guard.
 Earlier roots/state have no compatibility reader. Use a fresh experimental
 namespace/prefix and local state. The earlier MR-10 evidence retains its exact
 historical protocol and source scope.
+
+## Shared-group registered command boundary
+
+`CellGroupSqlPool::stage_registered` dispatches a namespace's compiled `RaftClass`
+on the existing fixed SQL workers. The selected route and private-image options
+must agree on the full class schema. Operation contract, normalized input digest,
+inbox authentication and reserved system-client checks precede receipt lookup,
+including duplicate retries. The callback receives the exact logical `CellHistory`
+from the execution authority. Prepared output follows the existing proposal,
+publication and receipt-settlement path; it is not a committed response.
+Registered input bytes are retained within the producer budget while queued or
+executing. Cancelling the waiter does not release the physical producer.
+
+`CommandContext::identity()` and `RaftEffectTarget` now use `CellHistory` without a
+physical group ID. Alarm clients, outbox lane identities and signed requests use
+that logical history; normal group reassignment preserves them, while a new cell
+incarnation separates them. Signed effects use canonical marker-1 logical-history
+records and distinct `cellar-cell-delivery-*` domains. Old group-bearing records
+and old signature domains refuse. The full class manifest uses the
+`cellar-cell-class-1` domain, so this identity change cannot silently reuse a
+previous namespace schema. There is no migration reader.
+
+The temporary single-cell host projects its actual logical binding into
+`CellHistory`; the shared command path does not manufacture `GroupScope` values.
+Registered shared queries and catalog/SDK routing still require integration;
+`QueryContext` continues to expose its existing committed version until that
+boundary is replaced. Shared effect scheduling and transfer qualification remain
+separate work. These APIs do not by themselves complete the production cutover.

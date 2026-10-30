@@ -123,6 +123,7 @@ pub use client::{
     RaftCloseReport, StaleReadPolicy, UnfinishedCommand,
 };
 
+pub use cellar_logic::cell_group::{CellHistory, CellId};
 pub use cellar_logic::consensus::{
     ClientId, ClusterId, CommandFailure, CommandId, CommittedVersion, DiskLineage, Durability,
     EngineInstanceId, GroupId, GroupScope, IncarnationId, LogIndex, LogPosition, MemberId,

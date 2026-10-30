@@ -118,6 +118,32 @@ impl CellPrivateExecutor {
         })
     }
 
+    /// Invoke a registered application operation with this cell's logical
+    /// identity. Validation precedes receipt lookup, including duplicate retries.
+    pub fn stage_registered(
+        &mut self,
+        attempt: CommandAttempt,
+        class: &RaftClass,
+        input: &[u8],
+        allow_new: bool,
+    ) -> Result<CellStageOutcome, ExecutionError> {
+        let history = self.authority.cell().version.history.clone();
+        let contract = super::registered::validate(
+            self.options.limits,
+            self.options.application_digest,
+            &history,
+            &attempt,
+            class,
+            input,
+            false,
+        )?;
+        let command = attempt.request.id;
+        let durability = attempt.request.durability;
+        self.stage(attempt, allow_new, |transaction| {
+            class.invoke_command(&contract, &history, command, durability, transaction, input)
+        })
+    }
+
     /// Stage on an owning blocking worker. Callback output is retained only in
     /// the private receipt transaction; it cannot escape as a committed result.
     /// The host serializes unresolved producers by CellHistory, independently

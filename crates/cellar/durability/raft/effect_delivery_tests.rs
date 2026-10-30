@@ -1,20 +1,19 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 use super::*;
-use crate::application::consensus::{ClusterId, GroupId, IncarnationId, NamespaceId};
+use crate::application::consensus::{ClusterId, IncarnationId, NamespaceId};
 
-fn scope(id: u8, class: &str) -> Result<GroupScope> {
-    Ok(GroupScope {
+fn scope(id: u8, class: &str) -> Result<CellHistory> {
+    Ok(CellHistory {
         cluster: ClusterId::new([id; 16])?,
         namespace: NamespaceId::new([id + 1; 16])?,
-        cell: format!("{class}:one"),
-        group: GroupId::new([id + 2; 16])?,
+        cell: cellar_logic::cell_group::CellId::new(format!("{class}:one"))?,
         incarnation: IncarnationId::new([id + 3; 16])?,
     })
 }
 
 struct Fixture {
-    origin: GroupScope,
+    origin: CellHistory,
     target: RaftEffectTarget,
     source: RaftEffectSigningKey,
     receiver: RaftEffectSigningKey,
@@ -220,5 +219,65 @@ fn delivery_bounds_and_secret_debug() -> Result<()> {
     ensure!(format!("{:?}", f.source) == "RaftEffectSigningKey([redacted])");
     ensure!(RaftEffectVerificationKey::new([0; 32]).is_err());
     ensure!(reserved_client(f.request(1, b"first")?.command_id().client));
+    Ok(())
+}
+
+#[test]
+fn logical_effect_identity_survives_group_reassignment() -> Result<()> {
+    use cellar_logic::consensus::{GroupId, GroupScope};
+    let mut physical = GroupScope {
+        cluster: ClusterId::new([1; 16])?,
+        namespace: NamespaceId::new([2; 16])?,
+        cell: "Source:one".into(),
+        group: GroupId::new([3; 16])?,
+        incarnation: IncarnationId::new([4; 16])?,
+    };
+    let before = CellHistory::try_from(&physical)?;
+    physical.group = GroupId::new([8; 16])?;
+    let after = CellHistory::try_from(&physical)?;
+    let mut f = Fixture::new()?;
+    f.origin = before.clone();
+    let first = f.request(1, b"same")?;
+    f.origin = after.clone();
+    assert_eq!(first.encoded(), f.request(1, b"same")?.encoded());
+    assert_eq!(
+        super::super::system_client(&before)?,
+        super::super::system_client(&after)?
+    );
+    f.origin.incarnation = IncarnationId::new([7; 16])?;
+    assert_ne!(first.command_id(), f.request(1, b"same")?.command_id());
+    assert_ne!(
+        super::super::system_client(&before)?,
+        super::super::system_client(&f.origin)?
+    );
+    f.origin = before;
+    f.origin.cell = cellar_logic::cell_group::CellId::new("Source:two")?;
+    assert_ne!(first.command_id(), f.request(1, b"same")?.command_id());
+    Ok(())
+}
+
+#[test]
+fn cell_effect_wire_refuses_group_scope_and_old_signature_domain() -> Result<()> {
+    let f = Fixture::new()?;
+    let request = f.request(1, b"same")?;
+    let signed: Signed<Request> = parse(request.encoded(), MAX_REQUEST)?;
+    let old_domain = sign(
+        signed.body.clone(),
+        &f.source,
+        b"cellar-raft-delivery-request-1",
+        MAX_REQUEST,
+    )?;
+    assert!(f.incoming(&old_domain).is_err());
+    for field in ["origin", "target"] {
+        let mut body = serde_json::to_value(&signed.body)?;
+        let scope = if field == "origin" {
+            &mut body["origin"]
+        } else {
+            &mut body["target"]["scope"]
+        };
+        scope["group"] = hex::encode([3; 16]).into();
+        let bytes = sign(body, &f.source, REQUEST_DOMAIN, MAX_REQUEST)?;
+        assert!(f.incoming(&bytes).is_err());
+    }
     Ok(())
 }

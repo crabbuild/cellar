@@ -858,7 +858,8 @@ impl RaftCellHandle {
                     self.binding
                         .class
                         .validate_command_identity(
-                            &self.binding.scope,
+                            &cellar_logic::cell_group::CellHistory::try_from(&self.binding.scope)
+                                .map_err(|_| CommandFailure::CorruptState)?,
                             contract,
                             options.id,
                             options.durability,
@@ -883,7 +884,12 @@ impl RaftCellHandle {
                             .validate_system_operation(contract)
                             .is_err()
                         || options.id.client
-                            != crate::raft::effects::system_client(&self.binding.scope)?
+                            != crate::raft::effects::system_client(
+                                &cellar_logic::cell_group::CellHistory::try_from(
+                                    &self.binding.scope,
+                                )
+                                .map_err(|_| CommandFailure::CorruptState)?,
+                            )?
                     {
                         return Err(CommandFailure::UnsupportedCapability);
                     }

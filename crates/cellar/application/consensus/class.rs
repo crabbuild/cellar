@@ -4,7 +4,7 @@
 
 use super::{CommandId, CommittedVersion, Durability, GroupScope};
 use crate::storage::{CommandInputs, CommandTransaction, ImmutableQuery};
-use cellar_logic::NamespaceMode;
+use cellar_logic::{cell_group::CellHistory, NamespaceMode};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -105,7 +105,7 @@ impl std::error::Error for RegistrationError {}
 /// fn socket(context: &CommandContext<'_>) { let _ = context.websocket_pair(); }
 /// ```
 pub struct CommandContext<'a> {
-    scope: &'a GroupScope,
+    scope: &'a CellHistory,
     command: CommandId,
     transaction: &'a CommandTransaction<'a>,
     blobs: Option<super::RaftBlobLimits>,
@@ -118,7 +118,7 @@ pub struct CommandContext<'a> {
 }
 
 impl<'a> CommandContext<'a> {
-    pub fn identity(&self) -> &GroupScope {
+    pub fn identity(&self) -> &CellHistory {
         self.scope
     }
 
@@ -585,7 +585,7 @@ impl RaftClass {
 
     pub(crate) fn validate_command_identity(
         &self,
-        scope: &GroupScope,
+        scope: &CellHistory,
         contract: &OperationContract,
         id: CommandId,
         durability: Durability,
@@ -735,7 +735,7 @@ impl RaftClass {
     pub(crate) fn invoke_command(
         &self,
         contract: &OperationContract,
-        scope: &GroupScope,
+        scope: &CellHistory,
         command: CommandId,
         durability: Durability,
         transaction: &CommandTransaction<'_>,
@@ -754,7 +754,7 @@ impl RaftClass {
     pub(crate) fn invoke_system_command(
         &self,
         contract: &OperationContract,
-        scope: &GroupScope,
+        scope: &CellHistory,
         command: CommandId,
         durability: Durability,
         transaction: &CommandTransaction<'_>,
@@ -773,7 +773,7 @@ impl RaftClass {
     fn invoke_registered_command(
         &self,
         registration: RegisteredCommand<'_>,
-        scope: &GroupScope,
+        scope: &CellHistory,
         command: CommandId,
         durability: Durability,
         transaction: &CommandTransaction<'_>,
@@ -849,7 +849,7 @@ impl RaftClass {
 
     fn bind_command_manifest(&mut self) {
         let mut hash = Sha256::new();
-        hash.update(b"cellar-raft-class-1");
+        hash.update(b"cellar-cell-class-1");
         hash.update(self.base_schema_digest);
         if let Some(limits) = self.blobs {
             hash.update(b"immutable-blobs-1");

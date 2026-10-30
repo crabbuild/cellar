@@ -114,7 +114,7 @@ impl RuntimeCluster {
                 now_unix_millis: Arc::new(|| 10),
                 fill_random: Arc::new(|bytes| bytes.fill(17)),
             },
-            application_digest: [6; 32],
+            application_digest: self.cluster.birth.route().schema_digest,
             limits: ExecutionLimits::default(),
         };
         let extents = self.cluster.voters[node].extents.clone();
@@ -509,3 +509,7 @@ pub(crate) use apply_faults::{cancellation as apply_cancellation, failure as app
 #[path = "cell_group_sql_apply_recovery.rs"]
 mod apply_recovery;
 pub(crate) use apply_recovery::recover as recover_apply;
+
+#[path = "cell_group_sql_registered.rs"]
+mod registered;
+pub(crate) use registered::commands as registered_commands;

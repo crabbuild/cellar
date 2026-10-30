@@ -63,7 +63,7 @@ pub(crate) fn scan(
     )?;
     scan_connection(
         database.connection(),
-        image.scope(),
+        &cellar_logic::cell_group::CellHistory::try_from(image.scope())?,
         image.position(),
         class,
         now,
@@ -74,7 +74,7 @@ pub(crate) fn scan(
 
 pub(crate) fn scan_connection(
     connection: &rusqlite::Connection,
-    scope: &cellar_logic::consensus::GroupScope,
+    scope: &cellar_logic::cell_group::CellHistory,
     position: LogPosition,
     class: &RaftClass,
     now: u64,

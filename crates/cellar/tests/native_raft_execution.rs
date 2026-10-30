@@ -656,7 +656,7 @@ async fn registered_command_uses_exact_image_receipt_and_read_only_query() -> Re
     let class = RaftClass::new("Counter", 1, [22; 32])?
         .command("Increment", [23; 32], move |context, input| {
             called.fetch_add(1, Ordering::SeqCst);
-            assert_eq!(context.identity(), &scope());
+            assert_eq!(context.identity(), &cellar_logic::cell_group::CellHistory::try_from(&scope())?);
             assert_eq!(context.command().sequence(), 1);
             assert_eq!(context.inputs().now_unix_millis, 10);
             assert_eq!(context.inputs().random, [17; 32]);

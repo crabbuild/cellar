@@ -3,7 +3,16 @@
 use super::*;
 use std::collections::BTreeMap;
 
-type Callback = Box<dyn FnOnce(&CommandTransaction<'_>) -> anyhow::Result<Vec<u8>> + Send>;
+type VerificationCallback =
+    Box<dyn FnOnce(&CommandTransaction<'_>) -> anyhow::Result<Vec<u8>> + Send>;
+
+pub(super) enum Callback {
+    Verification(VerificationCallback),
+    Registered {
+        class: Arc<crate::application::consensus::RaftClass>,
+        input: Box<[u8]>,
+    },
+}
 
 pub(super) struct Stage {
     pub options: CellSqlOptions,
@@ -175,7 +184,14 @@ impl Cells {
                 }
                 let max_result = options.limits().max_result_bytes;
                 let mut executor = options.open(authority)?;
-                let result = executor.stage(attempt, allow_new, callback);
+                let result = match callback {
+                    Callback::Verification(callback) => {
+                        executor.stage(attempt, allow_new, callback)
+                    }
+                    Callback::Registered { class, input } => {
+                        executor.stage_registered(attempt, &class, &input, allow_new)
+                    }
+                };
                 match result {
                     Ok(CellStageOutcome::Prepared(prepared)) => {
                         let retained = prepared
