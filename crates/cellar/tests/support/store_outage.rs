@@ -7,23 +7,31 @@ use anyhow::Result;
 use futures_util::{stream::BoxStream, StreamExt, TryStreamExt};
 use object_store::{list::*, path::Path, *};
 use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     Arc,
 };
 
 #[derive(Debug)]
 pub struct Outage {
     store: Arc<dyn ObjectStore>,
+    cas_store: Arc<dyn ObjectStore>,
     isolated: AtomicBool,
     refused: AtomicUsize,
+    lease_prefix: String,
+    renewal_delay_ms: AtomicU64,
+    delayed_renewals: AtomicUsize,
 }
 
 impl Outage {
     pub fn wrap(bucket: &cellar::bucket::Bucket) -> Result<(cellar::bucket::Bucket, Arc<Self>)> {
         let fault = Arc::new(Self {
             store: bucket.store.clone(),
+            cas_store: bucket.cas_store.clone(),
             isolated: AtomicBool::new(false),
             refused: AtomicUsize::new(0),
+            lease_prefix: format!("{}nodes/", bucket.prefix),
+            renewal_delay_ms: AtomicU64::new(0),
+            delayed_renewals: AtomicUsize::new(0),
         });
         let isolated = cellar::bucket::Bucket::from_clients(
             fault.clone(),
@@ -46,6 +54,14 @@ impl Outage {
 
     pub fn is_isolated(&self) -> bool {
         self.isolated.load(Ordering::Acquire)
+    }
+
+    pub fn delay_node_renewals(&self, millis: u64) {
+        self.renewal_delay_ms.store(millis, Ordering::Release);
+    }
+
+    pub fn delayed_renewals(&self) -> usize {
+        self.delayed_renewals.load(Ordering::Acquire)
     }
 
     fn check(&self) -> object_store::Result<()> {
@@ -75,7 +91,26 @@ impl ObjectStore for Outage {
         opts: PutOptions,
     ) -> object_store::Result<PutResult> {
         self.check()?;
-        self.store.put_opts(path, payload, opts).await
+        let delay = self.renewal_delay_ms.load(Ordering::Acquire);
+        let delayed = delay != 0
+            && path.as_ref().starts_with(&self.lease_prefix)
+            && matches!(&opts.mode, PutMode::Update(_));
+        if delayed {
+            cellar::asyncrt::sleep(std::time::Duration::from_millis(delay)).await;
+            self.check()?;
+        }
+        // Preserve the bucket's no-transport-retry CAS client while wrapping
+        // real S3 requests; a lost conditional response remains ambiguous.
+        let store = if matches!(&opts.mode, PutMode::Create | PutMode::Update(_)) {
+            &self.cas_store
+        } else {
+            &self.store
+        };
+        let result = store.put_opts(path, payload, opts).await;
+        if delayed && result.is_ok() {
+            self.delayed_renewals.fetch_add(1, Ordering::AcqRel);
+        }
+        result
     }
 
     async fn put_multipart_opts(
