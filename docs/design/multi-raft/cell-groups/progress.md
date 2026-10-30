@@ -10,6 +10,61 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 physical-group TLS transport
+
+Qualified source: `eb99a2427e8661dc228ea7a1d3d1f56a5e0937aa`.
+
+`RaftTransport::start_shared` starts directly on the physical-group runtime.
+`GroupRoute<GroupHistory>` and typed peers share the existing node-owned TLS
+connections, control/data pipelines, byte/item budgets and joined shutdown.
+Route installation requires an existing selected group, its schema, committed
+member/disk binding and exact local process/listeners. Authorization rechecks
+current routes and membership through queueing, I/O and response delivery.
+Physical routes participate in node-view refresh, pool revocation/pruning and
+combined group limits. Conflicting query/inspection endpoints refuse.
+
+Marker-1 frames use typed histories and a new protocol digest. Physical consensus
+has no cell key; old untagged wire layouts refuse. Requests and responses bind
+full replica identity, schema, sequence, payload and TLS channel. The exclusive
+runtime transport claim survives until physical tasks exit. Delivery is only
+receiver admission, not a Raft persistence or commit proof. Unsupported
+complete-group snapshot messages refuse. The temporary legacy runtime/frame arms
+are explicitly scheduled for deletion with the old host in CG-16.
+
+Three new native cases use real TLS endpoints. Two groups replicate three
+independent SQLite cells each on the same peer pools. Unknown groups, wrong
+schema/local process, conflicting grants and unsupported snapshots refuse.
+Removing one group's route retains the other group and its peer pools; restoring
+it delivers again. A second transport refuses until joined close releases its
+claim. Existing routed command cancellation, exact receipt and leader-transfer
+assertions also pass over TLS in both image modes. A new frame case verifies
+history/incarnation binding and refusal of old wire/protocol layouts.
+
+All 283 selected Rust cases pass: 192 native cases across seven suites and
+91 library cases selected by the transport filter. All nine commands pass,
+including all-target Clippy for Cellar/cellar-logic/cellar-ltx with warnings denied,
+formatting (1,826 Rust files), layout, dependency isolation, docs, source preflight
+and all 37 plan-validator cases. The partial record at
+`.cellar/cell-groups-evidence/CG-04-physical-transport/checkpoint.json` binds
+241 source inputs and eight selected executables. Initial private-import and
+legacy-membership-validator compile failures, the corrected targeted run and
+formatter log are retained. Four process helpers run through their parent cases;
+the RustFS-specific seed case is skipped. Prior checkpoints retain their original
+source/scope. These local endpoints share a process; they do not qualify independent failure
+domains, RustFS, power loss or load. Latest fetched `origin/main` is included and
+the requested MR-13/MR-14 progress JSON files remain excluded.
+
+CG-04 remains IN_PROGRESS. The critical next gap is the production controller:
+retain command invocations independently from callers, drive existing shared
+transport/apply/completion events, and maintain bounded reconciliation after the
+response deadline. The fixtures still pump events, so a cancelled preparation
+future is not evidence of controller ownership after ingress disconnect. Reuse
+the now-working physical transport and SQL/apply owners; qualify disconnects after
+SQL entry and provisional acceptance without replaying ambiguous callbacks. Then
+complete routed enrollment and public SDK/shared-query RPC integration.
+Configuration/cache lifecycle, complete-group snapshots/archive, effects,
+topology, real RustFS/load and final legacy removal remain later requirements.
+
 ## CG-04 catalog-routed command phases
 
 Qualified source: `1f014f42264c73b1d5e3cd387f65ffed45140ecb`.

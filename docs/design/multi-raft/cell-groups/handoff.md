@@ -15,7 +15,16 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The newest reviewed source baseline is `1f014f42`, adding retained routed
+The newest reviewed source baseline is `eb99a242`, connecting physical groups
+to the existing production TLS transport without constructing the legacy runtime.
+Its partial record is `.cellar/cell-groups-evidence/CG-04-physical-transport/checkpoint.json`:
+192 native cases, 91 library cases, nine commands, 241 source inputs and
+eight selected executables. Transfer that directory with prior evidence. The
+three new native cases qualify shared peer pools and routed command settlement
+over TLS in both image modes. They still use fixture-driven runtime events, not
+a production controller after ingress cancellation. Complete-group snapshots
+explicitly refuse. CG-04 remains IN_PROGRESS.
+The preceding reviewed source baseline is `1f014f42`, adding retained routed
 command phases over the existing catalog, consensus and SQL owners. Its partial
 record is `.cellar/cell-groups-evidence/CG-04-routed-commands-qualified/checkpoint.json`:
 105 native cases, eight commands, 229 source inputs and four selected executables.
@@ -373,9 +382,9 @@ Do not let plan maintenance replace implementation.
 
 1. Integrate the phased command invocation into the production node controller.
    Retain it independently from ingress waiters and drive existing shared-runtime
-   transport, apply and completion events through the existing owners. The current
-   `RaftTransport` routes by old `GroupScope`; adapt its route/authentication boundary
-   to physical `GroupHistory` instead of manufacturing a cell-scoped identity. Qualify
+   transport, apply and completion events through the existing owners. Physical
+   `GroupHistory` routing now works over `RaftTransport::start_shared`; use that
+   transport directly in the production event loop. Qualify
    caller disconnect after SQL entry and after provisional acceptance: the
    controller must resolve the exact receipt or a proven non-commit and release
    bounded ownership without re-executing an uncertain command. The current test
@@ -385,7 +394,8 @@ Do not let plan maintenance replace implementation.
    infer non-commit from missing local state. Keep original deadlines for responses
    while giving the controller an explicit bounded reconciliation lifecycle.
    Then add catalog-routed enrollment with stable creation identity and exact
-   creation settlement. Qualify enrollment, command, lost response and linearizable
+   creation settlement, and integrate shared query RPC. Qualify enrollment,
+   command, lost response and linearizable
    query together. Public `RaftCellHandle` still uses its old host binding; the
    real-engine fixtures still pump transport/apply events. Reuse existing worker
    and transport ownership with joined shutdown. Requested and namespace S3
@@ -396,8 +406,9 @@ Do not let plan maintenance replace implementation.
    faults and joined cold restart. Full snapshots/membership follow in CG-05,
    archive/reclamation in CG-06, and shared effect scheduling/cache lifecycle in
    CG-08 before the CG-07 public cutover.
-3. Remove `QueryVersion::GroupCut` and `RaftClass::invoke_group_query` with the old
-   host by CG-16. They explicitly preserve the old in-memory group observation
+3. Remove `TransportRuntime::Legacy`, the typed cell-scoped frame arm and old
+   transport entry points in CG-16. Also remove `QueryVersion::GroupCut` and
+   `RaftClass::invoke_group_query` with the old host by CG-16. They explicitly preserve the old in-memory group observation
    during integration; they must not become a permanent alternate serving mode.
    Final `QueryContext` exposes the actual cell observation directly. Never derive
    a cell sequence or witness from a group log position.

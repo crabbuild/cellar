@@ -163,6 +163,16 @@ source inputs and four executables. Production controller ownership after ingres
 cancellation and physical-group transport integration are the next critical gaps,
 followed by routed enrollment and the public SDK cutover. See [progress](progress.md).
 
+Physical-group peer transport now starts directly on the shared runtime at
+`eb99a242` and reuses existing TLS pools, pipelines, budgets and shutdown ownership.
+Typed group histories refuse old untagged frames; unsupported group snapshots
+refuse. All 192 native cases, 91 transport-filtered library cases and nine
+commands pass. Transfer `.cellar/cell-groups-evidence/CG-04-physical-transport/`
+with prior evidence (241 source inputs, eight executables). The next critical
+gap is production controller ownership and reconciliation after caller disconnect,
+followed by routed enrollment and SDK/shared-query RPC integration. The fixtures
+still drive runtime events. See [progress](progress.md) for exact limits.
+
 The implementation executor should deliver code, updated component contracts and
 the required retained evidence for each task on the active PR. The final handoff
 requires CG-16 and the release gate, including the real RustFS and independent
