@@ -2,8 +2,9 @@
 
 # Cell-group implementation handoff
 
-This deliverable is an executable design and implementation plan. It does not
-claim completion of the shared runtime, a production cutover or measured TiKV
+The executable plan is delivered; the active goal now resumes its end-to-end
+implementation and hard cutover. This handoff does not claim completion of the
+shared runtime, a production cutover or measured TiKV
 performance parity. The target is the same partitioned multi-Raft pattern: many
 whole cells per group, one Raft machine per group replica, and many groups sharing
 node resources. A group spans voter nodes; it is not all cells on one node.
@@ -12,9 +13,9 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [draft PR 160](https://github.com/crabbuild/cellar/pull/160).
-The committed handoff before this document is
-`fde3e6f96a388c3f17566667a81b14df49febc00`; the reviewed source baseline is
-`c187c47773fd22d4658de1d912b6096f92a8e26d`.
+The physical owner implementation and reviewed source baseline are at
+`51e30eabde1ca76bf0b23963dd06d0e8130f8ee7`; see the latest checkpoint in
+[progress](progress.md) for qualification and remaining work.
 Fetched `origin/main` at `1be27d234d4674d4d014785c60cecbfe394bdab9` is already
 included. Recheck origin before publishing later implementation changes.
 
@@ -31,15 +32,13 @@ candidate workload and performance gates; those numbers are targets, not results
 
 ## First executor session
 
-Inspect `git status` and the existing diff before editing. This working checkout
-contains an uncommitted physical owner prototype in
+Inspect `git status` and the existing diff before editing. The physical owner in
 `crates/cellar/durability/raft/cell_groups/owner.rs` and its native execution
-fixture, plus supporting edits in `cache.rs`, `storage.rs`, the group module and
-directory bootstrap. It is not connected to the shared scheduler or public SDK.
-Its test target has unresolved compilation failures documented in
-[progress](progress.md). A clean checkout of the committed handoff does not
-contain this prototype. Preserve or explicitly transfer it when assigning work;
-do not mistake its presence for a passing task gate.
+fixture now use real three-voter Raft with complete group manifests and separate
+SQLite images. The initial fixture compilation failures have been repaired.
+The owner is not yet connected to the shared scheduler or public SDK. Preserve
+its persistence, completion and physical lease boundaries during integration;
+do not mistake the low-level owner cases for the full CG-04 gate.
 
 Run from the repository root with Python 3.11+ and Rust 1.98.1:
 
@@ -56,13 +55,19 @@ Choose a different private target directory for a different checkout. The plan
 runner validates and prints commands; it does not execute Rust tests or provision
 infrastructure. `ready` currently returns no TODO task because CG-04 is already
 IN_PROGRESS and its successors depend on it. Resume CG-04 rather than resetting
-statuses. Global preflight intentionally rejects the unreviewed owner diff;
-record a reviewed successor source only after reconciling that implementation.
+statuses. Global preflight rejects any further unreviewed source drift; record
+a reviewed successor source after reconciling each implementation change.
 
 The three DONE records require their retained evidence directories listed in
 [README](README.md). Transfer those artifacts with the source when validating on
 another machine. Missing evidence must refuse; do not replace it with a pass flag
 or reset completed tasks merely to bypass validation.
+
+The current partial CG-04 evidence is retained at
+`.cellar/cell-groups-evidence/CG-04-owner/checkpoint.json`. Transfer that directory
+and the failed gate named by its record when handing off this checkpoint. It
+records six physical-owner cases and the catalog/storage regressions, with
+explicit limitations; it cannot stand in for the complete six-case CG-04 contract.
 
 ## Delivery sequence
 

@@ -9,11 +9,10 @@ The production host has not yet cut over to shared groups.
 See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.
 
-The current requested deliverable is the executable design and implementation
-plan. See the [executor handoff](handoff.md) for the starting revision, existing
-work, commands and completion boundary. The implementation described here still
-requires the complete shared-group runtime and hard cutover; plan delivery or an
-intermediate task gate does not qualify that runtime.
+The active goal resumes end-to-end implementation and the hard cutover from the
+delivered plan. See the [executor handoff](handoff.md) for the starting revision,
+existing work, commands and completion boundary. Plan delivery or an intermediate
+task gate does not qualify the complete shared-group runtime.
 
 This package implements the direction selected in the
 [density decision](../density-decision.md). The target is TiKV-style partitioned
@@ -72,8 +71,8 @@ qualification belongs only to the harness's recorded, owned disposable resources
 ### Current executor handoff
 
 The implementation executor should continue from the existing code and retained
-evidence. This plan delivery leaves task status unchanged and does not certify
-uncommitted runtime work. Review the working diff before starting CG-04.
+evidence. Review the working diff before resuming CG-04; intermediate owner and
+storage checkpoints do not replace its full shared-execution gate.
 
 Continue CG-04 after reading
 [progress](progress.md) and inspecting the working diff.
@@ -91,9 +90,11 @@ record is at
 `.cellar/cell-groups-evidence/CG-03-routing-final/record.json`; transfer that entire
 directory along with the earlier DONE-task evidence to the implementation
 executor. CG-04 now retains creation identity with the selected image and
-prepares ordered enrollment and exact retries. It must connect the catalog startup permit to the shared
-runtime, verify the complete selected manifest/image closure and acquire
-current-term quorum authority. Managed fleet integration remains required by CG-07. A birth
+prepares ordered enrollment and exact retries. Its physical group owner consumes
+the catalog startup permit and verified selected image/manifest closure, and
+obtains current-term quorum before protocol admission. Shared scheduler, SQL
+execution, receipt settlement and serving integration remain required. Managed
+fleet integration remains required by CG-07. A birth
 metadata observation alone cannot authorize voter startup.
 
 The implementation executor should deliver code, updated component contracts and

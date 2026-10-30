@@ -2,10 +2,68 @@
 
 # Cell-group implementation progress
 
-The latest requested deliverable is the executable design and implementation
-plan; see the [executor handoff](handoff.md). CG-01 through CG-03 have passed their scoped gates; CG-04 is IN_PROGRESS and
+The full end-to-end implementation and hard-cutover goal is active again after
+the plan delivery; see the [executor handoff](handoff.md). CG-01 through CG-03 have passed their scoped gates; CG-04 is IN_PROGRESS and
 CG-05 through CG-16 remain TODO. Intermediate contracts do not qualify a shared
 runtime. No production legacy/shared mode flag is being added.
+
+## CG-04 physical consensus owner checkpoint
+
+Source: `51e30eabde1ca76bf0b23963dd06d0e8130f8ee7` (successor to `0951440e`).
+CG-04 remains IN_PROGRESS. The physical owner now attaches one real RawNode to
+each group replica using the catalog's initial-member permit and a completely
+verified selected root. The permit is revalidated before attachment. Each
+GroupLog shares an exclusive owner lease; persistence requests retain it until
+physical engine work finishes, even if the owner and its awaiting future are
+dropped. A duplicate attachment cannot race an outstanding write.
+
+Ready and LightReady persistence completes before dependent messages, committed
+application or read barriers are released. Image preparation is an external
+effect and cannot advance Raft apply. Completion must match the exact owner,
+entry digest/position, preceding root, engine and page-store owner. The new root
+is published through the existing engine transaction before advancing the
+contiguous prefix. No-ops preserve all cell versions. ReadIndex output remains
+a barrier, not SDK serving authority.
+
+The local three-voter harness replicates three independent SQLite histories and
+interleaved LTX updates. It holds both followers' first apply while two entries
+commit, rejects foreign and incorrect-image completions, then restarts one
+follower and replays its committed tail. The restart joins the engine; it is not
+a process-kill or power-loss test. Separate tests exercise minority read refusal,
+cancellation while a real log sync is held, and 40 versions with a backpressured
+follower that later reaches the exact final SQLite bytes. A peer counter-boundary
+regression rejects input before changing the owner's term or applied state.
+
+Ready collection accounts for small-entry overhead and the two in-flight batches'
+maximum entries. A saturated apply queue backpressures new protocol requests.
+Ticks coalesce behind pending Ready work so a stalled sync does not accumulate
+unbounded heartbeat/election messages. Large physical effect and phase payloads
+are boxed, reducing the space paid by every lightweight event.
+
+All 36 selected Rust cases pass: six physical-owner cases, 15 catalog cases and
+15 active storage cases. The ignored process fixture is run by its parent crash
+test. All-target Clippy for `cellar`/`cellar-logic` with warnings denied,
+formatting (1,783 Rust files), layout, dependency isolation, docs, source preflight
+and all 37 plan-validator tests pass. The retained partial record is
+`.cellar/cell-groups-evidence/CG-04-owner/checkpoint.json`, binding 82 source inputs,
+eight successful command logs and three executables. It is not a CG-04 DONE record.
+
+The initial owner fixture compilation and pre-vote persistence
+expectation failed and are retained. Pre-vote has no durable vote; the corrected
+sync test holds an actual data append after election. An initial Clippy run
+rejected oversized enum variants; the implementation fixes their layout without
+suppressing the lint. That source-bound failed gate remains at
+`.cellar/cell-groups-evidence/CG-04-owner-failed-0951440e/gate-commands.json`;
+earlier uncommitted fixture failure logs are retained under the final checkpoint's
+`intermediate/` directory and are not treated as source-bound qualification.
+
+The existing shared scheduler and SQL worker still consume the prior single-cell
+owner. Next, integrate this physical owner with those node resources, bounded
+per-cell producers, fair admission, exact receipt settlement and coherent reads.
+The complete CG-04 six-case gate remains required, including real enrollment
+concurrency and callback ownership. Snapshot/configuration/topology requests
+currently refuse; their complete-group protocols, managed startup, RustFS,
+independent failure domains and final hard cutover remain unfinished.
 
 ## Plan delivery and working-state audit — 2026-10-29
 

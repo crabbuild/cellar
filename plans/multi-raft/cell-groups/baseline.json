@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "source_revision": "c187c47773fd22d4658de1d912b6096f92a8e26d",
+  "source_revision": "51e30eabde1ca76bf0b23963dd06d0e8130f8ee7",
   "runtime_revision": "1be27d234d4674d4d014785c60cecbfe394bdab9",
-  "review_note": "2026-10-29: reviewed CG-04 enrollment persistence at 9f937f227928c1ffa7324c8727a62cd410967383. Manifest leaves now require the immutable creation record and bind it to history/schema and initial image; updates preserve it exactly. Ordered enrollment preparation uses the existing complete-root and engine publication path. Duplicate enrollment advances only the contiguous group prefix, retains the current image and cannot invoke physical initialization. Unchanged-root preparation refuses a quarantined page store. Marker-1 pages without enrollment data refuse; no legacy decoding is added. Memory admission charges the additional cell identity. Catalog, host, runtime and other anchored excerpts/hashes remain unchanged. CG-03 is DONE at its audited preparation boundary; CG-04 shared execution and the final hard cutover remain incomplete. Successor c187c47773fd22d4658de1d912b6096f92a8e26d corrects the new quarantine fixture to fail the manifest directory barrier and asserts that the fault was consumed. The original image-file-only fault did not affect page files; the failed run is retained. Production source and anchor excerpts are unchanged.",
+  "review_note": "2026-10-29: reviewed physical cell-group consensus ownership at 0951440e3748da20573a6de26b7a9e97298fb385. GroupLog clones now share an exclusive consensus lease. GroupWrite retains the lease through queued physical sync/publication even when its waiter is cancelled. The CachedGroup anchor itself is unchanged and moves by three lines. The new CellGroupOwner consumes the existing verified complete root and revalidated catalog permit, persists Ready/LightReady before dependent effects, and advances complete roots only for exact contiguous entry/owner/store completions. Bounded slow-apply backpressure and cancellation/restart fixtures use real Raft Engine and SQLite/LTX. No other source anchor changed. This is the low-level shared owner, not shared SQL scheduling, SDK dispatch, snapshot/configuration/topology integration or completed CG-04 qualification. Successor 51e30eabde1ca76bf0b23963dd06d0e8130f8ee7 boxes large phase/effect payloads after all-target Clippy review and rejects exhausted peer-entry indexes before RawNode mutation. No anchored excerpt or hash changed.",
   "tikv_revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
   "anchors": {
     "identity": {
@@ -19,8 +19,8 @@
     },
     "manifest": {
       "path": "crates/cellar/durability/raft/cache.rs",
-      "sha256": "f68c46b39524dc8f960c4760513e4ed470919a5bc93aa952bc7b4ca93b5f9ab6",
-      "line": 416,
+      "sha256": "ced64a028c84a88887a716b94ee3077382b6c4956ecf2fae39b1e2565c44e292",
+      "line": 419,
       "excerpt": "pub(crate) struct CachedGroup {\n    pub hard_state: HardState,\n    pub conf_state: ConfState,\n    pub membership: GroupMembership,\n    pub snapshot: Snapshot,\n    pub entries: BTreeMap<u64, Entry>,\n    pub applied: DurableApply,\n    pub group_manifest: Option<GroupManifest>,\n    pub manifest_pins: Option<ManifestPins>,\n}\n"
     },
     "apply": {
