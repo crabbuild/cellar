@@ -3,7 +3,7 @@
 use super::reconciliation::apply_through;
 use super::*;
 
-async fn deadline(fixture: &RuntimeCluster, ms: u64) -> Result<u64> {
+pub(super) async fn deadline(fixture: &RuntimeCluster, ms: u64) -> Result<u64> {
     fixture
         .cluster
         .domain
@@ -27,7 +27,7 @@ fn pool(fixture: &RuntimeCluster, node: usize) -> Result<CellGroupSqlPool> {
     )?)
 }
 
-async fn selected(
+pub(super) async fn selected(
     fixture: &mut RuntimeCluster,
     node: usize,
     cell: &CellHistory,
@@ -71,7 +71,7 @@ async fn value(
         .await?)
 }
 
-fn verify_observation(output: &CellSqlQueryResult, schema: [u8; 32]) -> Result<()> {
+pub(super) fn verify_observation(output: &CellSqlQueryResult, schema: [u8; 32]) -> Result<()> {
     let keys = VersionKeys::new(
         VersionSigningKey::new([73; 32], 100_000)?,
         vec![],

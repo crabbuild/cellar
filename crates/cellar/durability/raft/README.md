@@ -1784,7 +1784,29 @@ previous namespace schema. There is no migration reader.
 
 The temporary single-cell host projects its actual logical binding into
 `CellHistory`; the shared command path does not manufacture `GroupScope` values.
-Registered shared queries and catalog/SDK routing still require integration;
-`QueryContext` continues to expose its existing committed version until that
-boundary is replaced. Shared effect scheduling and transfer qualification remain
-separate work. These APIs do not by themselves complete the production cutover.
+Registered shared queries use the boundary below. Catalog/SDK routing, shared
+effect scheduling and transfer qualification remain separate work. These APIs do not by themselves complete the production cutover.
+
+## Shared-group registered query boundary
+
+`CellGroupSqlPool::query_registered` consumes the invocation's `CellReadAuthority`
+and dispatches a compiled query on the existing workers. Operation names and
+input are bounded before queueing; retained input and output use read admission.
+The worker checks the operation kind, contract and full class schema before
+opening the selected immutable image. The same owner retains deadline, SQL
+interruption, cancellation, panic containment and joined shutdown behavior.
+A cancelled receiver cannot release a still-running callback or its image pins.
+
+`QueryContext::identity()` exposes logical `CellHistory`. On this shared path,
+`version()` yields `QueryVersion::Cell` containing the exact selected
+`CellVersionObservation`: mutation sequence, image commitment and decision witness.
+The returned `CellSqlQueryResult` retains that same observation for token issuance.
+Advancing another cell's group log position cannot relabel the selected version.
+A previously pinned image may remain a coherent historical read after publication.
+
+The temporary old host invokes `invoke_group_query` and supplies an explicit
+`QueryVersion::GroupCut`. It cannot supply or infer a logical mutation sequence.
+This in-memory staging observation is not a persisted-format reader or a final
+runtime choice. CG-16 must remove that variant and constructor with the old host,
+leaving the selected cell observation directly exposed by the final query context.
+Catalog/SDK dispatch into these workers remains required before public cutover.

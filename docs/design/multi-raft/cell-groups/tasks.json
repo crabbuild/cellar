@@ -482,7 +482,8 @@
         "crates/cellar/tests/support/cell_group_sql_apply_recovery.rs",
         "crates/cellar/durability/raft/execution/registered.rs",
         "crates/cellar/durability/raft/effect_history.rs",
-        "crates/cellar/tests/support/cell_group_sql_registered.rs"
+        "crates/cellar/tests/support/cell_group_sql_registered.rs",
+        "crates/cellar/tests/support/cell_group_sql_registered_queries.rs"
       ],
       "test_target": "native_cell_groups_execution",
       "steps": [
@@ -540,10 +541,17 @@
           ]
         },
         {
-          "action": "Use logical CellHistory at registered command and signed-effect identity boundaries. Dispatch namespace-authorized classes on the existing shared SQL workers; validate operation, schema, input and authenticated inbox identity before receipt lookup. Preserve exact proposal submission/settlement and cancellation ownership. Group placement is absent from effect identity; fresh cell incarnations remain fenced. Marker-1 old group-bearing effect wire and old signature domains refuse. Registered query/version and catalog dispatch remain separate integration work.",
+          "action": "Use logical CellHistory at registered command and signed-effect identity boundaries. Dispatch namespace-authorized classes on the existing shared SQL workers; validate operation, schema, input and authenticated inbox identity before receipt lookup. Preserve exact proposal submission/settlement and cancellation ownership. Group placement is absent from effect identity; fresh cell incarnations remain fenced. Marker-1 old group-bearing effect wire and old signature domains refuse. Catalog/SDK dispatch remains separate integration work.",
           "tests": [
             "registered_commands_use_cell_identity_and_receipts",
             "rooted_registered_commands_use_cell_identity_and_receipts"
+          ]
+        },
+        {
+          "action": "Dispatch compiled queries through the existing coherent query worker and callback guard with the actual CellVersionObservation, bounded operation/input admission and original read deadline. Keep legacy group cuts explicitly typed during integration; never fabricate a cell sequence or witness. Remove the temporary group-cut observation and old constructor with CG-16; final serving uses the common cell-group path.",
+          "tests": [
+            "registered_queries_keep_cell_observation_and_ownership",
+            "rooted_registered_queries_keep_cell_observation_and_ownership"
           ]
         }
       ],
@@ -776,6 +784,24 @@
             "I01",
             "I02",
             "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "registered_queries_keep_cell_observation_and_ownership",
+          "oracle": "Run a registered read-only callback on the existing worker with a real selected cell observation. An older A pin remains readable after A and B mutate; a fresh linearizable A query returns A's sequence and decision witness, not B's group progress, and round-trips its signed token. Invalid contract/kind/operation/schema/input refuses before callback execution. Panic and deadline interruption leave the worker usable. Cancelled query/close retain input, image and physical callback ownership until joined cleanup.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_registered_queries_keep_cell_observation_and_ownership",
+          "oracle": "Run a registered read-only callback on the existing worker with a real selected cell observation. An older A pin remains readable after A and B mutate; a fresh linearizable A query returns A's sequence and decision witness, not B's group progress, and round-trips its signed token. Invalid contract/kind/operation/schema/input refuses before callback execution. Panic and deadline interruption leave the worker usable. Cancelled query/close retain input, image and physical callback ownership until joined cleanup.",
+          "invariants": [
+            "I01",
+            "I05",
             "I12"
           ]
         }
@@ -2209,7 +2235,7 @@
       "test_target": "native_cell_groups_release",
       "steps": [
         {
-          "action": "Audit every production registration, scope codec, image marker, archive, SDK and operator path for the old cell-equals-group assumption. Remove temporary staging adapters and legacy runtime choices; leave explicit one-cell occupancy on the common code.",
+          "action": "Audit every production registration, scope codec, image marker, archive, SDK and operator path for the old cell-equals-group assumption. Remove temporary staging adapters and legacy runtime choices; leave explicit one-cell occupancy on the common code. Remove QueryVersion::GroupCut and RaftClass::invoke_group_query along with the old query adapters; final QueryContext exposes the selected cell observation directly.",
           "tests": [
             "no_legacy_per_cell_consensus_path"
           ]
@@ -2236,7 +2262,7 @@
       "test_cases": [
         {
           "name": "no_legacy_per_cell_consensus_path",
-          "oracle": "Public configuration cannot select a legacy one-cell host; physical group counts follow grouping, including occupancy one.",
+          "oracle": "Public configuration cannot select a legacy one-cell host; physical group counts follow grouping, including occupancy one. No temporary GroupCut query observation or invoke_group_query constructor remains; registered queries expose the actual selected cell version and witness.",
           "invariants": [
             "I01",
             "I14"

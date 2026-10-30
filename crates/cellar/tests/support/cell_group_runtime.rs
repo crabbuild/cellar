@@ -667,3 +667,5 @@ pub(super) use sql::{apply_cancellation, apply_failure};
 pub(super) use sql::recover_apply;
 
 pub(super) use sql::registered_commands;
+
+pub(super) use sql::registered_queries;

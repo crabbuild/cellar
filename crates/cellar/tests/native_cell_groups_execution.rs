@@ -1310,3 +1310,13 @@ async fn registered_commands_use_cell_identity_and_receipts() -> Result<()> {
 async fn rooted_registered_commands_use_cell_identity_and_receipts() -> Result<()> {
     runtime_fixture::registered_commands(true).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn registered_queries_keep_cell_observation_and_ownership() -> Result<()> {
+    Box::pin(runtime_fixture::registered_queries(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_registered_queries_keep_cell_observation_and_ownership() -> Result<()> {
+    Box::pin(runtime_fixture::registered_queries(true)).await
+}

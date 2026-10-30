@@ -115,7 +115,7 @@ pub use crate::raft::version::{
 pub use crate::storage::{CommandInputs, CommandTransaction};
 pub use class::{
     command_request_digest, CommandContext, OperationContract, OperationKind, QueryContext,
-    RaftClass, RegistrationError,
+    QueryVersion, RaftClass, RegistrationError,
 };
 pub use client::{
     CellStatus, CommandOptions, CommandReceipt, LearnerActivation, LearnerOptions, LearnerReceipt,
@@ -123,7 +123,8 @@ pub use client::{
     RaftCloseReport, StaleReadPolicy, UnfinishedCommand,
 };
 
-pub use cellar_logic::cell_group::{CellHistory, CellId};
+pub use crate::raft::version::CellVersionObservation;
+pub use cellar_logic::cell_group::{CellHistory, CellId, CellVersion};
 pub use cellar_logic::consensus::{
     ClientId, ClusterId, CommandFailure, CommandId, CommittedVersion, DiskLineage, Durability,
     EngineInstanceId, GroupId, GroupScope, IncarnationId, LogIndex, LogPosition, MemberId,

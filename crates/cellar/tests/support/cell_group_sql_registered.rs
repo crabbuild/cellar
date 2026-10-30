@@ -21,41 +21,7 @@ pub(crate) async fn commands(rooted: bool) -> Result<()> {
                 Ok(context.identity().cell.as_str().as_bytes().to_vec())
             })?,
     );
-    let cluster = Cluster::with_storage_schema(
-        RaftRuntimeOptions::default(),
-        tempfile::tempdir()?,
-        Arc::new(DirectFileSystem),
-        class.schema_digest(),
-    )
-    .await?;
-    let mut fixture = Box::pin(RuntimeCluster::from_cluster(cluster, 256, 256, 1_000_000)).await?;
-    let route = fixture.cluster.birth.route().clone();
-    if rooted {
-        for (n, voter) in fixture.cluster.voters.iter_mut().enumerate() {
-            voter.extents = Some(NodeExtentStore::open(
-                fixture.cluster._root.path().join(format!("rooted-{n}")),
-                Arc::new(DirectFileSystem),
-                Default::default(),
-            )?);
-        }
-    }
-    let a = history(&route, "registered-a")?;
-    let b = history(&route, "registered-b")?;
-    for node in 0..3 {
-        apply::install(&mut fixture, &a, node).await?;
-    }
-    fixture.runtimes[0].campaign(route.history).await?;
-    fixture.drive(None).await?;
-    let bytes = images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES(0);")?;
-    for cell in [&a, &b] {
-        let accepted = fixture.runtimes[0]
-            .propose(
-                route.history,
-                apply::enrollment_bytes(&route, cell, &bytes, rooted)?,
-            )
-            .await?;
-        fixture.drive(Some(accepted.position.index)).await?;
-    }
+    let (mut fixture, route, a, b) = Box::pin(setup(rooted, &class)).await?;
     let pool = fixture.appliers[&(0, route.history)].0.clone();
     let input = 7_i64.to_be_bytes().to_vec();
     let attempt = |tag| -> Result<CommandAttempt> {
@@ -183,4 +149,46 @@ pub(crate) async fn commands(rooted: bool) -> Result<()> {
     assert_eq!(pool.usage()?.retained_bytes, 0);
     drop(pool);
     fixture.close().await
+}
+
+pub(super) async fn setup(
+    rooted: bool,
+    class: &RaftClass,
+) -> Result<(RuntimeCluster, GroupRoute, CellHistory, CellHistory)> {
+    let cluster = Cluster::with_storage_schema(
+        RaftRuntimeOptions::default(),
+        tempfile::tempdir()?,
+        Arc::new(DirectFileSystem),
+        class.schema_digest(),
+    )
+    .await?;
+    let mut fixture = Box::pin(RuntimeCluster::from_cluster(cluster, 256, 256, 1_000_000)).await?;
+    let route = fixture.cluster.birth.route().clone();
+    if rooted {
+        for (n, voter) in fixture.cluster.voters.iter_mut().enumerate() {
+            voter.extents = Some(NodeExtentStore::open(
+                fixture.cluster._root.path().join(format!("rooted-{n}")),
+                Arc::new(DirectFileSystem),
+                Default::default(),
+            )?);
+        }
+    }
+    let a = history(&route, "registered-a")?;
+    let b = history(&route, "registered-b")?;
+    for node in 0..3 {
+        apply::install(&mut fixture, &a, node).await?;
+    }
+    fixture.runtimes[0].campaign(route.history).await?;
+    fixture.drive(None).await?;
+    let bytes = images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES(0);")?;
+    for cell in [&a, &b] {
+        let accepted = fixture.runtimes[0]
+            .propose(
+                route.history,
+                apply::enrollment_bytes(&route, cell, &bytes, rooted)?,
+            )
+            .await?;
+        fixture.drive(Some(accepted.position.index)).await?;
+    }
+    Ok((fixture, route, a, b))
 }

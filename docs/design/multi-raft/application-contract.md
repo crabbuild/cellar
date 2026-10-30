@@ -58,6 +58,7 @@ The internal MR-06 transaction facade supplies a captured Unix-millisecond value
 - That declaration identity binds the class name, schema version and supplied definition digest before adding bindings, allowing self-delivery and cyclic class declarations without recursive manifest hashes.
 - It does not replace the complete `schema_digest()` check at namespace admission.
 - Full logical target history (`CellHistory`) selects the immutable namespace and its required compiled manifest. Physical group placement is absent from command and effect identity; see the [shared command boundary](../../../crates/cellar/durability/raft/README.md#shared-group-registered-command-boundary).
+- Registered shared queries expose their exact `CellVersionObservation` through `QueryVersion::Cell`; `QueryContext::identity()` is logical cell history. The temporary old host uses a distinct `GroupCut` observation with no mutation sequence. CG-16 removes that staging branch; see the [registered query boundary](../../../crates/cellar/durability/raft/README.md#shared-group-registered-query-boundary).
 - Declaration order does not affect the identity.
 - Query contracts remain separate: a replica with incompatible/missing query code can still vote with the matching required commands, but refuses that query before executing it.
 - Changing required command contracts requires a fresh immutable namespace identity; this is a marker-1 hard cutover without a compatibility reader or in-place conversion.

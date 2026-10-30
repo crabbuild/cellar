@@ -7,9 +7,18 @@ use crate::raft::cell_groups::{CellImagePin, CellReadAuthority};
 use cellar_logic::cell_group::CellVersion;
 use std::panic::AssertUnwindSafe;
 
-type Callback = Box<
+type VerificationCallback = Box<
     dyn FnOnce(&crate::storage::ImmutableQuery, &CellVersion) -> anyhow::Result<Vec<u8>> + Send,
 >;
+
+enum Callback {
+    Verification(VerificationCallback),
+    Registered {
+        class: Arc<crate::application::consensus::RaftClass>,
+        contract: crate::application::consensus::OperationContract,
+        input: Box<[u8]>,
+    },
+}
 
 pub(super) struct Query {
     options: CellSqlOptions,
@@ -60,6 +69,52 @@ impl CellGroupSqlPool {
             + Send
             + 'static,
     ) -> Result<CellSqlQueryResult, ExecutionError> {
+        self.query_callback(
+            options,
+            authority,
+            Callback::Verification(Box::new(callback)),
+        )
+        .await
+    }
+
+    /// Invoke the namespace's compiled query against the exact selected cell
+    /// image and version witness. The existing query owner enforces the original
+    /// deadline, cancellation, read-only SQL, output budget and joined cleanup.
+    pub async fn query_registered(
+        &self,
+        options: CellSqlOptions,
+        authority: CellReadAuthority,
+        class: Arc<crate::application::consensus::RaftClass>,
+        mut contract: crate::application::consensus::OperationContract,
+        input: Vec<u8>,
+    ) -> Result<CellSqlQueryResult, ExecutionError> {
+        if contract.operation.len() > 128 {
+            return Err(ExecutionError::Registration(
+                crate::application::consensus::RegistrationError::Invalid("class/operation name"),
+            ));
+        }
+        contract.operation = contract.operation.into_boxed_str().into_string();
+        if input.len() > options.limits().envelope.max_payload_bytes {
+            return Err(overloaded());
+        }
+        self.query_callback(
+            options,
+            authority,
+            Callback::Registered {
+                class,
+                contract,
+                input: input.into_boxed_slice(),
+            },
+        )
+        .await
+    }
+
+    async fn query_callback(
+        &self,
+        options: CellSqlOptions,
+        authority: CellReadAuthority,
+        callback: Callback,
+    ) -> Result<CellSqlQueryResult, ExecutionError> {
         self.admit()?;
         let domain = &self.inner.workers[0].domain;
         if !authority.belongs_to_engine(&self.inner.engine_owner)
@@ -71,12 +126,17 @@ impl CellGroupSqlPool {
             .check(domain.mono_ms().map_err(|_| unavailable())?)
             .map_err(crate::raft::execution::authority_failure)?;
         options.limits().validate()?;
+        let input_bytes = match &callback {
+            Callback::Verification(_) => 0,
+            Callback::Registered { input, .. } => input.len(),
+        };
         let bytes = self.inner.admission.reserve_read(
             authority.route().history,
             options
                 .limits()
                 .max_result_bytes
                 .checked_add(4096)
+                .and_then(|n| n.checked_add(input_bytes))
                 .ok_or_else(overloaded)?,
         )?;
         let cell = authority.cell().version.history.clone();
@@ -86,7 +146,7 @@ impl CellGroupSqlPool {
         let query = Query {
             options,
             authority,
-            callback: Box::new(callback),
+            callback,
             cancelled,
             closing: self.inner.closing.clone(),
             bytes,
@@ -134,6 +194,20 @@ pub(super) fn run(
             .map_err(crate::raft::execution::authority_failure)
     };
     check(&query)?;
+    if let Callback::Registered {
+        class,
+        contract,
+        input,
+    } = &query.callback
+    {
+        crate::raft::execution::validate_registered_query(
+            class,
+            contract,
+            input,
+            query.authority.route().schema_digest,
+            query.options.limits(),
+        )?;
+    }
     let database = match (&query.options, query.authority.image()) {
         (CellSqlOptions::Materialized(options), CellImagePin::Materialized(pin)) => {
             crate::storage::open_immutable_generation(
@@ -181,8 +255,13 @@ pub(super) fn run(
         .map_err(crate::raft::execution::storage)?;
     check(&query)?;
     let observation = query.authority.cell().observation();
-    let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-        (query.callback)(&database, &observation.version)
+    let result = std::panic::catch_unwind(AssertUnwindSafe(|| match query.callback {
+        Callback::Verification(callback) => callback(&database, &observation.version),
+        Callback::Registered {
+            class,
+            contract,
+            input,
+        } => class.invoke_cell_query(&contract, &observation, &database, &input),
     }))
     .unwrap_or_else(|panic| Err(crate::native_worker::panic_error(panic)))
     .map_err(crate::raft::execution::storage)?;

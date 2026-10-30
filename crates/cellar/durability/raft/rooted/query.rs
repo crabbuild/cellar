@@ -69,7 +69,7 @@ pub(crate) fn query_registered_rooted_controlled(
         position: published.position(),
     };
     let result = class
-        .invoke_query(contract, &version, &database, input)
+        .invoke_group_query(contract, &version, &database, input)
         .map_err(ExecutionError::Storage)?;
     if result.len() > options.execution.max_result_bytes {
         return Err(ExecutionError::Refused(

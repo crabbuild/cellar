@@ -2,7 +2,8 @@
 
 //! Compiled, synchronous Raft operations with no ordinary mutable cell factory.
 
-use super::{CommandId, CommittedVersion, Durability, GroupScope};
+use super::{CommandId, CommittedVersion, Durability};
+use crate::raft::version::CellVersionObservation;
 use crate::storage::{CommandInputs, CommandTransaction, ImmutableQuery};
 use cellar_logic::{cell_group::CellHistory, NamespaceMode};
 use sha2::{Digest, Sha256};
@@ -210,10 +211,21 @@ impl CommandContext<'_> {
     }
 }
 
+/// Exact observation supplied by the owning query path. A group cut carries no
+/// cell mutation sequence and must never be relabeled as a cell version.
+#[derive(Clone, Copy, Debug)]
+pub enum QueryVersion<'a> {
+    Cell(&'a CellVersionObservation),
+    /// Temporary single-cell host boundary, removed with that host in CG-16.
+    /// This is an in-memory observation, not an old-format recovery reader.
+    GroupCut(&'a CommittedVersion),
+}
+
 /// A pinned, read-only committed image. The host establishes consistency before
 /// constructing this context. Query code cannot open or migrate writable state.
 pub struct QueryContext<'a> {
-    version: &'a CommittedVersion,
+    identity: &'a CellHistory,
+    version: QueryVersion<'a>,
     database: &'a ImmutableQuery,
     blobs: Option<super::RaftBlobLimits>,
     outbox: Option<&'a super::RaftOutbox>,
@@ -229,11 +241,11 @@ impl QueryContext<'_> {
         )
     }
 
-    pub fn identity(&self) -> &GroupScope {
-        &self.version.scope
+    pub fn identity(&self) -> &CellHistory {
+        self.identity
     }
 
-    pub fn version(&self) -> &CommittedVersion {
+    pub fn version(&self) -> QueryVersion<'_> {
         self.version
     }
 
@@ -815,10 +827,44 @@ impl RaftClass {
         )
     }
 
-    pub(crate) fn invoke_query(
+    pub(crate) fn invoke_group_query(
         &self,
         contract: &OperationContract,
         version: &CommittedVersion,
+        database: &ImmutableQuery,
+        input: &[u8],
+    ) -> anyhow::Result<Vec<u8>> {
+        let identity = CellHistory::try_from(&version.scope)?;
+        self.invoke_query(
+            contract,
+            &identity,
+            QueryVersion::GroupCut(version),
+            database,
+            input,
+        )
+    }
+
+    pub(crate) fn invoke_cell_query(
+        &self,
+        contract: &OperationContract,
+        observation: &CellVersionObservation,
+        database: &ImmutableQuery,
+        input: &[u8],
+    ) -> anyhow::Result<Vec<u8>> {
+        self.invoke_query(
+            contract,
+            &observation.version.history,
+            QueryVersion::Cell(observation),
+            database,
+            input,
+        )
+    }
+
+    fn invoke_query(
+        &self,
+        contract: &OperationContract,
+        identity: &CellHistory,
+        version: QueryVersion<'_>,
         database: &ImmutableQuery,
         input: &[u8],
     ) -> anyhow::Result<Vec<u8>> {
@@ -836,6 +882,7 @@ impl RaftClass {
             let _guard = CallbackGuard::enter()?;
             callback(
                 &QueryContext {
+                    identity,
                     version,
                     database,
                     blobs: self.blobs,
