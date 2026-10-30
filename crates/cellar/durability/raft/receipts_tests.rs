@@ -135,3 +135,58 @@ fn committed_lookup_preserves_identity_floor_and_allocation_checks() -> anyhow::
     assert_eq!(client(&connection, original.id.client)?, Some((1, 1)));
     Ok(())
 }
+
+#[test]
+fn cell_lookup_distinguishes_initial_absence_from_lost_schema() -> anyhow::Result<()> {
+    let connection = Connection::open_in_memory()?;
+    let command = request(1, 1000);
+    let limits = ExecutionLimits::default();
+    assert!(lookup_cell_identity(&connection, &command, &limits, 1)?.is_none());
+    assert!(matches!(
+        lookup_cell_identity(&connection, &request(2, 1000), &limits, 1),
+        Err(ExecutionError::Refused(CommandFailure::SequenceGap {
+            next: 1
+        }))
+    ));
+    for sequence in [0, 2] {
+        assert!(matches!(
+            lookup_cell_identity(&connection, &command, &limits, sequence),
+            Err(ExecutionError::Refused(CommandFailure::CorruptState))
+        ));
+    }
+    install(&connection)?;
+    // Inspection does not consume write capacity or invoke receipt maintenance.
+    let saturated = ExecutionLimits {
+        max_retained_receipts: 1,
+        max_client_identities: 1,
+        ..limits
+    };
+    record(&connection, &command, vec![7])?;
+    assert_eq!(
+        lookup_cell_identity(&connection, &command, &saturated, 2)?
+            .unwrap()
+            .result(),
+        &[7]
+    );
+    let mut other = command.clone();
+    other.id = CommandId::new(ClientId::new([9; 16])?, 1)?;
+    assert!(lookup_cell_identity(&connection, &other, &saturated, 2)?.is_none());
+    prune(&connection, command.id.client, 1, 1001)?;
+    assert!(matches!(
+        lookup_cell_identity(&connection, &command, &limits, 3),
+        Err(ExecutionError::Refused(CommandFailure::CommandExpired))
+    ));
+    connection.execute_batch("DROP TABLE __sys_raft_receipts")?;
+    for sequence in [1, 3] {
+        assert!(matches!(
+            lookup_cell_identity(&connection, &command, &limits, sequence),
+            Err(ExecutionError::Refused(CommandFailure::CorruptState))
+        ));
+    }
+    connection.execute_batch("DROP TABLE __sys_raft_clients")?;
+    assert!(matches!(
+        lookup_cell_identity(&connection, &command, &limits, 3),
+        Err(ExecutionError::Refused(CommandFailure::CorruptState))
+    ));
+    Ok(())
+}

@@ -43,6 +43,7 @@ mod cell_queries;
 mod command_origins;
 pub use cell_commands::{
     CellCommandGateway, CellRemoteCommandResponse, CellRemoteEnrollmentResponse,
+    CellRemoteReceiptResponse,
 };
 #[path = "query_cell_discovery.rs"]
 mod cell_query_discovery;

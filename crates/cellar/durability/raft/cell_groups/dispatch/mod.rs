@@ -3,6 +3,9 @@
 //! Catalog-bound invocations over the existing consensus and SQL owners.
 //! Routing observations never replace destination authority or ingress grants.
 
+mod receipt;
+pub use receipt::{CellReceiptInvocation, CellReceiptRequest, CellReceiptResponse};
+
 mod enrollment;
 pub use enrollment::{CellEnrollmentError, CellEnrollmentInvocation, CellEnrollmentRequest};
 

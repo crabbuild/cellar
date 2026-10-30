@@ -120,7 +120,7 @@ impl CellCommandCall {
     }
 }
 
-fn command_id(body: &mut Reader<'_>) -> Result<CommandId, TransportError> {
+pub(super) fn command_id(body: &mut Reader<'_>) -> Result<CommandId, TransportError> {
     let client = ClientId::new(body.array()?).map_err(|_| TransportError::Identity)?;
     CommandId::new(client, u64::from_be_bytes(body.array()?)).map_err(|_| TransportError::Identity)
 }

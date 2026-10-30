@@ -12,6 +12,11 @@ type VerificationCallback = Box<
 >;
 
 enum Callback {
+    Receipt {
+        class: Arc<crate::application::consensus::RaftClass>,
+        request: crate::raft::execution::CommandRequest,
+        input: Box<[u8]>,
+    },
     Verification(VerificationCallback),
     Registered {
         class: Arc<crate::application::consensus::RaftClass>,
@@ -49,6 +54,37 @@ impl CellSqlQueryResult {
     }
 }
 
+/// None means the selected image has no retained receipt, never non-commit.
+pub struct CellSqlReceiptLookup {
+    receipt: Option<crate::raft::execution::StoredReceipt>,
+    observation: crate::raft::version::CellVersionObservation,
+    _bytes: Arc<Bytes>,
+}
+
+impl CellSqlReceiptLookup {
+    pub fn receipt(&self) -> Option<&crate::raft::execution::StoredReceipt> {
+        self.receipt.as_ref()
+    }
+
+    pub fn observation(&self) -> &crate::raft::version::CellVersionObservation {
+        &self.observation
+    }
+}
+
+enum Output {
+    Query(Vec<u8>),
+    Receipt(Option<crate::raft::execution::StoredReceipt>),
+}
+
+impl Output {
+    fn retained_bytes(&self) -> usize {
+        match self {
+            Self::Query(bytes) => bytes.len(),
+            Self::Receipt(receipt) => receipt.as_ref().map_or(0, |r| r.result().len()),
+        }
+    }
+}
+
 struct Cancel(Arc<AtomicBool>);
 
 impl Drop for Cancel {
@@ -69,12 +105,17 @@ impl CellGroupSqlPool {
             + Send
             + 'static,
     ) -> Result<CellSqlQueryResult, ExecutionError> {
-        self.query_callback(
-            options,
-            authority,
-            Callback::Verification(Box::new(callback)),
-        )
-        .await
+        match self
+            .query_callback(
+                options,
+                authority,
+                Callback::Verification(Box::new(callback)),
+            )
+            .await?
+        {
+            CellSqlOutcome::Queried(output) => Ok(output),
+            _ => Err(ExecutionError::Invalid("cell query reply")),
+        }
     }
 
     /// Invoke the namespace's compiled query against the exact selected cell
@@ -97,16 +138,60 @@ impl CellGroupSqlPool {
         if input.len() > options.limits().envelope.max_payload_bytes {
             return Err(overloaded());
         }
-        self.query_callback(
-            options,
-            authority,
-            Callback::Registered {
-                class,
-                contract,
-                input: input.into_boxed_slice(),
-            },
-        )
-        .await
+        match self
+            .query_callback(
+                options,
+                authority,
+                Callback::Registered {
+                    class,
+                    contract,
+                    input: input.into_boxed_slice(),
+                },
+            )
+            .await?
+        {
+            CellSqlOutcome::Queried(output) => Ok(output),
+            _ => Err(ExecutionError::Invalid("cell query reply")),
+        }
+    }
+
+    /// Inspect a committed image without a private writer or command callback.
+    /// Contract, payload digest and authenticated command identity are checked
+    /// before returning even a duplicate receipt. Missing state is not a proof.
+    pub async fn lookup_receipt_registered(
+        &self,
+        options: CellSqlOptions,
+        authority: CellReadAuthority,
+        class: Arc<crate::application::consensus::RaftClass>,
+        mut request: crate::raft::execution::CommandRequest,
+        input: Vec<u8>,
+    ) -> Result<CellSqlReceiptLookup, ExecutionError> {
+        if authority.barrier().is_none() {
+            return Err(ExecutionError::Invalid(
+                "receipt lookup requires quorum read",
+            ));
+        }
+        if request.operation.len() > 128
+            || input.len() > options.limits().envelope.max_payload_bytes
+        {
+            return Err(overloaded());
+        }
+        request.operation = request.operation.into_boxed_str().into_string();
+        match self
+            .query_callback(
+                options,
+                authority,
+                Callback::Receipt {
+                    class,
+                    request,
+                    input: input.into_boxed_slice(),
+                },
+            )
+            .await?
+        {
+            CellSqlOutcome::ReceiptLookedUp(output) => Ok(output),
+            _ => Err(ExecutionError::Invalid("cell receipt lookup reply")),
+        }
     }
 
     async fn query_callback(
@@ -114,7 +199,7 @@ impl CellGroupSqlPool {
         options: CellSqlOptions,
         authority: CellReadAuthority,
         callback: Callback,
-    ) -> Result<CellSqlQueryResult, ExecutionError> {
+    ) -> Result<CellSqlOutcome, ExecutionError> {
         self.admit()?;
         let domain = &self.inner.workers[0].domain;
         if !authority.belongs_to_engine(&self.inner.engine_owner)
@@ -128,7 +213,7 @@ impl CellGroupSqlPool {
         options.limits().validate()?;
         let input_bytes = match &callback {
             Callback::Verification(_) => 0,
-            Callback::Registered { input, .. } => input.len(),
+            Callback::Registered { input, .. } | Callback::Receipt { input, .. } => input.len(),
         };
         let bytes = self.inner.admission.reserve_read(
             authority.route().history,
@@ -155,7 +240,7 @@ impl CellGroupSqlPool {
         crate::asyncrt::select! {
             result = self.call(cell, worker::Action::Query(Box::new(query))) => {
                 match result? {
-                    CellSqlOutcome::Queried(output) => {
+                    output @ (CellSqlOutcome::Queried(_) | CellSqlOutcome::ReceiptLookedUp(_)) => {
                         if domain.mono_ms().map_err(|_| unavailable())? >= deadline {
                             return Err(crate::raft::execution::storage(RuntimeError::DeadlineExceeded));
                         }
@@ -256,15 +341,45 @@ pub(super) fn run(
     check(&query)?;
     let observation = query.authority.cell().observation();
     let result = std::panic::catch_unwind(AssertUnwindSafe(|| match query.callback {
-        Callback::Verification(callback) => callback(&database, &observation.version),
+        Callback::Verification(callback) => callback(&database, &observation.version)
+            .map(Output::Query)
+            .map_err(crate::raft::execution::storage),
         Callback::Registered {
             class,
             contract,
             input,
-        } => class.invoke_cell_query(&contract, &observation, &database, &input),
+        } => class
+            .invoke_cell_query(&contract, &observation, &database, &input)
+            .map(Output::Query)
+            .map_err(crate::raft::execution::storage),
+        Callback::Receipt {
+            class,
+            request,
+            input,
+        } => {
+            crate::raft::execution::validate_registered_command(
+                query.options.limits(),
+                query.authority.route().schema_digest,
+                &observation.version.history,
+                &request,
+                &class,
+                &input,
+                false,
+            )?;
+            let receipt = crate::raft::receipts::lookup_cell_identity(
+                database.connection(),
+                &request,
+                &query.options.limits(),
+                observation.version.sequence.get(),
+            )?;
+            Ok(Output::Receipt(receipt))
+        }
     }))
-    .unwrap_or_else(|panic| Err(crate::native_worker::panic_error(panic)))
-    .map_err(crate::raft::execution::storage)?;
+    .unwrap_or_else(|panic| {
+        Err(crate::raft::execution::storage(
+            crate::native_worker::panic_error(panic),
+        ))
+    })?;
     // The callback has been consumed, so check the remaining owners explicitly.
     if query.cancelled.load(Ordering::Acquire) || query.closing.load(Ordering::Acquire) {
         return Err(unavailable());
@@ -273,15 +388,22 @@ pub(super) fn run(
         .authority
         .check(domain.mono_ms().map_err(|_| unavailable())?)
         .map_err(crate::raft::execution::authority_failure)?;
-    if result.len() > query.options.limits().max_result_bytes {
+    if result.retained_bytes() > query.options.limits().max_result_bytes {
         return Err(overloaded());
     }
     drop(database);
     drop(query.authority);
-    Bytes::shrink(&mut query.bytes, result.len() + 4096)?;
-    Ok(CellSqlOutcome::Queried(CellSqlQueryResult {
-        result,
-        observation,
-        _bytes: query.bytes,
-    }))
+    Bytes::shrink(&mut query.bytes, result.retained_bytes() + 4096)?;
+    Ok(match result {
+        Output::Query(result) => CellSqlOutcome::Queried(CellSqlQueryResult {
+            result,
+            observation,
+            _bytes: query.bytes,
+        }),
+        Output::Receipt(receipt) => CellSqlOutcome::ReceiptLookedUp(CellSqlReceiptLookup {
+            receipt,
+            observation,
+            _bytes: query.bytes,
+        }),
+    })
 }

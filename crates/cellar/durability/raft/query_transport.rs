@@ -395,7 +395,7 @@ impl State {
         &self,
         wire: &QueryRoute,
     ) -> Result<(Arc<Pool>, Option<watch::Receiver<bool>>), TransportError> {
-        if wire.is_write() {
+        if wire.requires_command_grant() {
             return self.authorize_cell_command(wire);
         }
         if wire.is_shared() {

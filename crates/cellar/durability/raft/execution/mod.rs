@@ -15,6 +15,7 @@ mod command;
 mod enrollment;
 mod registered;
 pub use enrollment::{CellEnrollmentAttempt, CellEnrollmentResolution, CellPrivateEnrollment};
+pub(crate) use registered::validate as validate_registered_command;
 mod images;
 pub use cell::{CellCommittedReceipt, CellPrivateExecutor, CellReconciliation, CellStageOutcome};
 mod rooted_working;
@@ -640,7 +641,7 @@ impl PrivateExecutor {
             self.options.limits,
             self.options.application_digest,
             &scope,
-            &attempt,
+            &attempt.request,
             class,
             input,
             system,

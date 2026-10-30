@@ -5,13 +5,13 @@
 pub use super::host_sql::cell_groups::{
     CellGroupPreparedApply, CellGroupSqlPool, CellSqlEnrollment, CellSqlEnrollmentResolution,
     CellSqlLimits, CellSqlOptions, CellSqlOutcome, CellSqlPrepared, CellSqlQueryResult,
-    CellSqlReceipt, CellSqlReconciliation, CellSqlRejection, CellSqlRootOptions, CellSqlSubmission,
-    CellSqlUsage,
+    CellSqlReceipt, CellSqlReceiptLookup, CellSqlReconciliation, CellSqlRejection,
+    CellSqlRootOptions, CellSqlSubmission, CellSqlUsage,
 };
 
 pub use crate::raft::transport::{
     CellCommandGateway, CellQueryGateway, CellRemoteCommandResponse, CellRemoteEnrollmentResponse,
-    CellRemoteQueryResponse,
+    CellRemoteQueryResponse, CellRemoteReceiptResponse,
 };
 
 mod apply;
@@ -28,7 +28,7 @@ pub use dispatch::{
     CellCommandResponse, CellCommandSettlement, CellCommandSubmission, CellDispatchError,
     CellDispatchLimits, CellEnrollmentError, CellEnrollmentInvocation, CellEnrollmentRequest,
     CellGroupDispatcher, CellQueryConsistency, CellQueryInvocation, CellQueryRequest,
-    CellQueryResponse,
+    CellQueryResponse, CellReceiptInvocation, CellReceiptRequest, CellReceiptResponse,
 };
 
 mod execution_authority;

@@ -80,6 +80,7 @@ pub struct CellGroupControllerUsage {
 
 struct Shared {
     runtime: CellGroupRuntime,
+    sql: crate::raft::host_sql::cell_groups::WeakCellGroupSqlPool,
     groups: BTreeSet<cellar_logic::cell_group::GroupHistory>,
     limits: CellGroupControllerLimits,
     domain: crate::asyncrt::DomainToken,
@@ -198,6 +199,7 @@ impl CellGroupController {
         let (requests, receiver) = tokio::sync::mpsc::channel(limits.max_commands);
         let shared = Arc::new(Shared {
             runtime: runtime.clone(),
+            sql: sql.downgrade(),
             groups: roster.keys().copied().collect(),
             limits,
             domain: domain.clone(),
@@ -272,5 +274,30 @@ impl CellGroupController {
     pub async fn close(&self) -> Result<(), CellGroupControllerError> {
         self.handle.0.stop();
         self.wait().await
+    }
+}
+
+impl CellGroupController {
+    pub(crate) async fn lookup_receipt(
+        &self,
+        mut invocation: super::CellReceiptInvocation,
+        options: super::CellSqlOptions,
+    ) -> Result<super::CellReceiptResponse, super::CellDispatchError> {
+        let shared = &self.handle.0;
+        if shared.closing.load(Ordering::Acquire) {
+            return Err(super::CellDispatchError::Runtime(RuntimeError::Closed));
+        }
+        invocation.begin().await?;
+        if !invocation
+            .attempt()
+            .is_some_and(|a| shared.groups.contains(&a.route().history))
+        {
+            return Err(super::CellDispatchError::Runtime(RuntimeError::NotFound));
+        }
+        let sql = shared
+            .sql
+            .upgrade()
+            .ok_or(super::CellDispatchError::Runtime(RuntimeError::Closed))?;
+        invocation.execute(&shared.runtime, &sql, options).await
     }
 }

@@ -23,6 +23,8 @@ pub(super) mod cell;
 pub(super) mod command;
 #[path = "enrollment_cell_wire.rs"]
 pub(super) mod enrollment;
+#[path = "receipt_cell_wire.rs"]
+pub(super) mod receipt;
 
 pub(super) const EXPORT_LABEL: &[u8] = b"EXPORTER-cellar-raft-query-1";
 const REQUEST: &[u8] = b"cellar-raft-query-request-1";

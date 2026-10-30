@@ -120,6 +120,34 @@ pub(super) fn lookup_identity(
     }
 }
 
+/// An initial cell image may precede receipt schema installation. Losing schema
+/// after a mutation, or retaining only half of it, is corruption, not absence.
+/// A missing receipt never proves that a submitted command cannot still commit.
+pub(super) fn lookup_cell_identity(
+    connection: &Connection,
+    request: &CommandRequest,
+    limits: &ExecutionLimits,
+    cell_sequence: u64,
+) -> Result<Option<StoredReceipt>, ExecutionError> {
+    let tables: u64 = connection.query_row(
+        "SELECT count(*) FROM sqlite_schema WHERE type='table' AND name IN ('__sys_raft_clients','__sys_raft_receipts')",
+        [], |row| row.get(0),
+    ).map_err(storage)?;
+    match tables {
+        0 if cell_sequence == 1 => {
+            if request.id.sequence() == 1 {
+                Ok(None)
+            } else {
+                Err(ExecutionError::Refused(CommandFailure::SequenceGap {
+                    next: 1,
+                }))
+            }
+        }
+        2 => lookup_identity(connection, request, limits),
+        _ => Err(corrupt()),
+    }
+}
+
 enum Identity {
     Retained(StoredReceipt),
     Vacant { new_client: bool },

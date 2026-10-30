@@ -60,6 +60,7 @@ enum Purpose {
     Query,
     Command,
     Enrollment,
+    Receipt,
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -94,7 +95,7 @@ impl QueryRoute {
     /// Request orientation only. A reversed response route is compared with
     /// the exact outstanding request; it cannot decode as another request.
     pub fn decode(&self) -> Result<(NodeIdentity, ReplicaIdentity), TransportError> {
-        if self.is_write() {
+        if self.requires_command_grant() {
             return Err(TransportError::Identity);
         }
         let History::Cell(scope) = &self.scope else {
@@ -215,8 +216,18 @@ impl QueryRoute {
         self.purpose == Purpose::Enrollment
     }
 
-    pub fn is_write(&self) -> bool {
-        self.is_command() || self.is_enrollment()
+    pub fn for_receipt(mut self) -> Result<Self, TransportError> {
+        self.decode_shared()?;
+        self.purpose = Purpose::Receipt;
+        Ok(self)
+    }
+
+    pub fn is_receipt(&self) -> bool {
+        self.purpose == Purpose::Receipt
+    }
+
+    pub fn requires_command_grant(&self) -> bool {
+        self.is_command() || self.is_enrollment() || self.is_receipt()
     }
 
     pub fn is_shared(&self) -> bool {

@@ -8,7 +8,7 @@ pub(in crate::raft::host_sql) use apply::ApplyRequest;
 pub use apply::CellGroupPreparedApply;
 mod query;
 mod worker;
-pub use query::CellSqlQueryResult;
+pub use query::{CellSqlQueryResult, CellSqlReceiptLookup};
 
 use super::{Budget, Budgets, Envelope, Permit, Pool, ResourceObserver, Worker};
 use crate::raft::cell_groups::{
@@ -275,6 +275,7 @@ pub enum CellSqlOutcome {
     EnrollmentResolved(CellSqlEnrollmentResolution),
     Rejected,
     Queried(CellSqlQueryResult),
+    ReceiptLookedUp(CellSqlReceiptLookup),
 }
 
 pub enum CellSqlReconciliation {
@@ -299,6 +300,20 @@ pub struct CellSqlUsage {
 #[derive(Clone)]
 pub struct CellGroupSqlPool {
     inner: Arc<Handle>,
+}
+
+pub(crate) struct WeakCellGroupSqlPool(std::sync::Weak<Handle>);
+
+impl WeakCellGroupSqlPool {
+    pub(crate) fn upgrade(&self) -> Option<CellGroupSqlPool> {
+        self.0.upgrade().map(|inner| CellGroupSqlPool { inner })
+    }
+}
+
+impl CellGroupSqlPool {
+    pub(crate) fn downgrade(&self) -> WeakCellGroupSqlPool {
+        WeakCellGroupSqlPool(Arc::downgrade(&self.inner))
+    }
 }
 
 struct Handle {

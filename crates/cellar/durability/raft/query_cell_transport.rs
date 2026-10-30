@@ -359,6 +359,7 @@ pub(super) enum IncomingCall {
     Shared(CellQueryCall),
     Command(crate::raft::query_wire::command::CellCommandCall),
     Enrollment(crate::raft::query_wire::enrollment::CellEnrollmentCall),
+    Receipt(crate::raft::query_wire::receipt::CellReceiptCall),
 }
 
 impl IncomingCall {
@@ -367,6 +368,11 @@ impl IncomingCall {
         bytes: &[u8],
         limit: usize,
     ) -> Result<Self, TransportError> {
+        if route.is_receipt() {
+            return Ok(Self::Receipt(
+                crate::raft::query_wire::receipt::CellReceiptCall::decode(bytes, limit)?,
+            ));
+        }
         if route.is_enrollment() {
             return Ok(Self::Enrollment(
                 crate::raft::query_wire::enrollment::CellEnrollmentCall::decode(bytes, limit)?,
@@ -390,6 +396,7 @@ impl IncomingCall {
             Self::Shared(call) => call.timeout_ms,
             Self::Command(call) => call.timeout_ms,
             Self::Enrollment(call) => call.timeout_ms,
+            Self::Receipt(call) => call.timeout_ms,
         }
     }
 
@@ -401,6 +408,7 @@ impl IncomingCall {
         match self {
             Self::Command(call) => state.execute_cell_command(route, call).await,
             Self::Enrollment(call) => state.execute_cell_enrollment(route, call).await,
+            Self::Receipt(call) => state.execute_cell_receipt(route, call).await,
             Self::Legacy(call) => {
                 let (_, target) = route.decode()?;
                 let handle = state

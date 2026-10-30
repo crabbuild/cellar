@@ -715,3 +715,5 @@ pub(super) use sql::cached_dispatch_execution;
 pub(super) use sql::{remote_command_lifecycle, remote_commands};
 
 pub(super) use sql::{remote_enrollment, remote_enrollment_lifecycle};
+
+pub(super) use sql::{receipt_lookup_cancelled, receipt_lookup_ingress, receipt_lookup_pending};

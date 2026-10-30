@@ -12,6 +12,7 @@ use crate::raft::query_wire::{
     self as wire,
     command::{CellCommandCall, CellCommandValue},
     enrollment::CellEnrollmentCall,
+    receipt::{CellReceiptCall, CellReceiptValue},
 };
 use crate::raft::version::{CellVersionObservation, CellVersionToken, VersionKeys};
 use cellar_logic::{
@@ -107,9 +108,48 @@ impl CellRemoteEnrollmentResponse {
     }
 }
 
+/// Receipt inspection retains reply admission but never owns a producer.
+pub struct CellRemoteReceiptResponse {
+    value: CellReceiptValue,
+    _node: Permit,
+    _peer: Permit,
+}
+
+impl CellRemoteReceiptResponse {
+    pub fn command(&self) -> cellar_logic::consensus::CommandId {
+        self.value.value.command
+    }
+
+    /// None remains ambiguous; no command or initializer was invoked by lookup.
+    pub fn result(&self) -> Option<&[u8]> {
+        self.value
+            .retained
+            .then_some(self.value.value.value.result.as_slice())
+    }
+
+    pub fn retry_until_ms(&self) -> Option<u64> {
+        self.value
+            .retained
+            .then_some(self.value.value.retry_until_ms)
+    }
+
+    pub fn observation(&self) -> &CellVersionObservation {
+        &self.value.value.value.observation
+    }
+
+    pub fn token(&self) -> &CellVersionToken {
+        &self.value.value.value.token
+    }
+
+    pub fn served_by(&self) -> MemberId {
+        self.value.value.value.served_by
+    }
+}
+
 enum WriteCall {
     Command(CellCommandCall),
     Enrollment(CellEnrollmentCall),
+    Receipt(CellReceiptCall),
 }
 
 impl WriteCall {
@@ -117,6 +157,7 @@ impl WriteCall {
         match self {
             Self::Command(c) => c.encode(limit),
             Self::Enrollment(c) => c.encode(limit),
+            Self::Receipt(c) => c.encode(limit),
         }
     }
 
@@ -124,6 +165,7 @@ impl WriteCall {
         let timeout = match self {
             Self::Command(c) => &mut c.timeout_ms,
             Self::Enrollment(c) => &mut c.timeout_ms,
+            Self::Receipt(c) => &mut c.timeout_ms,
         };
         *timeout = (*timeout).min(remaining);
     }
@@ -132,6 +174,7 @@ impl WriteCall {
         match self {
             Self::Command(c) => c.request.input.len(),
             Self::Enrollment(_) => 0,
+            Self::Receipt(c) => c.request.input.len(),
         }
     }
 }
@@ -139,6 +182,7 @@ impl WriteCall {
 enum WriteValue {
     Command(CellCommandValue),
     Enrollment(EnrollmentRecord),
+    Receipt(CellReceiptValue),
 }
 
 struct WriteResponse {
@@ -271,6 +315,35 @@ impl RaftTransport {
         Ok(CellRemoteEnrollmentResponse {
             record,
             served_by: response.served_by,
+            _node: response.node,
+            _peer: response.peer,
+        })
+    }
+
+    pub(in crate::raft) async fn lookup_cell_receipt(
+        &self,
+        route: &cellar_logic::cell_group::GroupRoute,
+        cell: &CellHistory,
+        member: MemberId,
+        call: CellReceiptCall,
+        keys: VersionKeys,
+        deadline: u64,
+    ) -> Result<CellRemoteReceiptResponse, TransportError> {
+        let response = self
+            .write_cell(
+                route,
+                cell,
+                member,
+                WriteCall::Receipt(call),
+                keys,
+                deadline,
+            )
+            .await?;
+        let WriteValue::Receipt(value) = response.value else {
+            return Err(TransportError::Protocol);
+        };
+        Ok(CellRemoteReceiptResponse {
+            value,
             _node: response.node,
             _peer: response.peer,
         })
@@ -455,6 +528,7 @@ impl State {
                     let route = match &request.call {
                         WriteCall::Command(_) => route.for_command()?,
                         WriteCall::Enrollment(_) => route.for_enrollment()?,
+                        WriteCall::Receipt(_) => route.for_receipt()?,
                     };
                     let body = self
                         .exchange_query(connection, &RaftPeerNode::from(&request.peer), route, body)
@@ -476,6 +550,20 @@ impl State {
                                 request.peer.replica.member,
                             )?
                             .map(WriteValue::Command)
+                        }
+                        WriteCall::Receipt(call) => {
+                            let now = u64::try_from(crate::asyncrt::wall_ms())
+                                .map_err(|_| TransportError::Authentication)?;
+                            wire::receipt::decode_result(
+                                &body,
+                                (call.request.id, &request.cell),
+                                request.route.schema_digest,
+                                &request.keys,
+                                now,
+                                self.options.max_query_response_bytes,
+                                request.peer.replica.member,
+                            )?
+                            .map(WriteValue::Receipt)
                         }
                         WriteCall::Enrollment(call) => wire::enrollment::decode_result(
                             &body,
@@ -504,6 +592,54 @@ impl State {
 }
 
 impl State {
+    pub(super) async fn execute_cell_receipt(
+        &self,
+        route: &QueryRoute,
+        call: CellReceiptCall,
+    ) -> Result<Vec<u8>, TransportError> {
+        let (_, target, cell) = route.decode_shared()?;
+        let gateway = self
+            .cell_command_gateways
+            .lock()
+            .map_err(|_| TransportError::Closed)?
+            .get(&(cell.cluster, cell.namespace))
+            .and_then(|g| g.upgrade())
+            .ok_or(TransportError::Refused)?;
+        if !gateway.accepting.load(Ordering::Acquire) {
+            return Err(TransportError::Refused);
+        }
+        let binding = crate::raft::cell_groups::RemoteMutationRoute {
+            group: target.scope,
+            schema: route.schema(),
+            epoch: call.route_epoch,
+            birth: call.birth_digest,
+        };
+        let result = async {
+            let mut invocation = gateway
+                .dispatcher
+                .lookup_receipt(
+                    cell,
+                    call.request,
+                    CellRoutingLimits {
+                        timeout: Duration::from_millis(call.timeout_ms),
+                        max_attempts: 1,
+                    },
+                    None,
+                )
+                .map_err(|e| command_failure(&e))?;
+            invocation.bind_remote_route(binding);
+            self.authorize_cell_command(route)
+                .map_err(|_| CommandFailure::Unavailable)?;
+            gateway
+                .controller
+                .lookup_receipt(invocation, gateway.options.clone())
+                .await
+                .map_err(|e| command_failure(&e))
+        }
+        .await;
+        wire::receipt::encode_result(&result, self.options.max_query_response_bytes)
+    }
+
     pub(super) async fn execute_cell_enrollment(
         &self,
         route: &QueryRoute,

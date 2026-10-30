@@ -132,7 +132,7 @@ impl CellPrivateExecutor {
             self.options.limits,
             self.options.application_digest,
             &history,
-            &attempt,
+            &attempt.request,
             class,
             input,
             false,

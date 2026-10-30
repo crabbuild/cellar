@@ -11,6 +11,7 @@ use std::fmt;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CellRouteOperation {
     Command(CommandId),
+    Receipt(CommandId),
     Enrollment(ProposalId),
     Query(ProposalId),
 }

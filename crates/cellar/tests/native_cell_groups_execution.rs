@@ -1530,3 +1530,18 @@ async fn shared_remote_enrollment_revocation_retains_admitted_creation() -> Resu
 async fn shared_remote_enrollment_resolves_after_publication_deadline() -> Result<()> {
     Box::pin(runtime_fixture::remote_enrollment_lifecycle(2)).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_receipt_lookup_requires_grants_and_never_executes_commands() -> Result<()> {
+    Box::pin(runtime_fixture::receipt_lookup_ingress()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_receipt_lookup_keeps_unresolved_producers_at_capacity() -> Result<()> {
+    Box::pin(runtime_fixture::receipt_lookup_pending()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_receipt_lookup_cancellation_preserves_active_writer() -> Result<()> {
+    Box::pin(runtime_fixture::receipt_lookup_cancelled()).await
+}
