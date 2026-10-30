@@ -170,7 +170,7 @@ impl CellGroupController {
 
     /// Consume the exclusive event receiver after validating exact engine and
     /// runtime ownership. Initial groups must already be attached. Later groups
-    /// enter through register(); unknown events still fail closed.
+    /// enter through register() or provision(); unknown events still fail closed.
     pub async fn start(
         runtime: CellGroupRuntime,
         events: CellGroupRuntimeEvents,

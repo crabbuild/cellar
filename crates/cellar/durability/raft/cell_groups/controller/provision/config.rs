@@ -47,6 +47,17 @@ impl Config {
         settings.manifest.validate().map_err(|_| invalid())?;
         settings.entries.validate().map_err(|_| invalid())?;
         settings.images.validate().map_err(apply_error)?;
+        if let CellGroupApplyImages::Extents {
+            cache_directory, ..
+        } = &mut settings.images
+        {
+            if !cache_directory.is_absolute() || cache_directory.as_os_str().len() > 4096 {
+                return Err(invalid());
+            }
+            *cache_directory = std::mem::take(cache_directory)
+                .into_boxed_path()
+                .into_path_buf();
+        }
         if !settings.directory.is_absolute()
             || settings.directory.as_os_str().len() > 4096
             || settings

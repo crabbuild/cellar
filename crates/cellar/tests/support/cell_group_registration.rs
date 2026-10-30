@@ -6,7 +6,7 @@ use super::*;
 use std::sync::atomic::Ordering;
 #[path = "raft_catalog_fault.rs"]
 #[allow(dead_code)]
-mod catalog_fault;
+pub(super) mod catalog_fault;
 
 pub(super) struct Prepared {
     directory: RangeDirectory,

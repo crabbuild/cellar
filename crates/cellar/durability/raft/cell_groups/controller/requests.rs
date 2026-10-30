@@ -1,6 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! All mutations share the same node queue, admission and physical shutdown owner.
+//! One node queue and physical shutdown owner. Provisioning has independent
+//! admission so command ownership need not recursively acquire its own budget.
 use super::*;
 
 pub(super) enum Request {

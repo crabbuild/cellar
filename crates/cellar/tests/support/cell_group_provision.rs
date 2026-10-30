@@ -1,13 +1,11 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Explicit assigned-range provisioning over real engines, files and TLS.
+use super::apply_faults::physical;
+use super::registration::catalog_fault;
 use super::remote_queries::{keys, wait_for};
 use super::*;
 use std::sync::atomic::{AtomicBool, Ordering};
-#[path = "raft_catalog_fault.rs"]
-#[allow(dead_code)]
-mod catalog_fault;
-use super::apply_faults::physical;
 
 async fn assignment(
     f: &RuntimeCluster,
@@ -148,6 +146,24 @@ pub(crate) async fn provisioning_coalesces_and_serves() -> Result<()> {
         let (directory, route, store) = assignment(&f, 31).await?;
         let (foreign, _, _) = assignment(&f, 31).await?;
         let (other, other_route, _) = assignment(&f, 41).await?;
+        let mut invalid = settings(&f, &a, 0).await?;
+        let directory_before = invalid.directory.clone();
+        match &mut invalid.images {
+            CellGroupApplyImages::Extents {
+                cache_directory, ..
+            } => *cache_directory = "relative-cache".into(),
+            CellGroupApplyImages::Materialized { .. } => {
+                invalid.directory = "relative-pages".into()
+            }
+        }
+        assert!(matches!(
+            controllers[0].configure_provisioning(invalid),
+            Err(CellGroupControllerError::Invalid(_))
+        ));
+        assert!(
+            !directory_before.exists(),
+            "invalid configuration performs no filesystem work"
+        );
         for (node, c) in controllers.iter().enumerate() {
             c.configure_provisioning(settings(&f, &a, node).await?)?;
         }
