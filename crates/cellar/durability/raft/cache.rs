@@ -94,6 +94,8 @@ pub enum SnapshotChange {
     /// A complete receiver-local cell-group closure. Its producer supplies no
     /// Raft authority; the consensus owner must bind this to its snapshot effect.
     CellGroup(super::cell_groups::PreparedCellGroupCheckpoint),
+    /// A captured exact local applied cut; retains all later entries and state.
+    CellGroupCheckpoint(super::cell_groups::PreparedLocalCellGroupCheckpoint),
     /// A verified incoming snapshot and its already durable state image.
     Install {
         snapshot: Snapshot,
@@ -134,6 +136,7 @@ impl<S: Clone> GroupWrite<S> {
             .as_ref()
             .or_else(|| match &self.snapshot {
                 Some(SnapshotChange::CellGroup(prepared)) => Some(prepared.root()),
+                Some(SnapshotChange::CellGroupCheckpoint(prepared)) => Some(prepared.root()),
                 _ => None,
             })
     }
@@ -149,6 +152,7 @@ impl<S: Clone> GroupWrite<S> {
             let snapshot = match snapshot {
                 SnapshotChange::Checkpoint(s) | SnapshotChange::Install { snapshot: s, .. } => s,
                 SnapshotChange::CellGroup(prepared) => prepared.snapshot(),
+                SnapshotChange::CellGroupCheckpoint(prepared) => prepared.snapshot(),
             };
             if snapshot.compute_size() > 64 * 1024 {
                 return Err(LogError::Overloaded);
@@ -576,7 +580,14 @@ impl CachedGroup {
     ) -> Result<Self, LogError> {
         let mut next = self.clone();
         let group_install = matches!(&write.snapshot, Some(SnapshotChange::CellGroup(_)));
-        if group_install
+        let group_checkpoint = matches!(
+            &write.snapshot,
+            Some(SnapshotChange::CellGroupCheckpoint(_))
+        );
+        if group_checkpoint && (!write.entries.is_empty() || write.hard_state.is_some()) {
+            return Err(LogError::Invalid("mixed local checkpoint write".into()));
+        }
+        if (group_install || group_checkpoint)
             && (self.group_manifest.is_none()
                 || write.group_manifest.is_some()
                 || write.applied.is_some()
@@ -586,7 +597,8 @@ impl CachedGroup {
             return Err(LogError::Invalid("mixed cell-group snapshot write".into()));
         }
         if (self.group_manifest.is_some() || write.group_manifest.is_some())
-            && (write.applied.is_some() || (write.snapshot.is_some() && !group_install))
+            && (write.applied.is_some()
+                || (write.snapshot.is_some() && !group_install && !group_checkpoint))
         {
             return Err(LogError::Invalid(
                 "mixed image/group apply or snapshot".into(),
@@ -596,6 +608,7 @@ impl CachedGroup {
             let snapshot = match change {
                 SnapshotChange::Checkpoint(s) | SnapshotChange::Install { snapshot: s, .. } => s,
                 SnapshotChange::CellGroup(prepared) => prepared.snapshot(),
+                SnapshotChange::CellGroupCheckpoint(prepared) => prepared.snapshot(),
             };
             let metadata = snapshot.get_metadata();
             if metadata.index < self.snapshot.get_metadata().index
@@ -633,6 +646,28 @@ impl CachedGroup {
                     next.checkpoint_manifest = Some(marker.clone());
                     next.conf_state = metadata.get_conf_state().clone();
                     next.membership = prepared.membership().clone();
+                }
+                SnapshotChange::CellGroupCheckpoint(prepared) => {
+                    let root = prepared.root();
+                    if !Arc::ptr_eq(&root.engine_owner, &write.group.owner)
+                        || !root
+                            .marker()
+                            .matches_group(&history, write.group.birth_digest)
+                        || self.group_manifest.as_ref() != Some(root.marker())
+                        || root.marker().position() != self.applied.position
+                        || self.term(metadata.index) != Some(metadata.term)
+                        || metadata.index != self.applied.position.index.get()
+                        || metadata.index > self.hard_state.commit
+                        || metadata.get_conf_state() != &self.conf_state
+                        || prepared
+                            .membership()
+                            .map_err(|e| LogError::Invalid(e.to_string()))?
+                            != self.membership
+                    {
+                        return Err(LogError::Invalid("local checkpoint binding/cut".into()));
+                    }
+                    next.entries = next.entries.split_off(&(metadata.index + 1));
+                    next.checkpoint_manifest = Some(root.marker().clone());
                 }
                 SnapshotChange::Checkpoint(_) => {
                     if metadata.index > self.applied.position.index.get()

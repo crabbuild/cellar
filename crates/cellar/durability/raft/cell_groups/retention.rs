@@ -245,6 +245,30 @@ impl RootRetentions {
         Ok(())
     }
 
+    pub(super) fn checkpoint<S>(
+        &self,
+        group: &GroupLog<S>,
+        marker: &GroupManifest,
+    ) -> Result<ManifestPins, ManifestError> {
+        let state = self.state()?;
+        let selected = state
+            .groups
+            .get(&key(marker))
+            .ok_or(ManifestError::Invalid("checkpoint not recovered"))?;
+        if !Arc::ptr_eq(&selected.engine, &group.owner)
+            || selected.closed.load(Ordering::Acquire)
+            || selected.expected_checkpoint.as_ref() != Some(marker)
+        {
+            return Err(ManifestError::Conflict);
+        }
+        let root = selected
+            .checkpoint
+            .as_ref()
+            .filter(|root| &root.marker == marker)
+            .ok_or(ManifestError::Invalid("checkpoint not recovered"))?;
+        Ok(root._pins.clone())
+    }
+
     pub(super) fn reconcile(&self, retained: Vec<ManifestPins>) -> Result<(), ManifestError> {
         let mut state = self.state()?;
         if state

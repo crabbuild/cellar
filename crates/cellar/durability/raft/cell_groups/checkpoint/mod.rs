@@ -12,9 +12,11 @@ use crate::raft::{
 use cellar_logic::cell_group::{CellId, GroupHistory};
 use cellar_ltx::internal::{ExtentId, EXTENT_BYTES};
 mod header;
+mod local;
 mod prepared;
 mod receive;
 use header::Header;
+pub use local::PreparedLocalCellGroupCheckpoint;
 pub(crate) use prepared::persisted_marker;
 pub use prepared::PreparedCellGroupCheckpoint;
 pub use receive::CellGroupCheckpointReceiver;
@@ -141,6 +143,34 @@ impl CellGroupCheckpointPool {
         group: &GroupLog<GroupHistory>,
         root: &PreparedGroupManifest,
     ) -> Result<CellGroupCheckpoint> {
+        self.capture_root(group, root, false)
+    }
+
+    /// Pin exactly the retained checkpoint selected by Raft Storage, even after
+    /// the current applied root advances. A concurrent replacement may refuse;
+    /// a successfully captured source owns its immutable cut through streaming.
+    pub fn capture_snapshot(
+        &self,
+        group: &GroupLog<GroupHistory>,
+        current: &PreparedGroupManifest,
+        snapshot: &raft::prelude::Snapshot,
+    ) -> Result<CellGroupCheckpoint> {
+        let root = current.retained_checkpoint(group)?;
+        let source = self.capture_root(group, &root, true)?;
+        if source.snapshot()? != *snapshot {
+            return Err(CellGroupCheckpointError::Invalid(
+                "retained snapshot changed",
+            ));
+        }
+        Ok(source)
+    }
+
+    fn capture_root(
+        &self,
+        group: &GroupLog<GroupHistory>,
+        root: &PreparedGroupManifest,
+        is_retained: bool,
+    ) -> Result<CellGroupCheckpoint> {
         if !Arc::ptr_eq(&root.engine_owner, &group.owner)
             || !root
                 .marker()
@@ -190,23 +220,39 @@ impl CellGroupCheckpointPool {
         let header = {
             let cache = group.read()?;
             let marker = root.marker();
-            if cache.group_manifest.as_ref() != Some(marker)
-                || cache.applied.position != marker.position()
-                || cache.applied.image.is_some()
-                || marker.position().index.get() > cache.hard_state.commit
-                || cache.term(marker.position().index.get()) != Some(marker.position().term.get())
-                || marker.membership_revision() != cache.membership.revision().get()
-                || cache
-                    .manifest_pins
-                    .as_ref()
-                    .is_some_and(|pins| pins.root() != marker.root())
-            {
-                return Err(CellGroupCheckpointError::Invalid("source durable cut"));
+            if is_retained {
+                if cache.checkpoint_manifest.as_ref() != Some(marker) {
+                    return Err(CellGroupCheckpointError::Invalid(
+                        "retained checkpoint changed",
+                    ));
+                }
+                let header = Header::decode(&cache.snapshot.data)?;
+                if header.snapshot()? != cache.snapshot || &header.root != marker {
+                    return Err(CellGroupCheckpointError::Invalid(
+                        "retained snapshot binding",
+                    ));
+                }
+                header
+            } else {
+                if cache.group_manifest.as_ref() != Some(marker)
+                    || cache.applied.position != marker.position()
+                    || cache.applied.image.is_some()
+                    || marker.position().index.get() > cache.hard_state.commit
+                    || cache.term(marker.position().index.get())
+                        != Some(marker.position().term.get())
+                    || marker.membership_revision() != cache.membership.revision().get()
+                    || cache
+                        .manifest_pins
+                        .as_ref()
+                        .is_some_and(|pins| pins.root() != marker.root())
+                {
+                    return Err(CellGroupCheckpointError::Invalid("source durable cut"));
+                }
+                cache
+                    .membership
+                    .validate(&cache.conf_state, marker.position().index.get())?;
+                Header::capture(marker.clone(), &cache.conf_state, cache.membership.clone())?
             }
-            cache
-                .membership
-                .validate(&cache.conf_state, marker.position().index.get())?;
-            Header::capture(marker.clone(), &cache.conf_state, cache.membership.clone())?
         };
         let encoded = header.encode()?;
         Ok(CellGroupCheckpoint {
@@ -258,6 +304,17 @@ pub struct CellGroupCheckpoint {
 }
 
 impl CellGroupCheckpoint {
+    /// Metadata for this immutable source cut; it does not establish publication.
+    pub fn snapshot(&self) -> Result<raft::prelude::Snapshot> {
+        Header::decode(&self.header)?.snapshot()
+    }
+
+    /// Consume an unstreamed captured cut into a bounded publication capability.
+    /// The owner and engine independently require that it is still current.
+    pub fn prepare_publication(self) -> Result<PreparedLocalCellGroupCheckpoint> {
+        local::prepare(self)
+    }
+
     pub fn marker(&self) -> &GroupManifest {
         self.root.marker()
     }

@@ -168,9 +168,23 @@ only the matching engine completion advances the application view and releases
 Raft responses and `CheckpointInstalled`. Queued work retains the receiver budget
 through engine sync and runtime shutdown.
 
-Source-side local checkpoint publication, snapshot RPC transport, learner catch-up,
-joint membership and disk replacement remain CG-05 work. Configuration entries
-remain closed. The explicit snapshot API does not authorize a new voter.
+An unstreamed captured source can become a `PreparedLocalCellGroupCheckpoint`.
+`publish_checkpoint` admits only the owner's exact current applied cut and runs
+publication on its persistence lane. The distinct `CellGroupCheckpoint` storage
+operation preserves hard state, applied state and every later log entry; it
+compacts only the prefix represented by the complete checkpoint. Mixed writes
+and stale cuts refuse. `CheckpointPublished` is emitted after the matching engine
+completion. Source admission and pins survive accepted publication and shutdown.
+
+`capture_snapshot` pins the retained checkpoint named by the exact Raft snapshot,
+including its original membership/configuration, after ordinary apply has advanced
+the current root. A concurrent checkpoint replacement may refuse capture; a
+successful source keeps its immutable closure until streaming ends. Recovery
+reconstructs this retained closure before it can become an outbound source.
+
+Snapshot RPC transport, learner catch-up, joint membership and disk replacement
+remain CG-05 work. Configuration entries remain closed. Neither checkpoint API
+authorizes a new voter or establishes S3 durability.
 
 ## Enrollment admission and ordered preparation
 

@@ -15,6 +15,21 @@ mod runtime_fixture;
 mod checkpoint_fixture;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_local_publication_preserves_suffix_and_catches_up() -> Result<()> {
+    runtime_fixture::local_publication(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_local_extents_preserve_suffix_and_catch_up() -> Result<()> {
+    runtime_fixture::local_publication(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_local_runtime_joins_publication_shutdown() -> Result<()> {
+    runtime_fixture::local_shutdown().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn checkpoint_owner_rejects_overflow_cuts_before_raft() -> Result<()> {
     runtime_fixture::checkpoint_bounds().await
 }
@@ -496,7 +511,8 @@ impl Cluster {
                             Some(manifest.as_ref())
                         );
                     }
-                    CellGroupEffect::CheckpointInstalled { manifest } => {
+                    CellGroupEffect::CheckpointInstalled { manifest }
+                    | CellGroupEffect::CheckpointPublished { manifest } => {
                         assert_eq!(
                             voter.log.cell_groups()?[0].group_manifest()?.as_ref(),
                             Some(manifest.as_ref())

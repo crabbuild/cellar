@@ -5,6 +5,7 @@
 
 use super::{
     CellGroupBootstrapPermit, GroupManifest, PreparedCellGroupCheckpoint, PreparedGroupManifest,
+    PreparedLocalCellGroupCheckpoint,
 };
 use crate::application::consensus::group_protocol::{
     CellGroupEntry, GroupCommand, GroupEntryLimits,
@@ -117,6 +118,9 @@ pub enum CellGroupEffect {
     CheckpointInstalled {
         manifest: Box<GroupManifest>,
     },
+    CheckpointPublished {
+        manifest: Box<GroupManifest>,
+    },
     /// A barrier to wait for, not permission to serve a cell. The dispatcher
     /// must recheck owner/term and pin an applied coherent cell view.
     ReadIndex {
@@ -133,7 +137,9 @@ impl CellGroupEffect {
             Self::Message(message) => message.compute_size() as usize,
             Self::Apply(work) => work.entry.compute_size() as usize + work.base.reserved_bytes(),
             Self::ReadIndex { context, .. } => context.len(),
-            Self::Applied { .. } | Self::CheckpointInstalled { .. } => 1024,
+            Self::Applied { .. }
+            | Self::CheckpointInstalled { .. }
+            | Self::CheckpointPublished { .. } => 1024,
         }
     }
 }
@@ -158,6 +164,7 @@ enum Phase {
     Ready(Box<Ready>, Term),
     Light(LightReady),
     Apply(CellGroupTicket, Box<PreparedGroupManifest>, bool),
+    Checkpoint(PreparedLocalCellGroupCheckpoint, bool),
 }
 
 pub struct CellGroupOwner {
@@ -447,6 +454,38 @@ impl CellGroupOwner {
             return Err(RuntimeError::Protocol("unknown unreachable member".into()));
         }
         self.node.report_unreachable(member);
+        Ok(())
+    }
+
+    /// Queue publication of the exact applied cut without changing Raft progress
+    /// or the applied view. A later CheckpointPublished event proves persistence.
+    pub fn publish_checkpoint(
+        &mut self,
+        checkpoint: PreparedLocalCellGroupCheckpoint,
+    ) -> Result<(), RuntimeError> {
+        self.live()?;
+        if !self.idle() || self.applying.is_some() {
+            return Err(RuntimeError::NotReady);
+        }
+        let root = checkpoint.root();
+        if root.marker() != self.current.marker()
+            || !Arc::ptr_eq(&root.engine_owner, &self.group.owner)
+            || !Arc::ptr_eq(&root.page_owner, &self.current.page_owner)
+            || root.marker().position().index.get() <= 1
+            || root.marker().position().index.get() >= u64::MAX - 2
+            || root.marker().position().term.get() >= u64::MAX - 2
+        {
+            return Err(RuntimeError::Invalid("local checkpoint owner/cut".into()));
+        }
+        if root
+            .reserved_bytes()
+            .saturating_add(checkpoint.snapshot().compute_size() as usize)
+            .saturating_add(4096)
+            > self.options.max_ready_bytes
+        {
+            return Err(RuntimeError::Overloaded);
+        }
+        self.phase = Some(Phase::Checkpoint(checkpoint, false));
         Ok(())
     }
 
@@ -773,6 +812,11 @@ impl CellGroupOwner {
                 entries(light.committed_entries()) + messages(light.messages())
             }
             Some(Phase::Apply(_, next, _)) => next.reserved_bytes() + 4096,
+            Some(Phase::Checkpoint(checkpoint, _)) => {
+                checkpoint.root().reserved_bytes()
+                    + checkpoint.snapshot().compute_size() as usize
+                    + 4096
+            }
             None => 0,
         };
         (
@@ -985,6 +1029,29 @@ impl CellGroupOwner {
                 Some(Phase::Light(mut light)) => {
                     self.messages(light.take_messages())?;
                     self.enqueue(light.take_committed_entries())?;
+                }
+                Some(Phase::Checkpoint(checkpoint, submitted)) => {
+                    if !submitted {
+                        let mut write = GroupWrite::new(&self.group);
+                        write.snapshot =
+                            Some(SnapshotChange::CellGroupCheckpoint(checkpoint.clone()));
+                        self.phase = Some(Phase::Checkpoint(checkpoint, true));
+                        return self.persistence(write).map(Some);
+                    }
+                    let cache = self.group.read()?;
+                    if cache.snapshot != *checkpoint.snapshot()
+                        || cache.checkpoint_manifest.as_ref() != Some(checkpoint.marker())
+                        || cache.group_manifest.as_ref() != Some(self.current.marker())
+                    {
+                        return Err(RuntimeError::StaleCompletion);
+                    }
+                    drop(cache);
+                    self.current
+                        .require_checkpoint(&self.group)
+                        .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
+                    return Ok(Some(CellGroupEffect::CheckpointPublished {
+                        manifest: Box::new(checkpoint.marker().clone()),
+                    }));
                 }
                 Some(Phase::Apply(mut ticket, next, submitted)) => {
                     if !submitted {

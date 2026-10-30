@@ -370,6 +370,10 @@ impl Worker {
                                 Command::Campaign => {
                                     group.owner.campaign().map(|()| Response::Unit)
                                 }
+                                Command::PublishCheckpoint(checkpoint) => group
+                                    .owner
+                                    .publish_checkpoint(checkpoint)
+                                    .map(|()| Response::Unit),
                                 Command::Checkpoint(message, checkpoint) => group
                                     .owner
                                     .step_checkpoint(message, checkpoint)
@@ -434,6 +438,7 @@ impl Worker {
                                     effect,
                                     CellGroupEffect::Applied { .. }
                                         | CellGroupEffect::CheckpointInstalled { .. }
+                                        | CellGroupEffect::CheckpointPublished { .. }
                                 ) || group.settled.is_some()
                                 {
                                     return Err(RuntimeError::Protocol(

@@ -20,6 +20,7 @@ pub use checkpoint::{
     CellGroupCheckpoint, CellGroupCheckpointChunk, CellGroupCheckpointError,
     CellGroupCheckpointLimits, CellGroupCheckpointPart, CellGroupCheckpointPool,
     CellGroupCheckpointReceiver, CellGroupCheckpointUsage, PreparedCellGroupCheckpoint,
+    PreparedLocalCellGroupCheckpoint,
 };
 mod controller;
 pub use controller::{

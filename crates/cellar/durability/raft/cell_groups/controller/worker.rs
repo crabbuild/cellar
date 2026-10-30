@@ -269,6 +269,10 @@ impl Worker {
                             self.shared.applied.fetch_add(1, Ordering::Relaxed);
                             self.progress.send_replace(());
                         }
+                        CellGroupEffect::CheckpointPublished { .. } => {
+                            // Local compaction does not advance applied state.
+                            self.progress.send_replace(());
+                        }
                         CellGroupEffect::ReadIndex { .. } => (), // Runtime-owned read authority.
                         CellGroupEffect::Persist(_) => return Err(CellGroupControllerError::Invalid("escaped persistence")),
                     }

@@ -99,6 +99,7 @@ enum Command {
     Reconciliation(cellar_logic::cell_group::CellHistory),
     Step(Message),
     Checkpoint(Message, PreparedCellGroupCheckpoint),
+    PublishCheckpoint(PreparedLocalCellGroupCheckpoint),
     AdmitStep(Message),
     Propose(Vec<u8>),
     ProposeAtTerm(cellar_logic::consensus::Term, Vec<u8>),
@@ -525,6 +526,23 @@ impl CellGroupRuntime {
             return Err(RuntimeError::Overloaded);
         }
         self.call(Some(history), Command::Step(message), bytes + 4096)
+            .await
+            .map(|_| ())
+    }
+
+    /// Admit local checkpoint publication. Completion is delivered through the
+    /// CheckpointPublished event after engine persistence, not this return value.
+    pub async fn publish_checkpoint(
+        &self,
+        history: GroupHistory,
+        checkpoint: PreparedLocalCellGroupCheckpoint,
+    ) -> Result<(), RuntimeError> {
+        let bytes = checkpoint
+            .root()
+            .reserved_bytes()
+            .saturating_add(checkpoint.snapshot().compute_size() as usize)
+            .saturating_add(4096);
+        self.call(Some(history), Command::PublishCheckpoint(checkpoint), bytes)
             .await
             .map(|_| ())
     }

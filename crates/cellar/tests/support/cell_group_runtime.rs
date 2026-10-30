@@ -5,6 +5,10 @@
 use super::*;
 use std::collections::BTreeMap;
 
+#[path = "cell_group_checkpoint_local.rs"]
+mod checkpoint_local;
+pub(super) use checkpoint_local::{local_publication, local_shutdown};
+
 #[path = "cell_group_snapshot_owner.rs"]
 mod snapshot_owner;
 pub(super) use snapshot_owner::{
@@ -20,6 +24,8 @@ mod tcp;
 pub(super) use tcp::physical_transport;
 
 struct RuntimeCluster {
+    snapshot_sources: BTreeMap<(usize, GroupHistory), PreparedGroupManifest>,
+    snapshot_transfers: usize,
     transports: Vec<RaftTransport>,
     appliers: BTreeMap<(usize, GroupHistory), (CellGroupSqlPool, CellGroupApplier)>,
     cluster: Cluster,
@@ -81,6 +87,8 @@ impl RuntimeCluster {
         }
         let applied = BTreeMap::from([(cluster.birth.route().history, applied)]);
         Ok(Self {
+            snapshot_sources: BTreeMap::new(),
+            snapshot_transfers: 0,
             transports: Vec::new(),
             appliers: BTreeMap::new(),
             cluster,
@@ -136,7 +144,8 @@ impl RuntimeCluster {
                         }
                     }
                     CellGroupEffect::Applied { manifest, .. }
-                    | CellGroupEffect::CheckpointInstalled { manifest } => {
+                    | CellGroupEffect::CheckpointInstalled { manifest }
+                    | CellGroupEffect::CheckpointPublished { manifest } => {
                         self.applied.get_mut(&scope).context("applied")?[n] =
                             manifest.position().index
                     }
@@ -156,8 +165,16 @@ impl RuntimeCluster {
             }
             return Ok(());
         }
+        let mut ordinary = VecDeque::new();
+        for (scope, message) in messages {
+            if message.get_msg_type() == MessageType::MsgSnapshot {
+                self.transfer_checkpoint(scope, message).await?;
+            } else {
+                ordinary.push_back((scope, message));
+            }
+        }
         let runtimes = &self.runtimes;
-        for (scope, message, result) in futures_util::future::join_all(messages.into_iter().map(
+        for (scope, message, result) in futures_util::future::join_all(ordinary.into_iter().map(
             |(scope, message)| async move {
                 let result = runtimes[message.to as usize - 1]
                     .admit_step(scope, message.clone())
@@ -241,6 +258,7 @@ impl RuntimeCluster {
         drop(self.events);
         drop(self.runtimes);
         drop(self.extra);
+        drop(self.snapshot_sources);
         self.cluster.close().await
     }
 }

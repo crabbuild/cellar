@@ -1369,6 +1369,12 @@ impl Worker {
                     SnapshotChange::Install { .. } | SnapshotChange::CellGroup(_) => {
                         batch.add_command(write.group.key, Command::Clean)
                     }
+                    SnapshotChange::CellGroupCheckpoint(prepared) => batch.add_command(
+                        write.group.key,
+                        Command::Compact {
+                            index: prepared.snapshot().get_metadata().index + 1,
+                        },
+                    ),
                     SnapshotChange::Checkpoint(snapshot) => batch.add_command(
                         write.group.key,
                         Command::Compact {
@@ -1401,7 +1407,13 @@ impl Worker {
                         .begin_publication(
                             &write.group,
                             previous.as_ref(),
-                            matches!(&write.snapshot, Some(SnapshotChange::CellGroup(_))),
+                            matches!(
+                                &write.snapshot,
+                                Some(
+                                    SnapshotChange::CellGroup(_)
+                                        | SnapshotChange::CellGroupCheckpoint(_)
+                                )
+                            ),
                         )
                         .map_err(|e| LogError::Invalid(e.to_string()))?,
                 );

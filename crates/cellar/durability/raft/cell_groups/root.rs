@@ -116,6 +116,26 @@ impl PreparedGroupManifest {
         self.retention.require_checkpoint(group)
     }
 
+    pub(crate) fn retained_checkpoint<S>(
+        &self,
+        group: &crate::raft::cache::GroupLog<S>,
+    ) -> Result<Self, ManifestError> {
+        if !Arc::ptr_eq(&self.engine_owner, &group.owner) {
+            return Err(ManifestError::Conflict);
+        }
+        let marker = group
+            .checkpoint_manifest()
+            .map_err(|_| ManifestError::Invalid("closed engine"))?
+            .ok_or(ManifestError::Invalid("checkpoint not published"))?;
+        let images = self.retention.checkpoint(group, &marker)?;
+        Ok(Self {
+            marker,
+            images,
+            base: None,
+            ..self.clone()
+        })
+    }
+
     pub(crate) fn reserved_bytes(&self) -> usize {
         self.images.reserved_bytes()
     }
