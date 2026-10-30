@@ -116,7 +116,7 @@ pub(crate) async fn commands(rooted: bool) -> Result<()> {
     command.begin().await?;
     let first = command.attempt().context("first route")?.clone();
     let mut preparation = Box::pin(command.prepare(&runtime, &pool, options.clone()));
-    tokio::select! {
+    cellar::asyncrt::select! {
         result = &mut preparation => anyhow::bail!("held callback finished: {}", result.is_ok()),
         result = started => result?,
     }
