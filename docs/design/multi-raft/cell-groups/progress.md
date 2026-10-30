@@ -10,6 +10,58 @@ CG-05 is IN_PROGRESS; CG-06 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-05 verified receiver and atomic installation
+
+Qualified source: `cb164e025e129330f576450d214cef0e8fe92aa1`. All 226 selected Rust cases pass across shared
+execution/catalog/storage, existing single-cell storage/snapshot suites and the
+LTX library. All 9 gate commands pass, including all-target Clippy for
+Cellar, its pure core and LTX, formatting/layout, dependency isolation, docs,
+source preflight and all 37 plan-validator tests. The partial record at
+`.cellar/cell-groups-evidence/CG-05-checkpoint-receiver/checkpoint.json` binds
+295 source hashes, 6 copied executables, frozen plan inputs and command logs.
+Transfer this ignored directory with its predecessors. CG-05 remains IN_PROGRESS.
+
+A receiver now stages ordered bounded parts against the destination engine's
+selected base. It checks route/history/cut/membership, every manifest page and
+independently sealed image, then verifies and syncs the complete tree. Flat images
+use one admitted scratch spool; extent objects use bounded buffers. Repeated flat
+transfers reread and sync the existing destination even when its seal is cached.
+A regression reproduced acceptance of a corrupt cached destination before this
+fix; that failure and the interrupted candidate gate are retained separately.
+
+The prepared checkpoint owns the complete destination closure and receive
+reservation. The engine's group snapshot variant atomically selects the snapshot,
+configuration, membership and applied root behind the shared durability fence.
+Mixed contracts, stale/conflicting bases and incomplete transfers refuse. A
+separate retained checkpoint root survives later ordinary apply; recovery must
+verify both it and the current applied tree before startup or reclamation.
+
+Three new cases use a lagging existing voter of the real embedded three-voter
+fixture. Both image forms and canonical empty enrollment survive byte-for-byte
+transfer, a held engine sync, subsequent quorum writes through the production
+apply pool, joined shutdown of all prior owners, and cold reopen of the receiver. Before
+publication, the selected root stays unchanged and owner startup refuses. The
+receiver reservation remains charged after the caller drops its prepared handle
+while engine sync is held. A checkpoint-only page is proved absent from the
+current tree, then deleted: recovery refuses despite a complete current tree.
+Restoring it permits storage startup without renewing quorum authority. Truncated,
+noncontiguous, corrupt, foreign-history, oversized and scratch-limited transfers
+leave the prior marker selected; existing cached destination corruption also
+refuses. Extent receiving does not require a materialized-image scratch spool.
+
+The tests invoke the verified engine installation boundary directly. They do not
+qualify Raft Ready snapshot acceptance or snapshot RPC, fresh learners, joint
+configuration, disk replacement, receiver process-kill/sync-error/cancelled-waiter
+cuts, checkpoint root-slot exhaustion, shared-group RustFS, load or zero-quorum DR.
+No full CG-05 acceptance case has been replaced with these narrower cases.
+
+Critical next work is to bind the receiver result to the exact Raft snapshot
+effect, integrate bounded snapshot transport and completion, and qualify peer
+catch-up plus crash/cancellation/root-slot boundaries. Then deliver whole-group
+learner/joint membership and lost-disk recovery and run all five declared CG-05
+acceptance cases. CG-06 archival reclamation follows that task; public host/SDK
+cutover and the later topology, hibernation, DR and legacy-removal gates remain open.
+
 ## CG-05 complete-root capture and bounded streaming
 
 Qualified source: `b15da415c9c9c0663274d0aedd520feb37d90d2d`. All 138 selected Rust cases pass across
@@ -42,7 +94,7 @@ fixture. The five full snapshot acceptance cases remain unchanged and outstandin
 The shared fixture additionally handles canonical empty enrollment; existing
 execution regression checks cover that helper change.
 
-Critical gaps for the next turn: build the receiver's bounded staged closure,
+Gaps recorded at this source checkpoint: build the receiver's bounded staged closure,
 verify/sync every dependency, and publish snapshot metadata plus the group root
 atomically through the engine. Then connect whole-group transport, learner
 catch-up, joint membership and lost-disk replacement. The current header denotes

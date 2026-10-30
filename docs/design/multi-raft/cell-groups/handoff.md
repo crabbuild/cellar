@@ -26,12 +26,33 @@ CG-05 is now IN_PROGRESS. Its native source captures an exact selected complete
 root, configuration and membership, and retains an admitted immutable closure
 through bounded streaming and cancellation. Both image forms and empty enrollment
 are represented. See the latest [progress](progress.md) for source evidence and
-limits. Continue with bounded receiver staging and verified atomic engine
-installation, then whole-group transport and learner/membership recovery. CG-06 follows with archival reclamation. Automatic
+limits. Receiver verification and atomic storage installation now pass their
+partial gate, including cold recovery of the current and older checkpoint roots.
+Continue with exact Raft snapshot tickets and bounded snapshot transport, then
+whole-group learner/membership and lost-disk recovery. CG-06 follows with archival reclamation. Automatic
 production request/voter startup and public SDK/fleet binding belong to CG-07;
 effects/cache lifecycle belong to CG-08, and final legacy removal to CG-16. Track
 these remaining capabilities in their owning tasks.
 Shared RustFS, independent-process/power-loss and load remain unqualified.
+
+The receiver checkpoint at `cb164e02` passes 226 selected Rust cases,
+9 gate commands and 37 validator tests. Its evidence binds 295 source hashes
+and 6 copied executables under
+`.cellar/cell-groups-evidence/CG-05-checkpoint-receiver/`. Three native cases cover
+complete receive/install, both representations and empty cells, held engine sync,
+transfer refusal/bounds, later real quorum writes and joined storage reopen.
+A missing checkpoint-only page refuses recovery while the current tree remains
+complete. A reproduced cached-destination corruption gap is fixed by independent
+destination reread/sync. Preserve failed and interrupted diagnostic evidence.
+
+The most critical gap is still the Raft protocol boundary: `CellGroupOwner` rejects
+`MsgSnapshot` and nonempty Ready snapshots. Bind a received complete closure to the
+exact accepted snapshot effect before persistence, then acknowledge only after the
+engine fence. Integrate this through bounded controller/transport ownership.
+Qualify receiver crash/sync-error/cancellation and checkpoint root-slot exhaustion,
+then learner catch-up, joint membership and lost-disk replacement. The storage
+capability grants no voter or serving authority; do not bypass the existing
+refusals or count these direct engine tests as full snapshot-RPC qualification.
 
 The source checkpoint at `b15da415` passes 138 Rust cases, eight gate commands
 and 37 validator tests. Transfer
@@ -40,8 +61,9 @@ its record binds 290 source hashes and three copied executables. The four new
 cases cover concurrent real quorum writes while streaming a held cut, both image
 representations, empty enrollment, obsolete-page retention/release, bounds,
 cancelled physical ownership, stale/foreign/unpublished roots, corruption and
-closed engines. These are embedded source tests; receiver install, snapshot RPC,
-membership recovery and new process/RustFS/load qualification remain open.
+closed engines. Those are the preceding embedded source tests; the receiver slice above extends
+storage coverage. Snapshot RPC, membership recovery and new process/RustFS/load
+qualification remain open.
 
 The following records describe the preceding incremental checkpoints.
 
