@@ -1,9 +1,11 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Owns a fixed roster's consensus events, transport dispatch and physical apply.
-//! This infrastructure owner does not yet own ingress command invocations.
+//! Admitted command ownership survives response cancellation and expiry.
 
+mod commands;
 mod worker;
+pub use commands::{CellCommandAdmissionError, CellCommandCall};
 
 use super::{CellGroupApplier, CellGroupRuntime, CellGroupRuntimeEvents, CellGroupSqlPool};
 use crate::raft::{
@@ -12,7 +14,7 @@ use crate::raft::{
     transport::{RaftTransport, TransportError},
 };
 use futures_util::FutureExt;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     Arc, Mutex,
@@ -25,6 +27,11 @@ pub struct CellGroupControllerLimits {
     pub max_parallel_apply: usize,
     /// One node timer backs off transient SQL admission, never one timer per cell.
     pub retry_interval_ms: u64,
+    /// Includes queued, resolving and unconsumed command responses.
+    pub max_commands: usize,
+    /// Invocation/input/options retention. SQL capture, apply and result bytes
+    /// retain the SQL pool's independent admission as well.
+    pub max_command_bytes: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -33,6 +40,7 @@ pub enum CellGroupControllerError {
     Runtime(RuntimeError),
     Apply(Arc<ExecutionError>),
     Transport(TransportError),
+    Command(Arc<super::CellCommandError>),
     Closed,
 }
 
@@ -60,10 +68,16 @@ pub struct CellGroupControllerUsage {
     /// Immediate queue/route refusals. The transport tracks later I/O failures.
     pub send_refusals: u64,
     pub closing: bool,
+    pub retained_commands: usize,
+    pub command_bytes: usize,
 }
 
 struct Shared {
-    groups: usize,
+    groups: BTreeSet<cellar_logic::cell_group::GroupHistory>,
+    limits: CellGroupControllerLimits,
+    domain: crate::asyncrt::DomainToken,
+    commands: Arc<crate::raft::budget::Budget>,
+    requests: tokio::sync::mpsc::Sender<commands::Request>,
     active_apply: AtomicUsize,
     pending_apply: AtomicUsize,
     applied: AtomicU64,
@@ -144,6 +158,8 @@ impl CellGroupController {
             || !(1..=60_000).contains(&limits.retry_interval_ms)
             || appliers.is_empty()
             || appliers.len() > limits.max_groups
+            || !(1..=65_536).contains(&limits.max_commands)
+            || limits.max_command_bytes < 8192
         {
             return Err(CellGroupControllerError::Invalid(
                 "controller limits/roster",
@@ -167,8 +183,14 @@ impl CellGroupController {
             runtime.status(*history).await?;
         }
         runtime.admit()?;
+        let domain = runtime.log().domain();
+        let (requests, receiver) = tokio::sync::mpsc::channel(limits.max_commands);
         let shared = Arc::new(Shared {
-            groups: roster.len(),
+            groups: roster.keys().copied().collect(),
+            limits,
+            domain: domain.clone(),
+            commands: commands::budget(limits),
+            requests,
             active_apply: AtomicUsize::new(0),
             pending_apply: AtomicUsize::new(0),
             applied: AtomicU64::new(0),
@@ -182,7 +204,6 @@ impl CellGroupController {
         let handle = Self {
             handle: Arc::new(Handle(shared.clone())),
         };
-        let domain = runtime.log().domain();
         let worker_domain = domain.clone();
         // Infrastructure cleanup is not cancelled with application tasks. The
         // worker retains tickets/appliers until all physical owners have joined.
@@ -194,7 +215,7 @@ impl CellGroupController {
                     transport,
                     sql,
                     roster,
-                    limits,
+                    receiver,
                     shared.clone(),
                 );
                 let result = std::panic::AssertUnwindSafe(worker.run(&worker_domain))
@@ -216,8 +237,11 @@ impl CellGroupController {
 
     pub fn usage(&self) -> CellGroupControllerUsage {
         let shared = &self.handle.0;
+        let (command_bytes, retained_commands) = shared.commands.usage();
         CellGroupControllerUsage {
-            groups: shared.groups,
+            groups: shared.groups.len(),
+            command_bytes,
+            retained_commands,
             active_apply: shared.active_apply.load(Ordering::Acquire),
             pending_apply: shared.pending_apply.load(Ordering::Acquire),
             applied: shared.applied.load(Ordering::Relaxed),

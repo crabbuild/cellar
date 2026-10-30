@@ -199,6 +199,10 @@ impl RangeDirectory {
 }
 
 impl CellRoutingSession {
+    pub(crate) fn deadline_ms(&self) -> u64 {
+        self.deadline
+    }
+
     pub(crate) fn validate_attempt(
         &self,
         attempt: &CellRouteAttempt,

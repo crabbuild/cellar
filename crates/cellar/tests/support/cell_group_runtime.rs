@@ -652,6 +652,7 @@ mod sql;
 pub(super) use sql::{
     controller_apply_faults, controller_close, controller_owners, controller_replication,
 };
+pub(super) use sql::{owned_command_failure, owned_commands};
 
 pub(super) async fn cell_receipts(rooted: bool) -> Result<()> {
     sql::cell_receipts(rooted).await

@@ -486,11 +486,18 @@
         "crates/cellar/tests/support/cell_group_sql_registered_queries.rs",
         "crates/cellar/durability/raft/cell_groups/dispatch/mod.rs",
         "crates/cellar/tests/support/cell_group_sql_dispatch.rs",
-        "crates/cellar/durability/raft/cell_groups/dispatch/command.rs",
+        "crates/cellar/durability/raft/cell_groups/dispatch/command/mod.rs",
         "crates/cellar/tests/support/cell_group_sql_command_dispatch.rs",
         "crates/cellar/durability/raft/transport_runtime.rs",
         "crates/cellar/durability/raft/transport_shared.rs",
-        "crates/cellar/tests/support/cell_group_tcp.rs"
+        "crates/cellar/tests/support/cell_group_tcp.rs",
+        "crates/cellar/durability/raft/cell_groups/dispatch/command/owned.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/mod.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/worker.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/commands.rs",
+        "crates/cellar/durability/raft/execution/submission_tests.rs",
+        "crates/cellar/tests/support/cell_group_controller.rs",
+        "crates/cellar/tests/support/cell_group_controller_commands.rs"
       ],
       "test_target": "native_cell_groups_execution",
       "steps": [
@@ -581,6 +588,24 @@
             "physical_group_transport_multiplexes_real_raft",
             "catalog_commands_replicate_over_physical_tls",
             "rooted_catalog_commands_replicate_over_physical_tls"
+          ]
+        },
+        {
+          "action": "Own the exclusive shared event stream and bounded per-group apply jobs in one node controller. Preserve exact owner bindings and retain physical tickets through backpressure and joined shutdown. Admit fresh command invocations independently from response waiters; retain bounded ownership beyond disconnect/deadline until exact receipt, proven non-commit or joined shutdown. Seal only never-attempted preparations across all clones. Distinguish completed stage errors from lost worker replies and never automatically replay uncertain callbacks.",
+          "tests": [
+            "group_controller_drives_tls_apply_and_bounded_retry",
+            "rooted_group_controller_drives_tls_apply_and_bounded_retry",
+            "group_controller_checks_exact_owners",
+            "group_controller_cancelled_close_joins_sql",
+            "group_controller_apply_failure_and_shutdown_preserve_selected_root",
+            "rooted_group_controller_apply_failure_and_shutdown_preserve_selected_root",
+            "controller_owned_commands_survive_sql_disconnect",
+            "controller_owned_commands_seal_late_preparations",
+            "controller_owned_commands_survive_accepted_disconnect",
+            "controller_owned_commands_resolve_after_response_deadline",
+            "controller_owned_commands_join_cancelled_shutdown",
+            "controller_owned_commands_release_completed_callback_errors",
+            "controller_owned_commands_join_a_lost_sql_reply"
           ]
         }
       ],
@@ -894,6 +919,136 @@
         {
           "name": "rooted_catalog_commands_replicate_over_physical_tls",
           "oracle": "Run the catalog-routed registered command cancellation, duplicate acceptance, exact receipt and real leader-transfer retry assertions over production physical-group TLS delivery in this image mode. Preserve captured command inputs and original producer ownership; no fixture-direct peer delivery occurs after transport attachment. The fixture still drives runtime apply and completion events, so this does not qualify production controller ownership.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "group_controller_drives_tls_apply_and_bounded_retry",
+          "oracle": "Two groups replicate over real TLS using one SQL worker per node. The controller exclusively drives events, preserves per-group apply order and retries SQL capacity without fixture pumping.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_group_controller_drives_tls_apply_and_bounded_retry",
+          "oracle": "Repeat autonomous multi-group TLS replication, bounded SQL backoff and exact receipt publication with extent images.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "group_controller_checks_exact_owners",
+          "oracle": "Refuse foreign runtime/event/transport and engine/SQL/applier combinations even within the same execution domain.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "group_controller_cancelled_close_joins_sql",
+          "oracle": "Cancel a close waiter or drop the final public controller handle while physical work is blocked. Retain claims and tickets until physical SQL and runtime joins complete.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "group_controller_apply_failure_and_shutdown_preserve_selected_root",
+          "oracle": "A real manifest sync failure closes the controller without advancing the selected root. Interrupted physical preparation cannot publish or allow premature replacement.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_group_controller_apply_failure_and_shutdown_preserve_selected_root",
+          "oracle": "Repeat manifest sync failure and joined controller shutdown with extent images; preserve the engine-selected root.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_owned_commands_survive_sql_disconnect",
+          "oracle": "Drop the response while a registered SQL callback is physically held. Retain bounded controller/producer/invocation admission, then settle the exact receipt without callback replay in both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_owned_commands_seal_late_preparations",
+          "oracle": "Expire the response while a callback is held. Seal the eventual never-submitted preparation, join private cleanup and leave the selected cell unchanged. An explicit retry may execute once, in both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_owned_commands_survive_accepted_disconnect",
+          "oracle": "Drop the response after commitment while manifest sync is held. Preserve command ownership until exact publication, and return the original receipt on identity retry without replay in both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_owned_commands_resolve_after_response_deadline",
+          "oracle": "Expire the original response deadline after commitment while manifest sync is held. Continue bounded resolution and settle the exact receipt without replay in both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_owned_commands_join_cancelled_shutdown",
+          "oracle": "Cancel a close waiter during a physically blocked callback. Retain the invocation and engine/SQL claims until joined shutdown; release all command admission only afterward, in both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_owned_commands_release_completed_callback_errors",
+          "oracle": "A received callback error discards its private mutation and releases command ownership without closing the node. Explicit identity retry succeeds exactly once; both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_owned_commands_join_a_lost_sql_reply",
+          "oracle": "An injected physical image-capture panic loses the stage reply. Preserve ambiguous invocation ownership through controller failure and physical SQL joins, then release admission; both image modes.",
           "invariants": [
             "I01",
             "I02",

@@ -528,9 +528,12 @@ pub(crate) use command_dispatch::commands as routed_commands;
 
 #[path = "cell_group_controller.rs"]
 mod controller;
+#[path = "cell_group_controller_commands.rs"]
+mod controller_commands;
 pub(crate) use controller::{
     controller_apply_faults, controller_close, controller_owners, controller_replication,
 };
+pub(crate) use controller_commands::{owned_command_failure, owned_commands};
 
 pub(super) async fn commands_over_tcp(rooted: bool) -> Result<()> {
     Box::pin(command_dispatch::commands_with_transport(rooted, true)).await

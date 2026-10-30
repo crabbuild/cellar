@@ -14,6 +14,7 @@ enum Decision {
     #[default]
     Open,
     Submitting,
+    Uncertain,
     Accepted(CellGroupProposal),
     Rejected,
 }
@@ -99,13 +100,14 @@ impl CellPreparedCommand {
             .decision
             .lock()
             .map_err(|_| RuntimeError::Protocol("submission state poisoned".into()))?;
+        let uncertain = matches!(*decision, Decision::Uncertain);
         match &*decision {
             Decision::Accepted(accepted) => {
                 return Ok(CellSubmissionOutcome::Accepted(accepted.clone()))
             }
             Decision::Rejected => return Ok(CellSubmissionOutcome::Rejected(self.rejected())),
             Decision::Submitting => return Err(RuntimeError::NotReady),
-            Decision::Open => (),
+            Decision::Open | Decision::Uncertain => (),
         }
         *decision = Decision::Submitting;
         drop(decision);
@@ -122,12 +124,17 @@ impl CellPreparedCommand {
                 *decision = Decision::Accepted(accepted.clone());
                 Ok(CellSubmissionOutcome::Accepted(accepted))
             }
-            Ok(None) => {
+            Ok(None) if !uncertain => {
                 *decision = Decision::Rejected;
                 Ok(CellSubmissionOutcome::Rejected(self.rejected()))
             }
+            Ok(None) => {
+                // This refusal says nothing about an earlier attempted append.
+                *decision = Decision::Uncertain;
+                Err(RuntimeError::Overloaded)
+            }
             Err(error) => {
-                *decision = Decision::Open;
+                *decision = Decision::Uncertain;
                 Err(error)
             }
         }
@@ -139,8 +146,25 @@ impl CellPreparedCommand {
         }
     }
 
+    /// Only a never-attempted preparation may be cancelled locally. The same
+    /// lock serializes the seal with every delayed or currently entering clone.
+    pub(crate) fn cancel_before_submission(
+        &self,
+    ) -> Result<Option<CellProposalRejection>, RuntimeError> {
+        let mut decision = self
+            .submission
+            .decision
+            .lock()
+            .map_err(|_| RuntimeError::Protocol("submission state poisoned".into()))?;
+        if matches!(*decision, Decision::Open) {
+            *decision = Decision::Rejected;
+        }
+        Ok(matches!(*decision, Decision::Rejected).then(|| self.rejected()))
+    }
+
     /// Recover a lost rejection response without asking a closed or replaced
-    /// runtime. Open and accepted attempts never yield a rejection proof.
+    /// runtime. Open, entering, uncertain and accepted attempts never yield a
+    /// rejection proof without an explicit seal of a never-attempted preparation.
     pub fn rejection(&self) -> Result<Option<CellProposalRejection>, RuntimeError> {
         let decision = self
             .submission
@@ -154,6 +178,10 @@ impl CellPreparedCommand {
         Arc::ptr_eq(&self.submission, &rejection.submission)
     }
 }
+
+#[cfg(test)]
+#[path = "submission_tests.rs"]
+mod tests;
 
 impl CellProposalRejection {
     pub(crate) fn belongs_to_engine(&self, engine: &Arc<()>) -> bool {

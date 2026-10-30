@@ -174,6 +174,18 @@ pub struct CellSqlPrepared {
 }
 
 impl CellSqlPrepared {
+    pub(crate) fn cancel_before_submission(
+        &self,
+    ) -> Result<Option<CellSqlRejection>, RuntimeError> {
+        Ok(self
+            .prepared
+            .cancel_before_submission()?
+            .map(|proof| CellSqlRejection {
+                proof,
+                _bytes: self._bytes.clone(),
+            }))
+    }
+
     pub async fn submit(
         &self,
         runtime: &crate::raft::cell_groups::CellGroupRuntime,
@@ -234,6 +246,25 @@ impl CellSqlReceipt {
         &self.receipt
     }
 }
+
+// A stage error after a received worker reply cannot hide an installed producer:
+// Stage inserts pending ownership only on its successful Prepared branch.
+// A lost reply is deliberately different and requires recovery/joined shutdown.
+pub(crate) struct CellSqlStageFailure {
+    pub error: ExecutionError,
+    pub unresolved: bool,
+}
+
+impl CellSqlStageFailure {
+    fn known(error: ExecutionError) -> Self {
+        Self {
+            error,
+            unresolved: false,
+        }
+    }
+}
+
+type SqlReply = Result<CellSqlOutcome, ExecutionError>;
 
 pub enum CellSqlOutcome {
     Prepared(CellSqlPrepared),
@@ -391,11 +422,15 @@ impl CellGroupSqlPool {
         Ok(())
     }
 
-    async fn call(
+    async fn call(&self, cell: CellHistory, action: worker::Action) -> SqlReply {
+        self.send(cell, action)?.await.map_err(|_| unavailable())?
+    }
+
+    fn send(
         &self,
         cell: CellHistory,
         action: worker::Action,
-    ) -> Result<CellSqlOutcome, ExecutionError> {
+    ) -> Result<oneshot::Receiver<SqlReply>, ExecutionError> {
         self.admit()?;
         let hash = cell_image_history_digest(&cell);
         let index = u64::from_le_bytes(
@@ -431,7 +466,7 @@ impl CellGroupSqlPool {
                     .timer(crate::raft::performance::Operation::SqlQueue),
             }))
             .map_err(|_| unavailable())?;
-        wait.await.map_err(|_| unavailable())?
+        Ok(wait)
     }
 
     /// The owning worker retains the callback and admission even if this waiter
@@ -468,10 +503,24 @@ impl CellGroupSqlPool {
         input: Vec<u8>,
         allow_new: bool,
     ) -> Result<CellSqlOutcome, ExecutionError> {
+        self.stage_registered_owned(options, authority, attempt, class, input, allow_new)
+            .await
+            .map_err(|failure| failure.error)
+    }
+
+    pub(crate) async fn stage_registered_owned(
+        &self,
+        options: CellSqlOptions,
+        authority: CellExecutionAuthority,
+        attempt: CommandAttempt,
+        class: Arc<crate::application::consensus::RaftClass>,
+        input: Vec<u8>,
+        allow_new: bool,
+    ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
         if input.len() > options.limits().envelope.max_payload_bytes {
-            return Err(overloaded());
+            return Err(CellSqlStageFailure::known(overloaded()));
         }
-        self.stage_callback(
+        self.stage_owned(
             options,
             authority,
             attempt,
@@ -491,7 +540,42 @@ impl CellGroupSqlPool {
         attempt: CommandAttempt,
         allow_new: bool,
         callback: worker::Callback,
-    ) -> Result<CellSqlOutcome, ExecutionError> {
+    ) -> SqlReply {
+        self.stage_owned(options, authority, attempt, allow_new, callback)
+            .await
+            .map_err(|failure| failure.error)
+    }
+
+    async fn stage_owned(
+        &self,
+        options: CellSqlOptions,
+        authority: CellExecutionAuthority,
+        attempt: CommandAttempt,
+        allow_new: bool,
+        callback: worker::Callback,
+    ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
+        let (cell, action) = self
+            .stage_request(options, authority, attempt, allow_new, callback)
+            .map_err(CellSqlStageFailure::known)?;
+        let wait = self
+            .send(cell, action)
+            .map_err(CellSqlStageFailure::known)?;
+        wait.await
+            .map_err(|_| CellSqlStageFailure {
+                error: unavailable(),
+                unresolved: true,
+            })?
+            .map_err(CellSqlStageFailure::known)
+    }
+
+    fn stage_request(
+        &self,
+        options: CellSqlOptions,
+        authority: CellExecutionAuthority,
+        attempt: CommandAttempt,
+        allow_new: bool,
+        callback: worker::Callback,
+    ) -> Result<(CellHistory, worker::Action), ExecutionError> {
         self.admit()?;
         if !authority.belongs_to_engine(&self.inner.engine_owner) {
             return Err(ExecutionError::Invalid("cell SQL engine owner"));
@@ -521,7 +605,7 @@ impl CellGroupSqlPool {
             self.inner
                 .admission
                 .reserve(&cell, authority.route().history, bytes)?;
-        self.call(
+        Ok((
             cell,
             worker::Action::Stage(Box::new(worker::Stage {
                 options,
@@ -532,8 +616,7 @@ impl CellGroupSqlPool {
                 lease,
                 bytes,
             })),
-        )
-        .await
+        ))
     }
 
     /// Initialize one logical cell on the existing blocking pool. The creation

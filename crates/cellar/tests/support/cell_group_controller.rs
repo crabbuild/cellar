@@ -8,15 +8,24 @@ use std::sync::{
     Mutex,
 };
 
-fn limits() -> CellGroupControllerLimits {
+pub(super) fn limits() -> CellGroupControllerLimits {
     CellGroupControllerLimits {
         max_groups: 2,
         max_parallel_apply: 2,
         retry_interval_ms: 5,
+        max_commands: 2,
+        max_command_bytes: 64 * 1024,
     }
 }
 
 async fn start(fixture: &mut RuntimeCluster) -> Result<Vec<CellGroupController>> {
+    start_with_limits(fixture, limits()).await
+}
+
+pub(super) async fn start_with_limits(
+    fixture: &mut RuntimeCluster,
+    bounds: CellGroupControllerLimits,
+) -> Result<Vec<CellGroupController>> {
     fixture.connect_tcp().await?;
     let mut controllers = Vec::new();
     for (node, events) in fixture.events.drain(..).enumerate() {
@@ -35,7 +44,7 @@ async fn start(fixture: &mut RuntimeCluster) -> Result<Vec<CellGroupController>>
                     .0
                     .clone(),
                 selected,
-                limits(),
+                bounds,
             )
             .await?,
         );

@@ -31,6 +31,10 @@ pub(super) struct Worker {
     active: BTreeSet<GroupHistory>,
     jobs: FuturesUnordered<BoxFuture<'static, Completed>>,
     hints: FuturesUnordered<BoxFuture<'static, ()>>,
+    requests: tokio::sync::mpsc::Receiver<commands::Request>,
+    commands: FuturesUnordered<BoxFuture<'static, commands::Completed>>,
+    failed_command: Option<commands::Completed>,
+    progress: tokio::sync::watch::Sender<()>,
 }
 
 impl Worker {
@@ -40,7 +44,7 @@ impl Worker {
         transport: RaftTransport,
         sql: CellGroupSqlPool,
         roster: BTreeMap<GroupHistory, CellGroupApplier>,
-        limits: CellGroupControllerLimits,
+        requests: tokio::sync::mpsc::Receiver<commands::Request>,
         shared: Arc<Shared>,
     ) -> Self {
         Self {
@@ -49,12 +53,16 @@ impl Worker {
             transport,
             sql,
             roster,
-            limits,
+            limits: shared.limits,
             shared,
             pending: VecDeque::new(),
             active: BTreeSet::new(),
             jobs: FuturesUnordered::new(),
             hints: FuturesUnordered::new(),
+            requests,
+            commands: FuturesUnordered::new(),
+            failed_command: None,
+            progress: tokio::sync::watch::channel(()).0,
         }
     }
 
@@ -93,6 +101,10 @@ impl Worker {
         &mut self,
         domain: &crate::asyncrt::DomainToken,
     ) -> Result<(), CellGroupControllerError> {
+        let mut wake_at = domain
+            .mono_ms()
+            .map_err(|_| CellGroupControllerError::Closed)?
+            .saturating_add(self.limits.retry_interval_ms);
         loop {
             if self.shared.closing.load(Ordering::Acquire) {
                 return Ok(());
@@ -101,19 +113,34 @@ impl Worker {
                 .mono_ms()
                 .map_err(|_| CellGroupControllerError::Closed)?;
             self.launch(now);
-            let wake_at = now.saturating_add(self.limits.retry_interval_ms);
             let timer = domain
                 .sleep_until(wake_at)
                 .map_err(|_| CellGroupControllerError::Closed)?;
             crate::asyncrt::select! {
                 _ = self.shared.stop.notified() => return Ok(()),
                 _ = domain.wait_for_work() => return Err(CellGroupControllerError::Closed),
-                _ = timer => (),
+                _ = timer => {
+                    self.progress.send_replace(());
+                    wake_at = domain.mono_ms().map_err(|_| CellGroupControllerError::Closed)?
+                        .saturating_add(self.limits.retry_interval_ms);
+                },
+                Some(request) = self.requests.recv() => {
+                    self.commands.push(Box::pin(commands::drive(request, self.runtime.clone(), self.sql.clone(), self.shared.clone(), self.progress.subscribe())));
+                }
+                Some(completed) = self.commands.next(), if !self.commands.is_empty() => {
+                    if completed.invocation.unresolved() {
+                        let error = completed.error.clone().map_or(CellGroupControllerError::Invalid("unresolved successful command"), CellGroupControllerError::Command);
+                        // Retain the invocation and its permit through physical
+                        // shutdown even after delivering the error to its caller.
+                        self.failed_command = Some(completed);
+                        return Err(error);
+                    }
+                }
                 Some((group, result)) = self.jobs.next(), if !self.jobs.is_empty() => {
                     self.active.remove(&group);
                     if let Some(work) = result? {
                         self.shared.apply_retries.fetch_add(1, Ordering::Relaxed);
-                        self.pending.push_back(Pending { group, work, retry_at: wake_at });
+                        self.pending.push_back(Pending { group, work, retry_at: now.saturating_add(self.limits.retry_interval_ms) });
                     }
                 }
                 Some(()) = self.hints.next(), if !self.hints.is_empty() => (),
@@ -153,6 +180,7 @@ impl Worker {
                         CellGroupEffect::Applied { .. } => {
                             // Only this post-sync event advances the published count.
                             self.shared.applied.fetch_add(1, Ordering::Relaxed);
+                            self.progress.send_replace(());
                         }
                         CellGroupEffect::ReadIndex { .. } => (), // Runtime-owned read authority.
                         CellGroupEffect::Persist(_) => return Err(CellGroupControllerError::Invalid("escaped persistence")),

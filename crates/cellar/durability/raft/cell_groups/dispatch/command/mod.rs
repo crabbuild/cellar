@@ -2,6 +2,8 @@
 
 //! Routed commands retain their originating producer until exact resolution.
 //! The node controller drives publication; acceptance is only provisional.
+mod owned;
+
 use super::*;
 use crate::application::consensus::command_request_digest;
 use crate::raft::execution::{CommandAttempt, CommandRequest};
@@ -364,7 +366,7 @@ impl CellCommandInvocation {
                 .ok_or(CellDispatchError::Invalid("missing origin"))?,
         );
         let outcome = sql
-            .stage_registered(
+            .stage_registered_owned(
                 options,
                 authority,
                 command,
@@ -375,18 +377,14 @@ impl CellCommandInvocation {
             .await;
         match outcome {
             Ok(outcome) => self.preparation(outcome).await,
-            Err(
-                error @ (ExecutionError::Refused(_)
-                | ExecutionError::Registration(_)
-                | ExecutionError::Busy),
-            ) => {
-                // These stage responses did not install this preparation. A
-                // retry may seek fresh authority; lost/closed replies do not
-                // take this path and keep their originating producer binding.
-                self.origin = None;
-                Err(CellDispatchError::Execution(error))
+            Err(failure) => {
+                // Admission refusals and received Stage errors completed without
+                // installing this producer. Lost replies retain the exact origin.
+                if !failure.unresolved {
+                    self.origin = None;
+                }
+                Err(CellDispatchError::Execution(failure.error))
             }
-            Err(error) => Err(CellDispatchError::Execution(error)),
         }
     }
 

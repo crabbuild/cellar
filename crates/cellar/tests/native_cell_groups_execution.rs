@@ -12,6 +12,41 @@ mod fault;
 mod runtime_fixture;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_owned_commands_survive_sql_disconnect() -> Result<()> {
+    runtime_fixture::owned_commands(0, 0).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_owned_commands_seal_late_preparations() -> Result<()> {
+    runtime_fixture::owned_commands(0, 1).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_owned_commands_survive_accepted_disconnect() -> Result<()> {
+    runtime_fixture::owned_commands(1, 0).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_owned_commands_resolve_after_response_deadline() -> Result<()> {
+    runtime_fixture::owned_commands(1, 1).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_owned_commands_join_cancelled_shutdown() -> Result<()> {
+    runtime_fixture::owned_commands(0, 2).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_owned_commands_release_completed_callback_errors() -> Result<()> {
+    runtime_fixture::owned_command_failure(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_owned_commands_join_a_lost_sql_reply() -> Result<()> {
+    runtime_fixture::owned_command_failure(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn group_controller_drives_tls_apply_and_bounded_retry() -> Result<()> {
     runtime_fixture::controller_replication(false).await
 }

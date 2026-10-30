@@ -155,10 +155,25 @@ pub(super) async fn setup(
     rooted: bool,
     class: &RaftClass,
 ) -> Result<(RuntimeCluster, GroupRoute, CellHistory, CellHistory)> {
-    let cluster = Cluster::with_storage_schema(
-        RaftRuntimeOptions::default(),
+    setup_in(
+        rooted,
+        class,
         tempfile::tempdir()?,
         Arc::new(DirectFileSystem),
+    )
+    .await
+}
+
+pub(super) async fn setup_in(
+    rooted: bool,
+    class: &RaftClass,
+    root: tempfile::TempDir,
+    filesystem: Arc<dyn cellar_ltx::FileSystem>,
+) -> Result<(RuntimeCluster, GroupRoute, CellHistory, CellHistory)> {
+    let cluster = Cluster::with_storage_schema(
+        RaftRuntimeOptions::default(),
+        root,
+        filesystem.clone(),
         class.schema_digest(),
     )
     .await?;
@@ -168,7 +183,7 @@ pub(super) async fn setup(
         for (n, voter) in fixture.cluster.voters.iter_mut().enumerate() {
             voter.extents = Some(NodeExtentStore::open(
                 fixture.cluster._root.path().join(format!("rooted-{n}")),
-                Arc::new(DirectFileSystem),
+                filesystem.clone(),
                 Default::default(),
             )?);
         }
