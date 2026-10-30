@@ -15,9 +15,10 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The reviewed source baseline is `0cf89c40`, adding prepared submission sealing
-and exact rejection cleanup after bounded proposal acceptance and enrollment
-capacity (`446dd905`). Earlier checkpoints cover shared-worker initialization
+The reviewed source baseline is `88c4717d`, adding coherent read selection and
+immutable cell queries. Earlier checkpoints cover prepared submission sealing
+and exact rejection cleanup (`0cf89c40`) and bounded proposal acceptance and
+enrollment capacity (`446dd905`). Earlier checkpoints cover shared-worker initialization
 and term fencing (`6e09bbc7`, formatted at `82ae6877`), receipt lookup (`91c3ecfc`),
 applied-barrier reconciliation (`8a0cf640`), the fixed SQL pool (`51dff0e5`),
 the SQL producer (`f807b2f7`) and shared-node runtime (`aec4029e`).
@@ -120,7 +121,7 @@ after apply; this remains provisional acceptance, never commitment. Prepared
 submission also closes byte-only proposal entry points on that owner.
 
 Next integrate catalog routing sessions and registered SDK creation/command
-callbacks, and coherent reads. Use `CellSqlPrepared::submit` and its typed result;
+callbacks, and registered query/version-token serving. Use `CellSqlPrepared::submit` and its typed result;
 never release a producer from generic overload or same-term absence. Preserve
 the original request fingerprint, deadline and attempt budget across redirects. Do not synthesize a legacy `GroupScope` to
 satisfy callback/effect identities. The callback APIs added here remain verification
@@ -147,14 +148,24 @@ second node worker pool or a task per enrolled cell.
 A cancelled caller cannot release physical callback ownership or allow a second
 producer for that cell.
 
-Query integration must also replace `application/consensus/class.rs::QueryContext`'s
-`CommittedVersion`/`GroupScope` identity with the logical cell version. The shared
-SQL options already carry query services, but the pool has no cell query operation.
-`CellExecutionAuthority` and `CellReconciliationAuthority` explicitly grant no
-query lease: do not repurpose them as strong-read proof. Bind a ReadIndex result
-to its request context, current owner term and applied prefix, then pin the exact
-target cell image; another cell's newer log index must not manufacture a cell
-version. Preserve the existing registered query transaction restrictions.
+Shared read selection and SQL execution now exist. Use
+`CellGroupRuntime::read_authority` with the original absolute domain deadline,
+then consume its pin through `CellGroupSqlPool::query`. Strong reads correlate
+fresh quorum to that invocation and wait for contiguous apply; Stale/AtLeast
+select logical cell versions. The immutable pin, node/group reservations and
+worker-owned query survive publication and cancellation. A returned query result
+borrows retained bytes and exposes its logical `CellVersion`.
+
+Registered query integration must still replace
+`application/consensus/class.rs::QueryContext`'s `CommittedVersion`/`GroupScope`
+identity with the logical cell version. Preserve operation/schema validation,
+read-only callback restrictions, version-token authentication and installed
+transfer lineage. `CellExecutionAuthority` and `CellReconciliationAuthority`
+still grant no strong-read authority; use the new request-owned read path.
+Do not synthesize a cell-scoped legacy group or treat the group barrier index
+as the target cell's mutation position. SDK token issuance must retain the actual
+cell decision witness through compaction, rather than invent a proposal identity
+from the latest group progress.
 
 
 ## First executor session
@@ -178,8 +189,16 @@ owning host. Reuse the old executor's current-term
 applied-barrier rule when replacing it: a submitted producer cannot be discarded
 from a sampled leader status, timeout or missing response. Resolve the original
 command against the authoritative cell receipt before admitting another producer. These regressions supplement, and do not replace, the full task
-gate printed by `show CG-04`. Registered SDK dispatch and strong-read serving
-remain absent.
+gate printed by `show CG-04`. Registered SDK dispatch and registered strong-read serving
+remain absent; the low-level read-authority and immutable-query paths exist.
+
+The first repair steps are recorded in [progress](progress.md): replace the
+forbidden fixture `tokio::select!` macro and decouple logical image-pin capacity
+from transport request bytes. The current read checkpoint passed 203 selected
+Rust cases but failed Clippy; later commands in that gate were not run. Preserve
+`.cellar/cell-groups-evidence/CG-04-reads/` as failed intermediate evidence. Rerun
+the full source-bound gate after the repairs; do not carry forward a passing
+qualification label from the previous submission checkpoint.
 
 Run from the repository root with Python 3.11+ and Rust 1.98.1:
 
@@ -204,7 +223,7 @@ The three DONE records require their retained evidence directories listed in
 another machine. Missing evidence must refuse; do not replace it with a pass flag
 or reset completed tasks merely to bypass validation.
 
-The latest partial CG-04 record is
+The latest fully passing partial CG-04 record is
 `.cellar/cell-groups-evidence/CG-04-submission/checkpoint.json` at `0cf89c40`:
 197 selected Rust cases, ten successful commands, 189 source inputs and eight
 copied executables. Transfer the entire directory, including intermediate failures,

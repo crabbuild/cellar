@@ -103,8 +103,11 @@ Bounded proposal acceptance and configured enrollment capacity are implemented a
 `446dd905`, including pending creations, exact acceptance retries, stale-base
 refusal and a shared node metadata budget. Prepared submission sealing and exact
 rejection cleanup are implemented at `0cf89c40`; see the latest checkpoint for
-qualification. Registered SDK/catalog routing, coherent
-reads, production retry/compaction integration and cache lifecycle remain required. Managed
+qualification. Coherent shared read selection and immutable queries now exist
+at `88c4717d`, whose read gate failed Clippy after 203 passing Rust cases.
+The handoff records the repair steps; this source is not a qualified checkpoint.
+Registered SDK/catalog routing, query/version-token integration,
+production retry/compaction integration and cache lifecycle remain required. Managed
 fleet integration remains required by CG-07. A birth
 metadata observation alone cannot authorize voter startup.
 

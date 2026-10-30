@@ -10,6 +10,61 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 coherent cell reads and immutable SQL queries
+
+Implementation source: `88c4717d`.
+
+The shared node runtime now owns bounded read requests with original absolute
+domain deadlines. Linearizable requests use unique nonce/counter contexts and
+current-term ReadIndex, then wait for contiguous group apply before pinning the
+target cell. Raw or forwarded read requests cannot borrow those internal contexts.
+A minority leader cannot substitute a cached commit position. A read of unchanged
+A waits behind committed B while retaining A's own version. Stale/AtLeast can
+select committed follower images; AtLeast compares logical cell history and
+sequence/image, never unrelated group indexes.
+
+Separate node/group admission retains waiting reads and delivered pins. Image
+selection grows the existing item reservation to its logical byte size without
+consuming ordinary peer/apply capacity. The pin is consumed once by an immutable
+query on the existing SQL workers. Queries can coexist with an unresolved writer
+and read only committed images; an older pin remains coherent across a later
+publication of the same cell. SQL output retains its own reservation through
+borrowed result accessors. Wrong engines, routes, histories, expired deadlines
+and revoked strong-read terms refuse.
+
+SQL progress hooks check the domain deadline, waiter cancellation and shutdown.
+Callbacks retain worker and pin ownership until they return; callback panics are
+contained and close joins entered work. Deadline checks also cover queued replies,
+so a ready result cannot bypass expiry when the receiver resumes late.
+
+Both image modes pass targeted strong-read and lifecycle cases. The first native
+compile used an unavailable clock accessor; fixtures now run clock reads inside
+the owning domain. Expanding the strong cases with a pending AtLeast read and
+an older same-cell pin exposed unnecessary async forwarding layers overflowing
+the default fixture stack. Reexports remove those layers; a visibility error in
+that intermediate change was corrected. The enhanced cases pass on the normal
+stack without weakening assertions.
+
+The retained gate at `.cellar/cell-groups-evidence/CG-04-reads/gate-commands.json`
+completed four test commands: 203 selected Rust cases passed. The fifth command,
+all-target Clippy, failed because `tests/support/cell_group_sql_reads.rs` uses the
+forbidden `tokio::select!` macro. Subsequent commands in that gate did not run.
+This is an unqualified source checkpoint; the latest fully passing partial
+checkpoint remains `0cf89c40`. No task status advances.
+
+Before resuming qualification, replace that fixture macro with
+`cellar::asyncrt::select!`. Also separate the logical read-image pin budget from
+`RaftRuntimeOptions::max_request_bytes`: the current transport ceiling is 512 MiB,
+whereas valid native images can reach 10,000,000,000 bytes. Add an explicit bounded
+pin-byte option, validate its arithmetic and supported image envelope, and test
+that pin configuration does not require raising transport limits. Preserve
+node/group accounting, count limits and cancellation ownership. Retain the failed
+gate, then run a fresh full gate against the repaired source revision.
+
+Registered SDK dispatch, callback identity and version-token integration, catalog
+sessions, production retry/compaction and cache lifecycle remain required. This
+is partial CG-04 implementation, not the production cutover or release gate.
+
 ## CG-04 prepared submission and rejection cleanup
 
 Qualified source: `0cf89c403f4a500d18116499b8fc0f219195cd54`.

@@ -464,7 +464,11 @@
         "crates/cellar/durability/raft/cell_groups/proposal_admission.rs",
         "crates/cellar/tests/support/cell_group_admission.rs",
         "crates/cellar/durability/raft/execution/submission.rs",
-        "crates/cellar/tests/support/cell_group_sql_submission.rs"
+        "crates/cellar/tests/support/cell_group_sql_submission.rs",
+        "crates/cellar/durability/raft/cell_groups/read_authority.rs",
+        "crates/cellar/durability/raft/cell_groups/runtime/reads.rs",
+        "crates/cellar/durability/raft/host_sql/cell_groups/query.rs",
+        "crates/cellar/tests/support/cell_group_sql_reads.rs"
       ],
       "test_target": "native_cell_groups_execution",
       "steps": [
@@ -494,10 +498,13 @@
           ]
         },
         {
-          "action": "Implement Stale, AtLeast and current-term ReadIndex for the target cell. Pin coherent manifest/image views and include cross-cell noninterference and slow-apply cases in the real-engine fixture.",
+          "action": "Implement Stale, AtLeast and current-term ReadIndex for the target cell. Pin coherent manifest/image views and include cross-cell noninterference and slow-apply cases in the real-engine fixture. Correlate each strong read to its own runtime-owned request context and absolute domain deadline; retain separate bounded node/group pin admission through delivery and physical SQL execution. Configure logical image-pin bytes independently of transport message/request bytes; validate overflow and supported image bounds, and test independent capacity and reservation cleanup. Query callbacks consume immutable pins on existing workers, preserve read-only SQL policy and contain panics. Deadline/cancellation must interrupt SQLite work while arbitrary callback ownership remains retained until it finishes; shutdown joins that work.",
           "tests": [
             "strong_read_at_group_barrier",
-            "apply_prefix_never_skips_slow_cell"
+            "apply_prefix_never_skips_slow_cell",
+            "rooted_strong_read_at_group_barrier",
+            "cell_query_pins_deadline_and_cancelled_cleanup",
+            "rooted_cell_query_pins_deadline_and_cancelled_cleanup"
           ]
         }
       ],
@@ -603,6 +610,33 @@
             "I01",
             "I02",
             "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_strong_read_at_group_barrier",
+          "oracle": "Extent-backed strong reads require fresh quorum and contiguous apply behind another cell, preserve the target cell version, wait for AtLeast publication, retain older coherent pins and refuse wrong histories, expired deadlines and revoked leadership.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "cell_query_pins_deadline_and_cancelled_cleanup",
+          "oracle": "Real group read pins enforce capacity and engine binding. Immutable SQL refuses writes, interrupts deadline-bound work, contains callback panics and retains entered work after waiter cancellation; close joins it and returns all SQL reservations.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_cell_query_pins_deadline_and_cancelled_cleanup",
+          "oracle": "Real group read pins enforce capacity and engine binding. Immutable SQL refuses writes, interrupts deadline-bound work, contains callback panics and retains entered work after waiter cancellation; close joins it and returns all SQL reservations.",
+          "invariants": [
+            "I01",
+            "I05",
             "I12"
           ]
         }
