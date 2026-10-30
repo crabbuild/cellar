@@ -160,6 +160,11 @@ impl Images {
                 page_size: state.page_size,
             },
             last_mutation: position(index),
+            witness: CommitWitness {
+                group: route().history,
+                position: position(index),
+                proposal: ProposalId::new([if state.txid.0 == 1 { cell } else { cell + 32 }; 16])?,
+            },
             effects: EffectSummary::default(),
         };
         let previous = base.map(|(leaf, _)| leaf.enrollment.clone());
@@ -529,6 +534,30 @@ async fn recover_and_check(path: &Path, mode: Mode, expected: Option<u64>) -> Re
         assert_eq!(leaf.enrollment.creation(), ProposalId::new([cell; 16])?);
         assert_eq!(leaf.enrollment.initial().txid, 1);
         assert_eq!(leaf.version.sequence.get(), sequence);
+        assert_eq!(leaf.witness.group, route().history);
+        assert_eq!(
+            leaf.witness.position,
+            position(if sequence == 2 {
+                4
+            } else {
+                u64::from(cell) + 1
+            })
+        );
+        assert_eq!(
+            leaf.witness.proposal,
+            ProposalId::new([if sequence == 1 { cell } else { cell + 32 }; 16])?
+        );
+        let keys = cellar::application::consensus::VersionKeys::new(
+            cellar::application::consensus::VersionSigningKey::new([72; 32], 100_000)?,
+            vec![],
+            Duration::from_secs(10),
+        )?;
+        let observation = leaf.observation();
+        let token = keys.issue_cell(&observation, route().schema_digest, 100)?;
+        assert_eq!(
+            keys.verify_cell(&token, &history(cell), route().schema_digest, 101)?,
+            observation
+        );
         assert_receipt(&pin, cell, sequence)?;
         leaves.push(leaf.clone());
     }

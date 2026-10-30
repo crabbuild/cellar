@@ -114,6 +114,11 @@ fn leaf(id: u8, pin: &GenerationPin, sequence: u64, index: u64) -> CellManifestL
             page_size: image.page_size,
         },
         last_mutation: position(index),
+        witness: CommitWitness {
+            group: route().history,
+            position: position(index),
+            proposal: ProposalId::new([id; 16]).unwrap(),
+        },
         effects: EffectSummary::default(),
     }
 }

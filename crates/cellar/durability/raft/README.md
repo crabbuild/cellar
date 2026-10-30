@@ -153,7 +153,13 @@ applied group prefix. A committed update to B can delay a read of unchanged A,
 but cannot change A's version. Raw read requests and forwarded read messages
 cannot use the internal context namespace. The returned authority is consumed by
 one query and rejects a changed route, lost leader term, foreign engine or expired
-deadline. It is not a reusable leadership lease.
+deadline. It is not a reusable leadership lease. Each selected leaf retains its complete
+commit witness independently of the Raft entry cache. Immutable-query results
+expose `observation()` for the exact version and witness; cell receipt results
+expose the corresponding selected-version observation, which can cover an older
+command receipt. A later mutation of another cell cannot change that observation.
+Registered dispatch must still authenticate contracts and issue tokens only from
+these authoritative results; manifest observation data alone is not authority.
 
 Stale explicitly selects a local committed image, including on followers. AtLeast
 compares logical cell history/sequence/image, not group log positions; the

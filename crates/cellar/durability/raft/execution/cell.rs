@@ -18,6 +18,17 @@ pub struct CellCommittedReceipt {
     pub receipt: StoredReceipt,
     pub version: CellVersion,
     pub position: LogPosition,
+    /// Decision for the selected version, which may cover a prior receipt.
+    pub witness: cellar_logic::cell_group::CommitWitness,
+}
+
+impl CellCommittedReceipt {
+    pub fn observation(&self) -> crate::raft::version::CellVersionObservation {
+        crate::raft::version::CellVersionObservation {
+            version: self.version.clone(),
+            witness: self.witness,
+        }
+    }
 }
 
 pub enum CellStageOutcome {
@@ -318,6 +329,7 @@ impl CellPrivateExecutor {
                 receipt,
                 version: authority.cell().version.clone(),
                 position: authority.cell().last_mutation,
+                witness: authority.cell().witness,
             })),
             Ok(None) if authority.term() > self.authority.term() => {
                 CellReconciliation::NotCommitted
@@ -352,6 +364,7 @@ impl CellPrivateExecutor {
             receipt,
             version: authority.cell().version.clone(),
             position: authority.cell().last_mutation,
+            witness: authority.cell().witness,
         })
     }
 

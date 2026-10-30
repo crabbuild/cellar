@@ -85,9 +85,57 @@ struct WirePage {
     geometry: CellImageGeometry,
     mutation_index: u64,
     mutation_term: u64,
+    witness: WireWitness,
     effects: EffectSummary,
     left: Option<PageRef>,
     right: Option<PageRef>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WireWitness {
+    cluster: [u8; 16],
+    namespace: [u8; 16],
+    group: [u8; 16],
+    incarnation: [u8; 16],
+    index: u64,
+    term: u64,
+    proposal: [u8; 16],
+}
+
+impl From<CommitWitness> for WireWitness {
+    fn from(witness: CommitWitness) -> Self {
+        Self {
+            cluster: witness.group.cluster.bytes(),
+            namespace: witness.group.namespace.bytes(),
+            group: witness.group.group.bytes(),
+            incarnation: witness.group.incarnation.bytes(),
+            index: witness.position.index.get(),
+            term: witness.position.term.get(),
+            proposal: witness.proposal.bytes(),
+        }
+    }
+}
+
+impl TryFrom<WireWitness> for CommitWitness {
+    type Error = ManifestError;
+
+    fn try_from(wire: WireWitness) -> Result<Self, Self::Error> {
+        let invalid = |_| ManifestError::Invalid("cell commit witness");
+        Ok(Self {
+            group: GroupHistory {
+                cluster: ClusterId::new(wire.cluster).map_err(invalid)?,
+                namespace: NamespaceId::new(wire.namespace).map_err(invalid)?,
+                group: GroupId::new(wire.group).map_err(invalid)?,
+                incarnation: IncarnationId::new(wire.incarnation).map_err(invalid)?,
+            },
+            position: LogPosition {
+                index: LogIndex::new(wire.index),
+                term: Term::new(wire.term),
+            },
+            proposal: ProposalId::new(wire.proposal).map_err(invalid)?,
+        })
+    }
 }
 
 pub(super) fn digest(bytes: &[u8]) -> [u8; 32] {
@@ -122,6 +170,7 @@ pub(super) fn encode(
         geometry: leaf.geometry,
         mutation_index: leaf.last_mutation.index.get(),
         mutation_term: leaf.last_mutation.term.get(),
+        witness: leaf.witness.into(),
         effects: leaf.effects,
         left: page.left,
         right: page.right,
@@ -181,6 +230,7 @@ pub(super) fn decode(
                 index: LogIndex::new(wire.mutation_index),
                 term: Term::new(wire.mutation_term),
             },
+            witness: wire.witness.try_into()?,
             effects: wire.effects,
         },
         left: wire.left,

@@ -35,6 +35,14 @@ fn fixture() -> (GroupRoute, Page) {
         initial,
     )
     .unwrap();
+    let witness = CommitWitness {
+        group: route.history,
+        position: LogPosition {
+            index: LogIndex::new(2),
+            term: Term::new(1),
+        },
+        proposal: enrollment.creation(),
+    };
     (
         route,
         Page {
@@ -53,6 +61,7 @@ fn fixture() -> (GroupRoute, Page) {
                     index: LogIndex::new(2),
                     term: Term::new(1),
                 },
+                witness,
                 effects: EffectSummary::default(),
             },
             left: None,
@@ -107,6 +116,8 @@ fn creation_binding_survives_later_versions_and_bounds_all_cell_names() {
     page.leaf.version.image.txid = 2;
     page.leaf.version.image.commitment = CellImageCommitment::Materialized([10; 32]);
     page.leaf.last_mutation.index = LogIndex::new(3);
+    page.leaf.witness.position = page.leaf.last_mutation;
+    page.leaf.witness.proposal = ProposalId::new([10; 16]).unwrap();
     let bytes = encode(&page, &route, ManifestLimits::default()).unwrap();
     let restored = decode(&bytes, &route, ManifestLimits::default()).unwrap();
     assert_eq!(restored.leaf.enrollment, original);
@@ -129,4 +140,41 @@ fn creation_binding_survives_later_versions_and_bounds_all_cell_names() {
             .leaf,
         page.leaf
     );
+}
+
+#[test]
+fn commit_witness_is_required_and_bounded_at_marker_one() {
+    let (route, page) = fixture();
+    let limits = ManifestLimits::default();
+    let encoded = encode(&page, &route, limits).unwrap();
+    let original = String::from_utf8(encoded[MAGIC.len()..].to_vec()).unwrap();
+    let witness = serde_json::to_string(&WireWitness::from(page.leaf.witness)).unwrap();
+    let replace = |field: &str, value: serde_json::Value| {
+        let parsed: serde_json::Value = serde_json::from_str(&witness).unwrap();
+        witness.replacen(
+            &format!("\"{field}\":{}", parsed[field]),
+            &format!("\"{field}\":{value}"),
+            1,
+        )
+    };
+    for changed in [
+        None,
+        Some("null".to_owned()),
+        Some(replace("namespace", serde_json::json!(vec![80; 16]))),
+        Some(replace("group", serde_json::json!(vec![0; 16]))),
+        Some(replace("proposal", serde_json::json!(vec![0; 16]))),
+        Some(replace("proposal", serde_json::json!(vec![80; 16]))),
+        Some(replace("index", 0.into())),
+        Some(replace("index", 3.into())),
+        Some(replace("term", 2.into())),
+    ] {
+        let changed = match changed {
+            Some(value) => original.replacen(&witness, &value, 1),
+            None => original.replacen(&format!("\"witness\":{witness},"), "", 1),
+        };
+        assert_ne!(changed, original);
+        let mut bytes = MAGIC.to_vec();
+        bytes.extend(changed.as_bytes());
+        assert!(decode(&bytes, &route, limits).is_err());
+    }
 }

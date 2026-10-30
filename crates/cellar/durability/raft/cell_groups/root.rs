@@ -217,6 +217,8 @@ impl ManifestTree {
         if previous.marker.position.index.get().checked_add(1)
             != Some(leaf.last_mutation.index.get())
             || leaf.last_mutation.term < previous.marker.position.term
+            || leaf.witness.group != self.route.history
+            || leaf.witness.position != leaf.last_mutation
         {
             return Err(ManifestError::Invalid("noncontiguous mutation"));
         }

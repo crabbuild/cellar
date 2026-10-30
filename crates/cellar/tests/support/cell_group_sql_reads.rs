@@ -71,6 +71,20 @@ async fn value(
         .await?)
 }
 
+fn verify_observation(output: &CellSqlQueryResult, schema: [u8; 32]) -> Result<()> {
+    let keys = VersionKeys::new(
+        VersionSigningKey::new([73; 32], 100_000)?,
+        vec![],
+        Duration::from_secs(10),
+    )?;
+    let token = keys.issue_cell(output.observation(), schema, 100)?;
+    assert_eq!(
+        &keys.verify_cell(&token, &output.version().history, schema, 101)?,
+        output.observation(),
+    );
+    Ok(())
+}
+
 pub(crate) async fn coherent(rooted: bool) -> Result<()> {
     let (mut fixture, route, a, b) = enrolled_sql_cells(rooted).await?;
     let pool = pool(&fixture, 0)?;
@@ -78,6 +92,7 @@ pub(crate) async fn coherent(rooted: bool) -> Result<()> {
     let ob = fixture.cell_options(&b).await?;
     let original = selected(&mut fixture, 0, &a, CellReadConsistency::Stale).await?;
     let original_version = original.cell().version.clone();
+    let original_observation = original.cell().observation();
     drop(value(&pool, oa.clone(), original).await?);
 
     // A ready leader without any new peer responses cannot reuse a cached cut.
@@ -118,6 +133,7 @@ pub(crate) async fn coherent(rooted: bool) -> Result<()> {
     );
     let old_b = selected(&mut fixture, 0, &b, CellReadConsistency::Stale).await?;
     let old_b_version = old_b.cell().version.clone();
+    let old_b_observation = old_b.cell().observation();
     let encoded = CellGroupEntry::decode(prepared.bytes(), &route, GroupEntryLimits::default())?;
     let GroupCommand::Mutation(mutation) = encoded.command else {
         anyhow::bail!("B mutation")
@@ -129,6 +145,11 @@ pub(crate) async fn coherent(rooted: bool) -> Result<()> {
     };
     pool.mark_submitted(b.clone(), prepared.proposal()).await?;
     let accepted = accepted_sql(&fixture.runtimes[0], &prepared).await?;
+    let expected_witness = CommitWitness {
+        group: route.history,
+        position: accepted.position,
+        proposal: prepared.proposal(),
+    };
     let mut held = BTreeMap::new();
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
@@ -182,22 +203,27 @@ pub(crate) async fn coherent(rooted: bool) -> Result<()> {
     let old_output = value(&pool, ob.clone(), old_b).await?;
     assert_eq!(old_output.result(), 0_i64.to_le_bytes());
     assert_eq!(old_output.version(), &old_b_version);
+    assert_eq!(old_output.observation(), &old_b_observation);
+    verify_observation(&old_output, route.schema_digest)?;
     drop(old_output);
     assert_eq!(selected.cell().version, original_version);
+    assert_eq!(selected.cell().observation(), original_observation);
     assert!(selected.applied().index >= accepted.position.index);
     assert!(selected.barrier().context("fresh barrier")?.index >= accepted.position.index);
     assert_eq!(
         value(&pool, oa.clone(), selected).await?.result(),
         0_i64.to_le_bytes()
     );
-    drop(
-        pool.finish(
+    let receipt = pool
+        .finish(
             fixture.runtimes[0]
                 .execution_authority(route.history, b.clone())
                 .await?,
         )
-        .await?,
-    );
+        .await?;
+    assert_eq!(receipt.receipt().witness, expected_witness);
+    assert_eq!(receipt.receipt().observation().version, expected_b);
+    drop(receipt);
     drop(prepared);
 
     let version_b = fixture.runtimes[0]
@@ -216,6 +242,8 @@ pub(crate) async fn coherent(rooted: bool) -> Result<()> {
     let output = value(&pool, ob, ready_b).await?;
     assert_eq!(output.result(), 1_i64.to_le_bytes());
     assert_eq!(output.version(), &version_b);
+    assert_eq!(output.observation().witness, expected_witness);
+    verify_observation(&output, route.schema_digest)?;
     drop(output);
     assert!(fixture.runtimes[0]
         .read_authority(

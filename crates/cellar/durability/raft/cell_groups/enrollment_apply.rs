@@ -110,6 +110,11 @@ impl ManifestTree {
                     },
                     geometry: prepared.geometry,
                     last_mutation: apply.position,
+                    witness: CommitWitness {
+                        group: self.route.history,
+                        position: apply.position,
+                        proposal: record.creation(),
+                    },
                     effects: prepared.effects,
                 };
                 let next = self.prepare_update(store, previous, leaf, None, prepared.pin)?;

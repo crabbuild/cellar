@@ -94,11 +94,24 @@ pub struct CellManifestLeaf {
     pub enrollment: super::EnrollmentRecord,
     pub version: CellVersion,
     pub geometry: CellImageGeometry,
+    /// Position that installed this image in the current group.
     pub last_mutation: LogPosition,
+    /// Original decision for this logical version, retained independently of
+    /// log entries and of later group progress or transfer installation.
+    pub witness: CommitWitness,
     pub effects: EffectSummary,
 }
 
 impl CellManifestLeaf {
+    /// Observation data from this leaf. Only an authoritative selected root
+    /// establishes commitment; constructing a leaf grants no serving authority.
+    pub fn observation(&self) -> crate::raft::version::CellVersionObservation {
+        crate::raft::version::CellVersionObservation {
+            version: self.version.clone(),
+            witness: self.witness,
+        }
+    }
+
     pub(super) fn validate(&self, route: &GroupRoute) -> Result<CellKey, ManifestError> {
         let key = cell_routing_key(route.history.namespace, &self.version.history.cell);
         route
@@ -109,6 +122,19 @@ impl CellManifestLeaf {
             .map_err(|_| ManifestError::Invalid("mutation position"))?;
         if self.last_mutation.index.get() == 0 {
             return Err(ManifestError::Invalid("zero mutation index"));
+        }
+        self.witness
+            .validate(&self.version.history)
+            .map_err(|_| ManifestError::Invalid("cell commit witness"))?;
+        if (self.witness.group == route.history
+            && (self.witness.position.index > self.last_mutation.index
+                || self.witness.position.term > self.last_mutation.term
+                || (self.witness.position.index == self.last_mutation.index
+                    && self.witness.position.term != self.last_mutation.term)))
+            || (self.version.sequence.get() == 1
+                && self.witness.proposal != self.enrollment.creation())
+        {
+            return Err(ManifestError::Invalid("cell witness position/creation"));
         }
         // The immutable record's constructor/decoder validates its bounded shape.
         // Do not allocate its canonical encoding on every tree lookup.

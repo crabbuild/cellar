@@ -959,6 +959,11 @@ impl CellGroupOwner {
             GroupEntryLimits::default(),
         )
         .map_err(|_| invalid())?;
+        let witness = cellar_logic::cell_group::CommitWitness {
+            group: self.current.marker().route().history,
+            position: entry_position(entry),
+            proposal: decoded.binding.proposal,
+        };
         match decoded.command {
             GroupCommand::Enroll { ref cell, .. } => {
                 let old = self.current.pin_cell(&cell.cell);
@@ -976,6 +981,7 @@ impl CellGroupOwner {
                             || leaf.version.sequence.get() != 1
                             || leaf.version.image != record.initial()
                             || leaf.last_mutation != entry_position(entry)
+                            || leaf.witness != witness
                         {
                             return Err(invalid());
                         }
@@ -1001,6 +1007,7 @@ impl CellGroupOwner {
                     || new.version.image != mutation.result.into()
                     || new.enrollment != old.enrollment
                     || new.last_mutation != entry_position(entry)
+                    || new.witness != witness
                 {
                     return Err(invalid());
                 }

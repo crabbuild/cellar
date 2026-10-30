@@ -15,9 +15,23 @@ JSON and a 16 KiB decode bound. Tree depth and cell count are explicit limits.
 These limits are admission ceilings, not qualified fleet capacities.
 
 Leaves bind logical cell history, mutation sequence, image commitment and
-geometry, last group mutation position, schema, effect summary and immutable
-original enrollment identity. A page without the required enrollment field
-refuses at marker 1; no old-layout decoder or inferred creation record is used. Local image
+geometry, last group installation/mutation position, schema, effect summary,
+immutable original enrollment identity and the selected version's complete
+`CommitWitness` (original group history, term/index and proposal ID). A page
+without either the enrollment or witness field refuses at marker 1; no old-layout
+decoder or inferred identity is used. The witness is part of the authenticated
+page and survives unrelated group progress, restart and image collection. A local
+installation position remains separate from original decision provenance for
+future transfers. Shape validation of foreign-group provenance grants no transfer
+authority; the transfer protocol must establish its lineage.
+
+Ordinary `prepare_update` requires the witness to name the current group and
+its exact mutation position. The Raft owner additionally matches enrollment and
+mutation witnesses to the actual committed entry's proposal before publishing.
+An otherwise correct image cannot supply a fabricated proposal witness. Repeated
+enrollment and unchanged entries retain the existing leaf and witness exactly.
+`CellManifestLeaf::observation` exposes version/witness data; only an authoritative
+selected root establishes its commitment. Local image
 filenames are excluded: replicas may store the same image under different local
 names and still derive the same logical manifest. A physical image adapter must
 resolve and pin each image by the selected logical leaf. Extent and materialized

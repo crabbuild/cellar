@@ -22,7 +22,7 @@ pub(super) struct Query {
 
 pub struct CellSqlQueryResult {
     result: Vec<u8>,
-    version: CellVersion,
+    observation: crate::raft::version::CellVersionObservation,
     _bytes: Arc<Bytes>,
 }
 
@@ -31,8 +31,12 @@ impl CellSqlQueryResult {
         &self.result
     }
 
+    pub fn observation(&self) -> &crate::raft::version::CellVersionObservation {
+        &self.observation
+    }
+
     pub fn version(&self) -> &CellVersion {
-        &self.version
+        &self.observation.version
     }
 }
 
@@ -176,11 +180,12 @@ pub(super) fn run(
         )
         .map_err(crate::raft::execution::storage)?;
     check(&query)?;
-    let version = query.authority.cell().version.clone();
-    let result =
-        std::panic::catch_unwind(AssertUnwindSafe(|| (query.callback)(&database, &version)))
-            .unwrap_or_else(|panic| Err(crate::native_worker::panic_error(panic)))
-            .map_err(crate::raft::execution::storage)?;
+    let observation = query.authority.cell().observation();
+    let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+        (query.callback)(&database, &observation.version)
+    }))
+    .unwrap_or_else(|panic| Err(crate::native_worker::panic_error(panic)))
+    .map_err(crate::raft::execution::storage)?;
     // The callback has been consumed, so check the remaining owners explicitly.
     if query.cancelled.load(Ordering::Acquire) || query.closing.load(Ordering::Acquire) {
         return Err(unavailable());
@@ -197,7 +202,7 @@ pub(super) fn run(
     Bytes::shrink(&mut query.bytes, result.len() + 4096)?;
     Ok(CellSqlOutcome::Queried(CellSqlQueryResult {
         result,
-        version,
+        observation,
         _bytes: query.bytes,
     }))
 }

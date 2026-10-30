@@ -684,6 +684,11 @@ fn prepare(voter: &mut Voter, apply: &CellGroupApply) -> Result<PreparedGroupMan
                 },
                 geometry: prepared.geometry,
                 last_mutation: apply.ticket.position(),
+                witness: CommitWitness {
+                    group: decoded.binding.group,
+                    position: apply.ticket.position(),
+                    proposal: decoded.binding.proposal,
+                },
                 effects: old.effects,
             };
             Ok(voter.tree.prepare_update(
@@ -973,6 +978,33 @@ async fn apply_prefix_never_skips_slow_cell() -> Result<()> {
             .complete_apply(foreign, next.clone()),
         Err(RuntimeError::StaleCompletion)
     ));
+    // Correct image and apply position cannot authorize a fabricated proposal
+    // witness. Completion must match the exact committed cell-addressed entry.
+    let (leaf, image) = next.pin_cell(&expected[0].0.cell).context("changed cell")?;
+    let mut forged_leaf = leaf.clone();
+    forged_leaf.witness.proposal = ProposalId::new([254; 16])?;
+    assert_ne!(forged_leaf.witness, leaf.witness);
+    let old = apply
+        .base
+        .pin_cell(&expected[0].0.cell)
+        .context("old cell")?
+        .0;
+    let forged = voter.tree.prepare_update(
+        &mut voter.pages,
+        &apply.base,
+        forged_leaf,
+        Some(&old.version),
+        image,
+    )?;
+    assert!(matches!(
+        voter
+            .owner
+            .as_mut()
+            .unwrap()
+            .complete_apply(apply.ticket.clone(), forged,),
+        Err(RuntimeError::Invalid(_))
+    ));
+    assert_eq!(voter.owner.as_ref().unwrap().manifest().marker(), &before);
     let unchanged =
         voter
             .tree
