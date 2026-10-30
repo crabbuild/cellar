@@ -33,9 +33,19 @@ effects/cache lifecycle belong to CG-08, and final legacy removal to CG-16. Trac
 these remaining capabilities in their owning tasks.
 Shared RustFS, independent-process/power-loss and load remain unqualified.
 
+The source checkpoint at `b15da415` passes 138 Rust cases, eight gate commands
+and 37 validator tests. Transfer
+`.cellar/cell-groups-evidence/CG-05-checkpoint-source/` with its predecessors;
+its record binds 290 source hashes and three copied executables. The four new
+cases cover concurrent real quorum writes while streaming a held cut, both image
+representations, empty enrollment, obsolete-page retention/release, bounds,
+cancelled physical ownership, stale/foreign/unpublished roots, corruption and
+closed engines. These are embedded source tests; receiver install, snapshot RPC,
+membership recovery and new process/RustFS/load qualification remain open.
+
 The following records describe the preceding incremental checkpoints.
 
-The newest reviewed source baseline is `69e41e86`, adding bounded explicit local
+The preceding reviewed source baseline is `69e41e86`, adding bounded explicit local
 provisioning from already selected initial-member assignments. The controller owns
 birth/bootstrap, blocking root recovery and attachment. Exact directory/group
 requests coalesce; waiter admission is independent from commands. Failed recovered

@@ -5,7 +5,9 @@
 Status: executable design and implementation plan delivered on 2026-10-29.
 CG-01 contracts, CG-02 storage, CG-03 routing/admission preparation and
 CG-04 shared execution have passed their scoped local evidence gates.
-The production host has not yet cut over to shared groups.
+CG-05 is in progress: bounded complete-group checkpoint capture and streaming
+pass their source-side regression gate. Receiver install and membership recovery
+remain open. The production host has not yet cut over to shared groups.
 See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.
 
@@ -47,6 +49,8 @@ This checkout retains evidence under the ignored
 `.cellar/cell-groups-evidence/CG-04-local-provisioning-final/` directory. A fresh
 checkout must receive these retained directories at the same relative paths
 before validating the four DONE checkpoints. Missing evidence fails validation; it is never treated as a pass.
+CG-05's partial source checkpoint is retained in
+`.cellar/cell-groups-evidence/CG-05-checkpoint-source/`; it does not complete CG-05.
 The design, task briefs and validator unit tests are committed in this package.
 
 ```sh

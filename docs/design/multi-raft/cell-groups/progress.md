@@ -12,6 +12,15 @@ is being added.
 
 ## CG-05 complete-root capture and bounded streaming
 
+Qualified source: `b15da415c9c9c0663274d0aedd520feb37d90d2d`. All 138 selected Rust cases pass across
+shared execution, catalog and manifest storage, including the four new checkpoint
+source cases. Eight gate commands pass: all-target Clippy, those regression suites,
+formatting, layout, dependency isolation, docs, source preflight and 37 plan-validator
+tests. `.cellar/cell-groups-evidence/CG-05-checkpoint-source/checkpoint.json` binds
+290 source hashes, three copied executables and retained command/diagnostic logs.
+The plan inputs are frozen alongside the evidence. Transfer this ignored local
+directory with its predecessor evidence; this is a partial CG-05 gate.
+
 The first source-side snapshot slice adds a shared checkpoint pool and a
 non-cloneable physical source. Capture checks the exact selected group root,
 engine owner, committed/applied cut and membership revision. It copies membership
