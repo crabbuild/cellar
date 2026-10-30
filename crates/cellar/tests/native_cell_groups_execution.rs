@@ -1186,3 +1186,23 @@ async fn physical_owner_retains_lease_through_cancelled_sync() -> Result<()> {
     cluster.voters[0].owner = Some(owner);
     cluster.close().await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn strong_read_at_group_barrier() -> Result<()> {
+    runtime_fixture::coherent_reads(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_strong_read_at_group_barrier() -> Result<()> {
+    runtime_fixture::coherent_reads(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn cell_query_pins_deadline_and_cancelled_cleanup() -> Result<()> {
+    runtime_fixture::query_lifecycle(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_cell_query_pins_deadline_and_cancelled_cleanup() -> Result<()> {
+    runtime_fixture::query_lifecycle(true).await
+}

@@ -108,6 +108,7 @@ pub(super) struct Worker {
     ready: usize,
     apply: usize,
     reads: usize,
+    cell_reads: reads::Reads,
 }
 
 impl Worker {
@@ -121,6 +122,7 @@ impl Worker {
             log,
             output: Budget::new(options.max_event_bytes, options.max_events),
             proposals: Budget::new(options.max_request_bytes, options.max_requests),
+            cell_reads: reads::Reads::new(&options),
             options,
             domain,
             groups: BTreeMap::new(),
@@ -320,12 +322,26 @@ impl Worker {
                             inbound,
                             ..
                         } = request;
+                        let mut answer = Some(answer);
                         let new_read = matches!(command, Command::ReadIndex(_))
+                            || matches!(&command, Command::Read(request) if matches!(request.consistency, CellReadConsistency::Linearizable))
                             || matches!(&command, Command::Step(m) if m.get_msg_type()==::raft::prelude::MessageType::MsgReadIndex);
                         let result = if new_read && self.reads >= self.options.max_pending_reads {
                             Err(RuntimeError::Overloaded)
                         } else {
                             match command {
+                                Command::Read(request) => {
+                                    let now =
+                                        self.domain.mono_ms().map_err(|_| RuntimeError::Closed)?;
+                                    self.cell_reads.start(
+                                        history,
+                                        &mut group.owner,
+                                        *request,
+                                        answer.take().expect("read reply"),
+                                        now,
+                                    );
+                                    Ok(Response::Unit)
+                                }
                                 Command::Execution(cell) => group
                                     .owner
                                     .execution_authority(&cell)
@@ -366,7 +382,9 @@ impl Worker {
                         };
                         drop(_permit);
                         drop(inbound);
-                        let _ = answer.send(result);
+                        if let Some(answer) = answer {
+                            let _ = answer.send(result);
+                        }
                         made = true;
                     }
                 }
@@ -381,6 +399,14 @@ impl Worker {
                             group.write_bytes = work.write.estimated_bytes()?;
                             group.write = Some(work);
                             self.writes.push_back(history);
+                            made = true;
+                        }
+                        Ok(Some(CellGroupEffect::ReadIndex {
+                            term,
+                            index,
+                            context,
+                        })) if reads::reserved_context(&context) => {
+                            self.cell_reads.observe(history, term, index, &context);
                             made = true;
                         }
                         Ok(Some(effect)) => {
@@ -587,13 +613,28 @@ impl Worker {
             if closing.load(Ordering::Acquire) {
                 return Ok(());
             }
-            let made = self.progress()? | self.start_batch()? | self.flush();
+            let mut made = self.progress()? | self.start_batch()? | self.flush();
             let now = self.domain.mono_ms().map_err(|_| RuntimeError::Closed)?;
+            made |= self
+                .cell_reads
+                .progress(now, |history, request, term, barrier| {
+                    let group = self.groups.get(&history).ok_or(RuntimeError::NotFound)?;
+                    if let Some(error) = &group.failed {
+                        return Err(error.clone());
+                    }
+                    group
+                        .owner
+                        .select_read(&request.cell, &request.consistency, term, barrier)
+                });
             let deadline = if self.retry_at > now {
                 tick_at.min(self.retry_at)
             } else {
                 tick_at
             };
+            let deadline = self
+                .cell_reads
+                .deadline()
+                .map_or(deadline, |read| deadline.min(read));
             let timer = self
                 .domain
                 .sleep_until(deadline)

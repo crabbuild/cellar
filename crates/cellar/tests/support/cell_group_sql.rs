@@ -469,3 +469,8 @@ mod submission;
 pub(super) async fn submission_rejections(rooted: bool) -> Result<()> {
     submission::rejections(rooted).await
 }
+
+#[path = "cell_group_sql_reads.rs"]
+mod reads;
+
+pub(crate) use reads::{coherent as coherent_reads, lifecycle as query_lifecycle};

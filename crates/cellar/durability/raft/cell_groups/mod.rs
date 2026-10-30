@@ -4,8 +4,8 @@
 
 pub use super::host_sql::cell_groups::{
     CellGroupSqlPool, CellSqlEnrollment, CellSqlEnrollmentResolution, CellSqlLimits,
-    CellSqlOptions, CellSqlOutcome, CellSqlPrepared, CellSqlReceipt, CellSqlReconciliation,
-    CellSqlRejection, CellSqlRootOptions, CellSqlSubmission, CellSqlUsage,
+    CellSqlOptions, CellSqlOutcome, CellSqlPrepared, CellSqlQueryResult, CellSqlReceipt,
+    CellSqlReconciliation, CellSqlRejection, CellSqlRootOptions, CellSqlSubmission, CellSqlUsage,
 };
 
 mod execution_authority;
@@ -23,6 +23,8 @@ mod page_store;
 mod page_wire;
 mod pins;
 mod proposal_admission;
+mod read_authority;
+pub use read_authority::{CellReadAuthority, CellReadConsistency};
 mod retention;
 mod root;
 mod runtime;

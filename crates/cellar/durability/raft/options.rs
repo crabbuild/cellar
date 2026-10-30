@@ -121,6 +121,9 @@ pub struct RaftRuntimeOptions {
     pub max_message_bytes: usize,
     pub max_proposal_bytes: usize,
     pub max_members_per_group: usize,
+    /// Bounds protocol read states and a separate shared-cell read/pin budget.
+    /// That budget charges logical image bytes against max_request_bytes, with
+    /// at most (max_pending_reads / 8).clamp(1, 32) read pins per group.
     pub max_pending_reads: usize,
     /// Shared-group creation admission counts applied cells and pending accepted
     /// enrollments. A lower limit does not prevent existing cells from serving.

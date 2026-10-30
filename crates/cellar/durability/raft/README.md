@@ -146,7 +146,41 @@ their byte charge. Unknown producers remain uncertain. Pool shutdown joins an
 entered initializer even if its waiter and close waiter were both cancelled.
 As with commands, shutdown is not proof that a submitted enrollment failed.
 
-Registered SDK creation/command dispatch, catalog routing integration, coherent query serving and
+`CellGroupRuntime::read_authority` now selects one coherent cell image for an
+invocation under an absolute execution-domain deadline. Linearizable selection
+uses a fresh nonce/counter-correlated ReadIndex, current leader term and contiguous
+applied group prefix. A committed update to B can delay a read of unchanged A,
+but cannot change A's version. Raw read requests and forwarded read messages
+cannot use the internal context namespace. The returned authority is consumed by
+one query and rejects a changed route, lost leader term, foreign engine or expired
+deadline. It is not a reusable leadership lease.
+
+Stale explicitly selects a local committed image, including on followers. AtLeast
+compares logical cell history/sequence/image, not group log positions; the
+production dispatcher must authenticate the token and schema/transfer lineage.
+Neither path needs a new quorum. Future versions wait under the same original
+deadline, while wrong histories or inconsistent equal-sequence images refuse.
+
+Waiting reads and returned pins use a separate node budget of `max_pending_reads`
+items and `max_request_bytes` bytes; each group admits at most
+`(max_pending_reads / 8).clamp(1, 32)` items under the same byte ceiling. Selecting
+an image extends the reservation to its logical bytes plus metadata, refusing
+before delivery if the ceiling is exceeded. This is a conservative pin-retention
+bound, not a claim that every image byte is resident. Reads release ordinary peer
+queue slots before waiting for quorum/apply. Cancellation, deadlines and shutdown
+retire pending waiters; returned pins keep their reservations until consumed or
+dropped.
+
+`CellGroupSqlPool::query` consumes that authority on the existing fixed workers.
+It opens the immutable materialized/extent view without a private workspace or
+schema initialization. Queries may read committed state while a private writer
+is unresolved. They retain the read-only SQL authorizer, bounded output admission,
+worker-owned pins and original deadline. SQLite's progress hook checks domain
+expiry, waiter cancellation and shutdown; arbitrary callback work remains owned
+and must finish before shutdown joins. Callback panics are contained. Result
+accessors borrow bytes so their output reservation cannot be detached.
+
+Registered SDK creation/command/query dispatch, catalog routing integration and
 the production hard cutover remain required; the existing host still uses its
 prior single-cell owner. The new pool's callback entry point remains a verification
 boundary. Transport authentication and actual image preparation are also caller

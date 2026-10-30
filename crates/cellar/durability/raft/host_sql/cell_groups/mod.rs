@@ -3,7 +3,9 @@
 //! Cell-history admission and commands on the existing fixed node SQL workers.
 
 mod admission;
+mod query;
 mod worker;
+pub use query::CellSqlQueryResult;
 
 use super::{Budget, Budgets, Envelope, Permit, Pool, ResourceObserver, Worker};
 use crate::raft::cell_groups::{
@@ -236,6 +238,7 @@ pub enum CellSqlOutcome {
     Enrollment(Box<CellSqlEnrollment>),
     EnrollmentResolved(CellSqlEnrollmentResolution),
     Rejected,
+    Queried(CellSqlQueryResult),
 }
 
 pub enum CellSqlReconciliation {

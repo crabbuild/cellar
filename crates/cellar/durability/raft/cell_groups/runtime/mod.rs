@@ -2,6 +2,7 @@
 
 //! One execution-domain worker multiplexes physical cell-group owners per node.
 
+pub(super) mod reads;
 mod worker;
 
 use super::*;
@@ -76,6 +77,7 @@ struct Handle {
     requests: mailbox::Sender<Request>,
     budget: Arc<Budget>,
     completions: Arc<Budget>,
+    read_pins: Arc<Budget>,
     closing: Arc<AtomicBool>,
     terminal: Arc<Terminal>,
     stop: Arc<Notify>,
@@ -97,6 +99,7 @@ enum Command {
         Option<Arc<dyn Send + Sync>>,
     ),
     ReadIndex(Vec<u8>),
+    Read(Box<reads::ReadRequest>),
     Apply(CellGroupTicket, Box<PreparedGroupManifest>),
     Status,
     Tick,
@@ -111,6 +114,7 @@ enum Response {
     EnrollmentState(Box<CellEnrollmentState>),
     Reconciliation(Box<CellReconciliationAuthority>),
     Status(CellGroupStatus),
+    Read(Box<CellReadAuthority>),
 }
 
 struct Request {
@@ -176,6 +180,7 @@ impl CellGroupRuntime {
                 domain: domain.clone(),
                 budget: Budget::new(options.max_request_bytes, options.max_requests),
                 completions: Budget::new(options.max_ready_bytes, COMPLETION_SLOTS),
+                read_pins: Budget::new(options.max_request_bytes, options.max_pending_reads),
                 options: options.clone(),
                 requests: sender,
                 closing: closing.clone(),
@@ -343,6 +348,56 @@ impl CellGroupRuntime {
         )
         .await
         .map(|_| ())
+    }
+
+    /// Select one coherent image for this invocation. The deadline uses the
+    /// owning execution domain's monotonic clock and includes queue/barrier wait.
+    /// Returned pins retain separate node/group read admission until dropped.
+    pub async fn read_authority(
+        &self,
+        history: GroupHistory,
+        cell: cellar_logic::cell_group::CellHistory,
+        consistency: CellReadConsistency,
+        deadline: u64,
+    ) -> Result<CellReadAuthority, RuntimeError> {
+        self.admit()?;
+        if self
+            .inner
+            .domain
+            .mono_ms()
+            .map_err(|_| RuntimeError::Closed)?
+            >= deadline
+        {
+            return Err(RuntimeError::DeadlineExceeded);
+        }
+        let reservation = self
+            .inner
+            .read_pins
+            .acquire(4096)
+            .ok_or(RuntimeError::Overloaded)?;
+        let request = reads::ReadRequest {
+            cell,
+            consistency,
+            deadline,
+            reservation,
+        };
+        let timer = self
+            .inner
+            .domain
+            .sleep_until(deadline)
+            .map_err(|_| RuntimeError::Closed)?;
+        crate::asyncrt::select! {
+            result = self.call(Some(history), Command::Read(Box::new(request)), 4096) => {
+                match result? {
+                    Response::Read(authority) => {
+                        authority.check(self.inner.domain.mono_ms().map_err(|_| RuntimeError::Closed)?)?;
+                        Ok(*authority)
+                    }
+                    _ => Err(RuntimeError::Protocol("cell read authority reply".into())),
+                }
+            }
+            _ = timer => Err(RuntimeError::DeadlineExceeded),
+        }
     }
 
     pub async fn execution_authority(

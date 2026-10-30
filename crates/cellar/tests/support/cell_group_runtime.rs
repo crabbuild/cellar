@@ -624,3 +624,5 @@ pub(super) async fn recover_initialization(rooted: bool) -> Result<()> {
 pub(super) async fn submission_rejections(rooted: bool) -> Result<()> {
     sql::submission_rejections(rooted).await
 }
+
+pub(super) use sql::{coherent_reads, query_lifecycle};

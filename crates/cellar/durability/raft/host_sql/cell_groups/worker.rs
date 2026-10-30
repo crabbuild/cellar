@@ -35,11 +35,12 @@ pub(super) enum Action {
     Finish(Box<CellExecutionAuthority>),
     Reconcile(ProposalId, Box<CellReconciliationAuthority>),
     Reject(Box<CellSqlRejection>),
+    Query(Box<super::query::Query>),
 }
 
 impl Action {
     pub(super) fn progress_priority(&self) -> bool {
-        !matches!(self, Self::Stage(_) | Self::Initialize(_))
+        !matches!(self, Self::Stage(_) | Self::Initialize(_) | Self::Query(_))
     }
 }
 
@@ -125,6 +126,7 @@ impl Cells {
             | Action::Reconcile(..)
             | Action::ResolveEnrollment(..)
             | Action::Reject(_) => crate::raft::performance::Operation::SqlPublish,
+            Action::Query(_) => crate::raft::performance::Operation::SqlQuery,
             _ => crate::raft::performance::Operation::SqlOther,
         };
         let timer = performance.timer(operation);
@@ -133,7 +135,10 @@ impl Cells {
             Err(unavailable())
         } else {
             queued.finish(true);
-            self.run(cell, action, max)
+            match action {
+                Action::Query(query) => super::query::run(*query, domain),
+                action => self.run(cell, action, max),
+            }
         };
         // A lost receiver drops only the delivery. Pending owns both the
         // private writer and per-cell reservation until exact settlement.
@@ -148,6 +153,7 @@ impl Cells {
         max: usize,
     ) -> Result<CellSqlOutcome, ExecutionError> {
         match action {
+            Action::Query(_) => Err(ExecutionError::Invalid("query worker dispatch")),
             Action::Stage(stage) => {
                 if self.pending.contains_key(&cell) {
                     return Err(ExecutionError::Busy);

@@ -64,6 +64,26 @@ pub(crate) struct Permit {
 }
 
 impl Permit {
+    /// Extend an admitted operation without consuming another item slot.
+    /// Failure leaves its existing reservation unchanged.
+    pub(crate) fn grow_to(&mut self, bytes: usize) -> bool {
+        let Some(extra) = bytes.checked_sub(self.bytes) else {
+            return false;
+        };
+        if self
+            .owner
+            .bytes
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                n.checked_add(extra).filter(|n| *n <= self.owner.max_bytes)
+            })
+            .is_err()
+        {
+            return false;
+        }
+        self.bytes = bytes;
+        true
+    }
+
     /// Refund transient capture capacity while keeping the operation slot and
     /// the retained payload charged. A reservation can never grow here.
     pub(crate) fn shrink_to(&mut self, bytes: usize) -> bool {
@@ -91,6 +111,22 @@ impl Drop for Permit {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn grow_preserves_item_and_refuses_without_changing_accounting() {
+        let budget = Budget::new(100, 2);
+        let mut pin = budget.acquire(10).unwrap();
+        let other = budget.acquire(70).unwrap();
+        assert!(pin.grow_to(30));
+        assert_eq!(budget.usage(), (100, 2));
+        assert!(!pin.grow_to(31));
+        assert!(!pin.grow_to(29));
+        assert_eq!(budget.usage(), (100, 2));
+        drop(other);
+        assert!(pin.grow_to(100));
+        drop(pin);
+        assert_eq!(budget.usage(), (0, 0));
+    }
 
     #[test]
     fn shrink_refunds_bytes_but_keeps_the_operation_slot() {

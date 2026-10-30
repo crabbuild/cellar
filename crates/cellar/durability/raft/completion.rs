@@ -21,6 +21,7 @@ pub enum RuntimeError {
     Protocol(String),
     NotLeader,
     NotReady,
+    DeadlineExceeded,
     NotFound,
     AlreadyAttached,
     Overloaded,

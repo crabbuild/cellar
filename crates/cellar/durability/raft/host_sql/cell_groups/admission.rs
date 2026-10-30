@@ -74,6 +74,32 @@ impl Admission {
         if state.cells.contains(&key) {
             return Err(ExecutionError::Busy);
         }
+        let bytes = self.reserve_bytes(&mut state, group, bytes)?;
+        state.cells.insert(key.clone());
+        Ok((
+            CellLease {
+                owner: self.clone(),
+                cell: key,
+            },
+            bytes,
+        ))
+    }
+
+    pub fn reserve_read(
+        &self,
+        group: GroupHistory,
+        bytes: usize,
+    ) -> Result<Arc<Bytes>, ExecutionError> {
+        let mut state = self.state.lock().map_err(|_| unavailable())?;
+        self.reserve_bytes(&mut state, group, bytes)
+    }
+
+    fn reserve_bytes(
+        &self,
+        state: &mut State,
+        group: GroupHistory,
+        bytes: usize,
+    ) -> Result<Arc<Bytes>, ExecutionError> {
         let node = self.node.acquire(bytes).ok_or_else(overloaded)?;
         // Reclaim metadata only, never authority or pending physical ownership.
         state.groups.retain(|_, budget| budget.strong_count() != 0);
@@ -86,18 +112,11 @@ impl Admission {
             });
         let group_permit = group_budget.acquire(bytes).ok_or_else(overloaded)?;
         state.groups.insert(group, Arc::downgrade(&group_budget));
-        state.cells.insert(key.clone());
-        Ok((
-            CellLease {
-                owner: self.clone(),
-                cell: key,
-            },
-            Arc::new(Bytes {
-                _lease: self.lease.clone(),
-                _node: node,
-                _group: group_permit,
-            }),
-        ))
+        Ok(Arc::new(Bytes {
+            _lease: self.lease.clone(),
+            _node: node,
+            _group: group_permit,
+        }))
     }
 
     pub fn usage(&self) -> Result<(usize, usize, usize), ExecutionError> {

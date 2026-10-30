@@ -290,6 +290,56 @@ impl CellGroupOwner {
         &self.current
     }
 
+    pub(super) fn select_read(
+        &self,
+        cell: &CellHistory,
+        consistency: &super::CellReadConsistency,
+        term: Option<Term>,
+        barrier: Option<LogIndex>,
+    ) -> Result<super::read_authority::ReadSelection, RuntimeError> {
+        self.live()?;
+        let status = self.status()?;
+        let leader = if matches!(consistency, super::CellReadConsistency::Linearizable) {
+            if self.node.raft.state != StateRole::Leader || Some(status.term) != term {
+                return Err(RuntimeError::NotLeader);
+            }
+            let index = barrier.ok_or(RuntimeError::NotReady)?;
+            if !status.ready || status.applied.index < index {
+                return Err(RuntimeError::NotReady);
+            }
+            Some((status.term, self.leader_term.clone()))
+        } else {
+            None
+        };
+        let (leaf, image) = self
+            .current
+            .pin_cell(&cell.cell)
+            .ok_or(RuntimeError::NotFound)?;
+        if &leaf.version.history != cell {
+            return Err(RuntimeError::Invalid("cell read history".into()));
+        }
+        if let super::CellReadConsistency::AtLeast(minimum) = consistency {
+            if !leaf
+                .version
+                .covers(minimum)
+                .map_err(|_| RuntimeError::Invalid("cell read version".into()))?
+            {
+                return Err(RuntimeError::NotReady);
+            }
+        }
+        Ok(super::read_authority::ReadSelection {
+            group: self.group.clone(),
+            route: self.current.marker().route().clone(),
+            cell: leaf.clone(),
+            image,
+            applied: status.applied,
+            barrier: term
+                .zip(barrier)
+                .map(|(term, index)| LogPosition { term, index }),
+            leader,
+        })
+    }
+
     pub fn enrollment_state(
         &self,
         cell: CellHistory,
@@ -489,6 +539,13 @@ impl CellGroupOwner {
     }
 
     pub fn read_index(&mut self, context: Vec<u8>) -> Result<(), RuntimeError> {
+        if super::runtime::reads::reserved_context(&context) {
+            return Err(RuntimeError::Invalid("reserved cell read context".into()));
+        }
+        self.read_cell_index(context)
+    }
+
+    pub(super) fn read_cell_index(&mut self, context: Vec<u8>) -> Result<(), RuntimeError> {
         if !self.status()?.ready {
             return Err(RuntimeError::NotReady);
         }
@@ -1011,6 +1068,7 @@ impl CellGroupOwner {
                 let entry = &message.entries[0];
                 if entry.data.is_empty()
                     || entry.data.len() > 4096
+                    || super::runtime::reads::reserved_context(&entry.data)
                     || entry.index != 0
                     || entry.term != 0
                     || !entry.context.is_empty()
