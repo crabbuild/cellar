@@ -359,6 +359,9 @@ impl CellGroupOwner {
         cell: CellHistory,
     ) -> Result<super::CellEnrollmentAuthority, RuntimeError> {
         let status = self.status()?;
+        if self.node.raft.state != StateRole::Leader {
+            return Err(RuntimeError::NotLeader);
+        }
         if !status.ready || status.applied.index != status.committed {
             return Err(RuntimeError::NotReady);
         }

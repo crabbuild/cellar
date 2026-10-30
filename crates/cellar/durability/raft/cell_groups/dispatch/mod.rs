@@ -539,14 +539,14 @@ fn catalog_failure(error: crate::raft::catalog::CatalogError) -> CellDispatchErr
 }
 
 /// Receiver-side destination constraint, checked against a fresh catalog lookup.
-pub(crate) struct RemoteCommandRoute {
+pub(crate) struct RemoteMutationRoute {
     pub group: cellar_logic::cell_group::GroupHistory,
     pub schema: [u8; 32],
     pub epoch: u64,
     pub birth: [u8; 32],
 }
 
-impl RemoteCommandRoute {
+impl RemoteMutationRoute {
     fn matches(&self, route: &GroupRoute) -> bool {
         self.group == route.history
             && self.schema == route.schema_digest

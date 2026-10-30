@@ -7,7 +7,7 @@ use crate::raft::transport::{CellRemoteCommandResponse, RaftTransport, Transport
 use cellar_logic::consensus::MemberId;
 
 impl CellCommandInvocation {
-    pub(crate) fn bind_remote_route(&mut self, route: super::super::RemoteCommandRoute) {
+    pub(crate) fn bind_remote_route(&mut self, route: super::super::RemoteMutationRoute) {
         self.remote_route = Some(route);
     }
 

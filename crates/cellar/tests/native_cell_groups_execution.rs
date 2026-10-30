@@ -1510,3 +1510,23 @@ async fn shared_remote_commands_survive_disconnected_sql_waiters() -> Result<()>
 async fn shared_remote_command_revocation_preserves_admitted_ownership() -> Result<()> {
     Box::pin(runtime_fixture::remote_command_lifecycle(true)).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_remote_enrollment_requires_write_grants_and_exact_creation() -> Result<()> {
+    Box::pin(runtime_fixture::remote_enrollment()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_remote_enrollment_survives_disconnected_initializer() -> Result<()> {
+    Box::pin(runtime_fixture::remote_enrollment_lifecycle(0)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_remote_enrollment_revocation_retains_admitted_creation() -> Result<()> {
+    Box::pin(runtime_fixture::remote_enrollment_lifecycle(1)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_remote_enrollment_resolves_after_publication_deadline() -> Result<()> {
+    Box::pin(runtime_fixture::remote_enrollment_lifecycle(2)).await
+}

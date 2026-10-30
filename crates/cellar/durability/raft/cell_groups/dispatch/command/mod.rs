@@ -101,7 +101,7 @@ pub struct CellCommandInvocation {
     dispatched: bool,
     ambiguous: bool,
     origin: Option<Origin>,
-    remote_route: Option<super::RemoteCommandRoute>,
+    remote_route: Option<super::RemoteMutationRoute>,
     _admission: Permit,
 }
 

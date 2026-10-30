@@ -10,7 +10,8 @@ pub use super::host_sql::cell_groups::{
 };
 
 pub use crate::raft::transport::{
-    CellCommandGateway, CellQueryGateway, CellRemoteCommandResponse, CellRemoteQueryResponse,
+    CellCommandGateway, CellQueryGateway, CellRemoteCommandResponse, CellRemoteEnrollmentResponse,
+    CellRemoteQueryResponse,
 };
 
 mod apply;
@@ -78,4 +79,4 @@ pub use owner::{
     CellGroupProposal, CellGroupStatus, CellGroupTicket,
 };
 
-pub(crate) use dispatch::RemoteCommandRoute;
+pub(crate) use dispatch::RemoteMutationRoute;

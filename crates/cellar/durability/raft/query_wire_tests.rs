@@ -714,7 +714,7 @@ fn shared_command_purpose_is_authenticated_and_cannot_reuse_read_reply() {
     let request = RequestHead::new(write.clone(), 3, &body);
     let head = request_head(&auth, &[3; 32], &request, &body, &options).unwrap();
     let mut value = serde_json::to_value(&request).unwrap();
-    value["route"]["command"] = serde_json::json!(false);
+    value["route"]["purpose"] = serde_json::json!("Query");
     let changed = FrameHead {
         prefix: head.prefix,
         header: serde_json::to_vec(&value).unwrap(),
@@ -744,7 +744,7 @@ fn shared_command_purpose_is_authenticated_and_cannot_reuse_read_reply() {
     )
     .is_err());
     let mut missing = serde_json::to_value(write).unwrap();
-    missing.as_object_mut().unwrap().remove("command");
+    missing.as_object_mut().unwrap().remove("purpose");
     assert!(serde_json::from_value::<Route>(missing).is_err());
 }
 
@@ -818,5 +818,167 @@ fn shared_command_results_bind_identity_history_and_typed_refusals() {
         )
         .unwrap();
         assert_eq!(decoded.err(), Some(failure));
+    }
+}
+
+fn enrollment_call() -> enrollment::CellEnrollmentCall {
+    enrollment::CellEnrollmentCall {
+        request: crate::raft::cell_groups::CellEnrollmentRequest {
+            creation: cellar_logic::consensus::ProposalId::new([81; 16]).unwrap(),
+            durability: Durability::Quorum,
+        },
+        inputs: crate::storage::CommandInputs {
+            now_unix_millis: 1234,
+            random: [82; 32],
+        },
+        preview: cellar_ltx::generation::ImageId::new([83; 16]).unwrap(),
+        timeout_ms: 1000,
+        route_epoch: 3,
+        birth_digest: [84; 32],
+    }
+}
+
+#[test]
+fn shared_enrollment_wire_preserves_captured_identity_and_inputs() {
+    let call = enrollment_call();
+    let bytes = call.encode(4096).unwrap();
+    let decoded = enrollment::CellEnrollmentCall::decode(&bytes, 4096).unwrap();
+    assert_eq!(decoded.encode(4096).unwrap(), bytes);
+    assert_eq!(decoded.request.creation, call.request.creation);
+    assert_eq!(decoded.preview, call.preview);
+    assert_eq!(decoded.inputs.random, call.inputs.random);
+    assert_eq!(decoded.inputs.now_unix_millis, call.inputs.now_unix_millis);
+    for end in 0..bytes.len() {
+        assert!(enrollment::CellEnrollmentCall::decode(&bytes[..end], 4096).is_err());
+    }
+    let mut extra = bytes.clone();
+    extra.push(0);
+    assert!(enrollment::CellEnrollmentCall::decode(&extra, 4096).is_err());
+    assert!(enrollment::CellEnrollmentCall::decode(&bytes, bytes.len() - 1).is_err());
+    assert!(
+        enrollment::CellEnrollmentCall::decode(&command_call().encode(4096).unwrap(), 4096)
+            .is_err()
+    );
+    assert!(command::CellCommandCall::decode(&bytes, 4096).is_err());
+    assert!(cell::CellQueryCall::decode(&bytes, 4096).is_err());
+    let mut call = call;
+    call.request.durability = Durability::S3;
+    assert!(call.encode(4096).is_err());
+    call.request.durability = Durability::Quorum;
+    call.timeout_ms = 0;
+    assert!(call.encode(4096).is_err());
+}
+
+#[test]
+fn shared_enrollment_purpose_cannot_be_reinterpreted_as_command_or_read() {
+    let old = identity(2);
+    let target = ReplicaIdentity {
+        scope: cellar_logic::cell_group::GroupHistory::from(&old.scope),
+        member: old.member,
+        node: old.node,
+        disk: old.disk,
+        process: old.process,
+    };
+    let read = Route::new_shared(
+        identity(1).node_identity(),
+        "node-1",
+        &target,
+        "node-2",
+        &cell_observation().version.history,
+        [9; 32],
+    )
+    .unwrap();
+    let enrollment = read.clone().for_enrollment().unwrap();
+    assert!(enrollment.is_write());
+    assert!(enrollment.is_enrollment());
+    assert!(!enrollment.is_command());
+    let auth = PeerAuth::new([17; 32], "node-1").unwrap();
+    let options = TransportOptions::default();
+    let body = enrollment_call().encode(4096).unwrap();
+    let request = RequestHead::new(enrollment, 4, &body);
+    let head = request_head(&auth, &[3; 32], &request, &body, &options).unwrap();
+    for purpose in ["Query", "Command"] {
+        let mut value = serde_json::to_value(&request).unwrap();
+        value["route"]["purpose"] = serde_json::json!(purpose);
+        let changed = FrameHead {
+            prefix: head.prefix,
+            header: serde_json::to_vec(&value).unwrap(),
+            tag: head.tag,
+            payload_len: head.payload_len,
+        };
+        assert!(read_request(&changed, &auth, &[3; 32], &options).is_err());
+    }
+    let bytes = enrollment::encode_result(&Err(CommandFailure::CommandConflict), 4096).unwrap();
+    let response = response_head(&auth, &[3; 32], &request, &head.tag, &bytes, &options).unwrap();
+    for route in [read.clone(), read.for_command().unwrap()] {
+        let other = RequestHead::new(route, 4, &body);
+        assert!(read_response(&response, &auth, &[3; 32], &other, &head.tag, &options).is_err());
+    }
+}
+
+#[test]
+fn shared_enrollment_reply_binds_creation_cell_schema_and_initial_image() {
+    let call = enrollment_call();
+    let cell = cell_observation().version.history;
+    let image = cell_observation().version.image;
+    let record = crate::raft::cell_groups::EnrollmentRecord::new(
+        cell.clone(),
+        call.request.creation,
+        [9; 32],
+        image,
+    )
+    .unwrap();
+    let bytes = enrollment::encode_result(&Ok(record.clone()), 4096).unwrap();
+    assert_eq!(
+        enrollment::decode_result(&bytes, call.request.creation, &cell, [9; 32], 4096)
+            .unwrap()
+            .unwrap(),
+        record
+    );
+    let mut other = cell.clone();
+    other.incarnation = cellar_logic::consensus::IncarnationId::new([85; 16]).unwrap();
+    assert!(
+        enrollment::decode_result(&bytes, call.request.creation, &other, [9; 32], 4096).is_err()
+    );
+    assert!(
+        enrollment::decode_result(&bytes, call.request.creation, &cell, [8; 32], 4096).is_err()
+    );
+    assert!(enrollment::decode_result(
+        &bytes,
+        cellar_logic::consensus::ProposalId::new([86; 16]).unwrap(),
+        &cell,
+        [9; 32],
+        4096
+    )
+    .is_err());
+    for end in 0..bytes.len() {
+        assert!(enrollment::decode_result(
+            &bytes[..end],
+            call.request.creation,
+            &cell,
+            [9; 32],
+            4096
+        )
+        .is_err());
+    }
+    let mut extra = bytes.clone();
+    extra.push(0);
+    assert!(
+        enrollment::decode_result(&extra, call.request.creation, &cell, [9; 32], 4096).is_err()
+    );
+    for failure in [
+        CommandFailure::CommandConflict,
+        CommandFailure::NotLeader {
+            leader: Some(MemberId::new(2).unwrap()),
+        },
+        CommandFailure::Overloaded,
+    ] {
+        let bytes = enrollment::encode_result(&Err(failure.clone()), 4096).unwrap();
+        assert_eq!(
+            enrollment::decode_result(&bytes, call.request.creation, &cell, [9; 32], 4096)
+                .unwrap()
+                .unwrap_err(),
+            failure
+        );
     }
 }

@@ -1,15 +1,17 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Commands share the bounded RPC lane but require independent write grants.
+//! Commands and enrollment share bounded RPC admission and explicit write grants.
 use super::*;
 use crate::application::consensus::CommandFailure;
 use crate::raft::cell_groups::{
     CellDispatchError, CellGroupController, CellGroupDispatcher, CellRoutingLimits, CellSqlOptions,
+    EnrollmentRecord,
 };
 use crate::raft::query_identity::QueryRoute;
 use crate::raft::query_wire::{
     self as wire,
     command::{CellCommandCall, CellCommandValue},
+    enrollment::CellEnrollmentCall,
 };
 use crate::raft::version::{CellVersionObservation, CellVersionToken, VersionKeys};
 use cellar_logic::{
@@ -82,15 +84,79 @@ impl CellRemoteCommandResponse {
     }
 }
 
-pub(super) struct SendCellCommand {
+/// An authenticated creation receipt, retaining transport admission until dropped.
+/// The original enrollment image is not a claim about the latest cell version.
+pub struct CellRemoteEnrollmentResponse {
+    record: EnrollmentRecord,
+    served_by: MemberId,
+    _node: Permit,
+    _peer: Permit,
+}
+
+impl CellRemoteEnrollmentResponse {
+    pub fn record(&self) -> &EnrollmentRecord {
+        &self.record
+    }
+
+    pub fn served_by(&self) -> MemberId {
+        self.served_by
+    }
+
+    pub fn durability(&self) -> cellar_logic::consensus::Durability {
+        cellar_logic::consensus::Durability::Quorum
+    }
+}
+
+enum WriteCall {
+    Command(CellCommandCall),
+    Enrollment(CellEnrollmentCall),
+}
+
+impl WriteCall {
+    fn encode(&self, limit: usize) -> Result<Vec<u8>, TransportError> {
+        match self {
+            Self::Command(c) => c.encode(limit),
+            Self::Enrollment(c) => c.encode(limit),
+        }
+    }
+
+    fn shorten_timeout(&mut self, remaining: u64) {
+        let timeout = match self {
+            Self::Command(c) => &mut c.timeout_ms,
+            Self::Enrollment(c) => &mut c.timeout_ms,
+        };
+        *timeout = (*timeout).min(remaining);
+    }
+
+    fn input_bytes(&self) -> usize {
+        match self {
+            Self::Command(c) => c.request.input.len(),
+            Self::Enrollment(_) => 0,
+        }
+    }
+}
+
+enum WriteValue {
+    Command(CellCommandValue),
+    Enrollment(EnrollmentRecord),
+}
+
+struct WriteResponse {
+    value: WriteValue,
+    served_by: MemberId,
+    node: Permit,
+    peer: Permit,
+}
+
+pub(super) struct SendCellWrite {
     route: Arc<GroupRoute<GroupHistory>>,
     peer: RaftPeer<GroupHistory>,
     cell: CellHistory,
-    call: CellCommandCall,
+    call: WriteCall,
     keys: VersionKeys,
     deadline: u64,
     cancel: watch::Receiver<bool>,
-    reply: oneshot::Sender<Result<CellRemoteCommandResponse, TransportError>>,
+    reply: oneshot::Sender<Result<WriteResponse, TransportError>>,
     node: Permit,
     peer_bytes: Permit,
 }
@@ -104,7 +170,7 @@ impl Drop for Cancel {
 }
 
 impl RaftTransport {
-    /// Register compiled commands on the exact controller/runtime owner. Retain
+    /// Register compiled commands and initialization on the exact controller/runtime owner. Retain
     /// this host-owned handle while accepting commands. Dropping it refuses new
     /// admission; commands already transferred to the controller remain owned.
     /// Namespace write grants are independently required even for voter peers.
@@ -160,6 +226,65 @@ impl RaftTransport {
         keys: VersionKeys,
         deadline: u64,
     ) -> Result<CellRemoteCommandResponse, TransportError> {
+        let response = self
+            .write_cell(
+                route,
+                cell,
+                member,
+                WriteCall::Command(call),
+                keys,
+                deadline,
+            )
+            .await?;
+        let WriteValue::Command(value) = response.value else {
+            return Err(TransportError::Protocol);
+        };
+        Ok(CellRemoteCommandResponse {
+            value,
+            _node: response.node,
+            _peer: response.peer,
+        })
+    }
+
+    pub(in crate::raft) async fn enroll_cell(
+        &self,
+        route: &cellar_logic::cell_group::GroupRoute,
+        cell: &CellHistory,
+        member: MemberId,
+        call: CellEnrollmentCall,
+        keys: VersionKeys,
+        deadline: u64,
+    ) -> Result<CellRemoteEnrollmentResponse, TransportError> {
+        let response = self
+            .write_cell(
+                route,
+                cell,
+                member,
+                WriteCall::Enrollment(call),
+                keys,
+                deadline,
+            )
+            .await?;
+        let WriteValue::Enrollment(record) = response.value else {
+            return Err(TransportError::Protocol);
+        };
+        Ok(CellRemoteEnrollmentResponse {
+            record,
+            served_by: response.served_by,
+            _node: response.node,
+            _peer: response.peer,
+        })
+    }
+
+    async fn write_cell(
+        &self,
+        route: &cellar_logic::cell_group::GroupRoute,
+        cell: &CellHistory,
+        member: MemberId,
+        call: WriteCall,
+        keys: VersionKeys,
+        deadline: u64,
+    ) -> Result<WriteResponse, TransportError> {
         let state = &self.handle.0;
         // Discovery never creates a local replica or grants voting authority.
         state.runtime.shared()?;
@@ -195,9 +320,7 @@ impl RaftTransport {
             return Err(TransportError::Timeout);
         }
         let charge = queries::reservation(
-            call.request
-                .input
-                .len()
+            call.input_bytes()
                 .checked_add(8192)
                 .ok_or(TransportError::Limit)?,
             &state.options,
@@ -220,7 +343,7 @@ impl RaftTransport {
         let (cancel, cancelled) = watch::channel(false);
         let _cancel = Cancel(cancel);
         pool.query
-            .try_send(SendQuery::Command(Box::new(SendCellCommand {
+            .try_send(SendQuery::Write(Box::new(SendCellWrite {
                 route: view,
                 peer,
                 cell: cell.clone(),
@@ -293,10 +416,10 @@ impl State {
         Ok((pool, Some(grant.stop.subscribe())))
     }
 
-    pub(super) async fn send_cell_command(
+    pub(super) async fn send_cell_write(
         &self,
         pool: &Pool,
-        mut request: SendCellCommand,
+        mut request: SendCellWrite,
         connection: &mut Option<QueryConnection>,
     ) -> bool {
         let result = self
@@ -314,7 +437,7 @@ impl State {
                         .checked_sub(self.domain.mono_ms().map_err(|_| TransportError::Closed)?)
                         .filter(|n| *n > 0)
                         .ok_or(TransportError::Timeout)?;
-                    request.call.timeout_ms = request.call.timeout_ms.min(remaining);
+                    request.call.shorten_timeout(remaining);
                     let body = request.call.encode(self.options.max_query_request_bytes)?;
                     let local = self.runtime.log().limits();
                     let route = QueryRoute::new_shared(
@@ -328,25 +451,41 @@ impl State {
                         &request.peer.label,
                         &request.cell,
                         request.route.schema_digest,
-                    )?
-                    .for_command()?;
+                    )?;
+                    let route = match &request.call {
+                        WriteCall::Command(_) => route.for_command()?,
+                        WriteCall::Enrollment(_) => route.for_enrollment()?,
+                    };
                     let body = self
                         .exchange_query(connection, &RaftPeerNode::from(&request.peer), route, body)
                         .await?;
                     if !self.current_cell_query_route(&request.route, &request.peer) {
                         return Err(TransportError::StalePeer);
                     }
-                    let now = u64::try_from(crate::asyncrt::wall_ms())
-                        .map_err(|_| TransportError::Authentication)?;
-                    wire::command::decode_result(
-                        &body,
-                        (request.call.request.id, &request.cell),
-                        request.route.schema_digest,
-                        &request.keys,
-                        now,
-                        self.options.max_query_response_bytes,
-                        request.peer.replica.member,
-                    )?
+                    match &request.call {
+                        WriteCall::Command(call) => {
+                            let now = u64::try_from(crate::asyncrt::wall_ms())
+                                .map_err(|_| TransportError::Authentication)?;
+                            wire::command::decode_result(
+                                &body,
+                                (call.request.id, &request.cell),
+                                request.route.schema_digest,
+                                &request.keys,
+                                now,
+                                self.options.max_query_response_bytes,
+                                request.peer.replica.member,
+                            )?
+                            .map(WriteValue::Command)
+                        }
+                        WriteCall::Enrollment(call) => wire::enrollment::decode_result(
+                            &body,
+                            call.request.creation,
+                            &request.cell,
+                            request.route.schema_digest,
+                            self.options.max_query_response_bytes,
+                        )?
+                        .map(WriteValue::Enrollment),
+                    }
                     .map_err(TransportError::Command)
                 },
             )
@@ -354,18 +493,74 @@ impl State {
         // A fully authenticated application refusal consumed a complete reply;
         // retain the peer connection just as the legacy query lane does.
         let failed = matches!(&result, Err(error) if !matches!(error, TransportError::Command(_)));
-        let _ = request
-            .reply
-            .send(result.map(|value| CellRemoteCommandResponse {
-                value,
-                _node: request.node,
-                _peer: request.peer_bytes,
-            }));
+        let _ = request.reply.send(result.map(|value| WriteResponse {
+            value,
+            served_by: request.peer.replica.member,
+            node: request.node,
+            peer: request.peer_bytes,
+        }));
         failed
     }
 }
 
 impl State {
+    pub(super) async fn execute_cell_enrollment(
+        &self,
+        route: &QueryRoute,
+        call: CellEnrollmentCall,
+    ) -> Result<Vec<u8>, TransportError> {
+        let (_, target, cell) = route.decode_shared()?;
+        let gateway = self
+            .cell_command_gateways
+            .lock()
+            .map_err(|_| TransportError::Closed)?
+            .get(&(cell.cluster, cell.namespace))
+            .and_then(|g| g.upgrade())
+            .ok_or(TransportError::Refused)?;
+        if !gateway.accepting.load(Ordering::Acquire) {
+            return Err(TransportError::Refused);
+        }
+        let binding = crate::raft::cell_groups::RemoteMutationRoute {
+            group: target.scope,
+            schema: route.schema(),
+            epoch: call.route_epoch,
+            birth: call.birth_digest,
+        };
+        let result = async {
+            let mut invocation = gateway
+                .dispatcher
+                .enroll_with_inputs(
+                    cell,
+                    call.request,
+                    CellRoutingLimits {
+                        timeout: Duration::from_millis(call.timeout_ms),
+                        max_attempts: 1,
+                    },
+                    None,
+                    Some((call.inputs, call.preview)),
+                )
+                .await
+                .map_err(|error| command_failure(&error.cause))?;
+            invocation.bind_remote_route(binding);
+            if !gateway.accepting.load(Ordering::Acquire) {
+                return Err(CommandFailure::Unavailable);
+            }
+            self.authorize_cell_command(route)
+                .map_err(|_| CommandFailure::Unavailable)?;
+            let call = gateway
+                .controller
+                .enroll(invocation, gateway.options.clone())
+                .map_err(|error| command_failure(&error.error.cause))?;
+            let response = call
+                .response()
+                .await
+                .map_err(|error| command_failure(&error.cause))?;
+            Ok(response.record().clone())
+        }
+        .await;
+        wire::enrollment::encode_result(&result, self.options.max_query_response_bytes)
+    }
+
     pub(super) async fn execute_cell_command(
         &self,
         route: &QueryRoute,
@@ -382,7 +577,7 @@ impl State {
         if !gateway.accepting.load(Ordering::Acquire) {
             return Err(TransportError::Refused);
         }
-        let binding = crate::raft::cell_groups::RemoteCommandRoute {
+        let binding = crate::raft::cell_groups::RemoteMutationRoute {
             group: target.scope,
             schema: route.schema(),
             epoch: call.route_epoch,

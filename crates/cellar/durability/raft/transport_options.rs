@@ -31,7 +31,7 @@ pub struct NamespaceQueryOrigin {
     pub peer: RaftPeerNode,
 }
 
-/// Explicit command permission for an exact namespace and physical process.
+/// Explicit command and enrollment permission for an exact namespace/process.
 /// Read grants, discovery and Raft membership never create this permission.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NamespaceCommandOrigin {

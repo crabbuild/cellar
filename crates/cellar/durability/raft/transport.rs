@@ -41,7 +41,9 @@ mod cell_commands;
 mod cell_queries;
 #[path = "command_origins.rs"]
 mod command_origins;
-pub use cell_commands::{CellCommandGateway, CellRemoteCommandResponse};
+pub use cell_commands::{
+    CellCommandGateway, CellRemoteCommandResponse, CellRemoteEnrollmentResponse,
+};
 #[path = "query_cell_discovery.rs"]
 mod cell_query_discovery;
 #[path = "transport_control_send.rs"]

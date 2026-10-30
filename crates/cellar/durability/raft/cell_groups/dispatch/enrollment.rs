@@ -1,6 +1,9 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Routed creation identity and controller-owned initialization, never a cell task.
+#[path = "enrollment_remote.rs"]
+mod remote;
+
 use super::*;
 use crate::raft::execution::CellEnrollmentAttempt;
 use crate::storage::CommandInputs;
@@ -51,6 +54,9 @@ pub struct CellEnrollmentInvocation {
     inputs: CommandInputs,
     session: CellRoutingSession,
     started: bool,
+    attempt: Option<CellRouteAttempt>,
+    dispatched: bool,
+    remote_route: Option<super::RemoteMutationRoute>,
     ambiguous: bool,
     origin: Option<Origin>,
     _admission: Permit,
@@ -63,6 +69,18 @@ impl CellGroupDispatcher {
         request: CellEnrollmentRequest,
         limits: CellRoutingLimits,
         cached: Option<ResolvedCellRoute>,
+    ) -> Result<CellEnrollmentInvocation, CellEnrollmentError> {
+        self.enroll_with_inputs(cell, request, limits, cached, None)
+            .await
+    }
+
+    pub(crate) async fn enroll_with_inputs(
+        &self,
+        cell: CellHistory,
+        request: CellEnrollmentRequest,
+        limits: CellRoutingLimits,
+        cached: Option<ResolvedCellRoute>,
+        captured: Option<(CommandInputs, ImageId)>,
     ) -> Result<CellEnrollmentInvocation, CellEnrollmentError> {
         let error = |cause| CellEnrollmentError {
             creation: request.creation,
@@ -84,27 +102,32 @@ impl CellGroupDispatcher {
             .budget
             .acquire(8192)
             .ok_or_else(|| error(CellDispatchError::Runtime(RuntimeError::Overloaded)))?;
-        let (inputs, preview) = self
-            .domain
-            .run(async {
-                use rand::RngCore as _;
-                let mut rng = crate::asyncrt::rng("cell-group-enrollment-inputs");
-                let mut random = [0; 32];
-                let mut preview = [0; 16];
-                rng.fill_bytes(&mut random);
-                rng.fill_bytes(&mut preview);
-                (
-                    CommandInputs {
-                        now_unix_millis: crate::asyncrt::wall_ms().max(0) as u64,
-                        random,
-                    },
-                    ImageId::new(preview),
-                )
-            })
-            .await
-            .map_err(|_| error(closed()))?;
-        let preview =
-            preview.map_err(|_| error(CellDispatchError::Invalid("enrollment preview")))?;
+        let (inputs, preview) = if let Some(captured) = captured {
+            captured
+        } else {
+            let (inputs, preview) = self
+                .domain
+                .run(async {
+                    use rand::RngCore as _;
+                    let mut rng = crate::asyncrt::rng("cell-group-enrollment-inputs");
+                    let mut random = [0; 32];
+                    let mut preview = [0; 16];
+                    rng.fill_bytes(&mut random);
+                    rng.fill_bytes(&mut preview);
+                    (
+                        CommandInputs {
+                            now_unix_millis: crate::asyncrt::wall_ms().max(0) as u64,
+                            random,
+                        },
+                        ImageId::new(preview),
+                    )
+                })
+                .await
+                .map_err(|_| error(closed()))?;
+            let preview =
+                preview.map_err(|_| error(CellDispatchError::Invalid("enrollment preview")))?;
+            (inputs, preview)
+        };
         let mut hash = Sha256::new();
         hash.update(b"cellar-cell-enrollment-invocation-1\0");
         hash.update(cell_image_history_digest(&cell));
@@ -137,6 +160,9 @@ impl CellGroupDispatcher {
             inputs,
             session,
             started: false,
+            attempt: None,
+            dispatched: false,
+            remote_route: None,
             ambiguous: false,
             origin: None,
             _admission: admission,
@@ -195,11 +221,21 @@ impl CellEnrollmentInvocation {
         roster: &BTreeSet<cellar_logic::cell_group::GroupHistory>,
         progress: &mut watch::Receiver<()>,
     ) -> Result<CellSqlEnrollment, CellDispatchError> {
-        let attempt = self
-            .session
-            .begin()
-            .await
-            .map_err(CellDispatchError::Routing)?;
+        let attempt = if self.remote_route.is_some() {
+            self.session.begin_current().await
+        } else {
+            self.session.begin().await
+        }
+        .map_err(CellDispatchError::Routing)?;
+        if self
+            .remote_route
+            .as_ref()
+            .is_some_and(|expected| !expected.matches(attempt.route()))
+        {
+            return Err(CellDispatchError::Invalid(
+                "remote enrollment destination route",
+            ));
+        }
         self.session
             .validate_attempt(&attempt)
             .map_err(CellDispatchError::Routing)?;

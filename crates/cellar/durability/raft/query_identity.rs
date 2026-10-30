@@ -55,10 +55,17 @@ enum History {
     },
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+enum Purpose {
+    Query,
+    Command,
+    Enrollment,
+}
+
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct QueryRoute {
-    command: bool,
+    purpose: Purpose,
     scope: History,
     schema: [u8; 32],
     source: Endpoint,
@@ -74,7 +81,7 @@ impl QueryRoute {
         schema: [u8; 32],
     ) -> Result<Self, TransportError> {
         let route = Self {
-            command: false,
+            purpose: Purpose::Query,
             scope: History::Cell(WireScope::from(&target.scope)),
             schema,
             source: Endpoint::new(source, source_label, None),
@@ -87,7 +94,7 @@ impl QueryRoute {
     /// Request orientation only. A reversed response route is compared with
     /// the exact outstanding request; it cannot decode as another request.
     pub fn decode(&self) -> Result<(NodeIdentity, ReplicaIdentity), TransportError> {
-        if self.command {
+        if self.is_write() {
             return Err(TransportError::Identity);
         }
         let History::Cell(scope) = &self.scope else {
@@ -142,7 +149,7 @@ impl QueryRoute {
         }
         let g = target.scope;
         let route = Self {
-            command: false,
+            purpose: Purpose::Query,
             scope: History::Shared {
                 group: [
                     g.cluster.bytes(),
@@ -190,12 +197,26 @@ impl QueryRoute {
 
     pub fn for_command(mut self) -> Result<Self, TransportError> {
         self.decode_shared()?;
-        self.command = true;
+        self.purpose = Purpose::Command;
         Ok(self)
     }
 
     pub fn is_command(&self) -> bool {
-        self.command
+        self.purpose == Purpose::Command
+    }
+
+    pub fn for_enrollment(mut self) -> Result<Self, TransportError> {
+        self.decode_shared()?;
+        self.purpose = Purpose::Enrollment;
+        Ok(self)
+    }
+
+    pub fn is_enrollment(&self) -> bool {
+        self.purpose == Purpose::Enrollment
+    }
+
+    pub fn is_write(&self) -> bool {
+        self.is_command() || self.is_enrollment()
     }
 
     pub fn is_shared(&self) -> bool {
@@ -230,7 +251,7 @@ impl QueryRoute {
 
     pub fn reversed(&self) -> Self {
         Self {
-            command: self.command,
+            purpose: self.purpose,
             scope: self.scope.clone(),
             schema: self.schema,
             source: self.target.clone(),

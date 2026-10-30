@@ -560,3 +560,7 @@ pub(crate) use dispatch_cache_execution::cached_dispatch_execution;
 #[path = "cell_group_remote_commands.rs"]
 mod remote_commands;
 pub(crate) use remote_commands::{remote_command_lifecycle, remote_commands};
+
+#[path = "cell_group_remote_enrollment.rs"]
+mod remote_enrollment;
+pub(crate) use remote_enrollment::{remote_enrollment, remote_enrollment_lifecycle};

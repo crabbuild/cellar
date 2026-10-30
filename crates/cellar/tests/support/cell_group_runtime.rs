@@ -713,3 +713,5 @@ pub(super) use sql::{nonmember_queries, nonmember_query_revocation};
 pub(super) use sql::cached_dispatch_execution;
 
 pub(super) use sql::{remote_command_lifecycle, remote_commands};
+
+pub(super) use sql::{remote_enrollment, remote_enrollment_lifecycle};
