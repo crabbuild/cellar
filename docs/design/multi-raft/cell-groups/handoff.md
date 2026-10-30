@@ -15,7 +15,22 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The newest reviewed source baseline is `06652e36`, adding bounded range hints
+The newest reviewed source baseline is `5fd44437`, adding remote commands over
+the bounded TLS application RPC lane. Mandatory authenticated command purpose and
+independent namespace/process write grants prevent read/voter authority from
+becoming write permission. The exact controller owns accepted work through
+response loss or revocation, verifies fresh catalog binding and real leader
+execution authority, and returns committed receipts with logical cell tokens.
+Three both-image native cases cover nonmember ingress, grant/identity/follower
+refusals, duplicates/conflicts, held-SQL disconnect/revocation and cleanup. Wire
+and transport tests cover bounded independent grants and authenticated payloads.
+The record is `.cellar/cell-groups-evidence/CG-04-command-rpc/checkpoint.json`:
+209 Rust cases, eleven commands, 273 source inputs and 4 executables. Transfer
+this directory with prior evidence. CG-04 remains IN_PROGRESS. Next implement
+remote enrollment and standalone safe receipt lookup, then public-host discovery/
+SDK binding, dynamic roster and per-group isolation. Destination caching still
+requires replicated transfer seals; shared RustFS/load remains unqualified.
+The preceding reviewed source baseline is `06652e36`, adding bounded range hints
 shared across query, command and enrollment invocations. Entry/byte reservations,
 LRU eviction and verified head invalidation bound retention; a superseded in-flight
 lookup cannot refill the cache. Three catalog cases measure real metadata reads;
@@ -476,8 +491,10 @@ Do not let plan maintenance replace implementation.
    cases. The destination retains per-RPC catalog admission: removing that read
    requires replicated transfer seals and serving-admission invalidation, linked
    to CG-09. Do not substitute a TTL or cached hint for that authority contract.
-   Keep query-origin grants read-only; command/enrollment RPC needs explicit write
-   authorization, response-independent producers and safe remote receipt lookup.
+   Remote commands now use explicit write grants and response-independent
+   controller producers. Keep read grants independent. Add remote enrollment and
+   standalone safe receipt lookup without treating missing local state as proof
+   of non-commit or replaying unresolved callbacks.
    The old host refuses registered initializers until its actual replacement;
    do not remove that refusal without a functioning shared serving path. Request
    and namespace S3 minima must continue refusing until CG-06 provides real archive

@@ -513,7 +513,12 @@
         "crates/cellar/tests/support/cell_group_query_origins.rs",
         "crates/cellar/durability/raft/cell_groups/directory/route_cache.rs",
         "crates/cellar/tests/support/cell_group_routing_cache.rs",
-        "crates/cellar/tests/support/cell_group_dispatch_cache_execution.rs"
+        "crates/cellar/tests/support/cell_group_dispatch_cache_execution.rs",
+        "crates/cellar/durability/raft/command_origins.rs",
+        "crates/cellar/durability/raft/command_cell_wire.rs",
+        "crates/cellar/durability/raft/command_cell_transport.rs",
+        "crates/cellar/durability/raft/cell_groups/dispatch/command/remote.rs",
+        "crates/cellar/tests/support/cell_group_remote_commands.rs"
       ],
       "test_target": "native_cell_groups_execution",
       "steps": [
@@ -657,6 +662,14 @@
           "action": "Share bounded namespace range hints across query, command and enrollment invocations, with explicit entry/byte reservations and LRU eviction. Cache ranges rather than cells; a failed metadata refresh does not invent a new serving proof. Verified successor heads invalidate prior hints and older in-flight observations cannot refill them. Preserve fresh destination RPC admission until replicated transfer-seal authority is integrated. Run the full native_cell_groups_catalog suite, including dispatcher_route_cache_shares_ranges_across_operations, dispatcher_route_cache_bounds_and_refreshes_hints and dispatcher_route_cache_refuses_superseded_inflight_refill, alongside the real runtime case below. Cached mappings never replace runtime ownership, exact cell/version checks, current-term quorum or producer ownership.",
           "tests": [
             "shared_cached_dispatch_preserves_authority_during_catalog_outage"
+          ]
+        },
+        {
+          "action": "Connect remote shared commands to the existing bounded RPC lane and controller. Authenticate command purpose separately from read payloads, require independent bounded namespace/process write grants even for voters, and include those grants in endpoint consistency, process refresh, fleet revocation and pool lifecycle. Preserve captured inputs, immutable command identity, remaining timeout and attempt budget. Destination fresh catalog binding precedes actual leader/SQL authority; only committed exact receipts and signed cell observations return success. Disconnect/revocation cannot cancel already admitted ownership. Also run all query_wire tests, including shared_command_wire_preserves_inputs_and_refuses_query_payloads, shared_command_purpose_is_authenticated_and_cannot_reuse_read_reply and shared_command_results_bind_identity_history_and_typed_refusals. Remote enrollment and standalone safe receipt lookup remain separate required integration. Run command_grants_bound_tombstones_without_changing_read_permission in the full transport suite to qualify independent read grants, write tombstone caps and shared-pool cleanup. Distinguish follower execution-authority requests as NotLeader from leaders awaiting durable apply (NotReady); preserve stale captured-authority checks.",
+          "tests": [
+            "shared_remote_commands_require_write_grants_and_exact_receipts",
+            "shared_remote_commands_survive_disconnected_sql_waiters",
+            "shared_remote_command_revocation_preserves_admitted_ownership"
           ]
         }
       ],
@@ -1246,6 +1259,36 @@
           "oracle": "Warm one range hint, remove the actual catalog head, then query another cell, commit a command and enroll a new cell through real controller/SQL/TLS owners in both image modes without fresh mapping reads. Cache occupancy stays one range. Strong local reads still use real quorum. Explicit refresh fails; remote gateway admission remains fresh and refuses while the catalog head is absent. Restore metadata and join every owner.",
           "invariants": [
             "I01",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_remote_commands_require_write_grants_and_exact_receipts",
+          "oracle": "Over real TLS and both image modes, a router without local group storage cannot invoke commands using discovery, a read grant, a wrong-process or foreign-namespace write grant, or voter membership. A fully registered follower with write permission still refuses before SQL. Explicit namespace/process write permission at the leader permits a committed receipt with authenticated cell observation. Same-identity retries return that receipt without another callback; conflicting input refuses. Original attempt deadlines, exact controller ownership, response byte admission and host-registration drop remain enforced.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_remote_commands_survive_disconnected_sql_waiters",
+          "oracle": "Hold entered command SQL behind a physical callback gate, disconnect the remote waiter, and verify the destination controller retains the producer. Release SQL, observe ownership resolve, then retry the exact command and obtain one committed effect in both image modes. No fixture event pumping or local router replica is used.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_remote_command_revocation_preserves_admitted_ownership",
+          "oracle": "During a held admitted command, revoke the explicit write grant. The remote response terminates ambiguously while controller ownership remains. Stale grant revisions refuse; after physical completion a newer grant allows the original committed receipt to be returned without another callback. Run both image modes with no read grant.",
+          "invariants": [
+            "I01",
+            "I03",
             "I05",
             "I12"
           ]

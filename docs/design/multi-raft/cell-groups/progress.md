@@ -10,6 +10,65 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 write-authorized remote commands
+
+Qualified source: `5fd4443796a6e990fbe70c16acb7fa5578b7e763`.
+
+`CellCommandInvocation::execute_remote` sends one consumed catalog attempt over
+the bounded application RPC lane. The authenticated route has a mandatory command
+purpose; command payloads/results have distinct marker-1 domains. Read grants and
+voter membership never create write permission. `NamespaceCommandOrigin` grants
+one namespace to an exact physical process, with independently bounded revision
+tombstones. Endpoint checks, rooted process refresh, fleet revocation and peer-pool
+retention include command grants. Discovery still allocates no local replica.
+
+A host-owned `CellCommandGateway` binds the exact controller/runtime owner. The
+request carries the caller's captured time/random inputs, immutable command
+identity, operation contract, retry horizon and remaining deadline. The receiver
+controller checks the current catalog group/schema/epoch/birth and actual leader
+authority before SQL. It retains admitted work independently from the connection;
+disconnect, timeout or write-grant revocation cannot undo an admitted mutation or
+release its physical producer. Final registration drop refuses new commands.
+
+Success returns the exact committed command identity/result and authenticated
+logical cell observation/token. Reply admission remains charged until consumption.
+Original deadlines/attempt budgets survive retries. Conflict, expiry, sequence-gap
+and not-leader refusals remain typed. Once remote transmission may occur, errors
+remain conservatively ambiguous; neither admission nor response loss proves
+non-commit. Committed duplicate retries return the stored result without another
+application callback.
+
+Three new native cases run both image modes over four TLS endpoints in one OS
+process. A nonmember router with no group storage tests missing/read-only,
+wrong-process and foreign-namespace write permission, voter non-authority, follower
+refusal, exact controller binding, committed duplicate/conflict handling, reply
+reservations and registration drop. Held physical SQL tests disconnect and grant
+revocation: the controller keeps ownership, then resolves the command and returns
+its committed receipt on retry without a second callback. Three wire cases cover
+captured inputs, payload/purpose separation, exact command/history/token binding
+and typed failures. A transport case checks bounded tombstones, stale revision
+refusal, independent read grants and pool cleanup.
+
+All 209 selected Rust cases and eleven gate commands pass, including all-target
+Clippy, formatting, layout, native dependency isolation, docs, source preflight and
+37 plan-validator cases. The record at
+`.cellar/cell-groups-evidence/CG-04-command-rpc/checkpoint.json` binds 273 source
+inputs and 4 copied executables. Transfer that entire directory with prior
+checkpoints. Targeted compile/test logs are retained as diagnostic evidence.
+The initial follower assertion ran without a follower gateway and failed before
+leadership admission. After adding the gateway, diagnostics exposed follower
+authority requests returning NotReady and becoming generic Unavailable remotely.
+The owner now reports NotLeader for that role, with leader readiness and stale
+authority checks preserved. Direct and remote tests assert the precise refusal.
+
+CG-04 remains IN_PROGRESS. Remote enrollment and standalone safe receipt lookup
+are the next request-path gaps; public-host automatic discovery/SDK binding, lazy
+birth/dynamic roster, per-group isolation and configuration lifecycle remain.
+The RPC lane serializes exchanges per peer; no load or latency gain is claimed.
+Destination catalog reads remain until replicated transfer sealing and serving
+invalidation are integrated. Complete-group snapshots/archive, shared RustFS
+recovery, independent-process failure, power loss and load remain unqualified.
+
 ## CG-04 bounded invocation route cache
 
 Qualified source: `06652e36869144624e0ca4d860782ef512018791`.

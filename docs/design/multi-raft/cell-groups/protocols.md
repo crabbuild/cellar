@@ -130,8 +130,28 @@ removed. A replaced discovery view refuses captured requests and late replies;
 removal does not revoke the destination's independently managed namespace grant.
 Grant revocation cancels read waiters without releasing physically entered SQL.
 The public host must supply trusted discovery and explicit permissions; automatic
-discovery/SDK binding and write-authorized command/enrollment RPC remain separate
+discovery/SDK binding, remote enrollment and standalone receipt lookup remain
 integration work.
+
+Remote commands use the same bounded application RPC lane with a mandatory,
+MAC-bound command purpose and distinct payload/result markers. A read grant or
+voter membership never grants write admission. `NamespaceCommandOrigin` supplies
+an explicit namespace/process permission with bounded revision tombstones;
+endpoint checks, rooted process refresh and fleet revocation include these grants.
+A host-owned command gateway binds the exact node controller. Dropping its final
+registration closes new admission without rolling back accepted work.
+
+Carry the caller's captured time/random inputs, command identity, request contract,
+retry horizon and remaining deadline to the destination. The controller verifies
+a fresh catalog route against the transmitted group, schema, epoch and birth,
+then checks actual leader authority before entering SQL. It owns accepted work
+independently from the connection. Disconnect, revocation and timeout can suppress
+a reply but cannot prove non-commit or release a producer. Success contains the
+exact committed command identity/result and an authenticated logical cell token;
+conflict, expiration and sequence-gap refusals remain typed. Retain caller reply
+byte admission through consumption. Retry the same identity and input under the
+original budget; a committed duplicate must not re-execute application code.
+The current lane serializes RPC exchanges per peer; this is not load qualification.
 
 ## Apply, checkpoint and archive
 

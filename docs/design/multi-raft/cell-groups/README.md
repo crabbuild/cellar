@@ -212,6 +212,14 @@ admission. The partial gate passes 202 Rust cases and eleven commands; transfer
 4 executables). Write-authorized RPC and safe receipt lookup are next; removing
 destination catalog reads requires replicated transfer seals. CG-04 stays IN_PROGRESS.
 
+At `5fd44437`, remote commands use explicit namespace/process write grants and
+an authenticated command purpose on the bounded TLS RPC lane. Existing controller
+owners retain admitted work after disconnect/revocation, and committed duplicates
+return the same receipt without rerunning SQL. The partial gate passes 209 Rust
+cases and eleven commands; transfer `.cellar/cell-groups-evidence/CG-04-command-rpc/`
+(273 source inputs, 4 executables). Remote enrollment, standalone receipt lookup
+and the public SDK cutover remain open; CG-04 remains IN_PROGRESS.
+
 The implementation executor should deliver code, updated component contracts and
 the required retained evidence for each task on the active PR. The final handoff
 requires CG-16 and the release gate, including the real RustFS and independent
