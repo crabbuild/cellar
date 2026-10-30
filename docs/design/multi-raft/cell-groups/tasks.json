@@ -456,7 +456,8 @@
         "crates/cellar/durability/raft/host_sql/cell_groups/mod.rs",
         "crates/cellar/durability/raft/host_sql/cell_groups/admission.rs",
         "crates/cellar/durability/raft/host_sql/cell_groups/worker.rs",
-        "crates/cellar/tests/support/cell_group_sql_pool.rs"
+        "crates/cellar/tests/support/cell_group_sql_pool.rs",
+        "crates/cellar/tests/support/cell_group_sql_reconcile.rs"
       ],
       "test_target": "native_cell_groups_execution",
       "steps": [

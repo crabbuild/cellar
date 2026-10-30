@@ -10,6 +10,51 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 applied-barrier receipt reconciliation
+
+Implementation source: `8a0cf640ae70f3280f02e281f81b55a8823205fd`.
+
+The existing SQL pool now reconciles the exact pending proposal against the
+original request identity in a selected immutable cell image. The new
+`CellReconciliationAuthority` is issued from a verified durable current-term
+applied group root, including on followers. It grants no write, strong-read or
+S3 authority. A matching receipt may resolve from a later cell image without
+requiring the original log entry. Its position identifies the inspected image.
+A missing receipt releases the old producer only behind a strictly newer applied
+term. Expiry/conflict remain distinct refusals; missing producers report uncertainty.
+
+The worker validates engine, route, cell history and proposal identity, rechecks
+pin freshness after receipt inspection, and closes the disposable writer before
+releasing cell admission. Reconciliation uses reserved progress capacity; retained
+receipt outputs keep their existing byte reservation.
+
+Both image-mode tests use real three-voter elections and SQLite/LTX. They hold
+the new-term apply on the old leader and reject premature reconciliation; advance
+B again on the new leader while its first producer remains on the old follower;
+then recover B's original receipt and retire A's absent older-term proposal.
+They also cover same-term absence refusal, stale and foreign proofs, mismatched
+proposals, unknown producer uncertainty, retained-output budgets, duplicate
+callback suppression and reopening A from its committed base.
+
+All 181 selected Rust tests pass: 170 native cases across seven suites and 11
+SQL queue/extent-worker unit tests. All-target Clippy with warnings denied,
+formatting (1,795 Rust files), layout, dependency isolation, docs, reviewed source
+preflight and all 37 plan-validator tests pass. The partial checkpoint at
+`.cellar/cell-groups-evidence/CG-04-reconciliation/checkpoint.json` binds 179
+source inputs, nine successful command logs and eight copied executables.
+The initial fixture failure is retained: `MsgTransferLeader` is a local
+administrative request, correctly rejected by the peer boundary. The corrected
+fixture delivers the current leader's `MsgTimeoutNow` directive and drives the
+real election, persistence and apply. Four process helpers run through parent
+tests; three RustFS cases remain explicitly unrun. This remains partial CG-04
+implementation; no task status advances.
+
+Next, split read-only receipt lookup from new-client capacity admission and
+qualify saturated identity tables, expiry floors and conflicting identities.
+Then integrate real snapshot/compaction, production retry dispatch, concurrent
+initialization, coherent query serving and preview/cache lifecycle. No full
+CG-04, RustFS, performance or hard-cutover qualification is claimed.
+
 ## CG-04 fixed node SQL pool
 
 Qualified source: `51dff0e5abec7c2355a80e84d1b2e3ae2504e3b1`.

@@ -162,6 +162,19 @@ may finish out of order but cannot advance a hole in the durable applied prefix.
 Retain exact term/index proof for each pending output; an unrelated cell's progress
 cannot settle it. Storage sync failure quarantines the owning engine as today.
 
+An unresolved SQL producer can reconcile the original request against the exact
+cell's committed receipt after leadership changes or log compaction. Select the
+cell pin from a verified durable current-term applied root; follower inspection
+is permitted but grants no write or strong-read authority. A matching receipt
+can resolve the request from a later image. Its returned position describes the
+inspected image, not the original proposal. Absence retires the old producer only
+after a strictly newer term's applied barrier excludes that proposal; a persisted
+term, timeout or sampled leader role is insufficient. Receipt expiry remains an
+explicit refusal with unknown historical outcome. Reject changed route/history,
+foreign engine and stale pin proofs. Close the private writer before releasing
+cell admission; retained responses keep their byte reservations. Lost resolution
+responses require receipt lookup, never an inferred failure or blind callback replay.
+
 ## Reads, caches and effects
 
 Linearizable reads obtain a fresh current-term group ReadIndex, wait for contiguous

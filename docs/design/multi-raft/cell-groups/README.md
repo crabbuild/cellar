@@ -95,9 +95,10 @@ prepares ordered enrollment and exact retries. Its physical group owner consumes
 the catalog startup permit and verified selected image/manifest closure, and
 obtains current-term quorum before protocol admission. The shared node scheduler now multiplexes these physical owners. The per-cell SQL
 producer and exact receipts now pass their partial regression gate, followed by
-fixed-pool SQL ownership and admission at `51dff0e5`. Leadership/compaction
-reconciliation, concurrent enrollment, coherent reads and registered SDK serving
-integration remain required. Managed
+fixed-pool SQL ownership and admission at `51dff0e5`. Applied-barrier receipt
+reconciliation is implemented at `8a0cf640`. Production retry and compaction
+integration, concurrent enrollment, coherent reads and registered SDK serving
+remain required. Managed
 fleet integration remains required by CG-07. A birth
 metadata observation alone cannot authorize voter startup.
 
