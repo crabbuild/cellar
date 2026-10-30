@@ -460,7 +460,9 @@
         "crates/cellar/tests/support/cell_group_sql_reconcile.rs",
         "crates/cellar/durability/raft/cell_groups/enrollment_authority.rs",
         "crates/cellar/durability/raft/execution/enrollment.rs",
-        "crates/cellar/tests/support/cell_group_sql_enrollment.rs"
+        "crates/cellar/tests/support/cell_group_sql_enrollment.rs",
+        "crates/cellar/durability/raft/cell_groups/proposal_admission.rs",
+        "crates/cellar/tests/support/cell_group_admission.rs"
       ],
       "test_target": "native_cell_groups_execution",
       "steps": [
@@ -474,13 +476,17 @@
         {
           "action": "Admit one unresolved proposal per cell with fair cell queues and group/node byte quotas. Allow independent cells to prepare concurrently, then publish committed entries through one contiguous group prefix with per-cell base/version checks. Enforce configured group enrollment capacity on the actual owner before append, counting applied cells and pending accepted logical creations. Exact creation retries consume no additional slot; competing creations cannot exceed the limit before apply. Verify capacity refusal leaves existing cells available and release reservations only with proven resolution.",
           "tests": [
-            "shared_group_fair_admission"
+            "shared_group_fair_admission",
+            "pending_enrollments_respect_group_capacity",
+            "node_runtime_bounds_proposal_acceptance_across_groups"
           ]
         },
         {
           "action": "Implement exact per-cell output settlement and receipt retry. Group no-ops/configuration entries advance group apply without changing cell version. Reject stale term/activation/completion tickets and preserve unknown proposed outcomes. Check the prepared term atomically with proposal admission on the actual Raft owner. Bind same-term acceptance retries to the original proposal identity and bytes; a lost acceptance response must recover retained acceptance or reconcile the original receipt without appending the same mutation again. Reject changed payloads under a reused identity, and retain uncertainty across elections until an applied barrier proves resolution.",
           "tests": [
-            "cell_receipt_not_group_progress"
+            "cell_receipt_not_group_progress",
+            "proposal_acceptance_retries_do_not_append_twice",
+            "inherited_enrollments_count_after_applied_term_barrier"
           ]
         },
         {
@@ -503,14 +509,14 @@
         },
         {
           "name": "shared_group_fair_admission",
-          "oracle": "Concurrent cells receive bounded fair admission; cancellation retains physical accounting and busy SQL never blocks consensus ticks. Pending distinct enrollments cannot exceed configured group capacity before apply; identical retries reserve once and capacity refusal does not fail the group.",
+          "oracle": "Concurrent cells receive bounded fair admission; cancellation retains physical accounting and busy SQL never blocks consensus ticks.",
           "invariants": [
             "I12"
           ]
         },
         {
           "name": "cell_receipt_not_group_progress",
-          "oracle": "A later update to B cannot settle or replace A; identical client/sequence in A and B remains independent. Lost proposal acceptance responses and exact retries in the same term append at most one mutation; changed payloads with the same identity refuse and old prepared terms cannot append after leadership returns.",
+          "oracle": "A later update to B cannot settle or replace A; identical client/sequence in A and B remains independent.",
           "invariants": [
             "I02",
             "I03"
@@ -538,6 +544,42 @@
             "I01",
             "I03",
             "I04"
+          ]
+        },
+        {
+          "name": "pending_enrollments_respect_group_capacity",
+          "oracle": "Before any apply, accepted distinct creations fill the configured group capacity; exact retries reserve once, conflicting incarnations refuse and a further creation is rejected before append. Existing cells can still mutate at capacity.",
+          "invariants": [
+            "I01",
+            "I04",
+            "I12"
+          ]
+        },
+        {
+          "name": "proposal_acceptance_retries_do_not_append_twice",
+          "oracle": "An exact pending mutation retry returns its original log position and digest at saturated acceptance capacity; changed bytes under that identity refuse. After apply, a stale base cannot append again, the original image advances once on every voter and released capacity admits another cell.",
+          "invariants": [
+            "I02",
+            "I03",
+            "I04",
+            "I12"
+          ]
+        },
+        {
+          "name": "inherited_enrollments_count_after_applied_term_barrier",
+          "oracle": "Restart all voters from retained disks with an uncommitted enrollment present only on the longest log. The recovered leader refuses admission until inherited history and its current-term barrier apply, then counts that cell against capacity. Old prepared terms refuse.",
+          "invariants": [
+            "I01",
+            "I04",
+            "I12"
+          ]
+        },
+        {
+          "name": "node_runtime_bounds_proposal_acceptance_across_groups",
+          "oracle": "Pending acceptance in one physical group exhausts the shared node budget and refuses a different group, while exact retries retain their original position. Peer persistence and durable apply still progress under saturation, releasing capacity for the other group on all voters.",
+          "invariants": [
+            "I04",
+            "I12"
           ]
         }
       ],

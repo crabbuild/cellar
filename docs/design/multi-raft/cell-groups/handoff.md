@@ -15,11 +15,11 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The reviewed source baseline is `82ae6877`, a formatting-only successor to
-`6e09bbc7`, which adds shared-worker initialization,
-logical-name admission and prepared-term proposal fencing after receipt lookup at
-`91c3ecfc`, applied-barrier reconciliation at `8a0cf640`, the fixed SQL pool at
-`51dff0e5`, the SQL producer at `f807b2f7` and shared-node runtime at `aec4029e`.
+The reviewed source baseline is `446dd905`, adding bounded proposal acceptance
+and enrollment capacity. Earlier checkpoints cover shared-worker initialization
+and term fencing (`6e09bbc7`, formatted at `82ae6877`), receipt lookup (`91c3ecfc`),
+applied-barrier reconciliation (`8a0cf640`), the fixed SQL pool (`51dff0e5`),
+the SQL producer (`f807b2f7`) and shared-node runtime (`aec4029e`).
 See the latest checkpoint in [progress](progress.md) for qualification and limits.
 The branch integrates `origin/main` at `8a93ffd7` (documentation consolidation,
 PR 161). The design package now lives in `docs/design/multi-raft/cell-groups/`;
@@ -93,19 +93,27 @@ initial formatting failure. Formatting-only successor verification is recorded i
 six checks pass, including formatting, layout, dependencies, docs, preflight and
 37 validator tests. These records do not mark CG-04 DONE.
 
-Next implement configured group enrollment capacity admission on the actual owner,
-including pending accepted creations rather than only the applied cell count. The
-manifest layer already enforces its bounds; admission must refuse before appending
-a creation that cannot apply, rather than turn capacity pressure into group failure.
-Also complete same-term proposal retry handling: `propose_at_term` fences old
-terms but does not deduplicate a repeated mutation envelope. A lost proposal
-acceptance response must reuse retained acceptance state or reconcile receipts;
-blindly appending the same cell mutation twice can invalidate its second base.
-Enrollment's exact retry is idempotent at apply, but its pending capacity accounting
-must still count logical creations rather than repeated entries.
+The current admission change counts applied cells and accepted pending creations
+against `max_cells_per_group` before append. Pending acceptance is keyed by logical
+cell name, binds proposal identity to exact bytes, and returns the original
+position on a retry. Conflicting bytes refuse; another proposal for the same
+pending name waits. Independent cells remain eligible. Once applied, stale bases
+and existing enrollments refuse another append and require receipt/creation
+resolution. Acceptance metadata has a separate shared node budget so saturation
+cannot prevent Ready or completion work. All 195 selected Rust cases and ten
+verification commands pass at `446dd905`; the source-bound checkpoint is
+`.cellar/cell-groups-evidence/CG-04-proposal-admission/checkpoint.json`, with 187
+source inputs and eight copied executables. See [progress](progress.md) for the
+retained intermediate failures and qualification limits. This does not complete
+CG-04.
 
-Then integrate catalog routing sessions and registered SDK creation/command
-callbacks, and coherent reads. Preserve the original request fingerprint, deadline
+Next integrate catalog routing sessions and registered SDK creation/command
+callbacks, and coherent reads. Admission errors do not yet settle a SQL producer
+already marked submitted: an `Overloaded` response may come from a queue before
+the owner sees a retry of an earlier unknown attempt. Do not release that producer
+from a generic error or same-term receipt absence. Production dispatch needs an
+identity-bound owner rejection proof when it can establish non-acceptance, or
+must preserve uncertainty and reconcile through the existing applied-barrier path. Preserve the original request fingerprint, deadline
 and attempt budget across redirects. Do not synthesize a legacy `GroupScope` to
 satisfy callback/effect identities. The callback APIs added here remain verification
 boundaries, not registered SDK entry points. Real compaction/production retries
@@ -130,6 +138,15 @@ the new `host_sql::Pool` cell-history path and joined shutdown; do not create a
 second node worker pool or a task per enrolled cell.
 A cancelled caller cannot release physical callback ownership or allow a second
 producer for that cell.
+
+Query integration must also replace `application/consensus/class.rs::QueryContext`'s
+`CommittedVersion`/`GroupScope` identity with the logical cell version. The shared
+SQL options already carry query services, but the pool has no cell query operation.
+`CellExecutionAuthority` and `CellReconciliationAuthority` explicitly grant no
+query lease: do not repurpose them as strong-read proof. Bind a ReadIndex result
+to its request context, current owner term and applied prefix, then pin the exact
+target cell image; another cell's newer log index must not manufacture a cell
+version. Preserve the existing registered query transaction restrictions.
 
 
 ## First executor session

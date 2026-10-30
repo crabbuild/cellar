@@ -47,6 +47,15 @@ term on the RawNode owner atomically with proposal admission. A node that loses
 leadership and later regains it must reject retained output from its older term.
 Cancellation retains physical ownership until the callback and cleanup complete.
 
+Before append, reserve group capacity against applied cells plus accepted pending
+creations, keyed by logical name. Retrying one creation consumes no extra slot.
+Retain bounded leader-local acceptance records independently from Ready/completion
+budgets. An exact pending proposal retry returns its original acceptance, never a
+second log entry; changed bytes under that identity refuse. After apply or leader
+replacement, resolve the receipt/creation record rather than append an old base.
+A stale-base refusal does not prove non-commitment. New leaders must apply their
+current-term barrier before admitting creations against recovered capacity.
+
 Admission decisions must be checked again in committed log order against the
 current lifecycle state. Recognizing an exact retry grants neither current-term
 authority nor permission to restore the initial image over newer mutations.

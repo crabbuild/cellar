@@ -10,6 +10,53 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 bounded proposal acceptance and enrollment capacity
+
+Qualified source: `446dd9057f10c8221122d0d3a9a21254adeb448f`.
+
+The actual group owner now counts pending accepted creations alongside applied
+cells before appending a new
+enrollment. Existing cells continue accepting mutations at the configured limit.
+Leader-local acceptance records bind a proposal to its exact bytes and original
+position; retries cannot append a pending mutation twice. Changed bytes under the
+same pending identity refuse, and independent proposals for a pending logical
+name wait. Mutation bases are checked against the selected cell image. After
+apply, callers resolve receipts or creation records instead of resubmitting stale
+images; a refusal does not prove that the original request failed.
+
+Acceptance retains a separate shared node budget until durable apply, role/term
+loss, terminal failure or owner destruction. It retains no LTX payload or image pin and cannot
+consume Ready/completion admission. A current-term applied barrier remains
+mandatory before a new leader admits work, so inherited enrollments count even
+when the previous process's pending map is gone.
+
+The preliminary native run passed 25 cases and exposed a restart-fixture issue:
+restarting only the prior leader leaves live followers' leader leases intact, so
+its immediate pre-vote need not elect it. The fixture now restarts all voters from
+their retained disks before requiring inherited apply. A later run exposed an
+extra async constructor layer overflowing the fixture's default stack; that
+layer was removed. A larger-stack diagnostic is retained only for diagnosis,
+not qualification. It also exposed the fixture transport discarding overloaded
+peer admission. The fixture now retains and retries those exact frames under its
+existing deadlines, as the direct-owner fixture already does. All 27 shared-group
+execution cases now pass on the normal stack.
+
+All 195 selected Rust cases pass at the qualified source: 180 native cases across
+seven suites, 11 SQL queue/extent-worker unit tests and four receipt unit tests.
+All-target Clippy with warnings denied, formatting (1,800 Rust files), layout,
+dependency isolation, docs, source preflight and all 37 plan-validator tests pass.
+The checkpoint at
+`.cellar/cell-groups-evidence/CG-04-proposal-admission/checkpoint.json` binds 187
+source inputs, ten successful command logs and eight copied executables, with
+intermediate failures and the larger-stack diagnostic retained separately. Four
+process helpers run through parent tests; three RustFS cases remain unrun.
+
+Four distinct admission cases are now required by the CG-04 executor gate,
+bringing the package to 90 required cases. Their oracles are separate from the
+existing SQL fairness and receipt-settlement cases. Registered dispatch, catalog
+sessions, coherent reads, production retry/compaction and cache lifecycle remain
+required. No task status or release claim advances.
+
 ## CG-04 shared-worker initialization and enrollment
 
 Implementation source: `6e09bbc7`.

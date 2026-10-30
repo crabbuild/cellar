@@ -99,8 +99,10 @@ reconciliation is implemented at `8a0cf640`, followed by read-only receipt looku
 and saturated-capacity/expiry/conflict cases at `91c3ecfc`. Initialization and
 concurrent enrollment now run on that pool at `6e09bbc7`, including original
 creation retries, follower resolution and atomic preparation-term proposal checks.
-Registered SDK/catalog routing, configured group capacity, coherent reads,
-production retry/compaction integration and cache lifecycle remain required. Managed
+Bounded proposal acceptance and configured enrollment capacity are implemented at
+`446dd905`, including pending creations, exact acceptance retries, stale-base
+refusal and a shared node metadata budget. Registered SDK/catalog routing, coherent
+reads, production retry/compaction integration and cache lifecycle remain required. Managed
 fleet integration remains required by CG-07. A birth
 metadata observation alone cannot authorize voter startup.
 
