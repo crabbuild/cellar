@@ -95,12 +95,12 @@ pub struct CellGroupApply {
 /// A ReadIndex result is a barrier to wait for, not permission to serve a cell.
 /// The dispatcher must recheck owner/term and pin an applied coherent cell view.
 pub enum CellGroupEffect {
-    Persist(CellGroupPersist),
+    Persist(Box<CellGroupPersist>),
     Message(Message),
-    Apply(CellGroupApply),
+    Apply(Box<CellGroupApply>),
     Applied {
         ticket: CellGroupTicket,
-        manifest: GroupManifest,
+        manifest: Box<GroupManifest>,
     },
     ReadIndex {
         term: Term,
@@ -126,9 +126,9 @@ pub struct CellGroupStatus {
 }
 
 enum Phase {
-    Ready(Ready, Term),
+    Ready(Box<Ready>, Term),
     Light(LightReady),
-    Apply(CellGroupTicket, PreparedGroupManifest, bool),
+    Apply(CellGroupTicket, Box<PreparedGroupManifest>, bool),
 }
 
 pub struct CellGroupOwner {
@@ -374,7 +374,7 @@ impl CellGroupOwner {
         }
         let entry = self.apply.front().ok_or(RuntimeError::StaleCompletion)?;
         self.validate_apply(entry, &next)?;
-        self.phase = Some(Phase::Apply(ticket, next, false));
+        self.phase = Some(Phase::Apply(ticket, Box::new(next), false));
         Ok(())
     }
 
@@ -428,11 +428,11 @@ impl CellGroupOwner {
         let ticket = self.ticket(LogPosition::default(), [0; 32])?;
         write.consensus_pin = Some(self.lease.clone());
         self.waiting = Some(ticket.clone());
-        Ok(CellGroupEffect::Persist(CellGroupPersist {
+        Ok(CellGroupEffect::Persist(Box::new(CellGroupPersist {
             log: self.log.clone(),
             ticket,
             write,
-        }))
+        })))
     }
 
     fn enqueue(&mut self, entries: Vec<Entry>) -> Result<(), RuntimeError> {
@@ -527,7 +527,7 @@ impl CellGroupOwner {
                         });
                     }
                     self.enqueue(ready.take_committed_entries())?;
-                    let light = self.node.advance_append(ready);
+                    let light = self.node.advance_append(*ready);
                     let commit = light.commit_index();
                     self.phase = Some(Phase::Light(light));
                     if let Some(commit) = commit {
@@ -545,7 +545,7 @@ impl CellGroupOwner {
                 Some(Phase::Apply(ticket, next, submitted)) => {
                     if !submitted {
                         let mut write = GroupWrite::new(&self.group);
-                        write.group_manifest = Some(next.clone());
+                        write.group_manifest = Some((*next).clone());
                         self.phase = Some(Phase::Apply(ticket, next, true));
                         return self.persistence(write).map(Some);
                     }
@@ -559,10 +559,10 @@ impl CellGroupOwner {
                         .ok_or(RuntimeError::StaleCompletion)?;
                     self.apply_bytes -= entry.compute_size() as usize + 128;
                     self.applying = None;
-                    self.current = next;
+                    self.current = *next;
                     return Ok(Some(CellGroupEffect::Applied {
                         ticket,
-                        manifest: self.current.marker().clone(),
+                        manifest: Box::new(self.current.marker().clone()),
                     }));
                 }
                 None => {
@@ -599,7 +599,10 @@ impl CellGroupOwner {
                         let mut write = GroupWrite::new(&self.group);
                         write.entries = ready.entries().clone();
                         write.hard_state = ready.hs().cloned();
-                        self.phase = Some(Phase::Ready(ready, Term::new(self.node.raft.term)));
+                        self.phase = Some(Phase::Ready(
+                            Box::new(ready),
+                            Term::new(self.node.raft.term),
+                        ));
                         if changed {
                             return self.persistence(write).map(Some);
                         }
@@ -613,11 +616,11 @@ impl CellGroupOwner {
                     };
                     let ticket = self.ticket(entry_position(&entry), entry_digest(&entry)?)?;
                     self.applying = Some(ticket.clone());
-                    return Ok(Some(CellGroupEffect::Apply(CellGroupApply {
+                    return Ok(Some(CellGroupEffect::Apply(Box::new(CellGroupApply {
                         ticket,
                         entry,
                         base: self.current.clone(),
-                    })));
+                    }))));
                 }
             }
         }
@@ -735,6 +738,7 @@ impl CellGroupOwner {
                 for entry in &message.entries {
                     index = index.checked_add(1).ok_or_else(invalid)?;
                     if entry.index != index
+                        || entry.index >= u64::MAX - 2
                         || entry.term == 0
                         || entry.term < term
                         || entry.term > message.term

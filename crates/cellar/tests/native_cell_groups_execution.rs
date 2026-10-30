@@ -23,7 +23,7 @@ use cellar_ltx::{
     generation::{GenerationPin, GenerationStore, ImageId},
     DirectFileSystem, TXID,
 };
-use raft::prelude::Message;
+use raft::prelude::{Entry, Message, MessageType};
 use sha2::{Digest, Sha256};
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 
@@ -199,7 +199,7 @@ impl Cluster {
                     }
                     CellGroupEffect::Apply(apply) => {
                         if voter.paused {
-                            assert!(voter.held.replace(apply).is_none());
+                            assert!(voter.held.replace(*apply).is_none());
                         } else {
                             let prepared = prepare(voter, &apply)?;
                             voter
@@ -213,7 +213,7 @@ impl Cluster {
                         assert_eq!(ticket.position(), manifest.position());
                         assert_eq!(
                             voter.log.cell_groups()?[0].group_manifest()?.as_ref(),
-                            Some(&manifest)
+                            Some(manifest.as_ref())
                         );
                     }
                     CellGroupEffect::ReadIndex {
@@ -636,6 +636,36 @@ async fn three_cells_one_rawnode_per_voter() -> Result<()> {
                 .marker()
                 .position()
                 .index));
+    cluster.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn physical_owner_rejects_exhausted_peer_entry_counters() -> Result<()> {
+    let mut cluster = Cluster::new().await?;
+    let before = cluster.voters[0].owner.as_ref().unwrap().status()?;
+    let message = Message {
+        msg_type: MessageType::MsgAppend,
+        from: 2,
+        to: 1,
+        term: 2,
+        log_term: 1,
+        index: u64::MAX - 3,
+        entries: vec![Entry {
+            term: 1,
+            index: u64::MAX - 2,
+            ..Default::default()
+        }]
+        .into(),
+        ..Default::default()
+    };
+    assert!(matches!(
+        cluster.voters[0].owner.as_mut().unwrap().step(message),
+        Err(RuntimeError::Invalid(_))
+    ));
+    let after = cluster.voters[0].owner.as_ref().unwrap().status()?;
+    assert_eq!(before.term, after.term);
+    assert_eq!(before.applied, after.applied);
+    cluster.elect().await?;
     cluster.close().await
 }
 
