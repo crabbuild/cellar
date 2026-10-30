@@ -23,7 +23,7 @@ pub struct CellCommandError {
     /// Conservatively sticky after SQL entry. Definitive resolution is returned
     /// separately; an error is never a non-commit proof. Retry the same identity.
     pub ambiguous: bool,
-    pub cause: CellDispatchError,
+    pub cause: Box<CellDispatchError>,
 }
 
 impl fmt::Display for CellCommandError {
@@ -111,7 +111,7 @@ impl CellGroupDispatcher {
         let error = |cause| CellCommandError {
             command: request.id,
             ambiguous: false,
-            cause,
+            cause: Box::new(cause),
         };
         let started = self.domain.mono_ms().map_err(|_| error(closed()))?;
         // Shared-group archival coverage is not integrated yet. Never silently
@@ -195,7 +195,7 @@ impl CellCommandInvocation {
         CellCommandError {
             command: self.request.id,
             ambiguous: self.ambiguous,
-            cause,
+            cause: Box::new(cause),
         }
     }
 

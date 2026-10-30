@@ -152,7 +152,7 @@ pub(crate) async fn commands(rooted: bool) -> Result<()> {
     let absent = command.settle().await.err().context("not yet applied")?;
     assert!(absent.ambiguous);
     assert!(matches!(
-        absent.cause,
+        absent.cause.as_ref(),
         CellDispatchError::Execution(ExecutionError::Uncertain)
     ));
     assert_eq!(pool.usage()?.active_cells, 1);
@@ -275,7 +275,7 @@ pub(crate) async fn commands(rooted: bool) -> Result<()> {
         .context("S3 unavailable")?;
     assert!(!error.ambiguous);
     assert!(matches!(
-        error.cause,
+        error.cause.as_ref(),
         CellDispatchError::Execution(ExecutionError::Refused(
             CommandFailure::UnsupportedCapability
         ))
@@ -314,11 +314,11 @@ pub(crate) async fn commands(rooted: bool) -> Result<()> {
             .await,
         Err(CellCommandError {
             ambiguous: false,
-            cause: CellDispatchError::Execution(ExecutionError::Refused(
-                CommandFailure::UnsupportedCapability
-            )),
+            cause,
             ..
-        })
+        }) if matches!(cause.as_ref(), CellDispatchError::Execution(ExecutionError::Refused(
+            CommandFailure::UnsupportedCapability
+        )))
     ));
     assert_eq!(calls.load(Ordering::SeqCst), 4);
     assert_eq!(dispatcher.usage(), (0, 0));
