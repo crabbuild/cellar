@@ -1,6 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Bounded invocation ownership is independent of response-waiter lifetime.
+use super::calls::Delivery;
 use super::*;
 use crate::raft::budget::{Budget, Permit};
 use crate::raft::cell_groups::{
@@ -12,13 +13,8 @@ use tokio::sync::{mpsc, oneshot, watch};
 pub(super) struct Request {
     invocation: CellCommandInvocation,
     options: CellSqlOptions,
-    reply: oneshot::Sender<Delivery>,
+    reply: oneshot::Sender<Delivery<CellCommandResponse, CellCommandError>>,
     permit: Arc<Permit>,
-}
-
-struct Delivery {
-    result: Result<CellCommandResponse, Arc<CellCommandError>>,
-    _permit: Arc<Permit>,
 }
 
 pub(super) struct Completed {
@@ -30,10 +26,7 @@ pub(super) struct Completed {
 /// Dropping or timing out this response never cancels the admitted command.
 /// An unpolled reply retains node admission, including error-only replies.
 pub struct CellCommandCall {
-    receiver: oneshot::Receiver<Delivery>,
-    command: CommandId,
-    deadline: u64,
-    domain: crate::asyncrt::DomainToken,
+    inner: calls::Call<CommandId, CellCommandResponse, CellCommandError>,
 }
 
 /// Admission did not transfer ownership. In particular, a rejected non-fresh
@@ -73,35 +66,11 @@ fn error(command: CommandId, ambiguous: bool, reason: RuntimeError) -> CellComma
 
 impl CellCommandCall {
     pub async fn response(self) -> Result<CellCommandResponse, Arc<CellCommandError>> {
-        let failure = |reason| Arc::new(error(self.command, true, reason));
-        let now = self
-            .domain
-            .mono_ms()
-            .map_err(|_| failure(RuntimeError::Closed))?;
-        if now >= self.deadline {
-            return Err(failure(RuntimeError::DeadlineExceeded));
-        }
-        let timer = self
-            .domain
-            .sleep_until(self.deadline)
-            .map_err(|_| failure(RuntimeError::Closed))?;
-        let delivery = crate::asyncrt::select! {
-            result = self.receiver => result.map_err(|_| failure(RuntimeError::Closed))?,
-            _ = timer => return Err(failure(RuntimeError::DeadlineExceeded)),
-        };
-        if self
-            .domain
-            .mono_ms()
-            .map_err(|_| failure(RuntimeError::Closed))?
-            >= self.deadline
-        {
-            return Err(failure(RuntimeError::DeadlineExceeded));
-        }
-        delivery.result
+        self.inner.response().await
     }
 }
 
-fn option_bytes(options: &mut CellSqlOptions) -> Result<usize, RuntimeError> {
+pub(super) fn option_bytes(options: &mut CellSqlOptions) -> Result<usize, RuntimeError> {
     let (path, vfs) = match options {
         CellSqlOptions::Materialized(options) => (&mut options.directory, &mut options.sqlite_vfs),
         CellSqlOptions::Extents(options) => (&mut options.cache_directory, &mut options.sqlite_vfs),
@@ -149,12 +118,12 @@ impl CellGroupController {
         let (reply, receiver) = oneshot::channel();
         shared
             .requests
-            .try_send(Request {
+            .try_send(requests::Request::Command(Box::new(Request {
                 invocation,
                 options,
                 reply,
                 permit: Arc::new(permit),
-            })
+            })))
             .map_err(|e| {
                 let (request, reason) = match e {
                     mpsc::error::TrySendError::Closed(request) => (request, RuntimeError::Closed),
@@ -162,14 +131,20 @@ impl CellGroupController {
                 };
                 CellCommandAdmissionError {
                     error: error(command, false, reason),
-                    invocation: Box::new(request.invocation),
+                    invocation: match request {
+                        requests::Request::Command(request) => Box::new(request.invocation),
+                        _ => unreachable!("command admission envelope"),
+                    },
                 }
             })?;
         Ok(CellCommandCall {
-            receiver,
-            command,
-            deadline,
-            domain: shared.domain.clone(),
+            inner: calls::Call {
+                receiver,
+                identity: command,
+                deadline,
+                domain: shared.domain.clone(),
+                failure: |id, reason| error(id, true, reason),
+            },
         })
     }
 }

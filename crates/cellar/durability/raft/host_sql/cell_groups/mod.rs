@@ -248,7 +248,7 @@ impl CellSqlReceipt {
 }
 
 // A stage error after a received worker reply cannot hide an installed producer:
-// Stage inserts pending ownership only on its successful Prepared branch.
+// Stage and Initialize insert pending ownership only on successful Prepared branches.
 // A lost reply is deliberately different and requires recovery/joined shutdown.
 pub(crate) struct CellSqlStageFailure {
     pub error: ExecutionError,
@@ -629,6 +629,39 @@ impl CellGroupSqlPool {
         attempt: CellEnrollmentAttempt,
         initialize: impl FnOnce(&CommandTransaction<'_>) -> anyhow::Result<()> + Send + 'static,
     ) -> Result<CellSqlOutcome, ExecutionError> {
+        self.initialize_owned(options, authority, attempt, initialize)
+            .await
+            .map_err(|failure| failure.error)
+    }
+
+    pub(crate) async fn initialize_owned(
+        &self,
+        options: CellSqlOptions,
+        authority: CellEnrollmentAuthority,
+        attempt: CellEnrollmentAttempt,
+        initialize: impl FnOnce(&CommandTransaction<'_>) -> anyhow::Result<()> + Send + 'static,
+    ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
+        let (cell, action) = self
+            .initialize_request(options, authority, attempt, initialize)
+            .map_err(CellSqlStageFailure::known)?;
+        let wait = self
+            .send(cell, action)
+            .map_err(CellSqlStageFailure::known)?;
+        wait.await
+            .map_err(|_| CellSqlStageFailure {
+                error: unavailable(),
+                unresolved: true,
+            })?
+            .map_err(CellSqlStageFailure::known)
+    }
+
+    fn initialize_request(
+        &self,
+        options: CellSqlOptions,
+        authority: CellEnrollmentAuthority,
+        attempt: CellEnrollmentAttempt,
+        initialize: impl FnOnce(&CommandTransaction<'_>) -> anyhow::Result<()> + Send + 'static,
+    ) -> Result<(CellHistory, worker::Action), ExecutionError> {
         self.admit()?;
         if !authority
             .state()
@@ -659,7 +692,7 @@ impl CellGroupSqlPool {
             self.inner
                 .admission
                 .reserve(&cell, authority.state().route().history, bytes)?;
-        self.call(
+        Ok((
             cell,
             worker::Action::Initialize(Box::new(worker::Initialize {
                 options,
@@ -669,8 +702,7 @@ impl CellGroupSqlPool {
                 lease,
                 bytes,
             })),
-        )
-        .await
+        ))
     }
 
     pub async fn resolve_enrollment(

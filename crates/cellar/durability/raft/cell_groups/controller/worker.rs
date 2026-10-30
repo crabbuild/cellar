@@ -31,9 +31,9 @@ pub(super) struct Worker {
     active: BTreeSet<GroupHistory>,
     jobs: FuturesUnordered<BoxFuture<'static, Completed>>,
     hints: FuturesUnordered<BoxFuture<'static, ()>>,
-    requests: tokio::sync::mpsc::Receiver<commands::Request>,
-    commands: FuturesUnordered<BoxFuture<'static, commands::Completed>>,
-    failed_command: Option<commands::Completed>,
+    requests: tokio::sync::mpsc::Receiver<requests::Request>,
+    commands: FuturesUnordered<BoxFuture<'static, requests::Completed>>,
+    failed_command: Option<requests::Completed>,
     progress: tokio::sync::watch::Sender<()>,
 }
 
@@ -44,7 +44,7 @@ impl Worker {
         transport: RaftTransport,
         sql: CellGroupSqlPool,
         roster: BTreeMap<GroupHistory, CellGroupApplier>,
-        requests: tokio::sync::mpsc::Receiver<commands::Request>,
+        requests: tokio::sync::mpsc::Receiver<requests::Request>,
         shared: Arc<Shared>,
     ) -> Self {
         Self {
@@ -125,11 +125,10 @@ impl Worker {
                         .saturating_add(self.limits.retry_interval_ms);
                 },
                 Some(request) = self.requests.recv() => {
-                    self.commands.push(Box::pin(commands::drive(request, self.runtime.clone(), self.sql.clone(), self.shared.clone(), self.progress.subscribe())));
+                    self.commands.push(Box::pin(requests::drive(request, self.runtime.clone(), self.sql.clone(), self.shared.clone(), self.progress.subscribe())));
                 }
                 Some(completed) = self.commands.next(), if !self.commands.is_empty() => {
-                    if completed.invocation.unresolved() {
-                        let error = completed.error.clone().map_or(CellGroupControllerError::Invalid("unresolved successful command"), CellGroupControllerError::Command);
+                    if let Some(error) = completed.failure() {
                         // Retain the invocation and its permit through physical
                         // shutdown even after delivering the error to its caller.
                         self.failed_command = Some(completed);

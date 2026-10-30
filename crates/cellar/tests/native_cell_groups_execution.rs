@@ -1420,3 +1420,43 @@ async fn catalog_commands_replicate_over_physical_tls() -> Result<()> {
 async fn rooted_catalog_commands_replicate_over_physical_tls() -> Result<()> {
     Box::pin(runtime_fixture::commands_over_tcp(true)).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_enrollment_survives_initializer_disconnect() -> Result<()> {
+    Box::pin(runtime_fixture::owned_enrollment(0, 0)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_enrollment_seals_late_preparation() -> Result<()> {
+    Box::pin(runtime_fixture::owned_enrollment(0, 1)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_enrollment_survives_accepted_disconnect() -> Result<()> {
+    Box::pin(runtime_fixture::owned_enrollment(1, 0)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_enrollment_resolves_after_deadline() -> Result<()> {
+    Box::pin(runtime_fixture::owned_enrollment(1, 1)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_enrollment_joins_cancelled_shutdown() -> Result<()> {
+    Box::pin(runtime_fixture::owned_enrollment(0, 2)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_enrollment_releases_completed_initializer_errors() -> Result<()> {
+    Box::pin(runtime_fixture::owned_enrollment_failure(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_enrollment_joins_lost_worker_reply() -> Result<()> {
+    Box::pin(runtime_fixture::owned_enrollment_failure(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_enrollment_requires_registered_initializer() -> Result<()> {
+    Box::pin(runtime_fixture::enrollment_requires_registration()).await
+}

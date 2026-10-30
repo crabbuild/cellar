@@ -497,7 +497,13 @@
         "crates/cellar/durability/raft/cell_groups/controller/commands.rs",
         "crates/cellar/durability/raft/execution/submission_tests.rs",
         "crates/cellar/tests/support/cell_group_controller.rs",
-        "crates/cellar/tests/support/cell_group_controller_commands.rs"
+        "crates/cellar/tests/support/cell_group_controller_commands.rs",
+        "crates/cellar/durability/raft/cell_groups/dispatch/enrollment.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/enrollments.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/calls.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/requests.rs",
+        "crates/cellar/application/consensus/class_initializer_tests.rs",
+        "crates/cellar/tests/support/cell_group_controller_enrollment.rs"
       ],
       "test_target": "native_cell_groups_execution",
       "steps": [
@@ -606,6 +612,19 @@
             "controller_owned_commands_join_cancelled_shutdown",
             "controller_owned_commands_release_completed_callback_errors",
             "controller_owned_commands_join_a_lost_sql_reply"
+          ]
+        },
+        {
+          "action": "Register initialization with an explicit digest in the class voting schema. Route immutable creation IDs and captured host inputs through the existing catalog session into the node controller. Share command/enrollment queues and admission, preserve original response deadlines, seal only never-attempted preparations and resolve the original immutable creation record after commitment or later mutations. Distinguish completed initialization errors from lost replies, join physical shutdown, and refuse unsupported S3 durability. The old public host must refuse registered initialization until its shared-runtime cutover; do not silently ignore the callback.",
+          "tests": [
+            "controller_enrollment_survives_initializer_disconnect",
+            "controller_enrollment_seals_late_preparation",
+            "controller_enrollment_survives_accepted_disconnect",
+            "controller_enrollment_resolves_after_deadline",
+            "controller_enrollment_joins_cancelled_shutdown",
+            "controller_enrollment_releases_completed_initializer_errors",
+            "controller_enrollment_joins_lost_worker_reply",
+            "controller_enrollment_requires_registered_initializer"
           ]
         }
       ],
@@ -1049,6 +1068,86 @@
         {
           "name": "controller_owned_commands_join_a_lost_sql_reply",
           "oracle": "An injected physical image-capture panic loses the stage reply. Preserve ambiguous invocation ownership through controller failure and physical SQL joins, then release admission; both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_enrollment_survives_initializer_disconnect",
+          "oracle": "Drop the response while the registered initializer is held on a real SQL worker. Retain shared command/enrollment admission, settle the original creation record after release, and return it unchanged after a later mutation. Conflicting creation IDs/incarnations refuse without callback replay in both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_enrollment_seals_late_preparation",
+          "oracle": "Expire the response while initialization is held. Seal the eventual never-attempted preparation, join private cleanup and leave the cell absent. An explicit creation retry may initialize once; both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_enrollment_survives_accepted_disconnect",
+          "oracle": "Disconnect after commitment while manifest publication is held. Retain creation ownership until exact publication, then return the same creation record without reinitialization, including after mutation; both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_enrollment_resolves_after_deadline",
+          "oracle": "Expire the response after commitment while manifest sync is held. Continue bounded creation resolution independently of the waiter, and preserve the original creation record on retry in both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_enrollment_joins_cancelled_shutdown",
+          "oracle": "Cancel controller close during a held initializer. Preserve SQL admission and engine claims until physical worker joins, then release all invocation/command retention in both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_enrollment_releases_completed_initializer_errors",
+          "oracle": "A completed initializer error rolls back private schema changes and releases invocation ownership without closing the node. Explicit same-creation retry commits once in both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_enrollment_joins_lost_worker_reply",
+          "oracle": "A physical capture panic loses the initialization reply. Keep ambiguous creation ownership through failed-controller cleanup and physical worker joins, releasing admission only afterward; both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_enrollment_requires_registered_initializer",
+          "oracle": "Refuse enrollment before routing/SQL when the namespace-bound class has no registered initializer, and release invocation admission.",
           "invariants": [
             "I01",
             "I02",

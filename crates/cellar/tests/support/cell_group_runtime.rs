@@ -701,3 +701,7 @@ pub(super) use sql::routed_commands;
 pub(super) async fn commands_over_tcp(rooted: bool) -> Result<()> {
     Box::pin(sql::commands_over_tcp(rooted)).await
 }
+
+pub(super) use sql::{
+    enrollment_requires_registration, owned_enrollment, owned_enrollment_failure,
+};

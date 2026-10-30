@@ -3,7 +3,11 @@
 //! Owns a fixed roster's consensus events, transport dispatch and physical apply.
 //! Admitted command ownership survives response cancellation and expiry.
 
+mod calls;
 mod commands;
+mod enrollments;
+mod requests;
+pub use enrollments::{CellEnrollmentAdmissionError, CellEnrollmentCall};
 mod worker;
 pub use commands::{CellCommandAdmissionError, CellCommandCall};
 
@@ -27,7 +31,8 @@ pub struct CellGroupControllerLimits {
     pub max_parallel_apply: usize,
     /// One node timer backs off transient SQL admission, never one timer per cell.
     pub retry_interval_ms: u64,
-    /// Includes queued, resolving and unconsumed command responses.
+    /// Shared by commands and enrollments, including queued work, resolution
+    /// and unconsumed responses.
     pub max_commands: usize,
     /// Invocation/input/options retention. SQL capture, apply and result bytes
     /// retain the SQL pool's independent admission as well.
@@ -41,6 +46,7 @@ pub enum CellGroupControllerError {
     Apply(Arc<ExecutionError>),
     Transport(TransportError),
     Command(Arc<super::CellCommandError>),
+    Enrollment(Arc<super::CellEnrollmentError>),
     Closed,
 }
 
@@ -77,7 +83,7 @@ struct Shared {
     limits: CellGroupControllerLimits,
     domain: crate::asyncrt::DomainToken,
     commands: Arc<crate::raft::budget::Budget>,
-    requests: tokio::sync::mpsc::Sender<commands::Request>,
+    requests: tokio::sync::mpsc::Sender<requests::Request>,
     active_apply: AtomicUsize,
     pending_apply: AtomicUsize,
     applied: AtomicU64,

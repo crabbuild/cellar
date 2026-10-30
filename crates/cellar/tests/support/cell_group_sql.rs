@@ -538,3 +538,9 @@ pub(crate) use controller_commands::{owned_command_failure, owned_commands};
 pub(super) async fn commands_over_tcp(rooted: bool) -> Result<()> {
     Box::pin(command_dispatch::commands_with_transport(rooted, true)).await
 }
+
+#[path = "cell_group_controller_enrollment.rs"]
+mod controller_enrollment;
+pub(crate) use controller_enrollment::{
+    enrollment_requires_registration, owned_enrollment, owned_enrollment_failure,
+};

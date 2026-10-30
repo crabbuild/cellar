@@ -12,16 +12,18 @@ pub use super::host_sql::cell_groups::{
 mod apply;
 mod controller;
 pub use controller::{
-    CellCommandAdmissionError, CellCommandCall, CellGroupController, CellGroupControllerError,
-    CellGroupControllerLimits, CellGroupControllerUsage,
+    CellCommandAdmissionError, CellCommandCall, CellEnrollmentAdmissionError, CellEnrollmentCall,
+    CellGroupController, CellGroupControllerError, CellGroupControllerLimits,
+    CellGroupControllerUsage,
 };
 mod dispatch;
 pub use apply::{CellGroupApplier, CellGroupApplyImages};
 pub use dispatch::{
     CellCommandError, CellCommandInvocation, CellCommandPreparation, CellCommandRequest,
     CellCommandResponse, CellCommandSettlement, CellCommandSubmission, CellDispatchError,
-    CellDispatchLimits, CellGroupDispatcher, CellQueryConsistency, CellQueryInvocation,
-    CellQueryRequest, CellQueryResponse,
+    CellDispatchLimits, CellEnrollmentError, CellEnrollmentInvocation, CellEnrollmentRequest,
+    CellGroupDispatcher, CellQueryConsistency, CellQueryInvocation, CellQueryRequest,
+    CellQueryResponse,
 };
 
 mod execution_authority;

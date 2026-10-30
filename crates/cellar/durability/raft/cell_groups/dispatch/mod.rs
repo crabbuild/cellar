@@ -3,6 +3,9 @@
 //! Catalog-bound invocations over the existing consensus and SQL owners.
 //! Routing observations never replace destination authority or ingress grants.
 
+mod enrollment;
+pub use enrollment::{CellEnrollmentError, CellEnrollmentInvocation, CellEnrollmentRequest};
+
 mod command;
 pub use command::{
     CellCommandError, CellCommandInvocation, CellCommandPreparation, CellCommandRequest,

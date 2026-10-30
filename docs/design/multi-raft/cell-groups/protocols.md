@@ -40,6 +40,10 @@ confuse a successful earlier creation with a conflict. The initial commitment is
 provenance, not a requirement to retain the superseded initial image forever.
 Snapshots and archives carry the record with the selected current cell state.
 Initialization runs on the bounded node SQL workers under actual-leader authority.
+The compiled initializer has an explicit contract digest in the class voting
+schema. It receives the logical cell history and captured host inputs through its
+private transaction. A host that cannot execute that contract must refuse the
+registration instead of silently omitting initialization.
 Reserve the logical cluster/namespace/cell name before entering the callback;
 competing incarnations must not obtain independent producer leases. Capture initial
 SQLite/LTX bytes once, carry the preparation term with the output, and check that
