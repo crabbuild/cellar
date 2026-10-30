@@ -18,6 +18,18 @@ PALETTE = {
 }
 
 VISUALS = [
+    ('design-library', 'Navigate designs and evidence',
+     'Connect contracts, implementation, acceptance cases, and retained evidence.', 'design/README.md'),
+    ('consensus-contract', 'Follow consensus proofs',
+     'Private execution, committed images, explicit reads, and archive durability.', 'design/multi-raft/README.md'),
+    ('fleet-lifecycle', 'Separate fleet authorities',
+     'Fleet intent, Raft membership, and exact-process lifecycle have distinct owners.', 'design/multi-raft/fleet-operations/README.md'),
+    ('language-invocations', 'Trace language invocation authority',
+     'Python, V8, and Node handlers use the originating native invocation.', 'design/008-embedded-javascript-typescript.md'),
+    ('typed-rpc-contract', 'Trace a named typed call',
+     'Protobuf contracts and generated registrations preserve native invocation authority.', 'design/009-named-typed-rpc.md'),
+    ('filesystem-contract', 'Compose files and business state',
+     'Invocation-bound filesystem operations share the cell transaction and durability proof.', 'design/per-cell-filesystem-design.md'),
     ('workspace-crates', 'Find the owning crate',
      'Application entry points and the internals that support them.', '03-architecture.md'),
     ('decision-loop', 'Decisions and effects',
@@ -119,6 +131,126 @@ class Diagram:
 
 def illustrations():
     drawings = {}
+
+    d = Diagram('Designs connect contracts to evidence',
+                'A design defines behavior. Implementation and named acceptance cases connect it '
+                'to exact-source evidence. Release decisions retain remaining qualification gates.', 620)
+    d.label(48, 90, 'One documentation library; each claim retains its owning source and scope.')
+    d.panel(48, 150, 264, 132, 'Design contract',
+            ['Required behavior', 'Invariants and failure semantics'], 'cyan')
+    d.panel(348, 150, 264, 132, 'Implementation',
+            ['SDK and runtime owners', 'Runnable examples and tests'], 'green')
+    d.panel(648, 150, 264, 132, 'Acceptance',
+            ['Named cases and oracles', 'Exact verification commands'], 'amber')
+    d.arrow('M312 216H348', 'cyan')
+    d.arrow('M612 216H648', 'green')
+    d.panel(348, 356, 564, 132, 'Retained evidence',
+            ['Source and executable identities; workload and topology',
+             'Passing checks, failed attempts, and remaining gates'], 'violet')
+    d.arrow('M780 282V356', 'amber')
+    d.panel(48, 356, 264, 132, 'Release decision',
+            ['Apply the declared gates', 'Retain unqualified scope'], 'rose')
+    d.arrow('M348 422H312', 'violet')
+    d.label(48, 566, 'A passing component record establishes only its recorded acceptance boundary.', size=17)
+    drawings['design-library'] = d.svg()
+
+    d = Diagram('Consensus execution and proof boundaries',
+                'The leader executes a command privately. Raft commits its history before publishing '
+                'the SQLite image. Quorum and S3 output proofs differ; reads select explicit consistency.', 660)
+    d.label(48, 90, 'Conceptual contract; later release and recovery-time qualification remains open.')
+    for x, title, body, color in [
+        (48, 'Private command', ['Exact history and command', 'Leader-owned execution'], 'cyan'),
+        (348, 'Raft commit', ['Durable voter history', 'Membership authority'], 'green'),
+        (648, 'Published image', ['Committed SQLite and LTX', 'Bound version and receipt'], 'violet'),
+    ]:
+        d.panel(x, 150, 264, 132, title, body, color)
+    d.arrow('M312 216H348', 'cyan'); d.arrow('M612 216H648', 'green')
+    d.panel(48, 386, 264, 132, 'Output proof',
+            ['Quorum: voter durability', 'S3: verified archive proof'], 'rose')
+    d.panel(348, 386, 264, 132, 'Archive recovery',
+            ['Verified image and tail', 'Retain dependencies'], 'violet')
+    d.panel(648, 386, 264, 132, 'Explicit query',
+            ['Stale or minimum-version', 'Strong: fresh quorum barrier'], 'cyan')
+    d.arrow('M780 282V386', 'violet')
+    d.arrow('M690 282V332H480V386', 'violet')
+    d.arrow('M348 452H312', 'violet')
+    d.arrow('M420 282V320H180V386', 'green')
+    d.label(48, 610, 'Archive recovery restores state; it cannot restore old votes or authorize quorum loss.', size=17)
+    drawings['consensus-contract'] = d.svg()
+
+    d = Diagram('Fleet intent, group authority, and node lifecycle',
+                'Conditional object-store records coordinate intent and capacity. Raft authorizes '
+                'membership. The node owns exact-process stop, joining, retained return, and resume.', 660)
+    d.label(48, 90, 'Selected authority boundaries; grants and live proof checks remain independent.')
+    for x, title, body, color in [
+        (48, 'Fleet catalog', ['Conditional durable intent', 'Reservations and receipts'], 'cyan'),
+        (348, 'Raft group', ['Membership and leadership', 'Fresh surviving-voter proof'], 'green'),
+        (648, 'Node owner', ['Exact boot and disk state', 'Quiescence and joined stop'], 'violet'),
+    ]:
+        d.panel(x, 150, 264, 132, title, body, color)
+    d.arrow('M312 216H348', 'cyan'); d.arrow('M612 216H648', 'green')
+    d.panel(48, 386, 264, 132, 'Prepare', ['Retain accepted work', 'Exclude new placement'], 'amber')
+    d.panel(348, 386, 264, 132, 'Stop and return', ['Independent stop consent', 'Retained engine; fresh boot'], 'violet')
+    d.panel(648, 386, 264, 132, 'Verify and resume', ['Renew physical/voter proof', 'Release only the owned slot'], 'green')
+    d.arrow('M780 282V330H180V386', 'violet')
+    d.arrow('M312 452H348', 'amber'); d.arrow('M612 452H648', 'violet')
+    d.label(48, 610, 'Unknown outcomes retain their receipts and debt; status reads do not advance operations.', size=17)
+    drawings['fleet-lifecycle'] = d.svg()
+
+    d = Diagram('Language handlers retain native invocation authority',
+                'A native invocation admits Python, V8, or Node handlers. Their bridge calls retain '
+                'the original context, cancellation, resource bounds, and durability requirements.', 610)
+    d.label(48, 90, 'TypeScript compiles before execution; runtime-specific release gates remain separate.')
+    d.panel(48, 166, 264, 132, 'Native invocation',
+            ['Domain and activation', 'Admission and cancellation'], 'cyan')
+    d.panel(348, 166, 264, 132, 'Language handler',
+            ['CPython, V8, or Node', 'Runtime-owned execution'], 'green')
+    d.panel(648, 166, 264, 132, 'Scoped SDK bridge',
+            ['Original invocation context', 'Bounded values and calls'], 'violet')
+    d.arrow('M312 232H348', 'cyan'); d.arrow('M612 232H648', 'green')
+    d.panel(348, 388, 564, 116, 'Native state and output gates',
+            ['Cell transactions, routing, recovery, and required durability proof'], 'rose')
+    d.arrow('M780 298V388', 'violet')
+    d.label(48, 562, 'Runtime selection does not grant new cell authority or extend an expired context.', size=17)
+    drawings['language-invocations'] = d.svg()
+
+    d = Diagram('Named Protobuf calls use the native cell path',
+                'Protobuf declares named methods. Generated clients and server registrations '
+                'connect calls to namespace bindings, native routing, and typed results.', 610)
+    d.label(48, 90, 'Registration and dispatch are distinct; consult the ledger for delivered API boundaries.')
+    d.panel(48, 150, 264, 132, 'Protobuf contract',
+            ['Service and method names', 'Request and response types'], 'cyan')
+    d.panel(348, 150, 264, 132, 'Generated bindings',
+            ['Clients and handlers', 'Registered cell class'], 'green')
+    d.panel(648, 150, 264, 132, 'Invocation dispatch',
+            ['Namespace and cell identity', 'Admission and native routing'], 'violet')
+    d.arrow('M312 216H348', 'cyan'); d.arrow('M612 216H648', 'green')
+    d.panel(348, 382, 564, 116, 'Typed result and effect outcome',
+            ['Retain operation identity after an ambiguous mutation reply'], 'rose')
+    d.arrow('M780 282V382', 'violet')
+    d.label(48, 558, 'A descriptor names an interface; the originating invocation supplies authority.', size=17)
+    drawings['typed-rpc-contract'] = d.svg()
+
+    d = Diagram('Files and business state share the cell transaction',
+                'An invocation accesses context.fs or tx.fs. File state and business receipts can '
+                'commit in one SQLite transaction. An explicit barrier or output gate proves durability.', 650)
+    d.label(48, 90, 'Core filesystem primitive; the optional FUSE adapter has an independent proposal.')
+    d.panel(48, 150, 264, 132, 'Invocation',
+            ['context.fs() or tx.fs()', 'Exact handle lifetime'], 'cyan')
+    d.panel(348, 150, 264, 132, 'Bounded operation',
+            ['POSIX-style SDK controls', 'Paths, quotas, typed errors'], 'green')
+    d.panel(648, 150, 264, 132, 'Cell SQLite',
+            ['File and business state', 'Atomic receipt transaction'], 'violet')
+    d.arrow('M312 216H348', 'cyan'); d.arrow('M612 216H648', 'green')
+    d.panel(48, 382, 264, 132, 'Optional mount',
+            ['Separate adapter sessions', 'Separate delivery gates'], 'slate')
+    d.panel(348, 382, 564, 132, 'Configured durability proof',
+            ['Commit first; then sync, fsync, or the owning output gate',
+             'Handle close or drop does not establish durability'], 'rose')
+    d.arrow('M780 282V382', 'violet')
+    d.arrow('M180 382V282', 'slate', dashed=True)
+    d.label(48, 602, 'Persist stable operation receipts; reopen handles in each later invocation.', size=17)
+    drawings['filesystem-contract'] = d.svg()
 
     d = Diagram('Find the crate that owns the change',
                 'Axum and administration integrate with cellar. The host uses the pure logic core, '

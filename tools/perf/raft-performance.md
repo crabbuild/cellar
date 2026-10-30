@@ -94,7 +94,7 @@ fixed active traffic. It does not test Q1's active fraction, six processes,
 database distribution or 24-hour failure/recovery requirement. Admission and
 the 4,096-group host bound are unchanged; a completed run is not a density claim.
 
-The [retained five-node runs](../../plans/multi-raft/evidence/MR-14-five-node-progress.json)
+The [retained five-node runs](../../docs/design/multi-raft/evidence/MR-14-five-node-progress.json)
 at source `bd7868f` use those unmodified profiles:
 
 | Acknowledgement | Completed / offered | Overall p99 | Command p99 | Follower-query p99 | Generator rejections |
@@ -111,7 +111,7 @@ Colima profiles. They do not establish steady state, a capacity ceiling or an
 equivalent-guarantee speedup. The independent comparison refuses a ratio between
 Quorum and S3 contracts.
 
-The [archive wake-up runs](../../plans/multi-raft/evidence/MR-14-wakeup-progress.json)
+The [archive wake-up runs](../../docs/design/multi-raft/evidence/MR-14-wakeup-progress.json)
 repeat the same profiles after removing maintenance-timer waits. Subsequent runs
 use the original cached image and then the fixed image again; all observations
 remain visible:
@@ -197,7 +197,7 @@ into a successful workload run.
 
 ## Current density qualification
 
-The [paired 1,500-cell sequence](../../plans/multi-raft/evidence/MR-14-repeat-progress.json)
+The [paired 1,500-cell sequence](../../docs/design/multi-raft/evidence/MR-14-repeat-progress.json)
 uses the same immutable image built at `f96a94b`, with compiled-source-equivalent
 checkout `70c5695`. Five nodes retain one CPU and 3 GiB each, with 900 replicas
 per node. Thirty cells are active at ten offered operations per second. Healthy
@@ -294,7 +294,7 @@ spans distinguish the location of a wait; they do not explain its cause or
 override the original probe outcome. HTTP error response bodies are explicitly
 closed, including when reading the error body times out.
 
-The [first stage-timed pair](../../plans/multi-raft/evidence/MR-14-probe-progress.json)
+The [first stage-timed pair](../../docs/design/multi-raft/evidence/MR-14-probe-progress.json)
 at `17fd0b1` completes the slow-follower schedule and verifies 4,500 replicas and
 archive coverage, while missing the unchanged traffic targets (304.107 ms p99,
 24 rejected arrivals). Its 696 probes all correlate with server observations.
@@ -312,7 +312,7 @@ Use the source-pinned analyzer for earlier report packages; fresh reports must
 declare their scenario and fault evidence explicitly. This experiment does not
 qualify disk-only stalls, partitions, crashes, Fleet/bucket fault handling or soak.
 
-The [retained controlled runs](../../plans/multi-raft/evidence/MR-14-slow-follower-progress.json)
+The [retained controlled runs](../../docs/design/multi-raft/evidence/MR-14-slow-follower-progress.json)
 at `97d00b4` use the unchanged five-node profiles and 116 observation cycles:
 
 | Acknowledgement | Scenario | Completed / offered | Overall p99 | Traffic targets |
@@ -361,7 +361,7 @@ eight sequential S3 commands through the public Node and real SQLite/LTX paths.
 Only the host maintenance interval is stretched to one second. The original
 implementation fails the four-second aggregate bound; both wakeups pass 20
 consecutive repetitions. This amplified scheduling check is not a deployment
-latency target. The [wake-up evidence](../../plans/multi-raft/evidence/MR-14-wakeup-progress.json)
+latency target. The [wake-up evidence](../../docs/design/multi-raft/evidence/MR-14-wakeup-progress.json)
 retains the failed probes, passing regressions and fresh physical observations.
 
 ## Fleet and bucket reference adapters
@@ -473,13 +473,13 @@ read or receipt guarantees equal. `compare_runs.py` includes the fault profile
 for every adapter and continues to refuse a throughput ratio when any required
 contract differs. The runner implementation is tested with local Python
 fixtures. The
-[source-pinned harness evidence](../../plans/multi-raft/evidence/MR-14-store-fault-progress.json)
+[source-pinned harness evidence](../../docs/design/multi-raft/evidence/MR-14-store-fault-progress.json)
 retains those test results and explicitly records zero physical runs in that
 implementation component. The subsequent physical matrix is recorded separately.
 
 ### Physical store-outage matrix
 
-The [eight physical runs](../../plans/multi-raft/evidence/MR-14-store-physical-progress.json)
+The [eight physical runs](../../docs/design/multi-raft/evidence/MR-14-store-physical-progress.json)
 at source `1391e94` use one fresh image, three 1-vCPU/3-GiB/no-swap Cellar nodes,
 RustFS, 12 active cells, five seconds of warmup and 20 seconds at 10 offered
 operations per second. Each outage has two one-second store pauses within the
@@ -558,7 +558,7 @@ failure phase remain visible in the report; recovery-phase errors must be zero.
 Healthy and short-outage proof-error requirements remain unchanged. These
 serialized receipt checks do not replace MR-15's concurrent history checker.
 
-The [physical recovery evidence](../../plans/multi-raft/evidence/MR-14-recovery-progress.json)
+The [physical recovery evidence](../../docs/design/multi-raft/evidence/MR-14-recovery-progress.json)
 retains four attempts with the original three-node, 12-cell workload and SLOs:
 
 | Source | Policy / attempt | Recovery result | Measurement completed / offered |
@@ -627,7 +627,7 @@ and `traffic_objectives_met` remain false; `compare_runs.py` refuses performance
 ratios for these drills even when all recovery checks pass. Fresh images include
 the native public lease generation in startup evidence.
 
-The [physical restart evidence](../../plans/multi-raft/evidence/MR-14-restart-progress.json)
+The [physical restart evidence](../../docs/design/multi-raft/evidence/MR-14-restart-progress.json)
 pins two fresh runs to source `aaa83f8` and one image. Each run proves all three
 fences, fresh lease generations, 36 pre-retry owner reads, eight original-identity
 recoveries with confirmation, twelve new writes and 36 final owner reads. All
@@ -671,7 +671,7 @@ current analyzer requires these observations; historical runs must use their
 pinned analyzer, and their missing measurements cannot become zero values.
 
 The fixed engine/SQL, object API, transport and controller vocabulary and byte meanings are documented in the
-[operations design](../../plans/multi-raft/operations-design.md#performance-observations).
+[operations design](../../docs/design/multi-raft/operations-design.md#performance-observations).
 Histograms include all measured outcomes with available timing. Their p50/p95/
 p99/p99.9 values are inclusive bucket upper bounds; null means no samples or a
 quantile in the unbounded final bucket, distinguished by count and buckets.
@@ -699,7 +699,7 @@ frames; it is not a per-frame latency or a durable acknowledgement. The analyzer
 requires all six new operations. Older evidence uses its pinned analyzer;
 missing observations are never filled with zeros. These timings provide a
 diagnostic boundary, not proof of the existing density slowdown's cause or fix.
-The [timing validation](../../plans/multi-raft/evidence/MR-14-transport-timing-progress.json)
+The [timing validation](../../docs/design/multi-raft/evidence/MR-14-transport-timing-progress.json)
 at `87ed5d6` includes 96 Raft unit cases, 20 native reads/replication cases and
 20 native operations cases. Real TLS tests separate queued frames from held
 exchanges and retain failure/cancellation outcomes. The operations fixture
@@ -745,7 +745,7 @@ coverage on three embedded nodes, not replacement throughput or an SLO.
 The native archive producer can coalesce snapshot/tail payloads for two cells in
 one bounded object. The bundle index binds each exact history; recovery verifies
 the object and physically replays the selected cell before its independent head
-publication. The [native evidence](../../plans/multi-raft/evidence/MR-14-archive-bundle-progress.json)
+publication. The [native evidence](../../docs/design/multi-raft/evidence/MR-14-archive-bundle-progress.json)
 covers lost PUT responses, partial head failure, isolated restores and corruption
 refusal; it retains the failing scheduling diagnostic and its repair. This
 requires fresh experimental roots under the `/bundles-1` protocol identity;
@@ -797,5 +797,5 @@ latency qualification. The owned test profile was stopped after evidence
 capture; its disks and logs remain available.
 
 The portable evidence capsule and source/test pins are recorded in
-`plans/multi-raft/evidence/MR-14-performance-progress.json`. Earlier failed
+`docs/design/multi-raft/evidence/MR-14-performance-progress.json`. Earlier failed
 objectives are retained alongside later results.

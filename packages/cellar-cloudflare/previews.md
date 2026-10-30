@@ -96,7 +96,7 @@ Concurrency callbacks may issue queued controls; the native input gate remains
 held until those controls settle. Transaction callbacks, including nested blocks,
 still refuse admission before effects.
 Asynchronous alarm controls yield while native callback admission is held. The
-[overlapping callback/alarm regression](../../plans/sandbox-provider-progress.md#resolved-callbackalarm-qualification-failure)
+[overlapping callback/alarm regression](../../docs/design/sandbox-provider-progress.md#resolved-callbackalarm-qualification-failure)
 passes with the original stop barrier; the complete callback profile remains open.
 
 The same published preview helper now forwards WebSocket upgrades through Worker,

@@ -71,7 +71,7 @@ submitted producer. Native HTTP and Axum can call those same handles; see the
 [Raft counter](../../../examples/raft-counter/README.md). S3 archive and stronger
 read-consistency requests are refused until their work packages are implemented.
 The full delivery status is recorded in
-[MR-07](../../../plans/multi-raft/implementation-plan.md).
+[MR-07](../../../docs/design/multi-raft/implementation-plan.md).
 
 Within each component, private modules separate values, codecs and validation
 from runtime operations. Pass clocks and budgets explicitly to value helpers;

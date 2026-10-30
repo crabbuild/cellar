@@ -17,7 +17,7 @@ for your deployment.
 | 1,000-cell embedded report | Local embedding and recovered acknowledged writes | Earlier failures and bounded environment retained in report |
 | 10,000-cell reference | All cells written; 34,230 / 23,314 final acknowledged writes; 14 complete stop proofs | Earlier image; one VM/disk/RustFS; small overwrites; between-phase failures |
 | 2026-10-12 zero-cache 1,000-cell report | Exactly 64 tracked records; 9,284 acknowledgements recovered; Preserve proofs | Narrow routing/recovery scenario, not whole-process memory bound |
-| [Large-cell recovery work](../plans/multi-raft/010-large-cell-recovery-time.md) | Full-size pilots, source-bound smaller trials, recovery phase ledger and strict analyzer | Not a production 10 GB percentile or hard-crash qualification |
+| [Large-cell recovery work](design/multi-raft/010-large-cell-recovery-time.md) | Full-size pilots, source-bound smaller trials, recovery phase ledger and strict analyzer | Not a production 10 GB percentile or hard-crash qualification |
 | This documentation set | Guides, source map, interactive diagrams and readiness criteria | No deployment certification or claimed production benchmark |
 
 Read [sources.md](sources.md) for direct reports and source/image provenance.
@@ -52,7 +52,7 @@ reviewer and scope. Assign application-specific thresholds before the run.
 The 10 GB recovery implementation is not yet qualified for a production RTO
 promise. Complete-local extent restoration and bounded streaming are implemented;
 their passing pilots do not close the remaining implementation and qualification
-work. [Plan 010](../plans/multi-raft/010-large-cell-recovery-time.md) records the
+work. [Plan 010](design/multi-raft/010-large-cell-recovery-time.md) records the
 source identities, failed attempts, measured intervals and proposed targets.
 
 | Remaining gate | Evidence required before release |

@@ -37,7 +37,7 @@ embedded in the executable; verified native packages can distribute and restore
 the runtime/package closure. External OS libraries remain platform prerequisites.
 The integration decision is recorded in [ADR 004](004-embedded-python.md).
 This is not an isolation mechanism for untrusted code. See the
-[design and outstanding qualification](../../plans/007-embedded-python-pyo3.md).
+[design and outstanding qualification](../design/007-embedded-python-pyo3.md).
 
 ## Optional JavaScript/TypeScript adapter (2026-10-22)
 

@@ -156,7 +156,7 @@ task HTTP request. They also download real S3 LTX objects, record SHA-256
 digests, verify a new ownership epoch, and assert that no local `bucket.sqlite`
 exists. Duplicate submissions must preserve receipts and provider-call counts.
 The deterministic suite also verifies 16 concurrent turns and 32 duplicates.
-The [RustFS qualification](../../plans/vercel-agent-rustfs-qualification.md)
+The [RustFS qualification](../../docs/design/vercel-agent-rustfs-qualification.md)
 records the live results and their limits.
 
 ## Tool contracts
@@ -309,7 +309,7 @@ reuses saved tool receipts, and leaves the counter at 13 and ticket count at one
 Live tests require nonzero provider usage. `CELLAR_AI_TEST_REPORT` optionally
 writes a JSON report containing synthetic task conversations and usage, never
 credentials. Keep these reports outside source control.
-See the [recorded live qualification](../../plans/vercel-agent-live-qualification.md)
+See the [recorded live qualification](../../docs/design/vercel-agent-live-qualification.md)
 for results and scope. [CI](../../.github/workflows/javascript-sdk.yml) runs the
 credential-free suites; it never enables paid tests automatically.
 

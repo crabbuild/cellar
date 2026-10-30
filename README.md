@@ -198,7 +198,7 @@ Pick a working example for the part you need:
 
 See the [full example catalog](examples/README.md) for more recipes.
 Event-delivery work and its remaining qualification gates are tracked in the
-[implementation status](plans/outbox-implementation-status.md).
+[implementation status](docs/design/outbox-implementation-status.md).
 
 ## Package and deploy
 
@@ -241,6 +241,7 @@ integration, fleet administration and runtime internals:
 | Owning the runtime in your application | [Embedding](docs/10-embedding.md) |
 | Running and recovering a fleet | [Operations](docs/17-operations.md), [recovery](docs/18-recovery-backup.md) |
 | Evidence and remaining release gates | [Production readiness](docs/21-production-readiness.md) |
+| Technical contracts, delivery plans, and qualification records | [Design library](docs/design/README.md) |
 
 The [documentation library](docs/README.md) contains the full guides. Open the
 [visual explorer](docs/index.html) locally for crate maps, hosting and lifetime

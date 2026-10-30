@@ -72,4 +72,4 @@ routing/storage/credential policy. They cannot inherit a pass from basic exec.
 Sandbox 1.x, Dynamic Workers, hosted Cloudflare execution and Vercel/E2B/Daytona/
 Modal are separate profiles or providers. This inventory makes no claim that
 those SDKs execute unchanged or that all provider capabilities are equivalent.
-See the [implementation ledger](../../../plans/sandbox-provider-progress.md).
+See the [implementation ledger](../../../docs/design/sandbox-provider-progress.md).

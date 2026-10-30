@@ -166,8 +166,8 @@ runs published directory backup/restore/delete through that profile.
 | Native/Workers facade | Broader TLS/client/fault qualification, trailers/upgrades and full profile acceptance beyond the optional native HTTP/HTTPS routes |
 | Published Sandbox | S3 mounts and full backup failure/restart/grant lifetime qualification beyond selected matching-image backup/restore/delete |
 
-See the [delivery plan](../../plans/sandbox-provider-compatibility.md),
-[progress ledger](../../plans/sandbox-provider-progress.md),
+See the [delivery plan](../../docs/design/sandbox-provider-compatibility.md),
+[progress ledger](../../docs/design/sandbox-provider-progress.md),
 [Cloudflare interception contract](https://developers.cloudflare.com/containers/api/durable-object-container/)
 and [Yamux driver contract](https://docs.rs/yamux/0.14.1/yamux/).
 DNS parsing uses the pinned [Hickory protocol library](https://docs.rs/hickory-proto/0.26.3/hickory_proto/).

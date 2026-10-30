@@ -14,7 +14,7 @@ Current failure injection cancels and joins the owner execution domain, then
 erases its entire fixture-owned data directory. It is **not** a hard OS-process
 kill. A successful pilot never qualifies a hard-crash recovery-time guarantee.
 Public extent recovery and demand loading remain implementation work in the
-[recovery-time strategy](../../plans/multi-raft/010-large-cell-recovery-time.md).
+[recovery-time strategy](../../docs/design/multi-raft/010-large-cell-recovery-time.md).
 
 `--storage extents` selects the public extent inventory and authenticated root
 seed path. It uses the same preloaded template, logical quota, live membership

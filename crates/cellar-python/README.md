@@ -34,7 +34,7 @@ One native Cellar process
 | Run a counter with Pydantic, NumPy, alarms, and bindings | [Runnable Python example](../../examples/python/README.md) |
 | Serve a framework application | [FastAPI order service](../../examples/python-fastapi/README.md), using an example-only buffered ASGI transport |
 | Persist model/tool steps and resume after restart | [PydanticAI agent](../../examples/python-agent/README.md) |
-| Call named business methods across Rust, Python, JS and TS | [Typed RPC fixtures and all-backend harness](../../tools/rpc/README.md), with qualification [status](../../plans/named-typed-rpc/implementation-status.md) |
+| Call named business methods across Rust, Python, JS and TS | [Typed RPC fixtures and all-backend harness](../../tools/rpc/README.md), with qualification [status](../../docs/design/named-typed-rpc/implementation-status.md) |
 | Deliver a verified runtime and dependencies | [Environment build/install workflow](../../tools/python/README.md) |
 | Measure latency, throughput, memory, and recovery | [Baseline harness](../../tools/python/baseline.md) |
 | Work on scheduling, cleanup, or telemetry | [Runtime internals and diagnostics](runtime/README.md) |
@@ -541,7 +541,7 @@ writes and commits. A completed call may already have committed, and earlier
 synced writes survive.
 Cancellation never authorizes an automatic retry. Full lifecycle qualification
 remains tracked in the
-[RPC ledger](../../plans/named-typed-rpc/implementation-status.md).
+[RPC ledger](../../docs/design/named-typed-rpc/implementation-status.md).
 
 ### Bound a typed call, including its codecs
 
@@ -862,7 +862,7 @@ repeated probes does not explain or close an earlier intermittent failure.
 
 Use the [baseline harness](../../tools/python/baseline.md) for performance and the
 [fleet fixture](../../tools/python/fleet.md) for deployment/recovery qualification.
-[Plan 007](../../plans/007-embedded-python-pyo3.md#implementation-milestones-and-acceptance-gates)
+[Plan 007](../../docs/design/007-embedded-python-pyo3.md#implementation-milestones-and-acceptance-gates)
 tracks the remaining acceptance gates; local checks do not establish production
 fleet qualification.
 

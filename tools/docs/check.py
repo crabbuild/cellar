@@ -4,6 +4,7 @@
 """Validate real local documentation links, catalog coverage and SVG references."""
 import json
 from html.parser import HTMLParser
+import os
 from pathlib import Path
 import re
 import sys
@@ -82,7 +83,17 @@ def main():
     for manifest in (ROOT / 'crates').glob('*/Cargo.toml'):
         if not manifest.with_name('README.md').is_file():
             ERRORS.append(f'{manifest.parent.relative_to(ROOT)}: missing crate README')
-    for path in [ROOT / 'README.md', *crate_readmes, *DOCS.rglob('*.md')]:
+    linked_guides = set()
+    for directory in ('crates', 'tools', 'examples', 'packages'):
+        for folder, dirs, files in os.walk(ROOT / directory):
+            dirs[:] = [name for name in dirs if name not in
+                       {'node_modules', 'target', '.cellar', '.venv', '__pycache__'}]
+            for name in files:
+                path = Path(folder) / name
+                if path.suffix == '.md' and 'docs/design/' in path.read_text():
+                    linked_guides.add(path)
+    for path in sorted({ROOT / 'README.md', ROOT / 'AGENTS.md', *crate_readmes,
+                        *DOCS.rglob('*.md'), *linked_guides}):
         prose = re.sub(r'```.*?```', '', path.read_text(), flags=re.S)
         for raw in re.findall(r'!?\[[^\]]*\]\(([^)]+)\)', prose):
             check_link(path, raw)

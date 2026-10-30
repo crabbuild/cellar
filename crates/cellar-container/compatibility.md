@@ -65,8 +65,8 @@ establish automatic cleanup on owner loss or node shutdown.
 Portable E2B/Vercel support does not establish Vercel/E2B SDK compatibility or
 Cloudflare Workers/Containers/Sandbox conformance. The direct providers also
 refuse the Workers lifecycle profile's required synchronous/queued opt-ins.
-See the [complete delivery plan](../../plans/sandbox-provider-compatibility.md)
-and [evidence ledger](../../plans/sandbox-provider-progress.md).
+See the [complete delivery plan](../../docs/design/sandbox-provider-compatibility.md)
+and [evidence ledger](../../docs/design/sandbox-provider-progress.md).
 
 
 ## Production readiness
@@ -78,14 +78,14 @@ capability discovery and preserve their pre-effect refusal.
 
 | Release requirement | Current boundary |
 | --- | --- |
-| User production targets | Elastic named sandbox allocation, no invented global lifetime, 64/256 MiB transfer qualification and 60–300 second recovery remain acceptance work; see [targets](../../plans/sandbox-provider-compatibility.md#production-targets-supplied-by-the-user) |
+| User production targets | Elastic named sandbox allocation, no invented global lifetime, 64/256 MiB transfer qualification and 60–300 second recovery remain acceptance work; see [targets](../../docs/design/sandbox-provider-compatibility.md#production-targets-supplied-by-the-user) |
 | Exact operation/version/isolation inventory | Input manifests and this matrix exist; complete release results remain open |
 | Local Cloudflare APIs | Selected baseline and 1.0.3 operations pass; full Containers/Workers/Sandbox API and lifecycle qualification remains partial |
 | Storage and ownership failures | Selected native restart, expiry, orphan and lost-response cases pass; broader outage/partition, physical deletion, multipart and takeover acceptance remains open |
-| Runtime/resource gates | Local selected tests pass; unresolved [runtime/RPC qualification boundaries](../../plans/named-typed-rpc/implementation-status.md#next-implementation-boundaries), Linux/platform gates and saturation/soak remain required |
+| Runtime/resource gates | Local selected tests pass; unresolved [runtime/RPC qualification boundaries](../../docs/design/named-typed-rpc/implementation-status.md#next-implementation-boundaries), Linux/platform gates and saturation/soak remain required |
 | Cloud providers | E2B/Vercel live configuration and account/image qualification are pending; other planned providers require implementation |
 | Operations | Qualified helper/image packaging, upgrades, deployment bounds and joined shutdown across the release matrix remain required |
 
-The [full delivery plan](../../plans/sandbox-provider-compatibility.md#next-feature-priorities)
-and [current evidence ledger](../../plans/sandbox-provider-progress.md#production-acceptance-still-required)
+The [full delivery plan](../../docs/design/sandbox-provider-compatibility.md#next-feature-priorities)
+and [current evidence ledger](../../docs/design/sandbox-provider-progress.md#production-acceptance-still-required)
 track the remaining work without promoting partial fixtures into full conformance.

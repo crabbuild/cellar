@@ -75,7 +75,7 @@ Compiled applications can opt into one node-owned Raft cell host through
 the daemon resolves the active compiled application and binds SDK handles before
 public ingress. Run with an absolute persistent `--data-dir`, retain claimed
 disks, and restart the process for deployment changes. See the
-[production Raft startup contract](../../plans/multi-raft/operations-design.md#production-cli-startup)
+[production Raft startup contract](../../docs/design/multi-raft/operations-design.md#production-cli-startup)
 for startup failure, cancellation, resume and qualification boundaries.
 
 ## Find the implementation

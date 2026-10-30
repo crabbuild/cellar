@@ -7,12 +7,12 @@ a queued message, a workflow step or a published event. Use the comparison below
 to select a mechanism, then define its retry, deduplication and external-effect
 contract.
 
-The [transactional outbox and durable event delivery design](../plans/002-outbox-streams-subscriptions.md)
+The [transactional outbox and durable event delivery design](design/002-outbox-streams-subscriptions.md)
 has a native implementation under development: `db.tx`/`tx.emit`, ordered stream
 reads, resumable subscription leases and atomic consumer inbox receipts. The
 [stream example](../examples/durable-streams/README.md) runs those APIs through a
 bucket-backed node. Open fleet/release qualifications remain explicit in the
-[implementation status](../plans/outbox-implementation-status.md); this is not a
+[implementation status](design/outbox-implementation-status.md); this is not a
 released production guarantee.
 
 ![Interactive asynchronous delivery](diagrams/async-flow.svg)

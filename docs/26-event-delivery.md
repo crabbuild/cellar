@@ -7,7 +7,7 @@ obligation. Use a durable stream for ordered history and independent consumers.
 Use a subscription when a consumer needs a durable checkpoint and leased work.
 These primitives share identities and proof boundaries, but each has a distinct
 job. Their implementation is under development; the
-[qualification ledger](../plans/outbox-implementation-status.md) records open gates.
+[qualification ledger](design/outbox-implementation-status.md) records open gates.
 
 [Choose an API](#choose-the-right-surface) ·
 [Configure](#declare-and-resolve-once) ·

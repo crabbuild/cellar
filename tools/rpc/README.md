@@ -2,8 +2,8 @@
 
 # Named RPC codec and qualification tools
 
-Implementation of [plan 009](../../plans/009-named-typed-rpc.md) is in progress.
-The [status ledger](../../plans/named-typed-rpc/implementation-status.md) records
+Implementation of [plan 009](../../docs/design/009-named-typed-rpc.md) is in progress.
+The [status ledger](../../docs/design/named-typed-rpc/implementation-status.md) records
 the delivered boundaries and remaining language/fleet tests.
 
 ## Invocation-owned provider policy
@@ -400,7 +400,7 @@ and Node 24+ on PATH:
 
 ```sh
 npm ci --prefix tools/rpc --ignore-scripts
-protoc -I plans/named-typed-rpc --include_imports \
+protoc -I docs/design/named-typed-rpc --include_imports \
   --descriptor_set_out=tools/rpc/fixtures/counter.binpb counter.proto
 cargo run --locked -p cellar-rpc-codegen -- \
   --descriptor tools/rpc/fixtures/counter.binpb \
@@ -629,7 +629,7 @@ produces deliberately stale V8/Node entries; real runtime startup must refuse
 them before admitting the host callback. Python's cold runner check refuses a
 stale provider without invoking its constructor, and a stale client never
 reaches serialization or submission. Static binding validation remains a
-separate gate. See the [projection contract](../../plans/named-typed-rpc/registration-and-dispatch.md#structural-projection).
+separate gate. See the [projection contract](../../docs/design/named-typed-rpc/registration-and-dispatch.md#structural-projection).
 
 ## Python
 

@@ -151,5 +151,5 @@ The provider does not emulate the Vercel SDK's automatic persistence/resume poli
 | Live Vercel VM, expiry/orphans, ownership takeover | Still required; manifest qualification remains `not_run` |
 
 See the [fixture commands](../../tools/sandbox/vercel/README.md) and
-[implementation ledger](../../plans/sandbox-provider-progress.md). A local peer
+[implementation ledger](../../docs/design/sandbox-provider-progress.md). A local peer
 and helper test do not establish live-cloud or full Workers/Sandbox compatibility.

@@ -74,7 +74,7 @@ do not establish in-flight network-partition or ambiguous-acknowledgment recover
 Any newer result must identify its exact code and image before it can qualify
 a release.
 
-For the experimental native 10 GB Raft path, [Plan 010](../plans/multi-raft/010-large-cell-recovery-time.md#targets-and-measurement-contract)
+For the experimental native 10 GB Raft path, [Plan 010](design/multi-raft/010-large-cell-recovery-time.md#targets-and-measurement-contract)
 sets proposed p95 targets of 120 seconds for complete cold recovery, with a
 60-second stretch, and 30 seconds for a declared hot workload under incremental
 activation. None is qualified. The timer includes failure detection, replacement

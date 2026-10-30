@@ -76,7 +76,7 @@ Named, typed unary RPC is implemented and under cross-language qualification.
 Protobuf generates `CounterClient` methods, handler interfaces and explicit
 registrations; RPC-only cells do not need a dummy `fetch`. The
 [runnable RPC fixtures](../../tools/rpc/README.md) exercise Rust/V8/Node pairs and
-receipt recovery. See the [implementation ledger](../../plans/named-typed-rpc/implementation-status.md)
+receipt recovery. See the [implementation ledger](../../docs/design/named-typed-rpc/implementation-status.md)
 for remaining fleet, schema validation, packaging and performance gates.
 
 Embedded V8 installs `TextEncoder` and `TextDecoder` before bundle evaluation,
@@ -118,7 +118,7 @@ using a stopped-provider view. They do not qualify the unchanged upstream HTTP/
 RPC applications, container startup/monitor/hooks, the Sandbox image or a cloud
 provider. Real-node fixtures verify native input admission and failure/reset;
 full versioned lifetime/deadline profiles and remaining runtime APIs stay
-in the [delivery ledger](../../plans/sandbox-provider-progress.md).
+in the [delivery ledger](../../docs/design/sandbox-provider-progress.md).
 
 ## Write an application
 
@@ -464,7 +464,7 @@ queue budget. Node old-space limits apply per isolate, including this worker;
 they do not bound total process memory. The application event-loop watchdog
 stays active during a wait.
 This plumbing is preparation for the
-[Cloudflare compatibility profile](../../plans/sandbox-provider-progress.md),
+[Cloudflare compatibility profile](../../docs/design/sandbox-provider-progress.md),
 not a published Workers/DO API or full package compatibility. Normal Cellar
 application code continues to use the typed asynchronous storage facade.
 
@@ -545,7 +545,7 @@ before importing the application. Cancellation never promises rollback, and
 synced writes remain committed. The signed two-node fixture now tests guest
 remote/nested deadlines, receiver caps, slow codecs and Node control queueing.
 Broader proof/lifecycle waits, dependency cycles and cancellation qualification
-remain in the [RPC ledger](../../plans/named-typed-rpc/implementation-status.md).
+remain in the [RPC ledger](../../docs/design/named-typed-rpc/implementation-status.md).
 
 ## Limits, errors, and shutdown
 
@@ -773,9 +773,9 @@ production multi-node fault or performance qualification.
 | [cellar-guest](../cellar-guest/README.md) | Shared native operation validation, storage batches, and failure envelopes. |
 
 For design context, see [ADR 005](../../docs/adr/005-embedded-javascript.md) and
-[delivery gates](../../plans/008-embedded-javascript-typescript.md). For repeatable
+[delivery gates](../../docs/design/008-embedded-javascript-typescript.md). For repeatable
 measurements, use the [bridge benchmark](../../tools/perf/javascript/README.md)
-and read its [recorded results and limits](../../plans/javascript-bridge-performance-2026-10-22.md).
+and read its [recorded results and limits](../../docs/design/javascript-bridge-performance-2026-10-22.md).
 
 A Rust host can select another container or sandbox backend with
 `Source::container_provider(Arc<dyn Provider>)`; see

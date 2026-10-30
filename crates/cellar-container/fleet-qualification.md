@@ -2,7 +2,7 @@
 
 # Fleet recovery and cleanup qualification
 
-[Allocation guide](allocations.md) · [Delivery ledger](../../plans/sandbox-provider-progress.md)
+[Allocation guide](allocations.md) · [Delivery ledger](../../docs/design/sandbox-provider-progress.md)
 
 This campaign measures each named sandbox from **injected owner failure to a
 successful read of its original identity and file**. The acceptance ceiling is

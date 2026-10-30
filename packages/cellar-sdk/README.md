@@ -95,7 +95,7 @@ The [session agent example](../../examples/filesystem-agent/README.md) demonstra
 follow-up turns sharing one cell's files. Runtime capabilities expose effective
 transfer/helper/directory limits and transport ceilings; whole-file helpers and
 tool journals are bounded independently of file size. The release
-[status ledger](../../plans/per-cell-filesystem-implementation-status.md) records
+[status ledger](../../docs/design/per-cell-filesystem-implementation-status.md) records
 remaining qualification.
 
 ## Named, typed business methods
@@ -257,7 +257,7 @@ Use the parent's operation receipt to resolve the mutation before retrying.
 See the [runnable Counter](../../tools/rpc/README.md)
 for the schema, complete receipt-based business implementation, generated JS/TS
 interfaces, host registration and real-node tests. Full fleet and failure
-qualification is [still in progress](../../plans/named-typed-rpc/implementation-status.md).
+qualification is [still in progress](../../docs/design/named-typed-rpc/implementation-status.md).
 
 ## Install and build
 
