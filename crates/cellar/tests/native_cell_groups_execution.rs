@@ -1340,3 +1340,18 @@ async fn catalog_routed_commands_preserve_producer_and_receipts() -> Result<()> 
 async fn rooted_catalog_routed_commands_preserve_producer_and_receipts() -> Result<()> {
     Box::pin(runtime_fixture::routed_commands(true)).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn physical_group_transport_multiplexes_real_raft() -> Result<()> {
+    Box::pin(runtime_fixture::physical_transport()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn catalog_commands_replicate_over_physical_tls() -> Result<()> {
+    Box::pin(runtime_fixture::commands_over_tcp(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_catalog_commands_replicate_over_physical_tls() -> Result<()> {
+    Box::pin(runtime_fixture::commands_over_tcp(true)).await
+}

@@ -5,7 +5,12 @@
 use super::*;
 use std::collections::BTreeMap;
 
+#[path = "cell_group_tcp.rs"]
+mod tcp;
+pub(super) use tcp::physical_transport;
+
 struct RuntimeCluster {
+    transports: Vec<RaftTransport>,
     appliers: BTreeMap<(usize, GroupHistory), (CellGroupSqlPool, CellGroupApplier)>,
     cluster: Cluster,
     runtimes: Vec<CellGroupRuntime>,
@@ -66,6 +71,7 @@ impl RuntimeCluster {
         }
         let applied = BTreeMap::from([(cluster.birth.route().history, applied)]);
         Ok(Self {
+            transports: Vec::new(),
             appliers: BTreeMap::new(),
             cluster,
             runtimes,
@@ -129,6 +135,16 @@ impl RuntimeCluster {
             }
         }
         let messages = std::mem::take(&mut self.network);
+        if !self.transports.is_empty() {
+            for (history, message) in messages {
+                let transport = &self.transports[message.from as usize - 1];
+                transport
+                    .submit_physical(&history, message)?
+                    .accepted()
+                    .await?;
+            }
+            return Ok(());
+        }
         let runtimes = &self.runtimes;
         for (scope, message, result) in futures_util::future::join_all(messages.into_iter().map(
             |(scope, message)| async move {
@@ -200,6 +216,10 @@ impl RuntimeCluster {
     }
 
     async fn close(self) -> Result<()> {
+        for transport in &self.transports {
+            transport.close().await;
+        }
+        drop(self.transports);
         for (pool, _) in self.appliers.values() {
             pool.close().await?;
         }
@@ -673,3 +693,7 @@ pub(super) use sql::registered_queries;
 pub(super) use sql::routed_queries;
 
 pub(super) use sql::routed_commands;
+
+pub(super) async fn commands_over_tcp(rooted: bool) -> Result<()> {
+    Box::pin(sql::commands_over_tcp(rooted)).await
+}

@@ -409,6 +409,18 @@ impl CellGroupOwner {
         Ok(())
     }
 
+    pub(super) fn report_unreachable(&mut self, member: u64) -> Result<(), RuntimeError> {
+        self.live()?;
+        if self.phase.is_some() {
+            return Err(RuntimeError::NotReady);
+        }
+        if member == 0 || self.node.raft.prs().get(member).is_none() {
+            return Err(RuntimeError::Protocol("unknown unreachable member".into()));
+        }
+        self.node.report_unreachable(member);
+        Ok(())
+    }
+
     pub fn step(&mut self, message: Message) -> Result<(), RuntimeError> {
         self.live()?;
         if self.phase.is_some() {

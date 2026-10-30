@@ -487,7 +487,10 @@
         "crates/cellar/durability/raft/cell_groups/dispatch/mod.rs",
         "crates/cellar/tests/support/cell_group_sql_dispatch.rs",
         "crates/cellar/durability/raft/cell_groups/dispatch/command.rs",
-        "crates/cellar/tests/support/cell_group_sql_command_dispatch.rs"
+        "crates/cellar/tests/support/cell_group_sql_command_dispatch.rs",
+        "crates/cellar/durability/raft/transport_runtime.rs",
+        "crates/cellar/durability/raft/transport_shared.rs",
+        "crates/cellar/tests/support/cell_group_tcp.rs"
       ],
       "test_target": "native_cell_groups_execution",
       "steps": [
@@ -570,6 +573,14 @@
           "tests": [
             "catalog_routed_commands_preserve_producer_and_receipts",
             "rooted_catalog_routed_commands_preserve_producer_and_receipts"
+          ]
+        },
+        {
+          "action": "Connect physical group histories to the existing node-owned peer transport without constructing the legacy runtime. Share TLS pools, lanes, byte/item banks, revocation and joined shutdown. Bind typed marker-1 history and full replica identity to authenticated requests/responses; refuse old untagged wire layouts and unsupported group snapshots. Include physical routes in all resource and endpoint-conflict checks. The temporary legacy runtime/frame adapter must be deleted with the old host in CG-16. Qualify actual multi-group replication and routed command settlement over TLS before integrating the production controller.",
+          "tests": [
+            "physical_group_transport_multiplexes_real_raft",
+            "catalog_commands_replicate_over_physical_tls",
+            "rooted_catalog_commands_replicate_over_physical_tls"
           ]
         }
       ],
@@ -854,6 +865,35 @@
         {
           "name": "rooted_catalog_routed_commands_preserve_producer_and_receipts",
           "oracle": "A real catalog-routed registered command on three voters resumes a held/cancelled preparation without another callback or a foreign-node producer. Repeated submission retains the original acceptance; same-term receipt absence stays ambiguous and charged. Exact publication returns the original cell receipt and token, including a duplicate after another cell advances group progress. Real leader transfer permits NotCommitted only behind the newer applied term, then retry preserves captured time/randomness and command identity. S3 request and namespace minima refuse without weakening durability.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "physical_group_transport_multiplexes_real_raft",
+          "oracle": "Two physical Raft groups on three real TLS endpoints replicate three independent SQLite cells each using the same bounded per-peer connection pools. Unknown groups, wrong schema/local process, conflicting query/inspection endpoints and unsupported snapshots refuse. Removing one group preserves the other group and peer pools; restored routing delivers again. Exclusive transport ownership refuses a second service until joined shutdown.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "catalog_commands_replicate_over_physical_tls",
+          "oracle": "Run the catalog-routed registered command cancellation, duplicate acceptance, exact receipt and real leader-transfer retry assertions over production physical-group TLS delivery in this image mode. Preserve captured command inputs and original producer ownership; no fixture-direct peer delivery occurs after transport attachment. The fixture still drives runtime apply and completion events, so this does not qualify production controller ownership.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_catalog_commands_replicate_over_physical_tls",
+          "oracle": "Run the catalog-routed registered command cancellation, duplicate acceptance, exact receipt and real leader-transfer retry assertions over production physical-group TLS delivery in this image mode. Preserve captured command inputs and original producer ownership; no fixture-direct peer delivery occurs after transport attachment. The fixture still drives runtime apply and completion events, so this does not qualify production controller ownership.",
           "invariants": [
             "I01",
             "I02",
@@ -2291,7 +2331,7 @@
       "test_target": "native_cell_groups_release",
       "steps": [
         {
-          "action": "Audit every production registration, scope codec, image marker, archive, SDK and operator path for the old cell-equals-group assumption. Remove temporary staging adapters and legacy runtime choices; leave explicit one-cell occupancy on the common code. Remove QueryVersion::GroupCut and RaftClass::invoke_group_query along with the old query adapters; final QueryContext exposes the selected cell observation directly.",
+          "action": "Audit every production registration, scope codec, image marker, archive, SDK and operator path for the old cell-equals-group assumption. Remove temporary staging adapters and legacy runtime choices; leave explicit one-cell occupancy on the common code. Remove QueryVersion::GroupCut and RaftClass::invoke_group_query along with the old query adapters; final QueryContext exposes the selected cell observation directly. Remove TransportRuntime::Legacy, the typed cell-history transport frame arm and old transport entry points; the final shared transport must not retain a legacy serving mode.",
           "tests": [
             "no_legacy_per_cell_consensus_path"
           ]

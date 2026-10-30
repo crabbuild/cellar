@@ -43,6 +43,10 @@ async fn committed(invocation: &mut CellCommandInvocation) -> Result<CellCommand
 }
 
 pub(crate) async fn commands(rooted: bool) -> Result<()> {
+    Box::pin(commands_with_transport(rooted, false)).await
+}
+
+pub(crate) async fn commands_with_transport(rooted: bool, tcp: bool) -> Result<()> {
     let calls = Arc::new(AtomicUsize::new(0));
     let captured = Arc::new(Mutex::new(Vec::new()));
     let count = calls.clone();
@@ -80,6 +84,9 @@ pub(crate) async fn commands(rooted: bool) -> Result<()> {
             })?,
     );
     let (mut fixture, route, a, b) = Box::pin(registered::setup(rooted, &class)).await?;
+    if tcp {
+        fixture.connect_tcp().await?;
+    }
     let keys = VersionKeys::new(
         VersionSigningKey::new([94; 32], u64::MAX)?,
         vec![],

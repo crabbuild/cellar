@@ -190,17 +190,13 @@ impl State {
                 let _ = self
                     .bounded(Some(pool), async {
                         self.runtime
-                            .admit_unreachable(&request.scope, request.peer.replica.member.get())
+                            .delivery_hint(
+                                &request.route,
+                                request.member.get(),
+                                false,
+                                request.snapshot,
+                            )
                             .await?;
-                        if request.snapshot {
-                            self.runtime
-                                .admit_snapshot_status(
-                                    &request.scope,
-                                    request.peer.replica.member.get(),
-                                    false,
-                                )
-                                .await?;
-                        }
                         Ok(())
                     })
                     .await;
@@ -212,11 +208,7 @@ impl State {
             let _ = self
                 .bounded(Some(pool), async {
                     self.runtime
-                        .admit_snapshot_status(
-                            &request.scope,
-                            request.peer.replica.member.get(),
-                            true,
-                        )
+                        .delivery_hint(&request.route, request.member.get(), true, true)
                         .await?;
                     Ok(())
                 })

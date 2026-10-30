@@ -525,3 +525,7 @@ pub(crate) use dispatch::routed as routed_queries;
 #[path = "cell_group_sql_command_dispatch.rs"]
 mod command_dispatch;
 pub(crate) use command_dispatch::commands as routed_commands;
+
+pub(super) async fn commands_over_tcp(rooted: bool) -> Result<()> {
+    Box::pin(command_dispatch::commands_with_transport(rooted, true)).await
+}

@@ -70,6 +70,7 @@ impl RaftTransport {
         let mut registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
         state.admit(&registry)?;
         registry.check_node_view(&grant.peer)?;
+        registry.check_physical_endpoint(&grant.peer)?;
         if let Some(old) = registry.origins.get(&key) {
             if old.revision == grant.revision && old.peer.as_ref() == Some(&grant.peer) {
                 return Ok(());
@@ -198,6 +199,7 @@ impl RaftTransport {
         state.admit(&registry)?;
         for peer in &physical {
             registry.check_node_view(peer)?;
+            registry.check_physical_endpoint(peer)?;
         }
         if let Some(old) = registry.query_groups.get(&route.scope) {
             if **old == route {
@@ -206,7 +208,11 @@ impl RaftTransport {
             if old.revision >= route.revision || old.schema_digest != route.schema_digest {
                 return Err(TransportError::StalePeer);
             }
-        } else if registry.query_groups.len() + registry.groups.len() >= state.options.max_groups {
+        } else if registry.query_groups.len()
+            + registry.physical_groups.len()
+            + registry.groups.len()
+            >= state.options.max_groups
+        {
             return Err(TransportError::Overloaded);
         }
         for peer in &physical {

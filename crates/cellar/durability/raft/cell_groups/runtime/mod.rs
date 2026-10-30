@@ -78,6 +78,7 @@ struct Handle {
     budget: Arc<Budget>,
     completions: Arc<Budget>,
     read_pins: Arc<Budget>,
+    transport_claimed: AtomicBool,
     closing: Arc<AtomicBool>,
     terminal: Arc<Terminal>,
     stop: Arc<Notify>,
@@ -99,6 +100,7 @@ enum Command {
         Option<Arc<dyn Send + Sync>>,
     ),
     ReadIndex(Vec<u8>),
+    Unreachable(u64),
     Read(Box<reads::ReadRequest>),
     Apply(CellGroupTicket, Box<PreparedGroupManifest>),
     Status,
@@ -126,7 +128,28 @@ struct Request {
     inbound: Option<Permit>,
 }
 
+pub(crate) struct TransportClaim(Arc<Handle>);
+
+impl Drop for TransportClaim {
+    fn drop(&mut self) {
+        self.0.transport_claimed.store(false, Ordering::Release);
+    }
+}
+
 impl CellGroupRuntime {
+    pub(crate) fn log(&self) -> &ReplicaLog {
+        &self.inner.log
+    }
+
+    pub(crate) fn claim_transport(&self) -> Result<TransportClaim, RuntimeError> {
+        self.admit()?;
+        self.inner
+            .transport_claimed
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| RuntimeError::AlreadyAttached)?;
+        Ok(TransportClaim(self.inner.clone()))
+    }
+
     pub(crate) fn uses_domain(&self, domain: &crate::asyncrt::DomainToken) -> bool {
         self.inner.domain.same_owner(domain)
     }
@@ -187,6 +210,7 @@ impl CellGroupRuntime {
                 read_pins: Budget::new(options.max_read_pin_bytes, options.max_pending_reads),
                 options: options.clone(),
                 requests: sender,
+                transport_claimed: AtomicBool::new(false),
                 closing: closing.clone(),
                 terminal: terminal.clone(),
                 stop: stop.clone(),
@@ -225,7 +249,7 @@ impl CellGroupRuntime {
         Ok((handle, CellGroupRuntimeEvents { receiver }))
     }
 
-    fn admit(&self) -> Result<(), RuntimeError> {
+    pub(crate) fn admit(&self) -> Result<(), RuntimeError> {
         if self.inner.closing.load(Ordering::Acquire) || self.inner.domain.mono_ms().is_err() {
             return Err(RuntimeError::Closed);
         }
@@ -536,6 +560,16 @@ impl CellGroupRuntime {
             return Err(RuntimeError::Overloaded);
         }
         self.call(Some(history), Command::AdmitStep(message), bytes + 4096)
+            .await
+            .map(|_| ())
+    }
+
+    pub(crate) async fn report_unreachable(
+        &self,
+        history: GroupHistory,
+        member: u64,
+    ) -> Result<(), RuntimeError> {
+        self.call(Some(history), Command::Unreachable(member), 4096)
             .await
             .map(|_| ())
     }

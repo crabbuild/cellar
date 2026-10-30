@@ -8,8 +8,10 @@ use super::transport_options::TransportOptions;
 use crate::application::consensus::protocol::WireScope;
 use crate::peer_auth::PeerAuth;
 use ::raft::prelude::{Message, MessageType};
+use cellar_logic::cell_group::GroupHistory;
 use cellar_logic::consensus::{
-    DiskLineage, GroupScope, MemberId, NodeId, ProcessGeneration, ReplicaIdentity,
+    ClusterId, DiskLineage, GroupId, IncarnationId, MemberId, NamespaceId, NodeId,
+    ProcessGeneration, ReplicaIdentity,
 };
 use protobuf::Message as _;
 use serde::{Deserialize, Serialize};
@@ -31,10 +33,19 @@ struct WirePeer {
     label: String,
 }
 
+// Both temporary cell adapters and physical groups use this marker-1 typed
+// envelope. There is no reader for the old untagged scope layout.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "identity", deny_unknown_fields)]
+enum History {
+    Cell(WireScope),
+    Group([[u8; 16]; 4]),
+}
+
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Route {
-    scope: WireScope,
+    scope: History,
     schema: [u8; 32],
     source: WirePeer,
     target: WirePeer,
@@ -56,7 +67,7 @@ impl Route {
             return Err(TransportError::Identity);
         }
         Ok(Self {
-            scope: WireScope::from(&source.scope),
+            scope: History::Cell(WireScope::from(&source.scope)),
             schema,
             source: WirePeer::new(source, source_label),
             target: WirePeer::new(target, target_label),
@@ -64,8 +75,10 @@ impl Route {
     }
 
     pub fn decode(&self) -> Result<(ReplicaIdentity, ReplicaIdentity), TransportError> {
-        let scope = self
-            .scope
+        let History::Cell(scope) = &self.scope else {
+            return Err(TransportError::Identity);
+        };
+        let scope = scope
             .clone()
             .decode()
             .map_err(|_| TransportError::Identity)?;
@@ -73,6 +86,71 @@ impl Route {
         Ok((
             self.source.decode(scope.clone())?,
             self.target.decode(scope)?,
+        ))
+    }
+
+    pub fn new_group(
+        source: &ReplicaIdentity<GroupHistory>,
+        source_label: &str,
+        target: &ReplicaIdentity<GroupHistory>,
+        target_label: &str,
+        schema: [u8; 32],
+    ) -> Result<Self, TransportError> {
+        if source.scope != target.scope {
+            return Err(TransportError::Identity);
+        }
+        let history = source.scope;
+        Ok(Self {
+            scope: History::Group([
+                history.cluster.bytes(),
+                history.namespace.bytes(),
+                history.group.bytes(),
+                history.incarnation.bytes(),
+            ]),
+            schema,
+            source: WirePeer::new(source, source_label),
+            target: WirePeer::new(target, target_label),
+        })
+    }
+
+    pub fn is_group(&self) -> bool {
+        matches!(self.scope, History::Group(_))
+    }
+
+    pub fn decode_group(
+        &self,
+    ) -> Result<(ReplicaIdentity<GroupHistory>, ReplicaIdentity<GroupHistory>), TransportError>
+    {
+        let History::Group(ids) = self.scope else {
+            return Err(TransportError::Identity);
+        };
+        let scope = GroupHistory {
+            cluster: ClusterId::new(ids[0]).map_err(|_| TransportError::Identity)?,
+            namespace: NamespaceId::new(ids[1]).map_err(|_| TransportError::Identity)?,
+            group: GroupId::new(ids[2]).map_err(|_| TransportError::Identity)?,
+            incarnation: IncarnationId::new(ids[3]).map_err(|_| TransportError::Identity)?,
+        };
+        Ok((self.source.decode(scope)?, self.target.decode(scope)?))
+    }
+
+    fn validate(&self) -> Result<(), TransportError> {
+        if self.is_group() {
+            self.decode_group()?;
+        } else {
+            self.decode()?;
+        }
+        Ok(())
+    }
+
+    pub fn source_host(
+        &self,
+    ) -> Result<(NodeId, DiskLineage, ProcessGeneration, String), TransportError> {
+        let peer = self.source.decode(())?;
+        Ok((
+            peer.node,
+            peer.disk,
+            peer.process,
+            self.source.label.clone(),
         ))
     }
 
@@ -99,7 +177,7 @@ impl Route {
 }
 
 impl WirePeer {
-    fn new(replica: &ReplicaIdentity, label: &str) -> Self {
+    fn new<S>(replica: &ReplicaIdentity<S>, label: &str) -> Self {
         Self {
             node: replica.node.bytes(),
             disk: replica.disk.bytes(),
@@ -109,7 +187,7 @@ impl WirePeer {
         }
     }
 
-    fn decode(&self, scope: GroupScope) -> Result<ReplicaIdentity, TransportError> {
+    fn decode<S>(&self, scope: S) -> Result<ReplicaIdentity<S>, TransportError> {
         crate::machine::validate_node_name(&self.label).map_err(|_| TransportError::Identity)?;
         Ok(ReplicaIdentity {
             scope,
@@ -159,7 +237,7 @@ impl RequestHeader {
             return Err(TransportError::Protocol);
         }
         self.sequence()?;
-        self.route.decode()?;
+        self.route.validate()?;
         Ok(())
     }
 
@@ -179,7 +257,9 @@ impl RequestHeader {
         // number of decoded Entry objects.
         scan_message(bytes, options.max_entries)?;
         let message = Message::parse_from_bytes(bytes).map_err(|_| TransportError::Protocol)?;
-        let (source, target) = self.route.decode()?;
+        self.route.validate()?;
+        let source = self.route.source.decode(())?;
+        let target = self.route.target.decode(())?;
         if message.from != source.member.get()
             || message.to != target.member.get()
             || classify(&message)? != self.lane
@@ -395,7 +475,7 @@ pub(crate) fn classify(message: &Message) -> Result<Lane, TransportError> {
 
 fn protocol_digest() -> [u8; 32] {
     Sha256::digest(
-        b"cellar-raft-peer-1:tls13-exporter:hmac-sha256:protobuf2:bounded-strict:extent-stream",
+        b"cellar-raft-peer-1:typed-history:tls13-exporter:hmac-sha256:protobuf2:bounded-strict:extent-stream",
     )
     .into()
 }

@@ -374,6 +374,10 @@ impl Worker {
                                 Command::Submit(prepared, _retained) => {
                                     group.owner.submit(prepared).map(Response::Submission)
                                 }
+                                Command::Unreachable(member) => group
+                                    .owner
+                                    .report_unreachable(member)
+                                    .map(|_| Response::Unit),
                                 Command::ReadIndex(context) => {
                                     group.owner.read_index(context).map(|()| Response::Unit)
                                 }

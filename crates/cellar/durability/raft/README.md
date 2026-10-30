@@ -1878,3 +1878,37 @@ non-commit proof. Dropping the invocation never releases its worker's unresolved
 producer. The node controller still needs to own these phases through ingress
 cancellation and drive shared transport/apply/completion events. Enrollment routing,
 that production integration and final public SDK replacement remain unfinished.
+
+### Physical-group peer transport
+
+`RaftTransport::start_shared` starts directly on `CellGroupRuntime`; it never
+constructs the old cell-scoped runtime. Physical routes use
+`GroupRoute<GroupHistory>` and `RaftPeer<GroupHistory>`. Installing a route checks
+an existing group, selected schema, committed member/disk bindings, local process
+and listener addresses. It creates no storage or Raft membership and grants no
+serving authority. Unknown groups and unsupported complete-group snapshots refuse.
+
+Physical groups share the existing per-node TLS connections, control/data lanes,
+pipelining, bounded byte/item banks and joined shutdown. Group routes share the
+same configured group limit with temporary old/query routes. Node-view refresh,
+fleet revocation and pool pruning include physical routes. Query/inspection grants
+cannot replace conflicting physical-group endpoints. Queue admission, I/O and
+observer delivery recheck exact route/process and committed membership. A delivery
+response acknowledges receiver queue admission, never append, commit or apply.
+Failed sends report bounded unreachable hints without fabricating Raft responses.
+
+Marker-1 peer frames now carry an explicitly typed history under a new protocol
+digest. Physical frames contain group history without a cell key. Old untagged
+scope frames refuse; there is no compatibility reader. Both directions bind full
+history, member, node, disk, process, schema, sequence, payload digest and TLS
+exporter through the existing authenticated frame machinery. The temporary
+`TransportRuntime::Legacy` and typed cell-history frame arm support the old host
+only during integration; CG-16 must remove them with that host. They are not a
+configuration switch or an alternate final serving architecture.
+
+The transport retains its exclusive runtime claim until physical workers and
+sockets exit, including cancelled close waiters. A replacement may start only
+after that join. Complete-group snapshot streaming, shared query RPC routing and
+production controller ownership of apply/command settlement remain unfinished.
+The TLS fixtures still drive runtime events themselves; they do not qualify
+controller ownership after an ingress caller disconnects.

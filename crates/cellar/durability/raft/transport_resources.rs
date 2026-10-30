@@ -100,7 +100,7 @@ impl ResourceObserver {
             (
                 registry.tasks,
                 registry.pools.len(),
-                registry.groups.len(),
+                registry.groups.len() + registry.physical_groups.len(),
                 registry.query_groups.len(),
                 connections,
                 limits,

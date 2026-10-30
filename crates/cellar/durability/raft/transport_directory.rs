@@ -103,6 +103,16 @@ impl RaftTransport {
             }
         }
         for old in registry
+            .physical_groups
+            .values()
+            .flat_map(|route| &route.peers)
+            .filter(|old| old.replica.node == peer.node)
+        {
+            if !same_registration(&RaftPeerNode::from(old), peer) {
+                return Err(TransportError::Identity);
+            }
+        }
+        for old in registry
             .origins
             .values()
             .chain(registry.inspection_origins.values())
@@ -130,6 +140,10 @@ impl RaftTransport {
                 .chain(registry.query_groups.values())
                 .any(|route| route.peers.iter().any(|old| old.replica.node == peer.node))
                 || registry
+                    .physical_groups
+                    .values()
+                    .any(|route| route.peers.iter().any(|old| old.replica.node == peer.node))
+                || registry
                     .origins
                     .values()
                     .chain(registry.inspection_origins.values())
@@ -142,6 +156,7 @@ impl RaftTransport {
         // Reservations include old workers until physical completion. A full
         // budget refuses the refresh without partially changing routing.
         let starts = state.prepare_pools(&mut registry, physical)?;
+        refresh_routes(&mut registry.physical_groups, peer);
         refresh_routes(&mut registry.groups, peer);
         refresh_routes(&mut registry.query_groups, peer);
         let Registry {
@@ -188,7 +203,10 @@ impl RaftTransport {
     }
 }
 
-fn refresh_routes(routes: &mut BTreeMap<GroupScope, Arc<GroupRoute>>, peer: &RaftPeerNode) {
+fn refresh_routes<S: Clone + Ord>(
+    routes: &mut BTreeMap<S, Arc<GroupRoute<S>>>,
+    peer: &RaftPeerNode,
+) {
     for route in routes.values_mut() {
         if !route
             .peers
