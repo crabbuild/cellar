@@ -173,6 +173,31 @@ the latest group progress or the retried command's proposal as a substitute.
 
 ## First executor session
 
+### Design delivery check, 2026-10-30
+
+The requested deliverable is the executable design and implementation plan.
+The existing runtime checkpoints remain implementation evidence at their stated
+boundaries; this delivery does not complete CG-04 or authorize a release claim.
+Fetching origin confirmed that the branch contains `origin/main` at `8a93ffd7`.
+The supplied TiKV checkout still matches the investigation pin above.
+
+Package validation passes: 16 tasks, 95 required cases, 14 invariants and nine
+profiles. Repository documentation validation also passes. In the current working
+tree, preflight deliberately refuses source drift in
+`crates/cellar/durability/raft/host_sql/mod.rs`; consequently 36 of the 37 plan
+validator tests pass and the actual-source preflight test errors. Do not refresh
+the baseline merely to silence this refusal.
+
+The uncommitted draft adds `cell_groups/apply/` and
+`host_sql/cell_groups/apply.rs`, with changes to the manifest, owner and worker
+modules. It prepares cell images on the existing SQL workers and retains apply
+admission. Preserve and review this draft before continuing CG-04. Its library
+check completed, but it has no source-bound test or qualification checkpoint.
+The untracked `diagram/` directory is separate existing work. Neither the draft
+nor those diagrams forms part of this documentation-only delivery check.
+
+### Resume implementation
+
 Inspect `git status` and the existing diff before editing. The physical owner in
 `crates/cellar/durability/raft/cell_groups/owner.rs` and its native execution
 fixture now use real three-voter Raft with complete group manifests and separate
