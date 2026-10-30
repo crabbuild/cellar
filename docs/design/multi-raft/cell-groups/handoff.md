@@ -2,8 +2,9 @@
 
 # Cell-group implementation handoff
 
-The active goal is end-to-end implementation and hard cutover from the executable
-design. Continue through the full task and release gates.
+The requested delivery is an executable design and implementation plan. This
+handoff prepares subsequent end-to-end implementation and hard cutover; that
+work must continue through the full task and release gates.
 This handoff does not claim completion of the
 shared runtime, a production cutover or measured TiKV
 performance parity. The target is the same partitioned multi-Raft pattern: many
@@ -42,6 +43,16 @@ and joins submitted physical work on close. Native cases use independent SQLite
 images and actual node workers; see [progress](progress.md) for qualification.
 The prior uncommitted runtime draft has been incorporated into this source.
 
+An unfinished local SQL draft follows the committed checkpoint. It adds
+`cell_groups/execution_authority.rs`, `execution/cell.rs`, shared receipt
+transaction helpers in `execution/command.rs`, and `tests/support/cell_group_sql.rs`,
+with changes to physical image capture, owner/runtime authority and native tests.
+It separates a selected cell image/version from group progress and attempts exact
+receipt settlement in both image modes. It is not in the committed checkpoint
+and has no completed source-bound qualification record. Review `git diff` and
+untracked files before continuing; a fresh checkout of the PR will not contain
+this draft. Do not infer a passing CG-04 gate from its presence.
+
 The next integration is per-cell SQL ownership and fair admission, concurrent
 initialization, exact receipt settlement and coherent read serving. Preserve the
 node worker's physical completion and cancellation boundaries. Do not treat the
@@ -66,6 +77,14 @@ The owner now runs on the shared node scheduler; public SDK and per-cell SQL
 integration remain incomplete. Preserve its persistence, completion and physical
 lease boundaries during integration;
 do not mistake the low-level owner cases for the full CG-04 gate.
+
+Before extending the draft, qualify its changes to the existing execution paths
+with `native_raft_execution` and `native_raft_rooted` as well as the shared-group
+execution suite. In particular, rerun both cell receipt cases after the latest
+callback/owner-close test change. Check authority revocation, exact committed
+entry matching, duplicate callbacks, cleanup and compaction behavior. Those
+selected regressions supplement, and do not replace, the full task gate printed
+by `show CG-04`. Fair per-cell queues and registered SDK dispatch remain absent.
 
 Run from the repository root with Python 3.11+ and Rust 1.98.1:
 

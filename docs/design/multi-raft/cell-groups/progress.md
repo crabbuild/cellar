@@ -2,11 +2,35 @@
 
 # Cell-group implementation progress
 
-The end-to-end implementation and hard-cutover goal remains active; see the
-[executor handoff](handoff.md). CG-01 through CG-03 have passed their scoped gates;
+The current delivery is the executable design and implementation plan; see the
+[executor handoff](handoff.md) for subsequent implementation and hard cutover.
+CG-01 through CG-03 have passed their scoped gates;
 CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
+
+## Plan delivery and unfinished SQL draft
+
+The implementation package contains 16 dependency-ordered tasks, 86 required
+cases, 14 invariants and nine qualification profiles. Each task specifies owning
+paths, implementation steps, acceptance oracles and executable test commands.
+The plan runner prints those commands and checks evidence; it does not execute
+the implementation or provision infrastructure.
+
+The current working tree also contains an unfinished per-cell SQL producer,
+leader-issued execution authority, shared receipt helpers and tests for both
+image formats. These are preserved for the next implementation session. They
+are not included in the committed runtime checkpoint below, and the latest
+callback revocation extension has not completed its regression gate. The
+handoff records the affected boundaries and next checks. No task status or
+runtime qualification is advanced by this plan delivery.
+
+Plan delivery checks pass: package validation, reviewed source preflight, all
+37 validator unit tests and repository documentation validation (113 documents,
+2,314 local references). `show CG-04` emits the full executor brief. The release
+command correctly refuses incomplete implementation evidence. The branch
+contains the latest fetched `origin/main` at `8a93ffd7`; neither requested
+MR-13/MR-14 progress JSON exclusion differs from main.
 
 ## CG-04 attachment admission and main integration
 
