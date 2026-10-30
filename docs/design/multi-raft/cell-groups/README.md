@@ -109,6 +109,12 @@ and all twelve verification commands pass. Durable cell-version witnesses and
 query/receipt observations are implemented and qualified at `ed84df5d`: 214
 selected Rust cases and thirteen verification commands pass. See the handoff
 for the exact scope and retained evidence.
+Committed image preparation now runs through the shared SQL workers at `2085cc96`,
+with its fixture repair and full partial gate at `c9100ec7`: 254 selected Rust
+cases and fifteen commands pass. Transfer both
+`.cellar/cell-groups-evidence/CG-04-apply-final/` and the retained failed
+`.cellar/cell-groups-evidence/CG-04-apply/` directory with the prior evidence.
+Direct cancellation/crash cuts during image preparation remain to be qualified.
 Registered SDK/catalog routing, query/version-token integration,
 production retry/compaction integration and cache lifecycle remain required. Managed
 fleet integration remains required by CG-07. A birth

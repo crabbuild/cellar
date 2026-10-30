@@ -15,8 +15,10 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The reviewed source baseline is `ed84df5d`, retaining exact cell-version witnesses
-in authenticated manifests and query/receipt observations. The preceding read
+The reviewed source baseline is `c9100ec7`, qualifying the committed image
+preparation introduced at `2085cc96` on the existing SQL workers. The successor
+bounds the shared fixture's inline async state without increasing test stacks. The preceding `ed84df5d` checkpoint retains exact
+cell-version witnesses in authenticated manifests and query/receipt observations. The preceding read
 checkpoint at `3da4481e` decouples pin capacity from transport limits and repairs
 the fixture macro. The initial read implementation is `88c4717d`. Earlier checkpoints cover prepared submission sealing
 and exact rejection cleanup (`0cf89c40`) and bounded proposal acceptance and
@@ -188,13 +190,12 @@ tree, preflight deliberately refuses source drift in
 validator tests pass and the actual-source preflight test errors. Do not refresh
 the baseline merely to silence this refusal.
 
-The uncommitted draft adds `cell_groups/apply/` and
-`host_sql/cell_groups/apply.rs`, with changes to the manifest, owner and worker
-modules. It prepares cell images on the existing SQL workers and retains apply
-admission. Preserve and review this draft before continuing CG-04. Its library
-check completed, but it has no source-bound test or qualification checkpoint.
-The untracked `diagram/` directory is separate existing work. Neither the draft
-nor those diagrams forms part of this documentation-only delivery check.
+At that design-delivery check, `cell_groups/apply/` and
+`host_sql/cell_groups/apply.rs` were uncommitted drafts. Subsequent execution
+completed that adapter at `2085cc96` and repaired the regression fixture at
+`c9100ec7`; see the current checkpoint in [progress](progress.md). The untracked
+`diagram/` directory remains separate existing work and is excluded from this
+implementation checkpoint.
 
 ### Resume implementation
 
@@ -229,12 +230,14 @@ modes. Actual log-compaction and group-snapshot integration remain unqualified.
 Next integrate registered callbacks and catalog invocation sessions without
 synthesizing legacy group identities. Preserve original invocation deadlines,
 contracts and retry identities. Query callbacks must receive logical cell versions;
-returned tokens must use the selected observation. The remaining production apply
-adapter must consume `CellGroupEffect::Apply` on owning execution-domain workers,
-prepare cell-addressed LTX images and complete manifests, and return exact apply
-completions. Current native fixtures supply that preparation; do not put blocking
-image work on the consensus loop or mistake fixture integration for host serving.
-Keep physical apply position separate from provenance in later group transfers.
+returned tokens must use the selected observation. `CellGroupApplier` now consumes the startup manifest-page owner, and
+`CellGroupSqlPool::prepare_apply` prepares committed cell images and complete
+manifests on the existing workers. Consume its retained output with
+`CellGroupPreparedApply::complete`; that queues owner publication and is not a
+commit acknowledgement. The new native fixture uses this adapter on all three
+voters. Registered host dispatch must now consume these APIs instead of copying
+fixture image preparation. Keep physical apply position separate from provenance
+in later group transfers.
 
 Run from the repository root with Python 3.11+ and Rust 1.98.1:
 
@@ -260,6 +263,15 @@ another machine. Missing evidence must refuse; do not replace it with a pass fla
 or reset completed tasks merely to bypass validation.
 
 The latest fully passing partial CG-04 record is
+`.cellar/cell-groups-evidence/CG-04-apply-final/checkpoint.json` at `c9100ec7`:
+254 selected Rust cases, fifteen successful commands, 202 source inputs and
+12 copied executables. Transfer the entire directory and its failed predecessor
+`CG-04-apply` with the prior evidence. It qualifies committed image preparation
+on the existing SQL workers and retention through held publication, not direct
+image-I/O cancellation/crash cuts or registered host serving. See the priorities
+below before continuing CG-04.
+
+The preceding durable-witness record is
 `.cellar/cell-groups-evidence/CG-04-witness/checkpoint.json` at `ed84df5d`:
 214 selected Rust cases, thirteen successful commands, 194 source inputs and nine
 copied executables. Transfer the full directory with prior evidence. It qualifies
@@ -305,6 +317,30 @@ prior SQL-producer, runtime/owner and DONE-task evidence. The pool checkpoint
 binds 178 source inputs, eight executables, 184 selected Rust cases and ten
 verification commands. It cannot stand in for the complete CG-04
 contract. Three RustFS-specific cases remain explicitly unrun at this checkpoint.
+
+## Next execution priorities
+
+Deliver CG tasks in dependency order and keep the status at its actual qualified
+boundary. At the end of each turn, record the completed behavior, evidence and
+limits, then identify the most critical remaining gap and the concrete next step.
+Do not let plan maintenance replace implementation.
+
+1. Complete the new apply adapter's failure qualification: cancel its receiver
+   and close the pool while image or manifest I/O is held, then prove that physical
+   work and reservations remain owned until the workers join. Inject preparation
+   and restart failures; publication-sync retention alone does not cover these cuts.
+2. Integrate catalog invocation sessions and registered command/query callbacks
+   with logical cell identity and version observations. Preserve request deadlines,
+   receipt identity and uncertainty across redirects; never fabricate legacy
+   `GroupScope` values. This is the most important remaining serving gap.
+3. Complete CG-04's production retry/cache lifecycle and configuration-entry
+   handling at the appropriate owner boundary, then run its entire gate before
+   marking it DONE. Full snapshot/membership-change qualification follows in CG-05;
+   archive/reclamation in CG-06 must preserve complete group recovery closure.
+
+The opportunity is to reuse the now-shared consensus, SQL, read and apply paths in
+one dispatcher. Additional per-cell workers, a second production mode or a demo
+that bypasses the registered API would increase integration work.
 
 ## Delivery sequence
 

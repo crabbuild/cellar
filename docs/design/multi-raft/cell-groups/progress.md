@@ -10,6 +10,54 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 committed image preparation on shared workers
+
+Qualified source: `c9100ec774d66f30c14eae009f9a9c76d2bc0c33`. Runtime implementation: `2085cc96`.
+
+`CellGroupApplier` owns the same manifest-page store used to verify startup. It
+checks the exact persisted committed entry, engine, group and preceding root
+before preparing cell-addressed images. Enrollment and mutation work support
+materialized and extent storage, derive bounded alarm/outbox hints from the actual
+SQLite image, preserve logical versions and exact commit witnesses, and refuse
+malformed scheduling state. Membership/topology administration remains refused
+pending its owner integration.
+
+`CellGroupSqlPool::prepare_apply` uses the existing fixed SQL workers and their
+reserved progress lane. Apply has a separate byte/item budget, so retained SQL
+producers cannot consume its admission. `CellSqlLimits::node_bytes` bounds each
+of the producer and apply budgets independently; account for their combined
+ceiling. Usage exposes both budgets separately. The returned preparation retains
+its reservation across clones, delivery and owner completion. Completion queues
+publication; only durable owner apply establishes the new selected root.
+
+Materialized duplicate preparation now reopens the exact verified image through
+`GenerationStore::pin_prepared`. It does not reset retirement or infer publication.
+Cold images require independent byte verification and persistence barriers.
+Regression tests cover restart, corruption, mismatched expected state, reader pins
+and reclamation. Both real three-voter cases cover enrollment, mutation, derived
+hints, forged/foreign/stale work, duplicate preparation, saturated command admission,
+old-root selection before publication and retention during a held log sync.
+
+All 254 selected Rust cases pass: 227 native cases across ten suites, 23
+Cellar library cases and four LTX image-store cases. All-target Clippy for
+Cellar/cellar-logic/cellar-ltx with warnings denied, formatting (1,812 Rust files),
+layout, dependency isolation, docs, source preflight and all 37 plan-validator
+cases pass. The partial checkpoint at
+`.cellar/cell-groups-evidence/CG-04-apply-final/checkpoint.json` binds 202 source
+inputs, 12 copied executables and fifteen successful commands. The failed gate
+at `CG-04-apply` is retained: the newly inlined apply branch overflowed an existing
+recovery fixture's stack. The branch is now heap allocated; normal stack limits
+and assertions remain unchanged. Earlier fixture, materialized retry and Clippy
+failures are retained too. Six process helpers run through parent tests; three
+RustFS-specific cases remain unrun.
+
+CG-04 remains IN_PROGRESS. The most critical next validation is cancellation,
+shutdown and crash injection while this new image/manifest preparation is held;
+the held publication sync does not qualify those earlier cuts. Then integrate the
+registered SDK/catalog dispatcher with logical cell identities and observations.
+Production retry/cache lifecycle and configuration-entry integration remain open.
+No complete shared-group snapshot, compaction, RustFS or performance claim is made.
+
 ## CG-04 durable selected-version commit witnesses
 
 Qualified source: `ed84df5daa0ae65fdfb09e9556f21f3e1ea12ec2`.
