@@ -62,3 +62,76 @@ fn maximum_retry_deadline_is_never_expired() -> anyhow::Result<()> {
     assert_eq!(client(&connection, command.id.client)?, Some((1, 0)));
     Ok(())
 }
+
+#[test]
+fn committed_lookup_does_not_admit_new_client_at_capacity() -> anyhow::Result<()> {
+    let connection = Connection::open_in_memory()?;
+    install(&connection)?;
+    let limits = ExecutionLimits {
+        max_client_identities: 1,
+        max_retained_receipts: 1,
+        ..Default::default()
+    };
+    let retained = request(1, 1000);
+    record(&connection, &retained, vec![7])?;
+    let mut absent = request(1, 1000);
+    absent.id = CommandId::new(ClientId::new([9; 16])?, 1)?;
+    assert!(lookup_identity(&connection, &absent, &limits)?.is_none());
+    assert!(matches!(
+        preflight_identity(&connection, &absent, &limits),
+        Err(ExecutionError::Refused(CommandFailure::Overloaded))
+    ));
+    assert_eq!(
+        lookup_identity(&connection, &retained, &limits)?
+            .unwrap()
+            .result(),
+        &[7]
+    );
+    // Existing client admission remains independent from the new-client bound;
+    // the separate retained-receipt ceiling still refuses a new command.
+    assert!(preflight_identity(&connection, &request(2, 1000), &limits)?.is_none());
+    assert!(matches!(
+        preflight(&connection, &request(2, 1000), &limits),
+        Err(ExecutionError::Refused(CommandFailure::Overloaded))
+    ));
+    assert_eq!(retained_count(&connection)?, 1);
+    assert!(client(&connection, absent.id.client)?.is_none());
+    Ok(())
+}
+
+#[test]
+fn committed_lookup_preserves_identity_floor_and_allocation_checks() -> anyhow::Result<()> {
+    let connection = Connection::open_in_memory()?;
+    install(&connection)?;
+    let limits = ExecutionLimits::default();
+    let original = request(1, 1000);
+    record(&connection, &original, vec![7, 8])?;
+    let mut conflict = request(1, 1000);
+    conflict.request_digest = [99; 32];
+    assert!(matches!(
+        lookup_identity(&connection, &conflict, &limits),
+        Err(ExecutionError::Refused(CommandFailure::CommandConflict))
+    ));
+    assert!(matches!(
+        lookup_identity(&connection, &request(3, 1000), &limits),
+        Err(ExecutionError::Refused(CommandFailure::SequenceGap {
+            next: 2
+        }))
+    ));
+    let bounded = ExecutionLimits {
+        max_result_bytes: 1,
+        ..limits
+    };
+    assert!(matches!(
+        lookup_identity(&connection, &original, &bounded),
+        Err(ExecutionError::Refused(CommandFailure::CorruptState))
+    ));
+    prune(&connection, original.id.client, 1, 1001)?;
+    assert!(matches!(
+        lookup_identity(&connection, &original, &limits),
+        Err(ExecutionError::Refused(CommandFailure::CommandExpired))
+    ));
+    assert!(lookup_identity(&connection, &request(2, 2000), &limits)?.is_none());
+    assert_eq!(client(&connection, original.id.client)?, Some((1, 1)));
+    Ok(())
+}

@@ -516,3 +516,7 @@ pub(super) async fn sql_pool_admission(rooted: bool) -> Result<()> {
 pub(super) async fn reconcile_sql_producers(rooted: bool) -> Result<()> {
     sql::reconcile_producers(rooted).await
 }
+
+pub(super) async fn reconcile_sql_refusals(rooted: bool) -> Result<()> {
+    sql::reconcile_refusals(rooted).await
+}

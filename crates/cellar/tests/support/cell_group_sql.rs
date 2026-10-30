@@ -431,3 +431,7 @@ mod reconciliation;
 pub(super) async fn reconcile_producers(rooted: bool) -> Result<()> {
     reconciliation::reconcile(rooted).await
 }
+
+pub(super) async fn reconcile_refusals(rooted: bool) -> Result<()> {
+    reconciliation::refusals(rooted).await
+}

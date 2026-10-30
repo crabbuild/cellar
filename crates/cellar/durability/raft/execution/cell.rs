@@ -321,7 +321,7 @@ impl CellPrivateExecutor {
                 .images
                 .read_cell(&self.options, authority.image())
                 .map_err(storage)?;
-            receipts::preflight_identity(
+            receipts::lookup_identity(
                 database.connection(),
                 &pending.request,
                 &self.options.limits,

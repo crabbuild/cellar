@@ -90,6 +90,46 @@ pub(super) fn preflight_identity(
     request: &CommandRequest,
     limits: &ExecutionLimits,
 ) -> Result<Option<StoredReceipt>, ExecutionError> {
+    match inspect_identity(connection, request, limits)? {
+        Identity::Retained(receipt) => Ok(Some(receipt)),
+        Identity::Vacant { new_client } => {
+            if new_client {
+                let count: usize = connection
+                    .query_row("SELECT count(*) FROM __sys_raft_clients", [], |r| r.get(0))
+                    .map_err(storage)?;
+                if count >= limits.max_client_identities {
+                    return Err(ExecutionError::Refused(CommandFailure::Overloaded));
+                }
+            }
+            Ok(None)
+        }
+    }
+}
+
+/// Inspect immutable committed state without admitting a new client or receipt.
+/// Capacity cannot obscure absence; identity, expiry, sequence and result-size
+/// checks still apply. The caller supplies the consensus proof for using absence.
+pub(super) fn lookup_identity(
+    connection: &Connection,
+    request: &CommandRequest,
+    limits: &ExecutionLimits,
+) -> Result<Option<StoredReceipt>, ExecutionError> {
+    match inspect_identity(connection, request, limits)? {
+        Identity::Retained(receipt) => Ok(Some(receipt)),
+        Identity::Vacant { .. } => Ok(None),
+    }
+}
+
+enum Identity {
+    Retained(StoredReceipt),
+    Vacant { new_client: bool },
+}
+
+fn inspect_identity(
+    connection: &Connection,
+    request: &CommandRequest,
+    limits: &ExecutionLimits,
+) -> Result<Identity, ExecutionError> {
     let state = client(connection, request.id.client)?;
     let (last, floor) = state.unwrap_or((0, 0));
     let sequence = request.id.sequence();
@@ -133,7 +173,7 @@ pub(super) fn preflight_identity(
             1 => Durability::S3,
             _ => return Err(corrupt()),
         };
-        return Ok(Some(StoredReceipt {
+        return Ok(Identity::Retained(StoredReceipt {
             id: request.id,
             operation: row.0,
             contract_digest: contract,
@@ -149,15 +189,9 @@ pub(super) fn preflight_identity(
             next,
         }));
     }
-    if state.is_none() {
-        let count: usize = connection
-            .query_row("SELECT count(*) FROM __sys_raft_clients", [], |r| r.get(0))
-            .map_err(storage)?;
-        if count >= limits.max_client_identities {
-            return Err(ExecutionError::Refused(CommandFailure::Overloaded));
-        }
-    }
-    Ok(None)
+    Ok(Identity::Vacant {
+        new_client: state.is_none(),
+    })
 }
 
 pub(super) fn record(

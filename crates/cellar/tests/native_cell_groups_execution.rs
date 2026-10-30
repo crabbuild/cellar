@@ -66,6 +66,16 @@ async fn rooted_cell_sql_reconciles_after_leadership_change() -> Result<()> {
     runtime_fixture::reconcile_sql_producers(true).await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn cell_sql_reconciles_expired_and_conflicting_receipts() -> Result<()> {
+    runtime_fixture::reconcile_sql_refusals(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_cell_sql_reconciles_expired_and_conflicting_receipts() -> Result<()> {
+    runtime_fixture::reconcile_sql_refusals(true).await
+}
+
 #[path = "support/raft_ltx_fixture.rs"]
 #[allow(dead_code)]
 mod images;

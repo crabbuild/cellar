@@ -77,7 +77,10 @@ must reconcile pending commands against committed state before admitting again.
 current-term applied group root, including on followers. It grants no write or
 strong-read authority. The pool can reconcile its exact pending proposal against
 the original command identity in that image even after a later cell mutation;
-this lookup does not require retaining the original Raft entry. A matching receipt
+this lookup does not require retaining the original Raft entry. It validates
+identity, sequence floors and result allocation bounds without admitting a new
+client or receipt; a full identity table cannot obscure absence. New commands
+still enforce both client and retained-receipt ceilings. A matching receipt
 settles the command. Absence can release the producer only after a strictly newer
 term's applied barrier excludes its old proposal. Replicated expiry/conflict
 refusals remain distinct from a known uncommitted outcome. Foreign engines,
