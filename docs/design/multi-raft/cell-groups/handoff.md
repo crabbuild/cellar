@@ -13,9 +13,9 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 ## Starting point
 
 Use branch `codex/shared-cell-groups` and the existing
-[draft PR 160](https://github.com/crabbuild/cellar/pull/160).
+[PR 160](https://github.com/crabbuild/cellar/pull/160).
 The shared-node runtime implementation and reviewed source baseline are at
-`865f253d`; see the latest checkpoint in
+`aec4029e`; see the latest checkpoint in
 [progress](progress.md) for qualification and remaining work.
 The branch integrates `origin/main` at `8a93ffd7` (documentation consolidation,
 PR 161). The design package now lives in `docs/design/multi-raft/cell-groups/`;
@@ -46,6 +46,15 @@ The next integration is per-cell SQL ownership and fair admission, concurrent
 initialization, exact receipt settlement and coherent read serving. Preserve the
 node worker's physical completion and cancellation boundaries. Do not treat the
 shared scheduler's isolated tests as completion of the six-case CG-04 gate.
+
+The remaining coupling is concrete: `execution::CommandAuthority` binds the
+old `GroupLog`/`GroupStatus`; `execution::images::Published` exposes `GroupScope`;
+and `host_sql::Pool` keys execution owners by that scope. Adapt those owning
+components to a cell history and exact manifest/image pin, with group authority
+kept separately. Reuse the existing receipt transaction and callback machinery;
+do not manufacture a synthetic cell-scoped group to satisfy the old interfaces.
+A later mutation of another cell must not settle the first cell's pending output.
+
 
 ## First executor session
 
@@ -82,9 +91,9 @@ another machine. Missing evidence must refuse; do not replace it with a pass fla
 or reset completed tasks merely to bypass validation.
 
 The current partial CG-04 evidence is retained at
-`.cellar/cell-groups-evidence/CG-04-runtime/checkpoint.json`. Transfer that
+`.cellar/cell-groups-evidence/CG-04-runtime-admission/checkpoint.json`. Transfer that
 directory alongside the earlier owner checkpoint and failed gate. The runtime
-record covers 59 selected Rust cases and eight verification commands, with
+record covers 60 selected Rust cases and eight verification commands, with
 explicit limitations; it cannot stand in for the complete six-case CG-04 contract.
 
 ## Delivery sequence

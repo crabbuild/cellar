@@ -8,6 +8,36 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 attachment admission and main integration
+
+Source: `aec4029e77124848dc6b155c098f8eec9ccdacc4`.
+
+Attachment now reserves ordinary node capacity before catalog revalidation and
+RawNode construction, retaining it through dispatch or failure. A public-runtime
+regression holds a real vote's engine sync and fills the sole request slot; a
+second attachment refuses with overload before claiming an owner. Releasing sync
+allows the queued protocol work and shutdown to finish at the same limits.
+The first fixture attempted the normal multi-peer pump with one slot and refused
+transport overload before the target assertion; the final fixture isolates the
+startup boundary without relaxing admission.
+
+The branch includes `origin/main` at `8a93ffd7`. Its documentation consolidation
+moves this package to `docs/design/multi-raft/cell-groups/`. Commands, links,
+catalog entries, source-root discovery and the plan-only release-input exclusion
+now follow that location. Validator tests exercise both the new design path and
+historical `plans/` bookkeeping. Existing evidence retains its original source,
+paths and hashes; moved documentation is not fabricated runtime qualification.
+
+All 60 selected Rust cases pass: 11 execution, 15 catalog, 15 active storage
+and 19 active existing-runtime cases. All-target Clippy with warnings denied,
+formatting (1,786 Rust files), layout, dependency isolation, documentation,
+source preflight and all 37 plan-validator tests pass. The partial checkpoint at
+`.cellar/cell-groups-evidence/CG-04-runtime-admission/checkpoint.json` retains
+165 source inputs, eight command logs, four executables and intermediate failure
+logs. The larger source inventory includes main's documentation/tooling changes.
+CG-04 remains IN_PROGRESS; this does not qualify per-cell SQL integration, SDK
+serving, real RustFS recovery, performance or the final hard cutover.
+
 ## CG-04 shared-node runtime
 
 Source: `865f253da0a14d730b62f77b17cefc6d1497890b`.
