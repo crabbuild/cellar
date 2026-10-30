@@ -6,9 +6,9 @@ Status: executable design and implementation plan delivered on 2026-10-29.
 CG-01 contracts, CG-02 storage, CG-03 routing/admission preparation and
 CG-04 shared execution have passed their scoped local evidence gates.
 CG-05 is in progress: checkpoint capture, receiver verification, atomic storage
-installation and exact Raft Ready acceptance pass their scoped regression gates.
-Source local checkpoint publication, snapshot transport and membership recovery
-remain open. The production host has not yet cut over to shared groups.
+installation, exact Raft Ready acceptance, local publication and native Raft-generated
+catch-up pass their scoped regression gates. Authenticated snapshot RPC, automated
+controller lifecycle and membership recovery remain open. The production host has not yet cut over to shared groups.
 See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.
 
@@ -54,7 +54,8 @@ CG-05's partial source checkpoint is retained in
 `.cellar/cell-groups-evidence/CG-05-checkpoint-source/` and the receiver slice in
 `.cellar/cell-groups-evidence/CG-05-checkpoint-receiver/`, followed by owner/runtime
 acceptance in `.cellar/cell-groups-evidence/CG-05-snapshot-owner/`. These partial
-checkpoints do not complete CG-05.
+checkpoints and local publication in
+`.cellar/cell-groups-evidence/CG-05-local-checkpoint/` do not complete CG-05.
 The design, task briefs and validator unit tests are committed in this package.
 
 ```sh

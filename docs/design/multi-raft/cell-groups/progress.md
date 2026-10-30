@@ -10,6 +10,51 @@ CG-05 is IN_PROGRESS; CG-06 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-05 local publication and native Raft snapshot catch-up
+
+Qualified source: `742b1e6d4e7155e16fb1b4eba0cce3b9056944ae`. All 222 selected Rust cases pass across shared
+execution/catalog/storage and the existing single-cell storage/snapshot suites.
+All 8 gate commands pass, including all-target Clippy for Cellar/core/LTX,
+formatting/layout, dependency isolation, docs, source preflight and 37
+plan-validator tests. The partial record at
+`.cellar/cell-groups-evidence/CG-05-local-checkpoint/checkpoint.json` binds
+298 source hashes, 5 copied executables, frozen plan inputs and command logs.
+Transfer this ignored directory with its predecessors. CG-05 remains IN_PROGRESS.
+
+An unstreamed source becomes a bounded local publication capability. The owner
+requires its exact applied cut, engine and page owner, and runs publication on the
+existing persistence lane. The distinct local engine operation preserves hard
+state, applied state and every later log entry while compacting the represented
+prefix. Mixed, foreign and stale preparations refuse. `CheckpointPublished`
+arrives only after the matching engine completion; local compaction does not
+advance the controller's applied-state counter. Admission and physical pins remain
+owned through queued sync and joined runtime shutdown.
+
+`capture_snapshot` selects the retained complete closure and original metadata
+named by the exact snapshot from Raft Storage. Later current-root updates cannot
+substitute a newer cut. A concurrent replacement may refuse capture; a captured
+source owns the old immutable closure until streaming ends.
+
+Three new cases cover both image formats, a real uncommitted suffix surviving
+held publication and later quorum commit, and a partitioned existing voter restored
+by an actual RawNode-generated snapshot followed by suffix replay. The leader's
+engine is then closed and reopened: the retained snapshot and exact tail must
+match, both physical roots are recovered, and the older checkpoint streams again.
+Materialized source recovery uses the fixture's explicit generation-ID resolver;
+extent recovery and destination suffix replay use production adapters. The initial
+materialized cold-recovery failure from using the wrong resolver is retained with
+the compile diagnostics. No assertion was weakened. Joined runtime shutdown during
+accepted local publication is covered in both representations.
+
+The critical gap is bounded authenticated snapshot RPC and its controller-owned
+source/publication lifecycle. These cases use native streaming callbacks; they do
+not qualify network framing/authentication, transfer cancellation/retries, failed
+snapshot reporting, automated checkpoint policy, learners/joint membership or disk
+replacement. Receiver process-kill/sync-error/cancelled-waiter cuts and root-slot
+pressure also remain open. All five full CG-05 acceptance cases remain required.
+There is no new shared-group RustFS, load or zero-quorum DR qualification. CG-06
+archival/reclamation and the later public cutover and legacy removal remain open.
+
 ## CG-05 Raft snapshot acceptance and persistence
 
 Qualified source: `096cfb132397d9588ba9138b1cf474210fc062f3`. All 146 selected Rust cases pass across shared
@@ -43,7 +88,7 @@ snapshot persistence. The fixture builds the snapshot envelope from captured
 source state and uses the native streaming callback. It does not exercise a
 source RawNode-generated snapshot or authenticated snapshot RPC.
 
-The critical next gap is source-side local checkpoint publication that preserves
+The gap recorded at this owner checkpoint was source-side local publication that preserves
 the unapplied log suffix, followed by bounded snapshot transport and actual Raft
 peer catch-up. The receiver-install write must not be reused as a local leader
 checkpoint: it replaces the received state and truncates prior entries. Then
