@@ -3,6 +3,12 @@
 //! Catalog-bound invocations over the existing consensus and SQL owners.
 //! Routing observations never replace destination authority or ingress grants.
 
+mod command;
+pub use command::{
+    CellCommandError, CellCommandInvocation, CellCommandPreparation, CellCommandRequest,
+    CellCommandResponse, CellCommandSettlement, CellCommandSubmission,
+};
+
 use super::*;
 use crate::application::consensus::{
     OperationContract, OperationKind, RaftClass, RegistrationError,

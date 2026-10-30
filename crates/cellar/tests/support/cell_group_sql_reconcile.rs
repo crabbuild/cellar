@@ -3,6 +3,16 @@
 use super::*;
 
 pub(super) async fn transfer(fixture: &mut RuntimeCluster, from: usize, to: usize) -> Result<()> {
+    let cell = super::history(fixture.cluster.birth.route(), "sql-a")?;
+    Box::pin(transfer_cell(fixture, from, to, cell)).await
+}
+
+pub(super) async fn transfer_cell(
+    fixture: &mut RuntimeCluster,
+    from: usize,
+    to: usize,
+    cell: CellHistory,
+) -> Result<()> {
     let history = fixture.cluster.birth.route().history;
     let term = fixture.runtimes[from].status(history).await?.term;
     let mut message = Message::default();
@@ -27,21 +37,31 @@ pub(super) async fn transfer(fixture: &mut RuntimeCluster, from: usize, to: usiz
             }
         })
         .await??;
-        let a = super::history(fixture.cluster.birth.route(), "sql-a")?;
         assert!(
             matches!(
                 fixture.runtimes[0]
-                    .reconciliation_authority(history, a)
+                    .reconciliation_authority(history, cell)
                     .await,
                 Err(RuntimeError::NotReady)
             ),
             "a persisted newer term without its applied barrier cannot retire a producer"
         );
         let work = held.remove(&history).context("held new-term barrier")?;
-        let next = prepare(&mut fixture.cluster.voters[0], &work)?;
-        fixture.runtimes[0]
-            .complete_apply(history, work, next)
+        if let Some((pool, applier)) = fixture.appliers.get(&(0, history)) {
+            Box::pin(async {
+                pool.prepare_apply(applier, work)
+                    .await?
+                    .complete(&fixture.runtimes[0])
+                    .await?;
+                Ok::<_, anyhow::Error>(())
+            })
             .await?;
+        } else {
+            let next = prepare(&mut fixture.cluster.voters[0], &work)?;
+            fixture.runtimes[0]
+                .complete_apply(history, work, next)
+                .await?;
+        }
     }
     tokio::time::timeout(Duration::from_secs(20), async {
         loop {

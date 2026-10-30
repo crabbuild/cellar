@@ -136,6 +136,10 @@ pub struct CellReconciliationAuthority {
 }
 
 impl CellReconciliationAuthority {
+    pub fn route(&self) -> &GroupRoute {
+        &self.route
+    }
+
     pub(super) fn new(
         group: GroupLog<GroupHistory>,
         current: &PreparedGroupManifest,

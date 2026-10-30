@@ -1841,3 +1841,40 @@ This is the local query dispatch integration boundary. Command/enrollment
 invocations, transport selection and replacing the public SDK's old host binding
 remain required; it does not complete CG-04 or the public cutover. Group topology
 fencing is still owned by the later transition tasks, not by directory metadata.
+
+### Catalog-bound command phases
+
+`CellGroupDispatcher::command` captures a complete immutable command invocation,
+including the caller's stable command identity/retry window and domain-owned time
+and randomness. Its fingerprint and original deadline include that capture. The
+same namespace/class binding and shared invocation admission used by queries also
+bound commands. Current shared-group command dispatch requires both the request
+and namespace minimum to be Quorum. S3 refuses with `UnsupportedCapability` until
+CG-06 supplies a real complete-group archive proof; no acknowledgement is lowered.
+
+`CellCommandInvocation` exposes preparation, provisional submission and settlement
+as distinct phases for the production controller. Before entering SQL it retains
+its originating runtime, pool, exact route and fresh preparation IDs. Cancelling
+preparation loses only the response. Resuming retrieves that same worker-owned
+producer, even if a routing retry selects another member. A catalog redirect never
+releases an unresolved producer or runs its callback at a second destination.
+The controller must retain invocations independently from ingress response waiters.
+
+Submission uses the existing shared acceptance/seal state and original SQL
+ownership. Repeated acceptance cannot append twice. An exact pre-append rejection
+seals every clone before cleanup. Settlement reads the original receipt through
+current applied authority; same-term absence stays uncertain. Only the existing
+strictly newer applied-term proof can produce `NotCommitted`. A subsequent
+preparation uses fresh physical IDs with the same logical command and captured
+inputs. Lost duplicate/settlement responses may use registered receipt lookup with
+new command execution disabled. On a follower, a missing local producer still
+requires routing to a leader for that fallback; it is never evidence of absence.
+
+Returned `CellCommandResponse` retains SQL output admission and signs the selected
+cell observation. Acceptance itself is never a response carrying durability.
+Deadline checks cover each phase and output delivery. Errors retain the command
+ID and an explicit ambiguity bit; a deadline, lost reply or redirect is not a
+non-commit proof. Dropping the invocation never releases its worker's unresolved
+producer. The node controller still needs to own these phases through ingress
+cancellation and drive shared transport/apply/completion events. Enrollment routing,
+that production integration and final public SDK replacement remain unfinished.

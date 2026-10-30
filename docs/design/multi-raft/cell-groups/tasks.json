@@ -484,8 +484,10 @@
         "crates/cellar/durability/raft/effect_history.rs",
         "crates/cellar/tests/support/cell_group_sql_registered.rs",
         "crates/cellar/tests/support/cell_group_sql_registered_queries.rs",
-        "crates/cellar/durability/raft/cell_groups/dispatch.rs",
-        "crates/cellar/tests/support/cell_group_sql_dispatch.rs"
+        "crates/cellar/durability/raft/cell_groups/dispatch/mod.rs",
+        "crates/cellar/tests/support/cell_group_sql_dispatch.rs",
+        "crates/cellar/durability/raft/cell_groups/dispatch/command.rs",
+        "crates/cellar/tests/support/cell_group_sql_command_dispatch.rs"
       ],
       "test_target": "native_cell_groups_execution",
       "steps": [
@@ -561,6 +563,13 @@
           "tests": [
             "catalog_routed_queries_preserve_invocation_and_authority",
             "rooted_catalog_routed_queries_preserve_invocation_and_authority"
+          ]
+        },
+        {
+          "action": "Route immutable registered command invocations through the same dispatcher and catalog sessions. Capture host time/randomness once, retain the original runtime/SQL producer across cancelled preparation, and resume it before considering a new destination. Submission acceptance is provisional; settle only an exact committed receipt or the existing newer-term absence proof. Preserve command identity, deadline and attempt budget across retries, and refuse S3 requests or S3 namespace minima until a real archive proof is integrated. The production controller must retain active invocations and drive publication; enrollment and the public SDK/controller cutover remain required.",
+          "tests": [
+            "catalog_routed_commands_preserve_producer_and_receipts",
+            "rooted_catalog_routed_commands_preserve_producer_and_receipts"
           ]
         }
       ],
@@ -829,6 +838,26 @@
           "invariants": [
             "I01",
             "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "catalog_routed_commands_preserve_producer_and_receipts",
+          "oracle": "A real catalog-routed registered command on three voters resumes a held/cancelled preparation without another callback or a foreign-node producer. Repeated submission retains the original acceptance; same-term receipt absence stays ambiguous and charged. Exact publication returns the original cell receipt and token, including a duplicate after another cell advances group progress. Real leader transfer permits NotCommitted only behind the newer applied term, then retry preserves captured time/randomness and command identity. S3 request and namespace minima refuse without weakening durability.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_catalog_routed_commands_preserve_producer_and_receipts",
+          "oracle": "A real catalog-routed registered command on three voters resumes a held/cancelled preparation without another callback or a foreign-node producer. Repeated submission retains the original acceptance; same-term receipt absence stays ambiguous and charged. Exact publication returns the original cell receipt and token, including a duplicate after another cell advances group progress. Real leader transfer permits NotCommitted only behind the newer applied term, then retry preserves captured time/randomness and command identity. S3 request and namespace minima refuse without weakening durability.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
             "I12"
           ]
         }

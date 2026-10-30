@@ -671,3 +671,5 @@ pub(super) use sql::registered_commands;
 pub(super) use sql::registered_queries;
 
 pub(super) use sql::routed_queries;
+
+pub(super) use sql::routed_commands;

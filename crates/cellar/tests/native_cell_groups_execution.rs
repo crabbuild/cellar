@@ -1330,3 +1330,13 @@ async fn catalog_routed_queries_preserve_invocation_and_authority() -> Result<()
 async fn rooted_catalog_routed_queries_preserve_invocation_and_authority() -> Result<()> {
     Box::pin(runtime_fixture::routed_queries(true)).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn catalog_routed_commands_preserve_producer_and_receipts() -> Result<()> {
+    Box::pin(runtime_fixture::routed_commands(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_catalog_routed_commands_preserve_producer_and_receipts() -> Result<()> {
+    Box::pin(runtime_fixture::routed_commands(true)).await
+}

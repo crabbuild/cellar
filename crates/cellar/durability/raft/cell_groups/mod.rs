@@ -13,8 +13,10 @@ mod apply;
 mod dispatch;
 pub use apply::{CellGroupApplier, CellGroupApplyImages};
 pub use dispatch::{
-    CellDispatchError, CellDispatchLimits, CellGroupDispatcher, CellQueryConsistency,
-    CellQueryInvocation, CellQueryRequest, CellQueryResponse,
+    CellCommandError, CellCommandInvocation, CellCommandPreparation, CellCommandRequest,
+    CellCommandResponse, CellCommandSettlement, CellCommandSubmission, CellDispatchError,
+    CellDispatchLimits, CellGroupDispatcher, CellQueryConsistency, CellQueryInvocation,
+    CellQueryRequest, CellQueryResponse,
 };
 
 mod execution_authority;
