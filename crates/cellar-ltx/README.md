@@ -73,9 +73,20 @@ lock until their last reader closes; generic `ExtentSource` downloads retain
 their separate scratch files, destination verification and synchronization.
 Writable workspace hydration explicitly checks the complete source extent
 before copying its first block, then independently checks the destination.
+Root metadata keeps a file-and-directory persistence proof only in the current
+open inventory. Repeated seals still read and authenticate the root file, but
+need not repeat an already completed barrier for immutable metadata. Reopening
+the inventory or a failed metadata read revokes that proof; an ordinary view
+cannot restore it without the normal barriers. New root and extent publication
+retain their file and directory synchronization.
+
 Local read failures invalidate the inventory's seal eligibility. Reusing a query
 proof cannot override a failed full verification; admission needs a fresh full
-verification with the normal persistence barriers.
+verification with the normal persistence barriers. `validate_image_seal` checks
+this eligibility for a live, exact-owner image capability using metadata only.
+It cannot seal a reopened view or grant native publication authority. Likewise,
+`retire_image_root` changes only retention metadata; live pins and active marker
+references still prevent reclamation, and deletion alone refunds disk charges.
 
 L0 segments capture commits before higher-level compaction. The paged SQLite
 virtual filesystem loads each page on first use through indexes in retained
@@ -316,6 +327,24 @@ and closed retained roots protect shared objects; synced deletion precedes every
 capacity refund. Ambiguous creation, failed cleanup or an interrupted mutation
 quarantines further mutation until the owner is closed and recovered.
 
+`open_parallel` admits a bounded number of independent publications on existing
+blocking workers. Same-object and same-root exclusion prevent duplicate physical
+writers; reservations remain charged until durable deletion. Reclamation and
+reference-set replacement take exclusive admission, while live pins and durable
+marker references remain authoritative. The ordinary constructors retain their
+single-operation policy.
+
+Optional barrier batching writes a bounded cohort of owned destinations before
+the first file sync. Each file is then synced and independently reverified;
+preliminary read hashes grant no persistence eligibility. A shared directory sync covers only names
+registered before that sync began. It proves namespace persistence, never a
+peer's unfinished file sync. No image seal leaves preparation until every
+required file and namespace dependency is durable. Failed or interrupted cohorts
+remain charged and quarantine mutation; restart re-verifies authoritative roots
+before orphan reclamation. Exclusive request timers distinguish inventory wait,
+SQL, LTX decoding, extent reads/hashing/writes, file sync, directory sync and
+shared-barrier wait; they observe work without granting durability authority.
+
 `SealedImageRoot` adds SQLite geometry, canonical lock-page and optional LTX
 checksum verification to a complete local closure. `prepare_image_root` derives
 changed extents from bounded LTX files and independently verifies their result;
@@ -434,3 +463,45 @@ by default. Every takeover target must have the dual decoder before the first
 L1 publication, so a mixed fleet must set `CELLAR_LTX_COMPACTION=0` until all
 nodes can read block files. The same reader-first requirement applies to a
 later L0 writer switch.
+
+## Append-segment inventory (opt-in)
+
+`NodeExtentStore::open_append` stores framed extent payloads and root metadata in
+bounded append files instead of separate named files. `open`, `open_serialized`
+and `open_parallel` retain their ordinary file format. An inventory must use one
+format throughout; opening a populated directory with the other format refuses
+admission. There is no format migration or legacy-reader fallback. All owned
+format markers remain at 1.
+
+The caller selects a segment target from 4 KiB through 64 MiB and at most sixteen
+existing blocking publishers. A record larger than the target occupies a segment
+on its own. The append owner serializes bounded physical writes; it releases its
+mutex before commit sync. A successful sync advances only the complete-record
+watermark captured before that sync began. Compatible waiters can share that
+watermark; later appends require a subsequent barrier. No batching delay, timer
+or additional worker is created. Image preparation syncs each touched segment
+once through its last pending record, then independently re-verifies every
+extent and root destination before enabling the seal. Root metadata alone still
+supplies no local closure or native acknowledgement authority.
+
+Segment creation persists its header and directory entry before use. Ordinary
+appends create no names and require no new directory barrier. Restart inventories
+bounded authenticated headers and completion footers, without reading extent
+bodies. Complete framing restores locations, never verification proofs or serving
+selection. Short framing and authenticated incomplete tails remain charged and
+are never reused; corrupt complete framing refuses opening. Reopened reads still
+check full content identities and re-establish successful persistence barriers
+before restoring seal eligibility. Source/write/sync panics or uncertain I/O
+quarantine admission and wake pending barrier waiters.
+
+Byte admission includes payloads, record framing, segment headers, dead records,
+and incomplete tails. Object/root counts also retain dead records until their
+segment is removed. Reclamation operates on whole segments after authoritative
+reference reconciliation. Root pins, active native references, and dependencies
+of every root remaining in a retained segment exclude deletion. A deletion cohort
+must leave no remaining root referring to a removed segment; a successful
+directory barrier precedes every refund. A mixed live/dead segment retains its
+whole charge. Relocating compaction is not implemented, so fragmentation or a
+dependency cycle larger than the GC file budget can delay reclamation and
+cause a conservative capacity refusal. Segment targets and GC budgets must be
+chosen with that limitation in mind. Closing a reader never refunds disk bytes.

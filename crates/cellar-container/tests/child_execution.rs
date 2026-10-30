@@ -168,7 +168,29 @@ impl Cell for Root {
                 }
                 "erase" => {
                     let parent = catalog.parent(&context)?.unwrap();
-                    catalog.request_erasure(&context).await?;
+                    let mut erasure = catalog.request_erasure(&context);
+                    let mut resume_after = None;
+                    // Model a busy worker delaying the request's continuation
+                    // while cleanup observes its newly committed intent.
+                    futures_util::future::poll_fn(|cx| {
+                        if let Some(delay) = &mut resume_after {
+                            if std::future::Future::poll(std::pin::Pin::as_mut(delay), cx)
+                                .is_pending()
+                            {
+                                return std::task::Poll::Pending;
+                            }
+                        }
+                        let result = erasure.as_mut().poll(cx);
+                        if result.is_pending() && resume_after.is_none() {
+                            let mut delay =
+                                Box::pin(tokio::time::sleep(Duration::from_millis(300)));
+                            let _ = std::future::Future::poll(delay.as_mut(), cx);
+                            resume_after = Some(delay);
+                        }
+                        result
+                    })
+                    .await?;
+                    ensure!(resume_after.is_some(), "erasure proof did not suspend");
                     json!(parent.scope)
                 }
                 "retired" => {

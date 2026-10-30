@@ -46,6 +46,7 @@ pub mod wal;
 #[doc(hidden)]
 pub mod internal {
     pub use crate::db::internal as db;
+    pub use crate::extent::store::timing as image_timing;
     pub use crate::extent::{
         file::{ExtentDownload, ExtentFile},
         image::{open_extent_image, CacheLimits, CacheUsage, ExtentImage, ExtentSource},

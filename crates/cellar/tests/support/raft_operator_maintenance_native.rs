@@ -94,7 +94,10 @@ async fn routed<F: Future>(f: &Scenario, future: F) -> Result<F::Output> {
     let catalog = Fixture::open_catalog(&f.s.f.domain, f.s.f.store.clone())?;
     f.s.f
         .domain
-        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+        // A CLI wait observes several separately budgeted protocol steps. It
+        // must return its own typed timeout before the fixture stops routing.
+        // Individual probes, catalog operations and service turns keep TIMEOUT.
+        .run(cellar::asyncrt::timeout(Duration::from_secs(30), async {
             // A peer-probe retry must not prevent polling a completed CLI result.
             // Both branches share this original deadline; no task is detached.
             cellar::asyncrt::select! {

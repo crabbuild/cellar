@@ -27,9 +27,10 @@ jobs:
   lifecycle:
     name: Typed RPC (${{ matrix.python }})
     runs-on: ubuntu-22.04
-    # The full combined matrix adds about 24 minutes to the existing cold
-    # fixture checks. Only the CI job ceiling changes; RPC budgets stay fixed.
-    timeout-minutes: 60
+    # Cold fixture checks, dedicated lifecycle suites and the full combined
+    # matrix exceed an hour on shared runners. Only the CI job ceiling changes;
+    # individual RPC, proof, lease and shutdown budgets remain enforced.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:

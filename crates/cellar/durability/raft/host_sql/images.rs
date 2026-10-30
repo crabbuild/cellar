@@ -415,7 +415,7 @@ impl ImageOwner {
                 applier.prepare_private(ticket, entry, image, private)
             }
             Self::Rooted { applier, .. } => {
-                applier.prepare(ticket, entry, &mut vec![0; EXTENT_BYTES as usize])
+                applier.prepare_private(ticket, entry, private, &mut vec![0; EXTENT_BYTES as usize])
             }
         }
     }

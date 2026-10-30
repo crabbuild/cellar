@@ -203,11 +203,22 @@ impl SandboxCatalog {
     pub fn request_erasure(&self, context: &Context) -> HandlerFuture<()> {
         let prepared = (|| {
             let scope = self.check(context)?;
-            crate::storage::sandbox_erasure::prepare(scope)?;
-            maintenance::publish(context)?;
-            Ok::<_, anyhow::Error>(context.storage()?.sync())
+            crate::native_worker::InputGate::acquire(context.io.clone(), scope.to_owned())
         })();
-        Box::pin(async move { prepared?.await })
+        let catalog = self.clone();
+        let context = context.clone();
+        Box::pin(async move {
+            // Cleanup can discover committed intent before this continuation
+            // receives its durability proof. Keep its delivery behind the
+            // requesting event until the caller can finish its acknowledgement.
+            // The future owns the hold, including while its next poll is delayed.
+            let gate = prepared?;
+            gate.ready.clone().await.map_err(anyhow::Error::msg)?;
+            let scope = catalog.check(&context)?;
+            crate::storage::sandbox_erasure::prepare(scope)?;
+            maintenance::publish(&context)?;
+            context.storage()?.sync().await
+        })
     }
 
     /// Finish only after every child has confirmed deletion. The retained parent

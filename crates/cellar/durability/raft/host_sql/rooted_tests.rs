@@ -27,6 +27,7 @@ struct Host {
     store: NodeExtentStore,
     class: Arc<RaftClass>,
     pins: Arc<Budget>,
+    performance: Arc<super::super::performance::Registry>,
 }
 
 fn scope() -> GroupScope {
@@ -106,6 +107,7 @@ impl Host {
         };
         let limits = ExecutionLimits::default();
         let pins = Budget::new(0, 1);
+        let performance = super::super::performance::Registry::new(token.clone());
         let pool = Pool::start(
             token.clone(),
             1,
@@ -116,7 +118,7 @@ impl Host {
                 archive_capture: Budget::new(64 * 1024 * 1024, 4),
                 query_pins: pins.clone(),
             },
-            super::super::performance::Registry::new(token.clone()),
+            performance.clone(),
         )?;
         let host = LtxHost::new(
             || 10,
@@ -202,6 +204,7 @@ impl Host {
             store,
             class,
             pins,
+            performance,
         };
         if member == 1 {
             host.runtime.campaign(&host.scope).await?;
@@ -388,6 +391,155 @@ impl Host {
 
 fn class(calls: Arc<AtomicUsize>) -> anyhow::Result<Arc<RaftClass>> {
     class_with_blobs(calls, false)
+}
+
+async fn with_unrelated_inventory_io(
+    host: &Host,
+    action: Action,
+    tag: u8,
+) -> anyhow::Result<Value> {
+    let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+    let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+    let store = host.store.clone();
+    let physical = std::thread::spawn(move || {
+        store.put_extent(
+            cellar_ltx::internal::ExtentId::of(&[tag; 4096])?,
+            |offset, count| {
+                if offset == 0 {
+                    entered_tx.send(()).map_err(std::io::Error::other)?;
+                    release_rx.recv().map_err(std::io::Error::other)?;
+                }
+                Ok(vec![tag; count])
+            },
+        )
+    });
+    entered_rx.recv_timeout(Duration::from_secs(5))?;
+    let result = tokio::time::timeout(Duration::from_secs(5), host.call(action)).await;
+    release_tx.send(())?;
+    physical
+        .join()
+        .map_err(|_| anyhow::anyhow!("inventory writer panicked"))??;
+    result
+        .map_err(|_| {
+            anyhow::anyhow!("committed extent progress waited for unrelated inventory I/O")
+        })?
+        .map_err(Into::into)
+}
+
+async fn extent_progress(block_prepare: bool) -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let store = NodeExtentStore::open_serialized(
+        directory.path().join("inventory"),
+        Arc::new(DirectFileSystem),
+        Default::default(),
+    )?;
+    let mut host = Host::open_inventory(
+        directory.path(),
+        class(calls.clone())?,
+        false,
+        1,
+        vec![],
+        Some((scope(), store)),
+    )
+    .await?;
+    let result = async {
+        for sequence in 1..=2 {
+            let (identity, outcome) = host.stage(sequence, sequence as u8).await?;
+            let StageOutcome::Prepared(prepared) = outcome else {
+                anyhow::bail!("not staged")
+            };
+            host.call(Action::Submit { identity }).await?;
+            host.runtime
+                .propose(&host.scope, prepared.context(), prepared.bytes().to_vec())
+                .await?;
+            let event = host.event().await?;
+            let RuntimeEventKind::Apply { ticket, .. } = &event.kind else {
+                anyhow::bail!("not committed")
+            };
+            let ticket = ticket.clone();
+            let action = Action::Prepare {
+                event,
+                image: ImageId::new([sequence as u8 + 40; 16])?,
+            };
+            let output = if block_prepare {
+                with_unrelated_inventory_io(&host, action, sequence as u8 + 70).await?
+            } else {
+                host.call(action).await?
+            };
+            let Value::Prepared(completion) = output else {
+                anyhow::bail!("not prepared")
+            };
+            assert!(host
+                .call(Action::Publish {
+                    ticket: ticket.clone()
+                })
+                .await
+                .is_err());
+            host.runtime.complete_apply(completion).await?;
+            let event = host.event().await?;
+            assert!(matches!(event.kind, RuntimeEventKind::Applied { .. }));
+            let action = Action::Publish { ticket };
+            let output = if block_prepare {
+                host.call(action).await?
+            } else {
+                with_unrelated_inventory_io(&host, action, sequence as u8 + 90).await?
+            };
+            let Value::Published {
+                view,
+                receipt: Some((_, receipt)),
+            } = output
+            else {
+                anyhow::bail!("not published")
+            };
+            assert_eq!(receipt.receipt().result(), (sequence as i64).to_be_bytes());
+            let read = host
+                .query(
+                    "Read",
+                    super::super::query::Minimum::ReadIndex(view.position.index),
+                    Arc::new(AttemptControl::new(host.token.clone())),
+                )
+                .await?;
+            assert_eq!(read.result, (sequence as i64).to_be_bytes());
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        let metrics = host.performance.snapshot();
+        let count = |name| {
+            metrics
+                .operations
+                .iter()
+                .find(|v| v.name == name)
+                .unwrap()
+                .count
+        };
+        assert_eq!(count("sql_prepare_leader"), 2);
+        assert_eq!(count("sql_prepare_follower"), 0);
+        assert_eq!(count("sql_publish_leader"), 2);
+        assert_eq!(count("image_stage_leader_sql"), 2);
+        assert_eq!(
+            metrics
+                .operations
+                .iter()
+                .find(|v| v.name == "image_prepare_leader_inventory_wait")
+                .unwrap()
+                .sum_us,
+            0
+        );
+        Ok(())
+    }
+    .await;
+    host.close().await?;
+    result
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn extent_progress_reuses_submitted_preview() -> anyhow::Result<()> {
+    extent_progress(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn extent_progress_publishes_committed_image_without_physical_wait() -> anyhow::Result<()> {
+    extent_progress(false).await
 }
 
 const ARCHIVE_BLOB_BYTES: usize = 32 * 1024;
@@ -963,4 +1115,56 @@ async fn extent_writers_share_one_workspace_capacity_after_committed_publication
     assert_eq!(calls.load(Ordering::SeqCst), 4);
     first.close().await?;
     second.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn parallel_inventory_keeps_real_staging_and_commit_independent_of_unrelated_io(
+) -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let store = NodeExtentStore::open_parallel(
+        directory.path().join("inventory"),
+        Arc::new(DirectFileSystem),
+        Default::default(),
+        2,
+        true,
+    )?;
+    let mut host = Host::open_inventory(
+        directory.path(),
+        class(calls)?,
+        false,
+        1,
+        vec![],
+        Some((scope(), store)),
+    )
+    .await?;
+    let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+    let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+    let worker = host.store.clone();
+    let io = std::thread::spawn(move || {
+        worker.put_extent(
+            cellar_ltx::internal::ExtentId::of(&[99; 4096])?,
+            |_, count| {
+                entered_tx.send(()).map_err(std::io::Error::other)?;
+                release_rx.recv().map_err(std::io::Error::other)?;
+                Ok(vec![99; count])
+            },
+        )
+    });
+    entered_rx.recv_timeout(Duration::from_secs(5))?;
+    let result = tokio::time::timeout(Duration::from_secs(5), async {
+        let (identity, outcome) = host.stage(1, 1).await?;
+        let StageOutcome::Prepared(prepared) = outcome else {
+            anyhow::bail!("not staged");
+        };
+        let (_, receipt) = host.commit(identity, prepared).await?;
+        assert_eq!(receipt.receipt().result(), 1_i64.to_be_bytes());
+        Ok::<_, anyhow::Error>(())
+    })
+    .await;
+    release_tx.send(())?;
+    io.join()
+        .map_err(|_| anyhow::anyhow!("unrelated writer panicked"))??;
+    host.close().await?;
+    result.map_err(|_| anyhow::anyhow!("staging/commit waited for unrelated physical I/O"))?
 }

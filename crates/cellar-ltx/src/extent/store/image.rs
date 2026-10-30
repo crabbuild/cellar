@@ -5,11 +5,13 @@
 //! receive a separate capability before a native owner can publish a marker.
 
 use super::super::tree::{Geometry, ImageBinding, EXTENT_BYTES};
+use super::batch::Batch;
 use super::*;
 use crate::{
     apply::{ApplyError, ApplyLimits, LtxSegment},
     ltx, CHECKSUM_FLAG,
 };
+use timing::Phase;
 
 /// A locally sealed SQLite image, distinct from a generic sealed byte closure.
 /// This establishes neither a committed Raft cut nor permission to serve it.
@@ -76,20 +78,59 @@ fn extent_index(page: u32, page_size: u32) -> u32 {
 }
 
 impl NodeExtentStore {
+    /// Recheck eligibility of this inventory's live, already sealed image
+    /// without joining physical I/O. A known local read failure revokes the
+    /// seal until ordinary full verification restores it. This cannot promote
+    /// a reopened view or grant permission to publish a native marker.
+    pub fn validate_image_seal(&self, image: &SealedImageRoot) -> Result<(), StoreError> {
+        if !self.owns_image(image) {
+            return Err(StoreError::Layout);
+        }
+        let reference = image.reference();
+        let state = self.inner.state()?;
+        if state.quarantined {
+            return Err(StoreError::Quarantined);
+        }
+        let root = state
+            .roots
+            .get(&reference.root)
+            .ok_or(StoreError::Missing)?;
+        if root.bytes != u64::from(reference.length)
+            || !Arc::ptr_eq(&root.token, &image.view()._token)
+        {
+            return Err(StoreError::Integrity);
+        }
+        if !root.metadata_persisted {
+            return Err(StoreError::Unverified);
+        }
+        for id in &image.view().data.objects {
+            let object = state.objects.get(id).ok_or(StoreError::Missing)?;
+            if !object.verified || object.bytes != u64::from(id.length()) {
+                return Err(StoreError::Unverified);
+            }
+        }
+        Ok(())
+    }
+
     fn read_image_extent(
         &self,
         id: ExtentId,
         buffer: &mut [u8],
         work: &mut RootApplyWork,
+        batch: Option<&Batch<'_>>,
     ) -> Result<(), StoreError> {
-        super::publication::read_object(&self.inner, id, |offset, bytes| {
+        let consume = |offset, bytes: &[u8]| {
             let start = offset as usize;
             buffer
                 .get_mut(start..start + bytes.len())
                 .ok_or(StoreError::Integrity)?
                 .copy_from_slice(bytes);
             Ok(())
-        })?;
+        };
+        match batch {
+            Some(batch) => batch.read(id, consume)?,
+            None => super::publication::read_object(&self.inner, id, consume)?,
+        }
         work.base_bytes_read = work
             .base_bytes_read
             .checked_add(u64::from(id.length()))
@@ -107,11 +148,10 @@ impl NodeExtentStore {
         check_buffer(buffer)?;
         let operation = self.begin()?;
         let result = (|| {
-            self.check_image(&manifest, buffer, &mut RootApplyWork::default())?;
+            self.check_image(&manifest, buffer, &mut RootApplyWork::default(), None)?;
             Ok(SealedImageRoot(self.seal_root_inner(manifest)?))
         })();
-        operation.finish()?;
-        result
+        operation.finish(result)
     }
 
     fn check_image(
@@ -119,6 +159,7 @@ impl NodeExtentStore {
         manifest: &ExtentManifest,
         buffer: &mut [u8],
         work: &mut RootApplyWork,
+        batch: Option<&Batch<'_>>,
     ) -> Result<(), StoreError> {
         let geometry = manifest.geometry();
         if geometry.length() == 0 {
@@ -133,7 +174,7 @@ impl NodeExtentStore {
                 continue;
             }
             let id = manifest.extent(index).ok_or(StoreError::Missing)?;
-            self.read_image_extent(id, buffer, work)?;
+            self.read_image_extent(id, buffer, work, batch)?;
             if index == 0 {
                 crate::apply::validate_sqlite_geometry(
                     &buffer[..id.length() as usize],
@@ -197,6 +238,7 @@ impl NodeExtentStore {
         };
         preflight(&current, update, limits)?;
         let operation = self.begin()?;
+        let mut batch = Batch::new(self);
         let result = (|| {
             let mut work = RootApplyWork::default();
             let mut rolling =
@@ -225,8 +267,10 @@ impl NodeExtentStore {
                             .ok_or(ApplyError::Limit)?,
                     )
                     .max(1);
-                let file =
-                    ltx::decode_file_bounded(segment.bytes, decode).map_err(ApplyError::from)?;
+                let file = {
+                    let _decode = timing::span(Phase::LtxDecode);
+                    ltx::decode_file_bounded(segment.bytes, decode).map_err(ApplyError::from)?
+                };
                 if file.pages().len() != segment.page_count
                     || file.decoded_bytes() != segment.decoded_bytes
                 {
@@ -238,8 +282,14 @@ impl NodeExtentStore {
                 actual_decoded = actual_decoded
                     .checked_add(file.decoded_bytes())
                     .ok_or(ApplyError::Limit)?;
-                current =
-                    self.apply_image_file(&current, &file, buffer, &mut rolling, &mut work)?;
+                current = self.apply_image_file(
+                    &current,
+                    &file,
+                    buffer,
+                    &mut rolling,
+                    &mut work,
+                    &mut batch,
+                )?;
             }
             if current.binding() != update.binding
                 || current.geometry() != update.geometry
@@ -249,14 +299,29 @@ impl NodeExtentStore {
             }
             // Header/hole checks are independent of the proposed commitment.
             // A checksum-enabled result has already been checked at each file.
-            self.check_image_geometry(&current, buffer, &mut work)?;
+            self.check_image_geometry(&current, buffer, &mut work, Some(&batch))?;
+            let enabled = batch.enabled;
             Ok(PreparedImageRoot {
-                image: SealedImageRoot(self.seal_root_inner(current)?),
+                image: SealedImageRoot(
+                    self.seal_root_batch(current, enabled.then_some(&mut batch))?,
+                ),
                 work,
             })
         })();
-        operation.finish()?;
-        result
+        let result = match (result, batch.flush()) {
+            (result, Ok(())) => result,
+            (Ok(_), Err(error)) => Err(error),
+            (Err(error), Err(cleanup)) => Err(StoreError::Cleanup {
+                operation: Box::new(error),
+                cleanup: io::Error::other(cleanup),
+            }),
+        };
+        drop(batch);
+        let result = result.and_then(|prepared| {
+            self.validate_image_seal(&prepared.image)?;
+            Ok(prepared)
+        });
+        operation.finish(result)
     }
 
     fn check_image_geometry(
@@ -264,13 +329,14 @@ impl NodeExtentStore {
         manifest: &ExtentManifest,
         buffer: &mut [u8],
         work: &mut RootApplyWork,
+        batch: Option<&Batch<'_>>,
     ) -> Result<(), StoreError> {
         let binding = ImageBinding {
             checksum: 0,
             ..manifest.binding()
         };
         let geometry_only = manifest.with_updates(binding, manifest.geometry(), &[])?;
-        self.check_image(&geometry_only, buffer, work)
+        self.check_image(&geometry_only, buffer, work, batch)
     }
 
     fn apply_image_file(
@@ -280,6 +346,7 @@ impl NodeExtentStore {
         buffer: &mut [u8],
         rolling: &mut Option<u64>,
         work: &mut RootApplyWork,
+        batch: &mut Batch<'_>,
     ) -> Result<ExtentManifest, StoreError> {
         let header = file.header();
         let geometry = Geometry::new(
@@ -296,7 +363,7 @@ impl NodeExtentStore {
             let mut value = CHECKSUM_FLAG;
             for index in 0..old.extent_count() {
                 let id = before.extent(index).ok_or(StoreError::Missing)?;
-                self.read_image_extent(id, buffer, work)?;
+                self.read_image_extent(id, buffer, work, Some(batch))?;
                 for (within, page) in buffer[..id.length() as usize]
                     .chunks_exact(header.page_size as usize)
                     .enumerate()
@@ -360,6 +427,7 @@ impl NodeExtentStore {
                     before.extent(index).ok_or(StoreError::Missing)?,
                     buffer,
                     work,
+                    Some(batch),
                 )?;
             } else {
                 buffer.fill(0);
@@ -415,9 +483,12 @@ impl NodeExtentStore {
             if length == 0 {
                 continue;
             }
-            let id = ExtentId::of(&buffer[..length])?;
+            let id = {
+                let _hash = timing::span(Phase::ExtentHash);
+                ExtentId::of(&buffer[..length])?
+            };
             let exists = self.inner.state()?.objects.contains_key(&id);
-            self.put_extent_bytes_inner(id, &buffer[..length])?;
+            batch.put(id, &buffer[..length])?;
             work.extents_prepared = work
                 .extents_prepared
                 .checked_add(1)
@@ -445,7 +516,7 @@ impl NodeExtentStore {
             geometry,
             &updates,
         )?;
-        self.check_image_geometry(&manifest, buffer, work)?;
+        self.check_image_geometry(&manifest, buffer, work, Some(batch))?;
         Ok(manifest)
     }
 }

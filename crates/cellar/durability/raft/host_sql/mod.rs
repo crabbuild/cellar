@@ -13,7 +13,7 @@ use super::completion::{
 };
 use super::execution::*;
 use super::performance::{
-    Counter as MeasuredCounter, Operation as Measured, Registry as Performance,
+    Counter as MeasuredCounter, ImageWork, Operation as Measured, Registry as Performance,
 };
 use super::snapshot::{
     PreparedSnapshot, SnapshotCapture, SnapshotCheckpoint, SnapshotLimits, SnapshotPackage,
@@ -482,40 +482,63 @@ impl Pool {
                             _ => Measured::SqlOther,
                         };
                         let timer = performance.timer(measured);
-                        let result = Self::execute(
-                            &mut cells,
-                            max_cells,
-                            &scope,
-                            action,
-                            &query_pins,
-                            &images,
-                        )
-                        .and_then(|value| {
-                            match &value {
-                                Value::Staged(StageOutcome::Prepared(prepared)) => {
-                                    performance.increment(
-                                        MeasuredCounter::SqlPreparedProposalBytes,
-                                        prepared.bytes().len() as u64,
-                                    );
-                                    performance.increment(
-                                        MeasuredCounter::SqlPreparedLtxBytes,
-                                        prepared.ltx_bytes,
-                                    );
-                                }
-                                Value::Queried(query) => performance.increment(
-                                    MeasuredCounter::SqlQueryOutputBytes,
-                                    query.result.len() as u64,
-                                ),
-                                _ => (),
+                        let publishing = matches!(&action, Action::Publish { .. });
+                        let role = match &action {
+                            Action::Stage { .. } => Some(ImageWork::StageLeader),
+                            Action::Prepare { event, .. } => {
+                                let local = match &event.kind {
+                                    RuntimeEventKind::Apply { entry, .. } => cells
+                                        .get(&scope)
+                                        .and_then(|cell| cell.private.as_ref())
+                                        .is_some_and(|private| {
+                                            private.submitted_payload(&entry.data)
+                                        }),
+                                    _ => false,
+                                };
+                                Some(if local {
+                                    ImageWork::PrepareLeader
+                                } else {
+                                    ImageWork::PrepareFollower
+                                })
                             }
-                            let bytes = value.bytes();
-                            let budget = if matches!(&value, Value::ArchiveCut(_)) {
-                                &archive_budget
-                            } else {
-                                &budget
-                            };
-                            let permit =
-                                if capture.is_some() && matches!(&value, Value::ArchiveCut(_)) {
+                            _ => None,
+                        };
+                        let work = || {
+                            Self::execute(
+                                &mut cells,
+                                max_cells,
+                                &scope,
+                                action,
+                                &query_pins,
+                                &images,
+                            )
+                            .and_then(|value| {
+                                match &value {
+                                    Value::Staged(StageOutcome::Prepared(prepared)) => {
+                                        performance.increment(
+                                            MeasuredCounter::SqlPreparedProposalBytes,
+                                            prepared.bytes().len() as u64,
+                                        );
+                                        performance.increment(
+                                            MeasuredCounter::SqlPreparedLtxBytes,
+                                            prepared.ltx_bytes,
+                                        );
+                                    }
+                                    Value::Queried(query) => performance.increment(
+                                        MeasuredCounter::SqlQueryOutputBytes,
+                                        query.result.len() as u64,
+                                    ),
+                                    _ => (),
+                                }
+                                let bytes = value.bytes();
+                                let budget = if matches!(&value, Value::ArchiveCut(_)) {
+                                    &archive_budget
+                                } else {
+                                    &budget
+                                };
+                                let permit = if capture.is_some()
+                                    && matches!(&value, Value::ArchiveCut(_))
+                                {
                                     capture.take()
                                 } else if bytes == 0 {
                                     None
@@ -537,12 +560,43 @@ impl Pool {
                                         }
                                     }
                                 };
-                            Ok(Output {
-                                value,
-                                _bytes: permit,
+                                Ok(Output {
+                                    value,
+                                    _bytes: permit,
+                                })
                             })
-                        });
-                        timer.finish(result.is_ok());
+                        };
+                        let (result, timings) = if role.is_some() || publishing {
+                            cellar_ltx::internal::image_timing::measure(work)
+                        } else {
+                            (work(), Default::default())
+                        };
+                        let role = if publishing {
+                            match &result {
+                                Ok(Output {
+                                    value:
+                                        Value::Published {
+                                            receipt: Some(_), ..
+                                        },
+                                    ..
+                                }) => Some(ImageWork::PublishLeader),
+                                Ok(Output {
+                                    value: Value::Published { receipt: None, .. },
+                                    ..
+                                }) => Some(ImageWork::PublishFollower),
+                                _ => {
+                                    performance
+                                        .increment(MeasuredCounter::ImageUnattributedRequests, 1);
+                                    None
+                                }
+                            }
+                        } else {
+                            role
+                        };
+                        if let Some(role) = role {
+                            performance.record_image(role, &timings, result.is_ok());
+                        }
+                        timer.finish_as(result.is_ok(), role.and_then(ImageWork::total_operation));
                         let _ = reply.send(result);
                     };
                     // Keep joining/closing every resource even when one reports an

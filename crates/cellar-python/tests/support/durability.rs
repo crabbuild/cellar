@@ -5,6 +5,30 @@ use super::fault_gates::{Gate, Peer, Release, Store};
 use super::*;
 use std::sync::atomic::Ordering;
 
+async fn recovered_state(client: &reqwest::Client, url: &str) -> Result<Value> {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let response = client.get(format!("{url}/proof/state")).send().await?;
+            if response.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE {
+                // A read admitted during asynchronous activation reset is
+                // refused. Retry only this fixed, read-only route; a failed
+                // proof never authorizes replay of /failure or another write.
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                continue;
+            }
+            let status = response.status();
+            let body = response.text().await?;
+            ensure!(
+                status.is_success(),
+                "recovered proof read failed: {status}: {body}"
+            );
+            return Ok::<_, anyhow::Error>(serde_json::from_str(&body)?);
+        }
+    })
+    .await
+    .context("read-only proof recovery exceeded its original budget")?
+}
+
 pub(super) fn child() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let report = run(
@@ -153,13 +177,57 @@ pub(super) fn child() -> Result<()> {
                     );
                     data.open();
                 }
+                peers.hold();
+                data.hold();
+                let mut failed = Box::pin(client.get(format!("{url}/proof/failure")).send());
+                let committed = async {
+                    loop {
+                        let progress: Value = client
+                            .get(format!("{url}/proof/progress"))
+                            .send().await?.error_for_status()?.json().await?;
+                        if progress["failure_committed"] == true {
+                            return Ok::<_, anyhow::Error>(());
+                        }
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                };
+                cellar::asyncrt::select! {
+                    response = &mut failed => anyhow::bail!("failure request escaped its held proof: {response:?}"),
+                    result = tokio::time::timeout(Duration::from_secs(5), committed) => result??,
+                }
+                // Admit the read against the unproven write before failing its
+                // proof. Reopening transports cannot turn that old read into
+                // a newly admitted recovery request.
+                let mut reading = Box::pin(client.get(format!("{url}/proof/state")).send());
+                let entered = async {
+                    loop {
+                        let progress: Value = client
+                            .get(format!("{url}/proof/progress"))
+                            .send().await?.error_for_status()?.json().await?;
+                        if progress["state_reads"] == 1 {
+                            return Ok::<_, anyhow::Error>(());
+                        }
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                };
+                cellar::asyncrt::select! {
+                    response = &mut failed => anyhow::bail!("failure request settled before read admission: {response:?}"),
+                    response = &mut reading => anyhow::bail!("read escaped the unproven write: {response:?}"),
+                    result = tokio::time::timeout(Duration::from_secs(5), entered) => result??,
+                }
                 peers.fail();
                 data.fail();
-                let failed = client.get(format!("{url}/proof/failure")).send().await?;
+                let failed = failed.await?;
                 ensure!(
                     failed.status().is_server_error(),
                     "unproven mutation was acknowledged: {:?}",
                     failed.status()
+                );
+                let refused = reading.await?;
+                ensure!(
+                    refused.status().is_server_error(),
+                    "read acknowledged an unproven write: {:?}",
+                    refused.status()
                 );
                 peers.open();
                 data.open();
@@ -174,13 +242,7 @@ pub(super) fn child() -> Result<()> {
                     attempts["failure"] == 1,
                     "an unproven mutation handler was blindly replayed: {attempts}"
                 );
-                let state: Value = client
-                    .get(format!("{url}/proof/state"))
-                    .send()
-                    .await?
-                    .error_for_status()?
-                    .json()
-                    .await?;
+                let state = recovered_state(&client, &url).await?;
                 ensure!(
                     state["sync"] == 1 && state["output"] == 1,
                     "restored proof access lost previously acknowledged state: {state}"

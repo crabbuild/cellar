@@ -38,8 +38,15 @@ pub(super) async fn run(
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
         .build()?;
-    let (node, owner_url) =
-        fleet::start(&root.join("owner"), fixture.clone(), OWNER, bucket.clone()).await?;
+    let (node, owner_url) = fleet::start_configured(
+        &root.join("owner"),
+        fixture.clone(),
+        OWNER,
+        bucket.clone(),
+        None,
+        super::super::configure_lifecycle,
+    )
+    .await?;
     let mut owner = Some(node);
     let mut source = None;
     let mut control_url = None;
@@ -60,7 +67,7 @@ pub(super) async fn run(
         for cell in ["worker-control", "cancel-followup", "python-late"] {
             ensure!(request(&client, &owner_url, "rust", "read", &[("target","rust"),("cell",cell)]).await? == json!({"value":"0"}), "Python native gate was not empty");
         }
-        let (node, source_url) = fleet::start(&root.join("source"), fixture.clone(), SOURCE, bucket).await?;
+        let (node, source_url) = fleet::start_configured(&root.join("source"), fixture.clone(), SOURCE, bucket, None, super::super::configure_lifecycle).await?;
         source = Some(node);
         control_url = Some(source_url.clone());
         let baseline = probes::resources(&python, 0, 0).await?;

@@ -533,7 +533,7 @@ async fn fleet_evacuation_candidate_after_voter_replacement() -> Result<()> {
     // The resource-backed move must settle against actual physical retirement
     // before evacuation can certify that no admitted work remains.
     s.f.domain
-        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+        .run(cellar::asyncrt::timeout(Duration::from_secs(20), async {
             loop {
                 let cut = s.f.catalog.read(TIMEOUT).await?;
                 // Exercise settlement after archive-driven compaction removes
@@ -558,7 +558,8 @@ async fn fleet_evacuation_candidate_after_voter_replacement() -> Result<()> {
                 cellar::asyncrt::sleep(Duration::from_millis(10)).await;
             }
         }))
-        .await???;
+        .await?
+        .context("replacement compaction and physical histories did not settle")??;
     let cut = s.f.catalog.read(TIMEOUT).await?;
     s.f.catalog
         .complete_movement(

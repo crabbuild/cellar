@@ -52,6 +52,9 @@ impl Cell for Root {
                     );
                     // The provider's create can be submitted only after the reservation
                     // future acknowledges durability. Simulate a lost backend reply.
+                    // A provider request can legitimately outlast 250 ms; this is
+                    // a journal/recovery test, not a short-handler deadline test.
+                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                     self.0.creates.fetch_add(1, Ordering::SeqCst);
                     *self.0.retained.lock().unwrap() = Some(journal);
                 }

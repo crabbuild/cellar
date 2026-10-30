@@ -4,6 +4,7 @@
 #![allow(clippy::disallowed_methods)]
 #[path = "../../examples/raft-counter/counter.rs"]
 mod counter;
+mod raft_dense_preload;
 mod raft_disaster;
 mod raft_fleet;
 mod raft_probe;
@@ -143,6 +144,37 @@ async fn main() -> Result<()> {
         "invalid archive byte budget"
     );
     let archive_max_unarchived_bytes = archive_max_unarchived_mib * 1024 * 1024;
+    let dense_image_mib: u64 = std::env::var("RAFT_DENSE_IMAGE_MIB")
+        .unwrap_or_else(|_| "0".into())
+        .parse()?;
+    ensure!(
+        dense_image_mib == 0 || (64..=2048).contains(&dense_image_mib),
+        "invalid dense image quota"
+    );
+    let extent_publications: usize = std::env::var("RAFT_EXTENT_PUBLICATIONS")
+        .unwrap_or_else(|_| {
+            RaftExtentOptions::default()
+                .publication_capacity
+                .to_string()
+        })
+        .parse()?;
+    let extent_batch_barriers: bool = std::env::var("RAFT_EXTENT_BATCH_BARRIERS")
+        .unwrap_or_else(|_| {
+            RaftExtentOptions::default()
+                .batch_directory_barriers
+                .to_string()
+        })
+        .parse()?;
+    ensure!(
+        (1..=16).contains(&extent_publications),
+        "invalid extent publication capacity"
+    );
+    let extent_segment_mib: u64 = std::env::var("RAFT_EXTENT_SEGMENT_MIB")
+        .unwrap_or_else(|_| "0".into())
+        .parse()?;
+    ensure!(extent_segment_mib <= 64, "invalid extent segment size");
+    let append_segment_bytes =
+        (extent_segment_mib != 0).then_some(extent_segment_mib * 1024 * 1024);
     let sql_workers: usize = std::env::var("RAFT_SQL_WORKERS")
         .unwrap_or_else(|_| RaftHostOptions::default().blocking_workers.to_string())
         .parse()?;
@@ -152,6 +184,17 @@ async fn main() -> Result<()> {
     ensure!(
         (1..=16).contains(&sql_workers) && (1..=256).contains(&sql_worker_queue),
         "invalid SQL worker configuration"
+    );
+    // Diagnostic controls retain the production defaults unless explicitly set.
+    let host_poll_ms: u64 = std::env::var("RAFT_HOST_POLL_MS")
+        .unwrap_or_else(|_| RaftHostOptions::default().poll_ms.to_string())
+        .parse()?;
+    let archive_checkpoint_ms: u64 = std::env::var("RAFT_ARCHIVE_CHECKPOINT_MS")
+        .unwrap_or_else(|_| RaftHostOptions::default().archive_checkpoint_ms.to_string())
+        .parse()?;
+    ensure!(
+        (1..=1000).contains(&host_poll_ms) && archive_checkpoint_ms <= 60_000,
+        "invalid diagnostic host intervals"
     );
     let workload = match std::env::var("RAFT_WORKLOAD").as_deref() {
         Ok("reference") => true,
@@ -219,6 +262,18 @@ async fn main() -> Result<()> {
         counter::definition()?
     };
     let schema = class.schema_digest();
+    if std::env::var("RAFT_DENSE_PRELOAD_ONLY").as_deref() == Ok("1") {
+        ensure!(
+            workload && placement.nodes == 3 && dense_image_mib != 0,
+            "preload requires the three-voter dense workload"
+        );
+        ensure!(
+            std::env::var_os("RAFT_FLEET_CONFIG").is_none()
+                && std::env::var_os("RAFT_DISASTER_ACTION").is_none(),
+            "preload requires a fresh static fixture"
+        );
+        return raft_dense_preload::run(store, schema, total, dense_image_mib * 1024 * 1024).await;
+    }
     let generation: u8 = std::env::var("RAFT_DISASTER_GENERATION")
         .unwrap_or_else(|_| "0".into())
         .parse()?;
@@ -381,6 +436,9 @@ async fn main() -> Result<()> {
     // The runner persists the peer directory per run and replaces all processes together.
     let mut config = NamespaceConfig::new(cluster, namespace, NamespaceMode::Raft, schema);
     config.voters = VoterPolicy::ThreeVoters;
+    if dense_image_mib != 0 {
+        config.image_storage = RaftImageStorage::Extents;
+    }
     let cells = (0..total)
         .filter(|cell| placement.voters(*cell).contains(&i))
         .map(|c| -> Result<_> {
@@ -420,6 +478,8 @@ async fn main() -> Result<()> {
         max_requests: 256,
         blocking_workers: sql_workers,
         worker_queue: sql_worker_queue,
+        poll_ms: host_poll_ms,
+        archive_checkpoint_ms,
         ..Default::default()
     };
     host.close_report.max_groups = local_count;
@@ -452,12 +512,19 @@ async fn main() -> Result<()> {
         peers,
         host,
     };
+    if dense_image_mib != 0 {
+        ensure!(managed.is_none(), "dense static fixture cannot use managed mode");
+        raft_config = raft_config.with_extent_image_limit(dense_image_mib * 1024 * 1024, RaftExtentOptions { publication_capacity: extent_publications, batch_directory_barriers: extent_batch_barriers, append_segment_bytes, ..Default::default() })?;
+    }
     if let Some(managed) = &managed {
         managed
             .configure(&mut raft_config, NodeId::new([i; 16])?)
             .await?;
-        raft_config = raft_config
-            .with_extent_image_limit(managed.config.image_bytes, managed.config.extent_options())?;
+        let mut extent_options = managed.config.extent_options();
+        extent_options.publication_capacity = extent_publications;
+        extent_options.batch_directory_barriers = extent_batch_barriers;
+        extent_options.append_segment_bytes = append_segment_bytes;
+        raft_config = raft_config.with_extent_image_limit(managed.config.image_bytes, extent_options)?;
         ensure!(
             mode == LogOpenMode::Create,
             "managed lab startup requires a fresh volume"
@@ -543,6 +610,11 @@ async fn main() -> Result<()> {
                 usage["archive_max_unarchived_bytes"] = archive_max_unarchived_bytes.into();
                 usage["archive_batch_groups"] = archive_batch_groups.into();
                 usage["archive_blocking_jobs"] = archive_blocking_jobs.into();
+                usage["extent_publications"] = extent_publications.into();
+                usage["extent_batch_barriers"] = extent_batch_barriers.into();
+                usage["extent_segment_mib"] = extent_segment_mib.into();
+                usage["host_poll_ms"] = host_poll_ms.into();
+                usage["archive_checkpoint_ms"] = archive_checkpoint_ms.into();
                 (axum::http::StatusCode::OK, usage.to_string())
             }
         }),

@@ -78,6 +78,8 @@ pub(super) fn preflight(
     request: &CommandRequest,
     limits: &ExecutionLimits,
 ) -> Result<Option<StoredReceipt>, ExecutionError> {
+    let _sql =
+        cellar_ltx::internal::image_timing::span(cellar_ltx::internal::image_timing::Phase::Sql);
     let receipt = preflight_identity(connection, request, limits)?;
     if receipt.is_none() && retained_count(connection)? >= limits.max_retained_receipts {
         return Err(ExecutionError::Refused(CommandFailure::Overloaded));
