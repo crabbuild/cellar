@@ -103,6 +103,8 @@ pub(super) async fn run(
             None,
             |config, _| {
                 config.actor.lease_ttl_ms = 5_000;
+                config.startup.recovery_retry_backoff =
+                    Duration::from_millis(config.actor.lease_ttl_ms);
                 Ok(())
             },
         )
@@ -119,6 +121,8 @@ pub(super) async fn run(
             None,
             |config, _| {
                 config.actor.lease_ttl_ms = 5_000;
+                config.startup.recovery_retry_backoff =
+                    Duration::from_millis(config.actor.lease_ttl_ms);
                 Ok(())
             },
         )
