@@ -498,7 +498,7 @@
           ]
         },
         {
-          "action": "Implement Stale, AtLeast and current-term ReadIndex for the target cell. Pin coherent manifest/image views and include cross-cell noninterference and slow-apply cases in the real-engine fixture. Correlate each strong read to its own runtime-owned request context and absolute domain deadline; retain separate bounded node/group pin admission through delivery and physical SQL execution. Configure logical image-pin bytes independently of transport message/request bytes; validate overflow and supported image bounds, and test independent capacity and reservation cleanup. Query callbacks consume immutable pins on existing workers, preserve read-only SQL policy and contain panics. Deadline/cancellation must interrupt SQLite work while arbitrary callback ownership remains retained until it finishes; shutdown joins that work.",
+          "action": "Implement Stale, AtLeast and current-term ReadIndex for the target cell. Pin coherent manifest/image views and include cross-cell noninterference and slow-apply cases in the real-engine fixture. Correlate each strong read to its own runtime-owned request context and absolute domain deadline; retain separate bounded node/group pin admission through delivery and physical SQL execution. Configure logical image-pin bytes independently of transport message/request bytes; validate overflow and supported image bounds, and test independent capacity and reservation cleanup. Persist each selected version's full commit witness in the authenticated manifest and require exact proposal matching at apply. Keep original decision provenance separate from local installation position, retain it across unchanged-cell progress/restart and carry it through query and receipt observations. Missing witness fields must refuse at marker 1. Query callbacks consume immutable pins on existing workers, preserve read-only SQL policy and contain panics. Deadline/cancellation must interrupt SQLite work while arbitrary callback ownership remains retained until it finishes; shutdown joins that work.",
           "tests": [
             "strong_read_at_group_barrier",
             "apply_prefix_never_skips_slow_cell",
@@ -615,7 +615,7 @@
         },
         {
           "name": "rooted_strong_read_at_group_barrier",
-          "oracle": "Extent-backed strong reads require fresh quorum and contiguous apply behind another cell, preserve the target cell version, wait for AtLeast publication, retain older coherent pins and refuse wrong histories, expired deadlines and revoked leadership.",
+          "oracle": "Extent-backed strong reads require fresh quorum and contiguous apply behind another cell, preserve the target cell version, wait for AtLeast publication, retain older coherent pins and original cell witnesses for authenticated version tokens, and refuse wrong histories, expired deadlines and revoked leadership.",
           "invariants": [
             "I01",
             "I05",

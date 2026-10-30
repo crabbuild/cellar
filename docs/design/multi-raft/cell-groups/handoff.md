@@ -15,9 +15,10 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The reviewed source baseline is `3da4481e`, qualifying coherent read selection
-and immutable cell queries after decoupling pin capacity from transport limits
-and repairing the fixture macro. The initial read implementation is `88c4717d`. Earlier checkpoints cover prepared submission sealing
+The reviewed source baseline is `ed84df5d`, retaining exact cell-version witnesses
+in authenticated manifests and query/receipt observations. The preceding read
+checkpoint at `3da4481e` decouples pin capacity from transport limits and repairs
+the fixture macro. The initial read implementation is `88c4717d`. Earlier checkpoints cover prepared submission sealing
 and exact rejection cleanup (`0cf89c40`) and bounded proposal acceptance and
 enrollment capacity (`446dd905`). Earlier checkpoints cover shared-worker initialization
 and term fencing (`6e09bbc7`, formatted at `82ae6877`), receipt lookup (`91c3ecfc`),
@@ -164,9 +165,10 @@ read-only callback restrictions, version-token authentication and installed
 transfer lineage. `CellExecutionAuthority` and `CellReconciliationAuthority`
 still grant no strong-read authority; use the new request-owned read path.
 Do not synthesize a cell-scoped legacy group or treat the group barrier index
-as the target cell's mutation position. SDK token issuance must retain the actual
-cell decision witness through compaction, rather than invent a proposal identity
-from the latest group progress.
+as the target cell's mutation position. SDK token issuance should consume `CellSqlQueryResult::observation()` or
+`CellCommittedReceipt::observation()`. These retain the selected version's actual
+cell decision witness. Real compaction integration must preserve it; never use
+the latest group progress or the retried command's proposal as a substitute.
 
 
 ## First executor session
@@ -193,18 +195,21 @@ command against the authoritative cell receipt before admitting another producer
 gate printed by `show CG-04`. Registered SDK dispatch and registered strong-read serving
 remain absent; the low-level read-authority and immutable-query paths exist.
 
-The read fixture macro and independent pin-byte capacity are repaired and
-qualified at `3da4481e`; the earlier failed read gate is retained as intermediate
-evidence. Next persist the selected version's complete commit witness in the
-authenticated cell leaf and carry it through read/query results before registered
-SDK token issuance. `raft/version.rs::CellVersionObservation` already requires
-`CommitWitness`; the current leaf stores only `last_mutation` and the original
-enrollment record, so a later mutation's proposal ID cannot be reconstructed
-after log compaction. Validate the witness against the actual applied entry,
-retain it across unchanged-cell group progress and restart, and exercise tokens
-from both image modes. Keep physical apply position separate from provenance
-when later implementing group transfer. Then integrate registered callbacks and
-catalog invocation sessions without synthesizing legacy group identities.
+The selected version's complete commit witness now persists in the authenticated
+cell leaf and flows through query and receipt observations. The source-bound gate
+at `ed84df5d` qualifies exact entry matching, unchanged-cell and older-pin
+provenance, restart/image-collection recovery and token round-trips in both image
+modes. Actual log-compaction and group-snapshot integration remain unqualified.
+
+Next integrate registered callbacks and catalog invocation sessions without
+synthesizing legacy group identities. Preserve original invocation deadlines,
+contracts and retry identities. Query callbacks must receive logical cell versions;
+returned tokens must use the selected observation. The remaining production apply
+adapter must consume `CellGroupEffect::Apply` on owning execution-domain workers,
+prepare cell-addressed LTX images and complete manifests, and return exact apply
+completions. Current native fixtures supply that preparation; do not put blocking
+image work on the consensus loop or mistake fixture integration for host serving.
+Keep physical apply position separate from provenance in later group transfers.
 
 Run from the repository root with Python 3.11+ and Rust 1.98.1:
 
@@ -230,6 +235,13 @@ another machine. Missing evidence must refuse; do not replace it with a pass fla
 or reset completed tasks merely to bypass validation.
 
 The latest fully passing partial CG-04 record is
+`.cellar/cell-groups-evidence/CG-04-witness/checkpoint.json` at `ed84df5d`:
+214 selected Rust cases, thirteen successful commands, 194 source inputs and nine
+copied executables. Transfer the full directory with prior evidence. It qualifies
+durable selected-version witnesses and read/receipt observations; registered SDK
+serving, real compaction, CG-04 and the release gate remain incomplete.
+
+The preceding coherent-read record is
 `.cellar/cell-groups-evidence/CG-04-reads-final/checkpoint.json` at `3da4481e`:
 204 selected Rust cases, twelve successful commands, 194 source inputs and eight
 copied executables. Transfer the entire directory, including intermediate failures,

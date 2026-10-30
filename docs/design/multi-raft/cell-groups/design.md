@@ -149,7 +149,13 @@ cell's identity and base chain; batching is never a cross-cell transaction.
 The durable group root contains group history, applied position, routing/transition
 state, membership binding and an authenticated map of all cell image leaves.
 Each leaf contains cell history/version, immutable original enrollment identity,
-last group mutation position and effect summary. Enrollment identity binds the
+last group installation/mutation position, complete original `CommitWitness`
+and effect summary. Keep original decision provenance separate from local
+installation position through transfers. Bind each new witness to the actual
+applied enrollment/mutation entry, retain it on unchanged-cell progress, and
+recover it from the authenticated manifest without requiring compacted log
+entries. Query and receipt observations carry this selected-version witness;
+never manufacture a proposal ID from group progress. Enrollment identity binds the
 creation operation, original cell history, schema and initial image commitment;
 it is retained even after that original image is reclaimed. Use a content-addressed paged tree with bounded copy-on-write paths, not
 an O(cell-count) full manifest rewrite for every update. An engine transaction

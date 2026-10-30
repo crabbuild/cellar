@@ -10,6 +10,44 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 durable selected-version commit witnesses
+
+Qualified source: `ed84df5daa0ae65fdfb09e9556f21f3e1ea12ec2`.
+
+Authenticated cell manifest pages now require a complete selected-version
+`CommitWitness`: original group history, term/index and proposal identity. The
+local installation/mutation position remains separate for future group transfers.
+Marker-1 pages without this required field refuse; there is no legacy decoder or
+proposal inferred from later group progress. Shape checks bound IDs, namespace,
+positions and initial enrollment identity. Ordinary update preparation requires
+the current group and exact mutation position; the physical Raft owner additionally
+matches the witness to the actual committed entry's proposal before publication.
+Repeated enrollment and unchanged-cell progress preserve the selected witness.
+
+Immutable-query results expose their exact `CellVersionObservation`; committed
+receipt results expose the selected-version observation, which can cover an older
+command receipt. Both use the authenticated leaf rather than the entry cache.
+Native tests reject a forged witness despite otherwise correct apply/image data,
+preserve older pinned observations after a newer cell mutation, round-trip signed
+tokens, and recover exact witnesses after restart and image collection in both
+physical image modes. Codec tests reject missing/malformed witness fields.
+
+All 214 selected Rust cases pass: 193 native cases across eight suites and 21
+library cases covering SQL workers, receipts, budgets, options and manifest pages.
+All-target Clippy for Cellar/cellar-logic with warnings denied, formatting (1,806
+Rust files), layout, dependency isolation, docs, source preflight and all 37
+plan-validator tests pass. The retained partial checkpoint at
+`.cellar/cell-groups-evidence/CG-04-witness/checkpoint.json` binds 194 source inputs,
+nine copied executables and thirteen successful command logs. Pre-commit compile
+and formatting logs are retained separately. Four process helpers run through
+parent tests; three RustFS-specific cases remain unrun.
+
+CG-04 remains IN_PROGRESS. This proves witness persistence and observations at the
+owning storage/apply/read boundaries, not actual log compaction, group snapshot
+installation, registered SDK serving or S3 recovery. Next integrate registered
+callback identity, query/version-token dispatch and catalog invocation sessions;
+complete the production apply adapter, retry/compaction and cache lifecycle.
+
 ## CG-04 read-pin capacity and repaired qualification
 
 Qualified source: `3da4481e09c3767face30469ffc855d302a7c142`.

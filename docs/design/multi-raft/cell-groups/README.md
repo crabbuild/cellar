@@ -105,8 +105,10 @@ refusal and a shared node metadata budget. Prepared submission sealing and exact
 rejection cleanup are implemented at `0cf89c40`; see the latest checkpoint for
 qualification. Coherent shared read selection and immutable queries now exist
 at `88c4717d`, repaired and qualified at `3da4481e`: 204 selected Rust cases
-and all twelve verification commands pass. The retained checkpoint includes
-the earlier failed Clippy gate; see the handoff for its exact scope.
+and all twelve verification commands pass. Durable cell-version witnesses and
+query/receipt observations are implemented and qualified at `ed84df5d`: 214
+selected Rust cases and thirteen verification commands pass. See the handoff
+for the exact scope and retained evidence.
 Registered SDK/catalog routing, query/version-token integration,
 production retry/compaction integration and cache lifecycle remain required. Managed
 fleet integration remains required by CG-07. A birth
