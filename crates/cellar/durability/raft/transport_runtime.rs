@@ -84,7 +84,12 @@ impl TransportRuntime {
                 }
                 Ok(())
             }
-            (Self::Shared(runtime), SendRoute::Physical { route, .. }) if !snapshot => {
+            (Self::Shared(runtime), SendRoute::Physical { route, .. }) => {
+                if snapshot {
+                    return runtime
+                        .report_snapshot(route.scope, member, delivered)
+                        .await;
+                }
                 if !delivered {
                     runtime.report_unreachable(route.scope, member).await?;
                 }

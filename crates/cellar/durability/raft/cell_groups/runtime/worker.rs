@@ -13,6 +13,8 @@ struct Group {
     queued: bool,
     deferred: VecDeque<Request>,
     completion: Option<Request>,
+    // One status per current peer, retaining node-wide hint item/byte admission.
+    snapshot_hints: BTreeMap<u64, (bool, Permit)>,
     inbound: Arc<Budget>,
     tick: bool,
     write: Option<Box<CellGroupPersist>>,
@@ -55,6 +57,7 @@ impl Group {
         self.write = None;
         self.write_bytes = 0;
         self.tick = false;
+        self.snapshot_hints.clear();
         for request in self.deferred.drain(..) {
             reply(request, Err(error.clone()));
         }
@@ -188,6 +191,7 @@ impl Worker {
                 queued: false,
                 deferred: VecDeque::new(),
                 completion: None,
+                snapshot_hints: BTreeMap::new(),
                 inbound: Budget::new(
                     (self.options.max_request_bytes / 4).max(self.options.max_message_bytes + 4096),
                     (self.options.max_requests / 8).clamp(1, 32),
@@ -226,6 +230,21 @@ impl Worker {
         }
         if matches!(request.command, Command::Status) {
             reply(request, group.owner.status().map(Response::Status));
+            return;
+        }
+        if let Command::SnapshotStatus(member, delivered) = request.command {
+            if let Err(error) = group.owner.validate_snapshot_member(member) {
+                reply(request, Err(error));
+                return;
+            }
+            let Request {
+                reply: answer,
+                _permit,
+                ..
+            } = request;
+            group.snapshot_hints.insert(member, (delivered, _permit));
+            group.wake(history, &mut self.order);
+            let _ = answer.send(Ok(Response::Unit));
             return;
         }
         if let Command::AdmitStep(message) = &request.command {
@@ -310,6 +329,19 @@ impl Worker {
                         group.completion = Some(request);
                     } else {
                         reply(request, result.map(|()| Response::Unit));
+                        made = true;
+                    }
+                }
+                // Hints never wait behind ordinary admission or consume an
+                // apply-completion slot. Their protocol mutation still waits
+                // until the exact in-flight Ready/persistence phase has settled.
+                if group.owner.idle() {
+                    if let Some((member, (delivered, _permit))) = group.snapshot_hints.pop_first() {
+                        // A committed membership change may have removed this
+                        // peer while the hint was queued; it then has no progress.
+                        if group.owner.validate_snapshot_member(member).is_ok() {
+                            group.owner.report_snapshot(member, delivered)?;
+                        }
                         made = true;
                     }
                 }
@@ -482,6 +514,7 @@ impl Worker {
                 || group.settled.is_some()
                 || (group.failed.is_none()
                     && (group.tick
+                        || !group.snapshot_hints.is_empty()
                         || !group.deferred.is_empty()
                         || group.completion.is_some()
                         || group.owner.has_work()))

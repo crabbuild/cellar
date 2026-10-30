@@ -12,6 +12,8 @@ use cellar_logic::cell_group::GroupHistory;
 #[path = "transport_runtime.rs"]
 mod runtime_adapter;
 use runtime_adapter::TransportRuntime;
+#[path = "group_snapshot_transport/mod.rs"]
+mod group_snapshots;
 #[path = "transport_shared.rs"]
 mod shared;
 use super::transport_frame::{self as frame, Disposition, FrameHead, RequestHeader, Route};
@@ -20,6 +22,7 @@ use crate::asyncrt::DomainToken;
 use crate::peer_auth::PeerAuth;
 use ::raft::prelude::{Message, MessageType};
 use cellar_logic::consensus::{ClusterId, GroupScope, NamespaceId, NodeId, ReplicaIdentity};
+pub use group_snapshots::CellGroupCheckpointRegistration;
 use protobuf::Message as _;
 use serde::{Deserialize, Serialize};
 pub(crate) use shared::PhysicalRegistration;
@@ -295,6 +298,8 @@ struct Registry {
     tasks: usize,
     groups: BTreeMap<GroupScope, Arc<GroupRoute>>,
     physical_groups: BTreeMap<GroupHistory, Arc<GroupRoute<GroupHistory>>>,
+    group_checkpoint_pool: Option<crate::raft::cell_groups::CellGroupCheckpointPool>,
+    group_checkpoints: BTreeMap<GroupHistory, std::sync::Weak<group_snapshots::Endpoint>>,
     query_groups: BTreeMap<GroupScope, Arc<GroupRoute>>,
     cell_query_groups: BTreeMap<GroupHistory, Arc<GroupRoute<GroupHistory>>>,
     command_origins: BTreeMap<(ClusterId, NamespaceId, NodeId), Arc<queries::OriginGrant>>,
@@ -525,6 +530,8 @@ impl RaftTransport {
                 tasks: 0,
                 groups: BTreeMap::new(),
                 physical_groups: BTreeMap::new(),
+                group_checkpoint_pool: None,
+                group_checkpoints: BTreeMap::new(),
                 query_groups: BTreeMap::new(),
                 cell_query_groups: BTreeMap::new(),
                 command_origins: BTreeMap::new(),
@@ -1408,6 +1415,14 @@ impl State {
                     .export_keying_material([0; 32], seeds::EXPORT_LABEL, None)
                     .map_err(|error| TransportError::Tls(error.to_string()))?;
                 return self.receive_seed(&mut stream, &exporter, prefix).await;
+            }
+            if &prefix[..4] == group_snapshots::START_MAGIC {
+                if lane != Lane::Data || sequence != 0 {
+                    return Err(TransportError::Protocol);
+                }
+                return self
+                    .receive_group_checkpoint(&mut stream, &exporter, prefix)
+                    .await;
             }
             if &prefix[..4] == snapshots::REQUEST_MAGIC {
                 if lane != Lane::Data || sequence != 0 {

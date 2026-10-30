@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Local publication and actual Raft-generated snapshot catch-up. Transfer uses
-//! the native streaming callback; this does not qualify authenticated snapshot RPC.
+//! Local publication, retained suffixes and real Raft-generated catch-up over
+//! native streaming and authenticated TLS, followed by cold source recovery.
 use super::*;
 use raft::{GetEntriesContext, Storage};
 
@@ -60,6 +60,36 @@ impl RuntimeCluster {
 }
 
 pub(crate) async fn local_publication(rooted: bool) -> Result<()> {
+    publication(rooted, Transfer::Native).await
+}
+
+pub(crate) async fn tcp_publication(rooted: bool) -> Result<()> {
+    publication(rooted, Transfer::Tcp).await
+}
+
+pub(crate) async fn tcp_protocol() -> Result<()> {
+    publication(false, Transfer::Probes).await
+}
+
+pub(crate) async fn tcp_cancelled_delivery() -> Result<()> {
+    publication(false, Transfer::Cancelled).await
+}
+
+pub(crate) async fn tcp_retry() -> Result<()> {
+    publication(false, Transfer::Retry).await
+}
+
+enum Transfer {
+    Native,
+    Tcp,
+    Probes,
+    Cancelled,
+    Retry,
+}
+
+async fn publication(rooted: bool, transfer: Transfer) -> Result<()> {
+    let tcp = !matches!(transfer, Transfer::Native);
+    let probes = matches!(transfer, Transfer::Probes);
     let (mut cluster, _) = checkpoint_fixture::populated_partition(rooted).await?;
     let route = cluster.birth.route().clone();
     let group = cluster.voters[0].log.cell_group(&route.history)?;
@@ -214,6 +244,22 @@ pub(crate) async fn local_publication(rooted: bool) -> Result<()> {
         GroupEntryLimits::default(),
         100,
     )?;
+    let source_applier = if tcp {
+        Some(CellGroupApplier::new(
+            group.clone(),
+            cluster.voters[0].pages.take().context("source pages")?,
+            checkpoint_receive::config(
+                cluster.voters[0].images.clone(),
+                cluster.voters[0].extents.clone(),
+                cluster._root.path(),
+            )?,
+            ManifestLimits::default(),
+            GroupEntryLimits::default(),
+            100,
+        )?)
+    } else {
+        None
+    };
     let mut fixture = RuntimeCluster::from_cluster(cluster, 256, 256, 1000).await?;
     let sql = CellGroupSqlPool::start(
         &fixture.cluster.voters[2].log,
@@ -228,12 +274,80 @@ pub(crate) async fn local_publication(rooted: bool) -> Result<()> {
     )?;
     fixture.appliers.insert((2, route.history), (sql, applier));
     fixture.snapshot_sources.insert((0, route.history), anchor);
+    let mut registrations = Vec::new();
+    let mut transport_pools = Vec::new();
+    if let Some(source_applier) = source_applier {
+        fixture.appliers.insert(
+            (0, route.history),
+            (
+                CellGroupSqlPool::start(
+                    &fixture.cluster.voters[0].log,
+                    CellSqlLimits {
+                        workers: 1,
+                        queue_per_worker: 2,
+                        max_pending_cells: 2,
+                        group_pending_cells: 2,
+                        node_bytes: 512 * 1024 * 1024,
+                        group_bytes: 512 * 1024 * 1024,
+                    },
+                )?,
+                source_applier,
+            ),
+        );
+        let other = if probes {
+            Some(fixture.add_group(91).await?)
+        } else {
+            None
+        };
+        fixture.connect_tcp().await?;
+        for n in [0, 2] {
+            let pool = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
+            let transport = &fixture.transports[n];
+            transport.enable_group_checkpoints(pool.clone())?;
+            assert!(matches!(
+                transport.enable_group_checkpoints(pool.clone()),
+                Err(TransportError::Identity)
+            ));
+            let applier = fixture.appliers[&(n, route.history)].1.clone();
+            registrations.push(transport.register_group_checkpoint(applier.clone())?);
+            assert!(matches!(
+                transport.register_group_checkpoint(applier),
+                Err(TransportError::Identity)
+            ));
+            transport_pools.push(pool);
+        }
+        assert!(matches!(
+            fixture.transports[1]
+                .register_group_checkpoint(fixture.appliers[&(0, route.history)].1.clone()),
+            Err(TransportError::Identity)
+        ));
+        if let Some(other) = other {
+            network_probes::probe(
+                &mut fixture,
+                route.history,
+                &snapshot,
+                &transport_pools[1],
+                other,
+                &mut registrations,
+            )
+            .await?;
+        }
+    }
+    fixture.retry_snapshot = matches!(transfer, Transfer::Retry);
+    if fixture.retry_snapshot {
+        drop(registrations.pop().context("receiver registration")?);
+    }
+    fixture.drop_snapshot_delivery = matches!(transfer, Transfer::Cancelled);
     fixture.runtimes[0].campaign(route.history).await?;
     fixture.drive(None).await?;
     assert!(
         fixture.snapshot_transfers >= 1,
         "Raft must generate a snapshot after compaction"
     );
+    if fixture.retry_snapshot {
+        assert!(fixture.failed_snapshot);
+        assert!(fixture.transports[0].usage().failed >= 1);
+    }
     let restored = fixture.cluster.voters[2].log.cell_group(&route.history)?;
     assert_eq!(restored.checkpoint_manifest()?.as_ref(), Some(&cut));
     let source = group.group_manifest()?.context("source root")?;
@@ -250,7 +364,11 @@ pub(crate) async fn local_publication(rooted: bool) -> Result<()> {
     drop(restored);
     drop(root);
     drop(group);
+    drop(registrations);
     fixture.close().await?;
+    for pool in transport_pools {
+        assert_eq!(pool.usage().sources, 0);
+    }
     // Reopen the actual leader engine and physical closures. Cache-only suffix
     // preservation cannot pass this check if publication cleaned durable entries.
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());

@@ -15,6 +15,31 @@ mod runtime_fixture;
 mod checkpoint_fixture;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_tcp_refuses_invalid_streams_and_preserves_other_group_progress() -> Result<()> {
+    runtime_fixture::tcp_protocol().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_tcp_accepted_transfer_survives_dropped_delivery() -> Result<()> {
+    runtime_fixture::tcp_cancelled_delivery().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_tcp_failed_transfer_allows_raft_retry() -> Result<()> {
+    runtime_fixture::tcp_retry().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_tcp_materialized_catches_up_and_reopens() -> Result<()> {
+    runtime_fixture::tcp_publication(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_tcp_extents_catch_up_and_reopen() -> Result<()> {
+    runtime_fixture::tcp_publication(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn checkpoint_local_publication_preserves_suffix_and_catches_up() -> Result<()> {
     runtime_fixture::local_publication(false).await
 }

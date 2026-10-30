@@ -240,17 +240,26 @@ impl Worker {
                     match effect {
                         CellGroupEffect::Message(message) => {
                             if let Err(error) = self.transport.submit_physical(&group, message.clone()) {
-                                if !matches!(error, TransportError::Overloaded | TransportError::UnknownGroup | TransportError::StalePeer) {
+                                if !matches!(error, TransportError::Overloaded | TransportError::UnknownGroup | TransportError::StalePeer | TransportError::Refused) {
                                     return Err(CellGroupControllerError::Transport(error));
                                 }
                                 self.shared.send_refusals.fetch_add(1, Ordering::Relaxed);
                                 // A hint is advisory, never delivery or commit evidence.
-                                // Drop excess hints; Raft's own ticks retry lost traffic.
-                                if self.hints.len() < self.limits.max_groups {
+                                // Excess ordinary unreachable hints may be dropped.
+                                let snapshot = message.get_msg_type() == ::raft::prelude::MessageType::MsgSnapshot;
+                                // Snapshot failure cannot be dropped: Raft pauses
+                                // that peer until this feedback. At most one can
+                                // be pending per known peer; ordinary hints keep
+                                // the stricter one-per-group aggregate cap.
+                                if snapshot || self.hints.len() < self.limits.max_groups {
                                     let runtime = self.runtime.clone();
                                     let member = message.to;
                                     self.hints.push(Box::pin(async move {
-                                        let _ = runtime.report_unreachable(group, member).await;
+                                        if snapshot {
+                                            let _ = runtime.report_snapshot(group, member, false).await;
+                                        } else {
+                                            let _ = runtime.report_unreachable(group, member).await;
+                                        }
                                     }));
                                 }
                             }

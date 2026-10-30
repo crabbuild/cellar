@@ -243,6 +243,42 @@ engine installation, retained-checkpoint selection, transport admission and
 membership catch-up are not implemented by this source API. Successful streaming
 supplies no receiver-install, voter, serving, archive-coverage or reclamation proof.
 
+The shared transport has a dedicated checkpoint stream on its TLS data listener.
+Configure one node `CellGroupCheckpointPool` with `enable_group_checkpoints`, shared
+with local publication. Controller registration retains the exact applier and
+physical route; route replacement/removal or registration drop revokes subsequent
+stream admission. Ordinary consensus frames still reject snapshot payloads.
+
+Marker-1 start frames bind the physical group/incarnation, permanent member,
+node/disk/process identities, schema and snapshot envelope to the TLS exporter.
+Each chunk has a separate authenticated purpose, binds the start tag, and carries
+a monotonic sequence, part identity, offset, length and body digest. Header and
+payload limits are checked before allocation; chunks are at most 64 KiB. Extent
+identities resolve against the receiver's already verified manifest. An explicit
+authenticated End is required; EOF, cancellation, mixed cuts and incomplete
+closures cannot finish a receive. Source capture pins the exact engine-retained
+snapshot even when the current applied root has advanced.
+
+Two bounded channel windows connect the network to blocking physical owners.
+Node/peer data budgets and source/receive slots remain owned through actual I/O,
+even after a connection or delivery waiter disappears. The checkpoint pool
+separately charges physical closure metadata/workspace; flat images use the log's
+shared scratch pool. Transport close joins these owners. Membership and exact
+registration checks run throughout the stream and again before runtime admission.
+The verified closure enters `step_checkpoint`; its stream reply proves admission
+only. Raft releases its acknowledgement after the matching persistence completion.
+
+Snapshot delivery feedback has 256 reserved node-wide slots and 1 MiB, separate
+from ordinary calls and apply completions. The runtime coalesces one status per
+known peer while retaining its reservation, then applies it after the in-flight
+Ready has settled. A completed transfer remains owned until feedback admission or
+transport shutdown; an I/O response timeout cannot silently discard required
+failure feedback. Immediate snapshot queue refusals also report failure, allowing
+Raft to leave its paused snapshot state and generate a retry. Automatic local
+checkpoint selection/publication and whole-group membership orchestration remain
+separate integration work. No transfer reply grants new voter, serving, archival
+or reclamation authority.
+
 An archive publishes a complete checkpoint plus a contiguous committed tail to K.
 The tail addresses cells and validates each base chain; administrative entries
 also replay. Do not rerun commands. Publish coverage only after all dependencies

@@ -528,7 +528,7 @@ impl State {
         Ok((route, peer, pool))
     }
 
-    async fn snapshot_io<T>(
+    pub(super) async fn snapshot_io<T>(
         &self,
         pool: &Pool,
         deadline: u64,

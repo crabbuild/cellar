@@ -211,7 +211,8 @@ pub mod verification {
         CellGroupBootstrap, GroupBootstrap, LogError, ReplicaLog, SyncReceipt,
     };
     pub use crate::raft::transport::{
-        Delivery, GroupRoute, Lane, RaftPeer, RaftTransport, TransportError, TransportUsage,
+        CellGroupCheckpointRegistration, Delivery, GroupRoute, Lane, RaftPeer, RaftTransport,
+        TransportError, TransportUsage,
     };
     pub use crate::raft::transport_options::{
         NamespaceCommandOrigin, NamespaceInspectionOrigin, NamespaceQueryOrigin, RaftTls,

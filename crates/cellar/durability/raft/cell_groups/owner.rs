@@ -445,6 +445,34 @@ impl CellGroupOwner {
         Ok(())
     }
 
+    pub(super) fn validate_snapshot_member(&self, member: u64) -> Result<(), RuntimeError> {
+        self.live()?;
+        if member == 0 || self.node.raft.prs().get(member).is_none() {
+            return Err(RuntimeError::Protocol("unknown snapshot member".into()));
+        }
+        Ok(())
+    }
+
+    pub(super) fn report_snapshot(
+        &mut self,
+        member: u64,
+        delivered: bool,
+    ) -> Result<(), RuntimeError> {
+        self.validate_snapshot_member(member)?;
+        if self.phase.is_some() || self.checkpoint.is_some() {
+            return Err(RuntimeError::NotReady);
+        }
+        self.node.report_snapshot(
+            member,
+            if delivered {
+                ::raft::SnapshotStatus::Finish
+            } else {
+                ::raft::SnapshotStatus::Failure
+            },
+        );
+        Ok(())
+    }
+
     pub(super) fn report_unreachable(&mut self, member: u64) -> Result<(), RuntimeError> {
         self.live()?;
         if self.phase.is_some() || self.checkpoint.is_some() {

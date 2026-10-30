@@ -15,6 +15,7 @@ mod header;
 mod local;
 mod prepared;
 mod receive;
+pub(crate) mod wire;
 use header::Header;
 pub use local::PreparedLocalCellGroupCheckpoint;
 pub(crate) use prepared::persisted_marker;
@@ -165,7 +166,7 @@ impl CellGroupCheckpointPool {
         Ok(source)
     }
 
-    fn capture_root(
+    pub(super) fn capture_root(
         &self,
         group: &GroupLog<GroupHistory>,
         root: &PreparedGroupManifest,

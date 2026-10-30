@@ -67,6 +67,29 @@ impl CellGroupApplier {
         })
     }
 
+    /// Capture on the blocking domain: only the exact retained snapshot from
+    /// this applier's engine and page owner may become a network source.
+    pub(crate) fn capture_checkpoint(
+        &self,
+        pool: &CellGroupCheckpointPool,
+        snapshot: &::raft::prelude::Snapshot,
+    ) -> Result<CellGroupCheckpoint, CellGroupCheckpointError> {
+        let root = {
+            let storage = self
+                .storage
+                .lock()
+                .map_err(|_| CellGroupCheckpointError::Invalid("source page owner"))?;
+            PreparedGroupManifest::checkpoint_from_store(&self.group, &storage.pages)?
+        };
+        let source = pool.capture_root(&self.group, &root, true)?;
+        if source.snapshot()? != *snapshot {
+            return Err(CellGroupCheckpointError::Invalid(
+                "retained snapshot changed",
+            ));
+        }
+        Ok(source)
+    }
+
     pub fn history(&self) -> GroupHistory {
         self.group.identity().scope
     }

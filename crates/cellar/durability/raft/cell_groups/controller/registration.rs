@@ -365,9 +365,14 @@ pub(super) async fn attach(
         .applier
         .check_startup(&registration.current)
         .map_err(|e| CellGroupControllerError::Apply(Arc::new(e)))?;
-    let guard = transport
+    let mut guard = transport
         .register_physical_group(registration.transport)
         .map_err(CellGroupControllerError::Transport)?;
+    guard.checkpoint = Some(
+        transport
+            .register_group_checkpoint(registration.applier)
+            .map_err(CellGroupControllerError::Transport)?,
+    );
     runtime
         .attach(registration.permit, registration.current)
         .await?;

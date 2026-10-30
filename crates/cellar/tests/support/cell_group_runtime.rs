@@ -7,7 +7,12 @@ use std::collections::BTreeMap;
 
 #[path = "cell_group_checkpoint_local.rs"]
 mod checkpoint_local;
-pub(super) use checkpoint_local::{local_publication, local_shutdown};
+#[path = "cell_group_network_probes.rs"]
+mod network_probes;
+pub(super) use checkpoint_local::{
+    local_publication, local_shutdown, tcp_cancelled_delivery, tcp_protocol, tcp_publication,
+    tcp_retry,
+};
 
 #[path = "cell_group_snapshot_owner.rs"]
 mod snapshot_owner;
@@ -26,6 +31,10 @@ pub(super) use tcp::physical_transport;
 struct RuntimeCluster {
     snapshot_sources: BTreeMap<(usize, GroupHistory), PreparedGroupManifest>,
     snapshot_transfers: usize,
+    drop_snapshot_delivery: bool,
+    retry_snapshot: bool,
+    failed_snapshot: bool,
+    retry_checkpoint: Option<CellGroupCheckpointRegistration>,
     transports: Vec<RaftTransport>,
     appliers: BTreeMap<(usize, GroupHistory), (CellGroupSqlPool, CellGroupApplier)>,
     cluster: Cluster,
@@ -89,6 +98,10 @@ impl RuntimeCluster {
         Ok(Self {
             snapshot_sources: BTreeMap::new(),
             snapshot_transfers: 0,
+            drop_snapshot_delivery: false,
+            retry_snapshot: false,
+            failed_snapshot: false,
+            retry_checkpoint: None,
             transports: Vec::new(),
             appliers: BTreeMap::new(),
             cluster,
@@ -157,11 +170,43 @@ impl RuntimeCluster {
         let messages = std::mem::take(&mut self.network);
         if !self.transports.is_empty() {
             for (history, message) in messages {
+                let snapshot = message.get_msg_type() == MessageType::MsgSnapshot;
                 let transport = &self.transports[message.from as usize - 1];
-                transport
-                    .submit_physical(&history, message)?
-                    .accepted()
-                    .await?;
+                let delivery = match transport.submit_physical(&history, message.clone()) {
+                    Ok(delivery) => delivery,
+                    Err(TransportError::Overloaded) if self.retry_snapshot && snapshot => {
+                        self.network.push_back((history, message));
+                        continue;
+                    }
+                    Err(error) => return Err(error.into()),
+                };
+                if snapshot && self.drop_snapshot_delivery {
+                    drop(delivery);
+                } else {
+                    let result = delivery.accepted().await;
+                    if snapshot && self.retry_snapshot && !self.failed_snapshot {
+                        assert!(
+                            result.is_err(),
+                            "revoked receiver must refuse the first actual Raft snapshot"
+                        );
+                        self.failed_snapshot = true;
+                        let to = message.to as usize - 1;
+                        self.retry_checkpoint =
+                            Some(self.transports[to].register_group_checkpoint(
+                                self.appliers[&(to, history)].1.clone(),
+                            )?);
+                        // Do not requeue this failed snapshot. Raft must create
+                        // another after its delivery failure is consumed.
+                        continue;
+                    }
+                    result?;
+                }
+                if snapshot {
+                    self.snapshot_transfers += 1;
+                }
+            }
+            if self.retry_snapshot && self.snapshot_transfers == 0 {
+                self.runtimes[0].tick().await?;
             }
             return Ok(());
         }
@@ -259,6 +304,7 @@ impl RuntimeCluster {
         drop(self.runtimes);
         drop(self.extra);
         drop(self.snapshot_sources);
+        drop(self.retry_checkpoint);
         self.cluster.close().await
     }
 }

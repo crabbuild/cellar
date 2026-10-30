@@ -142,6 +142,29 @@ fn invalid(message: &'static str) -> CellGroupCheckpointError {
 }
 
 impl CellGroupCheckpointReceiver {
+    pub(super) fn wire_extent(
+        &self,
+        cell: &CellId,
+        ordinal: u32,
+        digest: [u8; 32],
+        length: u64,
+    ) -> Result<ExtentId> {
+        let pending = self.cell.as_ref().ok_or(invalid("extent without leaf"))?;
+        let id = pending
+            .view
+            .as_ref()
+            .and_then(|view| view.manifest().extent(ordinal))
+            .ok_or(invalid("extent without manifest"))?;
+        if &pending.leaf.version.history.cell != cell
+            || ordinal != pending.next_extent
+            || id.bytes() != digest
+            || u64::from(id.length()) != length
+        {
+            return Err(invalid("wire extent binding"));
+        }
+        Ok(id)
+    }
+
     pub fn append(&mut self, chunk: CellGroupCheckpointChunk<'_>) -> Result<()> {
         if self.failed {
             return Err(invalid("failed receiver"));

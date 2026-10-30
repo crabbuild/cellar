@@ -136,6 +136,26 @@ impl PreparedGroupManifest {
         })
     }
 
+    pub(super) fn checkpoint_from_store<S>(
+        group: &crate::raft::cache::GroupLog<S>,
+        store: &ManifestPageStore,
+    ) -> Result<Self, ManifestError> {
+        store.require_live()?;
+        let marker = group
+            .checkpoint_manifest()
+            .map_err(|_| ManifestError::Invalid("closed engine"))?
+            .ok_or(ManifestError::Invalid("checkpoint not published"))?;
+        let images = store.retention.checkpoint(group, &marker)?;
+        Ok(Self {
+            marker,
+            images,
+            engine_owner: group.owner.clone(),
+            base: None,
+            page_owner: store.owner.clone(),
+            retention: store.retention.clone(),
+        })
+    }
+
     pub(crate) fn reserved_bytes(&self) -> usize {
         self.images.reserved_bytes()
     }

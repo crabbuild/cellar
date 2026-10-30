@@ -67,6 +67,7 @@ impl RaftTransport {
         Ok(PhysicalRegistration {
             state: Arc::downgrade(&self.handle.0),
             route,
+            checkpoint: None,
         })
     }
 
@@ -182,6 +183,7 @@ impl RaftTransport {
         }
         let starts = state.prepare_pools(&mut registry, &physical)?;
         let route = Arc::new(route);
+        group_snapshots::revoke(&mut registry, &route.scope);
         registry.physical_groups.insert(route.scope, route.clone());
         registry.prune_pools();
         drop(registry);
@@ -190,6 +192,7 @@ impl RaftTransport {
                 drop(PhysicalRegistration {
                     state: Arc::downgrade(state),
                     route,
+                    checkpoint: None,
                 });
             }
             return Err(error);
@@ -202,13 +205,14 @@ impl RaftTransport {
         state.runtime.shared()?;
         let mut registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
         state.admit(&registry)?;
+        group_snapshots::revoke(&mut registry, history);
         registry.physical_groups.remove(history);
         registry.prune_pools();
         Ok(())
     }
 
     /// Queue a physical-group frame on existing bounded per-node lanes. Delivery
-    /// acknowledges receiver admission only. Complete group snapshots require CG-05.
+    /// acknowledges receiver admission only. Snapshots use the bounded checkpoint stream.
     pub fn submit_physical(
         &self,
         history: &GroupHistory,
@@ -217,7 +221,7 @@ impl RaftTransport {
         let state = &self.handle.0;
         let runtime = state.runtime.shared()?;
         if message.get_msg_type() == MessageType::MsgSnapshot {
-            return Err(TransportError::Refused);
+            return self.submit_group_checkpoint(history, message);
         }
         let lane = frame::classify(&message)?;
         let size = message.compute_size() as usize;
@@ -408,6 +412,7 @@ impl Registry {
 pub(crate) struct PhysicalRegistration {
     state: std::sync::Weak<State>,
     route: Arc<PhysicalRoute>,
+    pub(crate) checkpoint: Option<CellGroupCheckpointRegistration>,
 }
 
 impl Drop for PhysicalRegistration {
@@ -421,6 +426,7 @@ impl Drop for PhysicalRegistration {
                 .get(&self.route.scope)
                 .is_some_and(|r| Arc::ptr_eq(r, &self.route))
             {
+                group_snapshots::revoke(&mut registry, &self.route.scope);
                 registry.physical_groups.remove(&self.route.scope);
                 registry.prune_pools();
             }

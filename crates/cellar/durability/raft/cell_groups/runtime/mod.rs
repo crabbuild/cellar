@@ -25,6 +25,7 @@ use std::sync::{
 use tokio::sync::{mpsc, oneshot, Notify};
 
 const COMPLETION_SLOTS: usize = 8;
+const SNAPSHOT_HINT_SLOTS: usize = 256;
 
 pub struct CellGroupRuntimeEvent {
     group: GroupHistory,
@@ -82,6 +83,7 @@ struct Handle {
     requests: mailbox::Sender<Request>,
     budget: Arc<Budget>,
     completions: Arc<Budget>,
+    snapshot_hints: Arc<Budget>,
     read_pins: Arc<Budget>,
     transport_claimed: AtomicBool,
     closing: Arc<AtomicBool>,
@@ -109,6 +111,7 @@ enum Command {
     ),
     ReadIndex(Vec<u8>),
     Unreachable(u64),
+    SnapshotStatus(u64, bool),
     Read(Box<reads::ReadRequest>),
     Apply(CellGroupTicket, Box<PreparedGroupManifest>),
     Status,
@@ -208,7 +211,8 @@ impl CellGroupRuntime {
         log.cell_groups()?;
         let lease = log.claim_runtime()?;
         let domain = log.domain();
-        let (sender, requests) = mailbox::channel(options.max_requests + COMPLETION_SLOTS);
+        let (sender, requests) =
+            mailbox::channel(options.max_requests + COMPLETION_SLOTS + SNAPSHOT_HINT_SLOTS);
         let (events, receiver) = mpsc::channel(options.max_events);
         let closing = Arc::new(AtomicBool::new(false));
         let terminal = Arc::new(Terminal::new());
@@ -220,6 +224,7 @@ impl CellGroupRuntime {
                 domain: domain.clone(),
                 budget: Budget::new(options.max_request_bytes, options.max_requests),
                 completions: Budget::new(options.max_ready_bytes, COMPLETION_SLOTS),
+                snapshot_hints: Budget::new(SNAPSHOT_HINT_SLOTS * 4096, SNAPSHOT_HINT_SLOTS),
                 read_pins: Budget::new(options.max_read_pin_bytes, options.max_pending_reads),
                 options: options.clone(),
                 requests: sender,
@@ -278,7 +283,10 @@ impl CellGroupRuntime {
     ) -> Result<Response, RuntimeError> {
         self.admit()?;
         let completion = matches!(command, Command::Apply(..) | Command::Quarantine);
-        let budget = if completion {
+        let snapshot_hint = matches!(command, Command::SnapshotStatus(..));
+        let budget = if snapshot_hint {
+            &self.inner.snapshot_hints
+        } else if completion {
             &self.inner.completions
         } else {
             &self.inner.budget
@@ -294,7 +302,7 @@ impl CellGroupRuntime {
             if let Some(permit) = budget.acquire(bytes) {
                 break permit;
             }
-            if !completion {
+            if !completion && !snapshot_hint {
                 return Err(RuntimeError::Overloaded);
             }
             crate::asyncrt::select! {
@@ -633,6 +641,21 @@ impl CellGroupRuntime {
         self.call(Some(history), Command::AdmitStep(message), bytes + 4096)
             .await
             .map(|_| ())
+    }
+
+    pub(crate) async fn report_snapshot(
+        &self,
+        history: GroupHistory,
+        member: u64,
+        delivered: bool,
+    ) -> Result<(), RuntimeError> {
+        self.call(
+            Some(history),
+            Command::SnapshotStatus(member, delivered),
+            4096,
+        )
+        .await
+        .map(|_| ())
     }
 
     pub(crate) async fn report_unreachable(
