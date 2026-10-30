@@ -211,6 +211,17 @@ impl CellGroupRuntime {
                 _ = self.inner.terminal.wait() => return Err(RuntimeError::Closed),
             }
         };
+        self.send_reserved(group, command, bytes, permit).await
+    }
+
+    async fn send_reserved(
+        &self,
+        group: Option<GroupHistory>,
+        command: Command,
+        bytes: usize,
+        permit: Permit,
+    ) -> Result<Response, RuntimeError> {
+        self.admit()?;
         let (reply, wait) = oneshot::channel();
         self.inner
             .requests
@@ -237,6 +248,14 @@ impl CellGroupRuntime {
         current: PreparedGroupManifest,
     ) -> Result<(), RuntimeError> {
         self.admit()?;
+        // Reserve before catalog revalidation and RawNode construction, keeping
+        // concurrent attachment work inside the node's ordinary admission cap.
+        let bytes = current.reserved_bytes() + 4096;
+        let admission = self
+            .inner
+            .budget
+            .acquire(bytes)
+            .ok_or(RuntimeError::Overloaded)?;
         let history = permit.route().history;
         let local = self.inner.log.cell_group(&history)?;
         if !Arc::ptr_eq(&local.owner, &permit.group().owner) {
@@ -261,7 +280,6 @@ impl CellGroupRuntime {
         seed.update(history.incarnation.bytes());
         seed.update(local.identity().member.get().to_be_bytes());
         seed.update(local.identity().node.bytes());
-        let bytes = current.reserved_bytes() + 4096;
         let owner = self
             .inner
             .domain
@@ -273,9 +291,14 @@ impl CellGroupRuntime {
             ))
             .await
             .map_err(|_| RuntimeError::Closed)??;
-        self.call(Some(history), Command::Attach(Box::new(owner)), bytes)
-            .await
-            .map(|_| ())
+        self.send_reserved(
+            Some(history),
+            Command::Attach(Box::new(owner)),
+            bytes,
+            admission,
+        )
+        .await
+        .map(|_| ())
     }
 
     pub async fn campaign(&self, history: GroupHistory) -> Result<(), RuntimeError> {

@@ -449,3 +449,54 @@ pub(super) async fn bounded_apply_completion() -> Result<()> {
     }
     fixture.close().await
 }
+
+// A pending peer/protocol request retains ordinary admission through a physical
+// sync. Attachment must refuse before attempting to claim an existing owner.
+pub(super) async fn attachment_reserves_before_owner() -> Result<()> {
+    let mut cluster = Cluster::new().await?;
+    let scope = cluster.birth.route().history;
+    let owner = cluster.voters[0].owner.take().context("direct owner")?;
+    let root = owner.manifest().clone();
+    drop(owner);
+    let (runtime, events) = CellGroupRuntime::start(
+        cluster.voters[0].log.clone(),
+        RaftRuntimeOptions {
+            max_requests: 1,
+            tick_interval_ms: None,
+            election_seed: Some([71; 32]),
+            ..Default::default()
+        },
+    )
+    .await?;
+    runtime
+        .attach(cluster.permit(0).await?, root.clone())
+        .await?;
+    let duplicate = cluster.permit(0).await?;
+    let gate = cluster.voters[0].gate.clone();
+    let release = gate.arm(fault::HOLD_SYNC);
+    let mut vote = Message::default();
+    vote.set_msg_type(MessageType::MsgRequestVote);
+    vote.from = 2;
+    vote.to = 1;
+    vote.term = root.marker().position().term.get() + 1;
+    vote.index = root.marker().position().index.get();
+    vote.log_term = root.marker().position().term.get();
+    runtime.step(scope, vote.clone()).await?;
+    tokio::time::timeout(Duration::from_secs(5), gate.entered.notified()).await?;
+    let mut pending = Box::pin(runtime.step(scope, vote));
+    assert!(
+        tokio::time::timeout(Duration::from_millis(30), pending.as_mut())
+            .await
+            .is_err()
+    );
+    assert!(matches!(
+        runtime.attach(duplicate, root).await,
+        Err(RuntimeError::Overloaded)
+    ));
+    drop(release);
+    tokio::time::timeout(Duration::from_secs(5), pending).await??;
+    runtime.close().await?;
+    drop(events);
+    drop(runtime);
+    cluster.close().await
+}

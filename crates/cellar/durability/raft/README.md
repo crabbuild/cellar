@@ -33,7 +33,8 @@ a coherent cell image after application through that index. The adapter currentl
 refuses snapshot/configuration/topology administration until those complete-group
 protocols are connected. `CellGroupRuntime` now multiplexes physical group owners
 on one execution-domain worker per node. It reuses the bounded mailbox, byte/item
-admission, joined terminal result and existing persistence engine. A fair active
+admission, joined terminal result and existing persistence engine. Attachment
+reserves ordinary node admission before catalog revalidation or RawNode construction. A fair active
 queue collects writes across histories into one engine batch; queued and in-flight
 work stay charged. Peer-frame admission retains its node/group reservations until
 execution or discard and grants no Raft acknowledgement. Completion requests have

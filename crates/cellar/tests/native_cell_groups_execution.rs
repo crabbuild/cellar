@@ -30,6 +30,12 @@ async fn node_runtime_batches_distinct_group_histories() -> Result<()> {
 async fn node_runtime_reserved_completion_releases_apply_admission() -> Result<()> {
     runtime_fixture::bounded_apply_completion().await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn node_runtime_attachment_reserves_before_owner() -> Result<()> {
+    runtime_fixture::attachment_reserves_before_owner().await
+}
+
 #[path = "support/raft_ltx_fixture.rs"]
 #[allow(dead_code)]
 mod images;
