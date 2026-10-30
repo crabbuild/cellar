@@ -61,6 +61,31 @@ impl CellGroupApplier {
             )
             .map_err(storage)?
         };
+        if let Some(checkpoint) = applier.group.checkpoint_manifest().map_err(storage)? {
+            let mut owner = applier
+                .storage
+                .lock()
+                .map_err(|_| ExecutionError::Invalid("poisoned recovery owner"))?;
+            let Storage {
+                tree,
+                pages,
+                images,
+                ..
+            } = &mut *owner;
+            tree.prepare_complete(
+                &applier.group,
+                pages,
+                checkpoint.root(),
+                checkpoint.position(),
+                checkpoint.membership_revision(),
+                |leaf| {
+                    images
+                        .recover_image(leaf, checkpoint.route().schema_digest)
+                        .map_err(|error| ManifestError::Io(std::io::Error::other(error)))
+                },
+            )
+            .map_err(storage)?;
+        }
         if applier.group.group_manifest().map_err(storage)?.as_ref() != Some(&marker) {
             return Err(ExecutionError::Invalid("recovery selection changed"));
         }

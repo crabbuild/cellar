@@ -295,6 +295,7 @@ impl PreparedSeed {
             entries: std::collections::BTreeMap::new(),
             group_manifest: None,
             manifest_pins: None,
+            checkpoint_manifest: None,
             applied: crate::raft::cache::DurableApply {
                 position: LogPosition {
                     index: LogIndex::new(self.descriptor.index),

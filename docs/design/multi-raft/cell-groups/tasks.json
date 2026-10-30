@@ -1575,10 +1575,14 @@
         "crates/cellar/durability/raft/",
         "crates/cellar-ltx/src/",
         "crates/cellar/tests/native_cell_groups_execution.rs",
-        "crates/cellar/tests/support/cell_group_checkpoint.rs"
+        "crates/cellar/tests/support/cell_group_checkpoint.rs",
+        "crates/cellar/tests/support/cell_group_checkpoint_receive.rs",
+        "crates/cellar/tests/support/cell_group_runtime.rs",
+        "crates/cellar/tests/support/cell_group_sql.rs",
+        "crates/cellar/tests/support/cell_group_sql_apply.rs"
       ],
       "creates": [
-        "crates/cellar/durability/raft/cell_groups/checkpoint.rs",
+        "crates/cellar/durability/raft/cell_groups/checkpoint/mod.rs",
         "crates/cellar/tests/native_cell_groups_snapshot.rs"
       ],
       "test_target": "native_cell_groups_snapshot",

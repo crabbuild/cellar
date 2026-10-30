@@ -15,11 +15,11 @@ pub use crate::raft::transport::{
 };
 
 mod apply;
-mod checkpoint;
+pub(crate) mod checkpoint;
 pub use checkpoint::{
     CellGroupCheckpoint, CellGroupCheckpointChunk, CellGroupCheckpointError,
     CellGroupCheckpointLimits, CellGroupCheckpointPart, CellGroupCheckpointPool,
-    CellGroupCheckpointUsage,
+    CellGroupCheckpointReceiver, CellGroupCheckpointUsage, PreparedCellGroupCheckpoint,
 };
 mod controller;
 pub use controller::{

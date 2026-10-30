@@ -129,6 +129,38 @@ preparation. These are storage-boundary checks, not quorum, SDK deduplication or
 RustFS qualification. The full CG-02 source-bound evidence gate is recorded in the
 delivery plan.
 
+## Complete-group checkpoint storage
+
+`CellGroupCheckpointPool` admits both sources and receivers under one node-wide
+item/byte budget. A source captures the exact engine-selected root, membership
+and configuration. It retains immutable dependencies while later writes proceed,
+and streams bounded chunks without aggregating the group images.
+
+A receiver binds the destination engine and its selected base. It validates
+ordered page/image parts, route/history, cut, membership and complete tree closure.
+Materialized images spool one at a time under a shared `ScratchPool`, then undergo
+independent SQLite/checksum verification and destination sync. Extent manifests
+and objects are verified against each leaf and independently sealed. Partial,
+corrupt, foreign or over-budget transfers cannot publish. All physical work runs
+on a joined blocking owner; reservations follow that owner through completion.
+
+`PreparedCellGroupCheckpoint` owns the sealed destination closure and receive
+reservation. `SnapshotChange::CellGroup` atomically publishes its snapshot,
+configuration, membership and applied root through the shared engine fence.
+Mixed single-cell/group writes, conflicting bases and stale cuts refuse. The
+capability establishes physical storage only: its future Raft consumer must bind
+it to the exact accepted snapshot effect before submitting the engine write.
+
+The page owner retains the installed checkpoint separately from the advancing
+current root. Checkpoint retention consumes a third root slot in addition to the
+current/pending publication slots. Recovery reconstructs both complete closures;
+a missing older checkpoint refuses startup and reclamation even when the current
+applied root is complete. Physical recovery never renews quorum authority.
+
+These are verification APIs. The shared runtime still rejects incoming Raft
+snapshots and configuration changes. Snapshot transport, owner completion tickets,
+learner catch-up, joint membership and disk replacement remain CG-05 work.
+
 ## Enrollment admission and ordered preparation
 
 `decide_enrollment` checks a bounded cell-addressed enrollment entry against the

@@ -109,6 +109,13 @@ impl PreparedGroupManifest {
             .get(&cell_routing_key(self.marker.route.history.namespace, cell))
     }
 
+    pub(crate) fn require_checkpoint<S>(
+        &self,
+        group: &crate::raft::cache::GroupLog<S>,
+    ) -> Result<(), ManifestError> {
+        self.retention.require_checkpoint(group)
+    }
+
     pub(crate) fn reserved_bytes(&self) -> usize {
         self.images.reserved_bytes()
     }
@@ -117,8 +124,9 @@ impl PreparedGroupManifest {
         &self,
         group: &crate::raft::cache::GroupLog<S>,
         previous: Option<&GroupManifest>,
+        checkpoint: bool,
     ) -> Result<super::retention::PublicationPin, ManifestError> {
-        self.retention.begin(group, self, previous)
+        self.retention.begin(group, self, previous, checkpoint)
     }
 }
 
@@ -188,6 +196,14 @@ impl ManifestTree {
             == Some(&marker)
         {
             store.retention.recover(group, &marker, &pins)?;
+        }
+        if group
+            .checkpoint_manifest()
+            .map_err(|_| ManifestError::Invalid("closed engine"))?
+            .as_ref()
+            == Some(&marker)
+        {
+            store.retention.recover_checkpoint(group, &marker, &pins)?;
         }
         Ok(PreparedGroupManifest {
             marker,

@@ -10,7 +10,7 @@ use cellar_ltx::internal::{
 };
 use std::collections::BTreeMap;
 
-fn limits() -> CellGroupCheckpointLimits {
+pub(super) fn limits() -> CellGroupCheckpointLimits {
     CellGroupCheckpointLimits {
         max_sources: 1,
         max_retained_bytes: 32 * 1024 * 1024,
@@ -21,8 +21,16 @@ fn limits() -> CellGroupCheckpointLimits {
 }
 
 async fn populated(rooted: bool) -> Result<(Cluster, BTreeMap<String, Vec<u8>>)> {
+    populated_with_lagging(rooted, false).await
+}
+
+pub(super) async fn populated_with_lagging(
+    rooted: bool,
+    lagging: bool,
+) -> Result<(Cluster, BTreeMap<String, Vec<u8>>)> {
     let mut cluster = Cluster::new().await?;
     cluster.elect().await?;
+    cluster.voters[2].paused = lagging;
     let route = cluster.birth.route().clone();
     if rooted {
         for n in 0..3 {
@@ -134,7 +142,7 @@ async fn advance(cluster: &mut Cluster, name: &str, before: &[u8], rooted: bool)
 }
 
 #[derive(Default)]
-struct Received {
+pub(super) struct Received {
     header: Vec<u8>,
     pages: BTreeMap<[u8; 32], Vec<u8>>,
     images: BTreeMap<String, Vec<u8>>,
@@ -144,7 +152,7 @@ struct Received {
 }
 
 impl Received {
-    fn append(
+    pub(super) fn append(
         &mut self,
         chunk: CellGroupCheckpointChunk<'_>,
     ) -> std::result::Result<(), CellGroupCheckpointError> {
@@ -173,7 +181,7 @@ impl Received {
         Ok(())
     }
 
-    fn verify(
+    pub(super) fn verify(
         mut self,
         marker: &GroupManifest,
         leaves: &BTreeMap<String, CellManifestLeaf>,

@@ -253,7 +253,7 @@ impl CellGroupApplyImages {
 
 // Names are physical lookup hints. The selected manifest and exact image state
 // still have to verify; a filename never supplies publication authority.
-pub(super) fn image_id(
+pub(in crate::raft::cell_groups) fn image_id(
     cell: &CellHistory,
     sequence: u64,
     image: ImageState,

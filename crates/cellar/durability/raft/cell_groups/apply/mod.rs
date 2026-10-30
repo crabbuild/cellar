@@ -2,7 +2,7 @@
 
 //! Worker-owned physical preparation; only the Raft owner can publish its result.
 
-mod images;
+pub(super) mod images;
 mod recovery;
 mod summary;
 pub use images::CellGroupApplyImages;
@@ -19,10 +19,10 @@ use crate::raft::{
 use cellar_logic::cell_group::{CommitWitness, GroupHistory};
 use std::sync::{Arc, Mutex};
 
-struct Storage {
-    tree: ManifestTree,
-    pages: ManifestPageStore,
-    images: CellGroupApplyImages,
+pub(super) struct Storage {
+    pub(super) tree: ManifestTree,
+    pub(super) pages: ManifestPageStore,
+    pub(super) images: CellGroupApplyImages,
     limits: GroupEntryLimits,
     max_effect_rows: u32,
 }
@@ -32,8 +32,8 @@ struct Storage {
 /// owning execution domain; transfer the same page owner used for startup.
 #[derive(Clone)]
 pub struct CellGroupApplier {
-    group: GroupLog<GroupHistory>,
-    storage: Arc<Mutex<Storage>>,
+    pub(super) group: GroupLog<GroupHistory>,
+    pub(super) storage: Arc<Mutex<Storage>>,
 }
 
 impl CellGroupApplier {
@@ -91,6 +91,7 @@ impl CellGroupApplier {
                 "registration selected root/page owner",
             ));
         }
+        root.require_checkpoint(&self.group).map_err(storage)?;
         Ok(())
     }
 

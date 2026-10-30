@@ -1366,7 +1366,7 @@ impl Worker {
             drop(old);
             if let Some(change) = &write.snapshot {
                 match change {
-                    SnapshotChange::Install { .. } => {
+                    SnapshotChange::Install { .. } | SnapshotChange::CellGroup(_) => {
                         batch.add_command(write.group.key, Command::Clean)
                     }
                     SnapshotChange::Checkpoint(snapshot) => batch.add_command(
@@ -1394,11 +1394,15 @@ impl Worker {
         // and quarantines collection until recovery reconstructs the selection.
         let mut publications = Vec::new();
         for write in &writes {
-            if let Some(prepared) = &write.group_manifest {
+            if let Some(prepared) = write.prepared_group_manifest() {
                 let previous = write.group.group_manifest()?;
                 publications.push(
                     prepared
-                        .begin_publication(&write.group, previous.as_ref())
+                        .begin_publication(
+                            &write.group,
+                            previous.as_ref(),
+                            matches!(&write.snapshot, Some(SnapshotChange::CellGroup(_))),
+                        )
                         .map_err(|e| LogError::Invalid(e.to_string()))?,
                 );
             }

@@ -203,6 +203,9 @@ impl CellGroupOwner {
             ));
         }
         drop(cache);
+        current
+            .require_checkpoint(&group)
+            .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
         let config = Config {
             id: group.identity().member.get(),
             applied: current.marker().position().index.get(),

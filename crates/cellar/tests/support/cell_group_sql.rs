@@ -499,7 +499,7 @@ mod reads;
 pub(crate) use reads::{coherent as coherent_reads, lifecycle as query_lifecycle};
 
 #[path = "cell_group_sql_apply.rs"]
-mod apply;
+pub(super) mod apply;
 pub(crate) use apply::apply_images;
 
 #[path = "cell_group_sql_apply_faults.rs"]

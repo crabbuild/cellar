@@ -15,6 +15,21 @@ mod runtime_fixture;
 mod checkpoint_fixture;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_receive_installs_and_recovers_materialized_closure() -> Result<()> {
+    runtime_fixture::install_checkpoint(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_receive_installs_and_recovers_extent_closure() -> Result<()> {
+    runtime_fixture::install_checkpoint(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_receive_rejects_partial_corrupt_and_over_budget_streams() -> Result<()> {
+    runtime_fixture::refuse_checkpoint().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn checkpoint_capture_streams_one_cut_during_writes() -> Result<()> {
     checkpoint_fixture::coherent().await
 }

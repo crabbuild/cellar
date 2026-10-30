@@ -11,6 +11,10 @@ use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
+#[path = "generation_receive.rs"]
+mod receive;
+pub use receive::GenerationReceive;
+
 pub use crate::generation_accounting::{GenerationAccounting, GenerationResources};
 pub use crate::generation_vfs::{open_immutable, ImmutableDatabase, ReadServices};
 

@@ -11,7 +11,13 @@ use crate::raft::{
 };
 use cellar_logic::cell_group::{CellId, GroupHistory};
 use cellar_ltx::internal::{ExtentId, EXTENT_BYTES};
-use serde::Serialize;
+mod header;
+mod prepared;
+mod receive;
+use header::Header;
+pub(crate) use prepared::persisted_marker;
+pub use prepared::PreparedCellGroupCheckpoint;
+pub use receive::CellGroupCheckpointReceiver;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
@@ -78,9 +84,9 @@ impl From<cellar_ltx::internal::StoreError> for CellGroupCheckpointError {
 
 type Result<T> = std::result::Result<T, CellGroupCheckpointError>;
 
-/// One pool must be shared by the node's checkpoint producers. Byte accounting
-/// conservatively charges pinned metadata to each source as well as its buffer;
-/// physical stores separately bound disk retention. No full-image spool is made.
+/// One pool must be shared by the node's checkpoint sources and receivers. Byte
+/// accounting charges retained metadata and workspace; physical stores bound
+/// disk retention. Receivers additionally share a scratch pool for image spools.
 #[derive(Clone, Copy, Debug)]
 pub struct CellGroupCheckpointLimits {
     pub max_sources: usize,
@@ -200,23 +206,9 @@ impl CellGroupCheckpointPool {
             cache
                 .membership
                 .validate(&cache.conf_state, marker.position().index.get())?;
-            Header {
-                domain: "cellar-cell-group-checkpoint-1",
-                root: marker.clone(),
-                conf: crate::raft::manifest::encode_conf(&cache.conf_state)
-                    .map_err(|_| CellGroupCheckpointError::Invalid("configuration encoding"))?,
-                membership: cache.membership.clone(),
-                // Shared owners currently refuse all topology/park entries.
-                // Their owning tasks must extend the durable root and this
-                // binding together before admitting such transitions.
-                transition: "active",
-            }
+            Header::capture(marker.clone(), &cache.conf_state, cache.membership.clone())?
         };
-        let encoded = serde_json::to_vec(&header)
-            .map_err(|_| CellGroupCheckpointError::Invalid("header encoding"))?;
-        if encoded.len() > HEADER_LIMIT {
-            return Err(CellGroupCheckpointError::Limit);
-        }
+        let encoded = header.encode()?;
         Ok(CellGroupCheckpoint {
             group: group.clone(),
             root: root.clone(),
@@ -226,15 +218,6 @@ impl CellGroupCheckpointPool {
             _reservation: reservation,
         })
     }
-}
-
-#[derive(Serialize)]
-struct Header {
-    domain: &'static str,
-    root: GroupManifest,
-    conf: Vec<u8>,
-    membership: GroupMembership,
-    transition: &'static str,
 }
 
 /// Borrowed part identity. Each manifest page carries the full cell leaf,

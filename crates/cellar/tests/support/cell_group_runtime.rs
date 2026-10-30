@@ -5,6 +5,10 @@
 use super::*;
 use std::collections::BTreeMap;
 
+#[path = "cell_group_checkpoint_receive.rs"]
+mod checkpoint_receive;
+pub(super) use checkpoint_receive::{install_checkpoint, refuse_checkpoint};
+
 #[path = "cell_group_tcp.rs"]
 mod tcp;
 pub(super) use tcp::physical_transport;

@@ -271,14 +271,27 @@ impl GroupRecord {
                 (None, Some(marker.as_ref().clone()))
             }
         };
+        let snapshot = Snapshot::parse_from_bytes(&self.snapshot).map_err(corrupt)?;
+        let checkpoint_manifest = group_manifest
+            .as_ref()
+            .map(|current| {
+                super::cell_groups::checkpoint::persisted_marker(
+                    &snapshot,
+                    current,
+                    &self.membership,
+                )
+            })
+            .transpose()?
+            .flatten();
         let cache = CachedGroup {
             hard_state: HardState::parse_from_bytes(&self.hard_state).map_err(corrupt)?,
             conf_state: ConfState::parse_from_bytes(&self.conf_state).map_err(corrupt)?,
             membership: self.membership.clone(),
-            snapshot: Snapshot::parse_from_bytes(&self.snapshot).map_err(corrupt)?,
+            snapshot,
             entries: Default::default(),
             group_manifest,
             manifest_pins: None,
+            checkpoint_manifest,
             applied: DurableApply {
                 position: LogPosition {
                     index: LogIndex::new(self.applied_index),
