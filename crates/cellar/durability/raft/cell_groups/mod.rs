@@ -10,6 +10,11 @@ pub use super::host_sql::cell_groups::{
 };
 
 mod apply;
+mod controller;
+pub use controller::{
+    CellGroupController, CellGroupControllerError, CellGroupControllerLimits,
+    CellGroupControllerUsage,
+};
 mod dispatch;
 pub use apply::{CellGroupApplier, CellGroupApplyImages};
 pub use dispatch::{

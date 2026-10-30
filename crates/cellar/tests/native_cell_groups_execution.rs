@@ -12,6 +12,36 @@ mod fault;
 mod runtime_fixture;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn group_controller_drives_tls_apply_and_bounded_retry() -> Result<()> {
+    runtime_fixture::controller_replication(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_group_controller_drives_tls_apply_and_bounded_retry() -> Result<()> {
+    runtime_fixture::controller_replication(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn group_controller_checks_exact_owners() -> Result<()> {
+    runtime_fixture::controller_owners().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn group_controller_cancelled_close_joins_sql() -> Result<()> {
+    runtime_fixture::controller_close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn group_controller_apply_failure_and_shutdown_preserve_selected_root() -> Result<()> {
+    runtime_fixture::controller_apply_faults(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_group_controller_apply_failure_and_shutdown_preserve_selected_root() -> Result<()> {
+    runtime_fixture::controller_apply_faults(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn sql_submission_rejection_seals_delayed_retries() -> Result<()> {
     runtime_fixture::submission_rejections(false).await
 }

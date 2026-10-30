@@ -53,9 +53,14 @@ impl CellGroupRuntimeEvent {
 
 pub struct CellGroupRuntimeEvents {
     receiver: mpsc::Receiver<CellGroupRuntimeEvent>,
+    owner: std::sync::Weak<Handle>,
 }
 
 impl CellGroupRuntimeEvents {
+    pub(crate) fn belongs_to(&self, runtime: &CellGroupRuntime) -> bool {
+        self.owner.ptr_eq(&Arc::downgrade(&runtime.inner))
+    }
+
     pub async fn recv(&mut self) -> Option<CellGroupRuntimeEvent> {
         self.receiver.recv().await
     }
@@ -137,6 +142,10 @@ impl Drop for TransportClaim {
 }
 
 impl CellGroupRuntime {
+    pub(crate) fn same_owner(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+
     pub(crate) fn log(&self) -> &ReplicaLog {
         &self.inner.log
     }
@@ -246,7 +255,8 @@ impl CellGroupRuntime {
             .map_err(|_| RuntimeError::Closed)?;
         wait.await.map_err(|_| RuntimeError::Closed)?;
         handle.admit()?;
-        Ok((handle, CellGroupRuntimeEvents { receiver }))
+        let owner = Arc::downgrade(&handle.inner);
+        Ok((handle, CellGroupRuntimeEvents { receiver, owner }))
     }
 
     pub(crate) fn admit(&self) -> Result<(), RuntimeError> {

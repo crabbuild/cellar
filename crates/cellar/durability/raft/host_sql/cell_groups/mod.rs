@@ -297,6 +297,10 @@ fn overloaded() -> ExecutionError {
 }
 
 impl CellGroupSqlPool {
+    pub(crate) fn belongs_to_engine(&self, owner: &Arc<()>) -> bool {
+        Arc::ptr_eq(&self.inner.engine_owner, owner)
+    }
+
     pub(crate) fn uses_domain(&self, domain: &crate::asyncrt::DomainToken) -> bool {
         self.inner.workers[0].domain.same_owner(domain)
     }

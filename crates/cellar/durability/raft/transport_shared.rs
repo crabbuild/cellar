@@ -3,6 +3,7 @@
 //! Physical group routing on the existing node transport's queues and sockets.
 use super::*;
 use crate::raft::cache::GroupLog;
+use crate::raft::cell_groups::CellGroupRuntime;
 
 type PhysicalRoute = GroupRoute<GroupHistory>;
 type PhysicalPeer = RaftPeer<GroupHistory>;
@@ -44,6 +45,14 @@ fn permitted(
 }
 
 impl RaftTransport {
+    pub(crate) fn uses_shared_runtime(&self, runtime: &CellGroupRuntime) -> bool {
+        self.handle
+            .0
+            .runtime
+            .shared()
+            .is_ok_and(|owner| owner.same_owner(runtime))
+    }
+
     /// Install already-authorized physical membership. This creates no group,
     /// grants no serving authority and changes no committed configuration.
     pub fn install_physical_group(&self, route: PhysicalRoute) -> Result<(), TransportError> {

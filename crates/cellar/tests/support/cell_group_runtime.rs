@@ -649,6 +649,9 @@ pub(super) async fn attachment_reserves_before_owner() -> Result<()> {
 
 #[path = "cell_group_sql.rs"]
 mod sql;
+pub(super) use sql::{
+    controller_apply_faults, controller_close, controller_owners, controller_replication,
+};
 
 pub(super) async fn cell_receipts(rooted: bool) -> Result<()> {
     sql::cell_receipts(rooted).await
