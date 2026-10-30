@@ -183,7 +183,11 @@ pub(crate) async fn stale_cache_refill() -> Result<()> {
     let waiter = f
         .domain
         .spawn(async move { fault::gate_read(page, wait_gate, old.begin()).await })?;
-    tokio::time::timeout(Duration::from_secs(5), gate.entered.notified()).await?;
+    f.run(cellar::asyncrt::timeout(
+        Duration::from_secs(5),
+        gate.entered.notified(),
+    ))
+    .await?;
     let successor = publish_route_split(&f, &routes[0], &selected.cell).await?;
     assert_eq!(dispatcher.refresh_routes().await?, 2);
     gate.resume.notify_one();
