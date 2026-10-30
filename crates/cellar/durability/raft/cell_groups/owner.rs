@@ -278,6 +278,25 @@ impl CellGroupOwner {
         &self.current
     }
 
+    pub fn enrollment_state(
+        &self,
+        cell: CellHistory,
+    ) -> Result<super::CellEnrollmentState, RuntimeError> {
+        self.live()?;
+        super::CellEnrollmentState::new(self.group.clone(), &self.current, cell)
+    }
+
+    pub fn enrollment_authority(
+        &self,
+        cell: CellHistory,
+    ) -> Result<super::CellEnrollmentAuthority, RuntimeError> {
+        let status = self.status()?;
+        if !status.ready || status.applied.index != status.committed {
+            return Err(RuntimeError::NotReady);
+        }
+        super::CellEnrollmentAuthority::new(self.enrollment_state(cell)?, self.leader_term.clone())
+    }
+
     pub fn reconciliation_authority(
         &self,
         cell: &CellHistory,
@@ -344,6 +363,7 @@ impl CellGroupOwner {
 
     /// Protocol admission only. The shared cell executor must serialize each
     /// cell's preparation, reserve physical work and retain ambiguous outcomes.
+    /// SQL producers use `propose_at_term` with their captured preparation term.
     pub fn propose(&mut self, data: Vec<u8>) -> Result<CellGroupProposal, RuntimeError> {
         if !self.status()?.ready {
             return Err(RuntimeError::NotReady);
@@ -382,6 +402,20 @@ impl CellGroupOwner {
             position: entry_position(entry),
             digest: entry_digest(entry)?,
         })
+    }
+
+    /// Check the SQL preparation fence on the actual RawNode owner in the same
+    /// turn as proposal admission. A sampled status before queueing is not enough.
+    pub fn propose_at_term(
+        &mut self,
+        term: Term,
+        data: Vec<u8>,
+    ) -> Result<CellGroupProposal, RuntimeError> {
+        self.live()?;
+        if term.get() != self.node.raft.term {
+            return Err(RuntimeError::StaleCompletion);
+        }
+        self.propose(data)
     }
 
     pub fn read_index(&mut self, context: Vec<u8>) -> Result<(), RuntimeError> {

@@ -325,6 +325,14 @@ impl Worker {
                                     .owner
                                     .execution_authority(&cell)
                                     .map(|authority| Response::Execution(Box::new(authority))),
+                                Command::Enrollment(cell) => group
+                                    .owner
+                                    .enrollment_authority(cell)
+                                    .map(|authority| Response::Enrollment(Box::new(authority))),
+                                Command::EnrollmentState(cell) => group
+                                    .owner
+                                    .enrollment_state(cell)
+                                    .map(|state| Response::EnrollmentState(Box::new(state))),
                                 Command::Reconciliation(cell) => group
                                     .owner
                                     .reconciliation_authority(&cell)
@@ -338,6 +346,10 @@ impl Worker {
                                 Command::Propose(data) => {
                                     group.owner.propose(data).map(Response::Proposal)
                                 }
+                                Command::ProposeAtTerm(term, data) => group
+                                    .owner
+                                    .propose_at_term(term, data)
+                                    .map(Response::Proposal),
                                 Command::ReadIndex(context) => {
                                     group.owner.read_index(context).map(|()| Response::Unit)
                                 }

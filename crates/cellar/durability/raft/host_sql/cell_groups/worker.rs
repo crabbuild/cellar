@@ -15,8 +15,21 @@ pub(super) struct Stage {
     pub bytes: Arc<Bytes>,
 }
 
+type Initializer = Box<dyn FnOnce(&CommandTransaction<'_>) -> anyhow::Result<()> + Send>;
+
+pub(super) struct Initialize {
+    pub options: CellSqlOptions,
+    pub authority: CellEnrollmentAuthority,
+    pub attempt: CellEnrollmentAttempt,
+    pub callback: Initializer,
+    pub lease: CellLease,
+    pub bytes: Arc<Bytes>,
+}
+
 pub(super) enum Action {
     Stage(Box<Stage>),
+    Initialize(Box<Initialize>),
+    ResolveEnrollment(ProposalId, Box<CellEnrollmentState>),
     Resume(ProposalId),
     Submit(ProposalId),
     Finish(Box<CellExecutionAuthority>),
@@ -25,7 +38,7 @@ pub(super) enum Action {
 
 impl Action {
     pub(super) fn progress_priority(&self) -> bool {
-        !matches!(self, Self::Stage(_))
+        !matches!(self, Self::Stage(_) | Self::Initialize(_))
     }
 }
 
@@ -44,10 +57,38 @@ impl Request {
 }
 
 struct Pending {
-    executor: CellPrivateExecutor,
+    producer: Producer,
     prepared: CellSqlPrepared,
     submitted: bool,
     _lease: CellLease,
+}
+
+enum Producer {
+    Command(Box<CellPrivateExecutor>),
+    Enrollment(Box<CellPrivateEnrollment>),
+}
+
+impl Producer {
+    fn mark_submitted(&mut self, proposal: ProposalId) -> Result<(), ExecutionError> {
+        match self {
+            Self::Command(executor) => executor.mark_submitted(proposal),
+            Self::Enrollment(executor) => executor.mark_submitted(proposal),
+        }
+    }
+
+    fn command(&mut self) -> Result<&mut CellPrivateExecutor, ExecutionError> {
+        match self {
+            Self::Command(executor) => Ok(executor),
+            Self::Enrollment(_) => Err(ExecutionError::Invalid("command producer required")),
+        }
+    }
+
+    fn close(self) -> Result<(), ExecutionError> {
+        match self {
+            Self::Command(executor) => (*executor).close(),
+            Self::Enrollment(executor) => (*executor).close(),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -76,8 +117,10 @@ impl Cells {
             queued,
         } = request;
         let operation = match &action {
-            Action::Stage(_) => crate::raft::performance::Operation::SqlStage,
-            Action::Finish(_) | Action::Reconcile(..) => {
+            Action::Stage(_) | Action::Initialize(_) => {
+                crate::raft::performance::Operation::SqlStage
+            }
+            Action::Finish(_) | Action::Reconcile(..) | Action::ResolveEnrollment(..) => {
                 crate::raft::performance::Operation::SqlPublish
             }
             _ => crate::raft::performance::Operation::SqlOther,
@@ -141,7 +184,7 @@ impl Cells {
                         self.pending.insert(
                             cell,
                             Pending {
-                                executor,
+                                producer: Producer::Command(Box::new(executor)),
                                 prepared: prepared.clone(),
                                 submitted: false,
                                 _lease: lease,
@@ -169,6 +212,91 @@ impl Cells {
                     }
                 }
             }
+            Action::Initialize(request) => {
+                if self.pending.contains_key(&cell) {
+                    return Err(ExecutionError::Busy);
+                }
+                if self.pending.len() >= max {
+                    return Err(overloaded());
+                }
+                let Initialize {
+                    options,
+                    authority,
+                    attempt,
+                    callback,
+                    lease,
+                    mut bytes,
+                } = *request;
+                if authority.state().cell() != &cell {
+                    return Err(ExecutionError::Invalid("initialization cell history"));
+                }
+                authority.check().map_err(crate::raft::execution::authority_failure)?;
+                if let Some(record) = authority.state().record() {
+                    if record.cell() != &cell || record.creation() != attempt.creation {
+                        return Err(ExecutionError::Refused(CommandFailure::CommandConflict));
+                    }
+                    return Ok(CellSqlOutcome::Enrollment(Box::new(CellSqlEnrollment {
+                        record: record.clone(),
+                        _bytes: bytes,
+                    })));
+                }
+                let mut executor = options.open_enrollment(authority)?;
+                let prepared = match executor.prepare(attempt, callback) {
+                    Ok(prepared) => prepared,
+                    Err(error) => {
+                        executor.close()?;
+                        return Err(error);
+                    }
+                };
+                let retained = prepared
+                    .bytes()
+                    .len()
+                    .checked_add(4096)
+                    .ok_or_else(overloaded)?;
+                Bytes::shrink(&mut bytes, retained)?;
+                let prepared = CellSqlPrepared {
+                    prepared,
+                    _bytes: bytes,
+                };
+                self.pending.insert(
+                    cell,
+                    Pending {
+                        producer: Producer::Enrollment(Box::new(executor)),
+                        prepared: prepared.clone(),
+                        submitted: false,
+                        _lease: lease,
+                    },
+                );
+                Ok(CellSqlOutcome::Prepared(prepared))
+            }
+            Action::ResolveEnrollment(creation, state) => {
+                let pending = self
+                    .pending
+                    .get_mut(&cell)
+                    .ok_or(ExecutionError::Uncertain)?;
+                let Producer::Enrollment(executor) = &mut pending.producer else {
+                    return Err(ExecutionError::Invalid("enrollment producer required"));
+                };
+                let outcome = executor.resolve(creation, *state)?;
+                let pending = self
+                    .pending
+                    .remove(&cell)
+                    .ok_or(ExecutionError::Uncertain)?;
+                pending.producer.close()?;
+                let outcome = match outcome {
+                    CellEnrollmentResolution::Committed(record) => {
+                        CellSqlEnrollmentResolution::Committed(Box::new(CellSqlEnrollment {
+                            record: *record,
+                            _bytes: pending.prepared._bytes,
+                        }))
+                    }
+                    CellEnrollmentResolution::NotCommitted => {
+                        CellSqlEnrollmentResolution::NotCommitted
+                    }
+                    CellEnrollmentResolution::Conflict => CellSqlEnrollmentResolution::Conflict,
+                };
+                Ok(CellSqlOutcome::EnrollmentResolved(outcome))
+            }
             Action::Resume(proposal) => {
                 let pending = self.pending.get(&cell).ok_or(ExecutionError::Uncertain)?;
                 if pending.prepared.proposal() != proposal {
@@ -185,7 +313,7 @@ impl Cells {
                     return Err(ExecutionError::Invalid("cell producer proposal"));
                 }
                 if !pending.submitted {
-                    pending.executor.mark_submitted(proposal)?;
+                    pending.producer.mark_submitted(proposal)?;
                     pending.submitted = true;
                 }
                 Ok(CellSqlOutcome::Submitted)
@@ -195,12 +323,12 @@ impl Cells {
                     .pending
                     .get_mut(&cell)
                     .ok_or(ExecutionError::Uncertain)?;
-                let receipt = pending.executor.finish(*authority)?;
+                let receipt = pending.producer.command()?.finish(*authority)?;
                 let pending = self
                     .pending
                     .remove(&cell)
                     .ok_or(ExecutionError::Invalid("cell producer changed"))?;
-                pending.executor.close()?;
+                pending.producer.close()?;
                 Ok(CellSqlOutcome::Receipt(Box::new(CellSqlReceipt {
                     receipt,
                     _bytes: pending.prepared._bytes,
@@ -211,12 +339,15 @@ impl Cells {
                     .pending
                     .get_mut(&cell)
                     .ok_or(ExecutionError::Uncertain)?;
-                let resolution = pending.executor.reconcile(proposal, *authority)?;
+                let resolution = pending
+                    .producer
+                    .command()?
+                    .reconcile(proposal, *authority)?;
                 let pending = self
                     .pending
                     .remove(&cell)
                     .ok_or(ExecutionError::Invalid("cell producer changed"))?;
-                pending.executor.close()?;
+                pending.producer.close()?;
                 let resolution = match resolution {
                     CellReconciliation::Committed(receipt) => {
                         CellSqlReconciliation::Committed(Box::new(CellSqlReceipt {
@@ -235,7 +366,7 @@ impl Cells {
     pub fn close(&mut self) -> Result<(), ExecutionError> {
         let mut result = Ok(());
         for (_, pending) in std::mem::take(&mut self.pending) {
-            if let Err(error) = pending.executor.close() {
+            if let Err(error) = pending.producer.close() {
                 result = Err(error);
             }
         }

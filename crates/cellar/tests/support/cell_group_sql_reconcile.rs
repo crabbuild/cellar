@@ -2,7 +2,7 @@
 
 use super::*;
 
-async fn transfer(fixture: &mut RuntimeCluster, from: usize, to: usize) -> Result<()> {
+pub(super) async fn transfer(fixture: &mut RuntimeCluster, from: usize, to: usize) -> Result<()> {
     let history = fixture.cluster.birth.route().history;
     let term = fixture.runtimes[from].status(history).await?.term;
     let mut message = Message::default();
@@ -68,7 +68,7 @@ fn execution_limits(options: &mut CellSqlOptions) -> &mut ExecutionLimits {
     }
 }
 
-async fn apply_through(fixture: &mut RuntimeCluster, index: LogIndex) -> Result<()> {
+pub(super) async fn apply_through(fixture: &mut RuntimeCluster, index: LogIndex) -> Result<()> {
     let group = fixture.cluster.birth.route().history;
     tokio::time::timeout(Duration::from_secs(20), async {
         loop {
@@ -85,7 +85,7 @@ async fn apply_through(fixture: &mut RuntimeCluster, index: LogIndex) -> Result<
     .await?
 }
 
-async fn commit_on(
+pub(super) async fn commit_on(
     fixture: &mut RuntimeCluster,
     pool: &CellGroupSqlPool,
     node: usize,
@@ -96,7 +96,7 @@ async fn commit_on(
     pool.mark_submitted(cell.clone(), prepared.proposal())
         .await?;
     let accepted = fixture.runtimes[node]
-        .propose(group, prepared.bytes().to_vec())
+        .propose_at_term(group, prepared.term(), prepared.bytes().to_vec())
         .await?;
     apply_through(fixture, accepted.position.index).await?;
     let authority = fixture.runtimes[node]

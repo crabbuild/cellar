@@ -1,8 +1,14 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 use super::*;
+use cellar_logic::{
+    cell_group::CellId,
+    consensus::{ClusterId, NamespaceId},
+};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Mutex, Weak};
+
+type LogicalCell = (ClusterId, NamespaceId, CellId);
 
 pub(super) struct Admission {
     lease: Arc<crate::raft::storage::SqlPoolLease>,
@@ -13,7 +19,7 @@ pub(super) struct Admission {
 
 #[derive(Default)]
 struct State {
-    cells: BTreeSet<CellHistory>,
+    cells: BTreeSet<LogicalCell>,
     groups: BTreeMap<GroupHistory, Weak<Budget>>,
 }
 
@@ -36,7 +42,7 @@ impl Bytes {
 
 pub(super) struct CellLease {
     owner: Arc<Admission>,
-    cell: CellHistory,
+    cell: LogicalCell,
 }
 
 impl Drop for CellLease {
@@ -64,7 +70,8 @@ impl Admission {
         bytes: usize,
     ) -> Result<(CellLease, Arc<Bytes>), ExecutionError> {
         let mut state = self.state.lock().map_err(|_| unavailable())?;
-        if state.cells.contains(cell) {
+        let key = (cell.cluster, cell.namespace, cell.cell.clone());
+        if state.cells.contains(&key) {
             return Err(ExecutionError::Busy);
         }
         let node = self.node.acquire(bytes).ok_or_else(overloaded)?;
@@ -79,11 +86,11 @@ impl Admission {
             });
         let group_permit = group_budget.acquire(bytes).ok_or_else(overloaded)?;
         state.groups.insert(group, Arc::downgrade(&group_budget));
-        state.cells.insert(cell.clone());
+        state.cells.insert(key.clone());
         Ok((
             CellLease {
                 owner: self.clone(),
-                cell: cell.clone(),
+                cell: key,
             },
             Arc::new(Bytes {
                 _lease: self.lease.clone(),

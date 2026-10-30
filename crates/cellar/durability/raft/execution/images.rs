@@ -298,6 +298,16 @@ impl WorkingImage {
         }
     }
 
+    pub(super) fn capture_initial(
+        &mut self,
+        options: &Options,
+    ) -> anyhow::Result<crate::raft::working::CapturedUpdate> {
+        match self {
+            Self::Materialized(working) => working.capture_pin(&options.materialized()?, None),
+            Self::Rooted(working) => working.capture_pin(options, None),
+        }
+    }
+
     pub fn database(&self) -> &crate::storage::CommandDatabase {
         match self {
             Self::Materialized(working) => &working.database,
@@ -476,6 +486,16 @@ impl Images {
         history: [u8; 32],
     ) -> anyhow::Result<Preview> {
         self.preview_payload(options, Some(base), id, update.as_ref(), history)
+    }
+
+    pub(super) fn preview_initial(
+        &self,
+        options: &Options,
+        id: ImageId,
+        update: &crate::raft::working::CapturedUpdate,
+        history: [u8; 32],
+    ) -> anyhow::Result<Preview> {
+        self.preview_payload(options, None, id, update.as_ref(), history)
     }
 
     fn preview_payload(

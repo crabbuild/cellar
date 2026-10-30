@@ -91,7 +91,32 @@ writer before releasing cell admission; retained receipt outputs keep their byte
 reservation. A retry still needs fresh leader authority and receipt admission.
 Actual snapshot/compaction integration and production retry dispatch remain pending.
 
-Registered SDK dispatch, concurrent initialization, coherent query serving and
+Enrollment now uses `CellEnrollmentAuthority`, issued by the actual leader after
+its current-term committed prefix is applied. `initialize` runs one SQLite
+initializer on the existing SQL workers, captures the full initial LTX image and
+proposes a cell-addressed enrollment. Followers apply those bytes without running
+the initializer. Admission keys the logical cluster/namespace/cell name, so another
+incarnation cannot bypass an in-flight producer. Ordinary commands use the same
+name reservation. Queued and running initialization retain it through cancellation.
+
+Prepared SQL output carries its original leader term. Submit it through
+`propose_at_term`: the actual RawNode owner checks that fence atomically with
+proposal admission. Merely sampling leader status before queueing is insufficient,
+including when the original node later regains leadership. The unfenced `propose`
+method remains a low-level protocol verification boundary.
+
+A committed creation retry returns the immutable enrollment record without opening
+SQLite or rerunning the callback, even after later cell mutations. An enrollment
+state selected from a durable current-term applied root also permits resolution
+on a follower: an exact creation record proves commitment; absence/conflict can
+retire an older producer only after a strictly newer applied term. Resolution
+closes the writer before releasing name admission, while retained responses keep
+their byte charge. Unknown producers remain uncertain. Pool shutdown joins an
+entered initializer even if its waiter and close waiter were both cancelled.
+As with commands, shutdown is not proof that a submitted enrollment failed.
+
+Registered SDK creation/command dispatch, catalog routing integration, configured
+group capacity policy, coherent query serving and
 the production hard cutover remain required; the existing host still uses its
 prior single-cell owner. The new pool's callback entry point remains a verification
 boundary. Transport authentication and actual image preparation are also caller

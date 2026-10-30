@@ -428,6 +428,17 @@ pub(super) async fn pool_admission(rooted: bool) -> Result<()> {
 #[path = "cell_group_sql_reconcile.rs"]
 mod reconciliation;
 
+#[path = "cell_group_sql_enrollment.rs"]
+mod enrollment;
+
+pub(super) async fn initialize_cells(rooted: bool) -> Result<()> {
+    enrollment::concurrent(rooted).await
+}
+
+pub(super) async fn recover_initialization(rooted: bool) -> Result<()> {
+    enrollment::recovery(rooted).await
+}
+
 pub(super) async fn reconcile_producers(rooted: bool) -> Result<()> {
     reconciliation::reconcile(rooted).await
 }

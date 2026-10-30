@@ -157,11 +157,12 @@ pub mod verification {
         RuntimeEventKind, SnapshotCompletion,
     };
     pub use crate::raft::execution::{
-        query_registered, AppliedExecution, CellCommittedReceipt, CellPreparedCommand,
-        CellPrivateExecutor, CellReconciliation, CellStageOutcome, CommandAttempt,
-        CommandAuthority, CommandRequest, CommittedReceipt, ExecutionError, ExecutionLimits,
-        ExecutionStatus, PreparedCommand, PrivateExecutor, PrivateOptions, RegisteredQueryOutput,
-        RootPrivateOptions, StageOutcome, StoredReceipt,
+        query_registered, AppliedExecution, CellCommittedReceipt, CellEnrollmentAttempt,
+        CellEnrollmentResolution, CellPreparedCommand, CellPrivateEnrollment, CellPrivateExecutor,
+        CellReconciliation, CellStageOutcome, CommandAttempt, CommandAuthority, CommandRequest,
+        CommittedReceipt, ExecutionError, ExecutionLimits, ExecutionStatus, PreparedCommand,
+        PrivateExecutor, PrivateOptions, RegisteredQueryOutput, RootPrivateOptions, StageOutcome,
+        StoredReceipt,
     };
     pub use crate::raft::fleet_catalog::{
         FleetBirthAuthorization, FleetBirthReservation, FleetCatalog, FleetCatalogError,

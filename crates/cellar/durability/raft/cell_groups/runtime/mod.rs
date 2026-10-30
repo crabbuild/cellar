@@ -85,10 +85,13 @@ enum Command {
     Attach(Box<CellGroupOwner>),
     Campaign,
     Execution(cellar_logic::cell_group::CellHistory),
+    Enrollment(cellar_logic::cell_group::CellHistory),
+    EnrollmentState(cellar_logic::cell_group::CellHistory),
     Reconciliation(cellar_logic::cell_group::CellHistory),
     Step(Message),
     AdmitStep(Message),
     Propose(Vec<u8>),
+    ProposeAtTerm(cellar_logic::consensus::Term, Vec<u8>),
     ReadIndex(Vec<u8>),
     Apply(CellGroupTicket, Box<PreparedGroupManifest>),
     Status,
@@ -99,6 +102,8 @@ enum Response {
     Unit,
     Proposal(CellGroupProposal),
     Execution(Box<CellExecutionAuthority>),
+    Enrollment(Box<CellEnrollmentAuthority>),
+    EnrollmentState(Box<CellEnrollmentState>),
     Reconciliation(Box<CellReconciliationAuthority>),
     Status(CellGroupStatus),
 }
@@ -337,6 +342,36 @@ impl CellGroupRuntime {
         }
     }
 
+    pub async fn enrollment_authority(
+        &self,
+        history: GroupHistory,
+        cell: cellar_logic::cell_group::CellHistory,
+    ) -> Result<CellEnrollmentAuthority, RuntimeError> {
+        let bytes = cell.cell.as_str().len() + 4096;
+        match self
+            .call(Some(history), Command::Enrollment(cell), bytes)
+            .await?
+        {
+            Response::Enrollment(authority) => Ok(*authority),
+            _ => Err(RuntimeError::Protocol("enrollment authority reply".into())),
+        }
+    }
+
+    pub async fn enrollment_state(
+        &self,
+        history: GroupHistory,
+        cell: cellar_logic::cell_group::CellHistory,
+    ) -> Result<CellEnrollmentState, RuntimeError> {
+        let bytes = cell.cell.as_str().len() + 4096;
+        match self
+            .call(Some(history), Command::EnrollmentState(cell), bytes)
+            .await?
+        {
+            Response::EnrollmentState(state) => Ok(*state),
+            _ => Err(RuntimeError::Protocol("enrollment state reply".into())),
+        }
+    }
+
     pub async fn campaign(&self, history: GroupHistory) -> Result<(), RuntimeError> {
         self.call(Some(history), Command::Campaign, 4096)
             .await
@@ -368,6 +403,29 @@ impl CellGroupRuntime {
         {
             Response::Proposal(proposal) => Ok(proposal),
             _ => Err(RuntimeError::Protocol("proposal reply".into())),
+        }
+    }
+
+    pub async fn propose_at_term(
+        &self,
+        history: GroupHistory,
+        term: cellar_logic::consensus::Term,
+        data: Vec<u8>,
+    ) -> Result<CellGroupProposal, RuntimeError> {
+        let bytes = data.len();
+        if bytes > self.inner.options.max_proposal_bytes {
+            return Err(RuntimeError::Overloaded);
+        }
+        match self
+            .call(
+                Some(history),
+                Command::ProposeAtTerm(term, data),
+                bytes + 4096,
+            )
+            .await?
+        {
+            Response::Proposal(proposal) => Ok(proposal),
+            _ => Err(RuntimeError::Protocol("fenced proposal reply".into())),
         }
     }
 

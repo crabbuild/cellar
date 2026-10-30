@@ -18,9 +18,22 @@ use std::sync::Arc;
 pub struct CellPreparedCommand {
     bytes: Arc<Vec<u8>>,
     proposal: ProposalId,
+    term: Term,
 }
 
 impl CellPreparedCommand {
+    pub(super) fn new(bytes: Vec<u8>, proposal: ProposalId, term: Term) -> Self {
+        Self {
+            bytes: Arc::new(bytes),
+            proposal,
+            term,
+        }
+    }
+
+    pub fn term(&self) -> Term {
+        self.term
+    }
+
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
@@ -238,6 +251,7 @@ impl CellPrivateExecutor {
         let prepared = CellPreparedCommand {
             bytes: Arc::new(bytes),
             proposal: attempt.proposal,
+            term: self.authority.term(),
         };
         self.pending = Some(PendingCell {
             prepared: prepared.clone(),
@@ -387,7 +401,7 @@ impl CellPrivateExecutor {
     }
 }
 
-fn authority_failure(error: RuntimeError) -> ExecutionError {
+pub(crate) fn authority_failure(error: RuntimeError) -> ExecutionError {
     match error {
         RuntimeError::NotReady | RuntimeError::NotLeader | RuntimeError::Closed => {
             ExecutionError::Refused(CommandFailure::Unavailable)

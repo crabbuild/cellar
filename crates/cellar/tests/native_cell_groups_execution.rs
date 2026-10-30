@@ -76,6 +76,26 @@ async fn rooted_cell_sql_reconciles_expired_and_conflicting_receipts() -> Result
     runtime_fixture::reconcile_sql_refusals(true).await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn concurrent_enrollment_one_cell() -> Result<()> {
+    runtime_fixture::initialize_cells(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_concurrent_enrollment_one_cell() -> Result<()> {
+    runtime_fixture::initialize_cells(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn enrollment_recovery_after_leadership_change() -> Result<()> {
+    runtime_fixture::recover_initialization(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_enrollment_recovery_after_leadership_change() -> Result<()> {
+    runtime_fixture::recover_initialization(true).await
+}
+
 #[path = "support/raft_ltx_fixture.rs"]
 #[allow(dead_code)]
 mod images;

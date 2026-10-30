@@ -8,7 +8,10 @@ use super::cache::{DurableApply, GroupLog};
 use super::completion::GroupStatus;
 use super::receipts;
 mod cell;
+pub(crate) use cell::authority_failure;
 mod command;
+mod enrollment;
+pub use enrollment::{CellEnrollmentAttempt, CellEnrollmentResolution, CellPrivateEnrollment};
 mod images;
 pub use cell::{
     CellCommittedReceipt, CellPreparedCommand, CellPrivateExecutor, CellReconciliation,
