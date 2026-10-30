@@ -15,7 +15,17 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The reviewed source baseline is `8723db2d`, adding catalog-bound query
+The newest reviewed source baseline is `1f014f42`, adding retained routed
+command phases over the existing catalog, consensus and SQL owners. Its partial
+record is `.cellar/cell-groups-evidence/CG-04-routed-commands-qualified/checkpoint.json`:
+105 native cases, eight commands, 229 source inputs and four selected executables.
+Transfer that directory and the retained failed `CG-04-routed-commands` and
+`CG-04-routed-commands-final` gates with prior evidence. Cancellation tests retain the invocation; production controller
+ownership after ingress cancellation remains unqualified. The command phases
+preserve captured inputs across proven-non-commit retry and never equate proposal
+acceptance with durability. S3 minima refuse pending real shared archive proof.
+CG-04 remains IN_PROGRESS; follow the next execution priorities below.
+The preceding source baseline is `8723db2d`, adding catalog-bound query
 invocations over the existing runtime/SQL owners. Its partial record is
 `.cellar/cell-groups-evidence/CG-04-routed-queries/checkpoint.json`: 103 native
 cases across four affected suites, eight successful commands, 227 source inputs
@@ -361,21 +371,25 @@ boundary. At the end of each turn, record the completed behavior, evidence and
 limits, then identify the most critical remaining gap and the concrete next step.
 Do not let plan maintenance replace implementation.
 
-1. Extend `CellGroupDispatcher` from its completed local query boundary to
-   registered command/enrollment invocations. Capture namespace minimum durability,
-   original command/creation identity, input fingerprint, deadline and total attempt
-   budget. Use existing prepared submission, exact rejection proofs and receipt or
-   creation reconciliation; neither a lost response nor a catalog redirect proves
-   an old producer uncommitted. Accepted proposals are provisional: return a durable
-   result only after exact publication/receipt settlement and the requested Quorum
-   or S3 proof. Do not weaken a namespace's minimum durability while archive
-   integration is pending. Qualify actual catalog-routed enrollment, command,
-   receipt retry and linearizable query together. The query path now preserves
-   these routing limits and authenticates selected-version tokens in both modes.
-   Public `RaftCellHandle` still uses its old host binding. Its final replacement
-   also needs the production node controller to consume shared-runtime transport,
-   apply and completion events; current real-engine fixtures pump those events.
-   Reuse the existing transport and worker owners, with joined cancellation.
+1. Integrate the phased command invocation into the production node controller.
+   Retain it independently from ingress waiters and drive existing shared-runtime
+   transport, apply and completion events through the existing owners. The current
+   `RaftTransport` routes by old `GroupScope`; adapt its route/authentication boundary
+   to physical `GroupHistory` instead of manufacturing a cell-scoped identity. Qualify
+   caller disconnect after SQL entry and after provisional acceptance: the
+   controller must resolve the exact receipt or a proven non-commit and release
+   bounded ownership without re-executing an uncertain command. The current test
+   cancels a preparation future while retaining the invocation; it does not
+   qualify controller ownership after ingress cancellation. Missing origin
+   producers on followers still need a safe leader receipt-lookup route; never
+   infer non-commit from missing local state. Keep original deadlines for responses
+   while giving the controller an explicit bounded reconciliation lifecycle.
+   Then add catalog-routed enrollment with stable creation identity and exact
+   creation settlement. Qualify enrollment, command, lost response and linearizable
+   query together. Public `RaftCellHandle` still uses its old host binding; the
+   real-engine fixtures still pump transport/apply events. Reuse existing worker
+   and transport ownership with joined shutdown. Requested and namespace S3
+   durability currently refuse until CG-06 supplies real archive proofs.
 2. Complete CG-04's production retry/cache lifecycle and configuration-entry
    handling, then its full gate before DONE. Use selected-root recovery at startup.
    Whole-process kill/power-loss remains distinct from the qualified directory-sync

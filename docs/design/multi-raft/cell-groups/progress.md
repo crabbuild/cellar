@@ -10,6 +10,56 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 catalog-routed command phases
+
+Qualified source: `1f014f42264c73b1d5e3cd387f65ffed45140ecb`.
+
+`CellGroupDispatcher::command` freezes logical command identity, input, namespace
+minimum durability, original routing budget and domain-captured time/randomness.
+Preparation retains its original runtime, SQL pool, exact route and physical
+preparation IDs before entering SQL. A cancelled response or routing retry resumes
+that producer instead of executing a second destination's callback. Submission
+reuses exact shared acceptance and pre-append seals. Acceptance is provisional;
+settlement requires the exact receipt, while absence requires the existing newer
+applied-term barrier. Errors preserve command identity and conservative ambiguity.
+Returned receipts retain their output admission and sign the cell observation.
+Both request and namespace S3 minima refuse until real shared archive proof exists.
+
+Two new three-voter cases cover both image modes, held-callback cancellation,
+retry through a follower while retaining the original producer, duplicate proposal
+acceptance, same-term uncertainty, exact receipt recovery after another cell
+advances the group, and a real leader transfer. A proven non-commit can retry with
+the same captured time/randomness. S3 refusal precedes callback execution.
+The leadership fixture checks the caller's actual cell and uses the production
+applier where installed; the held newer-term barrier assertion remains unchanged.
+
+All 105 native cases pass across execution, catalog, read and runtime suites;
+one runtime helper is invoked by its parent. All eight commands pass, including
+all-target Clippy for Cellar/cellar-logic/cellar-ltx with warnings denied,
+formatting, layout, dependency isolation, docs, source preflight and all 37
+plan-validator cases. The partial record at
+`.cellar/cell-groups-evidence/CG-04-routed-commands-qualified/checkpoint.json` binds
+229 source inputs and four selected executables. The failed gate at
+`CG-04-routed-commands` is retained: all native cases passed, then Clippy rejected
+the large command error. Its typed cause is now boxed, preserving all assertions.
+A second gate at `CG-04-routed-commands-final` retained the passing native tests
+and fixture lint failure; the direct Tokio select now uses Cellar's required
+fair-polling macro. Earlier compile and fixture failures are retained too. No RustFS
+or performance qualification was run. Latest fetched `origin/main` at `8a93ffd7` is included;
+the requested MR-13/MR-14 JSON files remain excluded.
+
+CG-04 remains IN_PROGRESS. The critical next gap is production controller ownership
+of these phases after ingress cancellation, including an explicit bounded
+reconciliation lifecycle beyond the response deadline. The current tests retain
+the invocation while cancelling its preparation future; they do not qualify a
+controller after the caller drops. Adapt the existing transport's cell-scoped
+identity to physical group history, drive transport/apply/completion events, and
+qualify exact resolution after caller disconnect. Then complete routed enrollment
+and public SDK binding. Missing-origin follower receipt routing, configuration and
+cache lifecycle remain unfinished. Reuse existing workers and resource owners;
+complete-group snapshots/archive, effects, topology, real RustFS/load and the final
+hard cutover remain later task gates.
+
 ## CG-04 catalog-routed query invocations
 
 Qualified source: `8723db2df7436478cbc5efc9147d65d3b7651247`.

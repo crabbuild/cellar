@@ -153,6 +153,16 @@ and eight commands pass. Transfer
 production controller/SDK integration are the next critical gaps. Metadata-only
 redirect tests do not qualify live transfer. See [progress](progress.md).
 
+Catalog-bound command phases now retain original SQL ownership through cancelled
+preparation, recover repeated acceptance and settle exact receipts at `1f014f42`.
+A real leader-transfer retry preserves captured inputs; S3 minima explicitly refuse
+until archive proof integration. All 105 native cases and eight commands pass.
+Transfer `.cellar/cell-groups-evidence/CG-04-routed-commands-qualified/` and the failed
+`CG-04-routed-commands/` and `CG-04-routed-commands-final/` gates with prior evidence. The newest record binds 229
+source inputs and four executables. Production controller ownership after ingress
+cancellation and physical-group transport integration are the next critical gaps,
+followed by routed enrollment and the public SDK cutover. See [progress](progress.md).
+
 The implementation executor should deliver code, updated component contracts and
 the required retained evidence for each task on the active PR. The final handoff
 requires CG-16 and the release gate, including the real RustFS and independent
