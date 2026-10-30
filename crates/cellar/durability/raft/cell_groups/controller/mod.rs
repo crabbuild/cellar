@@ -7,7 +7,9 @@ mod calls;
 mod commands;
 mod enrollments;
 mod failure;
+mod provision;
 mod registration;
+pub use provision::{CellGroupProvisionCall, CellGroupProvisioning};
 mod requests;
 pub use enrollments::{CellEnrollmentAdmissionError, CellEnrollmentCall};
 pub(crate) use registration::GroupRoster;
@@ -51,6 +53,7 @@ pub enum CellGroupControllerError {
     Runtime(RuntimeError),
     Apply(Arc<ExecutionError>),
     Transport(TransportError),
+    Catalog(Arc<crate::raft::catalog::CatalogError>),
     Command(Arc<super::CellCommandError>),
     Enrollment(Arc<super::CellEnrollmentError>),
     Closed,
@@ -85,6 +88,9 @@ pub struct CellGroupControllerUsage {
     pub closing: bool,
     pub retained_commands: usize,
     pub command_bytes: usize,
+    pub retained_preparations: usize,
+    pub preparation_bytes: usize,
+    pub provision_waiters: usize,
 }
 
 struct Shared {
@@ -94,6 +100,7 @@ struct Shared {
     limits: CellGroupControllerLimits,
     domain: crate::asyncrt::DomainToken,
     commands: Arc<crate::raft::budget::Budget>,
+    provisioning: Mutex<Option<Arc<provision::Config>>>,
     requests: tokio::sync::mpsc::Sender<requests::Request>,
     active_apply: AtomicUsize,
     pending_apply: AtomicUsize,
@@ -212,6 +219,7 @@ impl CellGroupController {
             limits,
             domain: domain.clone(),
             commands: commands::budget(limits),
+            provisioning: Mutex::new(None),
             requests,
             active_apply: AtomicUsize::new(0),
             pending_apply: AtomicUsize::new(0),
@@ -249,6 +257,11 @@ impl CellGroupController {
                 shared.stop();
                 let joined = worker.finish().await;
                 drop(worker);
+                shared
+                    .provisioning
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .take();
                 shared.active_apply.store(0, Ordering::Release);
                 shared.pending_apply.store(0, Ordering::Release);
                 shared.complete(result.and(joined));
@@ -269,7 +282,21 @@ impl CellGroupController {
     pub fn usage(&self) -> CellGroupControllerUsage {
         let shared = &self.handle.0;
         let (command_bytes, retained_commands) = shared.commands.usage();
+        let (preparation_bytes, retained_preparations, provision_waiters) = shared
+            .provisioning
+            .lock()
+            .ok()
+            .and_then(|slot| {
+                slot.as_ref().map(|config| {
+                    let (bytes, items) = config.preparations.usage();
+                    (bytes, items, config.waiters.usage().1)
+                })
+            })
+            .unwrap_or_default();
         CellGroupControllerUsage {
+            preparation_bytes,
+            retained_preparations,
+            provision_waiters,
             groups: shared.groups.len(),
             pending_registrations: shared.groups.pending(),
             quarantined_groups: shared.groups.quarantined(),

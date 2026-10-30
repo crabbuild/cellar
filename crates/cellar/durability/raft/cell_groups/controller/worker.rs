@@ -41,6 +41,7 @@ pub(super) struct Worker {
     failed_commands: Vec<requests::Completed>,
     quarantined: BTreeSet<GroupHistory>,
     retained_apply: Vec<Work>,
+    provisioning: provision::Manager,
     registrations: FuturesUnordered<BoxFuture<'static, registration::Completed>>,
     routes: BTreeMap<GroupHistory, crate::raft::transport::PhysicalRegistration>,
     progress: tokio::sync::watch::Sender<()>,
@@ -74,6 +75,7 @@ impl Worker {
             quarantined: BTreeSet::new(),
             retained_apply: Vec::new(),
             registrations: FuturesUnordered::new(),
+            provisioning: provision::Manager::default(),
             routes: BTreeMap::new(),
             progress: tokio::sync::watch::channel(()).0,
         }
@@ -163,6 +165,7 @@ impl Worker {
                 },
                 Some(request) = self.requests.recv() => {
                     match request {
+                        requests::Request::Provision(request) => self.provisioning.request(*request, &self.shared),
                         requests::Request::Registration(request) => {
                             let group = request.registration.applier.history();
                             if self.roster.insert(group, request.registration.applier.clone()).is_some() {
@@ -172,6 +175,9 @@ impl Worker {
                         }
                         other => self.commands.push(Box::pin(requests::drive(other, self.runtime.clone(), self.sql.clone(), self.shared.clone(), self.progress.subscribe()))),
                     }
+                }
+                Some(done) = self.provisioning.next(), if self.provisioning.is_running() => {
+                    self.provisioning.complete(done, &self.shared, &self.transport, &mut self.roster, &mut self.routes)?;
                 }
                 Some(completed) = self.registrations.next(), if !self.registrations.is_empty() => {
                     let group = completed.group;
@@ -279,6 +285,7 @@ impl Worker {
         while let Some(completed) = self.registrations.next().await {
             let _ = completed.finish(true);
         }
+        self.provisioning.join().await;
         self.transport.close().await;
         let sql = self
             .sql

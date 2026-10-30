@@ -528,7 +528,12 @@
         "crates/cellar/durability/raft/cell_groups/controller/registration.rs",
         "crates/cellar/tests/support/cell_group_registration.rs",
         "crates/cellar/durability/raft/cell_groups/controller/failure.rs",
-        "crates/cellar/tests/support/cell_group_quarantine.rs"
+        "crates/cellar/tests/support/cell_group_quarantine.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/provision/mod.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/provision/config.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/provision/prepare.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/provision/manager.rs",
+        "crates/cellar/tests/support/cell_group_provision.rs"
       ],
       "test_target": "native_cell_groups_execution",
       "steps": [
@@ -713,6 +718,16 @@
           "tests": [
             "group_quarantine_retains_producer_and_serves_healthy_group",
             "shared_engine_sync_failure_still_stops_all_groups"
+          ]
+        },
+        {
+          "action": "Provision already selected initial-member ranges through the controller with immutable explicit filesystem/image/peer settings. Bound preparation bytes, parallelism, resident failed preparations and response waiters independently from commands. Coalesce by exact physical group and directory owner; preserve recovered page owners across attachment retries. Register appliers before polling attachment and join entered catalog/filesystem work before physical shutdown. This explicit local API does not allocate ranges, orchestrate followers, authorize managed fleet admission or wire automatic request-driven/public SDK startup. Complete those integrations separately.",
+          "tests": [
+            "provisioning_coalesces_and_serves",
+            "provisioning_retries_retained_owner",
+            "provisioning_joins_cancelled_close",
+            "provisioning_recovers_selected_roots",
+            "provisioning_refusals_preserve_healthy_group"
           ]
         }
       ],
@@ -1459,6 +1474,56 @@
         {
           "name": "shared_engine_sync_failure_still_stops_all_groups",
           "oracle": "A real shared Raft-engine sync failure remains node-wide in both image modes: both groups refuse serving, controller/physical services join, and replacement runtime admission refuses the uncertain engine.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "provisioning_coalesces_and_serves",
+          "oracle": "Starting from selected reserved ranges with no genesis or page owners, production provisioning materializes birth, verifies configured members, bootstraps all three engines, recovers roots and attaches real TLS peers. Same-owner concurrent calls share one preparation; dropped waiters cannot cancel it. Waiter, pending and active group limits refuse excess requests; conflicting assignments refuse. A single command slot remains usable. Both image modes then enroll, mutate and return the exact retry without another cell mutation.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "provisioning_retries_retained_owner",
+          "oracle": "A catalog failure before recovery releases preparation and group capacity. A real filesystem hook injects a catalog failure after physical recovery but before attachment; the exact page owner remains locked and charged. Retrying the same assignment succeeds without reopening or syncing the page store again. Both image modes retain the same selected-root owner.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "provisioning_joins_cancelled_close",
+          "oracle": "Hold a real manifest directory sync inside execution-domain recovery, cancel close and drop the response. Preparation admission and the runtime engine claim remain held; a replacement runtime refuses. Release the physical operation, then observe joined close and released preparation capacity in both image modes.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "provisioning_recovers_selected_roots",
+          "oracle": "After actual controller enrollment and mutation through provisioned groups, join all controllers and reopen all three voter engines under a new process generation. Empty controllers recover using the same production provisioner. Removing the engine-selected manifest page refuses recovery and leaves the selected marker unchanged; restoring its exact bytes permits recovery. Attachment alone refuses leader authority; fresh quorum then returns the prior exact receipt and a linearizable query verifies value 8 and cell sequence 2. Run both image modes. Image-store handles remain in process; this is not independent-process or power-loss qualification.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "provisioning_refusals_preserve_healthy_group",
+          "oracle": "In both image modes, configured peers missing an immutable birth member refuse before genesis and free preparation capacity. A configured but wrong local endpoint fails physical registration after recovery, retains the prepared owner and its budget, and leaves healthy groups serving actual controller commands. Neither refusal grants membership or authority. Joined close releases all owners.",
           "invariants": [
             "I01",
             "I03",

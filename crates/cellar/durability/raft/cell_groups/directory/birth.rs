@@ -75,6 +75,25 @@ impl CellGroupBirth {
 }
 
 impl RangeDirectory {
+    /// Recover the immutable reservation for an already selected range. This
+    /// never chooses placement or allocates another group in response to a cell.
+    pub async fn materialize_selected_group(
+        &self,
+        route: &GroupRoute,
+    ) -> Result<CellGroupBirth, CatalogError> {
+        self.unmanaged_birth()?;
+        self.bounded(async {
+            self.selected_birth_route(route).await?;
+            let request = self.verify_birth_reservation(route).await?;
+            self.materialize_group_birth(&request).await
+        })
+        .await
+    }
+
+    pub(crate) fn same_owner(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.cache, &other.cache)
+    }
+
     pub(super) fn unmanaged_birth(&self) -> Result<(), CatalogError> {
         if self.namespace.config.managed_fleet.is_some() {
             return Err(CatalogError::ManagedAdmissionRequired);

@@ -19,8 +19,8 @@ mod controller;
 pub use controller::{
     CellCommandAdmissionError, CellCommandCall, CellEnrollmentAdmissionError, CellEnrollmentCall,
     CellGroupController, CellGroupControllerError, CellGroupControllerLimits,
-    CellGroupControllerUsage, CellGroupRegistration, CellGroupRegistrationCall,
-    CellGroupRegistrationError,
+    CellGroupControllerUsage, CellGroupProvisionCall, CellGroupProvisioning, CellGroupRegistration,
+    CellGroupRegistrationCall, CellGroupRegistrationError,
 };
 mod dispatch;
 pub use apply::{CellGroupApplier, CellGroupApplyImages};

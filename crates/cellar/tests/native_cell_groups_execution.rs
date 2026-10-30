@@ -1575,3 +1575,28 @@ async fn group_quarantine_retains_producer_and_serves_healthy_group() -> Result<
 async fn shared_engine_sync_failure_still_stops_all_groups() -> Result<()> {
     runtime_fixture::shared_engine_sync_failure_still_stops_all_groups().await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn provisioning_coalesces_and_serves() -> Result<()> {
+    runtime_fixture::provisioning_coalesces_and_serves().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn provisioning_retries_retained_owner() -> Result<()> {
+    runtime_fixture::provisioning_retries_retained_owner().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn provisioning_joins_cancelled_close() -> Result<()> {
+    runtime_fixture::provisioning_joins_cancelled_close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn provisioning_recovers_selected_roots() -> Result<()> {
+    runtime_fixture::provisioning_recovers_selected_roots().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn provisioning_refusals_preserve_healthy_group() -> Result<()> {
+    runtime_fixture::provisioning_refusals_preserve_healthy_group().await
+}

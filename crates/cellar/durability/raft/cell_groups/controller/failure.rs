@@ -39,6 +39,9 @@ fn dispatch(error: &CellDispatchError) -> bool {
 
 pub(super) fn node_wide(error: &CellGroupControllerError) -> bool {
     match error {
+        CellGroupControllerError::Catalog(error) => {
+            matches!(error.as_ref(), crate::raft::catalog::CatalogError::Log(error) if storage(error))
+        }
         CellGroupControllerError::Runtime(error) => runtime(error),
         CellGroupControllerError::Apply(error) => execution(error),
         CellGroupControllerError::Command(error) => dispatch(&error.cause),

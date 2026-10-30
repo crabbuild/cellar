@@ -104,7 +104,10 @@ impl GroupRoster {
             .unwrap_or(0)
     }
 
-    fn reserve(self: &Arc<Self>, group: GroupHistory) -> Result<Reservation, RuntimeError> {
+    pub(super) fn reserve(
+        self: &Arc<Self>,
+        group: GroupHistory,
+    ) -> Result<Reservation, RuntimeError> {
         let mut groups = self.groups.lock().map_err(|_| RuntimeError::Closed)?;
         if groups.contains_key(&group) {
             return Err(RuntimeError::AlreadyAttached);
@@ -121,14 +124,14 @@ impl GroupRoster {
     }
 }
 
-struct Reservation {
+pub(super) struct Reservation {
     roster: Arc<GroupRoster>,
     group: GroupHistory,
     active: bool,
 }
 
 impl Reservation {
-    fn activate(&mut self) -> Result<(), RuntimeError> {
+    pub(super) fn activate(&mut self) -> Result<(), RuntimeError> {
         let mut groups = self
             .roster
             .groups
@@ -343,16 +346,7 @@ pub(super) async fn drive(
         permit,
     } = request;
     let group = registration.permit.route().history;
-    let result = async {
-        let guard = transport
-            .register_physical_group(registration.transport)
-            .map_err(CellGroupControllerError::Transport)?;
-        runtime
-            .attach(registration.permit, registration.current)
-            .await?;
-        Ok(guard)
-    }
-    .await;
+    let result = attach(registration, runtime, transport).await;
     Completed {
         group,
         result,
@@ -360,6 +354,24 @@ pub(super) async fn drive(
         reply,
         permit,
     }
+}
+
+pub(super) async fn attach(
+    registration: CellGroupRegistration,
+    runtime: CellGroupRuntime,
+    transport: RaftTransport,
+) -> Result<PhysicalRegistration, CellGroupControllerError> {
+    registration
+        .applier
+        .check_startup(&registration.current)
+        .map_err(|e| CellGroupControllerError::Apply(Arc::new(e)))?;
+    let guard = transport
+        .register_physical_group(registration.transport)
+        .map_err(CellGroupControllerError::Transport)?;
+    runtime
+        .attach(registration.permit, registration.current)
+        .await?;
+    Ok(guard)
 }
 
 impl Completed {

@@ -583,3 +583,11 @@ pub(crate) use quarantine::{
     group_quarantine_retains_producer_and_serves_healthy_group,
     shared_engine_sync_failure_still_stops_all_groups,
 };
+
+#[path = "cell_group_provision.rs"]
+mod provision;
+pub(crate) use provision::{
+    provisioning_coalesces_and_serves, provisioning_joins_cancelled_close,
+    provisioning_recovers_selected_roots, provisioning_refusals_preserve_healthy_group,
+    provisioning_retries_retained_owner,
+};

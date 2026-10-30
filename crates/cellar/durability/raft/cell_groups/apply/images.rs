@@ -43,7 +43,7 @@ pub(super) struct ImageApply<'a> {
 }
 
 impl CellGroupApplyImages {
-    pub(super) fn memory_bound(&self) -> usize {
+    pub(crate) fn memory_bound(&self) -> usize {
         let limits = match self {
             Self::Materialized { images, .. } => images.apply_limits(),
             Self::Extents { limits, .. } => *limits,
@@ -53,7 +53,7 @@ impl CellGroupApplyImages {
         limits.max_total_decoded_bytes as usize + EXTENT_BYTES as usize
     }
 
-    pub(super) fn validate(&self) -> Result<(), ExecutionError> {
+    pub(crate) fn validate(&self) -> Result<(), ExecutionError> {
         match self {
             Self::Materialized { images, .. } => images.apply_limits().validate().map_err(storage),
             Self::Extents {
