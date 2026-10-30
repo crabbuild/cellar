@@ -41,6 +41,7 @@ pub struct CellGroupTicket {
     sequence: u64,
     position: LogPosition,
     digest: [u8; 32],
+    pub(super) admission: Option<Arc<crate::raft::budget::Permit>>,
 }
 
 impl CellGroupTicket {
@@ -64,13 +65,13 @@ impl CellGroupTicket {
 /// The engine request also retains that lease until sync/publication finishes.
 pub struct CellGroupPersist {
     log: ReplicaLog,
-    ticket: CellGroupTicket,
-    write: GroupWrite<GroupHistory>,
+    pub(super) ticket: CellGroupTicket,
+    pub(super) write: GroupWrite<GroupHistory>,
 }
 
 pub struct CellGroupPersisted {
-    ticket: CellGroupTicket,
-    sequence: u64,
+    pub(super) ticket: CellGroupTicket,
+    pub(super) sequence: u64,
 }
 
 impl CellGroupPersist {
@@ -86,6 +87,7 @@ impl CellGroupPersist {
     }
 }
 
+#[derive(Clone)]
 pub struct CellGroupApply {
     pub ticket: CellGroupTicket,
     pub entry: Entry,
@@ -107,6 +109,18 @@ pub enum CellGroupEffect {
         index: LogIndex,
         context: Vec<u8>,
     },
+}
+
+impl CellGroupEffect {
+    pub(super) fn bytes(&self) -> usize {
+        4096 + match self {
+            Self::Persist(work) => work.write.estimated_bytes().unwrap_or(usize::MAX - 4096),
+            Self::Message(message) => message.compute_size() as usize,
+            Self::Apply(work) => work.entry.compute_size() as usize + work.base.reserved_bytes(),
+            Self::ReadIndex { context, .. } => context.len(),
+            Self::Applied { .. } => 1024,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -381,12 +395,85 @@ impl CellGroupOwner {
     /// Return one bounded effect. No Ready-dependent message or applied event is
     /// released until its exact physical persistence completion is consumed.
     pub fn poll(&mut self) -> Result<Option<CellGroupEffect>, RuntimeError> {
+        self.poll_budget(true, true)
+    }
+
+    pub(super) fn poll_budget(
+        &mut self,
+        collect: bool,
+        emit: bool,
+    ) -> Result<Option<CellGroupEffect>, RuntimeError> {
         self.live()?;
-        let result = self.poll_inner();
+        let result = self.poll_inner(collect, emit);
         if let Err(error) = &result {
             self.failed = Some(error.clone());
         }
         result
+    }
+
+    pub(super) fn idle(&self) -> bool {
+        self.phase.is_none()
+            && self.waiting.is_none()
+            && self.effects.is_empty()
+            && !self.node.has_ready()
+    }
+
+    pub(super) fn waiting(&self) -> bool {
+        self.waiting.is_some()
+    }
+
+    pub(super) fn control_pending(&self) -> bool {
+        self.phase.is_some()
+    }
+
+    pub(super) fn has_work(&self) -> bool {
+        !self.effects.is_empty()
+            || self.phase.is_some()
+            || self.node.has_ready()
+            || (self.applying.is_none() && !self.apply.is_empty())
+    }
+
+    pub(super) fn usage(&self) -> (usize, usize, usize) {
+        let entries = |entries: &[Entry]| {
+            entries
+                .iter()
+                .map(|e| e.compute_size() as usize + 128)
+                .sum::<usize>()
+        };
+        let messages = |messages: &[Message]| {
+            messages
+                .iter()
+                .map(|m| m.compute_size() as usize + 128)
+                .sum::<usize>()
+        };
+        let ready = match &self.phase {
+            Some(Phase::Ready(ready, _)) => {
+                entries(ready.entries())
+                    + entries(ready.committed_entries())
+                    + messages(ready.messages())
+                    + messages(ready.persisted_messages())
+                    + ready
+                        .read_states()
+                        .iter()
+                        .map(|r| r.request_ctx.len() + 128)
+                        .sum::<usize>()
+            }
+            Some(Phase::Light(light)) => {
+                entries(light.committed_entries()) + messages(light.messages())
+            }
+            Some(Phase::Apply(_, next, _)) => next.reserved_bytes() + 4096,
+            None => 0,
+        };
+        (
+            ready
+                + self
+                    .effects
+                    .iter()
+                    .map(CellGroupEffect::bytes)
+                    .sum::<usize>(),
+            self.apply_bytes,
+            self.node.raft.read_only.pending_read_count(),
+        )
     }
 
     fn live(&self) -> Result<(), RuntimeError> {
@@ -418,6 +505,7 @@ impl CellGroupOwner {
             sequence: self.next_ticket,
             position,
             digest,
+            admission: None,
         })
     }
 
@@ -490,13 +578,14 @@ impl CellGroupOwner {
         Ok(())
     }
 
-    fn poll_inner(&mut self) -> Result<Option<CellGroupEffect>, RuntimeError> {
+    fn poll_inner(
+        &mut self,
+        collect: bool,
+        emit: bool,
+    ) -> Result<Option<CellGroupEffect>, RuntimeError> {
         loop {
-            if let Some(event) = self.effects.pop_front() {
-                return Ok(Some(event));
-            }
             if self.waiting.is_some() {
-                return Ok(None);
+                return Ok(if emit { self.effects.pop_front() } else { None });
             }
             match self.phase.take() {
                 Some(Phase::Ready(mut ready, term)) => {
@@ -542,7 +631,7 @@ impl CellGroupOwner {
                     self.messages(light.take_messages())?;
                     self.enqueue(light.take_committed_entries())?;
                 }
-                Some(Phase::Apply(ticket, next, submitted)) => {
+                Some(Phase::Apply(mut ticket, next, submitted)) => {
                     if !submitted {
                         let mut write = GroupWrite::new(&self.group);
                         write.group_manifest = Some((*next).clone());
@@ -560,13 +649,27 @@ impl CellGroupOwner {
                     self.apply_bytes -= entry.compute_size() as usize + 128;
                     self.applying = None;
                     self.current = *next;
+                    // Physical preparation and publication have settled. Its
+                    // reservation must not deadlock admission of Applied.
+                    ticket.admission = None;
                     return Ok(Some(CellGroupEffect::Applied {
                         ticket,
                         manifest: Box::new(self.current.marker().clone()),
                     }));
                 }
                 None => {
-                    if self.node.has_ready()
+                    // Complete already-persisted protocol phases even when
+                    // output admission is full. Otherwise held Apply events
+                    // can prevent the completion which releases their quota.
+                    if emit {
+                        if let Some(event) = self.effects.pop_front() {
+                            return Ok(Some(event));
+                        }
+                    } else {
+                        return Ok(None);
+                    }
+                    if collect
+                        && self.node.has_ready()
                         && self.apply_bytes < self.options.max_group_apply_bytes
                     {
                         let ready = self.node.ready();
@@ -699,7 +802,7 @@ impl CellGroupOwner {
         Ok(())
     }
 
-    fn validate_message(&self, message: &Message) -> Result<(), RuntimeError> {
+    pub(super) fn validate_message(&self, message: &Message) -> Result<(), RuntimeError> {
         let invalid = || RuntimeError::Invalid("cell-group peer message".into());
         let kind = message.get_msg_type();
         if message.to != self.group.identity().member.get()

@@ -1,0 +1,380 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+//! One execution-domain worker multiplexes physical cell-group owners per node.
+
+mod worker;
+
+use super::*;
+use crate::raft::{
+    budget::{Budget, Permit},
+    completion::RuntimeError,
+    mailbox,
+    options::RaftRuntimeOptions,
+    runtime::Terminal,
+    storage::ReplicaLog,
+};
+use ::raft::prelude::Message;
+use cellar_logic::cell_group::GroupHistory;
+use protobuf::Message as _;
+use sha2::{Digest, Sha256};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+use tokio::sync::{mpsc, oneshot, Notify};
+
+const COMPLETION_SLOTS: usize = 8;
+
+pub struct CellGroupRuntimeEvent {
+    group: GroupHistory,
+    effect: Result<CellGroupEffect, RuntimeError>,
+    _permit: Arc<Permit>,
+}
+
+impl CellGroupRuntimeEvent {
+    pub fn group(&self) -> GroupHistory {
+        self.group
+    }
+
+    pub fn effect(&self) -> Result<&CellGroupEffect, &RuntimeError> {
+        self.effect.as_ref()
+    }
+
+    /// The cloned ticket retains event admission through physical preparation
+    /// and publication, even if the receiving task drops this event.
+    pub fn retain_apply(&self) -> Option<CellGroupApply> {
+        match &self.effect {
+            Ok(CellGroupEffect::Apply(work)) => Some((**work).clone()),
+            _ => None,
+        }
+    }
+}
+
+pub struct CellGroupRuntimeEvents {
+    receiver: mpsc::Receiver<CellGroupRuntimeEvent>,
+}
+
+impl CellGroupRuntimeEvents {
+    pub async fn recv(&mut self) -> Option<CellGroupRuntimeEvent> {
+        self.receiver.recv().await
+    }
+
+    pub fn try_recv(&mut self) -> Result<CellGroupRuntimeEvent, mpsc::error::TryRecvError> {
+        self.receiver.try_recv()
+    }
+}
+
+#[derive(Clone)]
+pub struct CellGroupRuntime {
+    inner: Arc<Handle>,
+}
+
+struct Handle {
+    log: ReplicaLog,
+    domain: crate::asyncrt::DomainToken,
+    options: RaftRuntimeOptions,
+    requests: mailbox::Sender<Request>,
+    budget: Arc<Budget>,
+    completions: Arc<Budget>,
+    closing: Arc<AtomicBool>,
+    terminal: Arc<Terminal>,
+    stop: Arc<Notify>,
+}
+
+enum Command {
+    Attach(Box<CellGroupOwner>),
+    Campaign,
+    Step(Message),
+    AdmitStep(Message),
+    Propose(Vec<u8>),
+    ReadIndex(Vec<u8>),
+    Apply(CellGroupTicket, Box<PreparedGroupManifest>),
+    Status,
+    Tick,
+}
+
+enum Response {
+    Unit,
+    Proposal(CellGroupProposal),
+    Status(CellGroupStatus),
+}
+
+struct Request {
+    group: Option<GroupHistory>,
+    command: Command,
+    reply: oneshot::Sender<Result<Response, RuntimeError>>,
+    bytes: usize,
+    _permit: Permit,
+    inbound: Option<Permit>,
+}
+
+impl CellGroupRuntime {
+    /// Start parked: no recovered group is attached without its verified root
+    /// and catalog/member permit. The engine admits only one node runtime.
+    pub async fn start(
+        log: ReplicaLog,
+        options: RaftRuntimeOptions,
+    ) -> Result<(Self, CellGroupRuntimeEvents), RuntimeError> {
+        options.validate(log.limits())?;
+        // Reject an engine containing the superseded application family.
+        log.cell_groups()?;
+        let lease = log.claim_runtime()?;
+        let domain = log.domain();
+        let (sender, requests) = mailbox::channel(options.max_requests + COMPLETION_SLOTS);
+        let (events, receiver) = mpsc::channel(options.max_events);
+        let closing = Arc::new(AtomicBool::new(false));
+        let terminal = Arc::new(Terminal::new());
+        let stop = Arc::new(Notify::new());
+        let (ready, wait) = oneshot::channel();
+        let handle = Self {
+            inner: Arc::new(Handle {
+                log: log.clone(),
+                domain: domain.clone(),
+                budget: Budget::new(options.max_request_bytes, options.max_requests),
+                completions: Budget::new(options.max_ready_bytes, COMPLETION_SLOTS),
+                options: options.clone(),
+                requests: sender,
+                closing: closing.clone(),
+                terminal: terminal.clone(),
+                stop: stop.clone(),
+            }),
+        };
+        let worker_domain = domain.clone();
+        domain
+            .spawn_detached("cell-group-consensus", async move {
+                struct Closed(Arc<AtomicBool>, Arc<Terminal>);
+
+                impl Drop for Closed {
+                    fn drop(&mut self) {
+                        self.0.store(true, Ordering::Release);
+                        self.1.complete(Err(RuntimeError::Closed));
+                    }
+                }
+                let _closed = Closed(closing.clone(), terminal.clone());
+                let mut worker = worker::Worker::new(log, options, worker_domain, events);
+                if ready.send(()).is_err() {
+                    lease.release();
+                    return;
+                }
+                let result = worker.run(requests, &closing, &stop).await;
+                closing.store(true, Ordering::Release);
+                let fence = worker.finish().await;
+                let result = result.and(fence);
+                drop(worker);
+                if result.is_ok() {
+                    lease.release();
+                }
+                terminal.complete(result);
+            })
+            .map_err(|_| RuntimeError::Closed)?;
+        wait.await.map_err(|_| RuntimeError::Closed)?;
+        handle.admit()?;
+        Ok((handle, CellGroupRuntimeEvents { receiver }))
+    }
+
+    fn admit(&self) -> Result<(), RuntimeError> {
+        if self.inner.closing.load(Ordering::Acquire) || self.inner.domain.mono_ms().is_err() {
+            return Err(RuntimeError::Closed);
+        }
+        Ok(())
+    }
+
+    async fn call(
+        &self,
+        group: Option<GroupHistory>,
+        command: Command,
+        bytes: usize,
+    ) -> Result<Response, RuntimeError> {
+        self.admit()?;
+        let completion = matches!(command, Command::Apply(..));
+        let budget = if completion {
+            &self.inner.completions
+        } else {
+            &self.inner.budget
+        };
+        if bytes > budget.capacity().0 {
+            return Err(RuntimeError::Overloaded);
+        }
+        let permit = loop {
+            let wake = budget.wake.notified();
+            tokio::pin!(wake);
+            wake.as_mut().enable();
+            self.admit()?;
+            if let Some(permit) = budget.acquire(bytes) {
+                break permit;
+            }
+            if !completion {
+                return Err(RuntimeError::Overloaded);
+            }
+            crate::asyncrt::select! {
+                _ = wake => (),
+                _ = self.inner.terminal.wait() => return Err(RuntimeError::Closed),
+            }
+        };
+        let (reply, wait) = oneshot::channel();
+        self.inner
+            .requests
+            .try_send(Request {
+                group,
+                command,
+                reply,
+                bytes,
+                _permit: permit,
+                inbound: None,
+            })
+            .map_err(|error| match error {
+                mpsc::error::TrySendError::Full(_) => RuntimeError::Overloaded,
+                mpsc::error::TrySendError::Closed(_) => RuntimeError::Closed,
+            })?;
+        let result = wait.await.map_err(|_| RuntimeError::Closed)?;
+        self.admit()?;
+        result
+    }
+
+    pub async fn attach(
+        &self,
+        permit: CellGroupBootstrapPermit,
+        current: PreparedGroupManifest,
+    ) -> Result<(), RuntimeError> {
+        self.admit()?;
+        let history = permit.route().history;
+        let local = self.inner.log.cell_group(&history)?;
+        if !Arc::ptr_eq(&local.owner, &permit.group().owner) {
+            return Err(RuntimeError::StaleCompletion);
+        }
+        let mut seed = Sha256::new();
+        let election_seed = self
+            .inner
+            .domain
+            .run(async {
+                self.inner.options.election_seed.unwrap_or_else(|| {
+                    use rand::RngCore as _;
+                    let mut seed = [0; 32];
+                    crate::asyncrt::rng("cell-group-election").fill_bytes(&mut seed);
+                    seed
+                })
+            })
+            .await
+            .map_err(|_| RuntimeError::Closed)?;
+        seed.update(election_seed);
+        seed.update(history.group.bytes());
+        seed.update(history.incarnation.bytes());
+        seed.update(local.identity().member.get().to_be_bytes());
+        seed.update(local.identity().node.bytes());
+        let bytes = current.reserved_bytes() + 4096;
+        let owner = self
+            .inner
+            .domain
+            .run(CellGroupOwner::start(
+                permit,
+                current,
+                self.inner.options.clone(),
+                seed.finalize().into(),
+            ))
+            .await
+            .map_err(|_| RuntimeError::Closed)??;
+        self.call(Some(history), Command::Attach(Box::new(owner)), bytes)
+            .await
+            .map(|_| ())
+    }
+
+    pub async fn campaign(&self, history: GroupHistory) -> Result<(), RuntimeError> {
+        self.call(Some(history), Command::Campaign, 4096)
+            .await
+            .map(|_| ())
+    }
+
+    pub async fn step(&self, history: GroupHistory, message: Message) -> Result<(), RuntimeError> {
+        let bytes = message.compute_size() as usize;
+        if bytes > self.inner.options.max_message_bytes {
+            return Err(RuntimeError::Overloaded);
+        }
+        self.call(Some(history), Command::Step(message), bytes + 4096)
+            .await
+            .map(|_| ())
+    }
+
+    pub async fn propose(
+        &self,
+        history: GroupHistory,
+        data: Vec<u8>,
+    ) -> Result<CellGroupProposal, RuntimeError> {
+        let bytes = data.len();
+        if bytes > self.inner.options.max_proposal_bytes {
+            return Err(RuntimeError::Overloaded);
+        }
+        match self
+            .call(Some(history), Command::Propose(data), bytes + 4096)
+            .await?
+        {
+            Response::Proposal(proposal) => Ok(proposal),
+            _ => Err(RuntimeError::Protocol("proposal reply".into())),
+        }
+    }
+
+    /// Queue an authenticated peer frame without waiting for protocol work.
+    /// Node/group admission remains owned until execution or discard. Success
+    /// is neither a Raft acknowledgement nor persistence/application proof.
+    pub async fn admit_step(
+        &self,
+        history: GroupHistory,
+        message: Message,
+    ) -> Result<(), RuntimeError> {
+        let bytes = message.compute_size() as usize;
+        if bytes > self.inner.options.max_message_bytes {
+            return Err(RuntimeError::Overloaded);
+        }
+        self.call(Some(history), Command::AdmitStep(message), bytes + 4096)
+            .await
+            .map(|_| ())
+    }
+
+    pub async fn read_index(
+        &self,
+        history: GroupHistory,
+        context: Vec<u8>,
+    ) -> Result<(), RuntimeError> {
+        let bytes = context.len();
+        if bytes > 4096 {
+            return Err(RuntimeError::Overloaded);
+        }
+        self.call(Some(history), Command::ReadIndex(context), bytes + 4096)
+            .await
+            .map(|_| ())
+    }
+
+    pub async fn complete_apply(
+        &self,
+        history: GroupHistory,
+        work: CellGroupApply,
+        next: PreparedGroupManifest,
+    ) -> Result<(), RuntimeError> {
+        let bytes = next.reserved_bytes() + 4096;
+        self.call(
+            Some(history),
+            Command::Apply(work.ticket, Box::new(next)),
+            bytes,
+        )
+        .await
+        .map(|_| ())
+    }
+
+    pub async fn status(&self, history: GroupHistory) -> Result<CellGroupStatus, RuntimeError> {
+        match self.call(Some(history), Command::Status, 4096).await? {
+            Response::Status(status) => Ok(status),
+            _ => Err(RuntimeError::Protocol("status reply".into())),
+        }
+    }
+
+    pub async fn tick(&self) -> Result<(), RuntimeError> {
+        self.call(None, Command::Tick, 4096).await.map(|_| ())
+    }
+
+    /// Close admission, join submitted persistence and release runtime ownership
+    /// only after a final engine fence. Cancelling this waiter does not cancel closure.
+    pub async fn close(&self) -> Result<(), RuntimeError> {
+        self.inner.closing.store(true, Ordering::Release);
+        self.inner.stop.notify_one();
+        self.inner.terminal.wait().await
+    }
+}

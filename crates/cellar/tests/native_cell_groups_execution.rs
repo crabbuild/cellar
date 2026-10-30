@@ -7,6 +7,29 @@
 #[path = "support/raft_storage_fault.rs"]
 #[allow(dead_code)]
 mod fault;
+
+#[path = "support/cell_group_runtime.rs"]
+mod runtime_fixture;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn node_runtime_replicates_independent_cells() -> Result<()> {
+    runtime_fixture::replicated_cells().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn node_runtime_cancelled_close_joins_physical_sync() -> Result<()> {
+    runtime_fixture::cancelled_close_joins_sync().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn node_runtime_batches_distinct_group_histories() -> Result<()> {
+    runtime_fixture::shared_batches().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn node_runtime_reserved_completion_releases_apply_admission() -> Result<()> {
+    runtime_fixture::bounded_apply_completion().await
+}
 #[path = "support/raft_ltx_fixture.rs"]
 #[allow(dead_code)]
 mod images;

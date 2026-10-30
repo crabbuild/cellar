@@ -1,0 +1,451 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+//! Real node workers share the existing SQLite/image fixture and engine owners.
+
+use super::*;
+use std::collections::BTreeMap;
+
+struct RuntimeCluster {
+    cluster: Cluster,
+    runtimes: Vec<CellGroupRuntime>,
+    events: Vec<CellGroupRuntimeEvents>,
+    applied: BTreeMap<GroupHistory, Vec<LogIndex>>,
+    extra: BTreeMap<GroupHistory, Vec<Voter>>,
+}
+
+impl RuntimeCluster {
+    async fn new() -> Result<Self> {
+        Self::with_events(256).await
+    }
+
+    async fn with_events(max_events: usize) -> Result<Self> {
+        let mut cluster = Cluster::new().await?;
+        let mut runtimes = Vec::new();
+        let mut events = Vec::new();
+        let mut applied = Vec::new();
+        for n in 0..3 {
+            let owner = cluster.voters[n].owner.take().context("old direct owner")?;
+            let root = owner.manifest().clone();
+            drop(owner);
+            applied.push(root.marker().position().index);
+            let (runtime, receiver) = CellGroupRuntime::start(
+                cluster.voters[n].log.clone(),
+                RaftRuntimeOptions {
+                    tick_interval_ms: None,
+                    election_seed: Some([71; 32]),
+                    max_events,
+                    ..Default::default()
+                },
+            )
+            .await?;
+            runtime.attach(cluster.permit(n).await?, root).await?;
+            runtimes.push(runtime);
+            events.push(receiver);
+        }
+        let applied = BTreeMap::from([(cluster.birth.route().history, applied)]);
+        Ok(Self {
+            cluster,
+            runtimes,
+            events,
+            applied,
+            extra: BTreeMap::new(),
+        })
+    }
+
+    async fn pump(
+        &mut self,
+        hold: &[GroupHistory],
+        held: &mut BTreeMap<GroupHistory, CellGroupApply>,
+    ) -> Result<()> {
+        let primary = self.cluster.birth.route().history;
+        let mut messages = Vec::new();
+        for n in 0..3 {
+            for _ in 0..64 {
+                let Ok(event) = self.events[n].try_recv() else {
+                    break;
+                };
+                let scope = event.group();
+                match event.effect().map_err(|e| anyhow::anyhow!(e.to_string()))? {
+                    CellGroupEffect::Message(message) => messages.push((scope, message.clone())),
+                    CellGroupEffect::Apply(_) => {
+                        let work = event.retain_apply().context("retained apply")?;
+                        if n == 0 && hold.contains(&scope) {
+                            assert!(held.insert(scope, work).is_none());
+                        } else {
+                            let voter = if scope == primary {
+                                &mut self.cluster.voters[n]
+                            } else {
+                                &mut self.extra.get_mut(&scope).context("extra voter")?[n]
+                            };
+                            let next = prepare(voter, &work)?;
+                            self.runtimes[n].complete_apply(scope, work, next).await?;
+                        }
+                    }
+                    CellGroupEffect::Applied { manifest, .. } => {
+                        self.applied.get_mut(&scope).context("applied")?[n] =
+                            manifest.position().index
+                    }
+                    CellGroupEffect::ReadIndex { .. } => (),
+                    CellGroupEffect::Persist(_) => anyhow::bail!("node worker leaked persistence"),
+                }
+            }
+        }
+        for result in
+            futures_util::future::join_all(messages.into_iter().map(|(scope, message)| {
+                self.runtimes[message.to as usize - 1].admit_step(scope, message)
+            }))
+            .await
+        {
+            result?;
+        }
+        Ok(())
+    }
+
+    async fn settle(&mut self, histories: &[GroupHistory]) -> Result<()> {
+        tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                self.pump(&[], &mut BTreeMap::new()).await?;
+                let mut done = true;
+                for &scope in histories {
+                    let status = self.runtimes[0].status(scope).await?;
+                    done &= status.ready
+                        && self.applied[&scope]
+                            .iter()
+                            .all(|index| *index >= status.applied.index);
+                }
+                if done {
+                    return Ok::<_, anyhow::Error>(());
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await?
+    }
+
+    async fn drive(&mut self, target: Option<LogIndex>) -> Result<()> {
+        let history = self.cluster.birth.route().history;
+        tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                self.pump(&[], &mut BTreeMap::new()).await?;
+                let status = self.runtimes[0].status(history).await?;
+                let target = target.unwrap_or(status.applied.index);
+                if status.ready && self.applied[&history].iter().all(|index| *index >= target) {
+                    return Ok::<_, anyhow::Error>(());
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await?
+    }
+
+    async fn close(self) -> Result<()> {
+        for runtime in &self.runtimes {
+            runtime.close().await?;
+        }
+        drop(self.events);
+        drop(self.runtimes);
+        drop(self.extra);
+        self.cluster.close().await
+    }
+}
+
+pub(super) async fn replicated_cells() -> Result<()> {
+    let mut fixture = RuntimeCluster::new().await?;
+    let route = fixture.cluster.birth.route().clone();
+    fixture.runtimes[0].campaign(route.history).await?;
+    fixture.drive(None).await?;
+    for name in ["worker-a", "worker-b", "worker-c"] {
+        let cell = history(&route, name)?;
+        let bytes = images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES (1);")?;
+        let cut = images::Cut::new(&[], &bytes, 0, true, false);
+        let accepted = fixture.runtimes[0]
+            .propose(route.history, request(&route, cell, 1, &cut)?)
+            .await?;
+        fixture.drive(Some(accepted.position.index)).await?;
+    }
+    for voter in &fixture.cluster.voters {
+        let group = voter.log.cell_group(&route.history)?;
+        assert_eq!(
+            group
+                .group_manifest()?
+                .context("published group")?
+                .root()
+                .cells(),
+            3
+        );
+    }
+    fixture.close().await
+}
+
+pub(super) async fn cancelled_close_joins_sync() -> Result<()> {
+    let mut fixture = RuntimeCluster::new().await?;
+    let route = fixture.cluster.birth.route().clone();
+    fixture.runtimes[0].campaign(route.history).await?;
+    fixture.drive(None).await?;
+    let gate = fixture.cluster.voters[0].gate.clone();
+    let release = gate.arm(fault::HOLD_SYNC);
+    let bytes = images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES (1);")?;
+    let cut = images::Cut::new(&[], &bytes, 0, true, false);
+    fixture.runtimes[0]
+        .propose(
+            route.history,
+            request(&route, history(&route, "closing")?, 1, &cut)?,
+        )
+        .await?;
+    tokio::time::timeout(Duration::from_secs(5), gate.entered.notified()).await?;
+    let runtime = fixture.runtimes[0].clone();
+    let closing = runtime.close();
+    assert!(tokio::time::timeout(Duration::from_millis(30), closing)
+        .await
+        .is_err());
+    assert!(CellGroupRuntime::start(
+        fixture.cluster.voters[0].log.clone(),
+        RaftRuntimeOptions::default()
+    )
+    .await
+    .is_err());
+    drop(release);
+    tokio::time::timeout(Duration::from_secs(5), runtime.close()).await??;
+    let (replacement, events) = CellGroupRuntime::start(
+        fixture.cluster.voters[0].log.clone(),
+        RaftRuntimeOptions::default(),
+    )
+    .await?;
+    replacement.close().await?;
+    drop(events);
+    fixture.close().await
+}
+
+impl RuntimeCluster {
+    async fn add_group(&mut self, number: u8) -> Result<GroupHistory> {
+        let scope = GroupHistory {
+            cluster: self.cluster.birth.route().history.cluster,
+            namespace: NamespaceId::new([number; 16])?,
+            group: GroupId::new([number; 16])?,
+            incarnation: IncarnationId::new([number; 16])?,
+        };
+        let domain = &self.cluster.domain;
+        let catalog = Catalog::new(
+            Arc::new(object_store::memory::InMemory::new()),
+            CatalogOptions::default(),
+        )?;
+        let namespace = domain
+            .run(catalog.open_namespace(NamespaceConfig::new(
+                scope.cluster,
+                scope.namespace,
+                cellar_logic::NamespaceMode::Raft,
+                [6; 32],
+            )))
+            .await??;
+        let directory = RangeDirectory::new(namespace, DirectoryLimits::default())?;
+        let request = directory.prepare_group_birth(CellGroupBirthSpec {
+            history: scope,
+            range: CellRange::all(),
+            epoch: RouteEpoch::new(1)?,
+            creation: ProposalId::new([number; 16])?,
+            voters: (1..=3)
+                .map(|n| InitialMember {
+                    member: MemberId::new(n).unwrap(),
+                    node: NodeId::new([n as u8; 16]).unwrap(),
+                })
+                .collect(),
+            learners: vec![],
+        })?;
+        domain
+            .run(directory.reserve_group_birth(&request))
+            .await??;
+        let initialization = directory.prepare_initialization(
+            ProposalId::new([number + 1; 16])?,
+            &[request.route().clone()],
+        )?;
+        domain.run(directory.publish(&initialization)).await??;
+        let birth = domain
+            .run(directory.materialize_group_birth(&request))
+            .await??;
+        let mut voters = Vec::new();
+        let mut applied = Vec::new();
+        for n in 0..3 {
+            let log = self.cluster.voters[n].log.clone();
+            let permit = domain
+                .run(directory.bootstrap_group_member(&birth, &log))
+                .await??;
+            let base = self
+                .cluster
+                ._root
+                .path()
+                .join(format!("extra-{number}-node-{n}"));
+            let tree = ManifestTree::new(birth.route().clone(), ManifestLimits::default())?;
+            let mut pages = ManifestPageStore::open(
+                &base.join("pages"),
+                Arc::new(DirectFileSystem),
+                1024,
+                16 * 1024 * 1024,
+                16,
+            )?;
+            let images = GenerationStore::open(
+                base.join("images"),
+                Arc::new(DirectFileSystem),
+                Default::default(),
+            )?;
+            let marker = permit.group().group_manifest()?.context("genesis")?;
+            applied.push(marker.position().index);
+            let root = tree.prepare_complete(
+                permit.group(),
+                &mut pages,
+                marker.root(),
+                marker.position(),
+                marker.membership_revision(),
+                |_| panic!("empty genesis"),
+            )?;
+            self.runtimes[n].attach(permit, root).await?;
+            voters.push(Voter {
+                log,
+                owner: None,
+                pages,
+                images,
+                tree,
+                gate: self.cluster.voters[n].gate.clone(),
+                paused: false,
+                held: None,
+            });
+        }
+        self.applied.insert(scope, applied);
+        self.extra.insert(scope, voters);
+        Ok(scope)
+    }
+}
+
+pub(super) async fn shared_batches() -> Result<()> {
+    let mut fixture = RuntimeCluster::new().await?;
+    let second = fixture.add_group(31).await?;
+    let third = fixture.add_group(41).await?;
+    let histories = [fixture.cluster.birth.route().history, second, third];
+    let before = fixture.cluster.voters[0].log.performance_snapshot();
+    for result in futures_util::future::join_all(
+        histories
+            .iter()
+            .map(|&history| fixture.runtimes[0].campaign(history)),
+    )
+    .await
+    {
+        result?;
+    }
+    fixture.settle(&histories).await?;
+    let after = fixture.cluster.voters[0].log.performance_snapshot();
+    assert!(before.available && after.available && !before.saturated && !after.saturated);
+    let groups = |s: &RaftPerformanceSnapshot| {
+        s.counters
+            .iter()
+            .find(|c| c.name == "engine_persist_groups")
+            .unwrap()
+            .value
+    };
+    let batches = |s: &RaftPerformanceSnapshot| {
+        s.operations
+            .iter()
+            .find(|o| o.name == "engine_persist")
+            .unwrap()
+            .succeeded
+    };
+    let group_delta = groups(&after) - groups(&before);
+    let batch_delta = batches(&after) - batches(&before);
+    assert!(batch_delta > 0 && group_delta > batch_delta, "actual engine batches must include multiple groups: {group_delta} groups / {batch_delta} batches");
+    fixture.close().await
+}
+
+pub(super) async fn bounded_apply_completion() -> Result<()> {
+    let mut fixture = RuntimeCluster::with_events(2).await?;
+    let first = fixture.cluster.birth.route().history;
+    let second = fixture.add_group(51).await?;
+    let histories = [first, second];
+    for result in futures_util::future::join_all(
+        histories
+            .iter()
+            .map(|&scope| fixture.runtimes[0].campaign(scope)),
+    )
+    .await
+    {
+        result?;
+    }
+    fixture
+        .settle(&histories)
+        .await
+        .context("settling bounded-output groups")?;
+    let bytes = images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES (7);")?;
+    let cut = images::Cut::new(&[], &bytes, 0, true, false);
+    let mut targets = BTreeMap::new();
+    for scope in histories {
+        let route = if scope == first {
+            fixture.cluster.birth.route().clone()
+        } else {
+            fixture.extra[&scope][0]
+                .log
+                .cell_group(&scope)?
+                .group_manifest()?
+                .context("route")?
+                .route()
+                .clone()
+        };
+        let accepted = fixture.runtimes[0]
+            .propose(scope, request(&route, history(&route, "quota")?, 1, &cut)?)
+            .await?;
+        targets.insert(scope, accepted.position.index);
+    }
+    let mut held = BTreeMap::new();
+    tokio::time::timeout(Duration::from_secs(20), async {
+        while held.len() != 2 {
+            fixture.pump(&histories, &mut held).await?;
+            tokio::task::yield_now().await;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .with_context(|| {
+        format!(
+            "bounded apply progress: held={}, applied={:?}",
+            held.len(),
+            fixture.applied
+        )
+    })??;
+    // Both output slots are retained by physical work. Completing one must
+    // release its reservation before admitting its distinct Applied event.
+    let work = held.remove(&first).context("first physical job")?;
+    let next = prepare(&mut fixture.cluster.voters[0], &work)?;
+    fixture.runtimes[0]
+        .complete_apply(first, work, next)
+        .await?;
+    tokio::time::timeout(Duration::from_secs(20), async {
+        while fixture.applied[&first][0] < targets[&first] {
+            fixture.pump(&[second], &mut held).await?;
+            tokio::task::yield_now().await;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .with_context(|| {
+        format!(
+            "bounded apply progress: held={}, applied={:?}",
+            held.len(),
+            fixture.applied
+        )
+    })??;
+    assert_eq!(held.len(), 1, "another group's physical job remains held");
+    let work = held.remove(&second).context("second physical job")?;
+    let next = prepare(
+        &mut fixture.extra.get_mut(&second).context("second voter")?[0],
+        &work,
+    )?;
+    fixture.runtimes[0]
+        .complete_apply(second, work, next)
+        .await?;
+    fixture
+        .settle(&histories)
+        .await
+        .context("settling bounded-output groups")?;
+    for scope in histories {
+        assert!(fixture.applied[&scope]
+            .iter()
+            .all(|index| *index >= targets[&scope]));
+    }
+    fixture.close().await
+}

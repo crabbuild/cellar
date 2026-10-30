@@ -31,9 +31,21 @@ already collected Ready/LightReady batches retain room for their largest entry.
 ReadIndex output is a barrier only: serving still requires current authority and
 a coherent cell image after application through that index. The adapter currently
 refuses snapshot/configuration/topology administration until those complete-group
-protocols are connected. Shared scheduling, SQL admission, SDK dispatch and the
-production hard cutover remain required; the existing host still uses its prior
-single-cell owner. See the [implementation status](../../../../plans/multi-raft/cell-groups/progress.md)
+protocols are connected. `CellGroupRuntime` now multiplexes physical group owners
+on one execution-domain worker per node. It reuses the bounded mailbox, byte/item
+admission, joined terminal result and existing persistence engine. A fair active
+queue collects writes across histories into one engine batch; queued and in-flight
+work stay charged. Peer-frame admission retains its node/group reservations until
+execution or discard and grants no Raft acknowledgement. Completion requests have
+reserved capacity independent from ordinary traffic. Physical settlement can
+progress under full event admission, releasing the apply reservation before its
+Applied event is admitted. Shutdown stops admission, joins the submitted batch,
+then fences the engine before releasing exclusive runtime ownership.
+
+Per-cell SQL admission, SDK dispatch and the production hard cutover remain
+required; the existing host still uses its prior single-cell owner. Transport
+authentication and actual image preparation remain the caller's responsibility
+at this verification boundary. See the [implementation status](../../../../plans/multi-raft/cell-groups/progress.md)
 for the exact qualification boundary.
 
 Managed empty hosts expose `RaftCells::inspect_peer_node` under rooted fleet
