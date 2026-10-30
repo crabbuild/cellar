@@ -127,6 +127,10 @@ struct Request {
 }
 
 impl CellGroupRuntime {
+    pub(crate) fn uses_domain(&self, domain: &crate::asyncrt::DomainToken) -> bool {
+        self.inner.domain.same_owner(domain)
+    }
+
     pub async fn submit(
         &self,
         prepared: crate::raft::execution::CellPreparedCommand,

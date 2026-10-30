@@ -133,6 +133,10 @@ impl DirectoryPublication {
 }
 
 impl RangeDirectory {
+    pub(crate) fn namespace_config(&self) -> &crate::raft::catalog::NamespaceConfig {
+        self.namespace.config()
+    }
+
     pub fn new(namespace: NamespaceCatalog, limits: DirectoryLimits) -> Result<Self, CatalogError> {
         namespace.require_mode(cellar_logic::NamespaceMode::Raft)?;
         if !(1..=1_000_000).contains(&limits.max_groups)

@@ -297,6 +297,10 @@ fn overloaded() -> ExecutionError {
 }
 
 impl CellGroupSqlPool {
+    pub(crate) fn uses_domain(&self, domain: &crate::asyncrt::DomainToken) -> bool {
+        self.inner.workers[0].domain.same_owner(domain)
+    }
+
     pub fn start(log: &ReplicaLog, limits: CellSqlLimits) -> Result<Self, ExecutionError> {
         limits.validate()?;
         log.cell_groups().map_err(crate::raft::execution::storage)?;

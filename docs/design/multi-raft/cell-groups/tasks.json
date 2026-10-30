@@ -483,7 +483,9 @@
         "crates/cellar/durability/raft/execution/registered.rs",
         "crates/cellar/durability/raft/effect_history.rs",
         "crates/cellar/tests/support/cell_group_sql_registered.rs",
-        "crates/cellar/tests/support/cell_group_sql_registered_queries.rs"
+        "crates/cellar/tests/support/cell_group_sql_registered_queries.rs",
+        "crates/cellar/durability/raft/cell_groups/dispatch.rs",
+        "crates/cellar/tests/support/cell_group_sql_dispatch.rs"
       ],
       "test_target": "native_cell_groups_execution",
       "steps": [
@@ -552,6 +554,13 @@
           "tests": [
             "registered_queries_keep_cell_observation_and_ownership",
             "rooted_registered_queries_keep_cell_observation_and_ownership"
+          ]
+        },
+        {
+          "action": "Connect catalog routing sessions to compiled query execution with a namespace-bound class and captured input/consistency. Share bounded invocation admission across dispatcher clones, preserve the original domain deadline and total retry budget, consume each attempt before entering asynchronous work, authenticate AtLeast cell tokens and return a token for the selected observation. Exact destination route and engine checks remain mandatory; a confirmed catalog redirect cannot invent a physical owner. Dropping the routing invocation must leave entered SQL owned until joined cleanup. Command/enrollment dispatch and final public SDK replacement remain required.",
+          "tests": [
+            "catalog_routed_queries_preserve_invocation_and_authority",
+            "rooted_catalog_routed_queries_preserve_invocation_and_authority"
           ]
         }
       ],
@@ -799,6 +808,24 @@
         {
           "name": "rooted_registered_queries_keep_cell_observation_and_ownership",
           "oracle": "Run a registered read-only callback on the existing worker with a real selected cell observation. An older A pin remains readable after A and B mutate; a fresh linearizable A query returns A's sequence and decision witness, not B's group progress, and round-trips its signed token. Invalid contract/kind/operation/schema/input refuses before callback execution. Panic and deadline interruption leave the worker usable. Cancelled query/close retain input, image and physical callback ownership until joined cleanup.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "catalog_routed_queries_preserve_invocation_and_authority",
+          "oracle": "Resolve a real catalog route and execute a registered linearizable query on three voters. A dropped response retries the same fingerprint/deadline, an authenticated AtLeast token reads on a follower, and a foreign cell token/domain/class refuses before callback execution. Invocation admission is shared across clones and total attempts/deadlines cannot reset. A catalog-confirmed replacement preserves request identity but refuses execution without its physical owner. Cancelled routing releases only its own reservation; held SQL remains charged and joined.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_catalog_routed_queries_preserve_invocation_and_authority",
+          "oracle": "Resolve a real catalog route and execute a registered linearizable query on three voters. A dropped response retries the same fingerprint/deadline, an authenticated AtLeast token reads on a follower, and a foreign cell token/domain/class refuses before callback execution. Invocation admission is shared across clones and total attempts/deadlines cannot reset. A catalog-confirmed replacement preserves request identity but refuses execution without its physical owner. Cancelled routing releases only its own reservation; held SQL remains charged and joined.",
           "invariants": [
             "I01",
             "I05",

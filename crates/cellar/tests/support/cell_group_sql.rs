@@ -517,3 +517,7 @@ pub(crate) use registered::commands as registered_commands;
 #[path = "cell_group_sql_registered_queries.rs"]
 mod registered_queries;
 pub(crate) use registered_queries::queries as registered_queries;
+
+#[path = "cell_group_sql_dispatch.rs"]
+mod dispatch;
+pub(crate) use dispatch::routed as routed_queries;

@@ -1810,3 +1810,34 @@ This in-memory staging observation is not a persisted-format reader or a final
 runtime choice. CG-16 must remove that variant and constructor with the old host,
 leaving the selected cell observation directly exposed by the final query context.
 Catalog/SDK dispatch into these workers remains required before public cutover.
+
+### Catalog-bound query dispatch
+
+`CellGroupDispatcher` binds one registered namespace directory, compiled class,
+version-key set and execution domain. Its clones share a bounded invocation bank;
+there are no per-cell worker pools. `query` freezes the operation, input and
+consistency before discovery, normalizes retained input capacity and charges both
+the retained request and one physical input copy. The canonical fingerprint binds
+logical cell identity, invocation ID, contract, input, consistency/token and routing
+limits. A non-cloneable `CellQueryInvocation` uses the existing
+`CellRoutingSession` for initial lookup, cached routes, retries and confirmed
+redirects. The original absolute deadline and total attempt count never reset.
+
+Each attempt is consumed before asynchronous execution. A caller must explicitly
+retry after losing or cancelling a response. The local destination must use the
+same execution-domain clock, and its read authority must match the entire
+catalog-confirmed route and logical cell. The existing SQL pool checks engine and
+schema ownership. AtLeast tokens are verified against the configured keys, exact
+cell history, schema and current captured-domain wall time. The response retains
+SQL output admission and signs the actual selected observation. Catalog mapping
+alone cannot manufacture a leader, group attachment or read authority.
+
+Cancellation can release the invocation's reservation; entered SQL still owns its
+input, image pin, worker and independent admission until physical cleanup joins.
+A timeout includes discovery, authority selection, callback execution and output
+signing. Cross-host transports must translate a remaining deadline through their
+own bounded request protocol; unrelated monotonic timestamps are refused here.
+This is the local query dispatch integration boundary. Command/enrollment
+invocations, transport selection and replacing the public SDK's old host binding
+remain required; it does not complete CG-04 or the public cutover. Group topology
+fencing is still owned by the later transition tasks, not by directory metadata.

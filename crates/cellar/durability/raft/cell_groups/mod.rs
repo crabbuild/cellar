@@ -10,7 +10,12 @@ pub use super::host_sql::cell_groups::{
 };
 
 mod apply;
+mod dispatch;
 pub use apply::{CellGroupApplier, CellGroupApplyImages};
+pub use dispatch::{
+    CellDispatchError, CellDispatchLimits, CellGroupDispatcher, CellQueryConsistency,
+    CellQueryInvocation, CellQueryRequest, CellQueryResponse,
+};
 
 mod execution_authority;
 pub use execution_authority::{CellExecutionAuthority, CellReconciliationAuthority};

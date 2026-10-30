@@ -1320,3 +1320,13 @@ async fn registered_queries_keep_cell_observation_and_ownership() -> Result<()> 
 async fn rooted_registered_queries_keep_cell_observation_and_ownership() -> Result<()> {
     Box::pin(runtime_fixture::registered_queries(true)).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn catalog_routed_queries_preserve_invocation_and_authority() -> Result<()> {
+    Box::pin(runtime_fixture::routed_queries(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_catalog_routed_queries_preserve_invocation_and_authority() -> Result<()> {
+    Box::pin(runtime_fixture::routed_queries(true)).await
+}

@@ -134,6 +134,25 @@ impl RangeDirectory {
         limits: CellRoutingLimits,
         cached: Option<ResolvedCellRoute>,
     ) -> Result<CellRoutingSession, CellRoutingError> {
+        let domain = domain.services().domain_token().ok_or(CellRoutingError {
+            reason: CellRoutingFailure::Closed,
+            ambiguous_command: None,
+        })?;
+        let started_at = domain.mono_ms().map_err(|_| CellRoutingError {
+            reason: CellRoutingFailure::Closed,
+            ambiguous_command: None,
+        })?;
+        self.routing_session_in(domain, request, limits, cached, started_at)
+    }
+
+    pub(crate) fn routing_session_in(
+        &self,
+        domain: DomainToken,
+        request: CellRouteRequest,
+        limits: CellRoutingLimits,
+        cached: Option<ResolvedCellRoute>,
+        started_at: u64,
+    ) -> Result<CellRoutingSession, CellRoutingError> {
         let error = |reason| CellRoutingError {
             reason,
             ambiguous_command: None,
@@ -152,16 +171,18 @@ impl RangeDirectory {
         {
             return Err(error(CellRoutingFailure::InvalidRequest));
         }
-        let domain = domain
-            .services()
-            .domain_token()
-            .ok_or_else(|| error(CellRoutingFailure::Closed))?;
         let now = domain
             .mono_ms()
             .map_err(|_| error(CellRoutingFailure::Closed))?;
-        let deadline = now
+        if started_at > now {
+            return Err(error(CellRoutingFailure::InvalidRequest));
+        }
+        let deadline = started_at
             .checked_add(limits.timeout.as_millis() as u64)
             .ok_or_else(|| error(CellRoutingFailure::InvalidRequest))?;
+        if now >= deadline {
+            return Err(error(CellRoutingFailure::Deadline));
+        }
         Ok(CellRoutingSession {
             directory: self.clone(),
             domain,
@@ -178,6 +199,14 @@ impl RangeDirectory {
 }
 
 impl CellRoutingSession {
+    pub(crate) fn validate_attempt(
+        &self,
+        attempt: &CellRouteAttempt,
+    ) -> Result<(), CellRoutingError> {
+        self.check_attempt(attempt)?;
+        self.live()
+    }
+
     fn error(&self, reason: CellRoutingFailure) -> CellRoutingError {
         CellRoutingError {
             reason,
