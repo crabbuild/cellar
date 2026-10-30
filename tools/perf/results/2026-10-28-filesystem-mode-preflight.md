@@ -61,4 +61,4 @@ production capacity envelope. The installed-package, S3, dense-capacity and
 broader proof reports retain their previously recorded sources and artifacts;
 they were not recaptured for this metadata validation change. Optimized Linux
 artifacts, physical faults, sustained load and deployment objectives remain in
-the [release ledger](../../../plans/per-cell-filesystem-implementation-status.md).
+the [release ledger](../../../docs/design/per-cell-filesystem-implementation-status.md).

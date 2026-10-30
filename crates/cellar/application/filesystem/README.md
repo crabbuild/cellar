@@ -5,7 +5,7 @@
 `context.fs()` accesses the current root cell's filesystem in its existing
 SQLite database. `context.storage()?.fs()` and `tx.fs()` address the same state.
 Files, business data, receipts and alarms can commit together. The primitive is
-implemented and remains under [release qualification](../../../../plans/per-cell-filesystem-implementation-status.md).
+implemented and remains under [release qualification](../../../../docs/design/per-cell-filesystem-implementation-status.md).
 
 Enable it explicitly for an already registered cell class with
 `Registry::filesystem(class, filesystem::Policy::default())`. Custom native
@@ -32,7 +32,7 @@ view; the existing SDK `FileSystem` host-storage abstraction is a different type
 
 Rust descriptor/path operations are bounded synchronous SQLite operations;
 durability barriers are asynchronous. Guest facades use asynchronous bridge
-calls for both. The [API contract](../../../../plans/per-cell-filesystem-api.md)
+calls for both. The [API contract](../../../../docs/design/per-cell-filesystem-api.md)
 lists the complete initial operation profile.
 
 ```rust
@@ -208,7 +208,7 @@ with fixed work budgets and explicit unavailable responses.
 
 The [session agent example](../../../../examples/filesystem-agent/README.md)
 uses checked file tools and saved decisions. Mounting and command execution
-belong entirely to the separate [optional adapter design](../../../../plans/per-cell-filesystem-fuse-design.md).
+belong entirely to the separate [optional adapter design](../../../../docs/design/per-cell-filesystem-fuse-design.md).
 
 ## Verification
 
@@ -226,4 +226,4 @@ Each fixture retains its internal concurrency, including the GC workload's
 independent cell writers. The opt-in dense capacity case has a separate
 [harness guide](../../../../tools/perf/filesystem.md). Captured agent delivery,
 guest-runtime parity and remaining release gates are recorded in the
-[status ledger](../../../../plans/per-cell-filesystem-implementation-status.md).
+[status ledger](../../../../docs/design/per-cell-filesystem-implementation-status.md).

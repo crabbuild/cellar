@@ -79,7 +79,7 @@ server with `--fleet`, `--admin-url` (or `CELLAR_ADMIN_URL`) and a token from
 commands require its `--catalog-id` generation pin. Rebalance also requires an
 explicit `--keep` node set, policy file, operation ID and expected root revision.
 
-Use the [runnable keep-set workflow](../plans/multi-raft/fleet-operations/operator-workflows.md#delivered-keep-set-workflow)
+Use the [runnable keep-set workflow](design/multi-raft/fleet-operations/operator-workflows.md#delivered-keep-set-workflow)
 for complete syntax, response phases, permissions and exact retry rules. These
 commands operate on an already enrolled fleet with an explicitly started
 node-owned topology controller. Admission, historical placement convergence and
@@ -143,7 +143,7 @@ registration counts are `null` because registrations were not observed.
 
 This checks the supplied snapshots. Executable/package identity and consumer
 binding validation remain separate delivery requirements. See the
-[RPC ledger](../plans/named-typed-rpc/implementation-status.md) for their status.
+[RPC ledger](design/named-typed-rpc/implementation-status.md) for their status.
 
 ## Compiled node storage and Raft startup
 
@@ -156,7 +156,7 @@ after the host starts and its handles bind to the active application instance.
 Raft-enabled daemons require this flag and reject `CELLAR_TEST_DATA_DIR` and
 `CELLAR_WATCH` overrides. They pin the initial deployment and refuse `/reload`;
 restart the supervised process for a compatible deployment change. See the
-[Raft startup and retained-disk contract](../plans/multi-raft/operations-design.md#production-cli-startup).
+[Raft startup and retained-disk contract](design/multi-raft/operations-design.md#production-cli-startup).
 
 ## Operator command families
 
@@ -239,7 +239,7 @@ all producers have drained. Arbitrary historical backup restore remains unsuppor
 ## Outbox source controls
 
 The event primitive remains under implementation; the
-[implementation status](../plans/outbox-implementation-status.md) records its
+[implementation status](design/outbox-implementation-status.md) records its
 remaining release gates. Current source commands use the existing fleet
 credentials and reach the authoritative owner:
 

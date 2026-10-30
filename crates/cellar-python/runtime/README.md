@@ -258,5 +258,5 @@ own bookkeeping separately.
 
 See [telemetry.rs](telemetry.rs), [snapshot.rs](snapshot.rs), and
 [memory.rs](memory.rs). Use the [baseline harness](../../../tools/python/baseline.md)
-for measurements and [plan 007](../../../plans/007-embedded-python-pyo3.md)
+for measurements and [plan 007](../../../docs/design/007-embedded-python-pyo3.md)
 for qualification gates.

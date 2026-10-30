@@ -132,7 +132,7 @@ the before-dispatch pair; the default `test:e2e` command runs all nine cases.
 
 This drill uses the development bucket, not a multi-node production fleet or
 an external object store. Capacity, failure and feature qualification remain
-tracked in the [implementation ledger](../../plans/per-cell-filesystem-implementation-status.md).
+tracked in the [implementation ledger](../../docs/design/per-cell-filesystem-implementation-status.md).
 
 For inventory-verified delivery using the existing Node packager:
 

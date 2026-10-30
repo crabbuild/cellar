@@ -65,14 +65,14 @@ An unavailable version never silently redirects a captured service capability
 to a newer deployment. Reacquire a route under fresh authority when changing
 its target version; a failed call does not establish an earlier effect's outcome.
 
-The [named, typed RPC design](../plans/009-named-typed-rpc.md) defines Protobuf
+The [named, typed RPC design](design/009-named-typed-rpc.md) defines Protobuf
 contracts and generated cell clients/handlers for Rust, JavaScript/TypeScript
 and Python over this native path. Named unary APIs run across all four backends
 through local and authenticated-peer routes;
 [runnable fixtures and qualification commands](../tools/rpc/README.md)
 show generation, explicit registration and receipt recovery. Remote routing,
 failure, schema and packaging qualification remain open in the
-[implementation ledger](../plans/named-typed-rpc/implementation-status.md).
+[implementation ledger](design/named-typed-rpc/implementation-status.md).
 
 Check generated metadata before starting a node:
 

@@ -5,7 +5,7 @@
 Both CPython 3.14.5 ABIs pass the selected cancellation and native-proof matrix
 after preserving filesystem progress on `asyncio.CancelledError`. This is SDK
 correctness and lifecycle evidence; production deployment qualification remains
-open in the [release ledger](../../../plans/per-cell-filesystem-implementation-status.md).
+open in the [release ledger](../../../docs/design/per-cell-filesystem-implementation-status.md).
 
 The [observations](2026-10-28-filesystem-python-cancellation.json) record source,
 executable and log hashes, per-case receipts and proof/shutdown summaries. Raw

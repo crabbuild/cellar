@@ -11,7 +11,7 @@ declared namespace and retained birth/history. Typed evacuation exclusion now
 consumes that complete inventory. Typed capacity activation and resource debit
 admission are implemented at the boundaries below. Terminal lifecycle proof,
 automatic reconciliation and operator workflows remain separate packages in the
-[fleet operations plan](../../../../../plans/multi-raft/fleet-operations/README.md).
+[fleet operations plan](../../../../../docs/design/multi-raft/fleet-operations/README.md).
 Do not interpret successful generic metadata writes as proof that a placement
 or removal is safe. Deployment against RustFS remains a qualification gate.
 
@@ -112,7 +112,7 @@ Restart maintenance uses `pending_restart_work` for bounded complete inventory
 of reserved births and unresolved resource obligations. Existing exact-boot
 movement permits can finish through RestartPending; new placement stays excluded.
 Empty pending-work status supplies no live readiness or stop authority. See the
-[maintenance contract](../../../../../plans/multi-raft/fleet-operations/maintenance-and-rebalancing.md)
+[maintenance contract](../../../../../docs/design/multi-raft/fleet-operations/maintenance-and-rebalancing.md)
 for the remaining controller and survivor-proof boundaries.
 
 Managed membership authorization pins the original reservation's destination
@@ -520,7 +520,7 @@ so each catalog value stays within 4 KiB. Gate records cannot authorize a boot
 or physical shutdown.
 Owned rooted settlement is described above. Runtime inspection, observed
 handoff, guarded stop/rejoin and maintenance operator surfaces have distinct
-proof boundaries. See the [maintenance contract](../../../../../plans/multi-raft/fleet-operations/maintenance-and-rebalancing.md).
+proof boundaries. See the [maintenance contract](../../../../../docs/design/multi-raft/fleet-operations/maintenance-and-rebalancing.md).
 
 ### Runtime inspection candidate
 
@@ -1475,7 +1475,7 @@ rebinding a container to a successor boot. The adapter stores its exact operatio
 before any Engine mutation, reasserts disabled restart, kills the failed process
 and independently inspects terminal state before storing evidence. Missing or
 changed containers do not prove isolation. Neither containers nor volumes are
-deleted. See the [operator workflow](../../../../../plans/multi-raft/fleet-operations/operator-workflows.md#docker-isolation-adapter)
+deleted. See the [operator workflow](../../../../../docs/design/multi-raft/fleet-operations/operator-workflows.md#docker-isolation-adapter)
 for required labels, provisioning constraints and qualification limits.
 `FleetDockerResources` implements both recovery evidence callbacks using the
 same bound containers. It joins current rooted capacity, authenticated node

@@ -40,7 +40,7 @@ telemetry alone as the command receipt ledger.
 controller observations. `RaftCells.performance()` adds engine/SQL operation
 outcomes, microsecond histograms and API byte counters without per-cell labels.
 Both are available through the generation-bound, peer-authenticated internal
-Raft metrics endpoint. The [operations contract](../plans/multi-raft/operations-design.md#performance-observations)
+Raft metrics endpoint. The [operations contract](design/multi-raft/operations-design.md#performance-observations)
 defines the measurements, sampling failures and byte exclusions. These are
 owner observations, not command receipts or physical-device I/O accounting.
 

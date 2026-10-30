@@ -345,7 +345,7 @@ This standalone view remains a data-access component; the native host adds
 authenticated selection, complete-local installation and command/archive
 integration. Verified remote retention and admission before complete hydration
 remain open. See the
-[extent image contract](../../plans/multi-raft/extent-root-contract.md).
+[extent image contract](../../docs/design/multi-raft/extent-root-contract.md).
 
 Run `cargo test -p cellar --test native_raft_ltx --locked -- --test-threads=1`
 for real SQLite images, checksum/chain corruption, retained readers, injected

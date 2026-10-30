@@ -420,9 +420,916 @@
         "team"
       ],
       "category": "Template"
+    },
+    {
+      "path": "design/001-component-layout.md",
+      "title": "Plan 001: Group framework files by component",
+      "summary": "Record the completed component relocation, preserved public paths, verification gates, and deferred refactors.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/002-axum-openapi-adapter.md",
+      "title": "Plan 002: Run one cell application through Cellar or Axum with OpenAPI",
+      "summary": "Specify shared application registration, Cellar and Axum hosting, OpenAPI export, and recorded integration evidence.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/002-outbox-streams-subscriptions.md",
+      "title": "Transactional outbox and durable event delivery",
+      "summary": "Define atomic publication, durable streams, resumable subscriptions, retention, and the original event-delivery acceptance contract.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/003-fleet-dashboard.md",
+      "title": "Fleet dashboard: product and implementation scope",
+      "summary": "Record the fleet console scope, management boundaries, implementation milestones, and local verification.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/004-sql-kv-workspaces.md",
+      "title": "SQL and KV workspaces",
+      "summary": "Record SQL and key-value console workflows, transaction boundaries, and completed verification.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/005-resource-inspectors.md",
+      "title": "Queue, workflow and schedule inspectors",
+      "summary": "Record queue, workflow, and schedule inspection contracts and their completed console verification.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/006-event-console.md",
+      "title": "Outbox, event stream and subscription console",
+      "summary": "Map event console controls to owner-routed APIs, permissions, and recorded parity checks.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/007-embedded-python-pyo3.md",
+      "title": "007: Embedded CPython applications through PyO3",
+      "summary": "Specify Python invocation authority, interpreter ownership, atomic storage batches, packaging, and remaining release gates.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/008-embedded-javascript-typescript.md",
+      "title": "008: JavaScript and TypeScript above the native Cellar SDK",
+      "summary": "Specify JavaScript and TypeScript execution, native SDK authority, runtime packaging, and remaining qualification.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/009-named-typed-rpc.md",
+      "title": "009: Named, typed cell RPC across languages",
+      "summary": "Define named Protobuf calls across Rust, V8, Node, and Python, including dispatch, failures, and acceptance gates.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/README.md",
+      "title": "Design plans and qualification records",
+      "summary": "Find technical designs, implementation plans, task inventories, and source-pinned qualification evidence within the documentation library.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/javascript-bridge-performance-2026-10-22.md",
+      "title": "JS/TS bridge performance — 2026-10-22",
+      "summary": "Compare recorded V8 and Node bridge measurements, failure cases, workload assumptions, and reproduction inputs.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/010-large-cell-recovery-time.md",
+      "title": "Plan 010: Bound recovery time for 10 GB cells",
+      "summary": "Sequence bounded 10 GB recovery work, measurement contracts, failure oracles, and unqualified recovery-time targets.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/10gb-implementation.md",
+      "title": "10 GB per-cell implementation and qualification",
+      "summary": "Track the 10 GB storage implementation, recovery experiments, release requirements, and unresolved qualification.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/README.md",
+      "title": "Multi-Raft design and delivery",
+      "summary": "Navigate consensus contracts, ordered implementation packages, recovery work, and source-pinned qualification records.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/application-contract.md",
+      "title": "Cellar Raft application contract",
+      "summary": "Define registered Raft commands and queries, receipts, read versions, effects, and application compatibility.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/archive-audit.md",
+      "title": "Committed archive and output boundary",
+      "summary": "Record committed archive publication, proof ownership, output gating, and the MR-09 qualification boundary.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/control-window-performance.md",
+      "title": "Multi-Raft control-window performance",
+      "summary": "Record the control-window comparison, matched measurements, retained evidence, and remaining performance work.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/disaster-recovery.md",
+      "title": "Zero-quorum disaster recovery",
+      "summary": "Define zero-quorum recovery authority, permanent fleet exclusion, fencing, restore admission, and recovery-point limits.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/effects-design.md",
+      "title": "Committed business features",
+      "summary": "Specify committed Blob, alarm, outbox, and receiver capabilities with their recorded MR-12 evidence.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/evidence/README.md",
+      "title": "Implementation evidence",
+      "summary": "Describe retained evidence fields, exact command records, test coverage, and the limits of package validation.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/extent-root-contract.md",
+      "title": "Incremental image commitment contract",
+      "summary": "Define authenticated image roots, verified demand reads, writable extent views, and remaining public integration.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/fleet-operations/README.md",
+      "title": "Fleet balancing and maintenance",
+      "summary": "Navigate fleet authority, capacity planning, resumable lifecycle operations, delivery packages, and qualification evidence.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/fleet-operations/capacity-and-scaling.md",
+      "title": "Capacity admission and scaling protocols",
+      "summary": "Define scale-out, scale-in, vertical resizing, placement admission, and resource headroom requirements.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/fleet-operations/design.md",
+      "title": "Fleet balancing and maintenance technical design",
+      "summary": "Define fleet coordination, durable intent, repair authority, placement safety, and resumable operations.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/fleet-operations/implementation-history.md",
+      "title": "Fleet implementation history",
+      "summary": "Preserve the detailed fleet capability snapshot and its original evidence limits from the former package overview.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/fleet-operations/implementation-plan.md",
+      "title": "Fleet operations implementation plan",
+      "summary": "Sequence ten fleet work packages, source boundaries, named oracles, verification commands, and delivery criteria.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/fleet-operations/lifecycle-execution.md",
+      "title": "Fleet lifecycle execution contract",
+      "summary": "Specify independent maintenance grants, exact-process stop, joined closure, retained return, and verified resume.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/fleet-operations/maintenance-and-rebalancing.md",
+      "title": "Maintenance and rebalancing execution protocols",
+      "summary": "Specify restart preparation, incoming-action settlement, evacuation, balancing, and irreversible maintenance boundaries.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/fleet-operations/operator-workflows.md",
+      "title": "Fleet operator workflows",
+      "summary": "Document delivered operator commands and SDK controls, with explicit boundaries for remaining workflow proposals.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/fleet-operations/planning-details.md",
+      "title": "Capacity planning and execution details",
+      "summary": "Define replica accounting, resource ledgers, placement feasibility, failure spreading, and worked scaling calculations.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/fleet-operations/progress.md",
+      "title": "Fleet operations implementation progress",
+      "summary": "Track fleet delivery, exact-source verification, retained diagnostic failures, and unresolved deployment qualification.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/fleet-operations/qualification.md",
+      "title": "Fleet operations qualification",
+      "summary": "Define the fleet topology, workload, safety matrix, acceptance budgets, and required delivery evidence.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/full-quorum-recovery-qualification.md",
+      "title": "Full-quorum RustFS recovery at 10 GB",
+      "summary": "Record the 10 GB all-voter disk-loss trial, RustFS recovery proof, observed durations, and production boundaries.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/host-audit.md",
+      "title": "MR-07 host integration audit",
+      "summary": "Map registered command and query execution to host authority, partition histories, and MR-07 acceptance evidence.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/implementation-history.md",
+      "title": "Multi-Raft implementation history",
+      "summary": "Preserve source-pinned component observations and original qualification limits from the former package overview.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/implementation-plan.md",
+      "title": "Cellar multi-Raft implementation plan",
+      "summary": "Sequence the 17 Raft work packages, source ownership, invariants, required cases, and completion criteria.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/large-cell-recovery.md",
+      "title": "Large cell images and recovery",
+      "summary": "Define large-image storage and recovery boundaries, materialized limits, extent integration, and qualification requirements.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/log-reclamation-benchmark.md",
+      "title": "Real RustFS log reclamation experiment",
+      "summary": "Record RustFS log reclamation, correctness checks, backend outage and restart observations, and timing contention.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/membership-design.md",
+      "title": "Native placement and repair implementation contract",
+      "summary": "Define durable membership changes, repair intent, placement, leadership balancing, and native MR-11 evidence.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/node-directory-design.md",
+      "title": "Trusted node registration and process views",
+      "summary": "Define trusted engine registration, process-view ordering, routing refresh, and physical storage verification.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/operations-design.md",
+      "title": "Multi-Raft node operations",
+      "summary": "Specify node admission, query readiness, resource ownership, drain, production startup, and remaining MR-13 gates.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/process-recovery-qualification.md",
+      "title": "Separate-process RustFS recovery at 10 GB",
+      "summary": "Record the 10 GB separate-process recovery trial, verified reads, new quorum writes, and retained proof.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/qualification.md",
+      "title": "Cellar multi-Raft qualification plan",
+      "summary": "Define acknowledged-state and read-contract oracles, failure scenarios, measurement methodology, and first-release acceptance.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/read-audit.md",
+      "title": "MR-08 read-contract audit",
+      "summary": "Record read barriers, committed-image ownership, origin identity, capability checks, and MR-08 evidence.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/receipt-maintenance-design.md",
+      "title": "Bounded receipt maintenance",
+      "summary": "Define bounded receipt pruning, inclusive retry deadlines, retained floors, and required maintenance oracles.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/scaling.md",
+      "title": "Cellar multi-Raft scaling plan",
+      "summary": "Define capacity dimensions, placement arithmetic, density tiers, failure headroom, and federation qualification targets.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/snapshot-audit.md",
+      "title": "Physical snapshot boundary",
+      "summary": "Record snapshot identity, installation authorization, publication retention, cancellation, and native MR-10 recovery evidence.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/storage-integration.md",
+      "title": "Raft Engine host integration",
+      "summary": "Record Raft Engine storage ownership, filesystem adaptation, crash boundaries, and the MR-02 audit scope.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/technical-design.md",
+      "title": "Cellar multi-Raft technical design",
+      "summary": "Define consensus authority, commit, persistence, read proofs, archival, recovery, and safety invariants.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/tikv-performance.md",
+      "title": "TiKV comparison and Cellar performance investigation",
+      "summary": "Record TiKV comparison methods, accepted and rejected experiments, regression evidence, and unresolved performance qualification.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/validation.md",
+      "title": "Package validation",
+      "summary": "Preserve the initial package validation and subsequent source-pinned implementation checkpoints without expanding their qualification scope.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/named-typed-rpc/implementation-status.md",
+      "title": "Named, typed RPC implementation ledger",
+      "summary": "Track typed RPC delivery, response admission, cross-language reliability, retained failures, and open production gates.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/named-typed-rpc/production-gates.md",
+      "title": "Typed RPC release gates",
+      "summary": "List the remaining typed RPC release gates and the evidence required to close the original delivery contract.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/named-typed-rpc/registration-and-dispatch.md",
+      "title": "Named RPC: registration and dispatch contract",
+      "summary": "Specify service registration, namespace binding, invocation dispatch, language adapters, and structural projection.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/outbox-implementation-status.md",
+      "title": "Outbox implementation status",
+      "summary": "Track event-delivery implementation, retained regression evidence, historical failures, and open deployment qualification.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/per-cell-filesystem-api.md",
+      "title": "Cellar filesystem primitive and POSIX API contract",
+      "summary": "Define filesystem operations, invocation-bound handles, transaction semantics, errors, and supported API profiles.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/per-cell-filesystem-conformance.md",
+      "title": "Filesystem operation conformance audit",
+      "summary": "Map filesystem requirements and public operations to inspected assertions, fixture boundaries, and remaining qualification.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/per-cell-filesystem-design.md",
+      "title": "Per-cell filesystem context primitive",
+      "summary": "Define cell-owned filesystem state, atomic business updates, authority, limits, and primitive delivery boundaries.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/per-cell-filesystem-fuse-design.md",
+      "title": "Optional FUSE adapter and mounted agent execution",
+      "summary": "Specify the separate optional mounted-filesystem adapter, execution sessions, lifecycle, and qualification requirements.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/per-cell-filesystem-implementation-status.md",
+      "title": "Per-cell filesystem implementation status",
+      "summary": "Track the implemented filesystem profile, release gates, regression results, and retained qualification limits.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/per-cell-filesystem-implementation.md",
+      "title": "Per-cell filesystem primitive implementation and qualification plan",
+      "summary": "Sequence filesystem delivery packages, acceptance oracles, cross-language coverage, and release evidence.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/sandbox-provider-compatibility.md",
+      "title": "Sandbox providers and Cloudflare compatibility",
+      "summary": "Define sandbox provider boundaries, Cloudflare compatibility targets, portable controls, and production acceptance requirements.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/sandbox-provider-progress.md",
+      "title": "Sandbox provider implementation ledger",
+      "summary": "Track sandbox implementation, provider qualification, lifecycle evidence, and outstanding production requirements.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/vercel-agent-live-qualification.md",
+      "title": "Vercel AI SDK / GPT-6 Luna live qualification",
+      "summary": "Record the synthetic live-agent trial, tested runtime and model configuration, observed results, and qualification limits.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/vercel-agent-rustfs-qualification.md",
+      "title": "Vercel AI SDK agent recovery from RustFS",
+      "summary": "Record durable agent recovery through RustFS, receipt reconciliation, measured outcomes, and reproduction limits.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/README.md",
+      "title": "Cell group delivery package",
+      "summary": "Shared cell-group delivery status, execution commands and completion boundaries.",
+      "roles": [
+        "platform",
+        "operations"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/design.md",
+      "title": "Cell group design",
+      "summary": "Physical group consensus over independent SQLite cells, identities and hard cutover.",
+      "roles": [
+        "platform",
+        "operations"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/handoff.md",
+      "title": "Cell-group implementation handoff",
+      "summary": "Current implementation checkpoint, evidence transfer and next executor steps.",
+      "roles": [
+        "platform",
+        "operations"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/implementation-plan.md",
+      "title": "Implementation order",
+      "summary": "Dependency order and status of the sixteen cell-group implementation tasks.",
+      "roles": [
+        "platform",
+        "operations"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/progress.md",
+      "title": "Cell-group implementation progress",
+      "summary": "Source-pinned cell-group implementation checkpoints and qualification limits.",
+      "roles": [
+        "platform",
+        "operations"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/protocols.md",
+      "title": "Durable protocols and crash cuts",
+      "summary": "Durable enrollment, apply, topology, hibernation and disaster-recovery protocols.",
+      "roles": [
+        "platform",
+        "operations"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/cell-groups/qualification.md",
+      "title": "Qualification and evidence contract",
+      "summary": "Failure oracles, workload profiles and evidence required for release.",
+      "roles": [
+        "platform",
+        "operations"
+      ],
+      "category": "Design and evidence"
+    },
+    {
+      "path": "design/multi-raft/density-decision.md",
+      "title": "Shared cell groups: architecture decision",
+      "summary": "TiKV investigation and the decision to share physical Raft groups across whole cells.",
+      "roles": [
+        "platform"
+      ],
+      "category": "Design and evidence"
     }
   ],
   "visuals": [
+    {
+      "id": "design-library",
+      "title": "Navigate designs and evidence",
+      "summary": "Connect contracts, implementation, acceptance cases, and retained evidence.",
+      "guide": "design/README.md"
+    },
+    {
+      "id": "consensus-contract",
+      "title": "Follow consensus proofs",
+      "summary": "Private execution, committed images, explicit reads, and archive durability.",
+      "guide": "design/multi-raft/README.md"
+    },
+    {
+      "id": "fleet-lifecycle",
+      "title": "Separate fleet authorities",
+      "summary": "Fleet intent, Raft membership, and exact-process lifecycle have distinct owners.",
+      "guide": "design/multi-raft/fleet-operations/README.md"
+    },
+    {
+      "id": "language-invocations",
+      "title": "Trace language invocation authority",
+      "summary": "Python, V8, and Node handlers use the originating native invocation.",
+      "guide": "design/008-embedded-javascript-typescript.md"
+    },
+    {
+      "id": "typed-rpc-contract",
+      "title": "Trace a named typed call",
+      "summary": "Protobuf contracts and generated registrations preserve native invocation authority.",
+      "guide": "design/009-named-typed-rpc.md"
+    },
+    {
+      "id": "filesystem-contract",
+      "title": "Compose files and business state",
+      "summary": "Invocation-bound filesystem operations share the cell transaction and durability proof.",
+      "guide": "design/per-cell-filesystem-design.md"
+    },
     {
       "id": "workspace-crates",
       "title": "Find the owning crate",

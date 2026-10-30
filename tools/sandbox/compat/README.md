@@ -44,8 +44,8 @@ with a hand-written wrapper, or allowing direct language-side disk writes cannot
 qualify the profile. Package imports compiling is evidence about dependencies;
 it is not evidence about RPC, storage durability, command execution or isolation.
 
-See the [delivery plan](../../../plans/sandbox-provider-compatibility.md) and
-[implementation ledger](../../../plans/sandbox-provider-progress.md) for the full
+See the [delivery plan](../../../docs/design/sandbox-provider-compatibility.md) and
+[implementation ledger](../../../docs/design/sandbox-provider-progress.md) for the full
 objective and current evidence.
 
 ## Native constructor/storage execution fixtures
@@ -221,7 +221,7 @@ The image keeps its pinned digest; the host declares additional port 8080 with
 `exposed_ports`. No external domain or hosted account is contacted.
 
 See the [preview guide](../../../packages/cellar-cloudflare/previews.md) for app
-wiring and the [resolved callback/alarm failure](../../../plans/sandbox-provider-progress.md#resolved-callbackalarm-qualification-failure)
+wiring and the [resolved callback/alarm failure](../../../docs/design/sandbox-provider-progress.md#resolved-callbackalarm-qualification-failure)
 for the restored overlapping-barrier regression. The separate upgrade checks
 below extend that evidence; complete SDK conformance remains pending.
 

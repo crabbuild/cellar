@@ -11,10 +11,10 @@ eligible leaders. Immutable Blob bytes have an explicit bounded adapter;
 committed alarms and receipt-checked outbox delivery share an owned scheduler.
 Combined business-feature qualification and later operating/release work remain
 under implementation.
-The [technical design](../../../../plans/multi-raft/technical-design.md) defines
+The [technical design](../../../../docs/design/multi-raft/technical-design.md) defines
 the complete contract.
 
-The replacement [cell-group design](../../../../plans/multi-raft/cell-groups/design.md)
+The replacement [cell-group design](../../../../docs/design/multi-raft/cell-groups/design.md)
 is under implementation. `verification::cell_groups::CellGroupOwner` now owns one
 real RawNode for a physical group history and consumes a verified complete root
 plus a revalidated initial-member bootstrap permit. It emits persistence,
@@ -45,7 +45,7 @@ then fences the engine before releasing exclusive runtime ownership.
 Per-cell SQL admission, SDK dispatch and the production hard cutover remain
 required; the existing host still uses its prior single-cell owner. Transport
 authentication and actual image preparation remain the caller's responsibility
-at this verification boundary. See the [implementation status](../../../../plans/multi-raft/cell-groups/progress.md)
+at this verification boundary. See the [implementation status](../../../../docs/design/multi-raft/cell-groups/progress.md)
 for the exact qualification boundary.
 
 Managed empty hosts expose `RaftCells::inspect_peer_node` under rooted fleet
@@ -182,7 +182,7 @@ closure and supplies each value as a verified recovery dependency. A reference
 alone proves no content or durability. Defaults retain at most 128 values,
 64 KiB per value and 1 MiB total; there is no deletion/GC API. This initial adapter
 duplicates content in the SQL image and dependency objects. The
-[business-feature contract](../../../../plans/multi-raft/effects-design.md)
+[business-feature contract](../../../../docs/design/multi-raft/effects-design.md)
 records this boundary and the alarm/outbox contracts.
 
 `RaftClass::alarm(name, digest, callback)` declares a synchronous callback and
@@ -195,7 +195,7 @@ discovery and validation exclude these system operations and their client IDs.
 Follower/learner roles cannot run these callbacks. One node timer bounds discovery
 and retained metadata; physical SQL work stays joined and can delay that timer.
 Existing receipt limits apply, with no automatic pruning in this component.
-The [alarm contract](../../../../plans/multi-raft/effects-design.md#committed-alarms)
+The [alarm contract](../../../../docs/design/multi-raft/effects-design.md#committed-alarms)
 states the resource, clock, retry and shutdown boundaries.
 
 `RaftClass::outbox(RaftOutbox)` declares immutable delivery lanes. `emit` persists
@@ -204,7 +204,7 @@ sending. `RaftInbox` commits receiver deduplication and business changes togethe
 and releases a signed receipt through the normal durability gate. Only a verified
 receipt and matching attempt generation can settle source progress. The concrete
 `RaftNativeEffectSink` and [recovery example](../../../../examples/raft-effects/README.md)
-exercise native destinations. The [outbox contract](../../../../plans/multi-raft/effects-design.md#committed-outbox-and-receiver)
+exercise native destinations. The [outbox contract](../../../../docs/design/multi-raft/effects-design.md#committed-outbox-and-receiver)
 records authentication, bounds, ambiguous outcomes and remaining retention work.
 
 `RaftCellHandle.status()` reports a sampled replica role and local query
@@ -225,7 +225,7 @@ labels or callback execution. Live SQL, image, group and transport sources use
 111 fixed samples. A configured controller and a live extent inventory each
 add 13 samples. Unavailable sources omit their values rather than synthesizing
 zero. Weak transport and inventory observers cannot retain physical resources
-after joined shutdown. The [operations contract](../../../../plans/multi-raft/operations-design.md)
+after joined shutdown. The [operations contract](../../../../docs/design/multi-raft/operations-design.md)
 defines the boundary.
 
 `ReplicaLog` owns one blocking execution-domain task and one Raft Engine.
@@ -772,7 +772,7 @@ log position. Namespace startup reconciles public-key retention metadata through
 conditional updates and exact reads; configuration cannot silently drop a live
 verifier on restart. The catalog supplies no new trust roots or consensus
 authority. Key rotation and token lifetime are described in the
-[application contract](../../../../plans/multi-raft/application-contract.md).
+[application contract](../../../../docs/design/multi-raft/application-contract.md).
 `QueryRouting::Replicas` tries up to eight distinct configured members in priority
 order, with one optional untried leader hint. The caller supplies a bounded
 per-attempt timeout; every attempt keeps the same contract, captured input,
@@ -825,7 +825,7 @@ Grant revisions fence updates during this transport's lifetime. The embedding
 supplies current trusted grants on restart; durable control-plane distribution
 belongs to the placement/operations controllers. Routing-only views and peer
 pools are bounded and never initialize a voter or learner. The
-[read audit](../../../../plans/multi-raft/read-audit.md) retains qualification
+[read audit](../../../../docs/design/multi-raft/read-audit.md) retains qualification
 scope and remaining delivery work. The counter's native
 and Axum HTTP paths expose consistency, tokens and bounded member options, and
 their executable restart drill includes remote strong reads and cross-cell refusal.
@@ -895,7 +895,7 @@ measures individual selected frames; the data-exchange timer measures batches.
 Queue timers remain per frame. Older control measurements used batch timers, so
 their exchange counts and means are not directly comparable.
 
-The [control-window measurements](../../../../plans/multi-raft/control-window-performance.md)
+The [control-window measurements](../../../../docs/design/multi-raft/control-window-performance.md)
 record the latency improvement, shared-host limits and remaining archive work.
 
 The marker-1 wire uses TLS 1.3 with verified server certificates and no early
@@ -1271,17 +1271,17 @@ and object parts use bounded I/O and explicit scratch admission. The native
 materialized RustFS and direct-peer drills pass at 9,999,998,976 SQLite bytes
 with owner/local state loss, replacement-local new writes, restart and receipt
 verification on the documented two-volume layout. The
-[qualification record](../../../../plans/multi-raft/10gb-implementation.md#current-qualification)
+[qualification record](../../../../docs/design/multi-raft/10gb-implementation.md#current-qualification)
 states its scope, timings and remaining fault/capacity checks; it establishes no
 recovery-time guarantee. The
-[large-cell recovery plan](../../../../plans/multi-raft/large-cell-recovery.md)
+[large-cell recovery plan](../../../../docs/design/multi-raft/large-cell-recovery.md)
 specifies incremental immutable roots, bounded transfers, warm promotion and
 verified demand loading for fast cold activation, targeting Cloudflare's
 10 GB (10,000,000,000-byte) per-object SQLite storage quota. The owning
 `native_raft_large_images` test crosses 64 MiB through command execution,
 leader takeover, object-store seeding onto an empty worker and subsequent writes.
 
-The [archive audit](../../../../plans/multi-raft/archive-audit.md) records the
+The [archive audit](../../../../docs/design/multi-raft/archive-audit.md) records the
 proof boundary, resource contracts and qualification scope. Run the owning
 `native_raft_archive` target for native SDK durability, store faults, isolated
 restore, retention and three-voter failover. It does not qualify physical S3,
@@ -1311,7 +1311,7 @@ also implemented. Seven installed-replica snapshot cuts and eight fresh-learner
 cuts for each of peer and S3 recovery cover process-kill boundaries. Automatic
 placement and repair remain MR-11. The owning verification target is
 `native_raft_snapshot`; source-pinned qualification lives in the
-[snapshot audit](../../../../plans/multi-raft/snapshot-audit.md).
+[snapshot audit](../../../../docs/design/multi-raft/snapshot-audit.md).
 
 
 `RaftRuntime::checkpoint` admits metadata and a verified pin into a dedicated
@@ -1527,7 +1527,7 @@ consistent fleet snapshot. Quorum writes still acknowledge independently of
 background publication. `CellStatus.archive` exposes local coverage readiness,
 entry lag, observed backlog duration, retained bytes and publication failures;
 these advisory observations reset on process restart and do not change admission.
-See the [protocol and qualification](../../../../plans/multi-raft/disaster-recovery.md).
+See the [protocol and qualification](../../../../docs/design/multi-raft/disaster-recovery.md).
 
 
 ## Committed repair plans

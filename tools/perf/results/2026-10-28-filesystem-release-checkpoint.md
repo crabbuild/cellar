@@ -80,6 +80,6 @@ is retained outside the ignored workspace directory, in the checkout target's
 `qualification/` directory. No credentials are included in the committed report.
 
 Production readiness remains open in the
-[release ledger](../../../plans/per-cell-filesystem-implementation-status.md).
+[release ledger](../../../docs/design/per-cell-filesystem-implementation-status.md).
 Supported-target CI, final integrated artifacts, the remaining contract/fault
 audit and a deployment workload/resource envelope retain their explicit gates.

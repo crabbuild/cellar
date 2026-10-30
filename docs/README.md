@@ -12,6 +12,8 @@ entry points, use the [crate guides](#crate-guides). For a concept diagram,
 use the [visual index](#visual-concept-guides). Before deployment, review
 the [production release gates](21-production-readiness.md).
 
+Technical proposals, delivery plans, and qualification records now share this library under [design plans and evidence](design/README.md). Use its topic map to find contracts, source code, task inventories, and current implementation ledgers.
+
 ![Cellar architecture](diagrams/architecture.svg)
 
 The optional [embedded Python adapter](../crates/cellar-python/README.md) runs
@@ -89,6 +91,8 @@ Documents can contain all three, with that distinction made in their text.
 | [24 · Glossary](24-glossary.md) | Shared domain language | Architecture | Reference |
 | [25 · Documentation maintenance](25-documentation-maintenance.md) | Update rules, visual tooling and verification | Documentation | Practice |
 | [26 · Event delivery](26-event-delivery.md) | Outbox, durable streams, resumable subscriptions and outcomes | Application / SRE | Guide / practice |
+| [27 · Streaming and WebSockets](27-streaming-and-websockets.md) | Cross-language producers, forwarding, backpressure, and lifetimes | Application | Guide |
+| [Design plans and evidence](design/README.md) | Technical contracts, delivery packages, task inspectors, and retained qualification | Platform / Quality | Design / evidence |
 | [Sources and evidence](sources.md) | Baseline, implementation links, validation limitations | Release owner | Reference |
 | [Architecture decisions](adr/README.md) | Documented constraints and future decisions | Architecture | Decisions |
 | [Application brief](templates/application-brief.md) | Define boundaries and measurable requirements | Application | Template |
@@ -128,6 +132,12 @@ includes an accessible description; PNG previews are available for sharing.
 
 | Question | SVG | PNG preview |
 | --- | --- | --- |
+| Where are designs and their acceptance evidence? | [Design library](diagrams/design-library.svg) | [PNG](diagrams/design-library@2x.png) |
+| How do consensus and archive proofs differ? | [Consensus contract](diagrams/consensus-contract.svg) | [PNG](diagrams/consensus-contract@2x.png) |
+| Which authority controls fleet maintenance? | [Fleet lifecycle](diagrams/fleet-lifecycle.svg) | [PNG](diagrams/fleet-lifecycle@2x.png) |
+| How do language handlers retain authority? | [Language invocations](diagrams/language-invocations.svg) | [PNG](diagrams/language-invocations@2x.png) |
+| How does a named RPC reach a cell? | [Typed RPC](diagrams/typed-rpc-contract.svg) | [PNG](diagrams/typed-rpc-contract@2x.png) |
+| Which file and business updates are atomic? | [Filesystem contract](diagrams/filesystem-contract.svg) | [PNG](diagrams/filesystem-contract@2x.png) |
 | Which crate owns this change? | [Crate responsibilities](diagrams/workspace-crates.svg) | [PNG](diagrams/workspace-crates@2x.png) |
 | How do decisions become I/O? | [Decision loop](diagrams/decision-loop.svg) | [PNG](diagrams/decision-loop@2x.png) |
 | Who owns public HTTP? | [Hosting modes](diagrams/hosting-modes.svg) | [PNG](diagrams/hosting-modes@2x.png) |

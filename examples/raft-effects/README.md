@@ -44,4 +44,4 @@ receipt. Native application code is trusted, rather than OS-sandboxed.
 
 These local processes demonstrate the stated recovery behavior. Physical zone
 loss, large-cluster capacity, the release soak and federation have separate gates
-in the [multi-Raft implementation plan](../../plans/multi-raft/implementation-plan.md).
+in the [multi-Raft implementation plan](../../docs/design/multi-raft/implementation-plan.md).

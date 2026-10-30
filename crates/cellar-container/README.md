@@ -75,8 +75,8 @@ adapter does not move SDK effects onto the Python, Node or V8 runtime thread.
 | Local Cloudflare Workers / Containers / Sandbox APIs | Experimental compatibility slices in a separate package; full application/image conformance remains pending | [Cloudflare facade](../../packages/cellar-cloudflare/README.md) |
 | E2B control API + envd | Experimental bounded execution/files; explicit weaker ownership, local protocol tests; live account qualification pending | [E2B configuration and recovery](e2b.md) |
 | Vercel named sandbox + session API | Experimental bounded execution/files with image-local helper; local protocol/runtime tests; live VM qualification pending | [Vercel configuration and recovery](vercel.md) |
-| Hosted Cloudflare, Daytona and Modal | Planned | [Delivery plan](../../plans/sandbox-provider-compatibility.md) |
-| Dynamic Worker isolates, PTY and snapshots | Planned features; the current operation set does not implement them | [Implementation ledger](../../plans/sandbox-provider-progress.md) |
+| Hosted Cloudflare, Daytona and Modal | Planned | [Delivery plan](../../docs/design/sandbox-provider-compatibility.md) |
+| Dynamic Worker isolates, PTY and snapshots | Planned features; the current operation set does not implement them | [Implementation ledger](../../docs/design/sandbox-provider-progress.md) |
 
 **Tested Sandbox baseline:** 0.12.9 SDK + matching image; unchanged exec, file,
 background-process discovery and teardown routes pass. A published `execStream()`
@@ -92,7 +92,7 @@ slice. The published HTTP preview helper now passes binary forwarding, token
 checks, stale-runtime refusal and explicit re-exposure against the pinned image.
 Worker/DO upgrade forwarding and selected WebSocket preview round trips also pass.
 Full lifetime/upgrade/fault qualification remains open.
-See the [evidence ledger](../../plans/sandbox-provider-progress.md#worker-and-durable-object-http-response-forwarding).
+See the [evidence ledger](../../docs/design/sandbox-provider-progress.md#worker-and-durable-object-http-response-forwarding).
 
 ## Quick start
 
@@ -720,4 +720,4 @@ binary streams, cancellation, timeout cleanup and ownership rejection through
 CPython, Node and embedded V8.
 
 For exact delivered slices and remaining live/fault qualification, consult the
-[implementation ledger](../../plans/sandbox-provider-progress.md).
+[implementation ledger](../../docs/design/sandbox-provider-progress.md).

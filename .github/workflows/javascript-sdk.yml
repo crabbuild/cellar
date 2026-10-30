@@ -19,7 +19,7 @@ on:
       - 'tools/rpc/**'
       - 'tools/cellar-rpc-codegen/**'
       - 'proto/**'
-      - 'plans/named-typed-rpc/*.proto'
+      - 'docs/design/named-typed-rpc/*.proto'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/javascript-sdk.yml'

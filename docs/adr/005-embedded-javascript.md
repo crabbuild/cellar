@@ -51,7 +51,7 @@ as the existing Python bridge. It is deliberately explicit about unsupported
 Node APIs, streams, workflows, RPC and JavaScript Raft handlers. The delivery
 contract, runnable commands and verification matrix live in the
 [adapter guide](../../crates/cellar-javascript/README.md). The broader
-[design](../../plans/008-embedded-javascript-typescript.md) retains production
+[design](../design/008-embedded-javascript-typescript.md) retains production
 gates for multi-node fencing, ambiguous outcomes, saturation, memory behavior,
 packaged cross-target qualification and performance before fleet rollout.
 

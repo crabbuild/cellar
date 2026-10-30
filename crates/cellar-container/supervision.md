@@ -152,4 +152,4 @@ untouched cells on cold startup.
 Native Docker/Podman keeps its existing engine lifecycle and cleanup path.
 Live E2B/Vercel accounts, broader outages and network partitions, physical cell
 deletion and stronger remote fencing remain outstanding. See the
-[delivery ledger](../../plans/sandbox-provider-progress.md) for current evidence.
+[delivery ledger](../../docs/design/sandbox-provider-progress.md) for current evidence.

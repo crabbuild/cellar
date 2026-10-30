@@ -84,4 +84,4 @@ session/Pi/Python package evidence for the pinned main integration. It does not
 qualify optimized deployment artifacts, Linux host behavior, external-store
 failure modes, a real model service, or performance/resource SLOs. The remaining
 operation/error/authority/resource audit and physical fault/load gates remain in
-the [release ledger](../../../plans/per-cell-filesystem-implementation-status.md#release-priorities).
+the [release ledger](../../../docs/design/per-cell-filesystem-implementation-status.md#earlier-release-priorities).
