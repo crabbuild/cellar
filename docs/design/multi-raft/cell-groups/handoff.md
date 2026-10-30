@@ -15,9 +15,13 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The reviewed source baseline is `c9100ec7`, qualifying the committed image
-preparation introduced at `2085cc96` on the existing SQL workers. The successor
-bounds the shared fixture's inline async state without increasing test stacks. The preceding `ed84df5d` checkpoint retains exact
+The reviewed source baseline is `1ec2eeaa`, adding selected-image recovery and
+physical apply fault coverage in both image modes. Its retained checkpoint is
+`.cellar/cell-groups-evidence/CG-04-apply-recovery/checkpoint.json`: 260 selected
+Rust cases, fifteen commands, 205 source inputs and twelve executables. Transfer
+that entire directory, including failed intermediate output, with prior evidence.
+This qualifies joined cold restart, not whole-process kill or power loss. The preceding `c9100ec7`
+checkpoint qualifies committed preparation on shared workers (`2085cc96`). The preceding `ed84df5d` checkpoint retains exact
 cell-version witnesses in authenticated manifests and query/receipt observations. The preceding read
 checkpoint at `3da4481e` decouples pin capacity from transport limits and repairs
 the fixture macro. The initial read implementation is `88c4717d`. Earlier checkpoints cover prepared submission sealing
@@ -325,18 +329,23 @@ boundary. At the end of each turn, record the completed behavior, evidence and
 limits, then identify the most critical remaining gap and the concrete next step.
 Do not let plan maintenance replace implementation.
 
-1. Complete the new apply adapter's failure qualification: cancel its receiver
-   and close the pool while image or manifest I/O is held, then prove that physical
-   work and reservations remain owned until the workers join. Inject preparation
-   and restart failures; publication-sync retention alone does not cover these cuts.
-2. Integrate catalog invocation sessions and registered command/query callbacks
-   with logical cell identity and version observations. Preserve request deadlines,
-   receipt identity and uncertainty across redirects; never fabricate legacy
-   `GroupScope` values. This is the most important remaining serving gap.
-3. Complete CG-04's production retry/cache lifecycle and configuration-entry
-   handling at the appropriate owner boundary, then run its entire gate before
-   marking it DONE. Full snapshot/membership-change qualification follows in CG-05;
-   archive/reclamation in CG-06 must preserve complete group recovery closure.
+1. Integrate catalog invocation sessions and registered command/query callbacks
+   with logical cell identity and version observations. Start at
+   `application/consensus/class.rs`: command/query contexts still expose legacy
+   `GroupScope`, and queries expose `CommittedVersion`. Carry `CellHistory` and
+   selected cell observations through callbacks, receipts and effect validation;
+   keep physical quorum proof separate. Preserve original deadlines, request
+   fingerprints and the total retry budget. Never fabricate legacy group scopes.
+2. Complete CG-04's production retry/cache lifecycle and configuration-entry
+   handling at the owning boundary. The new `CellGroupApplier::recover` provides
+   selected-image startup with the same page owner; use it in the dispatcher.
+   The actual image/manifest directory-sync cancellation and failure cuts now pass.
+   Add whole-process kill/restart coverage before claiming crash qualification;
+   joined cold reopen does not establish power-loss behavior.
+3. Run the entire CG-04 gate before marking it DONE. Full snapshot/membership
+   qualification follows in CG-05; archive/reclamation in CG-06 must preserve the
+   complete group recovery closure. Preserve CG-08-before-CG-07 for effect identity
+   and public cutover.
 
 The opportunity is to reuse the now-shared consensus, SQL, read and apply paths in
 one dispatcher. Additional per-cell workers, a second production mode or a demo

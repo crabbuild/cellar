@@ -10,6 +10,54 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 physical apply faults and selected-image recovery
+
+Qualified source: `1ec2eeaab2beaa8d8e82c834cbb5dbf692b5e7d1`.
+
+`CellGroupApplier::recover` reconstructs only the engine-selected complete root.
+It verifies every selected physical image, logical binding and geometry, and
+retains the same manifest-page owner for subsequent apply. Materialized IDs use
+the existing deterministic derivation; filenames supply no authority. Extent
+roots verify the full cell history and schema. Missing or corrupt selected closure
+refuses. Startup must still consume the catalog permit and establish current-term
+quorum before serving.
+
+Six new native cases exercise both storage modes. At actual image and manifest
+directory-sync cuts, cancelling preparation and then cancelling close retains
+worker, budget and completion ownership. A replacement pool refuses until cleanup
+joins; exact preparation can then retry. Injected directory-sync failure preserves
+the old selected root and releases preparation reservations. Cold restart closes
+all prior engines, stores and execution domains, selects the published cell A,
+ignores prepared but unpublished B, and replays B from the durable committed log.
+It refuses serving authority without fresh quorum and refuses a missing selected
+image directory without changing the marker.
+
+This is joined cold restart, not whole-process kill or power-loss qualification.
+The first recovery run hit an ownership refusal because the fixture still held
+engine-owned manifest pins. Closing the complete owner before reopening fixed the
+fixture; ownership rules and assertions were preserved.
+
+All 260 selected Rust cases pass: 233 native cases across ten suites, 23 Cellar
+library cases and four LTX image-store cases. Fifteen commands pass, including
+all-target Clippy for Cellar/cellar-logic/cellar-ltx with warnings denied, formatting
+(1,815 Rust files), layout, dependency isolation, docs, source preflight and all 37
+plan-validator tests. The partial checkpoint is
+`.cellar/cell-groups-evidence/CG-04-apply-recovery/checkpoint.json`, binding 205
+source inputs and twelve copied executables. Intermediate failures and passing
+targeted runs are retained. Six process helpers run via parent cases; three
+RustFS-specific cases remain unrun. The branch contains latest fetched
+`origin/main` at `8a93ffd7`; the requested MR-13/MR-14 JSON files remain excluded.
+
+CG-04 remains IN_PROGRESS. The most critical gap is the registered SDK/catalog
+dispatcher: callback contexts still expose legacy cell-scoped group identity.
+Next carry logical cell identity and selected-version observations through command,
+query, receipt and effect validation, then use the existing shared worker path with
+original deadlines, request fingerprints and retry budgets. Production cache/retry
+lifecycle, configuration-entry handling and process-kill cuts remain open. Group
+snapshot/compaction, RustFS recovery, performance and public cutover remain later
+gates. The opportunity is to connect the existing owners, reads and recovery into
+one production dispatcher rather than build another runtime.
+
 ## CG-04 committed image preparation on shared workers
 
 Qualified source: `c9100ec774d66f30c14eae009f9a9c76d2bc0c33`. Runtime implementation: `2085cc96`.

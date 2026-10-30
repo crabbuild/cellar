@@ -114,7 +114,14 @@ with its fixture repair and full partial gate at `c9100ec7`: 254 selected Rust
 cases and fifteen commands pass. Transfer both
 `.cellar/cell-groups-evidence/CG-04-apply-final/` and the retained failed
 `.cellar/cell-groups-evidence/CG-04-apply/` directory with the prior evidence.
-Direct cancellation/crash cuts during image preparation remain to be qualified.
+Selected-image recovery and physical apply fault coverage are implemented at
+`1ec2eeaa`. Both image modes cover cancelled preparation/close while real image
+or manifest directory sync is held, failed-sync old-root preservation, and cold
+selected-root recovery with committed replay and no renewed serving authority.
+All 260 selected Rust cases and fifteen commands pass; transfer the retained
+`.cellar/cell-groups-evidence/CG-04-apply-recovery/` directory with prior evidence.
+Whole-process kill and power-loss cuts remain unqualified. See the newest
+[progress checkpoint](progress.md) for the committed-source gate and evidence.
 Registered SDK/catalog routing, query/version-token integration,
 production retry/compaction integration and cache lifecycle remain required. Managed
 fleet integration remains required by CG-07. A birth
