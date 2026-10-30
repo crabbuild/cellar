@@ -347,10 +347,7 @@ impl CellEnrollmentInvocation {
                         || matches!(
                             error,
                             CellDispatchError::Execution(ExecutionError::Uncertain)
-                        ) =>
-                {
-                    ()
-                }
+                        ) => {}
                 Err(error) => return Err(error),
             }
             progress.changed().await.map_err(|_| closed())?;
