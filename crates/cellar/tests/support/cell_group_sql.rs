@@ -68,12 +68,16 @@ impl RuntimeCluster {
     }
 
     async fn cell_options(&self, cell: &CellHistory) -> Result<CellSqlOptions> {
+        self.cell_options_at(cell, 0).await
+    }
+
+    async fn cell_options_at(&self, cell: &CellHistory, node: usize) -> Result<CellSqlOptions> {
         let options = PrivateOptions {
             directory: self
                 .cluster
                 ._root
                 .path()
-                .join(format!("private-{}", cell.cell.as_str())),
+                .join(format!("private-{node}-{}", cell.cell.as_str())),
             host: cellar_ltx::LtxHost::new(
                 || 10,
                 |_| Ok(Duration::ZERO),
@@ -85,7 +89,7 @@ impl RuntimeCluster {
             )
             .with_filesystem(Arc::new(DirectFileSystem)),
             sqlite_vfs: None,
-            images: self.cluster.voters[0].images.clone(),
+            images: self.cluster.voters[node].images.clone(),
             query_services: cellar_ltx::generation::ReadServices {
                 now_unix_millis: Arc::new(|| 10),
                 fill_random: Arc::new(|bytes| bytes.fill(17)),
@@ -93,7 +97,7 @@ impl RuntimeCluster {
             application_digest: [6; 32],
             limits: ExecutionLimits::default(),
         };
-        let extents = self.cluster.voters[0].extents.clone();
+        let extents = self.cluster.voters[node].extents.clone();
         self.cluster
             .domain
             .blocking(move || -> Result<_> {
@@ -419,4 +423,11 @@ mod pool;
 
 pub(super) async fn pool_admission(rooted: bool) -> Result<()> {
     pool::admission(rooted).await
+}
+
+#[path = "cell_group_sql_reconcile.rs"]
+mod reconciliation;
+
+pub(super) async fn reconcile_producers(rooted: bool) -> Result<()> {
+    reconciliation::reconcile(rooted).await
 }

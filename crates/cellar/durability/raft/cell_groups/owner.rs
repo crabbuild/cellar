@@ -278,6 +278,14 @@ impl CellGroupOwner {
         &self.current
     }
 
+    pub fn reconciliation_authority(
+        &self,
+        cell: &CellHistory,
+    ) -> Result<super::CellReconciliationAuthority, RuntimeError> {
+        self.live()?;
+        super::CellReconciliationAuthority::new(self.group.clone(), &self.current, cell)
+    }
+
     pub fn status(&self) -> Result<CellGroupStatus, RuntimeError> {
         self.live()?;
         let cache = self.group.read()?;

@@ -6,11 +6,14 @@ mod admission;
 mod worker;
 
 use super::{Budget, Budgets, Envelope, Permit, Pool, ResourceObserver, Worker};
-use crate::raft::cell_groups::{cell_image_history_digest, CellExecutionAuthority};
+use crate::raft::cell_groups::{
+    cell_image_history_digest, CellExecutionAuthority, CellReconciliationAuthority,
+};
 use crate::raft::completion::RuntimeError;
 use crate::raft::execution::{
-    CellCommittedReceipt, CellPreparedCommand, CellPrivateExecutor, CellStageOutcome,
-    CommandAttempt, ExecutionError, ExecutionLimits, PrivateOptions, RootPrivateOptions,
+    CellCommittedReceipt, CellPreparedCommand, CellPrivateExecutor, CellReconciliation,
+    CellStageOutcome, CommandAttempt, ExecutionError, ExecutionLimits, PrivateOptions,
+    RootPrivateOptions,
 };
 use crate::raft::runtime::Terminal;
 use crate::raft::storage::ReplicaLog;
@@ -146,6 +149,13 @@ pub enum CellSqlOutcome {
     Prepared(CellSqlPrepared),
     Receipt(Box<CellSqlReceipt>),
     Submitted,
+    Reconciled(CellSqlReconciliation),
+}
+
+pub enum CellSqlReconciliation {
+    Committed(Box<CellSqlReceipt>),
+    NotCommitted,
+    Refused(CommandFailure),
 }
 
 pub struct CellSqlUsage {
@@ -401,6 +411,30 @@ impl CellGroupSqlPool {
         {
             CellSqlOutcome::Receipt(receipt) => Ok(*receipt),
             _ => Err(ExecutionError::Invalid("cell SQL finish response")),
+        }
+    }
+
+    /// Release a producer only after receipt resolution or a newer applied
+    /// term excludes its proposal. Cancellation leaves resolution on the worker;
+    /// a lost response must be reconciled against receipts, never inferred failed.
+    pub async fn reconcile(
+        &self,
+        proposal: ProposalId,
+        authority: CellReconciliationAuthority,
+    ) -> Result<CellSqlReconciliation, ExecutionError> {
+        if !authority.belongs_to_engine(&self.inner.engine_owner) {
+            return Err(ExecutionError::Invalid("cell SQL engine owner"));
+        }
+        let cell = authority.cell().version.history.clone();
+        match self
+            .call(
+                cell,
+                worker::Action::Reconcile(proposal, Box::new(authority)),
+            )
+            .await?
+        {
+            CellSqlOutcome::Reconciled(resolution) => Ok(resolution),
+            _ => Err(ExecutionError::Invalid("cell SQL reconciliation response")),
         }
     }
 

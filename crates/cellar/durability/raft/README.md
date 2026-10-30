@@ -67,12 +67,26 @@ pool until workers, the handle and retained outputs release their ownership. A l
 another callback. Admission checks the authority's exact engine owner.
 
 Each worker has one reserved progress slot, independent of its ordinary queue.
-Submission marking is idempotent for the retained proposal. Settlement still
-requires the exact committed receipt; group progress cannot release another
-cell's lease. Pool close stops admission and its domain cleanup owner joins every
+Submission marking is idempotent for the retained proposal. Exact-entry settlement
+requires the committed receipt; group progress cannot release another cell's lease. Pool close stops admission and its domain cleanup owner joins every
 physical callback/worker even if a close waiter is cancelled. Closing a writer or
 pool does not establish a failed submitted outcome or authorize replay; the host
 must reconcile pending commands against committed state before admitting again.
+
+`CellReconciliationAuthority` selects a verified cell pin from the durable
+current-term applied group root, including on followers. It grants no write or
+strong-read authority. The pool can reconcile its exact pending proposal against
+the original command identity in that image even after a later cell mutation;
+this lookup does not require retaining the original Raft entry. A matching receipt
+settles the command. Absence can release the producer only after a strictly newer
+term's applied barrier excludes its old proposal. Replicated expiry/conflict
+refusals remain distinct from a known uncommitted outcome. Foreign engines,
+changed routes/histories, stale cell pins and same-term absence refuse without
+releasing the producer. Missing producers return uncertainty after a lost response.
+Reconciliation uses the reserved worker progress slot and closes the disposable
+writer before releasing cell admission; retained receipt outputs keep their byte
+reservation. A retry still needs fresh leader authority and receipt admission.
+Actual snapshot/compaction integration and production retry dispatch remain pending.
 
 Registered SDK dispatch, concurrent initialization, coherent query serving and
 the production hard cutover remain required; the existing host still uses its

@@ -4,11 +4,11 @@
 
 pub use super::host_sql::cell_groups::{
     CellGroupSqlPool, CellSqlLimits, CellSqlOptions, CellSqlOutcome, CellSqlPrepared,
-    CellSqlReceipt, CellSqlRootOptions, CellSqlUsage,
+    CellSqlReceipt, CellSqlReconciliation, CellSqlRootOptions, CellSqlUsage,
 };
 
 mod execution_authority;
-pub use execution_authority::CellExecutionAuthority;
+pub use execution_authority::{CellExecutionAuthority, CellReconciliationAuthority};
 
 mod enrollment;
 mod enrollment_apply;

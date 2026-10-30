@@ -85,6 +85,7 @@ enum Command {
     Attach(Box<CellGroupOwner>),
     Campaign,
     Execution(cellar_logic::cell_group::CellHistory),
+    Reconciliation(cellar_logic::cell_group::CellHistory),
     Step(Message),
     AdmitStep(Message),
     Propose(Vec<u8>),
@@ -98,6 +99,7 @@ enum Response {
     Unit,
     Proposal(CellGroupProposal),
     Execution(Box<CellExecutionAuthority>),
+    Reconciliation(Box<CellReconciliationAuthority>),
     Status(CellGroupStatus),
 }
 
@@ -315,6 +317,23 @@ impl CellGroupRuntime {
         {
             Response::Execution(authority) => Ok(*authority),
             _ => Err(RuntimeError::Protocol("execution authority reply".into())),
+        }
+    }
+
+    pub async fn reconciliation_authority(
+        &self,
+        history: GroupHistory,
+        cell: cellar_logic::cell_group::CellHistory,
+    ) -> Result<CellReconciliationAuthority, RuntimeError> {
+        let bytes = cell.cell.as_str().len() + 4096;
+        match self
+            .call(Some(history), Command::Reconciliation(cell), bytes)
+            .await?
+        {
+            Response::Reconciliation(authority) => Ok(*authority),
+            _ => Err(RuntimeError::Protocol(
+                "reconciliation authority reply".into(),
+            )),
         }
     }
 

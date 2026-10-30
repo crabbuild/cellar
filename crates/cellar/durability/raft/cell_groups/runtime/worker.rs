@@ -325,6 +325,10 @@ impl Worker {
                                     .owner
                                     .execution_authority(&cell)
                                     .map(|authority| Response::Execution(Box::new(authority))),
+                                Command::Reconciliation(cell) => group
+                                    .owner
+                                    .reconciliation_authority(&cell)
+                                    .map(|authority| Response::Reconciliation(Box::new(authority))),
                                 Command::Campaign => {
                                     group.owner.campaign().map(|()| Response::Unit)
                                 }

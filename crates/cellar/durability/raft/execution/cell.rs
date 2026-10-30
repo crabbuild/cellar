@@ -7,7 +7,9 @@ use super::*;
 use crate::application::consensus::group_protocol::{
     CellGroupEntry, GroupCommand, GroupEntryBinding, GroupEntryLimits, GroupLtx, GroupMutation,
 };
-use crate::raft::cell_groups::{cell_image_history_digest, CellExecutionAuthority};
+use crate::raft::cell_groups::{
+    cell_image_history_digest, CellExecutionAuthority, CellReconciliationAuthority,
+};
 use crate::raft::completion::RuntimeError;
 use cellar_logic::cell_group::CellVersion;
 use std::sync::Arc;
@@ -38,6 +40,18 @@ pub struct CellCommittedReceipt {
 pub enum CellStageOutcome {
     Prepared(CellPreparedCommand),
     Duplicate(Box<CellCommittedReceipt>),
+}
+
+pub enum CellReconciliation {
+    /// The original request's receipt, from the inspected committed image.
+    /// Its position identifies that image, not necessarily the original entry.
+    Committed(Box<CellCommittedReceipt>),
+    /// A newer-term applied barrier excludes the old proposal and the original
+    /// request has no receipt. A retry must still pass fresh command admission.
+    NotCommitted,
+    /// A replicated receipt floor or conflicting identity prevents a retry.
+    /// Expiration does not establish whether the original command committed.
+    Refused(CommandFailure),
 }
 
 struct PendingCell {
@@ -280,6 +294,58 @@ impl CellPrivateExecutor {
         self.pending = None;
         self.poisoned = true;
         Ok(receipt)
+    }
+
+    /// Resolve the original request without requiring the original log entry.
+    /// Missing receipts cannot retire an ambiguous same-term proposal. The
+    /// caller must close this disposable producer after successful resolution.
+    pub fn reconcile(
+        &mut self,
+        proposal: ProposalId,
+        authority: CellReconciliationAuthority,
+    ) -> Result<CellReconciliation, ExecutionError> {
+        let pending = self.pending.as_ref().ok_or(ExecutionError::Uncertain)?;
+        if pending.prepared.proposal != proposal
+            || !self.authority.accepts_reconciliation(&authority)
+        {
+            return Err(ExecutionError::Invalid("cell reconciliation identity"));
+        }
+        authority.check().map_err(authority_failure)?;
+        // Staging already established absence in this exact immutable base.
+        // In particular an enrollment image need not yet have receipt tables.
+        let receipt = if authority.cell().version == self.authority.cell().version {
+            Ok(None)
+        } else {
+            let database = self
+                .options
+                .images
+                .read_cell(&self.options, authority.image())
+                .map_err(storage)?;
+            receipts::preflight_identity(
+                database.connection(),
+                &pending.request,
+                &self.options.limits,
+            )
+        };
+        let resolution = match receipt {
+            Ok(Some(receipt)) => CellReconciliation::Committed(Box::new(CellCommittedReceipt {
+                receipt,
+                version: authority.cell().version.clone(),
+                position: authority.cell().last_mutation,
+            })),
+            Ok(None) if authority.term() > self.authority.term() => {
+                CellReconciliation::NotCommitted
+            }
+            Err(ExecutionError::Refused(
+                failure @ (CommandFailure::CommandExpired | CommandFailure::CommandConflict),
+            )) if authority.term() > self.authority.term() => CellReconciliation::Refused(failure),
+            Err(error) => return Err(error),
+            Ok(None) => return Err(ExecutionError::Uncertain),
+        };
+        authority.check().map_err(authority_failure)?;
+        self.pending = None;
+        self.poisoned = true;
+        Ok(resolution)
     }
 
     fn read_receipt(

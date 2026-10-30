@@ -512,3 +512,7 @@ pub(super) async fn cell_receipts(rooted: bool) -> Result<()> {
 pub(super) async fn sql_pool_admission(rooted: bool) -> Result<()> {
     sql::pool_admission(rooted).await
 }
+
+pub(super) async fn reconcile_sql_producers(rooted: bool) -> Result<()> {
+    sql::reconcile_producers(rooted).await
+}

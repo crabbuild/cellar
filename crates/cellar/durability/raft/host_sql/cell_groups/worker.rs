@@ -20,6 +20,7 @@ pub(super) enum Action {
     Resume(ProposalId),
     Submit(ProposalId),
     Finish(Box<CellExecutionAuthority>),
+    Reconcile(ProposalId, Box<CellReconciliationAuthority>),
 }
 
 impl Action {
@@ -76,7 +77,9 @@ impl Cells {
         } = request;
         let operation = match &action {
             Action::Stage(_) => crate::raft::performance::Operation::SqlStage,
-            Action::Finish(_) => crate::raft::performance::Operation::SqlPublish,
+            Action::Finish(_) | Action::Reconcile(..) => {
+                crate::raft::performance::Operation::SqlPublish
+            }
             _ => crate::raft::performance::Operation::SqlOther,
         };
         let timer = performance.timer(operation);
@@ -167,10 +170,7 @@ impl Cells {
                 }
             }
             Action::Resume(proposal) => {
-                let pending = self
-                    .pending
-                    .get(&cell)
-                    .ok_or(ExecutionError::Invalid("unknown cell producer"))?;
+                let pending = self.pending.get(&cell).ok_or(ExecutionError::Uncertain)?;
                 if pending.prepared.proposal() != proposal {
                     return Err(ExecutionError::Invalid("cell producer proposal"));
                 }
@@ -180,7 +180,7 @@ impl Cells {
                 let pending = self
                     .pending
                     .get_mut(&cell)
-                    .ok_or(ExecutionError::Invalid("unknown cell producer"))?;
+                    .ok_or(ExecutionError::Uncertain)?;
                 if pending.prepared.proposal() != proposal {
                     return Err(ExecutionError::Invalid("cell producer proposal"));
                 }
@@ -194,7 +194,7 @@ impl Cells {
                 let pending = self
                     .pending
                     .get_mut(&cell)
-                    .ok_or(ExecutionError::Invalid("unknown cell producer"))?;
+                    .ok_or(ExecutionError::Uncertain)?;
                 let receipt = pending.executor.finish(*authority)?;
                 let pending = self
                     .pending
@@ -205,6 +205,29 @@ impl Cells {
                     receipt,
                     _bytes: pending.prepared._bytes,
                 })))
+            }
+            Action::Reconcile(proposal, authority) => {
+                let pending = self
+                    .pending
+                    .get_mut(&cell)
+                    .ok_or(ExecutionError::Uncertain)?;
+                let resolution = pending.executor.reconcile(proposal, *authority)?;
+                let pending = self
+                    .pending
+                    .remove(&cell)
+                    .ok_or(ExecutionError::Invalid("cell producer changed"))?;
+                pending.executor.close()?;
+                let resolution = match resolution {
+                    CellReconciliation::Committed(receipt) => {
+                        CellSqlReconciliation::Committed(Box::new(CellSqlReceipt {
+                            receipt: *receipt,
+                            _bytes: pending.prepared._bytes,
+                        }))
+                    }
+                    CellReconciliation::NotCommitted => CellSqlReconciliation::NotCommitted,
+                    CellReconciliation::Refused(failure) => CellSqlReconciliation::Refused(failure),
+                };
+                Ok(CellSqlOutcome::Reconciled(resolution))
             }
         }
     }

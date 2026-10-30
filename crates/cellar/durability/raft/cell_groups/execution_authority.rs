@@ -25,6 +25,12 @@ pub struct CellExecutionAuthority {
 }
 
 impl CellExecutionAuthority {
+    pub(crate) fn accepts_reconciliation(&self, proof: &CellReconciliationAuthority) -> bool {
+        Arc::ptr_eq(&self.group.owner, &proof.group.owner)
+            && self.route == proof.route
+            && self.leaf.version.history == proof.leaf.version.history
+    }
+
     pub(super) fn new(
         group: GroupLog<GroupHistory>,
         current: &PreparedGroupManifest,
@@ -107,6 +113,82 @@ impl CellExecutionAuthority {
                 .and_then(|pins| pins.get(&key))
                 .is_none_or(|(leaf, _)| leaf != &self.leaf)
             || self.leader_term.load(Ordering::Acquire) != self.term.get()
+        {
+            return Err(RuntimeError::NotReady);
+        }
+        Ok(())
+    }
+}
+
+/// A durable current-term applied cut, including on a follower. This permits
+/// receipt inspection and retirement of older-term producers, never new SQL
+/// execution, a linearizable query, or an S3 acknowledgement.
+pub struct CellReconciliationAuthority {
+    group: GroupLog<GroupHistory>,
+    route: GroupRoute,
+    term: Term,
+    leaf: CellManifestLeaf,
+    image: CellImagePin,
+}
+
+impl CellReconciliationAuthority {
+    pub(super) fn new(
+        group: GroupLog<GroupHistory>,
+        current: &PreparedGroupManifest,
+        cell: &CellHistory,
+    ) -> Result<Self, RuntimeError> {
+        let (leaf, image) = current.pin_cell(&cell.cell).ok_or(RuntimeError::NotFound)?;
+        if &leaf.version.history != cell {
+            return Err(RuntimeError::Invalid("cell reconciliation history".into()));
+        }
+        let proof = Self {
+            group,
+            route: current.marker().route().clone(),
+            term: current.marker().position().term,
+            leaf: leaf.clone(),
+            image,
+        };
+        proof.check()?;
+        Ok(proof)
+    }
+
+    pub(crate) fn belongs_to_engine(&self, owner: &Arc<()>) -> bool {
+        Arc::ptr_eq(&self.group.owner, owner)
+    }
+
+    pub fn term(&self) -> Term {
+        self.term
+    }
+
+    pub fn cell(&self) -> &CellManifestLeaf {
+        &self.leaf
+    }
+
+    pub fn image(&self) -> &CellImagePin {
+        &self.image
+    }
+
+    pub fn check(&self) -> Result<(), RuntimeError> {
+        let cache = self.group.read()?;
+        let current = cache
+            .group_manifest
+            .as_ref()
+            .ok_or(RuntimeError::NotReady)?;
+        let key = cell_routing_key(
+            self.route.history.namespace,
+            &self.leaf.version.history.cell,
+        );
+        if self.term.get() == 0
+            || cache.hard_state.term != self.term.get()
+            || current.position().term != self.term
+            || current.position().index.get() > cache.hard_state.commit
+            || current.route() != &self.route
+            || !cache.membership.permits_group(self.group.identity())
+            || cache
+                .manifest_pins
+                .as_ref()
+                .and_then(|pins| pins.get(&key))
+                .is_none_or(|(leaf, _)| leaf != &self.leaf)
         {
             return Err(RuntimeError::NotReady);
         }

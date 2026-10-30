@@ -10,7 +10,10 @@ use super::receipts;
 mod cell;
 mod command;
 mod images;
-pub use cell::{CellCommittedReceipt, CellPreparedCommand, CellPrivateExecutor, CellStageOutcome};
+pub use cell::{
+    CellCommittedReceipt, CellPreparedCommand, CellPrivateExecutor, CellReconciliation,
+    CellStageOutcome,
+};
 mod rooted_working;
 use crate::application::consensus::{
     command_request_digest, CommittedVersion, EnvelopeLimits, OperationContract, OperationKind,
