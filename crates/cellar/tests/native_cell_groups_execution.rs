@@ -11,6 +11,29 @@ mod fault;
 #[path = "support/cell_group_runtime.rs"]
 mod runtime_fixture;
 
+#[path = "support/cell_group_admission.rs"]
+mod admission_fixture;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn pending_enrollments_respect_group_capacity() -> Result<()> {
+    admission_fixture::capacity().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn proposal_acceptance_retries_do_not_append_twice() -> Result<()> {
+    admission_fixture::mutation_retries().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn inherited_enrollments_count_after_applied_term_barrier() -> Result<()> {
+    admission_fixture::restart_capacity().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn node_runtime_bounds_proposal_acceptance_across_groups() -> Result<()> {
+    runtime_fixture::shared_proposal_budget().await
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn node_runtime_replicates_independent_cells() -> Result<()> {
     runtime_fixture::replicated_cells().await

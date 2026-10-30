@@ -105,6 +105,23 @@ proposal admission. Merely sampling leader status before queueing is insufficien
 including when the original node later regains leadership. The unfenced `propose`
 method remains a low-level protocol verification boundary.
 
+The owner retains a bounded acceptance record for each pending logical cell name.
+An exact proposal retry returns its original position and digest; different bytes
+under that pending identity refuse. Independent proposals for the same pending
+name wait. `max_cells_per_group` counts applied cells plus accepted creations
+before append, so concurrent enrollments cannot overfill the manifest. Existing
+cells still accept mutations at capacity. Mutation admission checks its exact
+base against the selected cell version before entering Raft.
+
+Acceptance records retain a separate node-wide budget of `max_requests` items and
+`max_request_bytes`, charging 4 KiB per record without retaining LTX payloads or
+image pins. This budget cannot block Ready or completion work. Records release
+only after exact durable apply, role/term loss, terminal failure, or owner destruction. A new leader
+cannot admit until its applied current-term barrier covers inherited entries.
+After a record releases, stale mutation bases and existing enrollments return
+`StaleCompletion`: callers must resolve the original receipt or creation record.
+That refusal does not establish that the prior attempt failed.
+
 A committed creation retry returns the immutable enrollment record without opening
 SQLite or rerunning the callback, even after later cell mutations. An enrollment
 state selected from a durable current-term applied root also permits resolution
@@ -115,8 +132,7 @@ their byte charge. Unknown producers remain uncertain. Pool shutdown joins an
 entered initializer even if its waiter and close waiter were both cancelled.
 As with commands, shutdown is not proof that a submitted enrollment failed.
 
-Registered SDK creation/command dispatch, catalog routing integration, configured
-group capacity policy, coherent query serving and
+Registered SDK creation/command dispatch, catalog routing integration, coherent query serving and
 the production hard cutover remain required; the existing host still uses its
 prior single-cell owner. The new pool's callback entry point remains a verification
 boundary. Transport authentication and actual image preparation are also caller

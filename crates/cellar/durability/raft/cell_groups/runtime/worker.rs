@@ -100,6 +100,7 @@ pub(super) struct Worker {
     events: mpsc::Sender<CellGroupRuntimeEvent>,
     outbox: VecDeque<CellGroupRuntimeEvent>,
     output: Arc<Budget>,
+    proposals: Arc<Budget>,
     inflight: Option<BoxFuture<'static, Batch>>,
     inflight_bytes: usize,
     sequence: u64,
@@ -119,6 +120,7 @@ impl Worker {
         Self {
             log,
             output: Budget::new(options.max_event_bytes, options.max_events),
+            proposals: Budget::new(options.max_request_bytes, options.max_requests),
             options,
             domain,
             groups: BTreeMap::new(),
@@ -168,7 +170,7 @@ impl Worker {
                 return;
             }
             let Request {
-                command: Command::Attach(owner),
+                command: Command::Attach(mut owner),
                 reply: answer,
                 _permit,
                 ..
@@ -176,6 +178,9 @@ impl Worker {
             else {
                 unreachable!()
             };
+            // attach constructs a fresh follower; it has no accepted proposals.
+            // All owners retain acceptance against the same node-wide budget.
+            owner.proposal_budget = self.proposals.clone();
             let mut group = Group {
                 owner,
                 queued: false,

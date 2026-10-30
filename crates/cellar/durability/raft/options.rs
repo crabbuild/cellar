@@ -122,6 +122,10 @@ pub struct RaftRuntimeOptions {
     pub max_proposal_bytes: usize,
     pub max_members_per_group: usize,
     pub max_pending_reads: usize,
+    /// Shared-group creation admission counts applied cells and pending accepted
+    /// enrollments. A lower limit does not prevent existing cells from serving.
+    /// max_requests also bounds leader-local pending cell acceptance records.
+    pub max_cells_per_group: u32,
 }
 
 impl Default for RaftRuntimeOptions {
@@ -142,6 +146,7 @@ impl Default for RaftRuntimeOptions {
             max_proposal_bytes: 16 * 1024 * 1024,
             max_members_per_group: 7,
             max_pending_reads: 256,
+            max_cells_per_group: 1_000_000,
         }
     }
 }
@@ -177,6 +182,8 @@ impl RaftRuntimeOptions {
             || self.max_members_per_group > 16
             || self.max_pending_reads == 0
             || self.max_pending_reads > 4096
+            || self.max_cells_per_group == 0
+            || self.max_cells_per_group > 1_000_000
         {
             return Err(super::completion::RuntimeError::Invalid(
                 "invalid runtime bounds".into(),

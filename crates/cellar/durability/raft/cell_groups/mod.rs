@@ -22,6 +22,7 @@ mod owner;
 mod page_store;
 mod page_wire;
 mod pins;
+mod proposal_admission;
 mod retention;
 mod root;
 mod runtime;

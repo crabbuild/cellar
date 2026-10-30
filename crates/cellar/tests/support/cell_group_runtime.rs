@@ -11,14 +11,15 @@ struct RuntimeCluster {
     events: Vec<CellGroupRuntimeEvents>,
     applied: BTreeMap<GroupHistory, Vec<LogIndex>>,
     extra: BTreeMap<GroupHistory, Vec<Voter>>,
+    network: VecDeque<(GroupHistory, Message)>,
 }
 
 impl RuntimeCluster {
     async fn new() -> Result<Self> {
-        Self::with_events(256).await
+        Self::with_limits(256, 256).await
     }
 
-    async fn with_events(max_events: usize) -> Result<Self> {
+    async fn with_limits(max_events: usize, max_requests: usize) -> Result<Self> {
         let mut cluster = Cluster::new().await?;
         let mut runtimes = Vec::new();
         let mut events = Vec::new();
@@ -34,6 +35,7 @@ impl RuntimeCluster {
                     tick_interval_ms: None,
                     election_seed: Some([71; 32]),
                     max_events,
+                    max_requests,
                     ..Default::default()
                 },
             )
@@ -49,6 +51,7 @@ impl RuntimeCluster {
             events,
             applied,
             extra: BTreeMap::new(),
+            network: VecDeque::new(),
         })
     }
 
@@ -58,7 +61,6 @@ impl RuntimeCluster {
         held: &mut BTreeMap<GroupHistory, CellGroupApply>,
     ) -> Result<()> {
         let primary = self.cluster.birth.route().history;
-        let mut messages = Vec::new();
         for n in 0..3 {
             for _ in 0..64 {
                 let Ok(event) = self.events[n].try_recv() else {
@@ -66,7 +68,9 @@ impl RuntimeCluster {
                 };
                 let scope = event.group();
                 match event.effect().map_err(|e| anyhow::anyhow!(e.to_string()))? {
-                    CellGroupEffect::Message(message) => messages.push((scope, message.clone())),
+                    CellGroupEffect::Message(message) => {
+                        self.network.push_back((scope, message.clone()))
+                    }
                     CellGroupEffect::Apply(_) => {
                         let work = event.retain_apply().context("retained apply")?;
                         if n == 0 && hold.contains(&scope) {
@@ -90,13 +94,27 @@ impl RuntimeCluster {
                 }
             }
         }
-        for result in
-            futures_util::future::join_all(messages.into_iter().map(|(scope, message)| {
-                self.runtimes[message.to as usize - 1].admit_step(scope, message)
-            }))
-            .await
+        let messages = std::mem::take(&mut self.network);
+        let runtimes = &self.runtimes;
+        for (scope, message, result) in futures_util::future::join_all(messages.into_iter().map(
+            |(scope, message)| async move {
+                let result = runtimes[message.to as usize - 1]
+                    .admit_step(scope, message.clone())
+                    .await;
+                (scope, message, result)
+            },
+        ))
+        .await
         {
-            result?;
+            match result {
+                Ok(()) => (),
+                // Preserve the peer frame until bounded transport admission is
+                // available. Test deadlines still fail a permanently stuck peer.
+                Err(RuntimeError::Overloaded | RuntimeError::NotReady) => {
+                    self.network.push_back((scope, message))
+                }
+                Err(error) => return Err(error.into()),
+            }
         }
         Ok(())
     }
@@ -354,8 +372,68 @@ pub(super) async fn shared_batches() -> Result<()> {
     fixture.close().await
 }
 
+pub(super) async fn shared_proposal_budget() -> Result<()> {
+    let mut fixture = RuntimeCluster::with_limits(256, 8).await?;
+    let first = fixture.cluster.birth.route().history;
+    let second = fixture.add_group(61).await?;
+    for scope in [first, second] {
+        fixture.runtimes[0].campaign(scope).await?;
+        fixture.settle(&[scope]).await?;
+    }
+    let route = fixture.cluster.birth.route().clone();
+    let other_route = fixture.extra[&second][0]
+        .log
+        .cell_group(&second)?
+        .group_manifest()?
+        .context("other group")?
+        .route()
+        .clone();
+    let bytes = images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES (1);")?;
+    let cut = images::Cut::new(&[], &bytes, 0, true, false);
+    let mut first_request = None;
+    let mut target = LogIndex::new(0);
+    for n in 0..8 {
+        let data = request(&route, history(&route, &format!("budget-{n}"))?, 1, &cut)?;
+        let accepted = fixture.runtimes[0].propose(first, data.clone()).await?;
+        if n == 0 {
+            first_request = Some((data, accepted.clone()));
+        }
+        target = accepted.position.index;
+    }
+    let other = request(&other_route, history(&other_route, "other-group")?, 1, &cut)?;
+    assert!(matches!(
+        fixture.runtimes[0].propose(second, other.clone()).await,
+        Err(RuntimeError::Overloaded)
+    ));
+    let (data, accepted) = first_request.context("first acceptance")?;
+    let retry = fixture.runtimes[0].propose(first, data).await?;
+    assert_eq!(accepted.position, retry.position);
+    assert_eq!(accepted.digest, retry.digest);
+    tokio::time::timeout(Duration::from_secs(20), async {
+        while fixture.applied[&first].iter().any(|index| *index < target) {
+            fixture.pump(&[], &mut BTreeMap::new()).await?;
+            tokio::task::yield_now().await;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await??;
+    let accepted = fixture.runtimes[0].propose(second, other).await?;
+    tokio::time::timeout(Duration::from_secs(20), async {
+        while fixture.applied[&second]
+            .iter()
+            .any(|index| *index < accepted.position.index)
+        {
+            fixture.pump(&[], &mut BTreeMap::new()).await?;
+            tokio::task::yield_now().await;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await??;
+    fixture.close().await
+}
+
 pub(super) async fn bounded_apply_completion() -> Result<()> {
-    let mut fixture = RuntimeCluster::with_events(2).await?;
+    let mut fixture = RuntimeCluster::with_limits(2, 256).await?;
     let first = fixture.cluster.birth.route().history;
     let second = fixture.add_group(51).await?;
     let histories = [first, second];

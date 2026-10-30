@@ -162,6 +162,8 @@ pub struct CellGroupOwner {
     next_ticket: u64,
     last_sync: u64,
     failed: Option<RuntimeError>,
+    proposals: super::proposal_admission::ProposalAdmission,
+    pub(super) proposal_budget: Arc<crate::raft::budget::Budget>,
 }
 
 impl CellGroupOwner {
@@ -231,6 +233,10 @@ impl CellGroupOwner {
             group,
             node,
             current,
+            proposal_budget: crate::raft::budget::Budget::new(
+                options.max_request_bytes,
+                options.max_requests,
+            ),
             options,
             phase: None,
             waiting: None,
@@ -241,20 +247,24 @@ impl CellGroupOwner {
             next_ticket: 0,
             last_sync: 0,
             failed: None,
+            proposals: Default::default(),
         })
     }
 
-    pub(super) fn revoke_execution(&self) {
+    pub(super) fn revoke_execution(&mut self) {
         self.leader_term.store(0, Ordering::Release);
+        self.proposals.clear();
     }
 
-    fn refresh_execution_fence(&self) {
+    fn refresh_execution_fence(&mut self) {
         let term = if self.node.raft.state == StateRole::Leader {
             self.node.raft.term
         } else {
             0
         };
-        self.leader_term.store(term, Ordering::Release);
+        if self.leader_term.swap(term, Ordering::AcqRel) != term {
+            self.proposals.clear();
+        }
     }
 
     pub fn execution_authority(
@@ -377,14 +387,18 @@ impl CellGroupOwner {
             GroupEntryLimits::default(),
         )
         .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
-        if !matches!(
-            entry.command,
-            GroupCommand::Enroll { .. } | GroupCommand::Mutation(_)
-        ) {
-            return Err(RuntimeError::Invalid(
-                "group administration is not attached".into(),
-            ));
-        }
+        let admission = self.proposals.check(
+            &entry,
+            &data,
+            &self.current,
+            self.options.max_cells_per_group,
+            self.options.max_requests,
+            &self.proposal_budget,
+        )?;
+        let (candidate, permit) = match admission {
+            super::proposal_admission::Admission::Existing(accepted) => return Ok(accepted),
+            super::proposal_admission::Admission::New(candidate, permit) => (candidate, permit),
+        };
         let before = self.node.raft.raft_log.last_index();
         self.node.propose(Vec::new(), data)?;
         let entry = self
@@ -397,11 +411,13 @@ impl CellGroupOwner {
         if entry.index != before + 1 {
             return Err(RuntimeError::NotReady);
         }
-        Ok(CellGroupProposal {
+        let accepted = CellGroupProposal {
             group: self.group.identity().scope,
             position: entry_position(entry),
             digest: entry_digest(entry)?,
-        })
+        };
+        self.proposals.accept(candidate, accepted.clone(), permit);
+        Ok(accepted)
     }
 
     /// Check the SQL preparation fence on the actual RawNode owner in the same
@@ -729,6 +745,7 @@ impl CellGroupOwner {
                     self.apply_bytes -= entry.compute_size() as usize + 128;
                     self.applying = None;
                     self.current = *next;
+                    self.proposals.applied(ticket.position);
                     // Physical preparation and publication have settled. Its
                     // reservation must not deadlock admission of Applied.
                     ticket.admission = None;
