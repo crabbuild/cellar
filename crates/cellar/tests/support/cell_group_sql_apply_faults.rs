@@ -6,7 +6,7 @@ use std::sync::atomic::Ordering;
 
 #[path = "raft_ltx_fault.rs"]
 #[allow(dead_code)]
-mod physical;
+pub(super) mod physical;
 
 async fn pending(
     rooted: bool,

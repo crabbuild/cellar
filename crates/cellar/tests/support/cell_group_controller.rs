@@ -1,10 +1,8 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! No fixture event pumping after the production controllers start.
+use super::apply_faults::physical;
 use super::*;
-#[path = "raft_ltx_fault.rs"]
-#[allow(dead_code)]
-mod physical;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Mutex,
