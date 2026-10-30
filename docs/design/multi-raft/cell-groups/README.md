@@ -203,6 +203,15 @@ cases and eleven commands; transfer
 4 executables). Bounded destination caching, write-authorized RPC and public-host
 automatic discovery/SDK binding remain open. CG-04 remains IN_PROGRESS.
 
+At `06652e36`, dispatcher clones share bounded range hints across reads, commands
+and enrollment. Verified head changes invalidate hints; superseded lookups cannot
+refill them. Three catalog cases and a both-image runtime case qualify eviction,
+metadata-read reduction and catalog-outage behavior without weakening destination
+admission. The partial gate passes 202 Rust cases and eleven commands; transfer
+`.cellar/cell-groups-evidence/CG-04-dispatch-route-cache-final/` (265 source inputs,
+4 executables). Write-authorized RPC and safe receipt lookup are next; removing
+destination catalog reads requires replicated transfer seals. CG-04 stays IN_PROGRESS.
+
 The implementation executor should deliver code, updated component contracts and
 the required retained evidence for each task on the active PR. The final handoff
 requires CG-16 and the release gate, including the real RustFS and independent

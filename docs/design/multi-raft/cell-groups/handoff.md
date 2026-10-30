@@ -15,7 +15,21 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The newest reviewed source baseline is `c25f0d97`, adding explicit nonmember
+The newest reviewed source baseline is `06652e36`, adding bounded range hints
+shared across query, command and enrollment invocations. Entry/byte reservations,
+LRU eviction and verified head invalidation bound retention; a superseded in-flight
+lookup cannot refill the cache. Three catalog cases measure real metadata reads;
+a native case runs both image modes during a catalog outage, retaining local
+quorum authority and fresh remote admission. The record is
+`.cellar/cell-groups-evidence/CG-04-dispatch-route-cache-final/checkpoint.json`: 202 Rust
+cases, eleven commands, 265 source inputs and 4 executables. Transfer this
+directory with prior evidence. CG-04 remains IN_PROGRESS. Next implement explicit
+write-authorized command/enrollment RPC and safe receipt lookup, reusing existing
+controller ownership. Destination cache removal depends on replicated transfer
+seals/admission invalidation; stale hints must not grant serving authority.
+Public-host discovery/SDK binding, dynamic roster, per-group failure isolation,
+configuration lifecycle and shared RustFS/load qualification remain incomplete.
+The preceding reviewed source baseline is `c25f0d97`, adding explicit nonmember
 read discovery on the shared query lane. Discovery allocates no local replica or
 voting identity; namespace/process grants remain independent. New TLS fixtures
 cover both image modes, foreign/missing grants, original-budget leader retries,
@@ -458,8 +472,10 @@ Do not let plan maintenance replace implementation.
    physical group/logical cell binding and host-owned gateway registration.
    Explicit nonmember shared discovery and real-TLS grant revocation now pass
    scoped tests; public-host automatic discovery/SDK binding remain pending.
-   Replace the gateway's per-RPC catalog lookup with bounded,
-   correctly invalidated routing state before claiming steady-state performance.
+   Bounded invocation range caching now passes metadata-read and real-runtime
+   cases. The destination retains per-RPC catalog admission: removing that read
+   requires replicated transfer seals and serving-admission invalidation, linked
+   to CG-09. Do not substitute a TTL or cached hint for that authority contract.
    Keep query-origin grants read-only; command/enrollment RPC needs explicit write
    authorization, response-independent producers and safe remote receipt lookup.
    The old host refuses registered initializers until its actual replacement;

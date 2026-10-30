@@ -441,7 +441,9 @@
         "crates/cellar/application/consensus/",
         "crates/cellar-logic/",
         "crates/cellar-ltx/src/generation.rs",
-        "crates/cellar-ltx/tests/private_clone.rs"
+        "crates/cellar-ltx/tests/private_clone.rs",
+        "crates/cellar/tests/native_cell_groups_catalog.rs",
+        "crates/cellar/tests/support/cell_group_directory.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/cell_groups/owner.rs",
@@ -508,7 +510,10 @@
         "crates/cellar/durability/raft/query_cell_wire.rs",
         "crates/cellar/tests/support/cell_group_remote_queries.rs",
         "crates/cellar/durability/raft/query_cell_discovery.rs",
-        "crates/cellar/tests/support/cell_group_query_origins.rs"
+        "crates/cellar/tests/support/cell_group_query_origins.rs",
+        "crates/cellar/durability/raft/cell_groups/directory/route_cache.rs",
+        "crates/cellar/tests/support/cell_group_routing_cache.rs",
+        "crates/cellar/tests/support/cell_group_dispatch_cache_execution.rs"
       ],
       "test_target": "native_cell_groups_execution",
       "steps": [
@@ -646,6 +651,12 @@
             "shared_nonmember_queries_require_grants_without_local_replicas",
             "shared_nonmember_query_revocation_retains_physical_sql",
             "shared_nonmember_query_route_replacement_refuses_stale_reply"
+          ]
+        },
+        {
+          "action": "Share bounded namespace range hints across query, command and enrollment invocations, with explicit entry/byte reservations and LRU eviction. Cache ranges rather than cells; a failed metadata refresh does not invent a new serving proof. Verified successor heads invalidate prior hints and older in-flight observations cannot refill them. Preserve fresh destination RPC admission until replicated transfer-seal authority is integrated. Run the full native_cell_groups_catalog suite, including dispatcher_route_cache_shares_ranges_across_operations, dispatcher_route_cache_bounds_and_refreshes_hints and dispatcher_route_cache_refuses_superseded_inflight_refill, alongside the real runtime case below. Cached mappings never replace runtime ownership, exact cell/version checks, current-term quorum or producer ownership.",
+          "tests": [
+            "shared_cached_dispatch_preserves_authority_during_catalog_outage"
           ]
         }
       ],
@@ -1224,6 +1235,15 @@
         {
           "name": "shared_nonmember_query_route_replacement_refuses_stale_reply",
           "oracle": "Replace the router discovery revision while remote SQL is held, in both image modes. The complete authenticated reply under the captured old route is refused as stale. A new attempt under the replacement succeeds, without leaking invocation/transport ownership or creating a router replica.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_cached_dispatch_preserves_authority_during_catalog_outage",
+          "oracle": "Warm one range hint, remove the actual catalog head, then query another cell, commit a command and enroll a new cell through real controller/SQL/TLS owners in both image modes without fresh mapping reads. Cache occupancy stays one range. Strong local reads still use real quorum. Explicit refresh fails; remote gateway admission remains fresh and refuses while the catalog head is absent. Restore metadata and join every owner.",
           "invariants": [
             "I01",
             "I05",

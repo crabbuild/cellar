@@ -108,9 +108,20 @@ group's newer log cut. The caller independently enforces an AtLeast minimum.
 Retain result admission until consumption, and retain entered SQL/image owners
 through physical cleanup after disconnect, timeout or cancelled shutdown.
 
+Invocation routing shares a bounded namespace range-hint cache across query,
+command and enrollment dispatch. Configure both entry and reserved-byte bounds;
+clones share the same cache, and cell count does not allocate one entry per cell.
+Hints are learned only from verified directory lookups. An observed successor
+head clears older hints; a lookup completing from an older head cannot refill
+that cache. Same-revision/different-digest observations refuse. Explicit refresh
+runs in the owning execution domain; failed refresh preserves only historical
+hints, never a freshness or serving claim. Redirects still require exact catalog
+confirmation under the original deadline and attempt budget.
+
 The current shared gateway resolves the destination catalog route for each RPC.
-Bounded routing-cache integration remains a CG-04 performance requirement; this
-intermediate behavior does not establish steady-state request cost or latency.
+Removing that destination read depends on replicated transfer sealing and
+admission invalidation. The invocation cache does not relax the current check;
+this intermediate behavior does not establish steady-state request latency.
 Attached-peer and explicitly discovered nonmember reads share the same query
 lane. Nonmember discovery creates no local replica and grants no voting or write
 authority. It consumes the same bounded route/peer registries, participates in

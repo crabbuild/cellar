@@ -10,6 +10,52 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 bounded invocation route cache
+
+Qualified source: `06652e36869144624e0ca4d860782ef512018791`.
+
+`CellGroupDispatcher` clones now share bounded namespace range hints across query,
+command and enrollment invocations. One cached range serves many cells; no
+per-cell cache, worker or Raft owner is allocated by routing. Explicit entry and
+reserved-byte limits bound retention, with LRU eviction. The conservative 8 KiB
+reservation per slot remains charged even while the slot is empty.
+
+Hints come only from a verified directory lookup. `refresh_routes` observes the
+catalog in the owning execution domain; a newer head invalidates older hints.
+An older in-flight lookup cannot refill the cache after that observation, and a
+same-revision/different-digest observation refuses. Failed refresh retains only
+historical hints. Redirect confirmation, original deadlines, attempt budgets,
+exact cell identities and submitted-command ambiguity remain enforced.
+
+Three catalog cases disable page caching and measure actual object-store calls.
+After warming one range, 64 other cells and a command route with zero metadata
+reads. Byte-limited LRU eviction, successor-head invalidation and a deliberately
+held stale lookup pass. A fourth native case runs both physical image modes over
+real TLS quorum owners: after removing the catalog head, local reads, a command
+and enrollment succeed using the hint plus actual runtime authority. Remote
+admission refuses because the destination still requires a fresh catalog check.
+The fixture restores metadata and joins all physical owners.
+
+All 202 selected Rust cases and eleven gate commands pass, including all-target
+Clippy, formatting, layout, native dependency isolation, docs, source preflight and
+37 plan-validator cases. The source-bound record at
+`.cellar/cell-groups-evidence/CG-04-dispatch-route-cache-final/checkpoint.json` binds
+265 source inputs and 4 copied executables. Transfer the complete directory
+with previous checkpoints, including the initial `CG-04-dispatch-route-cache`
+Clippy failure. That fixture called Tokio timeout directly; the successor uses
+the execution-domain timeout without changing assertions or production behavior.
+Targeted diagnostic logs are retained separately.
+
+CG-04 remains IN_PROGRESS. This removes repeat caller-side mapping reads; it does
+not remove destination catalog admission or establish end-to-end latency gains.
+Destination caching needs replicated transfer sealing and admission invalidation,
+not a timeout that treats a stale hint as permission. The next critical delivery
+is write-authorized command/enrollment RPC with response-independent producer
+ownership and safe receipt lookup. Public-host discovery/SDK binding, lazy birth,
+dynamic roster, per-group failure isolation and configuration lifecycle remain.
+Complete-group snapshots/archive, shared RustFS recovery, independent-process
+failures, power loss and load remain unqualified.
+
 ## CG-04 nonmember read discovery
 
 Qualified source: `c25f0d97d5c98c6111ea2165b38a11a08613c0ca`.
