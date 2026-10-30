@@ -2,8 +2,9 @@
 
 # Cell-group implementation handoff
 
-The executable plan is delivered; the active goal now resumes its end-to-end
-implementation and hard cutover. This handoff does not claim completion of the
+This delivery is the executable design and implementation plan requested by the
+user. End-to-end implementation and hard cutover remain the executor's work.
+This handoff does not claim completion of the
 shared runtime, a production cutover or measured TiKV
 performance parity. The target is the same partitioned multi-Raft pattern: many
 whole cells per group, one Raft machine per group replica, and many groups sharing
@@ -16,8 +17,14 @@ Use branch `codex/shared-cell-groups` and the existing
 The physical owner implementation and reviewed source baseline are at
 `51e30eabde1ca76bf0b23963dd06d0e8130f8ee7`; see the latest checkpoint in
 [progress](progress.md) for qualification and remaining work.
-Fetched `origin/main` at `1be27d234d4674d4d014785c60cecbfe394bdab9` is already
-included. Recheck origin before publishing later implementation changes.
+The branch includes `1be27d234d4674d4d014785c60cecbfe394bdab9`. The latest fetch
+found `origin/main` at `8a93ffd7` (documentation consolidation, PR 161), which is
+not yet integrated. It moves the existing plan documentation into `docs/design/`.
+Before resuming implementation, reconcile those moves with this branch's added
+cell-group package, its relative links, generated index, validator paths and
+source anchors. Preserve the branch's implementation and retained evidence;
+do not replace its files with the main-branch tree. Run documentation and package
+validation after integration and record the resulting reviewed revision.
 
 The [TiKV investigation](../density-decision.md) pins the supplied checkout at
 `b3995dab28308f09cbb7c125bf32f789dbc203fe`. Follow its Region ownership and shared
@@ -29,6 +36,26 @@ Read [design](design.md), [protocols](protocols.md),
 [qualification](qualification.md). `tasks.json` is the source for task ownership,
 dependencies, steps, exact tests and acceptance oracles. `profiles.json` freezes
 candidate workload and performance gates; those numbers are targets, not results.
+
+## Working draft at plan delivery
+
+The checkout also contains an uncommitted CG-04 node-runtime draft in
+`crates/cellar/durability/raft/cell_groups/runtime/`, owner scheduling changes,
+shared shutdown completion in `crates/cellar/durability/raft/runtime.rs`, and
+native tests in `crates/cellar/tests/support/cell_group_runtime.rs` and
+`crates/cellar/tests/native_cell_groups_execution.rs`. These files are not part
+of the source-bound physical-owner checkpoint. Preserve and review the whole
+diff, including untracked files, before continuing it. A fresh checkout of the
+PR does not contain this working draft.
+
+Package validation passes with 16 tasks, 86 required cases, 14 invariants and
+nine qualification profiles. All 37 validator tests pass against a clean export
+of committed revision `55317523ebcb34c82e9f80ad1030f9282d1997a6`. In the working
+checkout, preflight and its corresponding unit test correctly refuse the changed
+`runtime.rs`; the other 36 validator tests pass. Do not refresh its hash merely
+to remove that refusal. Review and qualify the runtime draft, commit its source,
+then update the baseline with that revision and reviewed excerpts. Neither these
+plan checks nor the draft's intermediate test runs complete CG-04.
 
 ## First executor session
 
