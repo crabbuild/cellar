@@ -178,7 +178,19 @@ impl Cluster {
     }
 
     async fn with_options(options: RaftRuntimeOptions) -> Result<Self> {
-        let root = tempfile::tempdir()?;
+        Box::pin(Self::with_storage(
+            options,
+            tempfile::tempdir()?,
+            Arc::new(DirectFileSystem),
+        ))
+        .await
+    }
+
+    async fn with_storage(
+        options: RaftRuntimeOptions,
+        root: tempfile::TempDir,
+        filesystem: Arc<dyn cellar_ltx::FileSystem>,
+    ) -> Result<Self> {
         let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         let history = GroupHistory {
             cluster: ClusterId::new([1; 16])?,
@@ -243,7 +255,7 @@ impl Cluster {
             let tree = ManifestTree::new(birth.route().clone(), ManifestLimits::default())?;
             let mut pages = ManifestPageStore::open(
                 &base.join("pages"),
-                Arc::new(DirectFileSystem),
+                filesystem.clone(),
                 1024,
                 16 * 1024 * 1024,
                 16,
@@ -265,11 +277,8 @@ impl Cluster {
                     [n; 32],
                 ))
                 .await??;
-            let images = GenerationStore::open(
-                base.join("images"),
-                Arc::new(DirectFileSystem),
-                Default::default(),
-            )?;
+            let images =
+                GenerationStore::open(base.join("images"), filesystem.clone(), Default::default())?;
             voters.push(Voter {
                 log,
                 owner: Some(owner),
@@ -1248,4 +1257,34 @@ async fn shared_workers_prepare_committed_cell_images() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn rooted_shared_workers_prepare_committed_cell_images() -> Result<()> {
     runtime_fixture::apply_images(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_apply_cancelled_close_joins_preparation() -> Result<()> {
+    runtime_fixture::apply_cancellation(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_shared_apply_cancelled_close_joins_preparation() -> Result<()> {
+    runtime_fixture::apply_cancellation(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_apply_sync_failure_preserves_selected_root() -> Result<()> {
+    runtime_fixture::apply_failure(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_shared_apply_sync_failure_preserves_selected_root() -> Result<()> {
+    runtime_fixture::apply_failure(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_apply_recovers_selected_images_before_replay() -> Result<()> {
+    runtime_fixture::recover_apply(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_shared_apply_recovers_selected_images_before_replay() -> Result<()> {
+    runtime_fixture::recover_apply(true).await
 }

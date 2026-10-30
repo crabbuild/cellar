@@ -3,7 +3,7 @@
 //! The production image adapter, exercised with actual committed three-voter work.
 use super::*;
 
-fn pool(fixture: &RuntimeCluster, node: usize) -> Result<CellGroupSqlPool> {
+pub(super) fn pool(fixture: &RuntimeCluster, node: usize) -> Result<CellGroupSqlPool> {
     Ok(CellGroupSqlPool::start(
         &fixture.cluster.voters[node].log,
         CellSqlLimits {
@@ -17,51 +17,55 @@ fn pool(fixture: &RuntimeCluster, node: usize) -> Result<CellGroupSqlPool> {
     )?)
 }
 
-pub(crate) async fn apply_images(rooted: bool) -> Result<()> {
-    let (mut fixture, route, a, b) = enrolled_sql_cells(rooted).await?;
-    for node in 0..3 {
-        let config = match fixture.cell_options_at(&a, node).await? {
-            CellSqlOptions::Materialized(o) => CellGroupApplyImages::Materialized {
-                images: o.images,
-                services: o.query_services,
-            },
-            CellSqlOptions::Extents(o) => CellGroupApplyImages::Extents {
-                images: o.images,
-                services: o.query_services,
-                limits: Default::default(),
-                cache_directory: o.cache_directory,
-                cache_pool: o.cache_pool,
-                cache: o.cache,
-            },
-        };
-        let pool = pool(&fixture, node)?;
-        let voter = &mut fixture.cluster.voters[node];
-        let applier = CellGroupApplier::new(
-            voter.log.cell_group(&route.history)?,
-            voter.pages.take().context("page owner")?,
-            config,
-            ManifestLimits::default(),
-            GroupEntryLimits::default(),
-            100,
-        )?;
-        fixture
-            .appliers
-            .insert((node, route.history), (pool, applier));
-    }
-    let (pool, applier) = fixture.appliers[&(0, route.history)].clone();
-    let foreign = fixture.appliers[&(1, route.history)].0.clone();
+pub(super) async fn install(
+    fixture: &mut RuntimeCluster,
+    cell: &CellHistory,
+    node: usize,
+) -> Result<()> {
+    let route = fixture.cluster.birth.route().clone();
+    let config = match fixture.cell_options_at(cell, node).await? {
+        CellSqlOptions::Materialized(o) => CellGroupApplyImages::Materialized {
+            images: o.images,
+            services: o.query_services,
+        },
+        CellSqlOptions::Extents(o) => CellGroupApplyImages::Extents {
+            images: o.images,
+            services: o.query_services,
+            limits: Default::default(),
+            cache_directory: o.cache_directory,
+            cache_pool: o.cache_pool,
+            cache: o.cache,
+        },
+    };
+    let pool = pool(fixture, node)?;
+    let voter = &mut fixture.cluster.voters[node];
+    let applier = CellGroupApplier::new(
+        voter.log.cell_group(&route.history)?,
+        voter.pages.take().context("page owner")?,
+        config,
+        ManifestLimits::default(),
+        GroupEntryLimits::default(),
+        100,
+    )?;
+    fixture
+        .appliers
+        .insert((node, route.history), (pool, applier));
+    Ok(())
+}
 
-    // Enroll through the production adapter on all voters, including scheduling
-    // summaries derived from real SQLite state rather than fixture defaults.
-    let cell = history(&route, "effects")?;
-    let bytes = images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES(7); CREATE TABLE __sys_raft_alarms(due); INSERT INTO __sys_raft_alarms VALUES(90),(30); CREATE TABLE __sys_raft_outbox(next_at); INSERT INTO __sys_raft_outbox VALUES(80),(40);")?;
-    let cut = images::Cut::new(&[], &bytes, 0, true, false);
-    let encoded = request(&route, cell.clone(), 1, &cut)?;
-    let mut entry = CellGroupEntry::decode(&encoded, &route, GroupEntryLimits::default())?;
+pub(super) fn enrollment_bytes(
+    route: &GroupRoute,
+    cell: &CellHistory,
+    bytes: &[u8],
+    rooted: bool,
+) -> Result<Vec<u8>> {
+    let cut = images::Cut::new(&[], bytes, 0, true, false);
+    let encoded = request(route, cell.clone(), 1, &cut)?;
+    let mut entry = CellGroupEntry::decode(&encoded, route, GroupEntryLimits::default())?;
     if rooted {
         let manifest = ExtentManifest::new(
             ImageBinding {
-                history: cell_image_history_digest(&cell),
+                history: cell_image_history_digest(cell),
                 schema: route.schema_digest,
                 epoch: cut.result.epoch,
                 txid: cut.result.txid.0,
@@ -81,12 +85,23 @@ pub(crate) async fn apply_images(rooted: bool) -> Result<()> {
             manifest.encode()?.len().try_into()?,
         )?);
     }
-    let accepted = fixture.runtimes[0]
-        .propose(
-            route.history,
-            entry.encode(&route, GroupEntryLimits::default())?,
-        )
-        .await?;
+    Ok(entry.encode(route, GroupEntryLimits::default())?)
+}
+
+pub(crate) async fn apply_images(rooted: bool) -> Result<()> {
+    let (mut fixture, route, a, b) = enrolled_sql_cells(rooted).await?;
+    for node in 0..3 {
+        install(&mut fixture, &a, node).await?;
+    }
+    let (pool, applier) = fixture.appliers[&(0, route.history)].clone();
+    let foreign = fixture.appliers[&(1, route.history)].0.clone();
+
+    // Enroll through the production adapter on all voters, including scheduling
+    // summaries derived from real SQLite state rather than fixture defaults.
+    let cell = history(&route, "effects")?;
+    let bytes = images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES(7); CREATE TABLE __sys_raft_alarms(due); INSERT INTO __sys_raft_alarms VALUES(90),(30); CREATE TABLE __sys_raft_outbox(next_at); INSERT INTO __sys_raft_outbox VALUES(80),(40);")?;
+    let encoded = enrollment_bytes(&route, &cell, &bytes, rooted)?;
+    let accepted = fixture.runtimes[0].propose(route.history, encoded).await?;
     fixture.drive(Some(accepted.position.index)).await?;
     for runtime in &fixture.runtimes {
         let state = runtime

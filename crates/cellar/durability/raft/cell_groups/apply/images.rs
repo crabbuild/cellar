@@ -131,15 +131,6 @@ impl CellGroupApplyImages {
                     Some(CellImagePin::Empty) | None => None,
                     _ => return Err(ExecutionError::Invalid("materialized apply base")),
                 };
-                let mut id = Sha256::new();
-                id.update(b"cellar-cell-apply-image-1\0");
-                id.update(cell_image_history_digest(cell));
-                for value in [sequence, image.epoch, image.txid, image.checksum] {
-                    id.update(value.to_be_bytes());
-                }
-                id.update(digest);
-                let bytes: [u8; 32] = id.finalize().into();
-                let id = ImageId::new(bytes[..16].try_into().map_err(storage)?).map_err(storage)?;
                 let update = ImageUpdate {
                     base: match base {
                         Some(pin) => pin.state(),
@@ -155,6 +146,7 @@ impl CellGroupApplyImages {
                     },
                     segments,
                 };
+                let id = image_id(cell, sequence, update.result)?;
                 CellImagePin::Materialized(match images.prepare(id, base, &update) {
                     Ok(pin) => pin,
                     Err(cellar_ltx::generation::GenerationError::Exists) => {
@@ -257,4 +249,22 @@ impl CellGroupApplyImages {
             effects,
         })
     }
+}
+
+// Names are physical lookup hints. The selected manifest and exact image state
+// still have to verify; a filename never supplies publication authority.
+pub(super) fn image_id(
+    cell: &CellHistory,
+    sequence: u64,
+    image: ImageState,
+) -> Result<ImageId, ExecutionError> {
+    let mut id = Sha256::new();
+    id.update(b"cellar-cell-apply-image-1\0");
+    id.update(cell_image_history_digest(cell));
+    for value in [sequence, image.epoch, image.txid.0, image.checksum] {
+        id.update(value.to_be_bytes());
+    }
+    id.update(image.digest);
+    let bytes: [u8; 32] = id.finalize().into();
+    ImageId::new(bytes[..16].try_into().map_err(storage)?).map_err(storage)
 }

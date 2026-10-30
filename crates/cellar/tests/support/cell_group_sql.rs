@@ -151,13 +151,25 @@ impl RuntimeCluster {
 async fn enrolled_sql_cells(
     rooted: bool,
 ) -> Result<(RuntimeCluster, GroupRoute, CellHistory, CellHistory)> {
-    let mut fixture = RuntimeCluster::new().await?;
+    Box::pin(enroll_sql_cells(
+        RuntimeCluster::new().await?,
+        rooted,
+        Arc::new(DirectFileSystem),
+    ))
+    .await
+}
+
+async fn enroll_sql_cells(
+    mut fixture: RuntimeCluster,
+    rooted: bool,
+    filesystem: Arc<dyn cellar_ltx::FileSystem>,
+) -> Result<(RuntimeCluster, GroupRoute, CellHistory, CellHistory)> {
     let route = fixture.cluster.birth.route().clone();
     if rooted {
         for (n, voter) in fixture.cluster.voters.iter_mut().enumerate() {
             voter.extents = Some(NodeExtentStore::open(
                 fixture.cluster._root.path().join(format!("rooted-{n}")),
-                Arc::new(DirectFileSystem),
+                filesystem.clone(),
                 Default::default(),
             )?);
         }
@@ -489,3 +501,11 @@ pub(crate) use reads::{coherent as coherent_reads, lifecycle as query_lifecycle}
 #[path = "cell_group_sql_apply.rs"]
 mod apply;
 pub(crate) use apply::apply_images;
+
+#[path = "cell_group_sql_apply_faults.rs"]
+mod apply_faults;
+pub(crate) use apply_faults::{cancellation as apply_cancellation, failure as apply_failure};
+
+#[path = "cell_group_sql_apply_recovery.rs"]
+mod apply_recovery;
+pub(crate) use apply_recovery::recover as recover_apply;

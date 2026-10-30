@@ -476,7 +476,10 @@
         "crates/cellar/durability/raft/cell_groups/apply/summary.rs",
         "crates/cellar/durability/raft/cell_groups/apply/summary_tests.rs",
         "crates/cellar/durability/raft/host_sql/cell_groups/apply.rs",
-        "crates/cellar/tests/support/cell_group_sql_apply.rs"
+        "crates/cellar/tests/support/cell_group_sql_apply.rs",
+        "crates/cellar/durability/raft/cell_groups/apply/recovery.rs",
+        "crates/cellar/tests/support/cell_group_sql_apply_faults.rs",
+        "crates/cellar/tests/support/cell_group_sql_apply_recovery.rs"
       ],
       "test_target": "native_cell_groups_execution",
       "steps": [
@@ -520,6 +523,17 @@
           "tests": [
             "shared_workers_prepare_committed_cell_images",
             "rooted_shared_workers_prepare_committed_cell_images"
+          ]
+        },
+        {
+          "action": "Qualify image and manifest I/O ownership at actual held/failing directory barriers. Recover complete cell-group images through the same stable physical naming and verified extent bindings used by apply; accept only the engine-selected root and retain its exact cell versions/witnesses. Cold restart may replay a committed unpublished entry but never substitutes selected files or inherited commit state for fresh serving authority. Missing closure refuses before owner admission. Keep whole-process kill/power-loss qualification distinct from joined cold restart.",
+          "tests": [
+            "shared_apply_cancelled_close_joins_preparation",
+            "rooted_shared_apply_cancelled_close_joins_preparation",
+            "shared_apply_sync_failure_preserves_selected_root",
+            "rooted_shared_apply_sync_failure_preserves_selected_root",
+            "shared_apply_recovers_selected_images_before_replay",
+            "rooted_shared_apply_recovers_selected_images_before_replay"
           ]
         }
       ],
@@ -668,6 +682,66 @@
         {
           "name": "rooted_shared_workers_prepare_committed_cell_images",
           "oracle": "The existing fixed SQL workers prepare committed enrollment and mutation images on all three voters. Wrong engines and forged entries refuse; exact duplicate preparations yield the same manifest; stale bases refuse after publication. Business admission saturation does not prevent apply. Derived scheduling hints match actual SQLite state. Preparation leaves the old root selected, and its independent reservation survives clones and blocked physical publication until the owner completion is consumed.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_apply_cancelled_close_joins_preparation",
+          "oracle": "Hold actual image and manifest directory barriers separately. Cancel the apply receiver and a close waiter; entered work, bytes, progress slot and exclusive SQL lease remain retained until release. Joined close refunds the reservations without publishing; a fresh pool repeats exact preparation and the real Raft owner publishes it.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_shared_apply_cancelled_close_joins_preparation",
+          "oracle": "Hold actual image and manifest directory barriers separately. Cancel the apply receiver and a close waiter; entered work, bytes, progress slot and exclusive SQL lease remain retained until release. Joined close refunds the reservations without publishing; a fresh pool repeats exact preparation and the real Raft owner publishes it.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_apply_sync_failure_preserves_selected_root",
+          "oracle": "Inject actual image and manifest directory-sync failures separately. Preparation fails, refunds its admission, and never advances the selected root or applied index despite the entry being committed.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_shared_apply_sync_failure_preserves_selected_root",
+          "oracle": "Inject actual image and manifest directory-sync failures separately. Preparation fails, refunds its admission, and never advances the selected root or applied index despite the entry being committed.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_apply_recovers_selected_images_before_replay",
+          "oracle": "Close all previous runtime, engine, manifest and image owners. Recover the engine-selected manifest and physical image closure in a new process generation, ignoring an already prepared but unpublished cell. Replay that committed entry without inventing fresh quorum/serving authority. After another cold restart, missing selected image files must refuse recovery without changing the persisted marker.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_shared_apply_recovers_selected_images_before_replay",
+          "oracle": "Close all previous runtime, engine, manifest and image owners. Recover the engine-selected manifest and physical image closure in a new process generation, ignoring an already prepared but unpublished cell. Replay that committed entry without inventing fresh quorum/serving authority. After another cold restart, missing selected image files must refuse recovery without changing the persisted marker.",
           "invariants": [
             "I01",
             "I02",

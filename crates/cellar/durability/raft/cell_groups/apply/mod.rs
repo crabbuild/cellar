@@ -3,6 +3,7 @@
 //! Worker-owned physical preparation; only the Raft owner can publish its result.
 
 mod images;
+mod recovery;
 mod summary;
 pub use images::CellGroupApplyImages;
 

@@ -25,7 +25,21 @@ impl RuntimeCluster {
         max_requests: usize,
         max_cells_per_group: u32,
     ) -> Result<Self> {
-        let mut cluster = Cluster::new().await?;
+        Box::pin(Self::from_cluster(
+            Cluster::new().await?,
+            max_events,
+            max_requests,
+            max_cells_per_group,
+        ))
+        .await
+    }
+
+    async fn from_cluster(
+        mut cluster: Cluster,
+        max_events: usize,
+        max_requests: usize,
+        max_cells_per_group: u32,
+    ) -> Result<Self> {
         let mut runtimes = Vec::new();
         let mut events = Vec::new();
         let mut applied = Vec::new();
@@ -647,3 +661,7 @@ pub(super) async fn submission_rejections(rooted: bool) -> Result<()> {
 pub(super) use sql::{coherent_reads, query_lifecycle};
 
 pub(super) use sql::apply_images;
+
+pub(super) use sql::{apply_cancellation, apply_failure};
+
+pub(super) use sql::recover_apply;
