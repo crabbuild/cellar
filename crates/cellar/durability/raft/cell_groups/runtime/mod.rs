@@ -84,6 +84,7 @@ struct Handle {
 enum Command {
     Attach(Box<CellGroupOwner>),
     Campaign,
+    Execution(cellar_logic::cell_group::CellHistory),
     Step(Message),
     AdmitStep(Message),
     Propose(Vec<u8>),
@@ -96,6 +97,7 @@ enum Command {
 enum Response {
     Unit,
     Proposal(CellGroupProposal),
+    Execution(Box<CellExecutionAuthority>),
     Status(CellGroupStatus),
 }
 
@@ -299,6 +301,21 @@ impl CellGroupRuntime {
         )
         .await
         .map(|_| ())
+    }
+
+    pub async fn execution_authority(
+        &self,
+        history: GroupHistory,
+        cell: cellar_logic::cell_group::CellHistory,
+    ) -> Result<CellExecutionAuthority, RuntimeError> {
+        let bytes = cell.cell.as_str().len() + 4096;
+        match self
+            .call(Some(history), Command::Execution(cell), bytes)
+            .await?
+        {
+            Response::Execution(authority) => Ok(*authority),
+            _ => Err(RuntimeError::Protocol("execution authority reply".into())),
+        }
     }
 
     pub async fn campaign(&self, history: GroupHistory) -> Result<(), RuntimeError> {

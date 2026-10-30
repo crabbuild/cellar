@@ -157,7 +157,8 @@ pub mod verification {
         RuntimeEventKind, SnapshotCompletion,
     };
     pub use crate::raft::execution::{
-        query_registered, AppliedExecution, CommandAttempt, CommandAuthority, CommandRequest,
+        query_registered, AppliedExecution, CellCommittedReceipt, CellPreparedCommand,
+        CellPrivateExecutor, CellStageOutcome, CommandAttempt, CommandAuthority, CommandRequest,
         CommittedReceipt, ExecutionError, ExecutionLimits, ExecutionStatus, PreparedCommand,
         PrivateExecutor, PrivateOptions, RegisteredQueryOutput, RootPrivateOptions, StageOutcome,
         StoredReceipt,

@@ -48,6 +48,7 @@ impl Group {
     }
 
     fn fail(&mut self, error: RuntimeError) {
+        self.owner.revoke_execution();
         self.failed = Some(error.clone());
         self.pending = Some(Err(error.clone()));
         self.settled = None;
@@ -320,6 +321,10 @@ impl Worker {
                             Err(RuntimeError::Overloaded)
                         } else {
                             match command {
+                                Command::Execution(cell) => group
+                                    .owner
+                                    .execution_authority(&cell)
+                                    .map(|authority| Response::Execution(Box::new(authority))),
                                 Command::Campaign => {
                                     group.owner.campaign().map(|()| Response::Unit)
                                 }

@@ -38,6 +38,14 @@ impl RootWorking {
         base: Option<&crate::raft::rooted::RootPublishedImage>,
         history: [u8; 32],
     ) -> Result<Self> {
+        Self::open_pin(options, base.map(|base| base.image()), history)
+    }
+
+    pub fn open_pin(
+        options: &Options,
+        base: Option<Arc<cellar_ltx::internal::SealedImageRoot>>,
+        history: [u8; 32],
+    ) -> Result<Self> {
         let Images::Extents {
             store,
             workspace: admission,
@@ -56,7 +64,7 @@ impl RootWorking {
         let path = options.directory.join("working.sqlite");
         crate::raft::working::clean(filesystem.as_ref(), &options.directory, &path)?;
         let image = match base {
-            Some(image) => image.image(),
+            Some(image) => image,
             None => Arc::new(store.seal_image_root(
                 ExtentManifest::new(
                     ImageBinding {
@@ -170,9 +178,17 @@ impl RootWorking {
         proposal: ProposalId,
         base: Option<&crate::raft::rooted::RootPublishedImage>,
     ) -> Result<CellUpdate> {
-        let before = base
-            .map(|base| RootState::of(&base.image()))
-            .unwrap_or(self.initial);
+        Ok(self
+            .capture_pin(options, base.map(|base| base.image()).as_deref())?
+            .bind(scope.clone(), options.application_digest, proposal))
+    }
+
+    pub fn capture_pin(
+        &mut self,
+        options: &Options,
+        base: Option<&cellar_ltx::internal::SealedImageRoot>,
+    ) -> Result<crate::raft::working::CapturedUpdate> {
+        let before = base.map(RootState::of).unwrap_or(self.initial);
         let (position, files) = crate::raft::working::capture_update(
             &mut self.capture,
             &self.database,
@@ -213,10 +229,7 @@ impl RootWorking {
             geometry: observed.manifest().geometry(),
         });
         self.observation = Some(observed);
-        Ok(CellUpdate {
-            scope: scope.clone(),
-            application_digest: options.application_digest,
-            proposal,
+        Ok(crate::raft::working::CapturedUpdate {
             base: before.image,
             result,
             files,

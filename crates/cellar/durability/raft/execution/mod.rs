@@ -7,7 +7,10 @@ use super::apply::{marker, PublishedImage};
 use super::cache::{DurableApply, GroupLog};
 use super::completion::GroupStatus;
 use super::receipts;
+mod cell;
+mod command;
 mod images;
+pub use cell::{CellCommittedReceipt, CellPreparedCommand, CellPrivateExecutor, CellStageOutcome};
 mod rooted_working;
 use crate::application::consensus::{
     command_request_digest, CommittedVersion, EnvelopeLimits, OperationContract, OperationKind,
@@ -821,102 +824,41 @@ impl PrivateExecutor {
         command: impl FnOnce(&CommandTransaction<'_>) -> anyhow::Result<Vec<u8>>,
     ) -> Result<StageOutcome, ExecutionError> {
         self.ready()?;
-        if attempt.request.operation.is_empty() || attempt.request.operation.len() > 128 {
-            return Err(ExecutionError::Invalid("command operation"));
-        }
         let working = self
             .working
             .as_ref()
             .ok_or(ExecutionError::RebuildRequired)?;
-        if receipts::preflight_identity(
+        let maintenance = match command::prepare(
             working.database().framework(),
-            &attempt.request,
-            &self.options.limits,
-        )?
-        .is_some()
-        {
-            let receipt = self.read_committed(
-                &attempt.request,
-                self.base
-                    .as_ref()
-                    .ok_or(ExecutionError::Invalid("receipt without base"))?,
-            )?;
-            return Ok(StageOutcome::Duplicate(receipt));
-        }
-        let count = receipts::retained_count(working.database().framework())?;
-        let ceiling = self.options.limits.max_retained_receipts;
-        let maintenance = match self.options.limits.receipt_maintenance {
-            Some(limits) if count >= ceiling - ceiling / 4 => {
-                let plan = super::receipt_maintenance::plan(
-                    working.database().framework(),
-                    attempt.inputs.now_unix_millis,
-                    limits,
-                    self.receipt_cursor,
+            self.options.limits,
+            &mut self.receipt_cursor,
+            &attempt,
+            allow_new,
+        )? {
+            command::Admission::Duplicate => {
+                let receipt = self.read_committed(
+                    &attempt.request,
+                    self.base
+                        .as_ref()
+                        .ok_or(ExecutionError::Invalid("receipt without base"))?,
                 )?;
-                self.receipt_cursor = plan.next_cursor;
-                Some(plan)
+                return Ok(StageOutcome::Duplicate(receipt));
             }
-            _ => None,
+            command::Admission::New(maintenance) => maintenance,
         };
-        let removed = maintenance.as_ref().map_or(0, |plan| plan.rows_removed);
-        if count
-            .checked_sub(removed)
-            .is_none_or(|count| count >= ceiling)
-        {
-            return Err(ExecutionError::Refused(CommandFailure::Overloaded));
-        }
-        if attempt.request.retry_until_ms < attempt.inputs.now_unix_millis
-            || attempt
-                .request
-                .retry_until_ms
-                .checked_sub(attempt.inputs.now_unix_millis)
-                .is_none_or(|window| window > self.options.limits.max_retry_window_ms)
-        {
-            return Err(ExecutionError::Invalid("command retry window"));
-        }
-        // Duplicate receipt lookup above remains available under archive
-        // pressure. A known refusal has not mutated SQL or capture state and
-        // must not force the next request to reconstruct the private image.
-        if !allow_new {
-            return Err(ExecutionError::Refused(CommandFailure::Overloaded));
-        }
         self.rebuild_required = true;
-        self.working
+        let working = self
+            .working
             .as_mut()
-            .ok_or(ExecutionError::RebuildRequired)?
-            .begin_mutation();
-        self.working
-            .as_ref()
-            .ok_or(ExecutionError::RebuildRequired)?
-            .database()
-            .transaction(attempt.inputs, |connection, transaction| {
-                if let Some(maintenance) = maintenance {
-                    maintenance
-                        .apply(connection, attempt.inputs.now_unix_millis)
-                        .map_err(anyhow::Error::new)?;
-                }
-                let result = command(transaction)?;
-                if result.len() > self.options.limits.max_result_bytes {
-                    return Err(anyhow::Error::new(CommandFailure::Overloaded));
-                }
-                receipts::record(connection, &attempt.request, result)?;
-                let limits = &self.options.limits;
-                if limits.receipt_reserve_bytes != 0 {
-                    let usage = crate::storage::CommandDatabase::capacity(
-                        connection,
-                        limits.max_image_bytes,
-                    )?;
-                    limits
-                        .check_capacity(
-                            usage.application_bytes,
-                            usage.receipt_bytes,
-                            usage.structural_reserve_bytes,
-                        )
-                        .map_err(anyhow::Error::new)?;
-                }
-                Ok(())
-            })
-            .map_err(private_failure)?;
+            .ok_or(ExecutionError::RebuildRequired)?;
+        working.begin_mutation();
+        command::apply(
+            working.database(),
+            self.options.limits,
+            &attempt,
+            maintenance,
+            command,
+        )?;
         let prepared = self.freeze(
             attempt.proposal,
             attempt.preview,

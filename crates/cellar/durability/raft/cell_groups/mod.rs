@@ -2,6 +2,9 @@
 
 //! Complete group-state storage. A synced page is data, not Raft authority.
 
+mod execution_authority;
+pub use execution_authority::CellExecutionAuthority;
+
 mod enrollment;
 mod enrollment_apply;
 mod image_pin;

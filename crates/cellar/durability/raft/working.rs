@@ -5,7 +5,7 @@
 use super::apply::{image_position, PublishedImage};
 use super::execution::PrivateOptions;
 use super::receipts;
-use crate::application::consensus::{CellUpdate, LtxUpdate};
+use crate::application::consensus::{CellUpdate, LtxImage, LtxUpdate};
 use crate::storage::CommandDatabase;
 use anyhow::{bail, ensure, Context as _, Result};
 use cellar_logic::consensus::{GroupScope, ProposalId};
@@ -15,6 +15,46 @@ use cellar_ltx::{ltx, Db, FileSystem, TXID};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+/// A verified physical cut, independent of routing, consensus and cell identity.
+/// The execution owner must bind it to the exact cell base before proposal.
+pub(crate) struct CapturedUpdate {
+    pub base: LtxImage,
+    pub result: LtxImage,
+    pub files: Vec<LtxUpdate>,
+}
+
+pub(crate) struct CapturedUpdateRef<'a> {
+    pub base: LtxImage,
+    pub result: LtxImage,
+    pub files: &'a [LtxUpdate],
+}
+
+impl CapturedUpdate {
+    pub fn as_ref(&self) -> CapturedUpdateRef<'_> {
+        CapturedUpdateRef {
+            base: self.base,
+            result: self.result,
+            files: &self.files,
+        }
+    }
+
+    pub fn bind(
+        self,
+        scope: GroupScope,
+        application_digest: [u8; 32],
+        proposal: ProposalId,
+    ) -> CellUpdate {
+        CellUpdate {
+            scope,
+            application_digest,
+            proposal,
+            base: self.base,
+            result: self.result,
+            files: self.files,
+        }
+    }
+}
+
 pub(super) struct Working {
     pub database: CommandDatabase,
     capture: Db,
@@ -23,17 +63,20 @@ pub(super) struct Working {
 
 impl Working {
     pub fn open(options: &PrivateOptions, base: Option<&PublishedImage>) -> Result<Self> {
+        Self::open_pin(options, base.map(PublishedImage::pin).as_ref())
+    }
+
+    pub fn open_pin(options: &PrivateOptions, base: Option<&GenerationPin>) -> Result<Self> {
         let filesystem = options.host.filesystem();
         let path = options.directory.join("working.sqlite");
         clean(filesystem.as_ref(), &options.directory, &path)?;
         if let Some(base) = base {
-            let pin = base.pin();
-            let state = pin.state();
+            let state = base.state();
             ensure!(
                 state.length <= options.limits.max_image_bytes,
                 "command base exceeds image bound"
             );
-            pin.private_copy(&filesystem, &path)?;
+            base.private_copy(&filesystem, &path)?;
             // Only the independently sealed base is a recovery authority.
             // This copy is discarded on every reopen, including after a crash.
         }
@@ -49,7 +92,7 @@ impl Working {
         )?;
         receipts::install(database.framework())?;
         if let Some(base) = base {
-            let state = base.pin().state();
+            let state = base.state();
             // The zero-page baseline is local capture bookkeeping. Starting at
             // the WAL header includes every opening/control/schema write.
             capture
@@ -86,8 +129,18 @@ impl Working {
         proposal: ProposalId,
         base: Option<&PublishedImage>,
     ) -> Result<CellUpdate> {
+        Ok(self
+            .capture_pin(options, base.map(PublishedImage::pin).as_ref())?
+            .bind(scope.clone(), options.application_digest, proposal))
+    }
+
+    pub fn capture_pin(
+        &mut self,
+        options: &PrivateOptions,
+        base: Option<&GenerationPin>,
+    ) -> Result<CapturedUpdate> {
         let base_state = base
-            .map(|b| b.pin().state())
+            .map(GenerationPin::state)
             .unwrap_or(ImageState::empty(1)?);
         let (result_position, files) = capture_update(
             &mut self.capture,
@@ -110,10 +163,7 @@ impl Working {
             length,
             digest,
         };
-        let update = CellUpdate {
-            scope: scope.clone(),
-            application_digest: options.application_digest,
-            proposal,
+        let update = CapturedUpdate {
             base: image_position(base_state),
             result: image_position(result),
             files,
@@ -248,28 +298,27 @@ pub(super) fn capture_update(
     Ok((result_position, files.into_values().collect()))
 }
 
-pub(super) fn verify_preview(
+pub(super) fn verify_preview_pin(
     options: &PrivateOptions,
-    base: Option<&PublishedImage>,
+    base_pin: Option<&GenerationPin>,
     id: ImageId,
-    update: &CellUpdate,
+    before: LtxImage,
+    after: LtxImage,
+    files: &[LtxUpdate],
 ) -> Result<GenerationPin> {
-    let header = ltx::Header::parse(&update.files.last().context("empty command cut")?.bytes)?;
+    let header = ltx::Header::parse(&files.last().context("empty command cut")?.bytes)?;
     let result = ImageState {
-        epoch: update.result.epoch,
-        txid: TXID(update.result.txid),
-        checksum: update.result.checksum,
-        digest: update.result.commitment.sha256()?,
+        epoch: after.epoch,
+        txid: TXID(after.txid),
+        checksum: after.checksum,
+        digest: after.commitment.sha256()?,
         page_size: header.page_size,
         length: header.commit as u64 * header.page_size as u64,
     };
-    let base_pin = base.map(PublishedImage::pin);
     let base_state = base_pin
-        .as_ref()
         .map(GenerationPin::state)
-        .unwrap_or(ImageState::empty(update.base.epoch)?);
-    let segments = update
-        .files
+        .unwrap_or(ImageState::empty(before.epoch)?);
+    let segments = files
         .iter()
         .map(|file| {
             Ok(LtxSegment {
@@ -283,7 +332,7 @@ pub(super) fn verify_preview(
         .collect::<Result<Vec<_>>>()?;
     Ok(options.images.prepare(
         id,
-        base_pin.as_ref(),
+        base_pin,
         &ImageUpdate {
             base: base_state,
             result,

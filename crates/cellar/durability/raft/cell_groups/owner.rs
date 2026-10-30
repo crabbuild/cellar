@@ -22,7 +22,7 @@ use protobuf::Message as _;
 use std::{
     collections::VecDeque,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
 };
@@ -146,6 +146,7 @@ enum Phase {
 }
 
 pub struct CellGroupOwner {
+    leader_term: Arc<AtomicU64>,
     lease: Arc<Lease>,
     log: ReplicaLog,
     group: GroupLog<GroupHistory>,
@@ -224,6 +225,7 @@ impl CellGroupOwner {
             Some(seed),
         )?;
         Ok(Self {
+            leader_term: Arc::new(AtomicU64::new(0)),
             lease,
             log: permit.log().clone(),
             group,
@@ -240,6 +242,36 @@ impl CellGroupOwner {
             last_sync: 0,
             failed: None,
         })
+    }
+
+    pub(super) fn revoke_execution(&self) {
+        self.leader_term.store(0, Ordering::Release);
+    }
+
+    fn refresh_execution_fence(&self) {
+        let term = if self.node.raft.state == StateRole::Leader {
+            self.node.raft.term
+        } else {
+            0
+        };
+        self.leader_term.store(term, Ordering::Release);
+    }
+
+    pub fn execution_authority(
+        &self,
+        cell: &CellHistory,
+    ) -> Result<super::CellExecutionAuthority, RuntimeError> {
+        let status = self.status()?;
+        if !status.ready || status.applied.index != status.committed {
+            return Err(RuntimeError::NotReady);
+        }
+        super::CellExecutionAuthority::new(
+            self.group.clone(),
+            &self.current,
+            cell,
+            status.term,
+            self.leader_term.clone(),
+        )
     }
 
     pub fn manifest(&self) -> &PreparedGroupManifest {
@@ -268,7 +300,9 @@ impl CellGroupOwner {
         if self.phase.is_some() {
             return Err(RuntimeError::NotReady);
         }
-        self.node.campaign()?;
+        let result = self.node.campaign();
+        self.refresh_execution_fence();
+        result?;
         Ok(())
     }
 
@@ -281,6 +315,7 @@ impl CellGroupOwner {
             return Err(RuntimeError::NotReady);
         }
         self.node.tick();
+        self.refresh_execution_fence();
         Ok(())
     }
 
@@ -293,7 +328,9 @@ impl CellGroupOwner {
             return Err(RuntimeError::NotReady);
         }
         self.validate_message(&message)?;
-        self.node.step(message)?;
+        let result = self.node.step(message);
+        self.refresh_execution_fence();
+        result?;
         Ok(())
     }
 
@@ -407,6 +444,7 @@ impl CellGroupOwner {
         let result = self.poll_inner(collect, emit);
         if let Err(error) = &result {
             self.failed = Some(error.clone());
+            self.revoke_execution();
         }
         result
     }
@@ -878,5 +916,11 @@ impl CellGroupOwner {
             _ => (),
         }
         Ok(())
+    }
+}
+
+impl Drop for CellGroupOwner {
+    fn drop(&mut self) {
+        self.leader_term.store(0, Ordering::Release);
     }
 }

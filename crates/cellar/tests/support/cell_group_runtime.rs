@@ -303,6 +303,7 @@ impl RuntimeCluster {
                 owner: None,
                 pages,
                 images,
+                extents: None,
                 tree,
                 gate: self.cluster.voters[n].gate.clone(),
                 paused: false,
@@ -499,4 +500,11 @@ pub(super) async fn attachment_reserves_before_owner() -> Result<()> {
     drop(events);
     drop(runtime);
     cluster.close().await
+}
+
+#[path = "cell_group_sql.rs"]
+mod sql;
+
+pub(super) async fn cell_receipts(rooted: bool) -> Result<()> {
+    sql::cell_receipts(rooted).await
 }

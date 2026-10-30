@@ -43,6 +43,18 @@ progress under full event admission, releasing the apply reservation before its
 Applied event is admitted. Shutdown stops admission, joins the submitted batch,
 then fences the engine before releasing exclusive runtime ownership.
 
+`CellPrivateExecutor` now stages a cell-addressed mutation from an exact pinned
+cell base, with materialized or extent-backed SQLite images. It reuses the existing
+receipt admission, maintenance and atomic business/receipt transaction. The actual
+leader issues `CellExecutionAuthority`; another cell may advance while this base
+remains selected. Losing leadership or dropping the owner revokes the observation.
+A callback must recheck it after capture, and settlement requires a fresh authority,
+the exact committed entry and that cell's expected image/version. A receipt retry
+reads the selected immutable cell image and does not invoke the callback again.
+The synchronous executor must run on an owning blocking worker. It currently
+reopens after settlement; it is not yet the production SQL pool or registered SDK
+operation dispatcher. Receipt proof alone does not provide S3 coverage.
+
 Per-cell SQL admission, SDK dispatch and the production hard cutover remain
 required; the existing host still uses its prior single-cell owner. Transport
 authentication and actual image preparation remain the caller's responsibility

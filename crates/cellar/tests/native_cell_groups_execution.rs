@@ -36,6 +36,16 @@ async fn node_runtime_attachment_reserves_before_owner() -> Result<()> {
     runtime_fixture::attachment_reserves_before_owner().await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn cell_receipt_not_group_progress() -> Result<()> {
+    runtime_fixture::cell_receipts(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_cell_receipt_not_group_progress() -> Result<()> {
+    runtime_fixture::cell_receipts(true).await
+}
+
 #[path = "support/raft_ltx_fixture.rs"]
 #[allow(dead_code)]
 mod images;
@@ -61,6 +71,7 @@ struct Voter {
     owner: Option<CellGroupOwner>,
     pages: ManifestPageStore,
     images: GenerationStore,
+    extents: Option<cellar_ltx::internal::NodeExtentStore>,
     tree: ManifestTree,
     gate: Arc<fault::Gate>,
     paused: bool,
@@ -181,6 +192,7 @@ impl Cluster {
                 owner: Some(owner),
                 pages,
                 images,
+                extents: None,
                 tree,
                 gate,
                 paused: false,
@@ -366,6 +378,7 @@ impl Cluster {
                 tree,
                 pages,
                 images,
+                extents: None,
                 gate,
                 paused: false,
                 held: None,
@@ -431,6 +444,105 @@ fn apply_image(
     Ok(store.prepare(image_id(history, sequence)?, base, &update)?)
 }
 
+fn prepare_cell_image(
+    images: &GenerationStore,
+    extents: Option<&cellar_ltx::internal::NodeExtentStore>,
+    cell: &CellHistory,
+    sequence: u64,
+    base: Option<&CellImagePin>,
+    image: LtxImage,
+    files: &[GroupLtx<'_>],
+) -> Result<EnrollmentImage> {
+    use cellar_ltx::internal::{
+        ExtentManifest, ExtentRootReference, Geometry, ImageBinding, ImageRootUpdate, EXTENT_BYTES,
+    };
+    let (pin, geometry) = match image.commitment {
+        ImageCommitment::Sha256(_) => {
+            let base = match base {
+                Some(CellImagePin::Materialized(pin)) => Some(pin),
+                None => None,
+                _ => anyhow::bail!("materialized base"),
+            };
+            let pin = apply_image(images, cell, sequence, base, image, files)?;
+            let geometry = CellImageGeometry {
+                length: pin.state().length,
+                page_size: pin.state().page_size,
+            };
+            (CellImagePin::Materialized(pin), geometry)
+        }
+        ImageCommitment::Extents(result) => {
+            let store = extents.context("extent store")?;
+            let base = match base {
+                Some(CellImagePin::Extents(pin)) => Some(pin.as_ref()),
+                None => None,
+                _ => anyhow::bail!("extent base"),
+            };
+            let binding = ImageBinding {
+                history: cell_image_history_digest(cell),
+                schema: [6; 32],
+                epoch: image.epoch,
+                txid: image.txid,
+                checksum: image.checksum,
+            };
+            let empty = ExtentManifest::new(
+                ImageBinding {
+                    txid: 0,
+                    checksum: 0,
+                    ..binding
+                },
+                Geometry::new(0, 0)?,
+                &[],
+            )?;
+            let before = base
+                .map(|pin| pin.reference())
+                .unwrap_or(ExtentRootReference::new(
+                    empty.root(),
+                    empty.encode()?.len().try_into()?,
+                )?);
+            let header =
+                cellar_ltx::ltx::Header::parse(&files.last().context("extent LTX")?.bytes)?;
+            let geometry = Geometry::new(
+                header.page_size,
+                u64::from(header.page_size) * u64::from(header.commit),
+            )?;
+            let update = ImageRootUpdate {
+                base: before,
+                result,
+                binding,
+                geometry,
+                segments: files
+                    .iter()
+                    .map(|file| LtxSegment {
+                        bytes: file.bytes,
+                        min_txid: TXID(file.min_txid),
+                        max_txid: TXID(file.max_txid),
+                        page_count: file.page_count as usize,
+                        decoded_bytes: file.decoded_bytes,
+                    })
+                    .collect(),
+            };
+            let prepared = store.prepare_image_root(
+                base,
+                &update,
+                &images.apply_limits(),
+                &mut vec![0; EXTENT_BYTES as usize],
+            )?;
+            (
+                CellImagePin::Extents(Arc::new(prepared.image)),
+                CellImageGeometry {
+                    length: geometry.length(),
+                    page_size: geometry.page_size(),
+                },
+            )
+        }
+    };
+    Ok(EnrollmentImage {
+        pin,
+        geometry,
+        effects: EffectSummary::default(),
+    })
+}
+
 fn prepare(voter: &mut Voter, apply: &CellGroupApply) -> Result<PreparedGroupManifest> {
     if apply.entry.data.is_empty() {
         return Ok(voter.tree.prepare_unchanged(
@@ -456,28 +568,25 @@ fn prepare(voter: &mut Voter, apply: &CellGroupApply) -> Result<PreparedGroupMan
                     limits: GroupEntryLimits::default(),
                 },
                 |_| {
-                    let pin = apply_image(&voter.images, &cell, 1, None, image, &files)
-                        .map_err(|_| ManifestError::Invalid("fixture initial LTX"))?;
-                    Ok(EnrollmentImage {
-                        geometry: CellImageGeometry {
-                            length: pin.state().length,
-                            page_size: pin.state().page_size,
-                        },
-                        effects: EffectSummary::default(),
-                        pin: CellImagePin::Materialized(pin),
-                    })
+                    prepare_cell_image(
+                        &voter.images,
+                        voter.extents.as_ref(),
+                        &cell,
+                        1,
+                        None,
+                        image,
+                        &files,
+                    )
+                    .map_err(|_| ManifestError::Invalid("fixture initial LTX"))
                 },
             )?;
             Ok(next)
         }
         GroupCommand::Mutation(mutation) => {
-            let (old, CellImagePin::Materialized(base)) =
-                apply.base.pin_cell(&mutation.cell.cell).context("cell")?
-            else {
-                anyhow::bail!("materialized base")
-            };
-            let pin = apply_image(
+            let (old, base) = apply.base.pin_cell(&mutation.cell.cell).context("cell")?;
+            let prepared = prepare_cell_image(
                 &voter.images,
+                voter.extents.as_ref(),
                 &mutation.cell,
                 mutation.sequence.get(),
                 Some(&base),
@@ -491,10 +600,7 @@ fn prepare(voter: &mut Voter, apply: &CellGroupApply) -> Result<PreparedGroupMan
                     sequence: mutation.sequence,
                     image: mutation.result.into(),
                 },
-                geometry: CellImageGeometry {
-                    length: pin.state().length,
-                    page_size: pin.state().page_size,
-                },
+                geometry: prepared.geometry,
                 last_mutation: apply.ticket.position(),
                 effects: old.effects,
             };
@@ -503,7 +609,7 @@ fn prepare(voter: &mut Voter, apply: &CellGroupApply) -> Result<PreparedGroupMan
                 &apply.base,
                 leaf,
                 Some(&old.version),
-                CellImagePin::Materialized(pin),
+                prepared.pin,
             )?)
         }
         _ => anyhow::bail!("unexpected administration"),
