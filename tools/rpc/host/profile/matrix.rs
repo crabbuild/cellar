@@ -92,22 +92,35 @@ pub(super) async fn run(
         .build()?;
     let mut nodes = Vec::new();
     let result = async {
-        let (owner, owner_url) = crate::fleet::start(
+        // The full profile creates every vector's durable cell and shares its
+        // SQLite object store between two nodes. Preserve authority across
+        // cold I/O; fault/lease qualification retains its separate short policy.
+        let (owner, owner_url) = crate::fleet::start_configured(
             &directory.path().join("owner"),
             app.clone(),
             "profile-owner",
             bucket.clone(),
+            None,
+            |config, _| {
+                config.actor.lease_ttl_ms = 5_000;
+                Ok(())
+            },
         )
         .await?;
         nodes.push(owner);
         // Local qualification also places every vector's cell while the owner
         // is the only node. The peer phase must reach those actual owners.
         let mut cases = matrix(&app, &vectors, &client, &owner_url, "profile-owner", false).await?;
-        let (source, source_url) = crate::fleet::start(
+        let (source, source_url) = crate::fleet::start_configured(
             &directory.path().join("source"),
             app.clone(),
             "profile-source",
             bucket,
+            None,
+            |config, _| {
+                config.actor.lease_ttl_ms = 5_000;
+                Ok(())
+            },
         )
         .await?;
         nodes.push(source);

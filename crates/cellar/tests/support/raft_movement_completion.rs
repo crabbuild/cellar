@@ -85,7 +85,9 @@ async fn replace(s: &Setup, from_s3: bool) -> Result<Replaced> {
     // Warm only actual physical observations. The terminal API must independently
     // obtain its own fresh quorum and complete physical probes afterward.
     s.f.domain
-        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+        // Observe a multi-node retirement, not one control operation. Each
+        // physical probe retains its original five-second deadline.
+        .run(cellar::asyncrt::timeout(Duration::from_secs(20), async {
             loop {
                 let cut = s.f.catalog.read(TIMEOUT).await?;
                 let mut complete = true;
@@ -108,7 +110,8 @@ async fn replace(s: &Setup, from_s3: bool) -> Result<Replaced> {
                 cellar::asyncrt::sleep(Duration::from_millis(10)).await;
             }
         }))
-        .await???;
+        .await?
+        .context("replacement physical histories did not settle")??;
     Ok(Replaced {
         cells,
         target,

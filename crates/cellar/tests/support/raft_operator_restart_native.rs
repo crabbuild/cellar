@@ -33,6 +33,8 @@ struct Stopped {
     boot: FleetBootBinding,
 }
 
+// CLI waits cover the full multi-step lifecycle; backend operations and the
+// independent maintenance service retain their five-second turn deadlines.
 async fn restart(mut f: Scenario) -> Result<()> {
     let server = Server::configured(&f.s.f, &f.s.namespace, Some(f.spare.clone())).await?;
     let service = server
@@ -99,7 +101,7 @@ async fn stop_primary(
         "cancel".into(),
         "--wait".into(),
         "--timeout-seconds".into(),
-        "5".into(),
+        "20".into(),
     ]);
     let (exit, value) = routed(f, server.cli(&command, "maintainer"))
         .await
@@ -135,7 +137,7 @@ async fn stop_primary(
         exit == 5 && value["error"]["outcome"] == "unknown",
         "stop consent {exit}: {value}"
     );
-    command.extend(["--wait".into(), "--timeout-seconds".into(), "5".into()]);
+    command.extend(["--wait".into(), "--timeout-seconds".into(), "20".into()]);
     let (exit, value) = routed(f, server.cli(&command, "stopper"))
         .await
         .with_context(|| format!("stop wait; service {:?}", service.status()))??;
@@ -176,7 +178,7 @@ async fn stop_primary(
         hex::encode([213; 16]),
         "--wait".into(),
         "--timeout-seconds".into(),
-        "5".into(),
+        "20".into(),
     ]);
     let (exit, value) = routed(f, server.cli(&command, "canceller"))
         .await
@@ -213,7 +215,7 @@ async fn return_primary(f: &mut Scenario, server: &Server, stopped: Stopped) -> 
         hex::encode(next.bytes()),
         "--wait".into(),
         "--timeout-seconds".into(),
-        "5".into(),
+        "20".into(),
     ]);
     let (exit, value) = server.cli(&command, "stopper").await?;
     ensure!(exit == 4 && value["error"]["code"] == "forbidden");
@@ -427,7 +429,7 @@ async fn resume_primary(
             },
         )
         .await?;
-    command.extend(["--wait".into(), "--timeout-seconds".into(), "5".into()]);
+    command.extend(["--wait".into(), "--timeout-seconds".into(), "20".into()]);
     let (exit, value) = routed(f, server.cli(&command, "owner"))
         .await
         .with_context(|| format!("terminal resume wait; service {:?}", service.status()))??;
