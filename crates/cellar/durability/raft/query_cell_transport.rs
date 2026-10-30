@@ -25,10 +25,23 @@ use std::time::Duration;
 /// cannot extend the host's lifetime or create a runtime/transport ownership cycle.
 #[derive(Clone)]
 pub struct CellQueryGateway {
-    inner: Arc<Gateway>,
+    inner: Arc<Registration>,
+}
+
+// Accepted requests retain Gateway, never this admission owner. In-flight work
+// cannot keep accepting new reads after the final host registration is dropped.
+struct Registration {
+    gateway: Arc<Gateway>,
+}
+
+impl Drop for Registration {
+    fn drop(&mut self) {
+        self.gateway.accepting.store(false, Ordering::Release);
+    }
 }
 
 pub(super) struct Gateway {
+    accepting: AtomicBool,
     runtime: CellGroupRuntime,
     sql: CellGroupSqlPool,
     dispatcher: CellGroupDispatcher,
@@ -87,6 +100,8 @@ impl RaftTransport {
     /// pool. Options provide the namespace's immutable-query services and cache;
     /// cell images are selected only by fresh runtime authority. This grants no
     /// origin permission. Retain the returned owner while serving requests.
+    /// Dropping its final clone refuses new reads; already admitted reads retain
+    /// their physical owners until completion or joined shutdown.
     pub fn install_cell_query_gateway(
         &self,
         dispatcher: CellGroupDispatcher,
@@ -116,13 +131,16 @@ impl RaftTransport {
             return Err(TransportError::Overloaded);
         }
         let inner = Arc::new(Gateway {
+            accepting: AtomicBool::new(true),
             runtime: runtime.clone(),
             sql,
             dispatcher,
             options,
         });
         gateways.insert(key, Arc::downgrade(&inner));
-        Ok(CellQueryGateway { inner })
+        Ok(CellQueryGateway {
+            inner: Arc::new(Registration { gateway: inner }),
+        })
     }
 
     pub(crate) fn uses_query_domain(&self, domain: &DomainToken) -> bool {
@@ -229,7 +247,7 @@ impl RaftTransport {
 impl CellQueryGateway {
     /// The cluster and namespace bound to this host-owned registration.
     pub fn namespace(&self) -> (ClusterId, NamespaceId) {
-        self.inner.dispatcher.namespace()
+        self.inner.gateway.dispatcher.namespace()
     }
 }
 
@@ -412,6 +430,9 @@ impl IncomingCall {
                     .get(&(cell.cluster, cell.namespace))
                     .and_then(|h| h.upgrade())
                     .ok_or(TransportError::Refused)?;
+                if !gateway.accepting.load(Ordering::Acquire) {
+                    return Err(TransportError::Refused);
+                }
                 let result = gateway
                     .execute(call, target.scope, cell, route.schema())
                     .await

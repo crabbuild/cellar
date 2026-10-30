@@ -347,10 +347,13 @@ pub(crate) async fn remote_query_lifecycle(expire: bool) -> Result<()> {
         let entered = Mutex::new(Some(entered));
         let (release, held) = std::sync::mpsc::sync_channel(1);
         let held = Mutex::new(held);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let count = calls.clone();
         let class = Arc::new(RaftClass::new("Counter", 1, [81; 32])?.query(
             "Get",
             [82; 32],
             move |context, _| {
+                count.fetch_add(1, Ordering::SeqCst);
                 entered
                     .lock()
                     .unwrap()
@@ -367,7 +370,7 @@ pub(crate) async fn remote_query_lifecycle(expire: bool) -> Result<()> {
         )?);
         let (mut fixture, route, a, _) = Box::pin(registered::setup(rooted, &class)).await?;
         let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
-        let gateways = gateways(&fixture, class.clone()).await?;
+        let mut gateways = gateways(&fixture, class.clone()).await?;
         let dispatch = dispatcher(&fixture, class.clone(), keys(190)?)?;
         let timeout = if expire {
             Duration::from_millis(600)
@@ -391,6 +394,26 @@ pub(crate) async fn remote_query_lifecycle(expire: bool) -> Result<()> {
         })?;
         tokio::time::timeout(Duration::from_secs(5), started).await??;
         let pool = fixture.appliers[&(0, route.history)].0.clone();
+        assert_eq!(pool.usage()?.retained_operations, 1);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        // The in-flight read retains Gateway data, but cannot retain its public
+        // admission owner and perpetuate serving after the host drops it.
+        drop(gateways.remove(0));
+        let mut late = invocation(
+            &dispatch,
+            &class,
+            &a,
+            CellQueryConsistency::Stale,
+            Duration::from_secs(5),
+            b"",
+        )
+        .await?;
+        assert!(late
+            .execute_remote(&fixture.transports[2], MemberId::new(1)?)
+            .await
+            .is_err());
+        drop(late);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert_eq!(pool.usage()?.retained_operations, 1);
         // The blocked query does not occupy control connections or Raft work.
         let deadline = fixture
