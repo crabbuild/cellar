@@ -10,6 +10,49 @@ CG-05 is IN_PROGRESS; CG-06 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-05 Raft snapshot acceptance and persistence
+
+Qualified source: `096cfb132397d9588ba9138b1cf474210fc062f3`. All 146 selected Rust cases pass across shared
+execution/catalog/storage. All 8 gate commands pass, including all-target
+Clippy for Cellar/core/LTX, formatting/layout, dependency isolation, docs,
+source preflight and 37 plan-validator tests. The partial record at
+`.cellar/cell-groups-evidence/CG-05-snapshot-owner/checkpoint.json` binds
+296 source hashes, 3 copied executables, frozen plan inputs and command logs.
+Transfer this ignored directory with its predecessors. CG-05 remains IN_PROGRESS.
+
+The explicit owner/runtime `step_checkpoint` API admits only a complete verified
+receiver closure matching the snapshot envelope, route, selected base, engine,
+page-store owner and permanent replica membership. Bounds and overflowing cuts
+are checked before RawNode mutation. Ordinary peer ingress still rejects snapshot
+messages. Admission reports whether Raft selected the snapshot or retained its
+matching log; neither result is a persistence receipt or serving authority.
+
+A selected snapshot binds to the exact Ready and existing persistence ticket,
+exclusive owner lease and shared engine fence. The old applied view remains until
+the matching completion is consumed. Only then does the owner advance to the
+verified cut and emit the acknowledgement and `CheckpointInstalled` event.
+Controller publication observes that event. The prepared receiver and its budget
+remain owned through queued sync and joined runtime shutdown. If Raft already has
+the matching log, it persists the commit advance and replays entries without
+selecting the received checkpoint.
+
+Five new native cases cover a partitioned existing voter, both image formats,
+invalid envelopes and overflowing cuts, held sync with no early acknowledgement,
+subsequent real quorum writes, matching-log replay and shutdown during accepted
+snapshot persistence. The fixture builds the snapshot envelope from captured
+source state and uses the native streaming callback. It does not exercise a
+source RawNode-generated snapshot or authenticated snapshot RPC.
+
+The critical next gap is source-side local checkpoint publication that preserves
+the unapplied log suffix, followed by bounded snapshot transport and actual Raft
+peer catch-up. The receiver-install write must not be reused as a local leader
+checkpoint: it replaces the received state and truncates prior entries. Then
+qualify receiver process-kill/sync-error/cancellation and root-slot boundaries,
+whole-group learners, joint membership and lost-disk recovery. All five full CG-05
+acceptance cases remain required. No new shared-group RustFS, load or zero-quorum
+DR qualification is claimed. CG-06 archival/reclamation and the later public
+cutover and legacy-removal tasks remain open.
+
 ## CG-05 verified receiver and atomic installation
 
 Qualified source: `cb164e025e129330f576450d214cef0e8fe92aa1`. All 226 selected Rust cases pass across shared
@@ -55,7 +98,7 @@ configuration, disk replacement, receiver process-kill/sync-error/cancelled-wait
 cuts, checkpoint root-slot exhaustion, shared-group RustFS, load or zero-quorum DR.
 No full CG-05 acceptance case has been replaced with these narrower cases.
 
-Critical next work is to bind the receiver result to the exact Raft snapshot
+Next work recorded at this receiver checkpoint was to bind its result to the exact Raft snapshot
 effect, integrate bounded snapshot transport and completion, and qualify peer
 catch-up plus crash/cancellation/root-slot boundaries. Then deliver whole-group
 learner/joint membership and lost-disk recovery and run all five declared CG-05

@@ -28,8 +28,9 @@ through bounded streaming and cancellation. Both image forms and empty enrollmen
 are represented. See the latest [progress](progress.md) for source evidence and
 limits. Receiver verification and atomic storage installation now pass their
 partial gate, including cold recovery of the current and older checkpoint roots.
-Continue with exact Raft snapshot tickets and bounded snapshot transport, then
-whole-group learner/membership and lost-disk recovery. CG-06 follows with archival reclamation. Automatic
+Exact Raft snapshot acceptance and persistence now pass their owner/runtime gate.
+Continue with source local checkpoint publication and bounded snapshot transport,
+then whole-group learner/membership and lost-disk recovery. CG-06 follows with archival reclamation. Automatic
 production request/voter startup and public SDK/fleet binding belong to CG-07;
 effects/cache lifecycle belong to CG-08, and final legacy removal to CG-16. Track
 these remaining capabilities in their owning tasks.
@@ -45,14 +46,24 @@ A missing checkpoint-only page refuses recovery while the current tree remains
 complete. A reproduced cached-destination corruption gap is fixed by independent
 destination reread/sync. Preserve failed and interrupted diagnostic evidence.
 
-The most critical gap is still the Raft protocol boundary: `CellGroupOwner` rejects
-`MsgSnapshot` and nonempty Ready snapshots. Bind a received complete closure to the
-exact accepted snapshot effect before persistence, then acknowledge only after the
-engine fence. Integrate this through bounded controller/transport ownership.
-Qualify receiver crash/sync-error/cancellation and checkpoint root-slot exhaustion,
+The latest owner/runtime checkpoint at `096cfb13` passes 146 selected Rust
+cases, 8 gate commands and 37 validator tests. Its record under
+`.cellar/cell-groups-evidence/CG-05-snapshot-owner/` binds 296 source hashes
+and 3 copied executables. Explicit `step_checkpoint` admits a verified
+closure, binds the exact RawNode Ready to engine persistence, and advances applied
+state and acknowledgement only after the matching completion. Matching retained
+logs commit/replay without installing received roots. Both image forms, held
+sync, invalid/overflow refusal, subsequent quorum writes and joined runtime close
+are covered. The tests construct the envelope from a captured source; they do
+not qualify Raft-generated outbound snapshots or snapshot RPC.
+
+The most critical gap is source-side local checkpoint publication followed by
+bounded authenticated snapshot transfer and real peer catch-up. Preserve the
+source log suffix: the receiver-install variant is not a local checkpoint
+operation. Qualify receiver crash/sync-error/cancellation and root-slot exhaustion,
 then learner catch-up, joint membership and lost-disk replacement. The storage
-capability grants no voter or serving authority; do not bypass the existing
-refusals or count these direct engine tests as full snapshot-RPC qualification.
+capability grants no new voter or serving authority. Ordinary peer snapshot
+ingress stays closed until the verified receiver is wired through transport.
 
 The source checkpoint at `b15da415` passes 138 Rust cases, eight gate commands
 and 37 validator tests. Transfer
@@ -612,41 +623,40 @@ boundary. At the end of each turn, record the completed behavior, evidence and
 limits, then identify the most critical remaining gap and the concrete next step.
 Do not let plan maintenance replace implementation.
 
-1. Deliver bounded host provisioning and lazy group birth. Registration and
-   group-local quarantine now have concrete ownership boundaries. The caller
-   still supplies the bootstrap permit, selected root, applier and physical route.
-   Connect catalog selection and initial namespace/range birth to bounded local
-   preparation, coalescing concurrent requests by physical GroupHistory rather
-   than allocating a group per cell. Transfer prepared owners through register().
-   Use the explicitly provisioned non-overlapping ranges in design.md. Managed
-   fleet bootstrap currently refuses in directory/bootstrap.rs; preserve that
-   refusal until the rooted fleet authorization required by CG-08 exists.
-   Keep catalog authorization and current-term quorum separate from routing hints;
-   retain preparation/attachment after the initiating request disconnects.
-   Quarantined groups remain charged until joined restart; never bypass them with
-   an in-place replacement or discard unresolved producers to recover capacity.
-   Shared-engine faults must remain node-wide. Keep read/command grants distinct
-   and receipt absence ambiguous. Destination catalog caching still depends on
-   replicated transfer seals/admission invalidation in CG-09, not a TTL.
-   Public RaftCellHandle/discovery must use the actual replacement host, preserving
-   old initializer refusal until cutover. Quorum/S3 minima must refuse unsupported
-   archive guarantees until CG-06 supplies real proofs.
-2. Complete CG-04's production retry/cache lifecycle and configuration-entry
-   handling, then its full gate before DONE. Use selected-root recovery at startup.
-   Whole-process kill/power-loss remains distinct from the qualified directory-sync
-   faults and joined cold restart. Full snapshots/membership follow in CG-05,
-   archive/reclamation in CG-06, and shared effect scheduling/cache lifecycle in
-   CG-08 before the CG-07 public cutover.
-3. Remove `TransportRuntime::Legacy`, the typed cell-scoped frame arm and old
-   transport entry points in CG-16. Also remove `QueryVersion::GroupCut` and
-   `RaftClass::invoke_group_query` with the old host by CG-16. They explicitly preserve the old in-memory group observation
-   during integration; they must not become a permanent alternate serving mode.
-   Final `QueryContext` exposes the actual cell observation directly. Never derive
-   a cell sequence or witness from a group log position.
+1. Complete CG-05 source publication and transport. Capture an exact applied cut,
+   retain its complete closure/configuration, publish a local checkpoint while
+   preserving every later entry, and make RawNode-generated snapshots stream that
+   same retained cut. Carry route/member authentication, budgets, cancellation,
+   retries and joined physical ownership through the controller/peer transport.
+   Admit the destination through `step_checkpoint`; use its post-persistence Raft
+   acknowledgement, never the admission return value, as completion.
+2. Finish CG-05 membership and recovery. Qualify the outstanding receiver fault
+   cuts and root-slot pressure, then whole-group learner catch-up, joint membership
+   and lost-disk replacement. Run every exact acceptance case before DONE.
+3. Deliver CG-06 archive/reclamation with verified complete checkpoints and
+   contiguous tails. Upload completion alone cannot authorize reclaiming local
+   recovery dependencies or an S3 durability acknowledgement.
+4. Follow the declared dependency order through CG-08 and CG-07 for effect/cache
+   scheduling and production SDK/fleet cutover. Retain catalog and current-term
+   authorization, coalesced preparation, physical ownership after disconnect and
+   group-local quarantine. Shared storage uncertainty stays node-wide. A missing
+   receipt stays ambiguous; callbacks cannot be replayed automatically.
+5. Continue topology, placement, hibernation and fresh-incarnation recovery gates.
+   Remove `TransportRuntime::Legacy`, cell-scoped transport, `QueryVersion::GroupCut`
+   and `RaftClass::invoke_group_query` with the old host in CG-16. These transitional
+   paths must not become permanent modes. Never derive cell sequence or witness
+   from a group log position. Final qualification reruns all gates at one revision.
 
-The opportunity is to reuse the now-shared consensus, SQL, read and apply paths in
-one dispatcher. Additional per-cell workers, a second production mode or a demo
-that bypasses the registered API would increase integration work.
+Start source publication in `checkpoint/mod.rs`, `cache.rs` and the group root
+reservation path in `storage.rs` / `cell_groups/retention.rs`. The current capture
+API accepts the current applied root; outbound transfer must also select the
+retained checkpoint root after newer writes advance current state. Bind its
+header/configuration to the snapshot returned by Raft Storage, not a fresh capture
+of a later current root. Keep snapshot publication on the owner persistence lane.
+
+The opportunity is to reuse the existing shared consensus, SQL, read, apply and
+provisioning paths. Avoid adding per-cell workers or another serving mode while
+integrating the remaining protocols.
 
 ## Delivery sequence
 
@@ -665,14 +675,10 @@ an old-format migration reader; preserve marker 1 with explicit domain separatio
 and refuse unsupported persisted layouts. Never delete existing user data as
 part of the hard cutover.
 
-CG-04 needs its six core real-Raft cases, plus the admission and submission cases
-listed in `tasks.json`: `three_cells_one_rawnode_per_voter`,
-`concurrent_enrollment_one_cell`, `shared_group_fair_admission`,
-`cell_receipt_not_group_progress`, `strong_read_at_group_barrier` and
-`apply_prefix_never_skips_slow_cell`. Fixing a prototype's compilation or passing
-a low-level owner test does not establish fair SQL execution, SDK dispatch,
-receipt settlement or strong-read serving. Its complete brief prints the owning
-paths and exact command/evidence gate.
+CG-04's completed gate remains in its source-bound evidence. CG-05's complete
+brief prints the five required acceptance cases, owning paths and exact commands.
+The source, receiver and owner checkpoints above establish partial boundaries;
+they cannot replace full snapshot, membership and lost-disk recovery qualification.
 
 ## Release boundary
 

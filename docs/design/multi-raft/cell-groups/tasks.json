@@ -1579,7 +1579,8 @@
         "crates/cellar/tests/support/cell_group_checkpoint_receive.rs",
         "crates/cellar/tests/support/cell_group_runtime.rs",
         "crates/cellar/tests/support/cell_group_sql.rs",
-        "crates/cellar/tests/support/cell_group_sql_apply.rs"
+        "crates/cellar/tests/support/cell_group_sql_apply.rs",
+        "crates/cellar/tests/support/cell_group_snapshot_owner.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/cell_groups/checkpoint/mod.rs",
