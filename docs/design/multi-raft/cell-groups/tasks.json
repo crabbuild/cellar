@@ -503,7 +503,10 @@
         "crates/cellar/durability/raft/cell_groups/controller/calls.rs",
         "crates/cellar/durability/raft/cell_groups/controller/requests.rs",
         "crates/cellar/application/consensus/class_initializer_tests.rs",
-        "crates/cellar/tests/support/cell_group_controller_enrollment.rs"
+        "crates/cellar/tests/support/cell_group_controller_enrollment.rs",
+        "crates/cellar/durability/raft/query_cell_transport.rs",
+        "crates/cellar/durability/raft/query_cell_wire.rs",
+        "crates/cellar/tests/support/cell_group_remote_queries.rs"
       ],
       "test_target": "native_cell_groups_execution",
       "steps": [
@@ -625,6 +628,14 @@
             "controller_enrollment_releases_completed_initializer_errors",
             "controller_enrollment_joins_lost_worker_reply",
             "controller_enrollment_requires_registered_initializer"
+          ]
+        },
+        {
+          "action": "Route consumed shared query attempts through the existing physical peer query lane. Bind physical history, logical cell, schema, route epoch and birth to the authenticated request; use the same read-only namespace grant/revocation guard as existing queries. Destination catalog and runtime authority remain mandatory. Return signed cell observations while retaining bounded result admission, and preserve original deadlines and attempts across retries/redirects. Cancellation must leave entered SQL physically owned until joined cleanup. Complete nonmember shared discovery and public SDK binding separately; mutation RPC must use explicit write authorization, never query-origin grants. Remove temporary legacy query framing and serving with CG-16. Separate public registration admission lifetime from data retained by accepted queries; the last host registration drop must refuse new requests even while an earlier callback is held. Assign query wire sequence numbers in the single peer sender after dequeueing so concurrent ingress cannot cause a false replay refusal.",
+          "tests": [
+            "shared_remote_queries_bind_cell_versions_and_gateway_owners",
+            "shared_remote_queries_retain_cancelled_sql_until_join",
+            "shared_remote_queries_retain_expired_sql_until_join"
           ]
         }
       ],
@@ -1152,6 +1163,33 @@
             "I01",
             "I02",
             "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_remote_queries_bind_cell_versions_and_gateway_owners",
+          "oracle": "Two cells share one physical group and production query TLS lane in both image modes. Linearizable, stale and AtLeast reads preserve actual cell observations and signed tokens. Retries retain deadlines/attempt limits; unconsumed replies retain transport admission. Foreign tokens, logical incarnations, signing keys, SQL owners and duplicate/missing gateway registrations refuse. A catalog replacement after route capture refuses at the old destination without callbacks; a confirmed redirect cannot invent the new physical owner. Concurrent callers query different cells through the same peer lane without replay refusals.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_remote_queries_retain_cancelled_sql_until_join",
+          "oracle": "Disconnect a remote query while its compiled SQL callback is physically held, in both image modes. Raft still establishes another linearizable read barrier. Routing/transport reservations release after cancellation, but SQL input/image/work ownership remains charged. Cancelling controller close cannot release the worker before its physical join. Dropping the final host gateway registration while the original callback is held refuses new reads before any additional callback; in-flight data retention cannot extend admission.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_remote_queries_retain_expired_sql_until_join",
+          "oracle": "Expire the original remote-query deadline while SQL is held, in both image modes. Node/peer query admission drains while the SQL owner remains retained. Raft control progress continues and cancelled shutdown waits for physical cleanup. Dropping the final host gateway registration while the original callback is held refuses new reads before any additional callback; in-flight data retention cannot extend admission.",
+          "invariants": [
+            "I01",
+            "I05",
             "I12"
           ]
         }

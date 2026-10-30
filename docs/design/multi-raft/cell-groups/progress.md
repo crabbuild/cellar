@@ -10,6 +10,78 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 shared query RPC
+
+Qualified source: `da79a69604d58be1c7d9663ebb69c3f6ded173f6`.
+
+Catalog-routed `CellQueryInvocation::execute_remote` now uses the existing
+node-owned TLS query lane. The authenticated marker-1 route separates physical
+`GroupHistory` from logical `CellHistory`; its payload also binds the catalog
+route epoch and birth. There is no reader for the former untagged query route.
+The temporary old-host query arm remains explicit until CG-16. Request/reply
+channel binding, sequence checks, node/disk/process/member identity and bounded
+framing remain shared with the existing transport.
+
+`RaftTransport::install_cell_query_gateway` registers a namespace dispatcher on
+the exact runtime/SQL engine and execution domain. The host owns the registration;
+the transport stores a weak reference. A separate admission owner refuses new
+reads after its final host handle is dropped, even while an accepted query retains
+the gateway data. Destination catalog and coherent runtime
+read authority are revalidated before registered SQL runs. Replies carry the
+actual selected cell observation and signed cell token. Foreign histories,
+incarnations and signing keys cannot produce a successful result. The caller
+also enforces its requested AtLeast minimum.
+
+Both query paths use the same read-only origin grant/revocation guard, peer pools,
+connection exchange and byte/item banks. These permissions cannot authorize a
+mutation or consensus message. A fully authenticated query refusal keeps the
+connection reusable; transport/protocol failures discard it. The single peer
+sender assigns wire sequence numbers after dequeueing, so concurrent ingress
+cannot invert them and cause false replay refusals. Each attempt is
+consumed once; retries and catalog-confirmed redirects retain the original caller
+deadline and total attempt budget. Returned replies keep transport admission until
+dropped. Disconnect and expiry cancel read waiters without releasing physically
+entered SQL or image ownership; controller shutdown still joins those workers.
+
+Three new native cases each run both materialized and extent images on three
+real TLS endpoints in one process. They cover two cells sharing a group, strong/
+stale/AtLeast reads, exact cell observations, wrong tokens/keys/incarnations,
+foreign SQL ownership, duplicate/dropped gateway registrations, concurrent-cell
+requests, retained responses,
+retry budgets and cancellation/deadline shutdown. A fresh linearizable barrier
+still completes while a query callback is held. A catalog replacement after route
+capture refuses at the old destination before callback execution; a confirmed
+redirect cannot invent its new physical owner. That fixture changes metadata only
+and does not qualify live movement. Three new wire cases cover bounded parsing,
+physical/logical identity and channel binding, token authentication, typed failures
+and payload-domain separation.
+
+All 195 selected Rust cases and all eleven gate commands pass. This includes the
+wire tests, full transport-module regressions, shared execution/catalog suites and
+existing host suite, plus all-target Clippy for Cellar/cellar-logic/cellar-ltx with
+warnings denied, formatting, layout, native dependency isolation, docs, source
+preflight and 37 validator cases. The record at
+`.cellar/cell-groups-evidence/CG-04-remote-queries-final/checkpoint.json` binds 260
+source inputs and 4 copied executables. Transfer the complete evidence directory
+with prior checkpoints. The first diagnostic compile caught a cleanup hook in the
+wrong owner; it was fixed before tests. The first committed gate passed Clippy,
+eight wire cases and 63 transport cases, then was stopped during native testing
+after review found the registration lifetime gap. The separate admission owner
+and held-callback assertions fix that gap; this successor repeats the full gate.
+A second candidate was stopped during Clippy to move sequence assignment into
+send order and add concurrent-cell coverage. All diagnostic and interrupted gates
+remain separate from this final qualification.
+
+CG-04 remains IN_PROGRESS. This checkpoint routes between attached group peers;
+nonmember shared discovery and its real-TLS revocation qualification remain open.
+The destination currently resolves the catalog per RPC, so bounded route-cache
+integration is a critical cost/latency opportunity. Public SDK binding and explicit
+write-authorized command/enrollment RPC, including safe follower receipt lookup,
+are still missing. Lazy birth/dynamic roster, per-group failure isolation and
+configuration/cache lifecycle also remain. Shared-group RustFS recovery, separate
+process failure, power loss and load are unqualified; the public host has not cut
+over. Continue with these concrete integration gaps before claiming CG-04 DONE.
+
 ## CG-04 controller-owned enrollment
 
 Qualified source: `f77d0d939347ead7129b39e72f76fcff11b99635`.

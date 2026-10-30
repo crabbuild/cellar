@@ -84,6 +84,36 @@ authority nor permission to restore the initial image over newer mutations.
 | Concurrent creators | One committed enrollment wins; mismatch refuses rather than changing class/incarnation. |
 | Split seals during preparation | Revalidate before proposal; an accepted-before-seal entry belongs to the frozen prefix. |
 
+## Routed read RPC
+
+Use the existing node-owned query lane, with independent control/data progress,
+bounded peer/node admission and joined physical shutdown. Authenticate both the
+physical group and logical cell histories, schema, route epoch, birth identity,
+destination member and node/disk/process identities. Query origins identify a
+node process; a namespace read grant never authorizes a mutation or Raft message.
+Grant revocation cancels its in-flight read waiters. A destination still requires
+live membership and the actual cell's read authority after routing checks.
+Separate host registration admission from data retained by accepted queries.
+Dropping the final host registration must refuse new reads even while an earlier
+request still owns its gateway data and physical SQL work.
+
+Allocate authenticated wire sequence numbers in the single peer sender after
+dequeueing. Concurrent callers can enqueue in a different order from admission;
+that must not cause a valid request to be refused as a replay.
+Consume each catalog attempt once. Carry its remaining duration across hosts;
+never compare unrelated monotonic clocks or replenish the original caller's
+deadline/attempt budget. Confirm relocation hints through the trusted catalog.
+Return the selected cell observation and authenticated cell token, never the
+group's newer log cut. The caller independently enforces an AtLeast minimum.
+Retain result admission until consumption, and retain entered SQL/image owners
+through physical cleanup after disconnect, timeout or cancelled shutdown.
+
+The current shared gateway resolves the destination catalog route for each RPC.
+Bounded routing-cache integration remains a CG-04 performance requirement; this
+intermediate behavior does not establish steady-state request cost or latency.
+Attached-group peer reads are implemented; nonmember shared discovery and
+write-authorized command/enrollment RPC remain separate integration work.
+
 ## Apply, checkpoint and archive
 
 For entry N, verify the cell base/sequence, stage the result, sync its immutable

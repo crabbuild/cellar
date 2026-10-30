@@ -184,6 +184,16 @@ shared dispatch, including safe receipt routing. Lazy birth/dynamic roster,
 per-group failure isolation and configuration/cache lifecycle remain gaps.
 See [progress](progress.md); CG-04 is not complete.
 
+At `da79a696`, attached-peer shared query RPC uses the existing bounded TLS lane
+with physical group/logical cell identity and actual cell tokens. Host-owned
+registration, original deadlines/retry budgets and physical SQL cleanup remain
+bound. The partial gate passes 195 Rust cases and eleven commands; transfer
+`.cellar/cell-groups-evidence/CG-04-remote-queries-final/` (260 source inputs,
+4 executables). Nonmember shared discovery, bounded destination route caching
+(the gateway currently resolves the catalog per RPC), write-authorized mutation
+RPC and public SDK cutover remain gaps. See [progress](progress.md); CG-04 remains
+IN_PROGRESS and no shared-group RustFS/load qualification is claimed.
+
 The implementation executor should deliver code, updated component contracts and
 the required retained evidence for each task on the active PR. The final handoff
 requires CG-16 and the release gate, including the real RustFS and independent
@@ -195,7 +205,7 @@ deliverable, not those implementation or deployment gates.
 | Artifact | Responsibility |
 | --- | --- |
 | `design.md` | Identities, routing, storage, APIs, compatibility and bounded ownership |
-| `protocols.md` | Enrollment, apply, snapshot/archive, transfer, hibernation and disaster state machines |
+| `protocols.md` | Enrollment, read RPC, apply, snapshot/archive, transfer, hibernation and disaster contracts |
 | `tasks.json` | Ordered implementation tasks, file ownership, steps, tests and invariant mapping |
 | `implementation-plan.md` | Human index generated from the same tasks; `show` supplies complete briefs |
 | `qualification.md`, `profiles.json` | Fault oracles, fixed workload contracts, numerical candidate gates and evidence format |

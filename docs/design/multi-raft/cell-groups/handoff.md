@@ -15,7 +15,22 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The newest reviewed source baseline is `f77d0d93`, adding registered,
+The newest reviewed source baseline is `da79a696`, adding attached-peer shared
+query RPC on the existing TLS lane. Physical group and logical cell identity,
+route epoch/birth, actual read authority and signed cell observations remain bound.
+Host-owned weak gateway registration checks engine/domain owners; replies retain
+admission and cancelled/expired reads retain physical SQL until joined shutdown.
+Shared and old-host queries use one read-only grant/revocation guard. The record is
+`.cellar/cell-groups-evidence/CG-04-remote-queries-final/checkpoint.json`: 195 Rust cases,
+eleven commands, 260 source inputs and 4 executables. Three native cases run
+both image modes; three new wire cases and existing transport/host regressions
+also pass. Transfer this directory with previous evidence. CG-04 remains
+IN_PROGRESS. Nonmember shared discovery, bounded destination route caching and
+write-authorized command/enrollment RPC are next integration gaps; the gateway
+currently resolves the catalog per RPC. Public SDK cutover, dynamic roster,
+per-group failure isolation, configuration/cache lifecycle and RustFS/load remain
+unqualified.
+The preceding reviewed source baseline is `f77d0d93`, adding registered,
 catalog-routed local enrollment to the shared controller. Initializer digests bind
 voting schema; old-host validation refuses this unsupported registration. Creation
 identity and captured inputs remain owned independently from response lifetime.
@@ -427,10 +442,13 @@ Do not let plan maintenance replace implementation.
    provide safe leader receipt lookup when a follower has no original producer.
    Missing local state never proves non-commit. Enrollment still requires an
    attached group in a fixed roster: integrate lazy birth and dynamic registration.
-   Reuse the separate query connection in `query_transport.rs`, replacing its
-   old cell-scoped route/result binding with physical group and logical cell
-   identity. Keep existing namespace query-origin grants read-only; mutation RPC
-   needs explicit write authorization and must not inherit those grants.
+   Attached-peer shared reads now reuse the separate query connection with
+   physical group/logical cell binding and host-owned gateway registration.
+   Complete nonmember shared discovery and real-TLS namespace-grant revocation
+   qualification. Replace the gateway's per-RPC catalog lookup with bounded,
+   correctly invalidated routing state before claiming steady-state performance.
+   Keep query-origin grants read-only; command/enrollment RPC needs explicit write
+   authorization, response-independent producers and safe remote receipt lookup.
    The old host refuses registered initializers until its actual replacement;
    do not remove that refusal without a functioning shared serving path. Request
    and namespace S3 minima must continue refusing until CG-06 provides real archive
