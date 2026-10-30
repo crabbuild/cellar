@@ -52,6 +52,13 @@ separate.
 
 ## Diagnose lease-renewal delays
 
+Engine lifecycle fixtures use a five-second node lease with matching predecessor
+recovery backoff. These cases terminate guest engines while the hosts persist
+and drain native work through a shared SQLite object store. The lease provides
+headroom for that I/O; guest execution limits, RPC deadlines, forced shutdown
+timers and proof assertions remain independent. Explicit node-lease and fencing
+qualification retains its own short policy.
+
 Use the normal fixture environment and unchanged budgets, with opt-in store
 timing enabled:
 

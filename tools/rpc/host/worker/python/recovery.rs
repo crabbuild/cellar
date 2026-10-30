@@ -25,7 +25,15 @@ pub(super) async fn run(
         provider_class: "PythonCounter",
     });
     let bucket = Bucket::open_dev(&root.join("fleet.sqlite"))?;
-    let (node, url) = fleet::start(&root.join("owner"), app, OWNER, bucket).await?;
+    let (node, url) = fleet::start_configured(
+        &root.join("owner"),
+        app,
+        OWNER,
+        bucket,
+        None,
+        super::super::configure_lifecycle,
+    )
+    .await?;
     let result = async {
         let before = before.to_string();
         ensure!(request(client, &url, "rust", "read", &[("target","python")]).await? == json!({"value":before}),

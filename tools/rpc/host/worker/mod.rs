@@ -13,6 +13,20 @@ mod python;
 mod trace;
 
 #[cfg(unix)]
+fn configure_lifecycle(
+    config: &mut cellar::sdk::NodeConfig,
+    _: &mut cellar::sdk::NodeServices,
+) -> anyhow::Result<()> {
+    // These cases terminate guest engines and drain their native work. The
+    // surviving hosts need authority throughout shared SQLite durability I/O;
+    // node-lease fault qualification retains its separate short policy.
+    config.actor.lease_ttl_ms = 5_000;
+    config.startup.recovery_retry_backoff =
+        std::time::Duration::from_millis(config.actor.lease_ttl_ms);
+    Ok(())
+}
+
+#[cfg(unix)]
 pub use matrix::{
     lifecycle, run, shutdown, shutdown_smoke, smoke, v8_forced_peer_deadline_repro,
     v8_forced_peer_repro, v8_shutdown, v8_shutdown_smoke, v8_termination, v8_termination_smoke,
