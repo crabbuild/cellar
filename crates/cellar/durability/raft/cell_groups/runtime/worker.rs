@@ -355,6 +355,9 @@ impl Worker {
                                     .owner
                                     .propose_at_term(term, data)
                                     .map(Response::Proposal),
+                                Command::Submit(prepared, _retained) => {
+                                    group.owner.submit(prepared).map(Response::Submission)
+                                }
                                 Command::ReadIndex(context) => {
                                     group.owner.read_index(context).map(|()| Response::Unit)
                                 }

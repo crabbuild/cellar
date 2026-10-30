@@ -9,6 +9,26 @@ use cellar_ltx::internal::{
 };
 use cellar_ltx::stream_snapshot::{ScratchLimits, ScratchPool};
 
+async fn accepted_sql(
+    runtime: &CellGroupRuntime,
+    prepared: &CellSqlPrepared,
+) -> Result<CellGroupProposal> {
+    match prepared.submit(runtime).await? {
+        CellSqlSubmission::Accepted(accepted) => Ok(accepted),
+        CellSqlSubmission::Rejected(_) => anyhow::bail!("unexpected capacity rejection"),
+    }
+}
+
+async fn accepted_private(
+    runtime: &CellGroupRuntime,
+    prepared: &CellPreparedCommand,
+) -> Result<CellGroupProposal> {
+    match runtime.submit(prepared.clone()).await? {
+        CellSubmissionOutcome::Accepted(accepted) => Ok(accepted),
+        CellSubmissionOutcome::Rejected(_) => anyhow::bail!("unexpected private rejection"),
+    }
+}
+
 fn cell_attempt(tag: u8) -> Result<CommandAttempt> {
     Ok(CommandAttempt {
         request: CommandRequest {
@@ -234,9 +254,7 @@ pub(super) async fn cell_receipts(rooted: bool) -> Result<()> {
         .await??;
     eb = eb_out;
     // Both use the same client/sequence, but B's committed image cannot settle A.
-    let proposed = fixture.runtimes[0]
-        .propose(route.history, pb.bytes().to_vec())
-        .await?;
+    let proposed = accepted_private(&fixture.runtimes[0], &pb).await?;
     fixture.drive(Some(proposed.position.index)).await?;
     let cb = fixture.runtimes[0]
         .execution_authority(route.history, b.clone())
@@ -256,9 +274,7 @@ pub(super) async fn cell_receipts(rooted: bool) -> Result<()> {
     ea = ea_out;
     eb = eb_out;
     // A prepared before B committed remains valid because its own base is unchanged.
-    let proposed = fixture.runtimes[0]
-        .propose(route.history, pa.bytes().to_vec())
-        .await?;
+    let proposed = accepted_private(&fixture.runtimes[0], &pa).await?;
     fixture.drive(Some(proposed.position.index)).await?;
     let ca = fixture.runtimes[0]
         .execution_authority(route.history, a.clone())
@@ -445,4 +461,11 @@ pub(super) async fn reconcile_producers(rooted: bool) -> Result<()> {
 
 pub(super) async fn reconcile_refusals(rooted: bool) -> Result<()> {
     reconciliation::refusals(rooted).await
+}
+
+#[path = "cell_group_sql_submission.rs"]
+mod submission;
+
+pub(super) async fn submission_rejections(rooted: bool) -> Result<()> {
+    submission::rejections(rooted).await
 }

@@ -16,10 +16,14 @@ struct RuntimeCluster {
 
 impl RuntimeCluster {
     async fn new() -> Result<Self> {
-        Self::with_limits(256, 256).await
+        Self::with_limits(256, 256, 1_000_000).await
     }
 
-    async fn with_limits(max_events: usize, max_requests: usize) -> Result<Self> {
+    async fn with_limits(
+        max_events: usize,
+        max_requests: usize,
+        max_cells_per_group: u32,
+    ) -> Result<Self> {
         let mut cluster = Cluster::new().await?;
         let mut runtimes = Vec::new();
         let mut events = Vec::new();
@@ -36,6 +40,7 @@ impl RuntimeCluster {
                     election_seed: Some([71; 32]),
                     max_events,
                     max_requests,
+                    max_cells_per_group,
                     ..Default::default()
                 },
             )
@@ -145,7 +150,16 @@ impl RuntimeCluster {
         tokio::time::timeout(Duration::from_secs(20), async {
             loop {
                 self.pump(&[], &mut BTreeMap::new()).await?;
-                let status = self.runtimes[0].status(history).await?;
+                let status = match self.runtimes[0].status(history).await {
+                    Ok(status) => status,
+                    Err(RuntimeError::Overloaded) => {
+                        // With one ordinary slot, an admitted peer frame can
+                        // still own it. Keep pumping under the existing deadline.
+                        tokio::task::yield_now().await;
+                        continue;
+                    }
+                    Err(error) => return Err(error.into()),
+                };
                 let target = target.unwrap_or(status.applied.index);
                 if status.ready && self.applied[&history].iter().all(|index| *index >= target) {
                     return Ok::<_, anyhow::Error>(());
@@ -373,7 +387,7 @@ pub(super) async fn shared_batches() -> Result<()> {
 }
 
 pub(super) async fn shared_proposal_budget() -> Result<()> {
-    let mut fixture = RuntimeCluster::with_limits(256, 8).await?;
+    let mut fixture = RuntimeCluster::with_limits(256, 8, 1_000_000).await?;
     let first = fixture.cluster.birth.route().history;
     let second = fixture.add_group(61).await?;
     for scope in [first, second] {
@@ -433,7 +447,7 @@ pub(super) async fn shared_proposal_budget() -> Result<()> {
 }
 
 pub(super) async fn bounded_apply_completion() -> Result<()> {
-    let mut fixture = RuntimeCluster::with_limits(2, 256).await?;
+    let mut fixture = RuntimeCluster::with_limits(2, 256, 1_000_000).await?;
     let first = fixture.cluster.birth.route().history;
     let second = fixture.add_group(51).await?;
     let histories = [first, second];
@@ -605,4 +619,8 @@ pub(super) async fn initialize_cells(rooted: bool) -> Result<()> {
 
 pub(super) async fn recover_initialization(rooted: bool) -> Result<()> {
     sql::recover_initialization(rooted).await
+}
+
+pub(super) async fn submission_rejections(rooted: bool) -> Result<()> {
+    sql::submission_rejections(rooted).await
 }

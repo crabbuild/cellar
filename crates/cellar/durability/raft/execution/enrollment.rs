@@ -177,6 +177,8 @@ impl CellPrivateEnrollment {
             bytes,
             attempt.creation,
             state.term(),
+            state.route().history,
+            state.engine_owner().clone(),
         ))
     }
 

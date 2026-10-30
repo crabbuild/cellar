@@ -22,6 +22,10 @@ pub struct CellEnrollmentState {
 }
 
 impl CellEnrollmentState {
+    pub(crate) fn engine_owner(&self) -> &Arc<()> {
+        &self.group.owner
+    }
+
     pub(super) fn new(
         group: GroupLog<GroupHistory>,
         current: &PreparedGroupManifest,

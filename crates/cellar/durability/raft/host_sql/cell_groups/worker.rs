@@ -34,6 +34,7 @@ pub(super) enum Action {
     Submit(ProposalId),
     Finish(Box<CellExecutionAuthority>),
     Reconcile(ProposalId, Box<CellReconciliationAuthority>),
+    Reject(Box<CellSqlRejection>),
 }
 
 impl Action {
@@ -120,9 +121,10 @@ impl Cells {
             Action::Stage(_) | Action::Initialize(_) => {
                 crate::raft::performance::Operation::SqlStage
             }
-            Action::Finish(_) | Action::Reconcile(..) | Action::ResolveEnrollment(..) => {
-                crate::raft::performance::Operation::SqlPublish
-            }
+            Action::Finish(_)
+            | Action::Reconcile(..)
+            | Action::ResolveEnrollment(..)
+            | Action::Reject(_) => crate::raft::performance::Operation::SqlPublish,
             _ => crate::raft::performance::Operation::SqlOther,
         };
         let timer = performance.timer(operation);
@@ -305,6 +307,24 @@ impl Cells {
                     return Err(ExecutionError::Invalid("cell producer proposal"));
                 }
                 Ok(CellSqlOutcome::Prepared(pending.prepared.clone()))
+            }
+            Action::Reject(rejection) => {
+                let pending = self.pending.get(&cell).ok_or(ExecutionError::Uncertain)?;
+                if !pending
+                    .prepared
+                    .prepared
+                    .matches_rejection(&rejection.proof)
+                {
+                    return Err(ExecutionError::Invalid("cell rejection preparation"));
+                }
+                let pending = self
+                    .pending
+                    .remove(&cell)
+                    .ok_or(ExecutionError::Uncertain)?;
+                // The proof permanently seals every submission clone. Close
+                // physical SQL ownership before dropping logical-name admission.
+                pending.producer.close()?;
+                Ok(CellSqlOutcome::Rejected)
             }
             Action::Submit(proposal) => {
                 let pending = self

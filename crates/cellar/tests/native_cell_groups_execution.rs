@@ -11,6 +11,16 @@ mod fault;
 #[path = "support/cell_group_runtime.rs"]
 mod runtime_fixture;
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn sql_submission_rejection_seals_delayed_retries() -> Result<()> {
+    runtime_fixture::submission_rejections(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_sql_submission_rejection_seals_delayed_retries() -> Result<()> {
+    runtime_fixture::submission_rejections(true).await
+}
+
 #[path = "support/cell_group_admission.rs"]
 mod admission_fixture;
 

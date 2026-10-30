@@ -12,36 +12,6 @@ use crate::raft::cell_groups::{
 };
 use crate::raft::completion::RuntimeError;
 use cellar_logic::cell_group::CellVersion;
-use std::sync::Arc;
-
-#[derive(Clone)]
-pub struct CellPreparedCommand {
-    bytes: Arc<Vec<u8>>,
-    proposal: ProposalId,
-    term: Term,
-}
-
-impl CellPreparedCommand {
-    pub(super) fn new(bytes: Vec<u8>, proposal: ProposalId, term: Term) -> Self {
-        Self {
-            bytes: Arc::new(bytes),
-            proposal,
-            term,
-        }
-    }
-
-    pub fn term(&self) -> Term {
-        self.term
-    }
-
-    pub fn bytes(&self) -> &[u8] {
-        &self.bytes
-    }
-
-    pub fn proposal(&self) -> ProposalId {
-        self.proposal
-    }
-}
 
 /// A receipt read from the exact committed cell image. This is not S3 coverage.
 pub struct CellCommittedReceipt {
@@ -248,11 +218,13 @@ impl CellPrivateExecutor {
             )
             .map_err(storage)?;
         self.authority.check().map_err(authority_failure)?;
-        let prepared = CellPreparedCommand {
-            bytes: Arc::new(bytes),
-            proposal: attempt.proposal,
-            term: self.authority.term(),
-        };
+        let prepared = CellPreparedCommand::new(
+            bytes,
+            attempt.proposal,
+            self.authority.term(),
+            route.history,
+            self.authority.engine_owner().clone(),
+        );
         self.pending = Some(PendingCell {
             prepared: prepared.clone(),
             request: attempt.request,
@@ -276,7 +248,7 @@ impl CellPrivateExecutor {
             .pending
             .as_mut()
             .ok_or(ExecutionError::Invalid("no cell proposal"))?;
-        if pending.submitted || pending.prepared.proposal != proposal {
+        if pending.submitted || pending.prepared.proposal() != proposal {
             return Err(ExecutionError::Invalid("cell proposal submission"));
         }
         pending.submitted = true;
@@ -319,7 +291,7 @@ impl CellPrivateExecutor {
         authority: CellReconciliationAuthority,
     ) -> Result<CellReconciliation, ExecutionError> {
         let pending = self.pending.as_ref().ok_or(ExecutionError::Uncertain)?;
-        if pending.prepared.proposal != proposal
+        if pending.prepared.proposal() != proposal
             || !self.authority.accepts_reconciliation(&authority)
         {
             return Err(ExecutionError::Invalid("cell reconciliation identity"));

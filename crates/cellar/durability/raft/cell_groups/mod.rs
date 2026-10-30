@@ -5,7 +5,7 @@
 pub use super::host_sql::cell_groups::{
     CellGroupSqlPool, CellSqlEnrollment, CellSqlEnrollmentResolution, CellSqlLimits,
     CellSqlOptions, CellSqlOutcome, CellSqlPrepared, CellSqlReceipt, CellSqlReconciliation,
-    CellSqlRootOptions, CellSqlUsage,
+    CellSqlRejection, CellSqlRootOptions, CellSqlSubmission, CellSqlUsage,
 };
 
 mod execution_authority;

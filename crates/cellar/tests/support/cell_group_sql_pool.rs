@@ -131,9 +131,7 @@ pub(super) async fn admission(rooted: bool) -> Result<()> {
     // B completes through the same consensus group while A's physical SQL is held.
     pool.mark_submitted(b.clone(), pb.proposal()).await?;
     pool.mark_submitted(b.clone(), pb.proposal()).await?;
-    let proposal = fixture.runtimes[0]
-        .propose(route.history, pb.bytes().to_vec())
-        .await?;
+    let proposal = accepted_sql(&fixture.runtimes[0], &pb).await?;
     fixture.drive(Some(proposal.position.index)).await?;
     let cb = fixture.runtimes[0]
         .execution_authority(route.history, b.clone())
@@ -147,9 +145,7 @@ pub(super) async fn admission(rooted: bool) -> Result<()> {
     release.send(())?;
     let pa = tokio::time::timeout(Duration::from_secs(5), pool.resume(a.clone(), pa)).await??;
     pool.mark_submitted(a.clone(), pa.proposal()).await?;
-    let proposal = fixture.runtimes[0]
-        .propose(route.history, pa.bytes().to_vec())
-        .await?;
+    let proposal = accepted_sql(&fixture.runtimes[0], &pa).await?;
     fixture.drive(Some(proposal.position.index)).await?;
     let ca = fixture.runtimes[0]
         .execution_authority(route.history, a.clone())

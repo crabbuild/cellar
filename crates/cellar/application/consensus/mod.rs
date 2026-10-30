@@ -159,10 +159,10 @@ pub mod verification {
     pub use crate::raft::execution::{
         query_registered, AppliedExecution, CellCommittedReceipt, CellEnrollmentAttempt,
         CellEnrollmentResolution, CellPreparedCommand, CellPrivateEnrollment, CellPrivateExecutor,
-        CellReconciliation, CellStageOutcome, CommandAttempt, CommandAuthority, CommandRequest,
-        CommittedReceipt, ExecutionError, ExecutionLimits, ExecutionStatus, PreparedCommand,
-        PrivateExecutor, PrivateOptions, RegisteredQueryOutput, RootPrivateOptions, StageOutcome,
-        StoredReceipt,
+        CellProposalRejection, CellReconciliation, CellStageOutcome, CellSubmissionOutcome,
+        CommandAttempt, CommandAuthority, CommandRequest, CommittedReceipt, ExecutionError,
+        ExecutionLimits, ExecutionStatus, PreparedCommand, PrivateExecutor, PrivateOptions,
+        RegisteredQueryOutput, RootPrivateOptions, StageOutcome, StoredReceipt,
     };
     pub use crate::raft::fleet_catalog::{
         FleetBirthAuthorization, FleetBirthReservation, FleetCatalog, FleetCatalogError,

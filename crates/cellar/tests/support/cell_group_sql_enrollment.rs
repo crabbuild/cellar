@@ -43,7 +43,7 @@ async fn cluster(rooted: bool) -> Result<(RuntimeCluster, GroupRoute)> {
     Ok((fixture, route))
 }
 
-async fn prepare_initial(
+pub(super) async fn prepare_initial(
     fixture: &RuntimeCluster,
     pool: &CellGroupSqlPool,
     node: usize,
@@ -79,16 +79,13 @@ async fn submit(
     cell: &CellHistory,
     prepared: &CellSqlPrepared,
 ) -> Result<()> {
-    let group = fixture.cluster.birth.route().history;
     pool.mark_submitted(cell.clone(), prepared.proposal())
         .await?;
-    let accepted = fixture.runtimes[node]
-        .propose_at_term(group, prepared.term(), prepared.bytes().to_vec())
-        .await?;
+    let accepted = accepted_sql(&fixture.runtimes[node], prepared).await?;
     apply_through(fixture, accepted.position.index).await
 }
 
-async fn resolved(
+pub(super) async fn resolved(
     fixture: &RuntimeCluster,
     pool: &CellGroupSqlPool,
     node: usize,
@@ -412,9 +409,7 @@ pub(super) async fn recovery(rooted: bool) -> Result<()> {
     // merely checking that the receiver is a leader would reject this race.
     transfer(&mut fixture, 1, 0).await?;
     assert!(matches!(
-        fixture.runtimes[0]
-            .propose_at_term(route.history, pe.term(), pe.bytes().to_vec())
-            .await,
+        pe.submit(&fixture.runtimes[0]).await,
         Err(RuntimeError::StaleCompletion)
     ));
     assert_eq!(

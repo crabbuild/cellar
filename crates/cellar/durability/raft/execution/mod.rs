@@ -8,15 +8,14 @@ use super::cache::{DurableApply, GroupLog};
 use super::completion::GroupStatus;
 use super::receipts;
 mod cell;
+mod submission;
 pub(crate) use cell::authority_failure;
+pub use submission::{CellPreparedCommand, CellProposalRejection, CellSubmissionOutcome};
 mod command;
 mod enrollment;
 pub use enrollment::{CellEnrollmentAttempt, CellEnrollmentResolution, CellPrivateEnrollment};
 mod images;
-pub use cell::{
-    CellCommittedReceipt, CellPreparedCommand, CellPrivateExecutor, CellReconciliation,
-    CellStageOutcome,
-};
+pub use cell::{CellCommittedReceipt, CellPrivateExecutor, CellReconciliation, CellStageOutcome};
 mod rooted_working;
 use crate::application::consensus::{
     command_request_digest, CommittedVersion, EnvelopeLimits, OperationContract, OperationKind,

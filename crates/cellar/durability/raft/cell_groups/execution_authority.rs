@@ -25,6 +25,10 @@ pub struct CellExecutionAuthority {
 }
 
 impl CellExecutionAuthority {
+    pub(crate) fn engine_owner(&self) -> &Arc<()> {
+        &self.group.owner
+    }
+
     pub(crate) fn accepts_reconciliation(&self, proof: &CellReconciliationAuthority) -> bool {
         Arc::ptr_eq(&self.group.owner, &proof.group.owner)
             && self.route == proof.route

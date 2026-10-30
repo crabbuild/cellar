@@ -164,6 +164,7 @@ pub struct CellGroupOwner {
     failed: Option<RuntimeError>,
     proposals: super::proposal_admission::ProposalAdmission,
     pub(super) proposal_budget: Arc<crate::raft::budget::Budget>,
+    prepared_only: bool,
 }
 
 impl CellGroupOwner {
@@ -248,6 +249,7 @@ impl CellGroupOwner {
             last_sync: 0,
             failed: None,
             proposals: Default::default(),
+            prepared_only: false,
         })
     }
 
@@ -373,8 +375,37 @@ impl CellGroupOwner {
 
     /// Protocol admission only. The shared cell executor must serialize each
     /// cell's preparation, reserve physical work and retain ambiguous outcomes.
-    /// SQL producers use `propose_at_term` with their captured preparation term.
+    /// The first prepared submission permanently closes this byte-only entry
+    /// point for this owner, including already queued raw retries.
     pub fn propose(&mut self, data: Vec<u8>) -> Result<CellGroupProposal, RuntimeError> {
+        if self.prepared_only {
+            return Err(RuntimeError::Invalid("prepared submission required".into()));
+        }
+        self.try_propose(data)?.ok_or(RuntimeError::Overloaded)
+    }
+
+    /// Seals a definitively refused preparation against every delayed clone.
+    /// Queue admission errors never manufacture a rejection proof.
+    pub fn submit(
+        &mut self,
+        prepared: crate::raft::execution::CellPreparedCommand,
+    ) -> Result<crate::raft::execution::CellSubmissionOutcome, RuntimeError> {
+        let engine = self.group.owner.clone();
+        let group = self.group.identity().scope;
+        if !prepared.belongs_to(&engine, group) {
+            return Err(RuntimeError::Invalid("prepared submission owner".into()));
+        }
+        self.prepared_only = true;
+        prepared.submit(&engine, group, || {
+            self.live()?;
+            if prepared.term().get() != self.node.raft.term {
+                return Err(RuntimeError::StaleCompletion);
+            }
+            self.try_propose(prepared.bytes().to_vec())
+        })
+    }
+
+    fn try_propose(&mut self, data: Vec<u8>) -> Result<Option<CellGroupProposal>, RuntimeError> {
         if !self.status()?.ready {
             return Err(RuntimeError::NotReady);
         }
@@ -387,37 +418,60 @@ impl CellGroupOwner {
             GroupEntryLimits::default(),
         )
         .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
-        let admission = self.proposals.check(
+        let admission = match self.proposals.check(
             &entry,
             &data,
             &self.current,
             self.options.max_cells_per_group,
             self.options.max_requests,
             &self.proposal_budget,
-        )?;
+        ) {
+            Ok(admission) => admission,
+            Err(RuntimeError::Overloaded) => return Ok(None),
+            Err(error) => return Err(error),
+        };
         let (candidate, permit) = match admission {
-            super::proposal_admission::Admission::Existing(accepted) => return Ok(accepted),
+            super::proposal_admission::Admission::Existing(accepted) => return Ok(Some(accepted)),
             super::proposal_admission::Admission::New(candidate, permit) => (candidate, permit),
         };
         let before = self.node.raft.raft_log.last_index();
-        self.node.propose(Vec::new(), data)?;
-        let entry = self
-            .node
-            .raft
-            .raft_log
-            .unstable_entries()
-            .last()
-            .ok_or(RuntimeError::NotReady)?;
-        if entry.index != before + 1 {
-            return Err(RuntimeError::NotReady);
+        if let Err(error) = self.node.propose(Vec::new(), data) {
+            let error = RuntimeError::from(error);
+            if self.node.raft.raft_log.last_index() != before {
+                self.failed = Some(error.clone());
+                self.revoke_execution();
+            }
+            return Err(error);
         }
-        let accepted = CellGroupProposal {
-            group: self.group.identity().scope,
-            position: entry_position(entry),
-            digest: entry_digest(entry)?,
+        let observed = (|| {
+            let entry = self
+                .node
+                .raft
+                .raft_log
+                .unstable_entries()
+                .last()
+                .ok_or_else(|| RuntimeError::Protocol("missing proposed entry".into()))?;
+            if entry.index != before + 1 {
+                return Err(RuntimeError::Protocol("proposal append position".into()));
+            }
+            Ok(CellGroupProposal {
+                group: self.group.identity().scope,
+                position: entry_position(entry),
+                digest: entry_digest(entry)?,
+            })
+        })();
+        let accepted = match observed {
+            Ok(accepted) => accepted,
+            Err(error) => {
+                // Append was attempted. Never turn an uncertain local result
+                // into permission to append again or a rejection proof.
+                self.failed = Some(error.clone());
+                self.revoke_execution();
+                return Err(error);
+            }
         };
         self.proposals.accept(candidate, accepted.clone(), permit);
-        Ok(accepted)
+        Ok(Some(accepted))
     }
 
     /// Check the SQL preparation fence on the actual RawNode owner in the same

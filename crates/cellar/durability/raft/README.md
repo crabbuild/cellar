@@ -99,11 +99,24 @@ the initializer. Admission keys the logical cluster/namespace/cell name, so anot
 incarnation cannot bypass an in-flight producer. Ordinary commands use the same
 name reservation. Queued and running initialization retain it through cancellation.
 
-Prepared SQL output carries its original leader term. Submit it through
-`propose_at_term`: the actual RawNode owner checks that fence atomically with
-proposal admission. Merely sampling leader status before queueing is insufficient,
-including when the original node later regains leadership. The unfenced `propose`
-method remains a low-level protocol verification boundary.
+Prepared SQL output carries its original leader term and engine/group identity.
+Use `CellSqlPrepared::submit` (or `CellGroupRuntime::submit` for standalone
+verification producers). The actual RawNode owner checks those bindings before
+new admission. Acceptance is remembered by that exact preparation, so a lost
+response can return its original position even after apply; it never proves a
+commit or S3 coverage. The first valid prepared submission irreversibly disables
+byte-only `propose`/`propose_at_term` for that owner, including raw requests already
+queued behind it. This prevents delayed byte-only retries bypassing a seal.
+
+Only a definitive owner capacity refusal seals the preparation as rejected.
+Generic queue overload, stale authority and missing responses grant no such
+proof. Every clone shares the seal and can recover it through `rejection()`, even
+if the original rejection response was lost. Returning capacity cannot unseal
+old output. The pool's `reject` progress operation matches the exact preparation,
+closes its private writer, then releases logical-name admission. It rejects
+foreign engines and proofs for another preparation, including fresh retries with
+the same proposal ID. Retained prepared outputs, queued submissions and rejection
+proofs keep their SQL byte reservations through cancellation and delivery.
 
 The owner retains a bounded acceptance record for each pending logical cell name.
 An exact proposal retry returns its original position and digest; different bytes
@@ -118,8 +131,9 @@ Acceptance records retain a separate node-wide budget of `max_requests` items an
 image pins. This budget cannot block Ready or completion work. Records release
 only after exact durable apply, role/term loss, terminal failure, or owner destruction. A new leader
 cannot admit until its applied current-term barrier covers inherited entries.
-After a record releases, stale mutation bases and existing enrollments return
-`StaleCompletion`: callers must resolve the original receipt or creation record.
+Without retained acceptance for that preparation, stale mutation bases and
+existing enrollments return `StaleCompletion`: callers must resolve the original
+receipt or creation record.
 That refusal does not establish that the prior attempt failed.
 
 A committed creation retry returns the immutable enrollment record without opening

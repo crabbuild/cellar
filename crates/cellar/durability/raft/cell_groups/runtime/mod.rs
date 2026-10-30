@@ -92,6 +92,10 @@ enum Command {
     AdmitStep(Message),
     Propose(Vec<u8>),
     ProposeAtTerm(cellar_logic::consensus::Term, Vec<u8>),
+    Submit(
+        crate::raft::execution::CellPreparedCommand,
+        Option<Arc<dyn Send + Sync>>,
+    ),
     ReadIndex(Vec<u8>),
     Apply(CellGroupTicket, Box<PreparedGroupManifest>),
     Status,
@@ -101,6 +105,7 @@ enum Command {
 enum Response {
     Unit,
     Proposal(CellGroupProposal),
+    Submission(crate::raft::execution::CellSubmissionOutcome),
     Execution(Box<CellExecutionAuthority>),
     Enrollment(Box<CellEnrollmentAuthority>),
     EnrollmentState(Box<CellEnrollmentState>),
@@ -118,6 +123,36 @@ struct Request {
 }
 
 impl CellGroupRuntime {
+    pub async fn submit(
+        &self,
+        prepared: crate::raft::execution::CellPreparedCommand,
+    ) -> Result<crate::raft::execution::CellSubmissionOutcome, RuntimeError> {
+        self.submit_retained(prepared, None).await
+    }
+
+    pub(crate) async fn submit_retained(
+        &self,
+        prepared: crate::raft::execution::CellPreparedCommand,
+        retained: Option<Arc<dyn Send + Sync>>,
+    ) -> Result<crate::raft::execution::CellSubmissionOutcome, RuntimeError> {
+        let bytes = prepared.bytes().len();
+        if bytes > self.inner.options.max_proposal_bytes {
+            return Err(RuntimeError::Overloaded);
+        }
+        let group = prepared.group();
+        match self
+            .call(
+                Some(group),
+                Command::Submit(prepared, retained),
+                bytes + 4096,
+            )
+            .await?
+        {
+            Response::Submission(outcome) => Ok(outcome),
+            _ => Err(RuntimeError::Protocol("prepared submission reply".into())),
+        }
+    }
+
     /// Start parked: no recovered group is attached without its verified root
     /// and catalog/member permit. The engine admits only one node runtime.
     pub async fn start(

@@ -13,8 +13,9 @@ use crate::raft::cell_groups::{
 use crate::raft::completion::RuntimeError;
 use crate::raft::execution::{
     CellCommittedReceipt, CellEnrollmentAttempt, CellEnrollmentResolution, CellPreparedCommand,
-    CellPrivateEnrollment, CellPrivateExecutor, CellReconciliation, CellStageOutcome,
-    CommandAttempt, ExecutionError, ExecutionLimits, PrivateOptions, RootPrivateOptions,
+    CellPrivateEnrollment, CellPrivateExecutor, CellProposalRejection, CellReconciliation,
+    CellStageOutcome, CellSubmissionOutcome, CommandAttempt, ExecutionError, ExecutionLimits,
+    PrivateOptions, RootPrivateOptions,
 };
 use crate::raft::runtime::Terminal;
 use crate::raft::storage::ReplicaLog;
@@ -166,6 +167,31 @@ pub struct CellSqlPrepared {
 }
 
 impl CellSqlPrepared {
+    pub async fn submit(
+        &self,
+        runtime: &crate::raft::cell_groups::CellGroupRuntime,
+    ) -> Result<CellSqlSubmission, RuntimeError> {
+        match runtime
+            .submit_retained(self.prepared.clone(), Some(self._bytes.clone()))
+            .await?
+        {
+            CellSubmissionOutcome::Accepted(accepted) => Ok(CellSqlSubmission::Accepted(accepted)),
+            CellSubmissionOutcome::Rejected(proof) => {
+                Ok(CellSqlSubmission::Rejected(CellSqlRejection {
+                    proof,
+                    _bytes: self._bytes.clone(),
+                }))
+            }
+        }
+    }
+
+    pub fn rejection(&self) -> Result<Option<CellSqlRejection>, RuntimeError> {
+        Ok(self.prepared.rejection()?.map(|proof| CellSqlRejection {
+            proof,
+            _bytes: self._bytes.clone(),
+        }))
+    }
+
     pub fn term(&self) -> cellar_logic::consensus::Term {
         self.prepared.term()
     }
@@ -177,6 +203,18 @@ impl CellSqlPrepared {
     pub fn proposal(&self) -> ProposalId {
         self.prepared.proposal()
     }
+}
+
+pub enum CellSqlSubmission {
+    Accepted(crate::raft::cell_groups::CellGroupProposal),
+    Rejected(CellSqlRejection),
+}
+
+/// Retains the original SQL output budget through delivery and lost responses.
+#[derive(Clone)]
+pub struct CellSqlRejection {
+    proof: CellProposalRejection,
+    _bytes: Arc<Bytes>,
 }
 
 pub struct CellSqlReceipt {
@@ -197,6 +235,7 @@ pub enum CellSqlOutcome {
     Reconciled(CellSqlReconciliation),
     Enrollment(Box<CellSqlEnrollment>),
     EnrollmentResolved(CellSqlEnrollmentResolution),
+    Rejected,
 }
 
 pub enum CellSqlReconciliation {
@@ -516,6 +555,25 @@ impl CellGroupSqlPool {
         match self.call(cell, worker::Action::Submit(proposal)).await? {
             CellSqlOutcome::Submitted => Ok(()),
             _ => Err(ExecutionError::Invalid("cell SQL submit response")),
+        }
+    }
+
+    /// Close the private writer only for this exact, irreversibly sealed
+    /// preparation. A generic error or another producer's proof cannot do this.
+    pub async fn reject(
+        &self,
+        cell: CellHistory,
+        rejection: CellSqlRejection,
+    ) -> Result<(), ExecutionError> {
+        if !rejection.proof.belongs_to_engine(&self.inner.engine_owner) {
+            return Err(ExecutionError::Invalid("cell rejection engine"));
+        }
+        match self
+            .call(cell, worker::Action::Reject(Box::new(rejection)))
+            .await?
+        {
+            CellSqlOutcome::Rejected => Ok(()),
+            _ => Err(ExecutionError::Invalid("cell rejection response")),
         }
     }
 

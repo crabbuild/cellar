@@ -95,9 +95,7 @@ pub(super) async fn commit_on(
     let group = fixture.cluster.birth.route().history;
     pool.mark_submitted(cell.clone(), prepared.proposal())
         .await?;
-    let accepted = fixture.runtimes[node]
-        .propose_at_term(group, prepared.term(), prepared.bytes().to_vec())
-        .await?;
+    let accepted = accepted_sql(&fixture.runtimes[node], &prepared).await?;
     apply_through(fixture, accepted.position.index).await?;
     let authority = fixture.runtimes[node]
         .execution_authority(group, cell.clone())
@@ -151,9 +149,7 @@ pub(super) async fn reconcile(rooted: bool) -> Result<()> {
     let stale_b = fixture.runtimes[0]
         .reconciliation_authority(route.history, b.clone())
         .await?;
-    let submitted = fixture.runtimes[0]
-        .propose(route.history, prepared[1].bytes().to_vec())
-        .await?;
+    let submitted = accepted_sql(&fixture.runtimes[0], &prepared[1]).await?;
     fixture.drive(Some(submitted.position.index)).await?;
     assert!(
         stale_b.check().is_err(),
@@ -354,9 +350,7 @@ pub(super) async fn reconcile(rooted: bool) -> Result<()> {
         anyhow::bail!("retry A")
     };
     pool.mark_submitted(a.clone(), command.proposal()).await?;
-    let submitted = fixture.runtimes[0]
-        .propose(route.history, command.bytes().to_vec())
-        .await?;
+    let submitted = accepted_sql(&fixture.runtimes[0], &command).await?;
     fixture.drive(Some(submitted.position.index)).await?;
     // A positive same-term receipt resolves without requiring a term change.
     let proof = fixture.runtimes[0]
@@ -412,9 +406,7 @@ pub(super) async fn refusals(rooted: bool) -> Result<()> {
         pending.push(prepared);
     }
     // B commits but its response is lost; A's original proposal never commits.
-    let accepted = fixture.runtimes[0]
-        .propose(route.history, pending[1].bytes().to_vec())
-        .await?;
+    let accepted = accepted_sql(&fixture.runtimes[0], &pending[1]).await?;
     apply_through(&mut fixture, accepted.position.index).await?;
     transfer(&mut fixture, 0, 1).await?;
     let successor = CellGroupSqlPool::start(&fixture.cluster.voters[1].log, limits)?;
