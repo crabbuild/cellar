@@ -143,6 +143,16 @@ retry/compaction integration and cache lifecycle remain required. Managed
 fleet integration remains required by CG-07. A birth
 metadata observation alone cannot authorize voter startup.
 
+Local query invocations now connect the catalog to registered execution at
+`8723db2d`: namespace/class bindings, immutable request fingerprints, original
+deadlines/attempt budgets, authenticated AtLeast tokens and destination authority
+checks share existing workers. All 103 native cases across four affected suites
+and eight commands pass. Transfer
+`.cellar/cell-groups-evidence/CG-04-routed-queries/` with prior evidence; it binds
+227 source inputs and four selected executables. Command/enrollment routing and
+production controller/SDK integration are the next critical gaps. Metadata-only
+redirect tests do not qualify live transfer. See [progress](progress.md).
+
 The implementation executor should deliver code, updated component contracts and
 the required retained evidence for each task on the active PR. The final handoff
 requires CG-16 and the release gate, including the real RustFS and independent

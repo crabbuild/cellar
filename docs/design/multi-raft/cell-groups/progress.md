@@ -10,6 +10,54 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 catalog-routed query invocations
+
+Qualified source: `8723db2df7436478cbc5efc9147d65d3b7651247`.
+
+`CellGroupDispatcher` binds a registered class to its configured namespace,
+version keys and execution domain. Queries freeze bounded input, operation and
+consistency before discovery. Clones share invocation admission, and the canonical
+fingerprint includes logical history and routing limits. Deadline capture precedes
+validation and hashing. Existing catalog sessions perform lookup, cached routing,
+member retries and exact redirect confirmation without replenishing deadline or
+attempt count. Each attempt is consumed before asynchronous destination work.
+
+Local execution authenticates AtLeast tokens, checks the destination's full route
+and logical history, and reuses existing runtime read authority and registered SQL
+workers. Foreign domain clocks and engines refuse. The response token signs the
+selected cell observation. Dropped routing releases only invocation admission;
+entered SQL retains its independent input, image and worker ownership through
+joined shutdown. Directory metadata cannot create a physical group owner.
+
+The two new three-voter cases cover both image modes, real directory lookup,
+linearizable execution, a lost response retry, follower AtLeast, foreign
+cell/domain/class/engine rejection, invalid redirect ticket invalidation, original
+timeout/attempt exhaustion, a confirmed replacement with no physical owner, and
+cancelled routing while a callback is held. The replacement case tests only
+metadata confirmation and refusal; it does not qualify live group transfer.
+
+All 103 native cases pass across the shared-group execution, catalog, existing
+read and runtime suites. The runtime process helper is invoked by its parent.
+This targeted gate complements the prior 319-case registered-query checkpoint at
+its original source; it does not rerun the complete previous selection.
+All eight commands pass, including all-target Clippy for
+Cellar/cellar-logic/cellar-ltx with warnings denied, formatting (1,821 Rust files),
+layout, dependency isolation, docs, source preflight and all 37 plan-validator
+cases. The partial record is
+`.cellar/cell-groups-evidence/CG-04-routed-queries/checkpoint.json`, binding
+227 source inputs and four selected executables. The initial missing type
+qualification, corrected targeted run and formatter logs are retained separately.
+No RustFS or performance qualification was run. The branch contains latest fetched
+`origin/main` at `8a93ffd7`; the requested MR-13/MR-14 JSON files remain excluded.
+
+CG-04 remains IN_PROGRESS. The most critical gap is routed command/enrollment
+execution with retained ambiguous outcomes and exact receipt/creation settlement.
+Next extend the same dispatcher and qualify enrollment, command, lost response and
+linearizable query together. Production node-controller event/transport integration
+and replacing the public SDK's old host binding remain required; the native
+fixture still pumps shared-runtime events. Retry/cache/configuration, shared effects,
+snapshots/archive, physical fault and real RustFS/load gates remain unfinished.
+
 ## CG-04 registered queries with exact cell observations
 
 Qualified source: `7a79511d4b8606d11177778a3fe8adf71a8d901a`.

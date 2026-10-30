@@ -15,12 +15,21 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The reviewed source baseline is `7a79511d`, adding registered queries with exact
+The reviewed source baseline is `8723db2d`, adding catalog-bound query
+invocations over the existing runtime/SQL owners. Its partial record is
+`.cellar/cell-groups-evidence/CG-04-routed-queries/checkpoint.json`: 103 native
+cases across four affected suites, eight successful commands, 227 source inputs
+and four selected executables. Transfer the complete directory with prior evidence.
+This qualifies local routed queries, including authenticated cell tokens,
+unchanged deadlines/attempt budgets and cancellation ownership. It does not
+qualify live movement, command/enrollment routing, remote transports or the public
+SDK/controller cutover. CG-04 remains IN_PROGRESS.
+The preceding source baseline is `7a79511d`, adding registered queries with exact
 cell observations on the existing workers. Its partial checkpoint is
 `.cellar/cell-groups-evidence/CG-04-registered-queries/checkpoint.json`: 319 selected
 Rust cases, seventeen successful commands, 225 source inputs and sixteen selected
-executables. Transfer its entire directory with prior evidence. Catalog/SDK
-integration remains the next critical gap; CG-04 remains IN_PROGRESS. The
+executables. Transfer its entire directory with prior evidence. That checkpoint
+preceded the local catalog-routed query integration; CG-04 remains IN_PROGRESS. The
 explicit temporary `QueryVersion::GroupCut` and `invoke_group_query` must be
 removed with the old host by CG-16.
 The preceding baseline is `b28078af`, adding registered commands on shared
@@ -142,8 +151,9 @@ the old proof. Accepted preparations retain their original position/digest even
 after apply; this remains provisional acceptance, never commitment. Prepared
 submission also closes byte-only proposal entry points on that owner.
 
-Next connect catalog routing and SDK creation/commands/queries to the registered
-worker entry points and their exact cell-version observations. Use `CellSqlPrepared::submit` and its typed result;
+Next connect catalog routing for SDK creation/commands and the production host
+controller to the registered workers. Local catalog-routed query invocations now
+consume exact cell-version observations. Use `CellSqlPrepared::submit` and its typed result;
 never release a producer from generic overload or same-term absence. Preserve
 the original request fingerprint, deadline and attempt budget across redirects. Do not synthesize a legacy `GroupScope` to
 satisfy callback/effect identities. The arbitrary-callback `stage` API remains a verification boundary; use
@@ -252,8 +262,9 @@ at `ed84df5d` qualifies exact entry matching, unchanged-cell and older-pin
 provenance, restart/image-collection recovery and token round-trips in both image
 modes. Actual log-compaction and group-snapshot integration remain unqualified.
 
-Next connect catalog invocation sessions to registered command and query workers
-without synthesizing legacy group identities. Preserve original invocation deadlines,
+Local query invocations now connect catalog sessions to registered query workers.
+Next connect command/enrollment routing and the public host without synthesizing
+legacy group identities. Preserve original invocation deadlines,
 contracts and retry identities. Query callbacks must receive logical cell versions;
 returned tokens must use the selected observation. `CellGroupApplier` now consumes the startup manifest-page owner, and
 `CellGroupSqlPool::prepare_apply` prepares committed cell images and complete
@@ -350,14 +361,21 @@ boundary. At the end of each turn, record the completed behavior, evidence and
 limits, then identify the most critical remaining gap and the concrete next step.
 Do not let plan maintenance replace implementation.
 
-1. Connect catalog invocation sessions and the production SDK dispatcher to
-   `CellGroupSqlPool::stage_registered`, `query_registered`, initialization and
-   exact receipt settlement. Select classes from authorized namespace bindings;
-   preserve original deadlines, request fingerprints and total retry budgets.
-   Start with one actual catalog-routed invocation spanning enrollment, a command
-   and a linearizable query in the real three-voter fixture. Exercise a lost
-   response and catalog-confirmed redirect without replenishing the deadline or
-   attempt budget. Retain physical command producers after waiter cancellation.
+1. Extend `CellGroupDispatcher` from its completed local query boundary to
+   registered command/enrollment invocations. Capture namespace minimum durability,
+   original command/creation identity, input fingerprint, deadline and total attempt
+   budget. Use existing prepared submission, exact rejection proofs and receipt or
+   creation reconciliation; neither a lost response nor a catalog redirect proves
+   an old producer uncommitted. Accepted proposals are provisional: return a durable
+   result only after exact publication/receipt settlement and the requested Quorum
+   or S3 proof. Do not weaken a namespace's minimum durability while archive
+   integration is pending. Qualify actual catalog-routed enrollment, command,
+   receipt retry and linearizable query together. The query path now preserves
+   these routing limits and authenticates selected-version tokens in both modes.
+   Public `RaftCellHandle` still uses its old host binding. Its final replacement
+   also needs the production node controller to consume shared-runtime transport,
+   apply and completion events; current real-engine fixtures pump those events.
+   Reuse the existing transport and worker owners, with joined cancellation.
 2. Complete CG-04's production retry/cache lifecycle and configuration-entry
    handling, then its full gate before DONE. Use selected-root recovery at startup.
    Whole-process kill/power-loss remains distinct from the qualified directory-sync
