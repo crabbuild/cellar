@@ -168,10 +168,23 @@ Physical-group peer transport now starts directly on the shared runtime at
 Typed group histories refuse old untagged frames; unsupported group snapshots
 refuse. All 192 native cases, 91 transport-filtered library cases and nine
 commands pass. Transfer `.cellar/cell-groups-evidence/CG-04-physical-transport/`
-with prior evidence (241 source inputs, eight executables). The next critical
-gap is production controller ownership and reconciliation after caller disconnect,
-followed by routed enrollment and SDK/shared-query RPC integration. The fixtures
-still drive runtime events. See [progress](progress.md) for exact limits.
+with prior evidence (241 source inputs, eight executables). At that checkpoint,
+production controller ownership and reconciliation after caller disconnect remained
+required, followed by routed enrollment and SDK/shared-query RPC integration.
+Those fixtures still drive runtime events. See [progress](progress.md) for exact limits.
+
+At `ee684c33`, a fixed-roster `CellGroupController` drives shared TLS and SQL
+apply without fixture pumping. Exact owner bindings, bounded per-group apply,
+physical sync failure and joined shutdown pass six new native cases. The partial
+gate passes 58 execution cases and eight commands; transfer
+`.cellar/cell-groups-evidence/CG-04-event-controller-qualified/` (244 source inputs, one
+executable) and the preceding `CG-04-event-controller/` regression gate with prior
+evidence. That earlier run passed 289 Rust cases; the successor only corrects a
+duplicated test fixture import identified by Clippy. The critical next gap is
+caller-independent
+command ownership and bounded reconciliation after the response deadline,
+followed by routed enrollment and SDK/shared-query RPC integration. Fixed roster
+and node-wide failure handling also remain incomplete. See [progress](progress.md).
 
 The implementation executor should deliver code, updated component contracts and
 the required retained evidence for each task on the active PR. The final handoff

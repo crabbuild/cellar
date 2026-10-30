@@ -15,7 +15,19 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The newest reviewed source baseline is `eb99a242`, connecting physical groups
+The newest reviewed source baseline is `ee684c33`, adding a fixed-roster node
+controller that drives existing shared TLS/apply owners without fixture pumping.
+Its partial record is `.cellar/cell-groups-evidence/CG-04-event-controller-qualified/checkpoint.json`:
+58 shared-execution cases, eight commands, 244 source inputs and
+one executable. The preceding `61aa7752` gate passed 289 Rust regressions before
+Clippy found a duplicated test fixture import; only that test import changed, and
+the affected execution suite was rerun. Transfer both gates with prior evidence.
+Six new cases
+cover two groups on one SQL worker, both image modes, exact ownership, real
+manifest sync failure, cancelled close and final-handle cleanup. Commands still
+require caller-retained invocations; post-response resolution is not implemented.
+Dynamic roster and per-group failure isolation remain gaps. CG-04 stays IN_PROGRESS.
+The preceding reviewed source baseline is `eb99a242`, connecting physical groups
 to the existing production TLS transport without constructing the legacy runtime.
 Its partial record is `.cellar/cell-groups-evidence/CG-04-physical-transport/checkpoint.json`:
 192 native cases, 91 library cases, nine commands, 241 source inputs and
@@ -380,26 +392,26 @@ boundary. At the end of each turn, record the completed behavior, evidence and
 limits, then identify the most critical remaining gap and the concrete next step.
 Do not let plan maintenance replace implementation.
 
-1. Integrate the phased command invocation into the production node controller.
-   Retain it independently from ingress waiters and drive existing shared-runtime
-   transport, apply and completion events through the existing owners. Physical
-   `GroupHistory` routing now works over `RaftTransport::start_shared`; use that
-   transport directly in the production event loop. Qualify
-   caller disconnect after SQL entry and after provisional acceptance: the
-   controller must resolve the exact receipt or a proven non-commit and release
-   bounded ownership without re-executing an uncertain command. The current test
-   cancels a preparation future while retaining the invocation; it does not
-   qualify controller ownership after ingress cancellation. Missing origin
-   producers on followers still need a safe leader receipt-lookup route; never
-   infer non-commit from missing local state. Keep original deadlines for responses
-   while giving the controller an explicit bounded reconciliation lifecycle.
-   Then add catalog-routed enrollment with stable creation identity and exact
-   creation settlement, and integrate shared query RPC. Qualify enrollment,
-   command, lost response and linearizable
-   query together. Public `RaftCellHandle` still uses its old host binding; the
-   real-engine fixtures still pump transport/apply events. Reuse existing worker
-   and transport ownership with joined shutdown. Requested and namespace S3
-   durability currently refuse until CG-06 supplies real archive proofs.
+1. Move fresh phased command invocations into `CellGroupController`, independently
+   from ingress response waiters. The fixed-roster event controller now drives
+   physical `GroupHistory` transport and SQL apply without fixture pumping; extend
+   that owner rather than introducing cell-specific tasks. Keep the original
+   response deadline while retaining bounded resolution ownership afterward.
+   Qualify caller disconnect/timeout after SQL entry and provisional acceptance:
+   resolve the exact receipt or proven non-commit without replaying uncertain
+   callbacks. Existing routed command tests still retain their invocation manually.
+   Before cancellation cleanup, extend `execution/submission.rs`: an attempted
+   submission error currently resets to Open; that is not a pre-append proof.
+   Seal only never-attempted preparations and retain an explicit uncertain state
+   after attempted submission errors. Serialize the seal with delayed clones and
+   prove physical cleanup with exact rejection capabilities.
+   Missing origin producers on followers still need a safe leader receipt-lookup
+   route; never infer non-commit from missing local state. Then add catalog-routed
+   enrollment with stable creation identity, shared query RPC and the public
+   `RaftCellHandle` binding. Requested and namespace S3 durability continue to
+   refuse until CG-06 supplies real archive proofs. The event controller currently
+   has a fixed roster and closes the node on fatal apply errors; add dynamic group
+   registration and per-group failure isolation before claiming runtime completion.
 2. Complete CG-04's production retry/cache lifecycle and configuration-entry
    handling, then its full gate before DONE. Use selected-root recovery at startup.
    Whole-process kill/power-loss remains distinct from the qualified directory-sync

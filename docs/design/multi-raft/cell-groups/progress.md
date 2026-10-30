@@ -10,6 +10,67 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 autonomous event controller
+
+Qualified source: `ee684c3394ffccbfa84bfc5d94876de281f68b0b`.
+
+`CellGroupController` owns a fixed roster's exclusive runtime event stream and
+drives existing physical TLS transport, SQL preparation and runtime publication
+without fixture pumping. Exact runtime/event/transport and engine/pool/applier
+bindings refuse foreign owners even when they share an execution domain. One
+node cleanup task runs bounded apply jobs, serializes each group's work and
+rotates pending groups. Retained tickets preserve event and physical admission
+through SQL backpressure; a shared node timer backs off retries. Only runtime
+post-sync `Applied` events advance published progress. Transport queue admission
+is not commit evidence. Immediate transient send refusals produce bounded advisory
+hints; fatal transport/runtime/apply errors close the node and remain observable.
+
+Close requests and final-public-handle drop stop the controller. Cleanup joins
+transport and physical SQL work before releasing the runtime's engine claim,
+retaining outstanding tickets/appliers until all joins complete. Cancelling a
+close waiter cannot release a blocked physical producer or permit replacement.
+This controller has a fixed startup roster and currently fails the entire node
+on a fatal group apply error; dynamic registration and per-group failure isolation
+remain required. It does not yet own command invocations or replace the SDK host.
+
+Six new native cases qualify autonomous TLS replication in both image modes,
+two groups sharing peer pools and one SQL worker, admission retry while that
+worker is blocked, exact receipt settlement and same-domain foreign-owner refusal.
+Real manifest directory-sync faults leave the engine-selected root unchanged.
+Cancelled close and final-handle drop while physical sync is blocked retain
+ownership until release; no interrupted preparation is published. The initial
+shutdown test failed because the harness retained old pool handles while attempting
+replacement. It now releases those handles after verifying physical joins; the
+production lease checks and assertions remain intact.
+
+All 58 shared-execution cases and eight gate commands pass at this revision,
+including all-target Clippy for Cellar/cellar-logic/cellar-ltx with warnings denied,
+format (1,829 Rust files), layout, dependencies, docs, source preflight and 37
+plan-validator cases. The preceding `61aa7752` run passed 289 Rust cases (198
+native across seven suites and 91 transport-filtered library cases), then Clippy
+rejected duplicate loading of the physical fault fixture. This successor reuses
+the existing module; production code and assertions are unchanged. The affected
+execution suite was rerun; other regressions retain their original revision.
+The partial record
+`.cellar/cell-groups-evidence/CG-04-event-controller-qualified/checkpoint.json`
+binds 244 source inputs and the execution test binary. Transfer it with the
+retained `CG-04-event-controller/` gate and prior evidence. Four ignored process
+helpers ran through their parents in the earlier regression run; its RustFS seed
+case was skipped. Local TLS endpoints share a process. This is not RustFS,
+independent-failure-domain, power-loss or load qualification.
+
+CG-04 remains IN_PROGRESS. The most critical next gap is command ownership after
+caller disconnect: move fresh invocations into this controller and distinguish
+response deadlines from bounded resolution ownership. Preserve exact origin and
+inputs through uncertainty; never replay ambiguous callbacks or treat missing
+local state as non-commit. Before adding cancellation cleanup, seal only a
+preparation that has never attempted submission: the current submission state
+resets to Open after an error, which cannot establish that append did not occur.
+Retain a distinct uncertain-attempt state and qualify timeout/disconnect after SQL
+entry and provisional acceptance. Then complete routed enrollment, shared query
+RPC and SDK integration. Configuration/cache lifecycle, snapshots/archive,
+effects, topology, real RustFS/load and final legacy removal remain later gates.
+
 ## CG-04 physical-group TLS transport
 
 Qualified source: `eb99a2427e8661dc228ea7a1d3d1f56a5e0937aa`.
