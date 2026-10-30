@@ -10,6 +10,54 @@ CG-04 is IN_PROGRESS and CG-05 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-04 standalone receipt inspection
+
+Qualified source: `fbc15053f8dcfd3b46078abad3cbbae7b68da8d6`.
+
+Local and remote receipt inspection now select an immutable committed cell image
+through a correlated quorum read. The registered command contract, payload digest
+and authenticated identity are validated before lookup. Inspection neither stages
+a producer nor invokes the command or initializer; it does not install receipt
+schema or run receipt maintenance. Initial images may lack receipt tables;
+partial schema or schema loss after mutation refuses as corruption.
+
+The existing bounded RPC exchange carries a distinct authenticated Receipt purpose.
+Explicit namespace/process command permission and the exact controller/SQL owner
+are required; read permission alone cannot inspect command results. Fresh receiver
+catalog binding checks group, schema, epoch and birth. Success binds the original
+command identity and signed cell observation, distinguishing a retained empty
+result from absence. Absence remains ambiguous even after a quorum read: the
+original command may still arrive or commit. Lookup cannot release its producer.
+Replicated expiry, conflicts and sequence gaps remain typed refusals.
+
+Three native cases run both image modes. Real TLS ingress exercises permission,
+identity, retry/deadline, consumed-attempt, reply-admission and gateway-drop checks.
+A prepared writer remains owned while lookup sees the old image, while the shared
+SQL reservation budget is saturated, and after its receipt becomes committed.
+Cancellation of a queued remote lookup preserves an entered controller writer.
+A closed controller uses a weak SQL handle, allowing a replacement pool after
+joined shutdown even when the closed controller handle remains retained. Three
+wire cases and a real SQLite schema-loss case qualify serialization and inspection
+boundaries. The initial fixture failures and their corrected bounded admission
+setup are retained as diagnostic logs; production limits were not loosened.
+
+All 227 selected Rust cases and twelve gate commands pass, including all-target
+Clippy, formatting, layout, native dependency isolation, docs, source preflight
+and 37 plan-validator cases. The record at
+`.cellar/cell-groups-evidence/CG-04-receipt-rpc/checkpoint.json` binds 279
+source inputs and 4 copied executables. Transfer the entire directory with
+prior checkpoints; local ignored evidence is not included in the PR.
+
+CG-04 remains IN_PROGRESS. The critical next gap is dynamic group lifecycle:
+replace the fixed controller roster with bounded registration and lazy birth,
+while preserving exact consensus, transport, apply and SQL ownership. Qualify
+attach/close races, cancellation and recovery before publishing serving authority.
+Per-group failure isolation is the next companion gap: a failed group must stop
+serving while unrelated groups continue, and retained physical work must join.
+Public SDK/discovery cutover, configuration handling, complete-group snapshots,
+archive/reclamation and shared RustFS/load qualification remain open. No latency,
+throughput, independent-process failure or production-cutover claim is made.
+
 ## CG-04 remote enrollment through the shared write owner
 
 Qualified source: `0fe665d0267f1b831b172aad5e8d435f5bf0cd39`.

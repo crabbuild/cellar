@@ -228,6 +228,14 @@ transfer `.cellar/cell-groups-evidence/CG-04-enrollment-rpc/` (276 source inputs
 4 executables). Safe standalone receipt lookup and public SDK cutover remain;
 CG-04 remains IN_PROGRESS.
 
+At `fbc15053`, standalone receipt lookup uses a quorum image without invoking
+callbacks or releasing unresolved producers. It requires explicit command grants,
+returns signed observations and keeps absence ambiguous. The partial gate passes
+227 Rust cases and twelve commands; transfer
+`.cellar/cell-groups-evidence/CG-04-receipt-rpc/` (279 source inputs,
+4 executables). Dynamic group lifecycle/lazy birth and per-group failure
+isolation are next; CG-04 remains IN_PROGRESS and public cutover is still pending.
+
 The implementation executor should deliver code, updated component contracts and
 the required retained evidence for each task on the active PR. The final handoff
 requires CG-16 and the release gate, including the real RustFS and independent

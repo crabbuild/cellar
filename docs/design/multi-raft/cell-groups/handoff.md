@@ -15,7 +15,24 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The newest reviewed source baseline is `0fe665d0`, adding remote enrollment over
+The newest reviewed source baseline is `fbc15053`, adding standalone local and
+remote receipt inspection with distinct authenticated purpose and explicit command
+permission. Registered contract/digest/identity validation precedes immutable SQL
+on a fresh catalog-bound quorum image. Exact retained results and ambiguous
+absence carry signed cell observations; lookup never invokes callbacks or retires
+another producer. Corrupt schema, expiry and conflict refuse. SQL admission stays
+bounded; cancelled queued reads retain physical ownership through completion.
+Controller read service references are weak, so closed handles cannot retain the
+SQL engine claim. Three native cases cover both image modes; remote cases use
+four TLS endpoints in one OS process. Three wire cases and one added SQLite case
+cover identity, empty results, absence, capacity and schema loss.
+The record at `.cellar/cell-groups-evidence/CG-04-receipt-rpc/checkpoint.json`
+binds 227 Rust cases, twelve commands, 279 source inputs and 4 executables.
+Transfer the ignored evidence directory with previous checkpoints. CG-04 remains
+IN_PROGRESS. Next implement bounded dynamic controller registration/lazy birth,
+then isolate per-group failures. Public SDK/discovery and configuration lifecycle
+remain open; shared-group RustFS recovery and load remain unqualified.
+The preceding reviewed source baseline is `0fe665d0`, adding remote enrollment over
 the same bounded write exchange and exact controller registration as commands.
 Query, Command and Enrollment have distinct authenticated mandatory purposes.
 Explicit namespace/process write grants gate initialization; discovery/read grants
@@ -491,31 +508,24 @@ boundary. At the end of each turn, record the completed behavior, evidence and
 limits, then identify the most critical remaining gap and the concrete next step.
 Do not let plan maintenance replace implementation.
 
-1. Connect public `RaftCellHandle` operations and remote shared command/query/
-   enrollment dispatch to the existing controller and SQL pool. Local registered
-   creation now uses catalog routing and immutable creation records, preserving
-   response cancellation/deadline ownership and exact retries after mutation.
-   Reuse those owners and captured identities; do not add per-cell workers or
-   replay uncertain callbacks. Confirm route changes through the catalog and
-   provide safe leader receipt lookup when a follower has no original producer.
-   Missing local state never proves non-commit. Enrollment still requires an
-   attached group in a fixed roster: integrate lazy birth and dynamic registration.
-   Attached-peer shared reads now reuse the separate query connection with
-   physical group/logical cell binding and host-owned gateway registration.
-   Explicit nonmember shared discovery and real-TLS grant revocation now pass
-   scoped tests; public-host automatic discovery/SDK binding remain pending.
-   Bounded invocation range caching now passes metadata-read and real-runtime
-   cases. The destination retains per-RPC catalog admission: removing that read
-   requires replicated transfer seals and serving-admission invalidation, linked
-   to CG-09. Do not substitute a TTL or cached hint for that authority contract.
-   Remote commands now use explicit write grants and response-independent
-   controller producers; enrollment now shares that write path. Keep read grants
-   independent. Add standalone safe receipt lookup without treating missing state as proof
-   of non-commit or replaying unresolved callbacks.
-   The old host refuses registered initializers until its actual replacement;
-   do not remove that refusal without a functioning shared serving path. Request
-   and namespace S3 minima must continue refusing until CG-06 provides real archive
-   proofs. Add per-group failure isolation before claiming runtime completion.
+1. Deliver bounded dynamic controller registration and lazy group birth. The
+   current controller has a fixed roster, although command, enrollment, query and
+   receipt dispatch now reuse its shared owners. Define one registration lifecycle
+   spanning runtime, transport and applier; revalidate catalog admission before
+   serving and retain physical ownership through cancellation or close. Test
+   duplicate/foreign registration, capacity, attach/close races, failed birth and
+   selected-root restart while another group continues serving. Pair this with
+   per-group failure isolation: quarantine a failed group without closing healthy
+   groups or discarding retained SQL/apply work. These are the critical gaps for
+   continuing CG-04, before exposing the public SDK replacement.
+   Keep explicit write grants independent from read grants. Standalone lookup now
+   preserves ambiguous absence and never replays or retires unresolved callbacks.
+   Destination routing still requires fresh catalog admission: removing that read
+   depends on replicated transfer seals and serving-admission invalidation in
+   CG-09. A TTL or cached hint cannot substitute for that authority.
+   Connect public `RaftCellHandle` and automatic discovery only through the actual
+   shared host. Keep the old host's initializer refusal until replacement.
+   Request and namespace S3 minima must refuse until CG-06 provides archive proofs.
 2. Complete CG-04's production retry/cache lifecycle and configuration-entry
    handling, then its full gate before DONE. Use selected-root recovery at startup.
    Whole-process kill/power-loss remains distinct from the qualified directory-sync

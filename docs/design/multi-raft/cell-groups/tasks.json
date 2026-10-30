@@ -521,7 +521,10 @@
         "crates/cellar/tests/support/cell_group_remote_commands.rs",
         "crates/cellar/durability/raft/enrollment_cell_wire.rs",
         "crates/cellar/durability/raft/cell_groups/dispatch/enrollment_remote.rs",
-        "crates/cellar/tests/support/cell_group_remote_enrollment.rs"
+        "crates/cellar/tests/support/cell_group_remote_enrollment.rs",
+        "crates/cellar/durability/raft/cell_groups/dispatch/receipt.rs",
+        "crates/cellar/durability/raft/receipt_cell_wire.rs",
+        "crates/cellar/tests/support/cell_group_receipt_lookup.rs"
       ],
       "test_target": "native_cell_groups_execution",
       "steps": [
@@ -668,7 +671,7 @@
           ]
         },
         {
-          "action": "Connect remote shared commands to the existing bounded RPC lane and controller. Authenticate command purpose separately from read payloads, require independent bounded namespace/process write grants even for voters, and include those grants in endpoint consistency, process refresh, fleet revocation and pool lifecycle. Preserve captured inputs, immutable command identity, remaining timeout and attempt budget. Destination fresh catalog binding precedes actual leader/SQL authority; only committed exact receipts and signed cell observations return success. Disconnect/revocation cannot cancel already admitted ownership. Also run all query_wire tests, including shared_command_wire_preserves_inputs_and_refuses_query_payloads, shared_command_purpose_is_authenticated_and_cannot_reuse_read_reply and shared_command_results_bind_identity_history_and_typed_refusals. Standalone safe receipt lookup remains required integration; remote enrollment is specified in the following step. Run command_grants_bound_tombstones_without_changing_read_permission in the full transport suite to qualify independent read grants, write tombstone caps and shared-pool cleanup. Distinguish follower execution-authority requests as NotLeader from leaders awaiting durable apply (NotReady); preserve stale captured-authority checks.",
+          "action": "Connect remote shared commands to the existing bounded RPC lane and controller. Authenticate command purpose separately from read payloads, require independent bounded namespace/process write grants even for voters, and include those grants in endpoint consistency, process refresh, fleet revocation and pool lifecycle. Preserve captured inputs, immutable command identity, remaining timeout and attempt budget. Destination fresh catalog binding precedes actual leader/SQL authority; only committed exact receipts and signed cell observations return success. Disconnect/revocation cannot cancel already admitted ownership. Also run all query_wire tests, including shared_command_wire_preserves_inputs_and_refuses_query_payloads, shared_command_purpose_is_authenticated_and_cannot_reuse_read_reply and shared_command_results_bind_identity_history_and_typed_refusals. Remote enrollment and standalone receipt lookup are specified in later steps. Run command_grants_bound_tombstones_without_changing_read_permission in the full transport suite to qualify independent read grants, write tombstone caps and shared-pool cleanup. Distinguish follower execution-authority requests as NotLeader from leaders awaiting durable apply (NotReady); preserve stale captured-authority checks.",
           "tests": [
             "shared_remote_commands_require_write_grants_and_exact_receipts",
             "shared_remote_commands_survive_disconnected_sql_waiters",
@@ -676,12 +679,20 @@
           ]
         },
         {
-          "action": "Route enrollment through the same bounded write RPC exchange, explicit namespace/process grants and exact controller registration as commands. Authenticate Query, Command and Enrollment as distinct mandatory purposes under marker 1, with no legacy reader. Preserve creation identity, captured inputs, preview identity and original routing budget. Recheck fresh destination catalog and leader authority before transferring initialization to the controller; return only the exact committed creation record, never treat the initial image as a current version token. Reuse shared reply budgets and preserve ownership after response disconnect, revocation and publication deadline. Run all query_wire tests including shared_enrollment_wire_preserves_captured_identity_and_inputs, shared_enrollment_purpose_cannot_be_reinterpreted_as_command_or_read and shared_enrollment_reply_binds_creation_cell_schema_and_initial_image, plus all existing command/query and controller enrollment regressions. Standalone safe receipt lookup, dynamic roster and public SDK cutover remain open.",
+          "action": "Route enrollment through the same bounded write RPC exchange, explicit namespace/process grants and exact controller registration as commands. Authenticate Query, Command and Enrollment as distinct mandatory purposes under marker 1, with no legacy reader. Preserve creation identity, captured inputs, preview identity and original routing budget. Recheck fresh destination catalog and leader authority before transferring initialization to the controller; return only the exact committed creation record, never treat the initial image as a current version token. Reuse shared reply budgets and preserve ownership after response disconnect, revocation and publication deadline. Run all query_wire tests including shared_enrollment_wire_preserves_captured_identity_and_inputs, shared_enrollment_purpose_cannot_be_reinterpreted_as_command_or_read and shared_enrollment_reply_binds_creation_cell_schema_and_initial_image, plus all existing command/query and controller enrollment regressions. Standalone receipt lookup follows below; dynamic roster and public SDK cutover remain open.",
           "tests": [
             "shared_remote_enrollment_requires_write_grants_and_exact_creation",
             "shared_remote_enrollment_survives_disconnected_initializer",
             "shared_remote_enrollment_revocation_retains_admitted_creation",
             "shared_remote_enrollment_resolves_after_publication_deadline"
+          ]
+        },
+        {
+          "action": "Add standalone local and remote receipt inspection with a distinct authenticated purpose on the bounded existing RPC exchange. Require explicit command-origin permission and exact controller/SQL ownership; validate command contract, payload digest and authenticated identity before reading receipts. Select a fresh catalog-bound quorum image and use immutable SQL without staging a producer, installing schema, maintaining receipts, or invoking a command/initializer. Return exact retained result/identity and signed cell observation, or ambiguous absence; absence must never retire an unresolved producer. Reuse physical read cancellation, deadline, byte accounting and joined cleanup. Run full query_wire and receipts suites, including shared_receipt_wire_refuses_command_payloads_and_preserves_identity, shared_receipt_reply_distinguishes_unknown_from_empty_committed_result, shared_receipt_purpose_cannot_authorize_mutation and cell_lookup_distinguishes_initial_absence_from_lost_schema. Keep corrupt/partial schema and replicated expiry distinct from absence. Dynamic roster/lazy group birth, per-group failure isolation, configuration lifecycle and public SDK cutover remain incomplete.",
+          "tests": [
+            "shared_receipt_lookup_requires_grants_and_never_executes_commands",
+            "shared_receipt_lookup_keeps_unresolved_producers_at_capacity",
+            "shared_receipt_lookup_cancellation_preserves_active_writer"
           ]
         }
       ],
@@ -1338,6 +1349,36 @@
         {
           "name": "shared_remote_enrollment_resolves_after_publication_deadline",
           "oracle": "Hold committed manifest publication until the remote deadline expires. The caller receives an ambiguous error while the controller retains accepted creation. Release publication and retry the same identity; the exact original record returns with one initialization in both image modes.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_receipt_lookup_requires_grants_and_never_executes_commands",
+          "oracle": "Over four real TLS endpoints in one process and both image modes, receipt inspection requires explicit command-origin permission; discovery and read grants refuse. Initial receipt absence returns an authenticated cell observation without invoking the command. After a normal commit, lookup returns the exact retained result and retry horizon without a second callback. Conflicting payload and sequence gaps remain typed. Original deadlines, one-use attempts, result admission and gateway drop remain enforced; the router has no local group replica.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_receipt_lookup_keeps_unresolved_producers_at_capacity",
+          "oracle": "With a prepared command retaining its producer, quorum lookup observes only the committed image and reports ambiguous absence. Holding that lookup result fills the two-reservation SQL budget; another lookup refuses overload without releasing the producer. It neither exposes the uncommitted receipt nor releases the producer. Contract/digest mismatch and non-quorum read authority refuse. After the original command publishes, lookup returns its receipt while leaving producer cleanup to its actual owner; no callback reruns. Closed controller handles cannot retain the engine claim after the SQL pool closes; a replacement pool starts. Run both image modes.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_receipt_lookup_cancellation_preserves_active_writer",
+          "oracle": "Hold a local controller command inside SQL, queue a remote lookup on a bounded two-slot fixture worker, then disconnect the lookup. Network admission drains while the active writer remains controller-owned. Release SQL, join the cancelled read, and inspect the committed receipt without a second command callback in both image modes.",
           "invariants": [
             "I01",
             "I03",

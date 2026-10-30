@@ -130,7 +130,7 @@ removed. A replaced discovery view refuses captured requests and late replies;
 removal does not revoke the destination's independently managed namespace grant.
 Grant revocation cancels read waiters without releasing physically entered SQL.
 The public host must supply trusted discovery and explicit permissions; automatic
-discovery/SDK binding and standalone receipt lookup remain
+discovery/SDK binding and dynamic group lifecycle remain
 integration work.
 
 Remote commands use the same bounded application RPC lane with a mandatory,
@@ -161,6 +161,23 @@ before initialization. Its admitted controller owner survives disconnect,
 revocation and response deadline. Return only the exact committed creation record,
 including the original enrollment image after later mutations. That record is not
 a current-version token. Conflicting creation/incarnation refuses without replay.
+
+Standalone receipt lookup has its own authenticated purpose and requires the
+explicit command-origin grant. Read permission alone cannot inspect command
+results. The exact registered controller supplies the runtime and SQL pool;
+receiver admission checks fresh catalog binding and selects a correlated quorum
+read. Registered contract, payload digest and authenticated command identity
+validation precede receipt inspection. Immutable reads use the existing worker,
+read admission, cancellation and deadline owners without a private writer,
+initializer, command callback or receipt maintenance.
+
+A retained receipt returns its exact result/retry horizon with a signed cell
+observation. An absent receipt remains ambiguous, even after a quorum read:
+original delayed or unresolved work may still commit. Lookup never releases a
+producer or produces a NotCommitted proof. Preserve replicated expiry/conflict
+and sequence-gap failures. Only a sequence-1 image can lack both receipt tables;
+partial schema or later schema loss refuses as corruption. Missing and an empty
+committed result have distinct wire encodings and API results.
 
 The current lane serializes RPC exchanges per peer; this is not load qualification.
 
