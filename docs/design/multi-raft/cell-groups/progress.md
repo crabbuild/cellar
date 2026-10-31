@@ -10,6 +10,49 @@ CG-05 is IN_PROGRESS; CG-06 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-05 live-quorum learner seed source
+
+Qualified source: `0c3769eccbb845a5943ef60e771c107f1800d9f2`. All 236 selected Rust cases and eight
+gate commands pass, including all-target Clippy for Cellar/core/LTX, five native
+suites, formatting/layout, dependency isolation, docs, source preflight and 37
+plan-validator tests. `.cellar/cell-groups-evidence/CG-05-seed-source/checkpoint.json`
+binds 312 source hashes, five copied executables, frozen plan inputs and logs.
+Transfer this ignored evidence with its predecessors. CG-05 remains IN_PROGRESS.
+
+A fresh correlated group ReadIndex now authorizes a complete applied seed root,
+including a group with no cells. Only a committed new learner with the exact
+node/disk binding outside both voter sets qualifies. Pending requests and retained
+roots share existing node/group read budgets. No per-cell worker or new serving
+mode is introduced. Capture consumes a non-cloneable authority and requires the
+exact still-current root; if apply advanced first, a fresh selection is required.
+Once captured, ordinary writes may continue while the immutable cut streams.
+Membership changes, leadership loss/handoff, shutdown and deadline expiry revoke
+the source. Checks before and after sink calls and final completion prevent a
+revoked stream from reporting a successful End.
+
+Three new cases use production controllers and real TCP quorum traffic. Both
+image forms stream complete cuts into existing receiver verification. Tests cover
+uncommitted/wrong/retired member refusal, follower refusal, stale capture, empty
+groups, per-group admission exhaustion, independent group progress, leadership
+transfer and shutdown. Removing membership while a source blocks in its sink
+revokes completion but retains pool admission until physical work exits. Expiry
+during an empty group's final header chunk also refuses completion. An isolated
+leader still reporting ready cannot issue a fresh seed; another group continues
+real writes. Initial and strengthened targeted runs passed and are retained.
+
+**Reflection and next step:** source authorization is now implemented, but no new
+destination is admitted by this API. The requested process identity is bound, not
+authenticated. The next feature-critical slice is authenticated seed RPC with
+process revocation, permanent destination node/disk/engine claims, complete atomic
+installation and joined-member runtime attachment. Coordinate capture with the
+controller apply boundary or bound fresh-selection retries under sustained writes;
+source refusal is safe but does not establish capture fairness. Then demonstrate
+real catch-up, promotion and replacement after deleting a voter disk, one-voter-loss tolerance
+and minority write refusal. Preserve all five CG-05 cases and remaining receiver,
+joint-transition and pressure/crash cuts. CG-06 verified archive/reclamation follows,
+then CG-08 effects/caches and CG-07 public SDK/fleet cutover. Shared-group RustFS,
+load, power-loss and zero-quorum DR remain unqualified.
+
 ## CG-05 durable membership and leadership handoff
 
 Qualified source: `1814b27896c3c21166186fe8fbd1a1a6bdbb721a`. All 233 selected Rust cases and 8

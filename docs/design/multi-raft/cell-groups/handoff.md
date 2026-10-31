@@ -41,6 +41,27 @@ effects/cache lifecycle belong to CG-08, and final legacy removal to CG-16. Trac
 these remaining capabilities in their owning tasks.
 Shared RustFS, independent-process/power-loss and load remain unqualified.
 
+The latest seed-source checkpoint at `0c3769ec` passes 236 selected Rust
+cases, eight gate commands and 37 validator tests. Its record under
+`.cellar/cell-groups-evidence/CG-05-seed-source/` binds 312 source hashes and five
+copied executables. `seed_authority` uses a fresh group ReadIndex, including for
+empty groups, and binds a complete applied root to a committed joining learner.
+Capture requires that exact root; the source then tolerates ordinary writes while
+revoking on membership/leadership/shutdown/deadline changes. Read and checkpoint
+budgets remain owned through physical work. Both image forms, receiver verification,
+stale/invalid targets, bounded admission, held-sink revocation, final-chunk expiry,
+isolated ready-leader refusal and independent group progress pass local tests.
+
+Continue from `cell_groups/seed_authority.rs`, `directory/bootstrap.rs` and the
+existing authenticated checkpoint stream/atomic receiver path. The immediate gap is
+authenticated seed exchange plus permanent fresh-disk claims and joined-member
+installation/attachment. The source API binds but does not authenticate the requested
+process and cannot authorize a destination. Catch-up/promotion and deleted-voter-disk
+replacement remain unimplemented integration, not qualified by the source tests.
+Coordinate capture with an apply boundary or bounded fresh-selection retries;
+continuous-write capture fairness remains unqualified. Keep all five CG-05 cases
+and shared RustFS/load/crash gates open.
+
 The receiver checkpoint at `cb164e02` passes 226 selected Rust cases,
 9 gate commands and 37 validator tests. Its evidence binds 295 source hashes
 and 6 copied executables under
@@ -682,8 +703,9 @@ boundary. At the end of each turn, record the completed behavior, evidence and
 limits, then identify the most critical remaining gap and the concrete next step.
 Do not let plan maintenance replace implementation.
 
-1. Finish CG-05 fresh learner seeding and lost-disk replacement. Bind a seed
-   capability to committed learner membership, permanent node/disk identity and
+1. Finish CG-05 fresh learner seeding and lost-disk replacement. Reuse the
+   implemented fresh-ReadIndex source authority; authenticate the seed exchange
+   and bind destination installation to permanent node/disk/engine claims and
    the complete verified checkpoint. Existing bootstrap permits admit only birth
    members; do not weaken them to accept an untrusted metadata observation. Bring
    up the new learner through production transport, install every cell, catch up,
@@ -711,8 +733,8 @@ Do not let plan maintenance replace implementation.
    paths must not become permanent modes. Never derive cell sequence or witness
    from a group log position. Final qualification reruns all gates at one revision.
 
-Continue from `cell_groups/membership.rs`, the owner/runtime configuration path,
-`directory/bootstrap.rs` and the existing checkpoint receiver/installation path.
+Continue from `cell_groups/seed_authority.rs`, the authenticated checkpoint
+transport, `directory/bootstrap.rs` and the atomic checkpoint installation path.
 Keep configuration, membership revision and complete root atomic. A captured
 metadata observation, transport admission reply or lost response cannot create
 new serving authority. Reuse permanent member claims and the node checkpoint pool
