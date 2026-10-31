@@ -243,3 +243,116 @@ async fn rustfs_s3_enrollment_deadlines_preserve_resolved_ownership() -> Result<
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn s3_receipt_lookup_tracks_archived_observations() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_receipt_observations(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
+async fn rustfs_s3_receipt_lookup_tracks_archived_observations() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_receipt_observations(
+            rooted,
+            rustfs::store("s3-receipt-observations", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn s3_receipt_lookup_honors_namespace_and_stored_minimums() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_receipt_minimums(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
+async fn rustfs_s3_receipt_lookup_honors_namespace_and_stored_minimums() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_receipt_minimums(
+            rooted,
+            rustfs::store("s3-receipt-minimums", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn s3_receipt_lookup_preserves_typed_failures_and_result_admission() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_receipt_failures(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
+async fn rustfs_s3_receipt_lookup_preserves_typed_failures_and_result_admission() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_receipt_failures(
+            rooted,
+            rustfs::store("s3-receipt-failures", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn s3_receipt_lookup_deadlines_refund_read_admission() -> Result<()> {
+    for rooted in [false, true] {
+        for cancel in [false, true] {
+            Box::pin(runtime_fixture::s3_receipt_deadline(
+                rooted,
+                Arc::new(object_store::memory::InMemory::new()),
+                cancel,
+            ))
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
+async fn rustfs_s3_receipt_lookup_deadlines_refund_read_admission() -> Result<()> {
+    for rooted in [false, true] {
+        for cancel in [false, true] {
+            Box::pin(runtime_fixture::s3_receipt_deadline(
+                rooted,
+                rustfs::store(
+                    if cancel {
+                        "s3-receipt-cancel"
+                    } else {
+                        "s3-receipt-deadline"
+                    },
+                    rooted,
+                )?,
+                cancel,
+            ))
+            .await?;
+        }
+    }
+    Ok(())
+}

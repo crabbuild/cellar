@@ -3,10 +3,15 @@
 //! SQL output proofs on the actual controller and archive lane.
 #[path = "cell_group_s3_enrollment.rs"]
 mod enrollment;
+#[path = "cell_group_s3_receipts.rs"]
+mod receipts;
 use super::*;
 pub(crate) use enrollment::{s3_enrollment, s3_enrollment_deadline};
 use futures_util::TryStreamExt;
 use object_store::{path::Path as ObjectPath, ObjectStore};
+pub(crate) use receipts::{
+    s3_receipt_deadline, s3_receipt_failures, s3_receipt_minimums, s3_receipt_observations,
+};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct Harness {
@@ -38,6 +43,16 @@ impl Harness {
         max_commands: usize,
         minimum: Durability,
     ) -> Result<Self> {
+        Self::configured(rooted, store, max_commands, minimum, None).await
+    }
+
+    async fn configured(
+        rooted: bool,
+        store: Arc<dyn object_store::ObjectStore>,
+        max_commands: usize,
+        minimum: Durability,
+        result_size: Option<usize>,
+    ) -> Result<Self> {
         let calls = Arc::new(AtomicUsize::new(0));
         let count = calls.clone();
         let initializations = Arc::new(AtomicUsize::new(0));
@@ -50,11 +65,19 @@ impl Harness {
                         .execute_batch("CREATE TABLE value(n); INSERT INTO value VALUES(7);")?;
                     Ok(())
                 })?
-                .command("Add", [82; 32], move |context, input| {
-                    count.fetch_add(1, Ordering::SeqCst);
-                    context.sql().execute("UPDATE value SET n=n+1", [])?;
-                    Ok(input.to_vec())
-                })?,
+                .command(
+                    "Add",
+                    if result_size.is_some() {
+                        [84; 32]
+                    } else {
+                        [82; 32]
+                    },
+                    move |context, input| {
+                        count.fetch_add(1, Ordering::SeqCst);
+                        context.sql().execute("UPDATE value SET n=n+1", [])?;
+                        Ok(result_size.map_or_else(|| input.to_vec(), |length| vec![7; length]))
+                    },
+                )?,
         );
         let (mut fixture, route, cell, _) = Box::pin(registered::setup_store_minimum(
             rooted, &class, store, minimum,
@@ -126,6 +149,24 @@ impl Harness {
         durability: Durability,
         timeout: Duration,
     ) -> Result<CellCommandCall> {
+        self.command_using(
+            sequence,
+            input,
+            durability,
+            timeout,
+            self.fixture.cell_options(&self.cell).await?,
+        )
+        .await
+    }
+
+    async fn command_using(
+        &self,
+        sequence: u64,
+        input: &[u8],
+        durability: Durability,
+        timeout: Duration,
+        options: CellSqlOptions,
+    ) -> Result<CellCommandCall> {
         let invocation = self
             .dispatcher
             .command(
@@ -144,10 +185,7 @@ impl Harness {
                 None,
             )
             .await?;
-        Ok(
-            self.controllers[0]
-                .command(invocation, self.fixture.cell_options(&self.cell).await?)?,
-        )
+        Ok(self.controllers[0].command(invocation, options)?)
     }
 
     async fn waiting(&self) -> Result<()> {

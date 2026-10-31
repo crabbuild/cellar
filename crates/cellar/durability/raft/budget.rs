@@ -79,6 +79,12 @@ pub(crate) struct Permit {
 }
 
 impl Permit {
+    /// Ensure an admitted read can retain its payload before allocating it.
+    /// Repeated or smaller requests keep the same bytes and item slot.
+    pub(crate) fn grow_at_least(&mut self, bytes: usize) -> bool {
+        bytes <= self.bytes || self.grow_to(bytes)
+    }
+
     /// Extend an admitted operation without consuming another item slot.
     /// Failure leaves its existing reservation unchanged.
     pub(crate) fn grow_to(&mut self, bytes: usize) -> bool {
@@ -218,6 +224,9 @@ mod tests {
         assert_eq!(budget.usage(), (100, 2));
         assert!(!pin.grow_to(31));
         assert!(!pin.grow_to(29));
+        assert!(pin.grow_at_least(29));
+        assert!(pin.grow_at_least(30));
+        assert!(!pin.grow_at_least(31));
         assert_eq!(budget.usage(), (100, 2));
         drop(other);
         assert!(pin.grow_to(100));

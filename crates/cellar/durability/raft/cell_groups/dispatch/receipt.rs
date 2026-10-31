@@ -3,7 +3,7 @@
 //! Receipt-only dispatch never stages SQL or turns absence into non-commit.
 use super::*;
 use crate::application::consensus::command_request_digest;
-use crate::raft::execution::{CommandRequest, StoredReceipt};
+use crate::raft::execution::{CommandRequest, ExecutionLimits, StoredReceipt};
 use cellar_logic::consensus::{CommandFailure, CommandId, Durability};
 
 #[derive(Clone)]
@@ -27,16 +27,49 @@ pub struct CellReceiptInvocation {
 
 pub struct CellReceiptResponse {
     command: CommandId,
-    selected: CellSqlReceiptLookup,
+    selected: Box<CellSqlReceiptLookup>,
     token: CellVersionToken,
+    s3: Option<Box<super::super::controller::S3OutputProof>>,
+}
+
+/// One coherent quorum selection, bound to its original operation and deadline.
+/// No result escapes before `response` satisfies the required durability. S3
+/// admission takes SQL retention here; dropping this phase releases admission.
+pub struct CellReceiptSelection<'a> {
+    invocation: &'a mut CellReceiptInvocation,
+    runtime: CellGroupRuntime,
+    attempt: CellRouteAttempt,
+    selected: Selected,
+}
+
+enum Selected {
+    Quorum(Box<CellSqlReceiptLookup>),
+    S3(Box<super::super::controller::S3LookupPrepared>),
+}
+
+impl CellReceiptSelection<'_> {
+    pub async fn response(self) -> Result<CellReceiptResponse, CellDispatchError> {
+        self.invocation
+            .response(&self.runtime, self.attempt, self.selected)
+            .await
+    }
 }
 
 impl CellReceiptResponse {
+    /// Achieved durability of this observation, including an ambiguous absence.
+    pub fn durability(&self) -> Durability {
+        if self.s3.is_some() {
+            Durability::S3
+        } else {
+            Durability::Quorum
+        }
+    }
+
     pub fn command(&self) -> CommandId {
         self.command
     }
 
-    /// None is ambiguous, even after a quorum read: an unresolved or delayed
+    /// None is ambiguous, even after a quorum or S3 read: an unresolved or delayed
     /// original command may still commit. This response releases no producer.
     pub fn receipt(&self) -> Option<&StoredReceipt> {
         self.selected.receipt()
@@ -59,9 +92,10 @@ impl CellGroupDispatcher {
         limits: CellRoutingLimits,
         cached: Option<ResolvedCellRoute>,
     ) -> Result<CellReceiptInvocation, CellDispatchError> {
-        if request.durability != Durability::Quorum
-            || self.directory.namespace_config().minimum_durability != Durability::Quorum
-        {
+        request.durability = request
+            .durability
+            .max(self.directory.namespace_config().minimum_durability);
+        if request.durability == Durability::S3 && self.s3.is_none() {
             return Err(CellDispatchError::Execution(ExecutionError::Refused(
                 CommandFailure::UnsupportedCapability,
             )));
@@ -101,7 +135,13 @@ impl CellGroupDispatcher {
         hash.update(request.contract.operation.as_bytes());
         hash.update(request.contract.digest);
         hash.update(command_request_digest(&request.input));
-        hash.update([1, limits.max_attempts]);
+        hash.update([
+            match request.durability {
+                Durability::Quorum => 1,
+                Durability::S3 => 2,
+            },
+            limits.max_attempts,
+        ]);
         hash.update(limits.timeout.as_nanos().to_be_bytes());
         let session = self
             .directory
@@ -198,6 +238,18 @@ impl CellReceiptInvocation {
         sql: &CellGroupSqlPool,
         options: CellSqlOptions,
     ) -> Result<CellReceiptResponse, CellDispatchError> {
+        self.select(runtime, sql, options).await?.response().await
+    }
+
+    /// Select one immutable quorum image under the original attempt/deadline.
+    /// S3 selection transfers result retention before returning this opaque phase;
+    /// only its response can expose the required-durability result.
+    pub async fn select(
+        &mut self,
+        runtime: &CellGroupRuntime,
+        sql: &CellGroupSqlPool,
+        options: CellSqlOptions,
+    ) -> Result<CellReceiptSelection<'_>, CellDispatchError> {
         let attempt = self.current()?.clone();
         self.session
             .validate_attempt(&attempt)
@@ -211,6 +263,32 @@ impl CellReceiptInvocation {
         {
             return Err(CellDispatchError::Invalid("receipt execution domain"));
         }
+        if self.request.durability == Durability::S3 {
+            if self.remote_route.is_some() {
+                return Err(CellDispatchError::Execution(ExecutionError::Refused(
+                    CommandFailure::UnsupportedCapability,
+                )));
+            }
+            let owner = self
+                .dispatcher
+                .s3
+                .as_ref()
+                .ok_or(CellDispatchError::Invalid("S3 receipt owner"))?;
+            owner.require_runtime(runtime)?;
+            owner.require_group(attempt.route())?;
+        }
+        let limits = match &options {
+            CellSqlOptions::Materialized(o) => o.limits,
+            CellSqlOptions::Extents(o) => o.limits,
+        };
+        let request = CommandRequest {
+            id: self.request.id,
+            operation: self.request.contract.operation.clone(),
+            contract_digest: self.request.contract.digest,
+            request_digest: command_request_digest(&self.request.input),
+            durability: self.request.durability,
+            retry_until_ms: 0,
+        };
         let authority = runtime
             .read_authority(
                 attempt.route().history,
@@ -228,26 +306,96 @@ impl CellReceiptInvocation {
                 options,
                 authority,
                 self.dispatcher.class.clone(),
-                CommandRequest {
-                    id: self.request.id,
-                    operation: self.request.contract.operation.clone(),
-                    contract_digest: self.request.contract.digest,
-                    request_digest: command_request_digest(&self.request.input),
-                    durability: self.request.durability,
-                    retry_until_ms: 0,
-                },
+                request.clone(),
                 self.request.input.clone(),
             )
             .await
             .map_err(CellDispatchError::Execution)?;
-        if selected
-            .receipt()
-            .is_some_and(|r| r.minimum_durability() != Durability::Quorum)
-        {
-            return Err(CellDispatchError::Execution(ExecutionError::Refused(
-                CommandFailure::UnsupportedCapability,
-            )));
-        }
+        self.session
+            .validate_attempt(&attempt)
+            .map_err(CellDispatchError::Routing)?;
+        let required = self.request.durability.max(
+            selected
+                .receipt()
+                .map_or(Durability::Quorum, |row| row.minimum_durability()),
+        );
+        let selected = if required == Durability::S3 {
+            if self.remote_route.is_some() {
+                return Err(CellDispatchError::Execution(ExecutionError::Refused(
+                    CommandFailure::UnsupportedCapability,
+                )));
+            }
+            let owner = self
+                .dispatcher
+                .s3
+                .as_ref()
+                .ok_or(CellDispatchError::Execution(ExecutionError::Refused(
+                    CommandFailure::UnsupportedCapability,
+                )))?;
+            Selected::S3(Box::new(owner.prepare_lookup(
+                runtime,
+                attempt.route().clone(),
+                Box::new(selected),
+                request,
+                limits,
+                attempt.deadline_ms(),
+            )?))
+        } else {
+            Selected::Quorum(Box::new(selected))
+        };
+        Ok(CellReceiptSelection {
+            invocation: self,
+            runtime: runtime.clone(),
+            attempt,
+            selected,
+        })
+    }
+
+    async fn response(
+        &mut self,
+        runtime: &CellGroupRuntime,
+        attempt: CellRouteAttempt,
+        selected: Selected,
+    ) -> Result<CellReceiptResponse, CellDispatchError> {
+        self.session
+            .validate_attempt(&attempt)
+            .map_err(CellDispatchError::Routing)?;
+        let (selected, s3, authority) = match selected {
+            Selected::Quorum(selected) => (selected, None, None),
+            Selected::S3(prepared) => {
+                let settled = prepared.response().await?;
+                settled.proof.require_current().await?;
+                // Use a fresh read authority, whose leader fence tolerates later
+                // cell writes, rather than retaining a private writer's base.
+                let authority = runtime
+                    .read_authority(
+                        attempt.route().history,
+                        self.cell.clone(),
+                        CellReadConsistency::Linearizable,
+                        attempt.deadline_ms(),
+                    )
+                    .await
+                    .map_err(CellDispatchError::Runtime)?;
+                if authority.route() != attempt.route()
+                    || authority.cell().version.history != self.cell
+                {
+                    return Err(CellDispatchError::Invalid(
+                        "S3 receipt current route/history",
+                    ));
+                }
+                if authority.cell().version.sequence
+                    < settled.selected.observation().version.sequence
+                {
+                    return Err(CellDispatchError::Runtime(RuntimeError::NotReady));
+                }
+                if authority.cell().version == settled.selected.observation().version
+                    && authority.cell().witness != settled.selected.observation().witness
+                {
+                    return Err(CellDispatchError::Invalid("S3 receipt current decision"));
+                }
+                (settled.selected, Some(settled.proof), Some(authority))
+            }
+        };
         let now = self
             .dispatcher
             .domain
@@ -262,10 +410,16 @@ impl CellReceiptInvocation {
         self.session
             .validate_attempt(&attempt)
             .map_err(CellDispatchError::Routing)?;
+        if let Some(authority) = authority {
+            authority
+                .check(self.dispatcher.domain.mono_ms().map_err(|_| closed())?)
+                .map_err(CellDispatchError::Runtime)?;
+        }
         Ok(CellReceiptResponse {
             command: self.request.id,
             selected,
             token,
+            s3,
         })
     }
 
@@ -280,6 +434,11 @@ impl CellReceiptInvocation {
             .map_err(CellDispatchError::Routing)?;
         if self.dispatched || self.remote_route.is_some() {
             return Err(CellDispatchError::Invalid("consumed receipt attempt"));
+        }
+        if self.request.durability == Durability::S3 {
+            return Err(CellDispatchError::Execution(ExecutionError::Refused(
+                CommandFailure::UnsupportedCapability,
+            )));
         }
         self.dispatched = true;
         if !transport.uses_command_domain(&self.dispatcher.domain) {

@@ -265,6 +265,11 @@ impl CellEnrollmentInvocation {
             return Err(CellDispatchError::Invalid("enrollment destination route"));
         }
         if self.durability == Durability::S3 {
+            if self.remote_route.is_some() {
+                return Err(CellDispatchError::Execution(ExecutionError::Refused(
+                    CommandFailure::UnsupportedCapability,
+                )));
+            }
             let owner = self
                 .dispatcher
                 .s3

@@ -3,10 +3,12 @@
 //! Operation proofs share the archive lane; waiting never owns a SQL producer.
 use super::*;
 use crate::raft::budget::Permit;
-use crate::raft::cell_groups::{CellDispatchError, CellSqlEnrollment, CellSqlReceipt};
-use crate::raft::execution::ExecutionLimits;
+use crate::raft::cell_groups::{
+    CellDispatchError, CellSqlEnrollment, CellSqlReceipt, CellSqlReceiptLookup,
+};
+use crate::raft::execution::{CommandRequest, ExecutionError, ExecutionLimits};
 use cellar_logic::cell_group::GroupRoute;
-use std::sync::{atomic::AtomicBool, Weak};
+use std::sync::{atomic::AtomicBool, Mutex, Weak};
 
 #[derive(Clone)]
 pub(crate) struct Client(Weak<Shared>);
@@ -16,7 +18,7 @@ pub(crate) struct OutputProof {
     // The exclusive journal lock survives response buffering and node close.
     // A replacement owner cannot retire this hold while a consumer still uses it.
     _journal: Arc<journal::Journal>,
-    _permit: Arc<Permit>,
+    _permit: Arc<Mutex<Permit>>,
     authority: Arc<job::Authority>,
 }
 
@@ -39,9 +41,36 @@ pub(crate) struct EnrollmentSettled {
     pub proof: Box<OutputProof>,
 }
 
+pub(crate) struct LookupSettled {
+    pub selected: Box<CellSqlReceiptLookup>,
+    pub proof: Box<OutputProof>,
+}
+
+struct Lookup {
+    selected: Box<CellSqlReceiptLookup>,
+    request: CommandRequest,
+}
+
+/// Admitted immutable observation; no node work is queued until response.
+pub(crate) struct LookupPrepared(Prepared);
+
+impl LookupPrepared {
+    pub(crate) async fn response(self) -> std::result::Result<LookupSettled, CellDispatchError> {
+        let settled = self.0.response().await?;
+        let Output::Lookup(lookup) = settled.output else {
+            return Err(CellDispatchError::Invalid("S3 lookup output"));
+        };
+        Ok(LookupSettled {
+            selected: lookup.selected,
+            proof: settled.proof,
+        })
+    }
+}
+
 enum Output {
     Command(Box<CellSqlReceipt>),
     Enrollment(Box<CellSqlEnrollment>),
+    Lookup(Box<Lookup>),
 }
 
 impl Output {
@@ -51,16 +80,24 @@ impl Output {
             // Creation records are bounded by the protocol to 4096 bytes. Their
             // variable identity bytes and the archive comparison stay admitted.
             Self::Enrollment(_) => 4096,
+            Self::Lookup(lookup) => lookup
+                .selected
+                .receipt()
+                .map_or(0, |row| row.result().len()),
         }
         .checked_mul(2)
         .and_then(|n| n.checked_add(8192))
         .ok_or(CellDispatchError::Runtime(RuntimeError::Overloaded))
     }
 
-    fn retain(self, permit: Arc<Permit>) -> Self {
+    fn retain(self, permit: Arc<Mutex<Permit>>) -> Self {
         match self {
             Self::Command(receipt) => Self::Command(receipt.retain_for_archive(permit)),
             Self::Enrollment(enrollment) => Self::Enrollment(enrollment.retain_for_archive(permit)),
+            Self::Lookup(lookup) => Self::Lookup(Box::new(Lookup {
+                selected: lookup.selected.retain_for_archive(permit),
+                request: lookup.request,
+            })),
         }
     }
 }
@@ -77,7 +114,7 @@ pub(in crate::raft::cell_groups::controller) struct Request {
     deadline: u64,
     cancelled: Arc<AtomicBool>,
     reply: oneshot::Sender<std::result::Result<Settled, CellDispatchError>>,
-    permit: Arc<Permit>,
+    permit: Arc<Mutex<Permit>>,
 }
 
 struct Cancel(Arc<AtomicBool>);
@@ -195,6 +232,25 @@ impl Client {
         })
     }
 
+    pub(crate) fn prepare_lookup(
+        &self,
+        runtime: &CellGroupRuntime,
+        route: GroupRoute,
+        selected: Box<CellSqlReceiptLookup>,
+        request: CommandRequest,
+        limits: ExecutionLimits,
+        deadline: u64,
+    ) -> std::result::Result<LookupPrepared, CellDispatchError> {
+        self.prepare(
+            runtime,
+            route,
+            Output::Lookup(Box::new(Lookup { selected, request })),
+            Some(limits),
+            deadline,
+        )
+        .map(LookupPrepared)
+    }
+
     async fn settle(
         &self,
         runtime: &CellGroupRuntime,
@@ -203,6 +259,19 @@ impl Client {
         limits: Option<ExecutionLimits>,
         deadline: u64,
     ) -> std::result::Result<Settled, CellDispatchError> {
+        self.prepare(runtime, route, output, limits, deadline)?
+            .response()
+            .await
+    }
+
+    fn prepare(
+        &self,
+        runtime: &CellGroupRuntime,
+        route: GroupRoute,
+        output: Output,
+        limits: Option<ExecutionLimits>,
+        deadline: u64,
+    ) -> std::result::Result<Prepared, CellDispatchError> {
         self.require_runtime(runtime)?;
         self.require_group(&route)?;
         let shared = self
@@ -212,12 +281,58 @@ impl Client {
         let permit = shared
             .s3
             .acquire(output.retained_bytes()?)
-            .map(Arc::new)
+            .map(|permit| Arc::new(Mutex::new(permit)))
             .ok_or(CellDispatchError::Runtime(RuntimeError::Overloaded))?;
         let output = output.retain(permit.clone());
         let (reply, receiver) = oneshot::channel();
         let cancelled = Arc::new(AtomicBool::new(false));
-        let _cancel = Cancel(cancelled.clone());
+        let now = shared
+            .domain
+            .mono_ms()
+            .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?;
+        if now >= deadline {
+            return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
+        }
+        Ok(Prepared {
+            client: self.clone(),
+            request: Request {
+                route,
+                output,
+                limits,
+                deadline,
+                cancelled: cancelled.clone(),
+                reply,
+                permit,
+            },
+            receiver,
+            _cancel: Cancel(cancelled),
+        })
+    }
+}
+
+struct Prepared {
+    client: Client,
+    request: Request,
+    receiver: oneshot::Receiver<std::result::Result<Settled, CellDispatchError>>,
+    _cancel: Cancel,
+}
+
+impl Prepared {
+    async fn response(self) -> std::result::Result<Settled, CellDispatchError> {
+        let Self {
+            client,
+            request,
+            receiver,
+            _cancel,
+        } = self;
+        let shared = client
+            .0
+            .upgrade()
+            .ok_or(CellDispatchError::Runtime(RuntimeError::Closed))?;
+        let deadline = request.deadline;
+        if shared.closing.load(Ordering::Acquire) {
+            return Err(CellDispatchError::Runtime(RuntimeError::Closed));
+        }
         let now = shared
             .domain
             .mono_ms()
@@ -227,15 +342,7 @@ impl Client {
         }
         shared
             .requests
-            .try_send(requests::Request::S3(Box::new(Request {
-                route,
-                output,
-                limits,
-                deadline,
-                cancelled,
-                reply,
-                permit,
-            })))
+            .try_send(requests::Request::S3(Box::new(request)))
             .map_err(|e| {
                 CellDispatchError::Runtime(match e {
                     tokio::sync::mpsc::error::TrySendError::Closed(_) => RuntimeError::Closed,
@@ -317,32 +424,73 @@ pub(super) async fn prove(
         let store = registration.store.clone();
         let physical = coverage.clone();
         let read = execution.blocking(move || {
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match &request
-                .output
-            {
-                Output::Command(receipt) => crate::raft::cell_groups::archive::receipt::command(
-                    &physical,
-                    &store,
-                    receipt.receipt(),
-                    request
-                        .limits
-                        .ok_or(CellGroupArchiveError::Invalid("S3 command limits"))?,
-                    request.deadline,
-                    request.cancelled.clone(),
-                ),
-                Output::Enrollment(enrollment) => {
-                    crate::raft::cell_groups::archive::enrollment::verify(
-                        &physical,
-                        &store,
-                        enrollment.record(),
-                    )
-                }
-            }))
-            .unwrap_or_else(|panic| {
-                Err(CellGroupArchiveError::Replay(
-                    crate::raft::execution::storage(crate::native_worker::panic_error(panic)),
-                ))
-            });
+            let mut request = request;
+            let result =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    match &mut request.output {
+                        Output::Command(receipt) => {
+                            crate::raft::cell_groups::archive::receipt::command(
+                                &physical,
+                                &store,
+                                receipt.receipt(),
+                                request
+                                    .limits
+                                    .ok_or(CellGroupArchiveError::Invalid("S3 command limits"))?,
+                                request.deadline,
+                                request.cancelled.clone(),
+                            )
+                        }
+                        Output::Enrollment(enrollment) => {
+                            crate::raft::cell_groups::archive::enrollment::verify(
+                                &physical,
+                                &store,
+                                enrollment.record(),
+                            )
+                        }
+                        Output::Lookup(lookup) => {
+                            let original = lookup
+                                .selected
+                                .receipt()
+                                .map_or(0, |row| row.result().len());
+                            crate::raft::cell_groups::archive::receipt::lookup(
+                                &physical,
+                                &store,
+                                &mut lookup.selected,
+                                crate::raft::cell_groups::archive::receipt::LookupRead {
+                                    request: &lookup.request,
+                                    limits: request.limits.ok_or(
+                                        CellGroupArchiveError::Invalid("S3 lookup limits"),
+                                    )?,
+                                    deadline: request.deadline,
+                                    cancelled: request.cancelled.clone(),
+                                },
+                                |length| {
+                                    let bytes = length
+                                        .max(original)
+                                        .checked_mul(2)
+                                        .and_then(|n| n.checked_add(8192))
+                                        .ok_or(ExecutionError::Refused(
+                                            cellar_logic::consensus::CommandFailure::Overloaded,
+                                        ))?;
+                                    let mut permit = request.permit.lock().map_err(|_| {
+                                        ExecutionError::Invalid("S3 result admission")
+                                    })?;
+                                    if !permit.grow_at_least(bytes) {
+                                        return Err(ExecutionError::Refused(
+                                            cellar_logic::consensus::CommandFailure::Overloaded,
+                                        ));
+                                    }
+                                    Ok(())
+                                },
+                            )
+                        }
+                    }
+                }))
+                .unwrap_or_else(|panic| {
+                    Err(CellGroupArchiveError::Replay(
+                        crate::raft::execution::storage(crate::native_worker::panic_error(panic)),
+                    ))
+                });
             (request, result)
         });
         // A refused submission drops the closure and its owned request. Entered
@@ -362,6 +510,11 @@ pub(super) async fn prove(
         }
         match result {
             Ok(false) | Err(CellGroupArchiveError::Busy) => waiting.push(request),
+            Err(CellGroupArchiveError::Replay(error))
+                if matches!(&request.output, Output::Lookup(_)) =>
+            {
+                let _ = request.reply.send(Err(CellDispatchError::Execution(error)));
+            }
             Err(error) => request.fail(Arc::new(Error::Archive(error))),
             Ok(true) => {
                 if let Err(error) = context.authority.require_current().await {

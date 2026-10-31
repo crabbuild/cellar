@@ -4,7 +4,9 @@
 //! Routing observations never replace destination authority or ingress grants.
 
 mod receipt;
-pub use receipt::{CellReceiptInvocation, CellReceiptRequest, CellReceiptResponse};
+pub use receipt::{
+    CellReceiptInvocation, CellReceiptRequest, CellReceiptResponse, CellReceiptSelection,
+};
 
 mod enrollment;
 pub use enrollment::{CellEnrollmentError, CellEnrollmentInvocation, CellEnrollmentRequest};
@@ -147,9 +149,9 @@ impl CellGroupDispatcher {
         })
     }
 
-    /// Bind local command/enrollment S3 settlement to this node's bounded archive owner.
-    /// The destination group must already have an archive registration. Receipt
-    /// lookup and remote response settlement have separate gates.
+    /// Bind local command, enrollment and receipt S3 settlement to the node archive owner.
+    /// The destination group must already have an archive registration. Remote
+    /// response settlement has a separate gate.
     pub fn with_s3(mut self, controller: &CellGroupController) -> Result<Self, CellDispatchError> {
         self.s3 = Some(
             controller

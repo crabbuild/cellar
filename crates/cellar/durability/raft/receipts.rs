@@ -129,6 +129,18 @@ pub(super) fn lookup_cell_identity(
     limits: &ExecutionLimits,
     cell_sequence: u64,
 ) -> Result<Option<StoredReceipt>, ExecutionError> {
+    lookup_cell_identity_admitted(connection, request, limits, cell_sequence, |_| Ok(()))
+}
+
+/// Reserve a retained result after inspecting its length, before fetching bytes.
+/// Admission failure is not absence and consumes no additional operation slot.
+pub(super) fn lookup_cell_identity_admitted(
+    connection: &Connection,
+    request: &CommandRequest,
+    limits: &ExecutionLimits,
+    cell_sequence: u64,
+    mut reserve_result: impl FnMut(usize) -> Result<(), ExecutionError>,
+) -> Result<Option<StoredReceipt>, ExecutionError> {
     let tables: u64 = connection.query_row(
         "SELECT count(*) FROM sqlite_schema WHERE type='table' AND name IN ('__sys_raft_clients','__sys_raft_receipts')",
         [], |row| row.get(0),
@@ -143,7 +155,10 @@ pub(super) fn lookup_cell_identity(
                 }))
             }
         }
-        2 => lookup_identity(connection, request, limits),
+        2 => match inspect_identity_admitted(connection, request, limits, &mut reserve_result)? {
+            Identity::Retained(receipt) => Ok(Some(receipt)),
+            Identity::Vacant { .. } => Ok(None),
+        },
         _ => Err(corrupt()),
     }
 }
@@ -157,6 +172,15 @@ fn inspect_identity(
     connection: &Connection,
     request: &CommandRequest,
     limits: &ExecutionLimits,
+) -> Result<Identity, ExecutionError> {
+    inspect_identity_admitted(connection, request, limits, &mut |_| Ok(()))
+}
+
+fn inspect_identity_admitted(
+    connection: &Connection,
+    request: &CommandRequest,
+    limits: &ExecutionLimits,
+    reserve_result: &mut dyn FnMut(usize) -> Result<(), ExecutionError>,
 ) -> Result<Identity, ExecutionError> {
     let state = client(connection, request.id.client)?;
     let (last, floor) = state.unwrap_or((0, 0));
@@ -181,6 +205,7 @@ fn inspect_identity(
         if length.is_none_or(|n| n < 0 || n as u64 > limits.max_result_bytes as u64) {
             return Err(corrupt());
         }
+        reserve_result(length.ok_or_else(corrupt)? as usize)?;
         let row=connection.query_row(
             "SELECT operation,contract_digest,request_digest,result,minimum_durability,retry_until
              FROM __sys_raft_receipts WHERE client_id=?1 AND sequence=?2",

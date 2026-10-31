@@ -58,10 +58,27 @@ impl CellSqlQueryResult {
 pub struct CellSqlReceiptLookup {
     receipt: Option<crate::raft::execution::StoredReceipt>,
     observation: crate::raft::version::CellVersionObservation,
-    _bytes: Arc<Bytes>,
+    _retention: OutputRetention,
 }
 
 impl CellSqlReceiptLookup {
+    pub(crate) fn retain_for_archive(
+        mut self: Box<Self>,
+        permit: Arc<Mutex<crate::raft::budget::Permit>>,
+    ) -> Box<Self> {
+        self._retention = OutputRetention::Archive { _permit: permit };
+        self
+    }
+
+    pub(crate) fn select_archived(
+        &mut self,
+        receipt: Option<crate::raft::execution::StoredReceipt>,
+        observation: crate::raft::version::CellVersionObservation,
+    ) {
+        self.receipt = receipt;
+        self.observation = observation;
+    }
+
     pub fn receipt(&self) -> Option<&crate::raft::execution::StoredReceipt> {
         self.receipt.as_ref()
     }
@@ -403,7 +420,9 @@ pub(super) fn run(
         Output::Receipt(receipt) => CellSqlOutcome::ReceiptLookedUp(CellSqlReceiptLookup {
             receipt,
             observation,
-            _bytes: query.bytes,
+            _retention: OutputRetention::Sql {
+                _bytes: query.bytes,
+            },
         }),
     })
 }

@@ -4,7 +4,9 @@
 //! Admitted command ownership survives response cancellation and expiry.
 
 mod archive;
-pub(crate) use archive::settlement::{Client as S3Client, OutputProof as S3OutputProof};
+pub(crate) use archive::settlement::{
+    Client as S3Client, LookupPrepared as S3LookupPrepared, OutputProof as S3OutputProof,
+};
 mod calls;
 pub use archive::{
     CellGroupArchiveCall, CellGroupArchiveControlError, CellGroupArchiveRegistration,
@@ -50,8 +52,9 @@ pub struct CellGroupControllerLimits {
     /// Shared by commands, enrollments and registrations, including queued work, resolution
     /// and unconsumed responses.
     pub max_commands: usize,
-    /// Invocation/input/options retention. SQL capture, apply and result bytes
-    /// retain the SQL pool's independent admission as well.
+    /// Invocation/input/options retention. The independent S3 output stage has
+    /// the same byte ceiling; configure their combined envelope as twice this
+    /// value. SQL capture/apply/results retain separate SQL pool admission.
     pub max_command_bytes: usize,
     /// Automatic compaction at an apply boundary. Requires the transport's
     /// shared checkpoint pool. None leaves local publication to its caller.

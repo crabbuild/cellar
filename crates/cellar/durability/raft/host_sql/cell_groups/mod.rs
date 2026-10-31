@@ -30,7 +30,7 @@ use cellar_logic::cell_group::{CellHistory, GroupHistory};
 use cellar_logic::consensus::{CommandFailure, ProposalId};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 use tokio::sync::{oneshot, Notify};
 pub(super) use worker::{Cells, Request};
@@ -171,7 +171,7 @@ impl CellSqlEnrollment {
 
     pub(crate) fn retain_for_archive(
         mut self: Box<Self>,
-        permit: Arc<crate::raft::budget::Permit>,
+        permit: Arc<Mutex<crate::raft::budget::Permit>>,
     ) -> Box<Self> {
         self._retention = OutputRetention::Archive { _permit: permit };
         self
@@ -272,7 +272,7 @@ enum OutputRetention {
         _bytes: Arc<Bytes>,
     },
     Archive {
-        _permit: Arc<crate::raft::budget::Permit>,
+        _permit: Arc<Mutex<crate::raft::budget::Permit>>,
     },
 }
 
@@ -281,7 +281,7 @@ impl CellSqlReceipt {
     /// archive owner. Acquire that reservation before releasing SQL retention.
     pub(crate) fn retain_for_archive(
         mut self: Box<Self>,
-        permit: Arc<crate::raft::budget::Permit>,
+        permit: Arc<Mutex<crate::raft::budget::Permit>>,
     ) -> Box<Self> {
         self._retention = OutputRetention::Archive { _permit: permit };
         self

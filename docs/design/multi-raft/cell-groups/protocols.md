@@ -720,8 +720,8 @@ through this archive-specific drain.
 the same execution domain. Execution also requires its exact runtime owner and
 an active archive registration for the selected group/route. Effective durability
 is the maximum of the request, namespace minimum and existing receipt minimum.
-Receipt lookup and remote S3 response paths retain their refusal gates until
-their own output proofs are integrated.
+Remote S3 response paths retain refusal gates until their own output proofs
+are integrated, including when the receiver has a configured archive provider.
 
 A committed SQL receipt resolves its producer before any archive wait. The owner
 acquires independent S3 byte/item admission before transferring output retention
@@ -756,7 +756,7 @@ Idle registrations do not retain replay workspaces. Active consumers can occupy
 those shared workspaces and backpressure subsequent archival until consumption;
 this is explicit pool admission, without an unaccounted metadata-only proof cache.
 
-S3 receipt-lookup/remote responses, explicit unarchived-byte/disk
+Remote S3 responses, explicit unarchived-byte/disk
 admission, physical shared-engine Raft file purge, fenced fresh-incarnation serving,
 load and process-kill qualification remain required gates. This local command
 boundary is not the complete CG-06 or public SDK/fleet cutover gate.
@@ -784,6 +784,45 @@ its exact committed creation record under the original deadline. The returned
 That output retains the same physical coverage, pool admission and journal lock
 as a command response. A deadline or dropped reply keeps commitment ambiguous,
 without retaining an unresolved SQL producer or quarantining its healthy group.
+
+### Local receipt lookup S3 response gate
+
+`CellReceiptInvocation::select` binds an opaque quorum selection to the original
+request, route and deadline. Required durability is the maximum of request,
+namespace and stored receipt minimum. A configured S3 provider must own that exact
+runtime and active group registration. S3 admission takes the selected bytes
+before SQL read admission releases; no producer is created or retired. Selection
+queues no archive work until its consuming `response` call. The existing `execute`
+method runs both phases. Dropping an unsubmitted selection refunds admission.
+
+A complete published cut must be independently recovered. Its cell history and
+logical version must cover the quorum selection; an equal version must retain the
+same decision and receipt outcome. A known receipt must match every stored field
+and result, even in a later image. An initially absent receipt is read again from
+the actual later archive: it may return a newly committed receipt or an ambiguous
+absence, with that archived image's observation and signed token. No absence,
+including an S3-protected one, proves non-commit or releases original work.
+
+The shared receipt reader checks row length before fetching payload bytes. The
+existing S3 reservation grows atomically for actual result size without another
+item slot, within the unchanged node byte/item ceilings. Failure returns typed
+Overloaded before payload allocation; expiry, conflict and sequence gaps remain
+typed rather than becoming None. Receipt table loss remains corruption except
+for legitimate initial sequence-1 images. Empty results remain distinct from
+absence. No application callback or receipt maintenance runs during lookup.
+
+Before output, recheck current catalog birth and a fresh correlated quorum read's
+leader/route fence under the original deadline. The current cell cannot precede
+the archived observation; equal versions must retain the same decision. This read
+fence permits later concurrent mutations without retaining a private writer's
+base. A successful response retains full physical coverage, S3 admission and the
+journal lock, and reports achieved durability from that private proof.
+
+Remote senders refuse explicit/effective S3 requests. Receivers also refuse S3
+before SQL when already required, or after read-only duplicate inspection when a
+stored minimum requires it. Configuring an S3 provider cannot enable an unqualified
+wire response. Command duplicate refusal clears resolved producer ownership first.
+Remote proof ownership through physical delivery remains a separate required gate.
 
 ## Split and merge
 

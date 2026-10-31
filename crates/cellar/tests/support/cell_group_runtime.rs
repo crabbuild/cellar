@@ -816,7 +816,8 @@ pub(super) use sql::{owned_command_failure, owned_commands};
 #[allow(unused_imports)]
 pub(super) use sql::{
     s3_commands, s3_deadline, s3_enrollment, s3_enrollment_deadline, s3_missing_sibling,
-    s3_namespace_minimum,
+    s3_namespace_minimum, s3_receipt_deadline, s3_receipt_failures, s3_receipt_minimums,
+    s3_receipt_observations,
 };
 
 pub(super) async fn cell_receipts(rooted: bool) -> Result<()> {

@@ -53,6 +53,7 @@ pub use dispatch::{
     CellDispatchLimits, CellEnrollmentError, CellEnrollmentInvocation, CellEnrollmentRequest,
     CellGroupDispatcher, CellQueryConsistency, CellQueryInvocation, CellQueryRequest,
     CellQueryResponse, CellReceiptInvocation, CellReceiptRequest, CellReceiptResponse,
+    CellReceiptSelection,
 };
 
 mod execution_authority;
