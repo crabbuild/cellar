@@ -21,6 +21,87 @@ mod rustfs;
 include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn s3_command_requires_the_sibling_archive_dependencies() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_missing_sibling(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
+async fn rustfs_s3_command_requires_the_sibling_archive_dependencies() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_missing_sibling(
+            rooted,
+            rustfs::store("s3-sibling", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn s3_commands_require_exact_archived_results() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_commands(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn s3_command_deadlines_do_not_quarantine_committed_sql() -> Result<()> {
+    for rooted in [false, true] {
+        for cancel in [false, true] {
+            Box::pin(runtime_fixture::s3_deadline(
+                rooted,
+                Arc::new(object_store::memory::InMemory::new()),
+                cancel,
+            ))
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
+async fn rustfs_s3_commands_require_exact_archived_results() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_commands(
+            rooted,
+            rustfs::store("s3-commands", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
+async fn rustfs_s3_command_deadlines_do_not_quarantine_committed_sql() -> Result<()> {
+    for rooted in [false, true] {
+        for cancel in [false, true] {
+            Box::pin(runtime_fixture::s3_deadline(
+                rooted,
+                rustfs::store(if cancel { "s3-cancel" } else { "s3-deadline" }, rooted)?,
+                cancel,
+            ))
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn controller_archive_publishes_stable_cuts_while_quorum_advances() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(runtime_fixture::archive_controller_publish(rooted)).await?;

@@ -529,10 +529,15 @@ pub(crate) use command_dispatch::commands as routed_commands;
 #[path = "cell_group_controller_archive.rs"]
 #[allow(dead_code, unused_imports)]
 mod archive_controller;
+#[path = "cell_group_s3_commands.rs"]
+#[allow(dead_code)]
+mod s3_commands;
 #[path = "cell_group_s3_response.rs"]
 // Selected by the archive-controller target; sibling targets share this SQL fixture.
 #[allow(dead_code)]
 mod s3_response;
+#[allow(unused_imports)]
+pub(crate) use s3_commands::{s3_commands, s3_deadline, s3_missing_sibling};
 #[allow(unused_imports)]
 pub(crate) use s3_response::unproved_s3_responses;
 #[path = "cell_group_controller.rs"]

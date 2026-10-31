@@ -4,6 +4,7 @@
 //! markers are observations, never S3 command settlement or serving authority.
 mod job;
 mod journal;
+pub(in crate::raft::cell_groups::controller) mod settlement;
 
 use super::calls::Delivery;
 use super::*;
@@ -193,6 +194,7 @@ struct Entry {
     dirty: bool,
     fatal: bool,
     retry_at: u64,
+    waiters: Vec<settlement::Request>,
 }
 
 pub(super) struct Completed {
@@ -200,6 +202,7 @@ pub(super) struct Completed {
     context: Option<job::Context>,
     result: Result<GroupManifest>,
     observation: std::result::Result<LogIndex, RuntimeError>,
+    waiters: Vec<settlement::Request>,
 }
 
 pub(super) struct Manager {
@@ -243,6 +246,7 @@ impl Manager {
                 dirty: true,
                 fatal: false,
                 retry_at: 0,
+                waiters: Vec::new(),
             },
         );
         self.queue.push_back(group);
@@ -262,6 +266,26 @@ impl Manager {
                     self.queue.push_back(group);
                 }
             }
+        }
+    }
+
+    pub fn settle(&mut self, request: settlement::Request) {
+        let group = request.route.history;
+        let Some(entry) = self.entries.get_mut(&group) else {
+            request.fail(Arc::new(Error::Runtime(RuntimeError::NotReady)));
+            return;
+        };
+        if entry.fatal || entry.registration.birth.route() != &request.route {
+            request.fail(Arc::new(Error::Invalid(
+                "S3 archive registration unavailable/changed",
+            )));
+            return;
+        }
+        entry.waiters.push(request);
+        entry.dirty = true;
+        if !entry.queued {
+            entry.queued = true;
+            self.queue.push_back(group);
         }
     }
 
@@ -302,18 +326,32 @@ impl Manager {
             let mut context = entry.context.clone();
             let execution = self.execution.clone();
             let runtime = runtime.clone();
+            // Bound receipt SQL work per fair group turn, independently of the
+            // node's potentially larger total command admission.
+            let count = entry.waiters.len().min(32);
+            let mut waiters = entry.waiters.drain(..count).collect();
+            settlement::prune(&mut waiters, now);
             self.job = Some(Box::pin(async move {
                 let result = std::panic::AssertUnwindSafe(async {
                     if context.is_none() {
                         context = Some(job::open(&registration, &runtime, &execution).await?);
                     }
-                    job::drive(
+                    let coverage = job::drive(
                         context.as_ref().expect("opened archive context"),
                         &registration,
                         &runtime,
                         &execution,
                     )
-                    .await
+                    .await?;
+                    waiters = settlement::prove(
+                        std::mem::take(&mut waiters),
+                        context.as_ref().expect("opened archive context"),
+                        &registration,
+                        &coverage,
+                        &execution,
+                    )
+                    .await;
+                    Ok(coverage.marker().clone())
                 })
                 .catch_unwind()
                 .await
@@ -331,6 +369,7 @@ impl Manager {
                     context,
                     result,
                     observation,
+                    waiters,
                 }
             }));
             break;
@@ -344,6 +383,8 @@ impl Manager {
             .get_mut(&completed.group)
             .expect("completed archive owner");
         entry.context = completed.context;
+        entry.waiters.extend(completed.waiters);
+        settlement::prune(&mut entry.waiters, now);
         let mut statuses = shared
             .archives
             .lock()
@@ -379,6 +420,17 @@ impl Manager {
                 status.error = Some(Arc::new(error));
             }
         }
+        if entry.fatal {
+            let error = status
+                .error
+                .clone()
+                .unwrap_or_else(|| Arc::new(Error::Stopped));
+            for request in entry.waiters.drain(..) {
+                request.fail(error.clone());
+            }
+        } else if !entry.waiters.is_empty() {
+            entry.dirty = true;
+        }
         if entry.dirty && !entry.fatal && !entry.queued {
             entry.queued = true;
             self.queue.push_back(completed.group);
@@ -404,6 +456,9 @@ impl Manager {
         }
         self.execution.join().await;
         for entry in self.entries.values_mut() {
+            for request in entry.waiters.drain(..) {
+                request.fail(Arc::new(Error::Stopped));
+            }
             entry.registration.store.close();
             if let Some(reply) = entry.reply.take() {
                 reply.send(Err(Arc::new(Error::Stopped)));

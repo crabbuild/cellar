@@ -8,7 +8,7 @@ use std::sync::atomic::Ordering;
 
 #[path = "cell_group_archive_store.rs"]
 #[allow(dead_code)]
-mod archive_store;
+pub(super) mod archive_store;
 
 async fn verifier(
     fixture: &RuntimeCluster,
@@ -75,7 +75,7 @@ async fn verifier(
         .await?
 }
 
-async fn registration(
+pub(super) async fn registration(
     fixture: &RuntimeCluster,
     route: &GroupRoute,
     rooted: bool,
@@ -142,7 +142,7 @@ async fn registration(
     ))
 }
 
-async fn published(
+pub(super) async fn published(
     controller: &CellGroupController,
     group: GroupHistory,
     index: LogIndex,

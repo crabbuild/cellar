@@ -151,6 +151,21 @@ struct Coverage {
     verified: VerifiedCellGroupArchiveRecovery,
 }
 
+pub(in crate::raft::cell_groups) struct CoverageUse {
+    hold: CellGroupArchiveHold,
+    coverage: std::sync::Weak<Coverage>,
+}
+
+impl CoverageUse {
+    pub(in crate::raft::cell_groups) fn retains(&self, hold: &CellGroupArchiveHold) -> bool {
+        &self.hold == hold && self.coverage.strong_count() != 0
+    }
+
+    pub(in crate::raft::cell_groups) fn live(&self) -> bool {
+        self.coverage.strong_count() != 0
+    }
+}
+
 /// Historical complete data coverage with an explicit remote hold. Clones keep
 /// local verification admission/pins. The remote hold is retired explicitly by
 /// its durable owner after joined use; this grants no quorum or serving right.
@@ -158,6 +173,13 @@ struct Coverage {
 pub struct CellGroupArchiveCoverage(Arc<Coverage>);
 
 impl CellGroupArchiveCoverage {
+    pub(in crate::raft::cell_groups) fn retain_use(&self) -> CoverageUse {
+        CoverageUse {
+            hold: self.0.hold.clone(),
+            coverage: Arc::downgrade(&self.0),
+        }
+    }
+
     pub fn hold(&self) -> &CellGroupArchiveHold {
         &self.0.hold
     }

@@ -6,6 +6,7 @@ use super::*;
 
 pub(super) enum Request {
     Archive(Box<archive::Request>),
+    S3(Box<archive::settlement::Request>),
     Registration(Box<registration::Request>),
     Provision(Box<provision::Request>),
     Command(Box<commands::Request>),
@@ -50,7 +51,7 @@ pub(super) async fn drive(
     progress: tokio::sync::watch::Receiver<()>,
 ) -> Completed {
     match request {
-        Request::Registration(_) | Request::Provision(_) | Request::Archive(_) => {
+        Request::Registration(_) | Request::Provision(_) | Request::Archive(_) | Request::S3(_) => {
             unreachable!("registration has its own physical join owner")
         }
         Request::Command(request) => Completed::Command(Box::new(

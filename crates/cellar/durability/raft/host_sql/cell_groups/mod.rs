@@ -238,10 +238,29 @@ pub struct CellSqlRejection {
 
 pub struct CellSqlReceipt {
     receipt: CellCommittedReceipt,
-    _bytes: Arc<Bytes>,
+    _retention: ReceiptRetention,
+}
+
+enum ReceiptRetention {
+    Sql {
+        _bytes: Arc<Bytes>,
+    },
+    Archive {
+        _permit: Arc<crate::raft::budget::Permit>,
+    },
 }
 
 impl CellSqlReceipt {
+    /// Only a resolved output can transfer its bytes to an independently admitted
+    /// archive owner. Acquire that reservation before releasing SQL retention.
+    pub(crate) fn retain_for_archive(
+        mut self: Box<Self>,
+        permit: Arc<crate::raft::budget::Permit>,
+    ) -> Box<Self> {
+        self._retention = ReceiptRetention::Archive { _permit: permit };
+        self
+    }
+
     pub fn receipt(&self) -> &CellCommittedReceipt {
         &self.receipt
     }

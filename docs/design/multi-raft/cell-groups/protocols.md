@@ -714,9 +714,51 @@ verifier stores and releases journal locks before closing runtime/SQL ownership.
 Fresh verifier stores are required on restart. No unrelated domain work is joined
 through this archive-specific drain.
 
-Actual S3 command/enrollment/receipt settlement, explicit unarchived-byte/disk
+### Local command S3 response gate
+
+`CellGroupDispatcher::with_s3` binds local command settlement to a controller in
+the same execution domain. Execution also requires its exact runtime owner and
+an active archive registration for the selected group/route. Effective durability
+is the maximum of the request, namespace minimum and existing receipt minimum.
+Receipt lookup, enrollment and remote S3 response paths retain their refusal gates
+until their own output proofs are integrated.
+
+A committed SQL receipt resolves its producer before any archive wait. The owner
+acquires independent S3 byte/item admission before transferring output retention
+from SQL; it releases the resolved preparation's duplicate SQL permit. The S3
+lane uses the node's `max_commands` and `max_command_bytes` as separate bounds,
+including fixed metadata and additional receipt-read bytes. It never recursively
+acquires ordinary command slots. Held or uncertain S3 work cannot keep the SQL
+producer unresolved or quarantine an otherwise healthy group.
+
+The existing fair archive lane takes at most 32 pending command proofs per group
+turn. It publishes or reopens a protected complete cut, then reads each exact
+receipt from that independently recovered immutable image. Coverage must contain
+the same cell history at or beyond the selected committed version/position. An
+equal version must carry the same decision witness. All stored receipt fields,
+including operation, contract/input digests, result, durability minimum and retry
+expiry, must match. A later image can prove an earlier retained receipt; a group
+index or sibling progress cannot replace that read. Missing/corrupt dependencies
+anywhere in the selected group refuse the output. No callback runs during proof.
+
+The response rechecks the selected catalog birth/route and live leader authority
+before issuing its version token. Original deadlines and captured inputs remain
+unchanged. Deadline/caller cancellation does not release an entered physical read;
+its cancelled flag interrupts SQL, and the archive-specific owner joins the closure.
+Pending requests and unconsumed responses retain bounded S3 admission.
+
+A successful response retains the complete physical coverage, its pool admission
+and the exclusive journal lock. The journal owner tracks weak uses and refuses
+predecessor-hold retirement while a response still retains that coverage. A
+replacement owner cannot acquire that journal lock before the response drops.
+Idle registrations do not retain replay workspaces. Active consumers can occupy
+those shared workspaces and backpressure subsequent archival until consumption;
+this is explicit pool admission, without an unaccounted metadata-only proof cache.
+
+S3 receipt-lookup/enrollment/remote responses, explicit unarchived-byte/disk
 admission, physical shared-engine Raft file purge, fenced fresh-incarnation serving,
-RustFS/load and process-kill qualification remain required gates.
+load and process-kill qualification remain required gates. This local command
+boundary is not the complete CG-06 or public SDK/fleet cutover gate.
 
 ## Split and merge
 

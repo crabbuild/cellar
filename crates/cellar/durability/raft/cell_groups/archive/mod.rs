@@ -27,6 +27,7 @@ mod graph;
 mod objects;
 mod publication;
 pub use collection::{CellGroupArchiveCollectionLimits, CellGroupArchiveCollectionReport};
+pub(in crate::raft::cell_groups) use publication::CoverageUse;
 pub use publication::{CellGroupArchiveCoverage, PreparedCellGroupArchivePublication};
 mod upload;
 pub use upload::{
@@ -37,6 +38,7 @@ pub use ownership::{
     CellGroupArchiveCreation, CellGroupArchiveHold, CellGroupArchiveIntent,
     CellGroupArchiveRegistry, CellGroupArchiveUploadTicket, PreparedCellGroupArchiveCreation,
 };
+pub(in crate::raft::cell_groups) mod receipt;
 mod replay;
 mod tail;
 mod tail_admission;

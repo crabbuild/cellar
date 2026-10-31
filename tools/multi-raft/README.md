@@ -71,16 +71,20 @@ python3 tools/multi-raft/cell_groups.py \
 
 The runner verifies the backend's ownership label, image, running state, endpoint
 and actual resource limits, then makes seven signed S3 probes in a new bucket.
-It runs three exact ignored RustFS cases, each in materialized and extent modes:
+It runs six exact ignored RustFS cases, each in materialized and extent modes:
 stable publication with continuing quorum, uncertain-publication reconciliation
-with joined close, and refusal of unproved S3 responses. Catalog setup, archive
+with joined close, refusal of unproved S3 responses, positive local command S3
+settlement, deadline/cancellation isolation, and refusal when a sibling dependency
+is missing. Catalog setup, archive
 objects, conditional registry updates and independent recovery use the actual
 S3 client. Fault injection surrounds that client; lost publication responses are
 injected after the real conditional write commits. No memory fallback exists.
 
-The response case currently verifies that command, receipt and enrollment
-requests cannot claim S3 durability, including when required by the namespace.
-Successful S3 response settlement still needs operation-specific proofs. The
+The refusal case verifies that an unbound dispatcher cannot claim S3 durability,
+including a namespace minimum. The positive command cases use an explicit
+controller binding, exact receipts from later archived images, retained proof
+admission and fresh routing/leader checks. Receipt lookup, enrollment and remote
+S3 responses remain unqualified. The
 runner does not qualify local log file purge, fenced recovery or performance.
 The voters run as native host tasks, so this is not the container resource gate.
 

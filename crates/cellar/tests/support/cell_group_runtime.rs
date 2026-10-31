@@ -813,6 +813,8 @@ pub(super) use sql::{
     controller_apply_faults, controller_close, controller_owners, controller_replication,
 };
 pub(super) use sql::{owned_command_failure, owned_commands};
+#[allow(unused_imports)]
+pub(super) use sql::{s3_commands, s3_deadline, s3_missing_sibling};
 
 pub(super) async fn cell_receipts(rooted: bool) -> Result<()> {
     sql::cell_receipts(rooted).await

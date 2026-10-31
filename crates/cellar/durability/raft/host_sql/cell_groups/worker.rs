@@ -227,7 +227,7 @@ impl Cells {
                         Bytes::shrink(&mut bytes, retained)?;
                         Ok(CellSqlOutcome::Receipt(Box::new(CellSqlReceipt {
                             receipt: *receipt,
-                            _bytes: bytes,
+                            _retention: ReceiptRetention::Sql { _bytes: bytes },
                         })))
                     }
                     Err(error) => {
@@ -375,7 +375,9 @@ impl Cells {
                 pending.producer.close()?;
                 Ok(CellSqlOutcome::Receipt(Box::new(CellSqlReceipt {
                     receipt,
-                    _bytes: pending.prepared._bytes,
+                    _retention: ReceiptRetention::Sql {
+                        _bytes: pending.prepared._bytes,
+                    },
                 })))
             }
             Action::Reconcile(proposal, authority) => {
@@ -396,7 +398,9 @@ impl Cells {
                     CellReconciliation::Committed(receipt) => {
                         CellSqlReconciliation::Committed(Box::new(CellSqlReceipt {
                             receipt: *receipt,
-                            _bytes: pending.prepared._bytes,
+                            _retention: ReceiptRetention::Sql {
+                                _bytes: pending.prepared._bytes,
+                            },
                         }))
                     }
                     CellReconciliation::NotCommitted => CellSqlReconciliation::NotCommitted,

@@ -4,6 +4,7 @@
 //! Admitted command ownership survives response cancellation and expiry.
 
 mod archive;
+pub(crate) use archive::settlement::{Client as S3Client, CommandProof as S3CommandProof};
 mod calls;
 pub use archive::{
     CellGroupArchiveCall, CellGroupArchiveControlError, CellGroupArchiveRegistration,
@@ -105,6 +106,10 @@ pub struct CellGroupControllerUsage {
     pub retained_preparations: usize,
     pub preparation_bytes: usize,
     pub provision_waiters: usize,
+    /// Independent archive-settlement admission, bounded by max_commands and
+    /// max_command_bytes. This lane cannot recursively consume command slots.
+    pub retained_s3: usize,
+    pub s3_bytes: usize,
 }
 
 struct Shared {
@@ -117,6 +122,7 @@ struct Shared {
     provisioning: Mutex<Option<Arc<provision::Config>>>,
     requests: tokio::sync::mpsc::Sender<requests::Request>,
     archives: Mutex<BTreeMap<cellar_logic::cell_group::GroupHistory, CellGroupArchiveStatus>>,
+    s3: Arc<crate::raft::budget::Budget>,
     active_apply: AtomicUsize,
     pending_apply: AtomicUsize,
     applied: AtomicU64,
@@ -242,6 +248,7 @@ impl CellGroupController {
             provisioning: Mutex::new(None),
             requests,
             archives: Mutex::new(BTreeMap::new()),
+            s3: commands::budget(limits),
             active_apply: AtomicUsize::new(0),
             pending_apply: AtomicUsize::new(0),
             applied: AtomicU64::new(0),
@@ -308,6 +315,7 @@ impl CellGroupController {
     pub fn usage(&self) -> CellGroupControllerUsage {
         let shared = &self.handle.0;
         let (command_bytes, retained_commands) = shared.commands.usage();
+        let (s3_bytes, retained_s3) = shared.s3.usage();
         let (preparation_bytes, retained_preparations, provision_waiters) = shared
             .provisioning
             .lock()
@@ -328,6 +336,8 @@ impl CellGroupController {
             quarantined_groups: shared.groups.quarantined(),
             command_bytes,
             retained_commands,
+            s3_bytes,
+            retained_s3,
             active_apply: shared.active_apply.load(Ordering::Acquire),
             pending_apply: shared.pending_apply.load(Ordering::Acquire),
             applied: shared.applied.load(Ordering::Relaxed),

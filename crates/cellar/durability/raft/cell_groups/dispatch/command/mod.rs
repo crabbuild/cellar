@@ -62,6 +62,7 @@ pub enum CellCommandSettlement {
 pub struct CellCommandResponse {
     receipt: Box<CellSqlReceipt>,
     token: CellVersionToken,
+    s3: Option<super::super::controller::S3CommandProof>,
 }
 
 impl CellCommandResponse {
@@ -74,7 +75,11 @@ impl CellCommandResponse {
     }
 
     pub fn durability(&self) -> Durability {
-        Durability::Quorum
+        if self.s3.is_some() {
+            Durability::S3
+        } else {
+            Durability::Quorum
+        }
     }
 }
 
@@ -131,11 +136,10 @@ impl CellGroupDispatcher {
             cause: Box::new(cause),
         };
         let started = self.domain.mono_ms().map_err(|_| error(closed()))?;
-        // Shared-group archival coverage is not integrated yet. Never silently
-        // lower either the request or the immutable namespace minimum.
-        if request.durability != Durability::Quorum
-            || self.directory.namespace_config().minimum_durability != Durability::Quorum
-        {
+        request.durability = request
+            .durability
+            .max(self.directory.namespace_config().minimum_durability);
+        if request.durability == Durability::S3 && self.s3.is_none() {
             return Err(error(CellDispatchError::Execution(
                 ExecutionError::Refused(CommandFailure::UnsupportedCapability),
             )));
@@ -361,6 +365,18 @@ impl CellCommandInvocation {
         if authority.route() != attempt.route() {
             return Err(CellDispatchError::Invalid("destination route binding"));
         }
+        if self.request.durability == Durability::S3 {
+            self.dispatcher
+                .s3
+                .as_ref()
+                .ok_or(CellDispatchError::Invalid("S3 command owner"))?
+                .require_runtime(runtime)?;
+            self.dispatcher
+                .s3
+                .as_ref()
+                .ok_or(CellDispatchError::Invalid("S3 command owner"))?
+                .require_group(attempt.route())?;
+        }
         let (proposal, preview) = self
             .dispatcher
             .domain
@@ -433,7 +449,6 @@ impl CellCommandInvocation {
             }
             CellSqlOutcome::Receipt(receipt) => {
                 let response = self.response(receipt).await?;
-                self.origin = None;
                 Ok(CellCommandPreparation::Committed(response))
             }
             _ => Err(CellDispatchError::Invalid("command preparation response")),
@@ -597,7 +612,6 @@ impl CellCommandInvocation {
         match origin.sql.reconcile(origin.proposal, authority).await {
             Ok(CellSqlReconciliation::Committed(receipt)) => {
                 let response = self.response(receipt).await?;
-                self.origin = None;
                 Ok(CellCommandSettlement::Committed(response))
             }
             Ok(CellSqlReconciliation::NotCommitted) => {
@@ -628,19 +642,68 @@ impl CellCommandInvocation {
     }
 
     async fn response(
-        &self,
+        &mut self,
         receipt: Box<CellSqlReceipt>,
     ) -> Result<CellCommandResponse, CellDispatchError> {
         if receipt.receipt().receipt.command() != self.request.id
+            || receipt.receipt().receipt.operation != self.request.contract.operation
+            || receipt.receipt().receipt.contract_digest != self.request.contract.digest
+            || receipt.receipt().receipt.request_digest
+                != command_request_digest(&self.request.input)
             || receipt.receipt().version.history != self.cell
         {
             return Err(CellDispatchError::Invalid("command receipt binding"));
         }
-        if receipt.receipt().receipt.minimum_durability() != Durability::Quorum {
-            return Err(CellDispatchError::Execution(ExecutionError::Refused(
-                CommandFailure::UnsupportedCapability,
-            )));
-        }
+        // SQL has resolved the producer. Archive delay, failure or cancellation
+        // must not retain an unresolved origin or quarantine this healthy group.
+        let mut origin = self
+            .origin
+            .take()
+            .ok_or(CellDispatchError::Invalid("resolved command origin"))?;
+        let required = self
+            .request
+            .durability
+            .max(receipt.receipt().receipt.minimum_durability());
+        let (receipt, s3, authority) = if required == Durability::S3 {
+            let owner = self
+                .dispatcher
+                .s3
+                .as_ref()
+                .ok_or(CellDispatchError::Execution(ExecutionError::Refused(
+                    CommandFailure::UnsupportedCapability,
+                )))?;
+            let limits = match &origin.options {
+                CellSqlOptions::Materialized(o) => o.limits,
+                CellSqlOptions::Extents(o) => o.limits,
+            };
+            // The worker has closed this producer. Its preparation must not
+            // keep a duplicate SQL admission lease during the archive wait.
+            origin.prepared = None;
+            let settled = owner
+                .command(
+                    &origin.runtime,
+                    origin.route.clone(),
+                    receipt,
+                    limits,
+                    self.session.deadline_ms(),
+                )
+                .await?;
+            // Archive coverage is historical data durability. Current catalog and
+            // leader authority remain independent requirements for this output.
+            let authority = origin
+                .runtime
+                .execution_authority(origin.route.history, self.cell.clone())
+                .await
+                .map_err(CellDispatchError::Runtime)?;
+            if authority.route() != &origin.route {
+                return Err(CellDispatchError::Invalid("S3 response current route"));
+            }
+            settled.proof.require_current().await?;
+            authority.check().map_err(CellDispatchError::Runtime)?;
+            (settled.receipt, Some(settled.proof), Some(authority))
+        } else {
+            (receipt, None, None)
+        };
         let now = self
             .dispatcher
             .domain
@@ -656,7 +719,10 @@ impl CellCommandInvocation {
                 now,
             )
             .map_err(CellDispatchError::Version)?;
-        Ok(CellCommandResponse { receipt, token })
+        if let Some(authority) = authority {
+            authority.check().map_err(CellDispatchError::Runtime)?;
+        }
+        Ok(CellCommandResponse { receipt, token, s3 })
     }
 }
 
@@ -675,7 +741,10 @@ fn fingerprint(
     hash.update(request.contract.operation.as_bytes());
     hash.update(request.contract.digest);
     hash.update(command_request_digest(&request.input));
-    hash.update([1]); // Quorum is the only supported request/minimum until CG-06.
+    hash.update([match request.durability {
+        Durability::Quorum => 1,
+        Durability::S3 => 2,
+    }]);
     hash.update(request.retry_until_ms.to_be_bytes());
     hash.update(inputs.now_unix_millis.to_be_bytes());
     hash.update(inputs.random);

@@ -64,6 +64,7 @@ pub enum CellDispatchError {
     Execution(ExecutionError),
     Version(VersionError),
     Transport(crate::raft::transport::TransportError),
+    Archive(Arc<CellGroupArchiveControlError>),
 }
 
 impl fmt::Display for CellDispatchError {
@@ -85,6 +86,7 @@ pub struct CellGroupDispatcher {
     limits: CellDispatchLimits,
     budget: Arc<Budget>,
     routes: Arc<crate::raft::catalog::RouteCache>,
+    s3: Option<super::controller::S3Client>,
 }
 
 impl CellGroupDispatcher {
@@ -141,7 +143,20 @@ impl CellGroupDispatcher {
             domain,
             limits,
             budget: Budget::new(limits.retained_bytes, limits.max_invocations),
+            s3: None,
         })
+    }
+
+    /// Bind local command S3 settlement to this node's bounded archive owner.
+    /// The destination group must already have an archive registration. Receipt
+    /// lookup, enrollment and remote response settlement have separate gates.
+    pub fn with_s3(mut self, controller: &CellGroupController) -> Result<Self, CellDispatchError> {
+        self.s3 = Some(
+            controller
+                .s3_client(&self.domain)
+                .map_err(CellDispatchError::Runtime)?,
+        );
+        Ok(self)
     }
 
     /// Retained namespace range hints, never per-cell execution or authority.

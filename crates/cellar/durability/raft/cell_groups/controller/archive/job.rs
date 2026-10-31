@@ -9,6 +9,7 @@ use journal::{Journal, Pending, Record};
 pub(super) struct Context {
     pub journal: Arc<Journal>,
     pub registry: CellGroupArchiveRegistry,
+    pub uses: Arc<Mutex<Vec<crate::raft::cell_groups::archive::CoverageUse>>>,
 }
 
 pub(super) async fn open(
@@ -56,6 +57,7 @@ pub(super) async fn open(
     Ok(Context {
         journal: Arc::new(journal),
         registry,
+        uses: Arc::new(Mutex::new(Vec::new())),
     })
 }
 
@@ -96,7 +98,7 @@ async fn select(
     execution: &ControllerExecution,
     record: &mut Record,
     coverage: CellGroupArchiveCoverage,
-) -> Result<GroupManifest> {
+) -> Result<CellGroupArchiveCoverage> {
     let head = coverage.hold().clone();
     if record.retire.is_some() {
         return Err(Error::Invalid("unfinished archive hold retirement"));
@@ -104,12 +106,8 @@ async fn select(
     record.retire = record.head.replace(head);
     record.pending = Pending::None;
     store(context, execution, record).await?;
-    // No raw root escapes this proof's admission. The journal keeps the remote
-    // hold; future S3 outputs must obtain their own physical verification proof.
-    let marker = coverage.marker().clone();
-    drop(coverage);
     retire(context, execution, record).await?;
-    Ok(marker)
+    Ok(coverage)
 }
 
 async fn retire(
@@ -118,6 +116,17 @@ async fn retire(
     record: &mut Record,
 ) -> Result<()> {
     if let Some(previous) = &record.retire {
+        let retained = {
+            let mut uses = context
+                .uses
+                .lock()
+                .map_err(|_| Error::Invalid("archive use lock"))?;
+            uses.retain(|usage| usage.live());
+            uses.iter().any(|usage| usage.retains(previous))
+        };
+        if retained {
+            return Err(CellGroupArchiveError::Busy.into());
+        }
         context.registry.release(execution, previous).await?;
         record.retire = None;
         store(context, execution, record).await?;
@@ -130,7 +139,7 @@ pub(super) async fn drive(
     registration: &CellGroupArchiveRegistration,
     runtime: &CellGroupRuntime,
     execution: &ControllerExecution,
-) -> Result<GroupManifest> {
+) -> Result<CellGroupArchiveCoverage> {
     registration
         .directory
         .require_current_group_birth(&registration.birth)
@@ -190,7 +199,7 @@ pub(super) async fn drive(
                         receiver(registration)?,
                     )
                     .await?;
-                return Ok(coverage.marker().clone());
+                return Ok(coverage);
             }
         }
         let intent = context.registry.prepare_upload(execution).await?;

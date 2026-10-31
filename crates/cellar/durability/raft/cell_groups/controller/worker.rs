@@ -199,6 +199,7 @@ impl Worker {
                 Some(request) = self.requests.recv() => {
                     match request {
                         requests::Request::Archive(request) => self.archives.request(*request, &self.shared),
+                        requests::Request::S3(request) => self.archives.settle(*request),
                         requests::Request::Provision(request) => self.provisioning.request(*request, &self.shared),
                         requests::Request::Registration(request) => {
                             let group = request.registration.applier.history();

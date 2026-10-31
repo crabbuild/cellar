@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-"""Qualify shared-group archive setup and response refusals against local RustFS.
+"""Qualify shared-group archive setup and local command responses against local RustFS.
 
 Uses only the recorded owned backend. Each invocation owns a new evidence
 directory and remote prefix. Credentials are passed through the child environment,
-never arguments or evidence. This does not qualify successful S3 acknowledgements.
+never arguments or evidence. Positive command acknowledgements require the explicit controller binding.
 """
 
 import argparse
@@ -28,6 +28,9 @@ CASES = (
     "rustfs_controller_archive_publishes_stable_cuts",
     "rustfs_controller_archive_reconciles_exact_intent_and_joins_close",
     "rustfs_unproved_s3_responses_refuse",
+    "rustfs_s3_commands_require_exact_archived_results",
+    "rustfs_s3_command_deadlines_do_not_quarantine_committed_sql",
+    "rustfs_s3_command_requires_the_sibling_archive_dependencies",
 )
 
 
@@ -102,11 +105,11 @@ def main():
     out.mkdir(mode=0o700, parents=True, exist_ok=False)
     prefix = "cell-groups/" + secrets.token_hex(16)
     record = {
-        "format": 1, "status": "RUNNING", "scope": "shared-group RustFS archive/setup and unproved-S3 refusal",
+        "format": 1, "status": "RUNNING", "scope": "shared-group RustFS archive/setup and local command S3 settlement",
         "source_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "source_inputs": sources(), "backend": remote, "prefix": prefix, "commands": [],
         "limitations": "Host-native three-voter TLS fixture, both image forms; RustFS runs in one local VM. "
-                        "No successful S3 command/receipt/enrollment acknowledgements, byte/disk outage bound, "
+                        "No S3 receipt-lookup/enrollment or remote command acknowledgements, byte/disk outage bound, "
                         "Raft log file purge, process-kill restart, fencing/DR, performance or independent hosts.",
     }
 
@@ -137,7 +140,7 @@ def main():
         cargo = ["cargo", "+1.98.1", "test", "-p", "cellar", "--locked", "--test", TARGET, "--"]
         for number, selection in enumerate(("--list", *CASES)):
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
-            print(f"START {number + 1}/4: {selection}", flush=True)
+            print(f"START {number + 1}/{len(CASES) + 1}: {selection}", flush=True)
             started = time.monotonic()
             result = subprocess.run(argv, cwd=ROOT, env=env, text=True,
                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
