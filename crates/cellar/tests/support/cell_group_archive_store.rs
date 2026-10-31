@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Instrument the actual in-memory object-store adapter, without replacing its
+//! Instrument the selected object-store adapter, without replacing its
 //! conditional-create semantics, bytes or physical checkpoint verification.
 use futures_util::stream::BoxStream;
 use object_store::{path::Path, *};
@@ -18,7 +18,7 @@ pub struct Gate {
 
 #[derive(Debug)]
 pub struct Store {
-    pub inner: Arc<memory::InMemory>,
+    pub inner: Arc<dyn ObjectStore>,
     pub puts: AtomicUsize,
     pub lose_put_response: AtomicBool,
     pub deletes: AtomicUsize,
@@ -36,7 +36,7 @@ impl Store {
         Self::around(Arc::new(memory::InMemory::new()))
     }
 
-    pub fn around(inner: Arc<memory::InMemory>) -> Arc<Self> {
+    pub fn around(inner: Arc<dyn ObjectStore>) -> Arc<Self> {
         Arc::new(Self {
             inner,
             puts: AtomicUsize::new(0),

@@ -177,6 +177,31 @@ pub(super) async fn setup_in(
         class.schema_digest(),
     )
     .await?;
+    setup_cluster(rooted, cluster, filesystem).await
+}
+
+pub(super) async fn setup_store(
+    rooted: bool,
+    class: &RaftClass,
+    store: Arc<dyn object_store::ObjectStore>,
+) -> Result<(RuntimeCluster, GroupRoute, CellHistory, CellHistory)> {
+    let filesystem = Arc::new(DirectFileSystem);
+    let cluster = Cluster::with_store(
+        RaftRuntimeOptions::default(),
+        tempfile::tempdir()?,
+        filesystem.clone(),
+        class.schema_digest(),
+        store,
+    )
+    .await?;
+    setup_cluster(rooted, cluster, filesystem).await
+}
+
+async fn setup_cluster(
+    rooted: bool,
+    cluster: Cluster,
+    filesystem: Arc<dyn cellar_ltx::FileSystem>,
+) -> Result<(RuntimeCluster, GroupRoute, CellHistory, CellHistory)> {
     let mut fixture = Box::pin(RuntimeCluster::from_cluster(cluster, 256, 256, 1_000_000)).await?;
     let route = fixture.cluster.birth.route().clone();
     if rooted {

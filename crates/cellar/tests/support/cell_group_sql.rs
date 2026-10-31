@@ -529,10 +529,18 @@ pub(crate) use command_dispatch::commands as routed_commands;
 #[path = "cell_group_controller_archive.rs"]
 #[allow(dead_code, unused_imports)]
 mod archive_controller;
+#[path = "cell_group_s3_response.rs"]
+mod s3_response;
+#[allow(unused_imports)]
+pub(crate) use s3_response::unproved_s3_responses;
 #[path = "cell_group_controller.rs"]
 mod controller;
 #[allow(unused_imports)]
 pub(crate) use archive_controller::{archive_controller_publish, archive_controller_reconcile};
+#[allow(unused_imports)]
+pub(crate) use archive_controller::{
+    archive_controller_publish_store, archive_controller_reconcile_store,
+};
 #[path = "cell_group_controller_commands.rs"]
 mod controller_commands;
 pub(crate) use controller::{

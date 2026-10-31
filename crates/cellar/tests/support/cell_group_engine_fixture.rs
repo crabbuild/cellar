@@ -33,7 +33,7 @@ struct Cluster {
     _root: tempfile::TempDir,
     domain: ExecutionDomain,
     directory: RangeDirectory,
-    store: Arc<object_store::memory::InMemory>,
+    store: Arc<dyn object_store::ObjectStore>,
     birth: CellGroupBirth,
     voters: Vec<Voter>,
     network: VecDeque<Message>,
@@ -72,6 +72,23 @@ impl Cluster {
         filesystem: Arc<dyn cellar_ltx::FileSystem>,
         schema: [u8; 32],
     ) -> Result<Self> {
+        Self::with_store(
+            options,
+            root,
+            filesystem,
+            schema,
+            Arc::new(object_store::memory::InMemory::new()),
+        )
+        .await
+    }
+
+    async fn with_store(
+        options: RaftRuntimeOptions,
+        root: tempfile::TempDir,
+        filesystem: Arc<dyn cellar_ltx::FileSystem>,
+        schema: [u8; 32],
+        store: Arc<dyn object_store::ObjectStore>,
+    ) -> Result<Self> {
         let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         let history = GroupHistory {
             cluster: ClusterId::new([1; 16])?,
@@ -79,7 +96,6 @@ impl Cluster {
             group: GroupId::new([3; 16])?,
             incarnation: IncarnationId::new([4; 16])?,
         };
-        let store = Arc::new(object_store::memory::InMemory::new());
         let catalog = Catalog::new(store.clone(), CatalogOptions::default())?;
         let namespace = domain
             .run(catalog.open_namespace(NamespaceConfig::new(

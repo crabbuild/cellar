@@ -185,8 +185,15 @@ async fn add(
 }
 
 async fn setup(rooted: bool) -> Result<(RuntimeCluster, GroupRoute)> {
+    setup_store(rooted, Arc::new(object_store::memory::InMemory::new())).await
+}
+
+async fn setup_store(
+    rooted: bool,
+    store: Arc<dyn ObjectStore>,
+) -> Result<(RuntimeCluster, GroupRoute)> {
     let class = RaftClass::new("Counter", 1, [81; 32])?;
-    let (fixture, route, _, _) = Box::pin(registered::setup(rooted, &class)).await?;
+    let (fixture, route, _, _) = Box::pin(registered::setup_store(rooted, &class, store)).await?;
     Ok((fixture, route))
 }
 
@@ -280,18 +287,32 @@ async fn audit(
 
 pub(crate) async fn archive_controller_publish(rooted: bool) -> Result<()> {
     let (mut fixture, route) = setup(rooted).await?;
-    let (config, remote) = registration(&fixture, &route, rooted).await?;
+    publish(&mut fixture, &route, rooted).await?;
+    fixture.close().await
+}
+
+pub(crate) async fn archive_controller_publish_store(
+    rooted: bool,
+    store: Arc<dyn ObjectStore>,
+) -> Result<()> {
+    let (mut fixture, route) = setup_store(rooted, store).await?;
+    publish(&mut fixture, &route, rooted).await?;
+    fixture.close().await
+}
+
+async fn publish(fixture: &mut RuntimeCluster, route: &GroupRoute, rooted: bool) -> Result<()> {
+    let (config, remote) = registration(fixture, route, rooted).await?;
     let initial = fixture.runtimes[0]
         .status(route.history)
         .await?
         .applied
         .index;
     let gate = remote.hold_publication();
-    let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
+    let controllers = controller::start_with_limits(fixture, controller::limits()).await?;
     let call = controllers[0].archive(config.clone())?;
     tokio::time::timeout(Duration::from_secs(10), gate.entered.notified()).await?;
     // A held archive publication does not stop real quorum/apply progress.
-    let later = add(&fixture, &route, rooted, 1).await?;
+    let later = add(fixture, route, rooted, 1).await?;
     assert!(later > initial);
     assert!(controllers[0]
         .archive_status(route.history)?
@@ -315,14 +336,28 @@ pub(crate) async fn archive_controller_publish(rooted: bool) -> Result<()> {
             .unwrap()
             .stopped
     );
-    audit(&fixture, &config, rooted, 1).await?;
+    audit(fixture, &config, rooted, 1).await?;
     drop(config);
-    fixture.close().await
+    Ok(())
 }
 
 pub(crate) async fn archive_controller_reconcile(rooted: bool) -> Result<()> {
     let (mut fixture, route) = setup(rooted).await?;
-    let (config, remote) = registration(&fixture, &route, rooted).await?;
+    reconcile(&mut fixture, &route, rooted).await?;
+    fixture.close().await
+}
+
+pub(crate) async fn archive_controller_reconcile_store(
+    rooted: bool,
+    store: Arc<dyn ObjectStore>,
+) -> Result<()> {
+    let (mut fixture, route) = setup_store(rooted, store).await?;
+    reconcile(&mut fixture, &route, rooted).await?;
+    fixture.close().await
+}
+
+async fn reconcile(fixture: &mut RuntimeCluster, route: &GroupRoute, rooted: bool) -> Result<()> {
+    let (config, remote) = registration(fixture, route, rooted).await?;
     let initial = fixture.runtimes[0]
         .status(route.history)
         .await?
@@ -331,13 +366,13 @@ pub(crate) async fn archive_controller_reconcile(rooted: bool) -> Result<()> {
     remote
         .lose_publication_and_reads
         .store(true, Ordering::Release);
-    let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
+    let controllers = controller::start_with_limits(fixture, controller::limits()).await?;
     // Cancelling a registration response does not cancel its admitted owner.
     drop(controllers[0].archive(config.clone())?);
     controller::wait_for(async || Ok(remote.outage.load(Ordering::Acquire))).await?;
     let mut latest = initial;
     for n in 1..=4 {
-        latest = add(&fixture, &route, rooted, n).await?;
+        latest = add(fixture, route, rooted, n).await?;
     }
     let status = controllers[0].archive_status(route.history)?.unwrap();
     assert!(status.published.is_none());
@@ -371,7 +406,7 @@ pub(crate) async fn archive_controller_reconcile(rooted: bool) -> Result<()> {
     for controller in controllers.iter().skip(1) {
         controller.close().await?;
     }
-    audit(&fixture, &config, rooted, 4).await?;
+    audit(fixture, &config, rooted, 4).await?;
     let objects = remote.list(None).try_collect::<Vec<_>>().await?;
     let key = objects
         .iter()
@@ -381,5 +416,5 @@ pub(crate) async fn archive_controller_reconcile(rooted: bool) -> Result<()> {
     let registry: serde_json::Value = serde_json::from_slice(&bytes)?;
     assert_eq!(registry["holds"].as_array().context("holds")?.len(), 1);
     drop(config);
-    fixture.close().await
+    Ok(())
 }

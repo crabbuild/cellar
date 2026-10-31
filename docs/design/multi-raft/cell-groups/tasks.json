@@ -1758,7 +1758,10 @@
         "crates/cellar/durability/raft/cell_groups/controller/archive/journal.rs",
         "crates/cellar/durability/raft/cell_groups/controller/archive/journal_tests.rs",
         "crates/cellar/tests/native_cell_groups_archive_controller.rs",
-        "crates/cellar/tests/support/cell_group_controller_archive.rs"
+        "crates/cellar/tests/support/cell_group_controller_archive.rs",
+        "crates/cellar/tests/support/cell_group_rustfs.rs",
+        "crates/cellar/tests/support/cell_group_s3_response.rs",
+        "tools/multi-raft/cell_groups.py"
       ],
       "test_target": "native_cell_groups_archive",
       "steps": [
