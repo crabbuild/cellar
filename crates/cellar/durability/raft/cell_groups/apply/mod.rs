@@ -138,7 +138,11 @@ impl CellGroupApplier {
         if !Arc::ptr_eq(&self.group.owner, &work.base.engine_owner)
             || work.base.marker().route().history != self.history()
             || work.ticket.position() != entry_position(&work.entry)
-            || work.entry.get_entry_type() != ::raft::prelude::EntryType::EntryNormal
+            || !matches!(
+                work.entry.get_entry_type(),
+                ::raft::prelude::EntryType::EntryNormal
+                    | ::raft::prelude::EntryType::EntryConfChangeV2
+            )
         {
             return Err(ExecutionError::Invalid("group apply identity/entry"));
         }
@@ -178,9 +182,21 @@ impl CellGroupApplier {
             max_effect_rows,
         } = &mut *owner;
         // Check page owner and contiguous prefix before any image allocation/I/O.
-        let unchanged = tree
+        let mut unchanged = tree
             .prepare_unchanged(pages, &work.base, work.ticket.position())
             .map_err(storage)?;
+        if work.entry.get_entry_type() == ::raft::prelude::EntryType::EntryConfChangeV2 {
+            let cache = self.group.read().map_err(storage)?;
+            super::membership::transition(
+                &work.entry,
+                tree.route(),
+                &cache.conf_state,
+                &cache.membership,
+            )
+            .map_err(storage)?;
+            unchanged.marker.membership_revision = work.entry.index;
+            return Ok(unchanged);
+        }
         if work.entry.data.is_empty() {
             return Ok(unchanged);
         }

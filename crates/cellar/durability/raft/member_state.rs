@@ -298,6 +298,22 @@ impl GroupMembership {
         Ok(intent)
     }
 
+    pub(crate) fn admit_group(
+        &self,
+        change: &ConfChangeV2,
+        conf: &ConfState,
+    ) -> Result<(), LogError> {
+        let intent = self.intent(change)?;
+        if self.fleet.is_some()
+            || self.repair.is_some()
+            || intent.fleet.is_some()
+            || intent.repair.is_some()
+        {
+            return Err(invalid());
+        }
+        self.admit(change, conf)
+    }
+
     pub(crate) fn admit(&self, change: &ConfChangeV2, conf: &ConfState) -> Result<(), LogError> {
         if change.changes.len() > MAX_MEMBERS {
             return Err(LogError::Overloaded);

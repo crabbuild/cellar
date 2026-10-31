@@ -287,7 +287,16 @@ impl CellGroupOwner {
     }
 
     fn refresh_execution_fence(&mut self) {
-        let term = if self.node.raft.state == StateRole::Leader {
+        let term = if self.node.raft.state == StateRole::Leader
+            && self.node.raft.lead_transferee.is_none()
+            && self
+                .node
+                .raft
+                .prs()
+                .conf()
+                .voters()
+                .contains(self.node.raft.id)
+        {
             self.node.raft.term
         } else {
             0
@@ -412,6 +421,14 @@ impl CellGroupOwner {
             applied: self.current.marker().position(),
             committed: LogIndex::new(cache.hard_state.commit),
             ready: self.node.raft.state == StateRole::Leader
+                && self.node.raft.lead_transferee.is_none()
+                && self
+                    .node
+                    .raft
+                    .prs()
+                    .conf()
+                    .voters()
+                    .contains(self.node.raft.id)
                 && self.phase.is_none()
                 && self.checkpoint.is_none()
                 && self.apply_bytes < self.options.max_group_apply_bytes
@@ -429,6 +446,40 @@ impl CellGroupOwner {
         let result = self.node.campaign();
         self.refresh_execution_fence();
         result?;
+        Ok(())
+    }
+
+    /// Admit a handoff to a caught-up incoming voter. Completion is observed
+    /// through leadership status; admission alone cannot prove an election.
+    pub fn transfer_leader(&mut self, member: u64) -> Result<(), RuntimeError> {
+        self.live()?;
+        if self.node.raft.state != StateRole::Leader {
+            return Err(RuntimeError::NotLeader);
+        }
+        let status = self.status()?;
+        let cache = self.group.read()?;
+        if member == self.node.raft.id || !cache.conf_state.voters.contains(&member) {
+            return Err(RuntimeError::Invalid(
+                "leadership target is not another incoming voter".into(),
+            ));
+        }
+        if !status.ready
+            || status.applied.index != status.committed
+            || !self.apply.is_empty()
+            || self.applying.is_some()
+            || self.node.raft.pending_conf_index > self.node.raft.raft_log.applied
+            || self
+                .node
+                .raft
+                .prs()
+                .get(member)
+                .is_none_or(|p| p.matched < self.node.raft.raft_log.last_index())
+        {
+            return Err(RuntimeError::NotReady);
+        }
+        drop(cache);
+        self.node.transfer_leader(member);
+        self.refresh_execution_fence();
         Ok(())
     }
 
@@ -620,6 +671,101 @@ impl CellGroupOwner {
         self.refresh_execution_fence();
         result?;
         Ok(())
+    }
+
+    /// Propose a route/revision-bound whole-group configuration. The returned
+    /// position is admission only; the persisted applied root proves completion.
+    pub fn configure(
+        &mut self,
+        change: super::CellGroupMembershipChange,
+    ) -> Result<CellGroupProposal, RuntimeError> {
+        self.live()?;
+        if self.node.raft.state != StateRole::Leader {
+            return Err(RuntimeError::NotLeader);
+        }
+        if !self.status()?.ready
+            || !self.apply.is_empty()
+            || self.applying.is_some()
+            || self.node.raft.pending_conf_index > self.node.raft.raft_log.applied
+        {
+            return Err(RuntimeError::NotReady);
+        }
+        let before = self.node.raft.raft_log.last_index();
+        let entry = Entry {
+            entry_type: EntryType::EntryConfChangeV2,
+            index: before + 1,
+            term: self.node.raft.term,
+            data: change
+                .change
+                .write_to_bytes()
+                .map_err(|e| RuntimeError::Invalid(e.to_string()))?
+                .into(),
+            ..Default::default()
+        };
+        if entry.data.len() > self.options.max_proposal_bytes {
+            return Err(RuntimeError::Overloaded);
+        }
+        let cache = self.group.read()?;
+        let next = super::membership::transition(
+            &entry,
+            self.current.marker().route(),
+            &cache.conf_state,
+            &cache.membership,
+        )?;
+        if crate::raft::member_state::members(&next.conf).len() > self.options.max_members_per_group
+        {
+            return Err(RuntimeError::Overloaded);
+        }
+        for item in &change.change.changes {
+            if item.get_change_type() == ConfChangeType::AddNode
+                && !cache.conf_state.voters.contains(&item.node_id)
+                && self
+                    .node
+                    .raft
+                    .prs()
+                    .get(item.node_id)
+                    .is_none_or(|p| p.matched < cache.hard_state.commit)
+            {
+                return Err(RuntimeError::NotReady);
+            }
+        }
+        drop(cache);
+        let expected = entry.data.clone();
+        if let Err(error) = self.node.propose_conf_change(Vec::new(), change.change) {
+            let error = RuntimeError::from(error);
+            if self.node.raft.raft_log.last_index() != before {
+                self.failed = Some(error.clone());
+                self.revoke_execution();
+            }
+            return Err(error);
+        }
+        let result = (|| {
+            let observed = self
+                .node
+                .raft
+                .raft_log
+                .unstable_entries()
+                .last()
+                .ok_or_else(|| RuntimeError::Protocol("missing configuration proposal".into()))?;
+            if observed.index != before + 1
+                || observed.get_entry_type() != EntryType::EntryConfChangeV2
+                || observed.data != expected
+            {
+                return Err(RuntimeError::Protocol(
+                    "configuration proposal changed".into(),
+                ));
+            }
+            Ok(CellGroupProposal {
+                group: self.group.identity().scope,
+                position: entry_position(observed),
+                digest: entry_digest(observed)?,
+            })
+        })();
+        if let Err(error) = &result {
+            self.failed = Some(error.clone());
+            self.revoke_execution();
+        }
+        result
     }
 
     /// Protocol admission only. The shared cell executor must serialize each
@@ -1114,13 +1260,42 @@ impl CellGroupOwner {
                     if !submitted {
                         let mut write = GroupWrite::new(&self.group);
                         write.group_manifest = Some((*next).clone());
+                        let entry = self.apply.front().ok_or(RuntimeError::StaleCompletion)?;
+                        if entry.get_entry_type() == EntryType::EntryConfChangeV2 {
+                            let cache = self.group.read()?;
+                            let transition = super::membership::transition(
+                                entry,
+                                self.current.marker().route(),
+                                &cache.conf_state,
+                                &cache.membership,
+                            )?;
+                            write.conf_state = Some(transition.conf);
+                            write.membership = Some(transition.membership);
+                        }
                         self.phase = Some(Phase::Apply(ticket, next, true));
                         return self.persistence(write).map(Some);
                     }
                     if self.group.group_manifest()?.as_ref() != Some(next.marker()) {
                         return Err(RuntimeError::StaleCompletion);
                     }
+                    let entry = self.apply.front().ok_or(RuntimeError::StaleCompletion)?;
+                    if entry.get_entry_type() == EntryType::EntryConfChangeV2 {
+                        let change =
+                            super::membership::decode(entry, self.current.marker().route())?;
+                        let conf = self.node.apply_conf_change(&change)?;
+                        if conf != self.group.initial_state()?.conf_state {
+                            return Err(RuntimeError::StaleCompletion);
+                        }
+                        self.refresh_execution_fence();
+                    }
+                    let last = self.node.raft.raft_log.last_index();
                     self.node.advance_apply_to(ticket.position.index.get());
+                    if self.node.raft.raft_log.last_index() > last {
+                        // Raft appended an automatic joint-leave entry. Drive
+                        // replication without waiting for a later write/tick;
+                        // Ready still fences messages behind its log sync.
+                        self.node.raft.bcast_append();
+                    }
                     let entry = self
                         .apply
                         .pop_front()
@@ -1235,7 +1410,25 @@ impl CellGroupOwner {
         next: &PreparedGroupManifest,
     ) -> Result<(), RuntimeError> {
         let invalid = || RuntimeError::Invalid("group apply does not match committed entry".into());
-        if entry.get_entry_type() != EntryType::EntryNormal {
+        if entry.get_entry_type() == EntryType::EntryConfChangeV2 {
+            let cache = self.group.read()?;
+            super::membership::transition(
+                entry,
+                self.current.marker().route(),
+                &cache.conf_state,
+                &cache.membership,
+            )?;
+            return if next.marker().root() == self.current.marker().root()
+                && next.marker().membership_revision() == entry.index
+            {
+                Ok(())
+            } else {
+                Err(invalid())
+            };
+        }
+        if entry.get_entry_type() != EntryType::EntryNormal
+            || next.marker().membership_revision() != self.current.marker().membership_revision()
+        {
             return Err(invalid());
         }
         if entry.data.is_empty() {
@@ -1361,10 +1554,16 @@ impl CellGroupOwner {
                         || entry.term == 0
                         || entry.term < term
                         || entry.term > message.term
-                        || entry.get_entry_type() != EntryType::EntryNormal
+                        || !matches!(
+                            entry.get_entry_type(),
+                            EntryType::EntryNormal | EntryType::EntryConfChangeV2
+                        )
                         || entry.data.len() > self.options.max_proposal_bytes
                     {
                         return Err(invalid());
+                    }
+                    if entry.get_entry_type() == EntryType::EntryConfChangeV2 {
+                        super::membership::decode(entry, self.current.marker().route())?;
                     }
                     term = entry.term;
                 }

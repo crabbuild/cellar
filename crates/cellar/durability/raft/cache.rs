@@ -808,6 +808,35 @@ impl CachedGroup {
             next.group_manifest = Some(marker.clone());
             next.manifest_pins = Some(prepared.images.clone());
         }
+        if let (Some(previous), Some(conf)) = (&self.group_manifest, &write.conf_state) {
+            let prepared = write.group_manifest.as_ref().ok_or_else(|| {
+                LogError::Invalid("group configuration lacks complete root".into())
+            })?;
+            let marker = prepared.marker();
+            let entry = self
+                .entries
+                .get(&marker.position().index.get())
+                .filter(|entry| entry.index <= self.hard_state.commit)
+                .ok_or_else(|| {
+                    LogError::Invalid("group configuration lacks committed entry".into())
+                })?;
+            let expected = super::cell_groups::membership::transition(
+                entry,
+                previous.route(),
+                &self.conf_state,
+                &self.membership,
+            )?;
+            if *conf != expected.conf
+                || write.membership.as_ref() != Some(&expected.membership)
+                || marker.root() != previous.root()
+                || marker.membership_revision() != entry.index
+                || marker.position().term.get() != entry.term
+            {
+                return Err(LogError::Invalid(
+                    "group configuration/root transition".into(),
+                ));
+            }
+        }
         if let Some(conf) = &write.conf_state {
             if next.applied.position.index <= self.applied.position.index
                 && conf != &self.conf_state

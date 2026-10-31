@@ -50,6 +50,8 @@ mod enrollment;
 mod enrollment_apply;
 mod image_pin;
 mod manifest;
+pub(crate) mod membership;
+pub use membership::CellGroupMembershipChange;
 mod owner;
 mod page_store;
 mod page_wire;

@@ -21,9 +21,11 @@ impl RaftTransport {
             .peers
             .iter()
             .find(|p| p.replica.member.get() == message.to)
-            .filter(|p| p.replica.node != local.node)
             .cloned()
-            .ok_or(TransportError::Identity)?;
+            .ok_or(TransportError::StalePeer)?;
+        if peer.replica.node == local.node {
+            return Err(TransportError::Identity);
+        }
         shared::permitted(&group, &[local, &peer.replica])?;
         let route = Route::new_group(
             local,

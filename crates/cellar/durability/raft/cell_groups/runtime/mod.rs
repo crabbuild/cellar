@@ -95,6 +95,8 @@ enum Command {
     Attach(Box<CellGroupOwner>),
     Quarantine,
     Campaign,
+    TransferLeader(u64),
+    Configure(CellGroupMembershipChange),
     Execution(cellar_logic::cell_group::CellHistory),
     Enrollment(cellar_logic::cell_group::CellHistory),
     EnrollmentState(cellar_logic::cell_group::CellHistory),
@@ -524,6 +526,32 @@ impl CellGroupRuntime {
             Response::EnrollmentState(state) => Ok(*state),
             _ => Err(RuntimeError::Protocol("enrollment state reply".into())),
         }
+    }
+
+    pub async fn configure(
+        &self,
+        history: GroupHistory,
+        change: CellGroupMembershipChange,
+    ) -> Result<CellGroupProposal, RuntimeError> {
+        let bytes = change.bytes();
+        match self
+            .call(Some(history), Command::Configure(change), bytes)
+            .await?
+        {
+            Response::Proposal(proposal) => Ok(proposal),
+            _ => Err(RuntimeError::Protocol("configuration reply".into())),
+        }
+    }
+
+    /// Admit whole-group leadership handoff; observe status for completion.
+    pub async fn transfer_leader(
+        &self,
+        history: GroupHistory,
+        member: u64,
+    ) -> Result<(), RuntimeError> {
+        self.call(Some(history), Command::TransferLeader(member), 4096)
+            .await
+            .map(|_| ())
     }
 
     pub async fn campaign(&self, history: GroupHistory) -> Result<(), RuntimeError> {

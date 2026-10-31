@@ -663,16 +663,20 @@ boundary. At the end of each turn, record the completed behavior, evidence and
 limits, then identify the most critical remaining gap and the concrete next step.
 Do not let plan maintenance replace implementation.
 
-1. Qualify CG-05 checkpoint scheduling and remaining transport pressure cuts.
-   Automatic entry-count selection now holds the successor ticket until exact
-   publication. Exercise continuous saturation fairness, exhausted apply/completion
-   budgets, held sync, cancelled close, quarantine capacity and retained-root
-   pressure. Keep unrelated-group progress and bounded ownership observable.
-   Add idle/time/byte triggers only with an explicit cut-reservation contract.
-   Keep stream admission separate from Raft's post-persistence acknowledgement.
-2. Finish CG-05 membership and recovery. Qualify the outstanding receiver fault
-   cuts and root-slot pressure, then whole-group learner catch-up, joint membership
-   and lost-disk replacement. Run every exact acceptance case before DONE.
+1. Finish CG-05 fresh learner seeding and lost-disk replacement. Bind a seed
+   capability to committed learner membership, permanent node/disk identity and
+   the complete verified checkpoint. Existing bootstrap permits admit only birth
+   members; do not weaken them to accept an untrusted metadata observation. Bring
+   up the new learner through production transport, install every cell, catch up,
+   promote through joint consensus and retire the old member. Prove replacement
+   after deleting that voter's disk, minority refusal and one-voter-loss tolerance.
+2. Complete CG-05 qualification while delivering those membership features.
+   Preserve all five exact acceptance cases. Add receiver crash/sync-error cuts,
+   continuous checkpoint saturation fairness, exhausted apply/completion budgets,
+   held sync/cancelled close, quarantine capacity and retained-root pressure.
+   Keep unrelated-group progress and bounded physical ownership observable.
+   Idle/time/byte checkpoint triggers require an explicit cut-reservation contract;
+   they must not displace fresh-member recovery as the next feature priority.
 3. Deliver CG-06 archive/reclamation with verified complete checkpoints and
    contiguous tails. Upload completion alone cannot authorize reclaiming local
    recovery dependencies or an S3 durability acknowledgement.
@@ -687,13 +691,14 @@ Do not let plan maintenance replace implementation.
    paths must not become permanent modes. Never derive cell sequence or witness
    from a group log position. Final qualification reruns all gates at one revision.
 
-Continue in `controller/checkpoints.rs` and the private `checkpoint_before_apply`
-completion path. The policy currently selects the predecessor at an apply boundary;
-manual `publish_checkpoint` still requires the exact idle current root. Preserve
-both contracts, independent engine validation, and the local suffix. Extend the
-existing controller and authenticated transport fixtures for pressure/failure cuts.
-Do not reuse receiver installation to publish a local leader checkpoint. Missing
-network responses remain ambiguous.
+Continue from `cell_groups/membership.rs`, the owner/runtime configuration path,
+`directory/bootstrap.rs` and the existing checkpoint receiver/installation path.
+Keep configuration, membership revision and complete root atomic. A captured
+metadata observation, transport admission reply or lost response cannot create
+new serving authority. Reuse permanent member claims and the node checkpoint pool
+for learner bootstrap; retain physical closure owners through cancellation and
+joined shutdown. Extend the production-controller membership fixture rather than
+manually manufacturing committed transitions.
 
 The opportunity is to reuse the existing shared consensus, SQL, read, apply and
 provisioning paths. Avoid adding per-cell workers or another serving mode while

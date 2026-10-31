@@ -247,7 +247,9 @@ impl RaftTransport {
             .peers
             .iter()
             .find(|p| p.replica.member.get() == message.to)
-            .ok_or(TransportError::Identity)?
+            // A committed learner can precede discovery of its process route.
+            // Treat that interval as unavailable delivery, not node corruption.
+            .ok_or(TransportError::StalePeer)?
             .clone();
         if peer.replica.node == local.node {
             return Err(TransportError::Identity);

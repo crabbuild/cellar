@@ -407,6 +407,12 @@ impl Worker {
                                     .owner
                                     .reconciliation_authority(&cell)
                                     .map(|authority| Response::Reconciliation(Box::new(authority))),
+                                Command::Configure(change) => {
+                                    group.owner.configure(change).map(Response::Proposal)
+                                }
+                                Command::TransferLeader(member) => {
+                                    group.owner.transfer_leader(member).map(|()| Response::Unit)
+                                }
                                 Command::Campaign => {
                                     group.owner.campaign().map(|()| Response::Unit)
                                 }

@@ -204,6 +204,44 @@ Request-driven provisioning/lazy birth and configuration lifecycle remain open.
 
 The current lane serializes RPC exchanges per peer; this is not load qualification.
 
+## Whole-group membership
+
+The shared owner accepts `CellGroupMembershipChange` through bounded runtime
+admission. Its marker-1 domain binds the complete route and the observed membership
+revision. Explicit changes use V2 entries; legacy V1 and unbound changes refuse.
+Decoding bounds wire bytes, repeated changes and context before protobuf allocation.
+New member IDs must exceed the permanent high-water mark and first enter as
+learners with node/disk bindings. A removed ID cannot be reused. Promotion requires
+the leader to observe that learner replicated through its durable committed cut.
+These checks do not provision a fresh learner or grant it serving authority.
+
+Configuration entries occupy the same ordered apply lane as cell mutations. Pure
+replay computes the next Raft configuration and membership without changing the
+live RawNode. The complete group root advances its applied position and membership
+revision while preserving every cell leaf and version. Engine persistence validates
+the committed entry and atomically syncs configuration, membership and root. Only
+the matching persistence completion changes live Raft progress and advances apply.
+Explicit and implicit joint changes are supported; Raft's context-free automatic
+leave is accepted only while the persisted configuration requests auto-leave.
+
+Admission returns a log position and digest, not a committed membership proof.
+After a lost reply, inspect committed membership instead of rebinding a new revision
+and blindly repeating the operation. A new binding may precede discovery of its
+physical process route; missing peer routes are retryable stale-peer failures.
+Authentication and active membership still gate transport admission.
+
+`transfer_leader` admits a handoff only to another caught-up incoming voter after
+local committed apply settles. It revokes captured producer authority during the
+handoff; observe the new leader's current-term readiness for completion. Removed
+or demoted leaders lose producer and leader-bound read authority at synced cache
+publication, even before the owner consumes its completion. Membership alone never
+allows a learner to produce writes.
+
+Fresh learner seeding, initial-member replacement, lost-disk rebuild and managed
+fleet orchestration remain required CG-05 work. Existing bootstrap permits still
+admit only initial birth members. A metadata reopen is not a fresh-member seed,
+quorum proof, verified physical recovery or serving permission.
+
 ## Apply, checkpoint and archive
 
 For entry N, verify the cell base/sequence, stage the result, sync its immutable

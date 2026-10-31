@@ -131,6 +131,16 @@ impl CellEnrollmentAuthority {
             return Err(RuntimeError::NotReady);
         }
         self.state.check()?;
+        let cache = self.state.group.read()?;
+        if !cache
+            .conf_state
+            .voters
+            .iter()
+            .chain(&cache.conf_state.voters_outgoing)
+            .any(|id| *id == self.state.group.identity().member.get())
+        {
+            return Err(RuntimeError::NotReady);
+        }
         if self.leader_term.load(Ordering::Acquire) != self.state.term.get() {
             return Err(RuntimeError::NotReady);
         }

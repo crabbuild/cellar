@@ -595,3 +595,7 @@ pub(crate) use provision::{
 #[path = "cell_group_controller_checkpoints.rs"]
 mod controller_checkpoints;
 pub(crate) use controller_checkpoints::automatic_checkpoints;
+
+#[path = "cell_group_membership.rs"]
+mod membership;
+pub(crate) use membership::{membership_lifecycle, membership_sync};

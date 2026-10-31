@@ -104,7 +104,14 @@ impl CellReadAuthority {
             .is_none_or(|m| m.route() != &s.route)
             || !cache.membership.permits_group(s.group.identity())
             || s.leader.as_ref().is_some_and(|(term, leader)| {
-                cache.hard_state.term != term.get() || leader.load(Ordering::Acquire) != term.get()
+                cache.hard_state.term != term.get()
+                    || leader.load(Ordering::Acquire) != term.get()
+                    || !cache
+                        .conf_state
+                        .voters
+                        .iter()
+                        .chain(&cache.conf_state.voters_outgoing)
+                        .any(|id| *id == s.group.identity().member.get())
             })
         {
             return Err(RuntimeError::NotReady);

@@ -15,6 +15,21 @@ mod runtime_fixture;
 mod checkpoint_fixture;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn membership_group_materialized_joint_changes_preserve_cells() -> Result<()> {
+    runtime_fixture::membership_lifecycle(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn membership_group_extent_joint_changes_preserve_cells() -> Result<()> {
+    runtime_fixture::membership_lifecycle(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn membership_group_configuration_waits_for_sync_and_joins_close() -> Result<()> {
+    runtime_fixture::membership_sync().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn checkpoint_controller_compacts_materialized_groups_during_writes() -> Result<()> {
     runtime_fixture::automatic_checkpoints(false, false).await
 }

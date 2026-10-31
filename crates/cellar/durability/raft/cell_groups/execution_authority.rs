@@ -109,6 +109,12 @@ impl CellExecutionAuthority {
             &self.leaf.version.history.cell,
         );
         if cache.hard_state.term != self.term.get()
+            || !cache
+                .conf_state
+                .voters
+                .iter()
+                .chain(&cache.conf_state.voters_outgoing)
+                .any(|id| *id == self.group.identity().member.get())
             || current.route() != &self.route
             || !cache.membership.permits_group(self.group.identity())
             || cache

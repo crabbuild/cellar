@@ -809,3 +809,5 @@ pub(super) use sql::{
 };
 
 pub(super) use sql::automatic_checkpoints;
+
+pub(super) use sql::{membership_lifecycle, membership_sync};
