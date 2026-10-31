@@ -109,12 +109,7 @@ pub(super) async fn registration(
     let namespace = fixture
         .cluster
         .domain
-        .run(catalog.existing_namespace(NamespaceConfig::new(
-            route.history.cluster,
-            route.history.namespace,
-            cellar_logic::NamespaceMode::Raft,
-            route.schema_digest,
-        )))
+        .run(catalog.existing_namespace(fixture.cluster.directory.namespace_config().clone()))
         .await??;
     let directory = RangeDirectory::new(namespace, Default::default())?;
     let birth = fixture

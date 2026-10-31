@@ -21,6 +21,31 @@ mod rustfs;
 include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn s3_namespace_minimum_cannot_be_downgraded() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_namespace_minimum(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
+async fn rustfs_s3_namespace_minimum_cannot_be_downgraded() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_namespace_minimum(
+            rooted,
+            rustfs::store("s3-minimum", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn s3_command_requires_the_sibling_archive_dependencies() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(runtime_fixture::s3_missing_sibling(

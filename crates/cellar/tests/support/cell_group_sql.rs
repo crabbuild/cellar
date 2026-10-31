@@ -537,7 +537,7 @@ mod s3_commands;
 #[allow(dead_code)]
 mod s3_response;
 #[allow(unused_imports)]
-pub(crate) use s3_commands::{s3_commands, s3_deadline, s3_missing_sibling};
+pub(crate) use s3_commands::{s3_commands, s3_deadline, s3_missing_sibling, s3_namespace_minimum};
 #[allow(unused_imports)]
 pub(crate) use s3_response::unproved_s3_responses;
 #[path = "cell_group_controller.rs"]

@@ -185,13 +185,23 @@ pub(super) async fn setup_store(
     class: &RaftClass,
     store: Arc<dyn object_store::ObjectStore>,
 ) -> Result<(RuntimeCluster, GroupRoute, CellHistory, CellHistory)> {
+    setup_store_minimum(rooted, class, store, Durability::Quorum).await
+}
+
+pub(super) async fn setup_store_minimum(
+    rooted: bool,
+    class: &RaftClass,
+    store: Arc<dyn object_store::ObjectStore>,
+    minimum: Durability,
+) -> Result<(RuntimeCluster, GroupRoute, CellHistory, CellHistory)> {
     let filesystem = Arc::new(DirectFileSystem);
-    let cluster = Cluster::with_store(
+    let cluster = Cluster::with_store_minimum(
         RaftRuntimeOptions::default(),
         tempfile::tempdir()?,
         filesystem.clone(),
         class.schema_digest(),
         store,
+        minimum,
     )
     .await?;
     setup_cluster(rooted, cluster, filesystem).await

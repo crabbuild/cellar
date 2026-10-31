@@ -89,6 +89,17 @@ impl Cluster {
         schema: [u8; 32],
         store: Arc<dyn object_store::ObjectStore>,
     ) -> Result<Self> {
+        Self::with_store_minimum(options, root, filesystem, schema, store, Durability::Quorum).await
+    }
+
+    async fn with_store_minimum(
+        options: RaftRuntimeOptions,
+        root: tempfile::TempDir,
+        filesystem: Arc<dyn cellar_ltx::FileSystem>,
+        schema: [u8; 32],
+        store: Arc<dyn object_store::ObjectStore>,
+        minimum: Durability,
+    ) -> Result<Self> {
         let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         let history = GroupHistory {
             cluster: ClusterId::new([1; 16])?,
@@ -97,14 +108,14 @@ impl Cluster {
             incarnation: IncarnationId::new([4; 16])?,
         };
         let catalog = Catalog::new(store.clone(), CatalogOptions::default())?;
-        let namespace = domain
-            .run(catalog.open_namespace(NamespaceConfig::new(
-                history.cluster,
-                history.namespace,
-                cellar_logic::NamespaceMode::Raft,
-                schema,
-            )))
-            .await??;
+        let mut config = NamespaceConfig::new(
+            history.cluster,
+            history.namespace,
+            cellar_logic::NamespaceMode::Raft,
+            schema,
+        );
+        config.minimum_durability = minimum;
+        let namespace = domain.run(catalog.open_namespace(config)).await??;
         let directory = RangeDirectory::new(namespace, DirectoryLimits::default())?;
         let request = directory.prepare_group_birth(CellGroupBirthSpec {
             history,

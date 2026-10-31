@@ -25,6 +25,15 @@ impl Harness {
         store: Arc<dyn object_store::ObjectStore>,
         max_commands: usize,
     ) -> Result<Self> {
+        Self::with_minimum(rooted, store, max_commands, Durability::Quorum).await
+    }
+
+    async fn with_minimum(
+        rooted: bool,
+        store: Arc<dyn object_store::ObjectStore>,
+        max_commands: usize,
+        minimum: Durability,
+    ) -> Result<Self> {
         let calls = Arc::new(AtomicUsize::new(0));
         let count = calls.clone();
         let class = Arc::new(RaftClass::new("Counter", 1, [81; 32])?.command(
@@ -36,8 +45,10 @@ impl Harness {
                 Ok(input.to_vec())
             },
         )?);
-        let (mut fixture, route, cell, _) =
-            Box::pin(registered::setup_store(rooted, &class, store)).await?;
+        let (mut fixture, route, cell, _) = Box::pin(registered::setup_store_minimum(
+            rooted, &class, store, minimum,
+        ))
+        .await?;
         let (archive, remote) = archive_controller::registration(&fixture, &route, rooted).await?;
         let controllers = controller::start_with_limits(
             &mut fixture,
@@ -146,6 +157,32 @@ impl Harness {
         drop(self.archive);
         self.fixture.close().await
     }
+}
+
+pub(crate) async fn s3_namespace_minimum(rooted: bool, store: Arc<dyn ObjectStore>) -> Result<()> {
+    let h = Harness::with_minimum(rooted, store, 1, Durability::S3).await?;
+    let gate = h.remote.hold_publication();
+    let call = h
+        .command(1, b"minimum", Durability::Quorum, Duration::from_secs(15))
+        .await?;
+    tokio::time::timeout(Duration::from_secs(10), gate.entered.notified()).await?;
+    let mut waiting = Box::pin(call.response());
+    assert!(
+        tokio::time::timeout(Duration::from_millis(30), waiting.as_mut())
+            .await
+            .is_err()
+    );
+    gate.release.notify_one();
+    let response = waiting.await?;
+    assert_eq!(response.durability(), Durability::S3);
+    assert_eq!(
+        response.receipt().receipt.minimum_durability(),
+        Durability::S3
+    );
+    assert_eq!(response.receipt().receipt.result(), b"minimum");
+    assert_eq!(h.calls.load(Ordering::SeqCst), 1);
+    drop(response);
+    h.close().await
 }
 
 pub(crate) async fn s3_commands(
