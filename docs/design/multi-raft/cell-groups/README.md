@@ -20,8 +20,8 @@ Queued/entered seed revocation and sync-error recovery now pass in both image fo
 Staged and engine-boundary seed SIGKILL recovery now passes in both image forms.
 Explicit joint-consensus SIGKILL/restart and completion now pass in both image forms.
 Bounded 32-cell transfer, scratch contention and old-reader image retention/release
-now pass in both image forms. Remaining CG-05 mid-stream cuts, controller pressure
-and full acceptance gates precede
+now pass in both image forms. Partial/synced seed-dependency SIGKILL cuts and transfer-time source-process
+revocation now pass. Remaining CG-05 controller pressure and full acceptance gates precede
 verified S3 archive/reclamation. The production host has not yet cut over to shared groups.
 See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.

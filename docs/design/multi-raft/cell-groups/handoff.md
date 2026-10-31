@@ -42,7 +42,46 @@ effects/cache lifecycle belong to CG-08, and final legacy removal to CG-16. Trac
 these remaining capabilities in their owning tasks.
 Shared RustFS, independent voter failure domains, power loss and load remain unqualified.
 
-The latest pressure checkpoint at `a2036e50` passes all 142 native
+The latest interrupted-transfer checkpoint at `6e56f21f` passes all 144
+shared-execution tests and nineteen native Raft-storage tests, with eight scoped commands.
+Its record under `.cellar/cell-groups-evidence/CG-05-seed-transfer-cuts/` binds
+330 source hashes and two executables. The seed crash matrix now includes
+12 owned SIGKILL scenarios: four new cases hold partial or synced dependency bytes
+in both image modes. Cold recovery preserves the empty stage and refuses startup
+without a local install receipt. The production TLS source and receiver perform
+these interrupted transfers; the parent checks reached cuts and retained extent
+lengths before cold reopen.
+
+Two new revocation tests replace the source process while a physical image write
+is held. A refused network waiter does not refund checkpoint/transport admission;
+physical release drains it without publishing any seed. Cold recovery again
+refuses startup. These revocation cases use an independently authenticated captured
+peer. Production runtime code is unchanged. No automatic orphan cleanup/retry,
+all-wire-boundary, power-loss, independent-domain or RustFS/load claim is made.
+Next audit the five required CG-05 oracles, deliver their exact test target and
+close the remaining controller/lifecycle saturation requirements.
+
+The starting fixture mapping for the exact target is below. This is an audit map,
+not evidence that the named target exists or its five gates have passed. Reuse the
+real fixture owners and direct assertions, without launching another test binary
+as an oracle or replacing any required case.
+
+| Required case | Existing behavior to audit and reuse |
+| --- | --- |
+| `snapshot_contains_every_cell_at_cut` | `checkpoint_fixture::coherent` captures both forms while quorum writes advance. |
+| `partial_snapshot_never_serves` | `refuse_checkpoint`, seed receiver faults and seed crash cuts reject partial/corrupt/foreign state. |
+| `whole_group_learner_and_joint_change` | `seed_install`, `membership_lifecycle` and `membership_crash` cover learner promotion, replacement, quorum loss and explicit joint restart. |
+| `snapshot_empty_cell_and_extent_restart` | `tcp_publication` transfers the complete populated/empty closure and reopens retained checkpoint plus current suffix in both forms. |
+| `snapshot_memory_and_pin_bounds` | `transfer_pressure` and `local_shutdown` retain bounded physical work and old reader images through concurrent apply/shutdown. |
+
+The native execution test currently keeps reusable imports, `Voter`, `Cluster`
+and image/apply helpers between the `images` module declaration and
+`three_cells_one_rawnode_per_voter`. Extract those helpers without changing their
+semantics so the new snapshot target shares the same real engine fixture. Preserve
+the root module paths used by the support files and the exact ignored child names
+used by owned-process tests.
+
+The earlier pressure checkpoint at `a2036e50` passes all 142 native
 shared-execution tests and eight scoped commands. Its record under
 `.cellar/cell-groups-evidence/CG-05-checkpoint-pressure/` binds
 327 source hashes and one executable. Two new cases transfer 32 cells with
@@ -811,13 +850,16 @@ Do not let plan maintenance replace implementation.
 
 1. Finish the full CG-05 acceptance gate around the implemented checkpoint,
    learner and membership paths. Bounded 32-cell transfer and physical reader
-   retention/release now pass. Finish the remaining fault/lifecycle requirements
-   below, then consolidate the proof into all five exact cases. Preserve permanent claims, local install receipts, complete
+   retention/release now pass, as do partial/synced dependency crash cuts and
+   transfer-time source-process revocation. Audit all five exact oracles and
+   deliver the declared native_cell_groups_snapshot target, closing remaining
+   fault/lifecycle requirements below. Preserve permanent claims, local install receipts, complete
    physical recovery and unrelated-group progress.
-2. Complete remaining CG-05 fault/lifecycle requirements: mid-stream process
-   revocation and crash, minority signed receipt refusal, continuous capture
-   fairness, exhausted apply/completion budgets, held sync/cancelled close,
-   quarantine capacity and retained-root pressure. Explicit joint restart after
+2. Complete remaining CG-05 fault/lifecycle requirements: minority signed receipt
+   refusal, continuous capture fairness, exhausted apply/completion budgets, held sync/cancelled close,
+   quarantine capacity and retained-root pressure. Track automatic orphan cleanup
+   and fresh-seed retry after interrupted dependency writes; safe refusal alone
+   does not prove retry availability. Explicit joint restart after
    replicated entry/exit now passes; this does not qualify every in-flight or
    automatic-transition crash cut. Idle/time/byte checkpoint triggers require an
    explicit cut-reservation contract. Keep the full task gate ahead of CG-06.

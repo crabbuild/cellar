@@ -10,6 +10,55 @@ CG-05 is IN_PROGRESS; CG-06 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-05 interrupted seed dependency writes and process revocation
+
+Qualified source: `6e56f21f2209ce3f02d78ffeeb3150a763a1476e`. All 144 native shared-execution tests
+and nineteen native Raft-storage tests pass. Three ignored child fixtures are invoked
+by their process-crash parents and are not standalone passes. Eight scoped commands
+pass: Clippy for both targets, both complete suites, formatting, layout, dependency
+isolation, docs, source preflight and 37 plan-validator tests. The record
+`.cellar/cell-groups-evidence/CG-05-seed-transfer-cuts/checkpoint.json` binds
+330 source hashes, two executables, frozen plan inputs and intermediate logs.
+Independent hash verification passes. Other suites were not rerun at this source.
+
+The authenticated seed crash matrix now runs six cuts in each image form: staged,
+partial dependency write, synced dependency, before engine sync, after engine sync
+and publication. Four new SIGKILL scenarios use the production TLS source/receiver
+and hold either an anonymous materialized-image spool or an extent payload. The
+partial cut writes and syncs a prefix; the second cut finishes the file sync but
+stops before complete group installation. The child observes nonzero physical
+bytes, the unchanged empty stage, no checkpoint and refused bootstrap before
+signaling the parent to kill it. The parent joins the killed child, checks the
+recorded extent file length against its encoded full length, then cold-opens the
+original learner disk with a new process identity. Both new cuts select the empty
+stage with no authenticated local receipt and refuse startup.
+
+Two new transfer-revocation cases hold a physical dependency write and replace
+the source process. The network waiter returns stale/closed authority while the
+physical receiver remains admitted: both checkpoint metadata and transport data
+reservations remain charged. Releasing the write lets the receiver observe the
+revocation and finish cleanup; admission drains without publishing a root or
+checkpoint. Cold recovery independently confirms the empty stage and refused
+bootstrap. These cases use an independently authenticated captured peer; the
+crash cases use the production source server.
+
+The shared filesystem fixture adds two opt-in dependency faults. Default behavior
+and existing fault modes are unchanged. Production runtime code is unchanged.
+All original voters and the learner share the killed child; this is not device
+power-loss or independent-domain qualification. These cuts do not cover every
+wire/manifest boundary, automatic cleanup and fresh-seed retry after a partial
+orphan, measured load, RustFS or zero-quorum recovery. Existing pressure, joint
+restart and seed installation cases remain green in the complete execution run.
+
+**Reflection and next step:** interrupted dependency writes now have direct native
+failure and restart evidence. The next critical step is to audit the five exact
+CG-05 acceptance oracles against these fixtures, implement their required test
+target and close remaining controller/lifecycle saturation gaps. Keep unverified
+orphan cleanup/retry, continuous capture fairness, minority signed receipts and
+retained-checkpoint pressure explicit. Broader fault/load requirements remain in
+the release matrix. Complete CG-05 before CG-06 verified S3 archive/reclamation;
+production SDK/fleet cutover and final legacy removal remain pending.
+
 ## CG-05 bounded checkpoint transfer and reader retention
 
 Qualified source: `a2036e5074066eb7585ea82a2eb62331368ccca5`. All 142 native shared-execution tests
