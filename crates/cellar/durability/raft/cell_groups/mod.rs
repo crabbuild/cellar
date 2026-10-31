@@ -67,7 +67,10 @@ mod retention;
 mod root;
 mod runtime;
 
-pub use runtime::{CellGroupRuntime, CellGroupRuntimeEvent, CellGroupRuntimeEvents};
+pub use runtime::{
+    CellGroupAdmissionUsage, CellGroupRuntime, CellGroupRuntimeEvent, CellGroupRuntimeEvents,
+    CellGroupRuntimeUsage,
+};
 
 pub use manifest::{
     CellImageGeometry, CellManifestLeaf, EffectSummary, ManifestError, ManifestLimits,

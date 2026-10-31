@@ -172,6 +172,26 @@ async fn checkpoint_controller_extents_progress_with_full_apply_capacity() -> Re
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_materialized_waits_for_full_completion_admission() -> Result<()> {
+    runtime_fixture::checkpoint_completion_pressure(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_extents_waits_for_full_completion_admission() -> Result<()> {
+    runtime_fixture::checkpoint_completion_pressure(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_materialized_concurrent_writers_share_capture_capacity() -> Result<()> {
+    runtime_fixture::concurrent_checkpoints(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_extents_concurrent_writers_share_capture_capacity() -> Result<()> {
+    runtime_fixture::concurrent_checkpoints(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn checkpoint_controller_materialized_holds_sync_and_joins_cancelled_close() -> Result<()> {
     runtime_fixture::controller_checkpoint_shutdown(false).await
 }

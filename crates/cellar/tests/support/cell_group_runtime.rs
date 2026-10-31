@@ -814,6 +814,8 @@ pub(super) use sql::{
     provisioning_retries_retained_owner,
 };
 
+pub(super) use sql::checkpoint_completion_pressure;
+pub(super) use sql::concurrent_checkpoints;
 pub(super) use sql::{
     automatic_checkpoints, checkpoint_during_apply, controller_checkpoint_shutdown,
 };

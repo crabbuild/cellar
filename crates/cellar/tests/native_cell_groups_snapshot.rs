@@ -93,6 +93,10 @@ async fn snapshot_memory_and_pin_bounds() -> Result<()> {
     runtime_fixture::checkpoint_shutdown().await?;
     fixture(|| runtime_fixture::checkpoint_during_apply(false)).await?;
     fixture(|| runtime_fixture::checkpoint_during_apply(true)).await?;
+    fixture(|| runtime_fixture::checkpoint_completion_pressure(false)).await?;
+    fixture(|| runtime_fixture::checkpoint_completion_pressure(true)).await?;
+    fixture(|| runtime_fixture::concurrent_checkpoints(false)).await?;
+    fixture(|| runtime_fixture::concurrent_checkpoints(true)).await?;
     fixture(|| runtime_fixture::controller_checkpoint_shutdown(false)).await?;
     fixture(|| runtime_fixture::controller_checkpoint_shutdown(true)).await?;
     runtime_fixture::automatic_checkpoints(false, true).await

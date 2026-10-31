@@ -1605,7 +1605,9 @@
         "crates/cellar/tests/support/cell_group_engine_fixture.rs",
         "crates/cellar/durability/raft/cell_groups/reclaim.rs",
         "crates/cellar/tests/support/cell_group_node_reclaim.rs",
-        "crates/cellar/tests/support/cell_group_seed_retry.rs"
+        "crates/cellar/tests/support/cell_group_seed_retry.rs",
+        "crates/cellar/tests/support/cell_group_completion_pressure.rs",
+        "crates/cellar/tests/support/cell_group_checkpoint_fairness.rs"
       ],
       "test_target": "native_cell_groups_snapshot",
       "steps": [

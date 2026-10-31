@@ -27,6 +27,42 @@ use tokio::sync::{mpsc, oneshot, Notify};
 const COMPLETION_SLOTS: usize = 8;
 const SNAPSHOT_HINT_SLOTS: usize = 256;
 
+/// Advisory admission counters. Different lanes may be observed at different
+/// moments; these values neither reserve capacity nor establish durability or
+/// serving authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CellGroupAdmissionUsage {
+    pub items: usize,
+    pub bytes: usize,
+    pub max_items: usize,
+    pub max_bytes: usize,
+}
+
+impl CellGroupAdmissionUsage {
+    fn read(budget: &Budget) -> Self {
+        let (bytes, items) = budget.usage();
+        let (max_bytes, max_items) = budget.capacity();
+        Self {
+            items,
+            bytes,
+            max_items,
+            max_bytes,
+        }
+    }
+}
+
+/// Node-wide request/pin admission, retained through each lane's owned work.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CellGroupRuntimeUsage {
+    pub ordinary: CellGroupAdmissionUsage,
+    /// Eight slots and max_ready_bytes of request metadata, independently of
+    /// the worker's Ready/persistence accounting. Refunded at owner admission;
+    /// physical work retains its other source, root and storage owners.
+    pub completions: CellGroupAdmissionUsage,
+    pub snapshot_feedback: CellGroupAdmissionUsage,
+    pub read_pins: CellGroupAdmissionUsage,
+}
+
 pub struct CellGroupRuntimeEvent {
     group: GroupHistory,
     effect: Result<CellGroupEffect, RuntimeError>,
@@ -153,6 +189,17 @@ impl Drop for TransportClaim {
 }
 
 impl CellGroupRuntime {
+    /// Observe admission without requiring a free request slot. These gauges
+    /// may include work whose response waiter has disconnected.
+    pub fn usage(&self) -> CellGroupRuntimeUsage {
+        CellGroupRuntimeUsage {
+            ordinary: CellGroupAdmissionUsage::read(&self.inner.budget),
+            completions: CellGroupAdmissionUsage::read(&self.inner.completions),
+            snapshot_feedback: CellGroupAdmissionUsage::read(&self.inner.snapshot_hints),
+            read_pins: CellGroupAdmissionUsage::read(&self.inner.read_pins),
+        }
+    }
+
     pub(crate) fn same_owner(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner)
     }
@@ -624,7 +671,14 @@ impl CellGroupRuntime {
             .map(|_| ())
     }
 
-    pub(crate) async fn checkpoint_before_apply(
+    /// Admit publication of the exact captured base of a runtime-issued apply
+    /// ticket, while its owner retains the successor without preparing it.
+    /// Uses reserved completion admission, waiting with its source/pins when
+    /// capacity is occupied. Success proves admission; CheckpointPublished or
+    /// selected engine recovery proves persistence. The same ticket must then
+    /// complete its successor. Cancelling before admission publishes no work;
+    /// admitted work stays owned by the runtime through joined shutdown.
+    pub async fn checkpoint_before_apply(
         &self,
         history: GroupHistory,
         ticket: CellGroupTicket,

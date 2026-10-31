@@ -100,8 +100,9 @@ pub struct RaftRuntimeOptions {
     pub tick_interval_ms: Option<u64>,
     pub election_seed: Option<[u8; 32]>,
     pub max_groups: usize,
-    /// Ordinary requests. Eight additional queue slots and 32 KiB are reserved
-    /// for physical apply/snapshot completions so saturated work can settle.
+    /// Ordinary requests. Eight additional queue slots are reserved for physical
+    /// completions so saturated work can settle. Cell-group completion requests
+    /// bound retained manifest metadata with max_ready_bytes.
     /// Transport hint admission has a separate 256 slots/1 MiB; the worker
     /// coalesces retained hints to one small record per current group member.
     pub max_requests: usize,

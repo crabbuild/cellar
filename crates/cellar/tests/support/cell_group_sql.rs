@@ -598,6 +598,14 @@ pub(crate) use controller_checkpoints::{
     automatic_checkpoints, checkpoint_during_apply, controller_checkpoint_shutdown,
 };
 
+#[path = "cell_group_completion_pressure.rs"]
+mod completion_pressure;
+pub(crate) use completion_pressure::checkpoint_completion_pressure;
+
+#[path = "cell_group_checkpoint_fairness.rs"]
+mod checkpoint_fairness;
+pub(crate) use checkpoint_fairness::concurrent_checkpoints;
+
 #[path = "cell_group_membership.rs"]
 mod membership;
 pub(crate) use membership::{membership_lifecycle, membership_sync};
