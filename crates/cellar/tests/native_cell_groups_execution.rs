@@ -15,6 +15,22 @@ mod runtime_fixture;
 mod checkpoint_fixture;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn seed_crash_materialized_recovers_atomic_install() -> Result<()> {
+    Box::pin(runtime_fixture::seed_crash(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn seed_crash_extents_recovers_atomic_install() -> Result<()> {
+    Box::pin(runtime_fixture::seed_crash(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "owned child process controlled by seed crash tests"]
+async fn seed_process_fixture() -> Result<()> {
+    Box::pin(runtime_fixture::seed_process_fixture()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn seed_persistence_materialized_revocation_and_sync_outcomes() -> Result<()> {
     Box::pin(runtime_fixture::seed_persistence(false)).await
 }
