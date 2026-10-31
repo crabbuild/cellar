@@ -40,7 +40,8 @@ pub struct Gate {
     pub sync_path: Mutex<Option<std::path::PathBuf>>,
     pub image_read_paths: Mutex<Vec<std::path::PathBuf>>,
     pub dependency_cut: Mutex<Option<(std::path::PathBuf, u64)>>,
-    sync_when: Mutex<Option<Arc<dyn Fn() -> bool + Send + Sync>>>,
+    /// Optional sync selection, installed before arming and cleared on release.
+    pub sync_when: Mutex<Option<Arc<dyn Fn() -> bool + Send + Sync>>>,
 }
 
 impl Gate {
@@ -59,21 +60,8 @@ impl Gate {
     }
 
     pub fn arm(self: &Arc<Self>, mode: u8) -> Release {
-        *self.sync_when.lock().unwrap() = None;
         *self.released.lock().unwrap() = false;
         self.mode.store(mode, Ordering::Release);
-        Release(self.clone())
-    }
-
-    /// Hold a real log sync only after the owning lifecycle is entered. Earlier
-    /// Raft append/commit syncs pass normally; no sync-count assumption is needed.
-    pub fn arm_sync_when(
-        self: &Arc<Self>,
-        when: impl Fn() -> bool + Send + Sync + 'static,
-    ) -> Release {
-        *self.released.lock().unwrap() = false;
-        *self.sync_when.lock().unwrap() = Some(Arc::new(when));
-        self.mode.store(HOLD_SYNC, Ordering::Release);
         Release(self.clone())
     }
 

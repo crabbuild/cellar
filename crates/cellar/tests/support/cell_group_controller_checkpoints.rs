@@ -117,9 +117,10 @@ pub(crate) async fn controller_checkpoint_shutdown(rooted: bool) -> Result<()> {
     let gate = fixture.cluster.voters[0].gate.clone();
     // Pass ordinary append/commit fences. Hold a sync only after the controller
     // owns both its lifecycle slot and the captured checkpoint reservation.
-    let release = gate.arm_sync_when(move || {
+    *gate.sync_when.lock().unwrap() = Some(Arc::new(move || {
         controller.usage().active_checkpoints == 1 && checkpoint_pool.usage().sources == 1
-    });
+    }));
+    let release = gate.arm(fault::HOLD_SYNC);
     let bytes = images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES(29);")?;
     let cell = history(&route, "checkpoint-successor")?;
     let successor = fixture.runtimes[0]
