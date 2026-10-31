@@ -468,6 +468,41 @@ also replay. Do not rerun commands. Publish coverage only after all dependencies
 are durable and independently verifiable. A dependency failure in one cell blocks
 group coverage. Unchanged immutable cell objects can be reused between cuts.
 
+The initial CG-06 checkpoint archive boundary is implemented in
+`raft/cell_groups/archive/`. A node owns one `CellGroupArchivePool`; group handles
+and their clones share its item/byte admission across uploads and downloads.
+Group history has its own archive namespace and marker-1 domain, without a
+synthetic cell identity. One admitted physical producer streams a pinned complete
+checkpoint through a one-chunk channel. An immutable bounded index names each
+cell-addressed chunk, offset, length and SHA-256. Unchanged chunks are GET-verified
+and reused without PUT. New conditional creates require exact GET confirmation,
+including an ambiguous PUT response. Corrupt existing objects refuse overwrite.
+
+`CellGroupArchiveReference` is an untrusted persistent locator. Only
+`verify_checkpoint` can produce `VerifiedCellGroupArchiveCheckpoint`: it downloads
+and hashes every indexed object, checks continuity and limits, runs the ordinary
+physical checkpoint receiver, and binds its complete recovered marker to the
+index. Missing/corrupt cells or a substituted cut refuse the whole preparation.
+The receiver does not change the engine-selected current/checkpoint root. Its
+ordinary installation and Raft admission contracts remain required. The source
+engine and its pins are unnecessary for this independent recovery.
+
+Source/receiver pools separately charge physical closures and scratch. Archive
+admission charges bounded encoded/decoded metadata and I/O windows. Complete
+individual PUT/GET operations, including body EOF, have domain-owned deadlines.
+Ordinary failures join entered physical workers; caller cancellation closes their
+bounded channels and retains permits until those workers exit. Domain shutdown
+joins entered work. The pool must be shared by node orchestration when it is wired
+in; constructing separate pools per group would defeat the node-wide bound.
+
+This checkpoint-only capability has no committed tail, conditionally published
+head or remote GC lease. It grants no group S3 settlement, archive coverage,
+reclamation or disaster-recovery authority. CG-06 still requires those owners,
+complete administrative/cell tail replay, retention admission and fenced
+fresh-incarnation seeding. Its executable scope now records the component's three
+production files and the native archive target/store instrumentation, replacing
+the originally planned leaf output without changing any required case or oracle.
+
 Quorum writes may proceed during an S3 outage within explicit disk/unarchived-byte
 budgets. S3-mode outputs wait for confirmed coverage. Log reclamation requires the
 covering local checkpoint and configured archive retention proofs, plus transfer

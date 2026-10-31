@@ -1706,7 +1706,7 @@
     {
       "id": "CG-06",
       "title": "Archive and reclaim the complete group recovery history",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "priority": "P1",
       "effort": "L",
       "risk": "HIGH",
@@ -1725,8 +1725,11 @@
         "crates/cellar-ltx/src/"
       ],
       "creates": [
-        "crates/cellar/durability/raft/cell_groups/archive.rs",
-        "crates/cellar/tests/native_cell_groups_archive.rs"
+        "crates/cellar/durability/raft/cell_groups/archive/mod.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/checkpoint.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/objects.rs",
+        "crates/cellar/tests/native_cell_groups_archive.rs",
+        "crates/cellar/tests/support/cell_group_archive_store.rs"
       ],
       "test_target": "native_cell_groups_archive",
       "steps": [

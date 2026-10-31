@@ -17,7 +17,7 @@ never executed by the plan runner. Read the [design](design.md),
 | CG-03 | Prepare paged range routing and enrollment admission | CG-01, CG-02 | DONE | 8 |
 | CG-04 | Execute many independent SQLite cells through one real Raft group | CG-01, CG-02, CG-03 | DONE | 83 |
 | CG-05 | Snapshot and rebuild complete groups through membership changes | CG-04 | DONE | 5 |
-| CG-06 | Archive and reclaim the complete group recovery history | CG-04, CG-05 | TODO | 5 |
+| CG-06 | Archive and reclaim the complete group recovery history | CG-04, CG-05 | IN_PROGRESS | 5 |
 | CG-08 | Preserve per-cell effects and bounded idle execution caches | CG-04, CG-05, CG-06 | TODO | 5 |
 | CG-07 | Cut public SDK routing and managed fleet over to shared groups | CG-03, CG-04, CG-05, CG-06, CG-08 | TODO | 5 |
 | CG-09 | Implement irreversible source sealing and destination activation | CG-07, CG-08 | TODO | 7 |

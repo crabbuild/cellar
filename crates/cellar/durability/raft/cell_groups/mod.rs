@@ -15,6 +15,11 @@ pub use crate::raft::transport::{
 };
 
 mod apply;
+mod archive;
+pub use archive::{
+    CellGroupArchive, CellGroupArchiveError, CellGroupArchiveLimits, CellGroupArchivePool,
+    CellGroupArchiveReference, CellGroupArchiveUsage, VerifiedCellGroupArchiveCheckpoint,
+};
 pub(crate) mod checkpoint;
 pub use checkpoint::{
     CellGroupCheckpoint, CellGroupCheckpointChunk, CellGroupCheckpointError,
