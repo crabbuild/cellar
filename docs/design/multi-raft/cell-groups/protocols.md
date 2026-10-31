@@ -406,7 +406,7 @@ starting a successor apply when the configured entry interval has elapsed. It
 uses the transport's already configured pool and owns initial checkpoint endpoint
 registrations. One node slot spans blocking capture, admission and durable
 publication; each selected group retains its exact successor ticket. The current
-root therefore cannot advance during capture. A private completion-lane request
+root therefore cannot advance during capture. The reserved completion-lane request
 checks that ticket and the current root, and can publish despite ordinary request
 or apply pressure. Pending Raft work may still append a suffix. Only the matching
 `CheckpointPublished` event releases the successor to physical apply; an admission
@@ -419,6 +419,21 @@ checkpoint lifecycle, source and completion admission remain independently bound
 Native tests hold actual image-directory persistence in both image forms, publish
 an unrelated complete checkpoint, retain its unapplied suffix, then release and
 join the original physical apply.
+
+`CellGroupRuntime::checkpoint_before_apply` exposes this same exact-ticket
+boundary for embedding owners. It waits for completion admission while retaining
+the captured source; owner/engine validation still binds the current root and
+ticket. Cancelling an unadmitted request queues no work. Admitted requests remain
+runtime-owned through physical completion and joined shutdown. `usage()` reports
+advisory ordinary/completion/feedback/read-pin charges and immutable limits without
+request admission. Completion charges refund at owner admission, while physical
+source/root/storage ownership continues. Gauge observations grant no authority.
+
+The shared budget reserves and refunds byte/item dimensions in one short lock
+scope, preventing rejected byte attempts from exposing temporary item charges.
+Release/shrink notify all registered request sizes and retain a stored signal for
+workers that register after checking capacity. Native budget tests cover mixed-
+size waiters, late registration and concurrent rejected/fitting attempts.
 
 Pool contention or transient admission overload releases the successor and backs
 off until a later apply boundary using the controller's node timer. There is no
@@ -433,13 +448,18 @@ and checkpoint-source admission. Cancelled close and wait retain both owners and
 the engine/SQL claims through physical completion. The healthy two-voter quorum
 continues another group's writes during the stalled node's engine sync. Release
 joins shutdown, selects the captured checkpoint and permits a replacement runtime.
-Both image forms run this cut; other controller crash/budget schedules remain open.
+Both image forms run this cut. Further native cases fill all eight completion
+slots with real completed images, retain a ninth checkpoint through admission and
+a held engine sync, then complete its exact successor. Two concurrent 32-entry
+writers compete for one shared source slot; both advance checkpoints before the
+writers finish, and all selected current/checkpoint closures recover on every node.
+These are bounded functional traces; broader deployment/fault/load schedules remain
+in the later qualification gates.
 
-This is an entry-count policy for active groups. It retains the final idle tail,
-and time/byte triggers, fairness under continuously saturated checkpoint capacity,
-controller checkpoint crash cuts and complete root-pressure qualification
-remain open. It supplies no S3 archive coverage proof. Manual publication remains
-available to lower-level owners; this policy does not introduce a second serving
+This is an entry-count policy for active groups. It retains the final idle tail;
+time/byte triggers and coordinated hibernation require their later explicit cut
+reservation/wake contracts. It supplies no S3 archive coverage proof. Manual
+publication remains available to lower-level owners; this policy does not introduce a second serving
 runtime or weaken exact-cut publication checks.
 
 An archive publishes a complete checkpoint plus a contiguous committed tail to K.

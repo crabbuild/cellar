@@ -3,34 +3,15 @@
 # Cell group delivery package
 
 Status: executable design and implementation plan delivered on 2026-10-29.
-CG-01 contracts, CG-02 storage, CG-03 routing/admission preparation and
-CG-04 shared execution have passed their scoped local evidence gates.
-CG-05 is in progress: checkpoint capture, receiver verification, atomic storage
-installation, exact Raft Ready acceptance, local publication and native Raft-generated
-catch-up, authenticated snapshot RPC and automatic controller checkpoint policy
-pass their scoped regression gates. Durable joint membership and leadership handoff
-also pass a partial gate. A learner seed source authorized by a fresh quorum read
-now covers empty groups, bounded capture of complete roots and stream revocation.
-Authenticated destination staging/install, caught-up promotion and replacement
-after deleting a voter disk now pass native tests in both image forms. Seed request
-refusal, revoked/expired sessions, retained-peer reconnection and minority commit/read
-refusal also pass. Receiver reply/chunk faults and pre-install process revocation
-now pass; physical verifier failures promptly close blocked seed/checkpoint streams.
-Queued/entered seed revocation and sync-error recovery now pass in both image forms.
-Staged and engine-boundary seed SIGKILL recovery now passes in both image forms.
-Explicit joint-consensus SIGKILL/restart and completion now pass in both image forms.
-Bounded 32-cell transfer, scratch contention and old-reader image retention/release
-now pass in both image forms. Partial/synced seed-dependency SIGKILL cuts and transfer-time source-process
-revocation now pass. All five exact native acceptance cases and their prescribed command gate now pass.
-Controller publication through cancelled shutdown now passes in both image forms.
-Idle-node complete-inventory orphan collection and fresh authenticated retry on the
-same interrupted learner disk now pass in both forms, including live suffix catch-up
-and cold restart. Remaining capture fairness and controller/budget/root-pressure
-qualification precedes verified S3 archive/reclamation. Checkpoint capture and
-publication now progress while an unrelated physical apply occupies all SQL apply
-capacity. The production host has not yet cut over to shared groups.
+CG-01 through CG-05 have passed their scoped native evidence gates. CG-05's
+complete checkpoint, authenticated learner/rebuild, membership, restart and
+resource-ownership requirements pass at `e0550acd`. Its current gate includes
+all five exact cases and 205 Rust regressions across eighteen commands.
+CG-06 verified S3 checkpoint/tail coverage and safe log reclamation is next.
+The production SDK/fleet has not yet cut over; topology, hibernation, complete S3
+recovery and deployment/release qualification remain tracked in later tasks.
 See [implementation progress](progress.md) and the generated task index.
-Package validation is not implementation, benchmark or release qualification.
+Package validation alone does not qualify implementation or a release.
 
 This delivery is the executable design and implementation plan. End-to-end
 implementation and hard cutover remain tracked as separate task and release gates. See the [executor handoff](handoff.md) for the current
@@ -53,7 +34,7 @@ The plan runner requires Python 3.11 or newer and Git; it has no Python package 
    behavior and final release gates; they supersede fixed assignment as the final
    target. Fixed assignment is an intermediate milestone only.
 2. Run the commands below from the repository root. `ready` reports dependency
-   eligibility; `show CG-05` emits a complete executor brief, source excerpts,
+   eligibility; `show CG-06` emits a complete executor brief, source excerpts,
    scope, steps, exact test commands and completion rules. It never runs them.
 3. Implement each task in dependency order on the active PR branch or an explicitly
    assigned branch. Preserve working intermediate commits. Do not expose a second
@@ -69,8 +50,10 @@ This checkout retains evidence under the ignored
 `.cellar/cell-groups-evidence/CG-04-qualified/` and its supporting
 `.cellar/cell-groups-evidence/CG-04-local-provisioning-final/` directory. A fresh
 checkout must receive these retained directories at the same relative paths
-before validating the four DONE checkpoints. Missing evidence fails validation; it is never treated as a pass.
-CG-05's partial source checkpoint is retained in
+before validating the first four DONE checkpoints. CG-05 additionally requires
+`.cellar/cell-groups-evidence/CG-05-completion-admission/qualification/` and its
+retained predecessor/reproduction records. Missing evidence fails validation.
+CG-05's earlier partial source checkpoint is retained in
 `.cellar/cell-groups-evidence/CG-05-checkpoint-source/` and the receiver slice in
 `.cellar/cell-groups-evidence/CG-05-checkpoint-receiver/`, followed by owner/runtime
 acceptance in `.cellar/cell-groups-evidence/CG-05-snapshot-owner/`. These partial
@@ -78,14 +61,15 @@ checkpoints and local publication in
 `.cellar/cell-groups-evidence/CG-05-local-checkpoint/`, authenticated transport in
 `.cellar/cell-groups-evidence/CG-05-snapshot-transport/`, automatic policy in
 `.cellar/cell-groups-evidence/CG-05-controller-checkpoints/` and membership in
-`.cellar/cell-groups-evidence/CG-05-group-membership/` do not complete CG-05.
+`.cellar/cell-groups-evidence/CG-05-group-membership/` remain historical partial records;
+the complete current-source gate above closes CG-05.
 The design, task briefs and validator unit tests are committed in this package.
 
 ```sh
 python3 docs/design/multi-raft/cell-groups/plan.py validate
 python3 docs/design/multi-raft/cell-groups/plan.py preflight
 python3 docs/design/multi-raft/cell-groups/plan.py ready
-python3 docs/design/multi-raft/cell-groups/plan.py show CG-05
+python3 docs/design/multi-raft/cell-groups/plan.py show CG-06
 python3 -m unittest discover -s docs/design/multi-raft/cell-groups -p 'test_*.py'
 ```
 
@@ -104,17 +88,14 @@ qualification belongs only to the harness's recorded, owned disposable resources
 
 ### Current executor handoff
 
-The implementation executor should continue from the existing code and retained
-evidence. Resume CG-05 from its exact acceptance gate and remaining lifecycle/availability
-obligations; intermediate checkpoints do not establish full task completion.
-
-Continue CG-05 after reading
-[progress](progress.md) and inspecting the working diff.
-CG-01 through CG-04 are DONE only at their named contract/storage/admission
-and shared-execution boundaries; the remaining tasks still require implementation. `ready` lists eligible TODO tasks;
-an IN_PROGRESS task is resumed from its existing brief and working state. Each
-task's complete source-bound evidence gate must pass before changing its status
-to DONE. Continue in the generated dependency order afterward.
+Continue from the existing code and retained evidence. CG-01 through CG-05 are
+DONE at their declared native boundaries; CG-06 is dependency-ready and requires
+implementation. Read [progress](progress.md), then run `plan.py show CG-06` for the
+complete archive/reclamation brief. Preserve every group's selected current and
+checkpoint closure, exact cell identities and permanent physical claims. Only
+verified complete remote coverage may settle S3 outputs or authorize archive-policy
+reclamation. A task's current-source gate must pass before marking it DONE; final
+release repeats the complete capability/profile matrix at one revision.
 
 Physical group genesis, typed replica handles, permanent initial-member claims,
 complete group inventory and invocation-bounded catalog-confirmed redirects are

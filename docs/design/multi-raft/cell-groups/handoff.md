@@ -15,35 +15,37 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-CG-04 is now DONE at `69e41e86` after its complete scoped acceptance gate:
-83 individual exact-case passes, all required commands, and the supporting 238-case
-regression gate. `.cellar/cell-groups-evidence/CG-04-qualified/checkpoint.json`
-retains 98 distinct command records and 288 source hashes. The plan runner
-validates the evidence and now selects CG-05 as the next eligible task. Preserve
-all acceptance cases; the task-boundary audit removed no requirements or checks.
+CG-01 through CG-05 are DONE at their declared native task boundaries. CG-05
+closes at `e0550acd` with all five exact snapshot cases and eighteen passing
+commands, backed by 205 Rust cases, 337 source hashes and five executables.
+Its source-bound record is
+`.cellar/cell-groups-evidence/CG-05-completion-admission/qualification/checkpoint.json`.
+Independent hashes, full `check_evidence` and the closure audit in [progress](progress.md)
+pass. CG-04's earlier 83 exact-case/238-regression gate remains retained at
+`69e41e86`; no task requirement or acceptance oracle was removed.
 
-CG-05 is now IN_PROGRESS. Its native source captures an exact selected complete
-root, configuration and membership, and retains an admitted immutable closure
-through bounded streaming and cancellation. Both image forms and empty enrollment
-are represented. See the latest [progress](progress.md) for source evidence and
-limits. Receiver verification and atomic storage installation now pass their
-partial gate, including cold recovery of the current and older checkpoint roots.
-Exact Raft snapshot acceptance and persistence now pass their owner/runtime gate.
-Local checkpoint publication and native Raft-generated catch-up now pass their
-partial gate. Authenticated checkpoint streams now pass their partial transport gate.
-Automatic entry-count checkpointing at controller apply boundaries now passes its
-partial gate. Durable whole-group membership and leadership handoff now pass
-an additional partial gate. Authenticated fresh-learner installation, catch-up,
-promotion and deleted-voter-disk replacement now pass a native partial gate.
-All five CG-05 acceptance cases now pass; complete the remaining fault/pressure
-and capture-fairness obligations before closing the task.
-CG-06 follows with archival reclamation. Automatic
-production request/voter startup and public SDK/fleet binding belong to CG-07;
-effects/cache lifecycle belong to CG-08, and final legacy removal to CG-16. Track
-these remaining capabilities in their owning tasks.
-Shared RustFS, independent voter failure domains, power loss and load remain unqualified.
+The final CG-05 slice fixes wrong-size wake starvation and transient item charges
+from byte-rejected budget attempts. It exposes advisory runtime lane usage and
+the existing exact-ticket checkpoint publication boundary. Both image forms fill
+all eight completion slots with actual fsynced work, retain the ninth checkpoint
+through admission and a held real engine fence, then finish its exact successor.
+Two concurrent writers share one checkpoint slot through a bounded 64-enrollment
+trace, inspect both newer checkpoints before the writers finish, and verify every
+cell and both selected closures on all three nodes. Every new native scenario runs
+directly inside the exact resource-bound acceptance case.
 
-The latest checkpoint at `bad0387c` removes checkpoint scheduling's
+Continue with CG-06 complete group S3 archival, verified checkpoint/tail coverage,
+safe log reclamation and fenced unmanaged recovery. Follow with CG-08 effects/cache
+lifetime, then CG-07 public SDK/fleet cutover. Idle-node orphan maintenance must be
+invoked by managed startup with the complete durable-reference inventory. The
+entry-count policy retains the idle tail; idle/time/byte checkpoint policy and
+coordinated wake remain future work. Real RustFS/load, broader crash schedules,
+independent domains, managed disaster recovery and final removal of the old host
+remain required later gates. The full end-to-end goal is not complete.
+
+The following checkpoints retain their historical source and partial boundaries.
+
+The preceding checkpoint at `bad0387c` removes checkpoint scheduling's
 dependence on free SQL apply slots. The bounded pending scan still visits other
 groups when SQL is full, starts checkpoint work within its own capacity, then
 defers SQL work without increasing its limit. Two physical image-barrier cases
@@ -923,48 +925,30 @@ boundary. At the end of each turn, record the completed behavior, evidence and
 limits, then identify the most critical remaining gap and the concrete next step.
 Do not let plan maintenance replace implementation.
 
-1. Finish the full CG-05 acceptance gate around the implemented checkpoint,
-   learner and membership paths. Bounded 32-cell transfer and physical reader
-   retention/release now pass, as do partial/synced dependency crash cuts and
-   transfer-time source-process revocation. The declared snapshot target and all
-   five exact cases now pass their prescribed command gate. Close the remaining
-   fault/lifecycle and availability requirements below before task completion. Preserve permanent claims, local install receipts, complete
-   physical recovery and unrelated-group progress.
-2. Pending-publication sync and cancelled controller shutdown now pass in both
-   image forms. An unrelated checkpoint now publishes while the sole SQL apply
-   slot remains physically held, with all owners retained. Complete remaining
-   CG-05 fault/lifecycle requirements: minority signed receipt
-   refusal, continuous capture fairness, exhausted apply/completion budgets, other
-   capture/admission cancellation boundaries, quarantine capacity and retained-root pressure.
-   Idle-node orphan collection and fresh-seed retry after interrupted dependency
-   writes now pass in both forms. Managed startup must invoke maintenance with all
-   groups and durable archive/transition references. Explicit joint restart after
-   replicated entry/exit now passes; this does not qualify every in-flight or
-   automatic-transition crash cut. Idle/time/byte checkpoint triggers require an
-   explicit cut-reservation contract. Keep the full task gate ahead of CG-06.
-3. Deliver CG-06 archive/reclamation with verified complete checkpoints and
-   contiguous tails. Upload completion alone cannot authorize reclaiming local
-   recovery dependencies or an S3 durability acknowledgement.
-4. Follow the declared dependency order through CG-08 and CG-07 for effect/cache
-   scheduling and production SDK/fleet cutover. Retain catalog and current-term
-   authorization, coalesced preparation, physical ownership after disconnect and
-   group-local quarantine. Shared storage uncertainty stays node-wide. A missing
-   receipt stays ambiguous; callbacks cannot be replayed automatically.
-5. Continue topology, placement, hibernation and fresh-incarnation recovery gates.
-   Remove `TransportRuntime::Legacy`, cell-scoped transport, `QueryVersion::GroupCut`
-   and `RaftClass::invoke_group_query` with the old host in CG-16. These transitional
-   paths must not become permanent modes. Never derive cell sequence or witness
-   from a group log position. Final qualification reruns all gates at one revision.
+1. Implement CG-06 complete-group checkpoints plus contiguous committed tails.
+   Replay cell-addressed LTX, enrollments, membership and administrative entries;
+   validate every cell base chain and dependency before publishing coverage.
+2. Keep Quorum progress separate from S3 settlement. Bound archive lag/unarchived
+   bytes and tie actual local truncation/purge to covering checkpoints, configured
+   archive policy and all live group/reader/transition pins. Verify unmanaged
+   fresh-incarnation seeding through the existing fencing authority.
+3. Follow CG-08 then CG-07 for effect/cache scheduling and production SDK/fleet
+   cutover. Preserve catalog/current-term authorization, captured inputs, exact
+   receipt reconciliation, cancellation ownership and group-local quarantine.
+4. Complete CG-09 through CG-12 for irreversible transfer, split/merge, placement
+   and authority-checked coordinated hibernation/wake. Retain independent cell
+   histories and versions; never derive them from a physical group log position.
+5. Build CG-14's real-infrastructure harness, then qualify managed/in-transition
+   S3 recovery in CG-13 and the complete crash/load/domain-loss matrix in CG-15.
+   CG-16 removes the old host, `TransportRuntime::Legacy`, cell-scoped transport,
+   `QueryVersion::GroupCut` and `RaftClass::invoke_group_query`, and reruns all gates
+   at one immutable source. These are required parts of the full hard cutover.
 
-Continue from `cell_groups/controller/checkpoints.rs`,
-`group_snapshot_transport/seed/`, `cell_groups/reclaim.rs`,
-`cell_groups/directory/joined_bootstrap.rs`, `cell_groups/apply/recovery.rs` and
-`tests/support/cell_group_seed_retry.rs`. Seed metadata and an imported snapshot
-cannot mint the local authenticated-install receipt. Keep configuration, membership,
-receipt and complete root atomic. Reconcile unknown results through the exact
-permanent claim and the existing page owner; retain physical owners through
-cancellation and joined shutdown. Use canonical configuration equality when
-comparing replay with live RawNode membership.
+Start from `cell_groups/checkpoint/`, `cell_groups/reclaim.rs`, existing `archive/`
+and `disaster.rs`, plus `cache.rs`/`storage.rs` for group log cuts and pins. Read
+`plan.py show CG-06` before creating its planned archive module/native target.
+Preserve fresh quorum, permanent fencing authority and complete physical recovery;
+source metadata and uploaded objects alone cannot establish those proofs.
 
 The opportunity is to reuse the existing shared consensus, SQL, read, apply and
 provisioning paths. Avoid adding per-cell workers or another serving mode while

@@ -5,10 +5,76 @@
 The executable design and implementation plan is delivered. Remaining
 end-to-end implementation and hard cutover work is specified in the
 [executor handoff](handoff.md).
-CG-01 through CG-04 have passed their scoped gates;
-CG-05 is IN_PROGRESS; CG-06 through CG-16 remain TODO. Intermediate contracts
+CG-01 through CG-05 have passed their scoped native gates;
+CG-06 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
+
+## CG-05 complete native snapshot/rebuild gate
+
+CG-05 is DONE at `e0550acd95a78cdf1852a408620eb054ee505669` after the complete native gate
+and a requirement-by-requirement closure audit. All five required cases pass
+individually with exact one-test selection. The expanded gate passes 156 shared
+execution cases, nineteen storage cases, six budget cases and nineteen legacy runtime
+regressions: 205 distinct Rust cases across five executables. All eighteen
+commands pass, including all-target build/Clippy, formatting/layout, dependency
+isolation, docs, source preflight and 37 plan-validator tests. No required case,
+oracle, command, deadline, configured resource limit or profile was weakened.
+
+The record
+`.cellar/cell-groups-evidence/CG-05-completion-admission/qualification/checkpoint.json`
+binds 337 source hashes, five executables, frozen plan inputs, both budget
+reproductions, intermediate trials and the preceding checkpoint. Independent
+verification and `check_evidence` pass. Task status and the generated implementation
+index now select CG-06 as the next dependency-ready task.
+
+| CG-05 requirement | Direct current native evidence |
+| --- | --- |
+| One complete same-cut root, membership/configuration and all cells, while later writes continue | `snapshot_contains_every_cell_at_cut`: both image forms, exact selected closure, concurrent cell advances and stale/foreign/corrupt refusal. |
+| Verify all receiver dependencies before atomic installation; interrupted state never serves | `partial_snapshot_never_serves`: actual TLS/engine receivers, physical byte verification, missing/corrupt/foreign/budget refusal, revocation/sync cuts, owned seed SIGKILL and fresh authenticated same-disk retry. |
+| Whole-group learner, joint membership, handoff and disk replacement preserve permanent claims/quorum | `whole_group_learner_and_joint_change`: complete learner install/catch-up before promotion, explicit/implicit joint changes, leadership handoff, deleted-voter replacement, joint restart and minority refusal. |
+| Empty/populated cells and retained checkpoint/current suffix survive physical recovery | `snapshot_empty_cell_and_extent_restart`: Raft-generated TLS catch-up, both representations, independent sequence-1 cells, cold restart and missing-closure refusal. |
+| Bounded transfer, live pins, cancellation, joined owners and unrelated-group progress | `snapshot_memory_and_pin_bounds`: 32-cell streaming/scratch pressure, old-reader retention/deletion, shared-store orphan reconciliation, held publication/install shutdown, full SQL apply capacity, eight-slot completion saturation and two concurrent writers through one checkpoint slot. |
+
+The final implementation fixes two admission faults. A partial refund used to
+wake only the first registered waiter, even when its larger request still could
+not fit. Release/shrink now wake registered waiters and retain a stored signal for
+late worker registration. Separate item and byte atomics could also expose a
+temporary item charge from a byte-rejected attempt. Both dimensions now reserve
+and refund in one short mutex scope; notifications run after unlocking. Four new
+regressions plus the existing two accounting cases pass. The original two wake
+failures and subsequent concurrent-reservation failure retain exact source,
+output and executable hashes. The notification-only probe passes the former
+cases before demonstrating the second fault; the final Cargo gate validates both
+fixes together.
+
+`CellGroupRuntime::usage` exposes advisory lane counters without request admission.
+`checkpoint_before_apply` exposes the controller's existing exact-ticket publication
+boundary for embedding owners. Eight real fsynced apply completions fill its fixed
+admission; a ninth checkpoint retains its source while waiting. Admission refunds
+before the actual storage fence, while the source remains charged. Releasing that
+fence selects the complete checkpoint; the successor then applies. Both image
+forms run directly in the resource acceptance case on explicitly owned, joined
+current-thread runtimes.
+
+Two independent writers additionally enroll 32 real cells per group. While one
+receiver holds node-zero capture capacity, both groups continue applying. After
+release, both have newer checkpoints at the 25-entry cut, before either writer
+finishes its remaining seven entries. All three nodes recover the selected current
+and checkpoint closures and every independent sequence-1 cell. This is a bounded
+native progress trace, not a measured starvation or latency bound for arbitrary
+traffic.
+
+**Reflection and next step:** the snapshot/rebuild task's declared native
+requirements now have implementation and current-source evidence. The next
+critical feature task is CG-06: complete group S3 checkpoint plus contiguous
+cell-addressed committed tail, independently verified coverage, safe local log
+reclamation and fenced unmanaged seeding under fresh incarnations. CG-08 effects/
+cache lifetime and CG-07 SDK/fleet cutover follow. Entry-count policy retains its
+idle final tail; idle/time/byte policy and coordinated wake remain future work.
+Real RustFS, measured load, remaining crash/deployment schedules, independent
+failure domains, managed zero-quorum recovery and removal of the old architecture
+remain required in their later task/release gates. CG-06 through CG-16 remain TODO.
 
 ## CG-05 checkpoint progress while SQL apply capacity is full
 

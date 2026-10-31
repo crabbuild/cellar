@@ -1558,7 +1558,7 @@
     {
       "id": "CG-05",
       "title": "Snapshot and rebuild complete groups through membership changes",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P1",
       "effort": "L",
       "risk": "HIGH",
@@ -1688,7 +1688,9 @@
         "I08",
         "I12"
       ],
-      "evidence": [],
+      "evidence": [
+        ".cellar/cell-groups-evidence/CG-05-completion-admission/qualification/checkpoint.json"
+      ],
       "stop_conditions": [
         "A current source excerpt no longer matches: review and record the successor baseline before edits.",
         "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
