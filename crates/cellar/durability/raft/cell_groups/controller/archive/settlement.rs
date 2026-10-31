@@ -32,7 +32,7 @@ impl CommandProof {
 
 pub(crate) struct Settled {
     pub receipt: Box<CellSqlReceipt>,
-    pub proof: CommandProof,
+    pub proof: Box<CommandProof>,
 }
 
 pub(in crate::raft::cell_groups::controller) struct Request {
@@ -291,13 +291,13 @@ pub(super) async fn prove(
                 } = request;
                 let _ = reply.send(Ok(Settled {
                     receipt,
-                    proof: CommandProof {
+                    proof: Box::new(CommandProof {
                         _coverage: coverage.clone(),
                         _journal: context.journal.clone(),
                         _permit: permit,
                         directory: registration.directory.clone(),
                         birth: registration.birth.clone(),
-                    },
+                    }),
                 }));
             }
         }

@@ -62,7 +62,7 @@ pub enum CellCommandSettlement {
 pub struct CellCommandResponse {
     receipt: Box<CellSqlReceipt>,
     token: CellVersionToken,
-    s3: Option<super::super::controller::S3CommandProof>,
+    s3: Option<Box<super::super::controller::S3CommandProof>>,
 }
 
 impl CellCommandResponse {
