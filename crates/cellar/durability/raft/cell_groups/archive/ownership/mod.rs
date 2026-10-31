@@ -506,7 +506,7 @@ impl CellGroupArchiveRegistry {
             return Err(CellGroupArchiveError::Invalid("publication intent purpose"));
         }
         match self.load().await?.0.reconcile(intent)? {
-            Some(Allocation::Hold(hold)) => Ok(hold),
+            Some(Allocation::Hold(hold)) => Ok(*hold),
             _ => Err(CellGroupArchiveError::Expired),
         }
     }
