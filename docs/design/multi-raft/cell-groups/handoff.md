@@ -36,36 +36,46 @@ partial gate. Durable whole-group membership and leadership handoff now pass
 an additional partial gate. Authenticated fresh-learner installation, catch-up,
 promotion and deleted-voter-disk replacement now pass a native partial gate.
 All five CG-05 acceptance cases now pass; complete the remaining fault/pressure
-and retry-availability obligations before closing the task.
+and capture-fairness obligations before closing the task.
 CG-06 follows with archival reclamation. Automatic
 production request/voter startup and public SDK/fleet binding belong to CG-07;
 effects/cache lifecycle belong to CG-08, and final legacy removal to CG-16. Track
 these remaining capabilities in their owning tasks.
 Shared RustFS, independent voter failure domains, power loss and load remain unqualified.
 
-The latest controller-publication checkpoint at `370dcf34` passes 146
-execution cases, nineteen Raft-storage cases and the updated exact resource-bound
-snapshot case, with ten scoped commands. Its record under
-`.cellar/cell-groups-evidence/CG-05-controller-checkpoint-shutdown-final/` binds
-332 source hashes and three executables; independent hashes pass. The other
-four exact snapshot cases and all-target checks remain at their earlier source.
-CG-05 remains IN_PROGRESS and production runtime code is unchanged.
+The latest checkpoint at `5cfa9fb6` adds production idle-node orphan
+maintenance and authenticated retry on the same interrupted learner disk. All five
+exact snapshot cases, 150 execution cases, nineteen Raft-storage cases and 38
+relevant LTX cases pass. All nineteen commands pass, including the complete CG-05
+prescribed gate and all-target Clippy for the affected crates. Its record under
+`.cellar/cell-groups-evidence/CG-05-node-orphan-retry/` binds 335 source hashes,
+six executables and frozen inputs; independent hashes and `check_evidence` pass.
+CG-05 remains IN_PROGRESS pending broader lifecycle/pressure qualification.
 
-Both image forms now hold the actual publication sync after lifecycle/source
-admission, fill checkpoint capacity and cancel both close and wait. Slot, source,
-bytes and engine/SQL ownership remain retained until physical release. The healthy
-two-voter quorum commits four writes to the other group during the stall. Release
-publishes the preceding checkpoint, leaves the successor unapplied, drains
-admission and permits a replacement runtime. Existing fault modes retain their
-default behavior; the predicate is opt-in and released by its guard.
+`ReplicaLog::reclaim_cell_storage` requires joined runtime/SQL ownership and one
+exact applier per physical engine group, plus every additional durable retained
+root. It verifies current/checkpoint closures before bounded deletion, merges
+references across shared image stores, preserves live pins and holds both engine
+claims through cancelled work. Missing/duplicate/foreign/oversized/busy inventories
+refuse. Managed orchestration must supply the complete inventory and call this
+idle-node boundary; it is not a serving-node collector or Raft log truncation API.
 
-The next concrete implementation is interrupted-seed orphan reconciliation and
-fresh authenticated retry. Extent startup inventories partial files without
-trusting them; immutable import refuses a partial existing object. Supply complete
-node references before collecting unselected orphans, preserve selected current
-and checkpoint roots plus live pins, and verify retry on the same disk. A single
-group must not reconcile or delete another group's shared objects. Continue the
-remaining controller crash/budget/fairness and retained-root pressure qualification.
+Four new SIGKILL scenarios interrupt prefix/synced dependencies in both forms.
+Original voter disks resume, establish fresh quorum and commit a newer cell;
+the same learner disk collects unselected debris and receives a fresh TLS seed.
+Ordinary routing refuses until the authenticated install receipt exists. The
+learner catches a live suffix; another cold reopen verifies all four independent
+cell sequences and current/checkpoint closures. Original voter disks remain intact.
+Shared image tests preserve both groups and an independent reader, collect one
+file per request and join cancellation. Continue capture fairness, remaining
+controller crash/completion-budget and retained-root pressure qualification.
+
+The preceding controller-publication checkpoint at `370dcf34` retains the actual
+held publication-sync and cancelled-close cuts in both forms. The healthy two-voter
+quorum commits another group's writes while the stalled node retains its lifecycle
+slot, captured source, bytes and engine/SQL ownership. Release selects the preceding
+checkpoint and joins shutdown. Its source-bound record remains under
+`.cellar/cell-groups-evidence/CG-05-controller-checkpoint-shutdown-final/`.
 
 The earlier exact-acceptance checkpoint at `f076731a` delivers
 `native_cell_groups_snapshot` with all five required native oracles. Each passes
@@ -85,11 +95,10 @@ composite membership test constructs futures outside its poll frame after phase
 probes reproduced a debug stack overflow. The standalone case passed and the
 fixed complete composite passes; no stack limits, timeouts or assertions changed.
 
-The pending-publication cancelled-shutdown cut now passes above. Continue
-remaining controller lifecycle/saturation cuts and staged orphan reconciliation
-before authenticated retry. Preserve fresh quorum,
-physical-owner retention and selected-root checks. Production runtime code was
-unchanged in this checkpoint; RustFS/load, independent-domain and public host
+The pending-publication cancelled-shutdown and idle-node orphan/retry cuts
+now pass above. Continue remaining controller lifecycle/saturation and capture
+fairness qualification. Preserve fresh quorum, physical-owner retention and
+complete selected-root checks. RustFS/load, independent-domain and public host
 cutover qualification remain open.
 
 The earlier interrupted-transfer checkpoint at `6e56f21f` passes all 144
@@ -906,9 +915,10 @@ Do not let plan maintenance replace implementation.
 2. Pending-publication sync and cancelled controller shutdown now pass in both
    image forms. Complete remaining CG-05 fault/lifecycle requirements: minority signed receipt
    refusal, continuous capture fairness, exhausted apply/completion budgets, other
-   capture/admission cancellation boundaries, quarantine capacity and retained-root pressure. Track automatic orphan cleanup
-   and fresh-seed retry after interrupted dependency writes; safe refusal alone
-   does not prove retry availability. Explicit joint restart after
+   capture/admission cancellation boundaries, quarantine capacity and retained-root pressure.
+   Idle-node orphan collection and fresh-seed retry after interrupted dependency
+   writes now pass in both forms. Managed startup must invoke maintenance with all
+   groups and durable archive/transition references. Explicit joint restart after
    replicated entry/exit now passes; this does not qualify every in-flight or
    automatic-transition crash cut. Idle/time/byte checkpoint triggers require an
    explicit cut-reservation contract. Keep the full task gate ahead of CG-06.
@@ -926,9 +936,10 @@ Do not let plan maintenance replace implementation.
    paths must not become permanent modes. Never derive cell sequence or witness
    from a group log position. Final qualification reruns all gates at one revision.
 
-Continue from `group_snapshot_transport/seed/`,
+Continue from `cell_groups/controller/checkpoints.rs`,
+`group_snapshot_transport/seed/`, `cell_groups/reclaim.rs`,
 `cell_groups/directory/joined_bootstrap.rs`, `cell_groups/apply/recovery.rs` and
-`tests/support/cell_group_seed_install.rs`. Seed metadata and an imported snapshot
+`tests/support/cell_group_seed_retry.rs`. Seed metadata and an imported snapshot
 cannot mint the local authenticated-install receipt. Keep configuration, membership,
 receipt and complete root atomic. Reconcile unknown results through the exact
 permanent claim and the existing page owner; retain physical owners through

@@ -23,8 +23,11 @@ Bounded 32-cell transfer, scratch contention and old-reader image retention/rele
 now pass in both image forms. Partial/synced seed-dependency SIGKILL cuts and transfer-time source-process
 revocation now pass. All five exact native acceptance cases and their prescribed command gate now pass.
 Controller publication through cancelled shutdown now passes in both image forms.
-Remaining CG-05 recovery availability and broader pressure qualification precedes
-verified S3 archive/reclamation. The production host has not yet cut over to shared groups.
+Idle-node complete-inventory orphan collection and fresh authenticated retry on the
+same interrupted learner disk now pass in both forms, including live suffix catch-up
+and cold restart. Remaining capture fairness and controller/budget/root-pressure
+qualification precedes verified S3 archive/reclamation. The production host has
+not yet cut over to shared groups.
 See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.
 

@@ -10,6 +10,68 @@ CG-05 is IN_PROGRESS; CG-06 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-05 idle-node orphan reclamation and authenticated cold retry
+
+Qualified source: `5cfa9fb652c32cc75934ef3d0a32e22ffc009f35`. `ReplicaLog::reclaim_cell_storage`
+now reconciles the complete physical engine inventory and collects bounded batches
+of unselected image/page files. Both materialized and extent images are supported.
+The complete prescribed CG-05 command gate passes at this source: all five exact
+snapshot cases, all-target build and Clippy, formatting and layout. The expanded
+gate also passes 150 shared-execution cases, nineteen Raft-storage cases and
+38 relevant LTX cases, plus dependency isolation, docs, source preflight and
+37 plan-validator tests. All nineteen command logs pass.
+
+The record
+`.cellar/cell-groups-evidence/CG-05-node-orphan-retry/checkpoint.json`
+binds 335 source hashes, six copied executables, frozen plan inputs, the prior
+checkpoint and intermediate trial outputs. Independent hashes and the plan's
+`check_evidence` pass. CG-05 remains IN_PROGRESS; the native gate does not close
+the remaining lifecycle/pressure obligations or qualify the production cutover.
+
+Maintenance requires joined runtime and SQL ownership and holds both exclusive
+claims through physical completion. It runs on the existing engine worker, where
+group creation/publication cannot interleave. It refuses missing, duplicate,
+foreign, oversized or busy inventories. Before deletion it verifies every group's
+current and retained checkpoint closures, merges image references across shared
+stores and retains caller-supplied durable archive/transition roots. The node must
+exclusively own those image stores. Existing live reader pins and file/directory
+sync barriers still govern deletion and capacity refunds. This is idle-node orphan
+maintenance; it supplies no archive coverage, Raft log truncation or serving authority.
+
+Two new shared-inventory cases use two groups with one image store in each form.
+They retain both groups' current/checkpoint images, collect an actual orphan with
+`max_files=1`, preserve and read an independent old image, then collect it after
+its reader releases. A queued request retains engine/SQL claims after its waiter
+is aborted, and cancelled engine close waits for physical completion.
+
+Two new retry cases run four additional owned SIGKILL scenarios: partial and synced
+dependency writes in both image forms. The original voter disks reopen with fresh
+process identities, establish a new term/quorum and commit a newer cell before
+retry. The same learner disk collects its unselected transfer debris while its
+empty stage still refuses bootstrap. Fresh TLS seed installation supplies the
+authenticated local receipt; ordinary routing refuses before that receipt. The
+learner then applies a live Raft suffix. A second cold reopen verifies all four
+independent sequence-1 cells and both current/checkpoint closures. These cases
+retain the voter disks; they do not exercise zero-quorum S3 recovery.
+
+The supplemental `generation` library filter selected zero tests. Its output is
+retained as non-qualifying diagnostic evidence; the actual `private_clone` and
+`extent_store` integration targets supply the relevant image-store regressions.
+Compiler failures during fixture wiring and a correctly refused pre-seed route
+are retained in the intermediate logs. Context probes identified the premature
+ordinary route installation. The fixtures now assert that refusal and install the
+route only after the authenticated receipt; source checkpoint registration follows
+the fresh route. No production transport/fencing check or assertion was relaxed.
+
+**Reflection and next step:** same-disk orphan cleanup and authenticated retry are
+implemented at the idle-node API boundary. Managed orchestration must eventually
+invoke this boundary with every durable reference. Finish sustained-write capture
+fairness and remaining controller/completion-budget/root-pressure qualification
+before closing CG-05. Then implement CG-06 complete S3 checkpoint plus contiguous
+tail coverage and safe local Raft log reclamation. CG-08 effects/cache lifetime and
+CG-07 SDK/fleet cutover follow; topology, placement, hibernation, fenced recovery
+under fresh incarnations, real RustFS/load and final legacy removal remain open.
+
 ## CG-05 controller publication ownership through cancelled shutdown
 
 Qualified source: `370dcf3465b3161c9e69e8b1f398bc9d49450c0c`. Both new controller publication tests pass

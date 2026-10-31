@@ -287,6 +287,26 @@ the existing physical store owner; selected pins prevent reopening that director
 while it is still owned. It verifies current and retained checkpoint closures
 without introducing catalog or quorum authority.
 
+`ReplicaLog::reclaim_cell_storage` performs idle-node orphan maintenance after
+runtime and SQL shutdown have joined. It reserves both exclusive claims until
+physical completion and serializes on the existing engine worker. Callers supply
+one exact applier for every physical group, including unattached/retired groups,
+and every additional durable archive/transition root. The image stores must belong
+exclusively to this engine. Missing, duplicate, foreign, oversized or busy
+inventories refuse. It verifies all selected current and checkpoint closures and
+merges references by exact shared-store owner before any deletion. Live pins
+remain independent protection; file and directory barriers precede quota refund.
+Limits bound selected cells, reclaimed files and page scans. Cancellation retains
+queued work and claims; engine close joins completion. This API grants neither
+Raft log truncation nor S3 coverage and does not run during normal serving.
+
+After interrupted dependency writes, collect only unselected debris, then obtain
+a fresh seed from a fresh quorum. The empty stage still has no startup permission.
+Install its ordinary process route only after authenticated seed installation
+produces the local receipt; a staged grant is not ordinary membership authority.
+Register source checkpoint endpoints after installing their current physical
+routes so the captured transport route matches the fresh source process.
+
 `bootstrap_joined_group_member` resumes only a locally receipted install with the
 same permanent remote claim and active node/disk-bound membership. Full physical
 recovery still verifies both current and retained checkpoint closures before
