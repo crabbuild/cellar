@@ -40,9 +40,25 @@ CG-06 follows with archival reclamation. Automatic
 production request/voter startup and public SDK/fleet binding belong to CG-07;
 effects/cache lifecycle belong to CG-08, and final legacy removal to CG-16. Track
 these remaining capabilities in their owning tasks.
-Shared RustFS, independent-process/power-loss and load remain unqualified.
+Shared RustFS, independent voter failure domains, power loss and load remain unqualified.
 
-The latest persistence checkpoint at `3ea90fb5` passes 9 selected seed tests
+The latest seed-process checkpoint at `b997a48b` passes 11 selected seed tests
+and eight scoped commands. The record under
+`.cellar/cell-groups-evidence/CG-05-seed-process-crash/` binds 324 source hashes
+and one executable. Two parent tests perform eight owned SIGKILL runs across both
+image forms: durable stage, before engine sync, after sync and after publication.
+Production TLS source/receiver transfer real quorum-authorized seeds. Cold reopen
+checks the complete selected/retained root and local receipt; a stage refuses
+startup and a recovered learner refuses valid writes without quorum.
+
+The frozen synthetic catalog preserves pre-fault external claims only for the
+fixture. It is not S3 durability or a recovery API. All source voters and the
+learner share the killed child; independent voter failure domains, power loss,
+mid-stream cuts, joint restart, RustFS/load and zero-quorum recovery remain open.
+The next critical work is retained-disk joint-consensus restart and completion,
+then the remaining bounded-pressure and exact CG-05 acceptance cases.
+
+The earlier persistence checkpoint at `3ea90fb5` passes 9 selected seed tests
 and eight scoped commands. Its record under
 `.cellar/cell-groups-evidence/CG-05-seed-persistence/` binds 323 source hashes
 and one executable. In both image forms, queued source-process revocation refuses
@@ -53,9 +69,9 @@ receipt together. Recovered learners still refuse valid proposals without quorum
 Production receiver/storage code was unchanged. These are native one-process
 fixtures, not process-kill, power-loss, managed fleet or RustFS qualification.
 
-The immediate next gap is process-kill installation and joint-transition recovery;
-transfer-time revocation, signed minority receipts, pressure and the full CG-05
-acceptance gate also remain open. Broader predecessor test results are historical.
+The newer seed-process checkpoint above covers the staged and engine-boundary
+process-kill cases. Joint-transition recovery, mid-stream revocation/crash, signed
+minority receipts, pressure and the full CG-05 gate remain open.
 
 The earlier receiver-fault checkpoint at `3db498ea` passes 167 selected Rust
 cases across shared execution/catalog/storage and eight gate commands. Its record
@@ -761,15 +777,16 @@ Do not let plan maintenance replace implementation.
 
 1. Finish the full CG-05 acceptance gate around the implemented fresh-learner
    replacement path. Extend `group_snapshot_transport/seed/` and its production
-   controller fixture with process-kill install cuts and process-generation
-   revocation during transfer. Reply/chunk faults, pre-install and queued/entered
-   revocation, and sync-error recovery now pass in both image forms. Qualify
+   controller fixture with retained-disk joint-consensus restart/completion and
+   process-generation revocation during transfer. Reply/chunk faults, pre-install
+   and queued/entered revocation, sync-error recovery and staged/engine-boundary
+   process kills now pass in both image forms. Qualify
    minority signed receipt refusal and joint-transition restart. Native retained
    peer reconnection and minority commit/read refusal now pass in both image forms.
    Preserve permanent claims, local install receipts and complete physical recovery.
 2. Complete CG-05 qualification around the delivered membership features.
    Preserve all five exact acceptance cases. Add joint-transition crash cuts,
-   receiver process-kill cuts, continuous checkpoint saturation fairness,
+   mid-stream receiver process-kill cuts, continuous checkpoint saturation fairness,
    exhausted apply/completion budgets,
    held sync/cancelled close, quarantine capacity and retained-root pressure.
    Keep unrelated-group progress and bounded physical ownership observable.

@@ -10,6 +10,50 @@ CG-05 is IN_PROGRESS; CG-06 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-05 seed installation across process kills
+
+Qualified source: `b997a48ba686fceb2531cd96ae2734c9bed84fc9`. All 11 selected seed tests pass,
+including two new parent tests covering four process-kill cuts in each image form.
+One ignored child fixture is invoked explicitly by each parent; it is not counted
+as a standalone pass. Eight scoped commands pass: Clippy for the execution target,
+seed tests, formatting, layout, dependency isolation, docs, source preflight and
+37 plan-validator tests. The source-bound record
+`.cellar/cell-groups-evidence/CG-05-seed-process-crash/checkpoint.json` binds
+324 source hashes, one copied executable, frozen plan inputs and intermediate
+logs. Independent hash verification passes. Broader predecessor suites remain
+historical results, not additional current-source passes.
+
+Each owned child starts a real three-voter shared group with two SQLite cells,
+commits a fresh learner and transfers its seed using the production TLS sender and
+receiver. The parent waits for a complete reached-cut signal and kills only that
+child, checks its Unix exit signal is SIGKILL, and joins it. Cuts occur after durable
+staging, before the destination engine sync, after that sync and after publication.
+The child and parent execute the same test binary, retained with this checkpoint.
+
+Cold recovery opens the original learner disk with a new process identity and
+verifies the selected root plus physical closure. The staged-only cut has no
+checkpoint or authenticated local receipt and refuses startup. The pre-sync cut
+allows either complete old or complete new state; both observed runs retained the
+new seed. Post-sync and publication cuts require the complete seed, both cells,
+retained checkpoint, learner membership and local receipt. Attaching a recovered
+learner still refuses a valid enrollment without quorum and cannot advance its root.
+
+The parent restores a bounded frozen copy of this fixture's synthetic catalog,
+including the permanent destination claim captured before the fault. It never
+manufactures a new claim from recovered disk contents. This fixture catalog is
+not an object-store durability implementation or S3 disaster-recovery protocol.
+All source voters and the destination share the killed child process. The tests
+qualify these learner-install crash cuts, not independent voter domains, device
+power loss, mid-stream crash cuts, joint-transition restart, RustFS or zero-quorum
+recovery. Production runtime behavior was unchanged.
+
+**Reflection and next step:** seed engine-boundary process kills now have direct
+native evidence. The next critical gap is restarting and completing joint consensus
+from retained disks. Follow with mid-stream cancellation/crash and pressure coverage,
+map the existing proof to all five exact CG-05 cases, and complete that gate before
+CG-06 verified S3 archive/reclamation. CG-05 remains IN_PROGRESS and the full hard
+cutover remains unfinished.
+
 ## CG-05 seed persistence revocation and sync outcomes
 
 Qualified source: `3ea90fb5d67d7c66aa842781788c403aa2afc80a`. All 9 selected seed tests pass,

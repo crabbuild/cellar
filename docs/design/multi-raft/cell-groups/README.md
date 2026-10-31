@@ -17,7 +17,8 @@ refusal, revoked/expired sessions, retained-peer reconnection and minority commi
 refusal also pass. Receiver reply/chunk faults and pre-install process revocation
 now pass; physical verifier failures promptly close blocked seed/checkpoint streams.
 Queued/entered seed revocation and sync-error recovery now pass in both image forms.
-Remaining CG-05 process-kill, joint-restart, pressure and full acceptance gates precede
+Staged and engine-boundary seed SIGKILL recovery now passes in both image forms.
+Remaining CG-05 mid-stream cuts, joint restart, pressure and full acceptance gates precede
 verified S3 archive/reclamation. The production host has not yet cut over to shared groups.
 See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.
