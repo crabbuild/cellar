@@ -42,7 +42,22 @@ effects/cache lifecycle belong to CG-08, and final legacy removal to CG-16. Trac
 these remaining capabilities in their owning tasks.
 Shared RustFS, independent-process/power-loss and load remain unqualified.
 
-The latest receiver-fault checkpoint at `3db498ea` passes 167 selected Rust
+The latest persistence checkpoint at `3ea90fb5` passes 9 selected seed tests
+and eight scoped commands. Its record under
+`.cellar/cell-groups-evidence/CG-05-seed-persistence/` binds 323 source hashes
+and one executable. In both image forms, queued source-process revocation refuses
+before the seed fence; revocation after entering the fence retains physical owners
+and reconciles the complete seed. Sync errors before/after the underlying sync
+close all engine admission and cold recovery verifies the complete root and local
+receipt together. Recovered learners still refuse valid proposals without quorum.
+Production receiver/storage code was unchanged. These are native one-process
+fixtures, not process-kill, power-loss, managed fleet or RustFS qualification.
+
+The immediate next gap is process-kill installation and joint-transition recovery;
+transfer-time revocation, signed minority receipts, pressure and the full CG-05
+acceptance gate also remain open. Broader predecessor test results are historical.
+
+The earlier receiver-fault checkpoint at `3db498ea` passes 167 selected Rust
 cases across shared execution/catalog/storage and eight gate commands. Its record
 under `.cellar/cell-groups-evidence/CG-05-seed-receiver-faults/` binds 322 source
 hashes and three executables. Two new cases cover ten malformed reply and eleven
@@ -53,11 +68,9 @@ checkpoint loops now observe physical verifier failure while network input is
 pending; reproduced held-open offset failures no longer retain admission until
 timeout. Unchanged legacy snapshot/storage suites were not rerun in this scoped gate.
 
-Next qualify revocation while transferring or queued for persistence, sync-error
-and process-kill installation outcomes, joint-transition restart, signed minority
-receipt refusal, large/empty group bounds and all five exact CG-05 cases. Native
-pre-install process revocation does not qualify the queued/entered persistence
-boundary or managed fleet, independent-process, RustFS/load and zero-quorum recovery.
+The newer persistence checkpoint above adds queued/entered revocation and sync
+errors. Transfer-time revocation, process-kill outcomes, joint-transition restart,
+signed minority receipts, pressure and all five exact CG-05 cases remain open.
 
 The earlier seed-fault/reconnect checkpoint at `de552f6d` passes 238 Rust
 cases and eight commands. Its record under
@@ -748,15 +761,15 @@ Do not let plan maintenance replace implementation.
 
 1. Finish the full CG-05 acceptance gate around the implemented fresh-learner
    replacement path. Extend `group_snapshot_transport/seed/` and its production
-   controller fixture with process-generation revocation during transfer and queued
-   persistence, sync failures and process-kill cuts. Reply/chunk faults and
-   pre-install process revocation now pass in both image forms. Qualify
+   controller fixture with process-kill install cuts and process-generation
+   revocation during transfer. Reply/chunk faults, pre-install and queued/entered
+   revocation, and sync-error recovery now pass in both image forms. Qualify
    minority signed receipt refusal and joint-transition restart. Native retained
    peer reconnection and minority commit/read refusal now pass in both image forms.
    Preserve permanent claims, local install receipts and complete physical recovery.
 2. Complete CG-05 qualification around the delivered membership features.
    Preserve all five exact acceptance cases. Add joint-transition crash cuts,
-   receiver crash/sync-error cuts, continuous checkpoint saturation fairness,
+   receiver process-kill cuts, continuous checkpoint saturation fairness,
    exhausted apply/completion budgets,
    held sync/cancelled close, quarantine capacity and retained-root pressure.
    Keep unrelated-group progress and bounded physical ownership observable.

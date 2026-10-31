@@ -10,6 +10,51 @@ CG-05 is IN_PROGRESS; CG-06 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-05 seed persistence revocation and sync outcomes
+
+Qualified source: `3ea90fb5d67d7c66aa842781788c403aa2afc80a`. All 9 selected seed tests pass,
+including two new tests covering four persistence cuts in each image form.
+Eight scoped commands pass: Clippy for the execution integration target, selected
+seed tests, formatting, layout, dependency isolation, docs, source preflight and
+37 plan-validator tests. The record
+`.cellar/cell-groups-evidence/CG-05-seed-persistence/checkpoint.json` binds
+323 source hashes, one copied executable, frozen plan inputs and retained
+intermediate logs. Independent hash verification passes. Broader predecessor
+results are historical; this checkpoint does not rerun the full shared suites.
+
+A held node-revision fence and the actual engine queue metric establish that the
+seed install is queued. Reopening the source engine with a fresh process and
+publishing its NodeView through the catalog revokes the admitted grant. The
+engine refuses it with WrongIdentity before publication. Both live and cold
+recovered destination roots remain the empty stage, with no checkpoint or startup
+receipt. The pending install retains physical receive admission until the held
+engine work completes.
+
+A separate cut revokes the source after the seed enters the filesystem fence.
+The install retains its owners until sync completes and preserves the complete
+seed despite late revocation. The receipt cannot appear before the fence.
+Cold recovery revalidates the selected and retained roots, both cell images and
+learner membership. A recovered learner refuses a valid enrollment without quorum.
+
+Injected failures immediately before and after the underlying sync return typed
+I/O errors. The uncertain engine refuses metadata reads, further writes and
+bootstrap; joined runtime/storage shutdown reports the failure. Reopening verifies
+the complete root and local receipt together. The pre-sync cut permits either
+complete old or complete new selection; the post-sync error requires the new
+seed. Both observed pre-sync runs recovered the seed, illustrating why failure
+cannot imply rollback. This uses an independently authenticated TLS fixture fed
+by a real quorum-authorized cut; production receiver/storage behavior was unchanged.
+
+**Reflection and next step:** queued and entered process revocation plus sync-error
+reconciliation now have direct coverage in both image forms. The most critical
+remaining gap is actual process-kill installation and joint-transition recovery.
+Next add child-process cuts around the seed fence and verify complete recovery,
+then finish transfer-time revocation, signed minority receipts, large/empty-group
+pressure and all five exact CG-05 acceptance cases. No OS process kill, power loss,
+managed fleet, shared-group RustFS/load or zero-quorum recovery is qualified here.
+CG-05 remains IN_PROGRESS; archive/reclamation and production hard cutover remain
+required downstream work.
+
 ## CG-05 receiver faults and physical verifier completion
 
 Qualified source: `3db498eacf4bd0621b7a0ecdf11ee68fe2a3ed32`. All 167 selected Rust cases pass across shared
