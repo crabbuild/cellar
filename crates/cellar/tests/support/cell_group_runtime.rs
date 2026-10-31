@@ -824,7 +824,7 @@ pub(super) use sql::seed_install;
 
 pub(super) use sql::seed_receiver_faults;
 
-pub(super) use sql::seed_persistence;
+pub(super) use sql::{seed_persistence, seed_transfer_revocation};
 
 pub(super) use sql::{seed_crash, seed_process_fixture};
 

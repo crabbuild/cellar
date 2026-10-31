@@ -614,7 +614,7 @@ pub(crate) use seed_receiver::seed_receiver_faults;
 
 #[path = "cell_group_seed_persistence.rs"]
 mod seed_persistence;
-pub(crate) use seed_persistence::seed_persistence;
+pub(crate) use seed_persistence::{seed_persistence, seed_transfer_revocation};
 
 #[path = "cell_group_seed_crash.rs"]
 mod seed_crash;

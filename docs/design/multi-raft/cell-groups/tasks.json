@@ -1591,7 +1591,8 @@
         "crates/cellar/tests/support/cell_group_seed.rs",
         "crates/cellar/tests/support/cell_group_seed_install.rs",
         "crates/cellar/tests/support/cell_group_seed_probes.rs",
-        "crates/cellar/tests/support/cell_group_seed_receiver.rs"
+        "crates/cellar/tests/support/cell_group_seed_receiver.rs",
+        "crates/cellar/tests/support/raft_storage_fault.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/cell_groups/checkpoint/mod.rs",

@@ -25,7 +25,14 @@ pub(super) fn stores(
     base: &Path,
     rooted: bool,
 ) -> Result<(ManifestPageStore, CellGroupApplyImages)> {
-    let filesystem = Arc::new(DirectFileSystem);
+    stores_with_filesystem(base, rooted, Arc::new(DirectFileSystem))
+}
+
+pub(super) fn stores_with_filesystem(
+    base: &Path,
+    rooted: bool,
+    filesystem: Arc<dyn cellar_ltx::FileSystem>,
+) -> Result<(ManifestPageStore, CellGroupApplyImages)> {
     let pages = ManifestPageStore::open(
         &base.join("pages"),
         filesystem.clone(),

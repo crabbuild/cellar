@@ -10,10 +10,15 @@ use tokio::net::TcpListener;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Cut {
+    StreamingRevocation,
     QueuedRevocation,
     EnteredRevocation,
     SyncError,
     AfterSyncError,
+}
+
+pub(crate) async fn seed_transfer_revocation(rooted: bool) -> Result<()> {
+    Box::pin(run(rooted, Cut::StreamingRevocation)).await
 }
 
 pub(crate) async fn seed_persistence(rooted: bool) -> Result<()> {
@@ -113,7 +118,12 @@ async fn run(rooted: bool, cut: Cut) -> Result<()> {
     .await?;
     let group = session.group().clone();
     let staged = group.group_manifest()?.context("staged root")?;
-    let (pages, images) = seed_install::stores(&base, rooted).context("open destination stores")?;
+    let (pages, images) = seed_install::stores_with_filesystem(
+        &base,
+        rooted,
+        Arc::new(fault::FaultFileSystem { gate: gate.clone() }),
+    )
+    .context("open destination stores")?;
     let recovering = group.clone();
     let (applier, root) = fixture
         .cluster
@@ -133,6 +143,7 @@ async fn run(rooted: bool, cut: Cut) -> Result<()> {
     drop(root);
 
     let release = gate.arm(match cut {
+        Cut::StreamingRevocation => fault::HOLD_DEPENDENCY_PREFIX,
         Cut::QueuedRevocation | Cut::EnteredRevocation => fault::HOLD_SYNC,
         Cut::SyncError => fault::FAIL_SYNC,
         Cut::AfterSyncError => fault::FAIL_AFTER_SYNC,
@@ -157,7 +168,11 @@ async fn run(rooted: bool, cut: Cut) -> Result<()> {
         .domain
         .spawn(async move { session.install(installer).await })?;
     let mut restarted_source = None;
-    if matches!(cut, Cut::QueuedRevocation | Cut::EnteredRevocation) {
+    let mut early_result = None;
+    if matches!(
+        cut,
+        Cut::StreamingRevocation | Cut::QueuedRevocation | Cut::EnteredRevocation
+    ) {
         if cut == Cut::QueuedRevocation {
             controller::wait_for(async || Ok(queued(&log)? == 1)).await?;
         } else {
@@ -183,23 +198,54 @@ async fn run(rooted: bool, cut: Cut) -> Result<()> {
             seed_receiver::revoke_source(&fixture, &mut controllers, &transport, &peer, &route)
                 .await?,
         );
-        assert!(
-            tokio::time::timeout(Duration::from_millis(30), &mut pending)
-                .await
-                .is_err(),
-            "revocation cannot abandon entered/queued physical work"
-        );
+        if cut == Cut::StreamingRevocation {
+            assert!(
+                gate.dependency_cut
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .context("held dependency")?
+                    .1
+                    > 0
+            );
+            early_result = Some(tokio::time::timeout(Duration::from_secs(5), &mut pending).await??);
+            assert!(
+                transport.usage().data_items > 0,
+                "failed network waiter cannot refund the physical receive owner"
+            );
+            assert!(pool.usage().retained_bytes > 0);
+        } else {
+            assert!(
+                tokio::time::timeout(Duration::from_millis(30), &mut pending)
+                    .await
+                    .is_err(),
+                "revocation cannot abandon entered/queued physical work"
+            );
+        }
         assert_eq!(pool.usage().sources, 1);
         drop(release);
     } else {
         // The one-shot sync error consumes the armed fault before completion.
         // Retain its release guard until the result has been observed.
     }
-    let result = pending.await?;
+    let result = match early_result {
+        Some(result) => result,
+        None => pending.await?,
+    };
     if let Some(ahead) = ahead {
         ahead.await??;
     }
     match cut {
+        Cut::StreamingRevocation => assert!(
+            matches!(
+                result,
+                Err(CellGroupSeedError::Transport(
+                    TransportError::StalePeer | TransportError::Closed
+                ))
+            ),
+            "streaming revoked grant: {:?}",
+            result.err()
+        ),
         Cut::QueuedRevocation => assert!(
             matches!(
                 result,
@@ -225,7 +271,8 @@ async fn run(rooted: bool, cut: Cut) -> Result<()> {
     })
     .await?;
     assert_eq!(transport.usage().data_items, 0);
-    if cut == Cut::QueuedRevocation {
+    assert_eq!(pool.usage().retained_bytes, 0);
+    if matches!(cut, Cut::StreamingRevocation | Cut::QueuedRevocation) {
         assert_eq!(
             group.group_manifest()?.as_ref(),
             Some(&staged),
@@ -300,7 +347,7 @@ async fn run(rooted: bool, cut: Cut) -> Result<()> {
     let group = log.cell_group(&route.history)?;
     let selected = group.group_manifest()?.context("reopened root")?;
     match cut {
-        Cut::QueuedRevocation => assert_eq!(selected, staged),
+        Cut::StreamingRevocation | Cut::QueuedRevocation => assert_eq!(selected, staged),
         Cut::EnteredRevocation | Cut::AfterSyncError => assert_eq!(selected, expected),
         Cut::SyncError => assert!(selected == staged || selected == expected),
     }

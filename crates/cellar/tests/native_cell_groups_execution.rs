@@ -15,6 +15,16 @@ mod runtime_fixture;
 mod checkpoint_fixture;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn seed_transfer_materialized_revocation_retains_physical_owner() -> Result<()> {
+    Box::pin(runtime_fixture::seed_transfer_revocation(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn seed_transfer_extents_revocation_retains_physical_owner() -> Result<()> {
+    Box::pin(runtime_fixture::seed_transfer_revocation(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn checkpoint_pressure_materialized_preserves_bounds_and_reader() -> Result<()> {
     runtime_fixture::transfer_pressure(false).await
 }

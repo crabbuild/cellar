@@ -21,7 +21,14 @@ struct Oracle {
 }
 
 pub(crate) async fn seed_crash(rooted: bool) -> Result<()> {
-    for cut in ["staged", "before-sync", "after-sync", "published"] {
+    for cut in [
+        "staged",
+        "image-prefix",
+        "image-synced",
+        "before-sync",
+        "after-sync",
+        "published",
+    ] {
         let directory = tempfile::tempdir()?;
         let root = directory.path();
         crash_fixture::kill_at(root, "seed_process_fixture", rooted, cut).await?;
@@ -37,7 +44,7 @@ pub(crate) async fn seed_process_fixture() -> Result<()> {
     anyhow::ensure!(
         matches!(
             cut.as_str(),
-            "staged" | "before-sync" | "after-sync" | "published"
+            "staged" | "image-prefix" | "image-synced" | "before-sync" | "after-sync" | "published"
         ),
         "invalid crash cut"
     );
@@ -144,7 +151,14 @@ pub(crate) async fn seed_process_fixture() -> Result<()> {
     if cut == "staged" {
         return stop_at(&root).await;
     }
-    let (pages, images) = seed_install::stores(&base, rooted)?;
+    let image_gate = fault::Gate::new(None);
+    let (pages, images) = seed_install::stores_with_filesystem(
+        &base,
+        rooted,
+        Arc::new(fault::FaultFileSystem {
+            gate: image_gate.clone(),
+        }),
+    )?;
     let (applier, empty) = fixture
         .cluster
         .domain
@@ -166,6 +180,51 @@ pub(crate) async fn seed_process_fixture() -> Result<()> {
         "after-sync" => Some(gate.arm(fault::CRASH_AFTER_SYNC)),
         _ => None,
     };
+    if matches!(cut.as_str(), "image-prefix" | "image-synced") {
+        let _release_image = image_gate.arm(if cut == "image-prefix" {
+            fault::HOLD_DEPENDENCY_PREFIX
+        } else {
+            fault::HOLD_DEPENDENCY_SYNC
+        });
+        let _installer = fixture
+            .cluster
+            .domain
+            .spawn(async move { session.install(applier).await })?;
+        tokio::time::timeout(Duration::from_secs(5), image_gate.entered.notified()).await?;
+        let dependency = image_gate
+            .dependency_cut
+            .lock()
+            .unwrap()
+            .clone()
+            .context("physical dependency cut")?;
+        assert!(dependency.1 > 0);
+        let group = log.cell_group(&route.history)?;
+        assert_eq!(
+            group
+                .group_manifest()?
+                .context("staged at image cut")?
+                .root()
+                .cells(),
+            0
+        );
+        assert!(group.checkpoint_manifest()?.is_none());
+        assert_eq!(pool.usage().sources, 1);
+        assert!(fixture
+            .cluster
+            .domain
+            .run(fixture.cluster.directory.bootstrap_joined_group_member(
+                &fixture.cluster.birth,
+                MemberId::new(4)?,
+                &log
+            ))
+            .await?
+            .is_err());
+        save(
+            &root.join("dependency.json"),
+            &serde_json::to_vec(&dependency)?,
+        )?;
+        return stop_at(&root).await;
+    }
     let (_permit, installed) = session.install(applier).await?;
     assert_eq!(
         cut, "published",
@@ -179,6 +238,28 @@ async fn recover(root: &Path, rooted: bool, cut: &str) -> Result<()> {
     let oracle: Oracle = serde_json::from_slice(&std::fs::read(root.join("oracle.json"))?)?;
     assert_eq!(oracle.rooted, rooted);
     assert_eq!(oracle.cut, cut);
+    if matches!(cut, "image-prefix" | "image-synced") {
+        let (path, length): (std::path::PathBuf, u64) =
+            serde_json::from_slice(&std::fs::read(root.join("dependency.json"))?)?;
+        assert!(length > 0);
+        if rooted {
+            assert_eq!(path.parent(), Some(root.join("learner/extents").as_path()));
+            assert_eq!(std::fs::metadata(&path)?.len(), length);
+            let name = path
+                .file_name()
+                .context("extent file")?
+                .to_str()
+                .context("extent name")?;
+            let complete = u64::from_str_radix(&name[2..10], 16)?;
+            if cut == "image-prefix" {
+                assert!(length < complete);
+            } else {
+                assert_eq!(length, complete);
+            }
+        } else {
+            assert_eq!(path, std::path::PathBuf::from("snapshot.scratch"));
+        }
+    }
     let route = oracle.expected.route().clone();
     let local = seed_install::target(route.history)?;
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
@@ -200,7 +281,7 @@ async fn recover(root: &Path, rooted: bool, cut: &str) -> Result<()> {
     let group = log.cell_group(&route.history)?;
     let selected = group.group_manifest()?.context("recovered selected root")?;
     match cut {
-        "staged" => assert_eq!(selected, oracle.staged),
+        "staged" | "image-prefix" | "image-synced" => assert_eq!(selected, oracle.staged),
         "before-sync" => assert!(selected == oracle.staged || selected == oracle.expected),
         "after-sync" | "published" => assert_eq!(selected, oracle.expected),
         _ => unreachable!(),
