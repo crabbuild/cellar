@@ -142,6 +142,7 @@ impl RaftTransport {
         let mut registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
         state.admit(&registry)?;
         registry.check_node_view(&grant.peer)?;
+        registry.check_physical_endpoint(&grant.peer)?;
         if let Some(old) = registry.inspection_origins.get(&key) {
             if old.revision == grant.revision && old.peer.as_ref() == Some(&grant.peer) {
                 return Ok(());

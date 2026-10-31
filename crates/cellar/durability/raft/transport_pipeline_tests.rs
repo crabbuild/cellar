@@ -597,9 +597,12 @@ async fn control_window_drives_both_directions_with_one_byte_buffers() -> anyhow
         );
         let charge = body.len() + state.options.max_header_bytes + frame::PREFIX + frame::TAG;
         requests.push(SendRequest {
-            scope,
-            route,
-            peer,
+            route: SendRoute::Legacy {
+                scope,
+                route,
+                peer: peer.clone(),
+            },
+            member: peer.replica.member,
             header,
             body,
             snapshot: false,
@@ -615,7 +618,9 @@ async fn control_window_drives_both_directions_with_one_byte_buffers() -> anyhow
             let (mut client, mut server) = tokio::io::duplex(1);
             let exporter = [7; 32];
             let (sender, mut inbox) = mailbox::channel(WINDOW);
-            let pool = state.registry.lock().unwrap().pools[&requests[0].peer.replica.node].clone();
+            let pool = state.registry.lock().unwrap().pools
+                [&requests[0].header.route.decode()?.1.node]
+                .clone();
             for request in requests.drain(..) {
                 sender
                     .try_send(request)

@@ -2,9 +2,10 @@
 
 //! Compiled, synchronous Raft operations with no ordinary mutable cell factory.
 
-use super::{CommandId, CommittedVersion, Durability, GroupScope};
+use super::{CommandId, CommittedVersion, Durability};
+use crate::raft::version::CellVersionObservation;
 use crate::storage::{CommandInputs, CommandTransaction, ImmutableQuery};
-use cellar_logic::NamespaceMode;
+use cellar_logic::{cell_group::CellHistory, NamespaceMode};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -105,7 +106,7 @@ impl std::error::Error for RegistrationError {}
 /// fn socket(context: &CommandContext<'_>) { let _ = context.websocket_pair(); }
 /// ```
 pub struct CommandContext<'a> {
-    scope: &'a GroupScope,
+    scope: &'a CellHistory,
     command: CommandId,
     transaction: &'a CommandTransaction<'a>,
     blobs: Option<super::RaftBlobLimits>,
@@ -118,7 +119,7 @@ pub struct CommandContext<'a> {
 }
 
 impl<'a> CommandContext<'a> {
-    pub fn identity(&self) -> &GroupScope {
+    pub fn identity(&self) -> &CellHistory {
         self.scope
     }
 
@@ -210,10 +211,21 @@ impl CommandContext<'_> {
     }
 }
 
+/// Exact observation supplied by the owning query path. A group cut carries no
+/// cell mutation sequence and must never be relabeled as a cell version.
+#[derive(Clone, Copy, Debug)]
+pub enum QueryVersion<'a> {
+    Cell(&'a CellVersionObservation),
+    /// Temporary single-cell host boundary, removed with that host in CG-16.
+    /// This is an in-memory observation, not an old-format recovery reader.
+    GroupCut(&'a CommittedVersion),
+}
+
 /// A pinned, read-only committed image. The host establishes consistency before
 /// constructing this context. Query code cannot open or migrate writable state.
 pub struct QueryContext<'a> {
-    version: &'a CommittedVersion,
+    identity: &'a CellHistory,
+    version: QueryVersion<'a>,
     database: &'a ImmutableQuery,
     blobs: Option<super::RaftBlobLimits>,
     outbox: Option<&'a super::RaftOutbox>,
@@ -229,11 +241,11 @@ impl QueryContext<'_> {
         )
     }
 
-    pub fn identity(&self) -> &GroupScope {
-        &self.version.scope
+    pub fn identity(&self) -> &CellHistory {
+        self.identity
     }
 
-    pub fn version(&self) -> &CommittedVersion {
+    pub fn version(&self) -> QueryVersion<'_> {
         self.version
     }
 
@@ -261,6 +273,13 @@ type CommandCallback =
     dyn for<'a> Fn(&CommandContext<'a>, &[u8]) -> anyhow::Result<Vec<u8>> + Send + Sync;
 type QueryCallback =
     dyn for<'a> Fn(&QueryContext<'a>, &[u8]) -> anyhow::Result<Vec<u8>> + Send + Sync;
+type InitializerCallback =
+    dyn Fn(&CellHistory, &CommandTransaction<'_>) -> anyhow::Result<()> + Send + Sync;
+
+struct Initializer {
+    digest: [u8; 32],
+    callback: Arc<InitializerCallback>,
+}
 
 struct Command {
     digest: [u8; 32],
@@ -286,6 +305,7 @@ pub struct RaftClass {
     base_schema_digest: [u8; 32],
     schema_digest: [u8; 32],
     commands: BTreeMap<String, Command>,
+    initializer: Option<Initializer>,
     system_commands: BTreeMap<String, Command>,
     queries: BTreeMap<String, Query>,
     blobs: Option<super::RaftBlobLimits>,
@@ -325,6 +345,7 @@ impl RaftClass {
             base_schema_digest: schema_digest,
             schema_digest,
             commands: BTreeMap::new(),
+            initializer: None,
             system_commands: BTreeMap::new(),
             queries: BTreeMap::new(),
             blobs: None,
@@ -359,6 +380,49 @@ impl RaftClass {
     /// delivery. Namespace admission still requires the complete schema_digest.
     pub fn definition_digest(&self) -> [u8; 32] {
         self.base_schema_digest
+    }
+
+    /// Register schema initialization for shared-group enrollment. The digest
+    /// participates in voting compatibility. Initialization runs once on a
+    /// private SQL transaction; only its committed creation record is success.
+    /// The old cell-scoped host refuses this registration until its replacement.
+    pub fn initializer(
+        mut self,
+        digest: [u8; 32],
+        callback: impl Fn(&CellHistory, &CommandTransaction<'_>) -> anyhow::Result<()>
+            + Send
+            + Sync
+            + 'static,
+    ) -> Result<Self, RegistrationError> {
+        if digest == [0; 32] || self.initializer.is_some() {
+            return Err(RegistrationError::Invalid("initializer registration"));
+        }
+        self.initializer = Some(Initializer {
+            digest,
+            callback: Arc::new(callback),
+        });
+        self.bind_command_manifest();
+        Ok(self)
+    }
+
+    pub(crate) fn require_initializer(&self) -> Result<(), RegistrationError> {
+        self.initializer
+            .as_ref()
+            .map(|_| ())
+            .ok_or(RegistrationError::Invalid("missing initializer"))
+    }
+
+    pub(crate) fn invoke_initializer(
+        &self,
+        cell: &CellHistory,
+        transaction: &CommandTransaction<'_>,
+    ) -> anyhow::Result<()> {
+        let initializer = self
+            .initializer
+            .as_ref()
+            .ok_or(RegistrationError::Invalid("missing initializer"))?;
+        let _guard = CallbackGuard::enter()?;
+        (initializer.callback)(cell, transaction)
     }
 
     /// Opt in to bounded immutable bytes replicated with the cell. This changes
@@ -458,6 +522,10 @@ impl RaftClass {
         &self,
         host: &crate::raft::host::RaftHostOptions,
     ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.initializer.is_none(),
+            "registered initializers require the shared cell-group controller"
+        );
         if let Some(outbox) = &self.outbox {
             anyhow::ensure!(host.effects.is_some_and(|options|options.metadata_bytes>=512*1024)
                 && host.max_input_bytes>=32*1024
@@ -585,7 +653,7 @@ impl RaftClass {
 
     pub(crate) fn validate_command_identity(
         &self,
-        scope: &GroupScope,
+        scope: &CellHistory,
         contract: &OperationContract,
         id: CommandId,
         durability: Durability,
@@ -735,7 +803,7 @@ impl RaftClass {
     pub(crate) fn invoke_command(
         &self,
         contract: &OperationContract,
-        scope: &GroupScope,
+        scope: &CellHistory,
         command: CommandId,
         durability: Durability,
         transaction: &CommandTransaction<'_>,
@@ -754,7 +822,7 @@ impl RaftClass {
     pub(crate) fn invoke_system_command(
         &self,
         contract: &OperationContract,
-        scope: &GroupScope,
+        scope: &CellHistory,
         command: CommandId,
         durability: Durability,
         transaction: &CommandTransaction<'_>,
@@ -773,7 +841,7 @@ impl RaftClass {
     fn invoke_registered_command(
         &self,
         registration: RegisteredCommand<'_>,
-        scope: &GroupScope,
+        scope: &CellHistory,
         command: CommandId,
         durability: Durability,
         transaction: &CommandTransaction<'_>,
@@ -815,10 +883,44 @@ impl RaftClass {
         )
     }
 
-    pub(crate) fn invoke_query(
+    pub(crate) fn invoke_group_query(
         &self,
         contract: &OperationContract,
         version: &CommittedVersion,
+        database: &ImmutableQuery,
+        input: &[u8],
+    ) -> anyhow::Result<Vec<u8>> {
+        let identity = CellHistory::try_from(&version.scope)?;
+        self.invoke_query(
+            contract,
+            &identity,
+            QueryVersion::GroupCut(version),
+            database,
+            input,
+        )
+    }
+
+    pub(crate) fn invoke_cell_query(
+        &self,
+        contract: &OperationContract,
+        observation: &CellVersionObservation,
+        database: &ImmutableQuery,
+        input: &[u8],
+    ) -> anyhow::Result<Vec<u8>> {
+        self.invoke_query(
+            contract,
+            &observation.version.history,
+            QueryVersion::Cell(observation),
+            database,
+            input,
+        )
+    }
+
+    fn invoke_query(
+        &self,
+        contract: &OperationContract,
+        identity: &CellHistory,
+        version: QueryVersion<'_>,
         database: &ImmutableQuery,
         input: &[u8],
     ) -> anyhow::Result<Vec<u8>> {
@@ -836,6 +938,7 @@ impl RaftClass {
             let _guard = CallbackGuard::enter()?;
             callback(
                 &QueryContext {
+                    identity,
                     version,
                     database,
                     blobs: self.blobs,
@@ -849,8 +952,12 @@ impl RaftClass {
 
     fn bind_command_manifest(&mut self) {
         let mut hash = Sha256::new();
-        hash.update(b"cellar-raft-class-1");
+        hash.update(b"cellar-cell-class-1");
         hash.update(self.base_schema_digest);
+        if let Some(initializer) = &self.initializer {
+            hash.update(b"initializer-1");
+            hash.update(initializer.digest);
+        }
         if let Some(limits) = self.blobs {
             hash.update(b"immutable-blobs-1");
             for size in [
@@ -924,3 +1031,7 @@ pub(super) fn validate_name(name: &str) -> Result<(), RegistrationError> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "class_initializer_tests.rs"]
+mod initializer_tests;

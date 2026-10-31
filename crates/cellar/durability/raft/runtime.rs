@@ -143,13 +143,20 @@ impl Drop for Requests {
     }
 }
 
-struct Terminal {
+pub(crate) struct Terminal {
     result: Mutex<Option<Result<(), RuntimeError>>>,
     changed: Notify,
 }
 
 impl Terminal {
-    fn complete(&self, result: Result<(), RuntimeError>) {
+    pub(crate) fn new() -> Self {
+        Self {
+            result: Mutex::new(None),
+            changed: Notify::new(),
+        }
+    }
+
+    pub(crate) fn complete(&self, result: Result<(), RuntimeError>) {
         let mut terminal = self.result.lock().unwrap_or_else(|e| e.into_inner());
         if terminal.is_none() {
             *terminal = Some(result);
@@ -158,7 +165,7 @@ impl Terminal {
         self.changed.notify_waiters();
     }
 
-    async fn wait(&self) -> Result<(), RuntimeError> {
+    pub(crate) async fn wait(&self) -> Result<(), RuntimeError> {
         loop {
             let changed = self.changed.notified();
             tokio::pin!(changed);
@@ -246,10 +253,7 @@ impl RaftRuntime {
         let (ready, wait) = oneshot::channel();
         let closed = Arc::new(AtomicBool::new(false));
         let closing = Arc::new(AtomicBool::new(false));
-        let terminal = Arc::new(Terminal {
-            result: Mutex::new(None),
-            changed: Notify::new(),
-        });
+        let terminal = Arc::new(Terminal::new());
         let stop = Arc::new(Notify::new());
         let requests = Requests {
             receiver: requests,

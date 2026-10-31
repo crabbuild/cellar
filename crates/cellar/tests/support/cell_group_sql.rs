@@ -1,0 +1,663 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+//! The actual cell SQL producer on domain workers with three persisted voters.
+
+use super::*;
+use cellar_ltx::internal::{
+    CacheLimits, ExtentId, ExtentManifest, ExtentRootReference, Geometry, ImageBinding, ImageRoot,
+    NodeExtentStore, EXTENT_BYTES,
+};
+use cellar_ltx::stream_snapshot::{ScratchLimits, ScratchPool};
+
+async fn accepted_sql(
+    runtime: &CellGroupRuntime,
+    prepared: &CellSqlPrepared,
+) -> Result<CellGroupProposal> {
+    match prepared.submit(runtime).await? {
+        CellSqlSubmission::Accepted(accepted) => Ok(accepted),
+        CellSqlSubmission::Rejected(_) => anyhow::bail!("unexpected capacity rejection"),
+    }
+}
+
+async fn accepted_private(
+    runtime: &CellGroupRuntime,
+    prepared: &CellPreparedCommand,
+) -> Result<CellGroupProposal> {
+    match runtime.submit(prepared.clone()).await? {
+        CellSubmissionOutcome::Accepted(accepted) => Ok(accepted),
+        CellSubmissionOutcome::Rejected(_) => anyhow::bail!("unexpected private rejection"),
+    }
+}
+
+fn cell_attempt(tag: u8) -> Result<CommandAttempt> {
+    Ok(CommandAttempt {
+        request: CommandRequest {
+            id: CommandId::new(ClientId::new([81; 16])?, 1)?,
+            operation: "cell.increment".into(),
+            contract_digest: [6; 32],
+            request_digest: [9; 32],
+            durability: Durability::Quorum,
+            retry_until_ms: 1000,
+        },
+        proposal: ProposalId::new([tag; 16])?,
+        preview: ImageId::new([tag; 16])?,
+        inputs: cellar::storage::CommandInputs {
+            now_unix_millis: 10,
+            random: [17; 32],
+        },
+    })
+}
+
+impl RuntimeCluster {
+    async fn private_cell(&self, cell: &CellHistory) -> Result<CellPrivateExecutor> {
+        let authority = self.runtimes[0]
+            .execution_authority(self.cluster.birth.route().history, cell.clone())
+            .await?;
+        let options = self.cell_options(cell).await?;
+        self.cluster
+            .domain
+            .blocking(move || match options {
+                CellSqlOptions::Materialized(o) => CellPrivateExecutor::open(o, authority),
+                CellSqlOptions::Extents(o) => {
+                    let workspace = o
+                        .images
+                        .create_workspace(
+                            cell_image_history_digest(&authority.cell().version.history),
+                            RootPrivateOptions::workspace_bounds(o.limits)?,
+                        )
+                        .map_err(|e| ExecutionError::Storage(e.into()))?;
+                    CellPrivateExecutor::open_rooted(
+                        RootPrivateOptions {
+                            workspace,
+                            host: o.host,
+                            sqlite_vfs: o.sqlite_vfs,
+                            images: o.images,
+                            query_services: o.query_services,
+                            application_digest: o.application_digest,
+                            limits: o.limits,
+                            cache_directory: o.cache_directory,
+                            cache_pool: o.cache_pool,
+                            cache: o.cache,
+                        },
+                        authority,
+                    )
+                }
+            })?
+            .await?
+            .map_err(Into::into)
+    }
+
+    async fn cell_options(&self, cell: &CellHistory) -> Result<CellSqlOptions> {
+        self.cell_options_at(cell, 0).await
+    }
+
+    async fn cell_options_at(&self, cell: &CellHistory, node: usize) -> Result<CellSqlOptions> {
+        let options = PrivateOptions {
+            directory: self
+                .cluster
+                ._root
+                .path()
+                .join(format!("private-{node}-{}", cell.cell.as_str())),
+            host: cellar_ltx::LtxHost::new(
+                || 10,
+                |_| Ok(Duration::ZERO),
+                |path| async move { std::fs::read(path) },
+                |job| async move {
+                    job();
+                    Ok(())
+                },
+            )
+            .with_filesystem(Arc::new(DirectFileSystem)),
+            sqlite_vfs: None,
+            images: self.cluster.voters[node].images.clone(),
+            query_services: cellar_ltx::generation::ReadServices {
+                now_unix_millis: Arc::new(|| 10),
+                fill_random: Arc::new(|bytes| bytes.fill(17)),
+            },
+            application_digest: self.cluster.birth.route().schema_digest,
+            limits: ExecutionLimits::default(),
+        };
+        let extents = self.cluster.voters[node].extents.clone();
+        self.cluster
+            .domain
+            .blocking(move || -> Result<_> {
+                if let Some(store) = extents {
+                    let rooted = CellSqlRootOptions {
+                        host: options.host,
+                        sqlite_vfs: None,
+                        images: store,
+                        query_services: options.query_services,
+                        application_digest: options.application_digest,
+                        limits: options.limits,
+                        cache_directory: options.directory.with_extension("cache"),
+                        cache_pool: ScratchPool::new(ScratchLimits {
+                            max_bytes: 2 * EXTENT_BYTES,
+                            max_files: 2,
+                        })?,
+                        cache: CacheLimits {
+                            max_cached_bytes: EXTENT_BYTES,
+                            max_cached_extents: 1,
+                        },
+                    };
+                    Ok(CellSqlOptions::Extents(rooted))
+                } else {
+                    Ok(CellSqlOptions::Materialized(options))
+                }
+            })?
+            .await?
+    }
+}
+
+async fn enrolled_sql_cells(
+    rooted: bool,
+) -> Result<(RuntimeCluster, GroupRoute, CellHistory, CellHistory)> {
+    Box::pin(enroll_sql_cells(
+        RuntimeCluster::new().await?,
+        rooted,
+        Arc::new(DirectFileSystem),
+    ))
+    .await
+}
+
+async fn enroll_sql_cells(
+    mut fixture: RuntimeCluster,
+    rooted: bool,
+    filesystem: Arc<dyn cellar_ltx::FileSystem>,
+) -> Result<(RuntimeCluster, GroupRoute, CellHistory, CellHistory)> {
+    let route = fixture.cluster.birth.route().clone();
+    if rooted {
+        for (n, voter) in fixture.cluster.voters.iter_mut().enumerate() {
+            voter.extents = Some(NodeExtentStore::open(
+                fixture.cluster._root.path().join(format!("rooted-{n}")),
+                filesystem.clone(),
+                Default::default(),
+            )?);
+        }
+    }
+
+    fixture.runtimes[0].campaign(route.history).await?;
+    fixture.drive(None).await?;
+    let a = history(&route, "sql-a")?;
+    let b = history(&route, "sql-b")?;
+    let c = history(&route, "sql-c")?;
+    for cell in [&a, &b, &c] {
+        let bytes = images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES (0);")?;
+        let cut = images::Cut::new(&[], &bytes, 0, true, false);
+        let bytes = if rooted {
+            let manifest = ExtentManifest::new(
+                ImageBinding {
+                    history: cell_image_history_digest(cell),
+                    schema: route.schema_digest,
+                    epoch: cut.result.epoch,
+                    txid: cut.result.txid.0,
+                    checksum: cut.result.checksum,
+                },
+                Geometry::new(cut.result.page_size, cut.result.length)?,
+                &bytes
+                    .chunks(EXTENT_BYTES as usize)
+                    .map(ExtentId::of)
+                    .collect::<std::result::Result<Vec<_>, _>>()?,
+            )?;
+            let encoded = request(&route, cell.clone(), 1, &cut)?;
+            let mut entry = CellGroupEntry::decode(&encoded, &route, GroupEntryLimits::default())?;
+            let GroupCommand::Enroll { image, .. } = &mut entry.command else {
+                anyhow::bail!("enrollment")
+            };
+            image.commitment = ImageCommitment::Extents(ExtentRootReference::new(
+                manifest.root(),
+                manifest.encode()?.len().try_into()?,
+            )?);
+            entry.encode(&route, GroupEntryLimits::default())?
+        } else {
+            request(&route, cell.clone(), 1, &cut)?
+        };
+        let proposed = fixture.runtimes[0].propose(route.history, bytes).await?;
+        fixture.drive(Some(proposed.position.index)).await?;
+    }
+    Ok((fixture, route, a, b))
+}
+
+pub(super) async fn cell_receipts(rooted: bool) -> Result<()> {
+    let (mut fixture, route, a, b) = enrolled_sql_cells(rooted).await?;
+    assert!(matches!(
+        fixture.runtimes[1]
+            .execution_authority(route.history, a.clone())
+            .await,
+        Err(RuntimeError::NotLeader)
+    ));
+    let mut wrong = a.clone();
+    wrong.incarnation = IncarnationId::new([99; 16])?;
+    assert!(fixture.runtimes[0]
+        .execution_authority(route.history, wrong)
+        .await
+        .is_err());
+    let mut ea = fixture.private_cell(&a).await?;
+    let mut eb = fixture.private_cell(&b).await?;
+    let (ea_out, pa) = fixture
+        .cluster
+        .domain
+        .blocking(move || -> Result<_> {
+            let CellStageOutcome::Prepared(prepared) = ea.stage(cell_attempt(82)?, true, |tx| {
+                tx.execute("UPDATE value SET n=n+1", [])?;
+                Ok(b"a-result".to_vec())
+            })?
+            else {
+                anyhow::bail!("new A receipt")
+            };
+            ea.mark_submitted(prepared.proposal())?;
+            Ok((ea, prepared))
+        })?
+        .await??;
+    ea = ea_out;
+    let (eb_out, pb) = fixture
+        .cluster
+        .domain
+        .blocking(move || -> Result<_> {
+            let CellStageOutcome::Prepared(prepared) = eb.stage(cell_attempt(83)?, true, |tx| {
+                tx.execute("UPDATE value SET n=n+7", [])?;
+                Ok(b"b-result".to_vec())
+            })?
+            else {
+                anyhow::bail!("new B receipt")
+            };
+            eb.mark_submitted(prepared.proposal())?;
+            Ok((eb, prepared))
+        })?
+        .await??;
+    eb = eb_out;
+    // Both use the same client/sequence, but B's committed image cannot settle A.
+    let proposed = accepted_private(&fixture.runtimes[0], &pb).await?;
+    fixture.drive(Some(proposed.position.index)).await?;
+    let cb = fixture.runtimes[0]
+        .execution_authority(route.history, b.clone())
+        .await?;
+    let (ea_out, eb_out) = fixture
+        .cluster
+        .domain
+        .blocking(move || -> Result<_> {
+            assert!(ea.finish(cb).is_err());
+            assert!(matches!(
+                ea.stage(cell_attempt(84)?, true, |_| panic!("unresolved A callback")),
+                Err(ExecutionError::Busy)
+            ));
+            Ok((ea, eb))
+        })?
+        .await??;
+    ea = ea_out;
+    eb = eb_out;
+    // A prepared before B committed remains valid because its own base is unchanged.
+    let proposed = accepted_private(&fixture.runtimes[0], &pa).await?;
+    fixture.drive(Some(proposed.position.index)).await?;
+    let ca = fixture.runtimes[0]
+        .execution_authority(route.history, a.clone())
+        .await?;
+    let cb = fixture.runtimes[0]
+        .execution_authority(route.history, b.clone())
+        .await?;
+    fixture
+        .cluster
+        .domain
+        .blocking(move || -> Result<()> {
+            let ra = ea.finish(ca)?;
+            let rb = eb.finish(cb)?;
+            assert_eq!(ra.receipt.result(), b"a-result");
+            assert_eq!(rb.receipt.result(), b"b-result");
+            assert_eq!(ra.version.sequence.get(), 2);
+            assert_eq!(rb.version.sequence.get(), 2);
+            assert_ne!(ra.version.history, rb.version.history);
+            ea.close()?;
+            eb.close()?;
+            Ok(())
+        })?
+        .await??;
+    for (cell, expected, value) in [
+        (&a, b"a-result".as_slice(), 1),
+        (&b, b"b-result".as_slice(), 7),
+    ] {
+        let mut executor = fixture.private_cell(cell).await?;
+        let expected = expected.to_vec();
+        fixture
+            .cluster
+            .domain
+            .blocking(move || -> Result<()> {
+                let CellStageOutcome::Duplicate(receipt) =
+                    executor.stage(cell_attempt(85)?, false, |_| {
+                        panic!("receipt retry must not execute callback")
+                    })?
+                else {
+                    anyhow::bail!("missing duplicate")
+                };
+                assert_eq!(receipt.receipt.result(), expected);
+                executor.close()?;
+                Ok(())
+            })?
+            .await??;
+        for voter in &fixture.cluster.voters {
+            let marker = voter
+                .log
+                .cell_group(&route.history)?
+                .group_manifest()?
+                .context("selected root")?;
+            let leaf = voter
+                .tree
+                .get(
+                    voter.pages.as_ref().context("fixture page owner")?,
+                    marker.root(),
+                    &cell.cell,
+                )?
+                .context("selected cell")?;
+            let query = match leaf.version.image.commitment {
+                CellImageCommitment::Materialized(digest) => {
+                    let pin = voter.images.adopt(
+                        image_id(cell, 2)?,
+                        ImageState {
+                            epoch: leaf.version.image.epoch,
+                            txid: TXID(leaf.version.image.txid),
+                            checksum: leaf.version.image.checksum,
+                            digest,
+                            length: leaf.geometry.length,
+                            page_size: leaf.geometry.page_size,
+                        },
+                    )?;
+                    cellar_ltx::generation::open_immutable(
+                        pin,
+                        cellar_ltx::generation::ReadServices {
+                            now_unix_millis: Arc::new(|| 10),
+                            fill_random: Arc::new(|b| b.fill(17)),
+                        },
+                    )?
+                }
+                CellImageCommitment::Extents {
+                    root,
+                    manifest_bytes,
+                } => {
+                    let store = voter.extents.as_ref().context("rooted store")?;
+                    let view = store.open_root(ExtentRootReference::new(
+                        ImageRoot::from_bytes(root),
+                        manifest_bytes,
+                    )?)?;
+                    let cache = fixture
+                        .cluster
+                        ._root
+                        .path()
+                        .join(format!("verify-{}", cell.cell.as_str()));
+                    std::fs::create_dir_all(&cache)?;
+                    cellar_ltx::internal::open_extent_image(
+                        view.image(
+                            cache,
+                            ScratchPool::new(ScratchLimits {
+                                max_bytes: 2 * EXTENT_BYTES,
+                                max_files: 2,
+                            })?,
+                            CacheLimits {
+                                max_cached_bytes: EXTENT_BYTES,
+                                max_cached_extents: 1,
+                            },
+                        )?,
+                        cellar_ltx::generation::ReadServices {
+                            now_unix_millis: Arc::new(|| 10),
+                            fill_random: Arc::new(|b| b.fill(17)),
+                        },
+                    )?
+                }
+            };
+            let observed: i64 = query
+                .connection()
+                .query_row("SELECT n FROM value", [], |r| r.get(0))?;
+            assert_eq!(observed, value);
+        }
+    }
+    let stale = fixture.runtimes[0]
+        .execution_authority(route.history, a.clone())
+        .await?;
+    let mut executor = fixture.private_cell(&a).await?;
+    let (entered, started) = tokio::sync::oneshot::channel();
+    let (release, wait) = std::sync::mpsc::sync_channel(1);
+    let physical = fixture.cluster.domain.blocking(move || -> Result<()> {
+        let mut attempt = cell_attempt(86)?;
+        attempt.request.id = CommandId::new(ClientId::new([81; 16])?, 2)?;
+        let result = executor.stage(attempt, true, |tx| {
+            tx.execute("UPDATE value SET n=n+100", [])?;
+            let _ = entered.send(());
+            wait.recv()?;
+            Ok(b"must-not-escape".to_vec())
+        });
+        assert!(matches!(
+            result,
+            Err(ExecutionError::Refused(
+                cellar_logic::consensus::CommandFailure::Unavailable
+            ))
+        ));
+        executor.close()?;
+        Ok(())
+    })?;
+    tokio::time::timeout(Duration::from_secs(5), started).await??;
+    fixture.runtimes[0].close().await?;
+    assert!(stale.check().is_err());
+    release.send(())?;
+    physical.await??;
+    let marker = fixture.cluster.voters[0]
+        .log
+        .cell_group(&route.history)?
+        .group_manifest()?
+        .context("selected root")?;
+    let leaf = fixture.cluster.voters[0]
+        .tree
+        .get(
+            fixture.cluster.voters[0]
+                .pages
+                .as_ref()
+                .context("fixture page owner")?,
+            marker.root(),
+            &a.cell,
+        )?
+        .context("selected cell")?;
+    assert_eq!(leaf.version, stale.cell().version);
+    drop(stale);
+    fixture.close().await
+}
+
+#[path = "cell_group_sql_pool.rs"]
+mod pool;
+
+pub(super) async fn pool_admission(rooted: bool) -> Result<()> {
+    pool::admission(rooted).await
+}
+
+#[path = "cell_group_sql_reconcile.rs"]
+mod reconciliation;
+
+#[path = "cell_group_sql_enrollment.rs"]
+mod enrollment;
+
+pub(super) async fn initialize_cells(rooted: bool) -> Result<()> {
+    enrollment::concurrent(rooted).await
+}
+
+pub(super) async fn recover_initialization(rooted: bool) -> Result<()> {
+    enrollment::recovery(rooted).await
+}
+
+pub(super) async fn reconcile_producers(rooted: bool) -> Result<()> {
+    reconciliation::reconcile(rooted).await
+}
+
+pub(super) async fn reconcile_refusals(rooted: bool) -> Result<()> {
+    reconciliation::refusals(rooted).await
+}
+
+#[path = "cell_group_sql_submission.rs"]
+mod submission;
+
+pub(super) async fn submission_rejections(rooted: bool) -> Result<()> {
+    submission::rejections(rooted).await
+}
+
+#[path = "cell_group_sql_reads.rs"]
+mod reads;
+
+pub(crate) use reads::{coherent as coherent_reads, lifecycle as query_lifecycle};
+
+#[path = "cell_group_sql_apply.rs"]
+pub(super) mod apply;
+pub(crate) use apply::apply_images;
+
+#[path = "cell_group_sql_apply_faults.rs"]
+mod apply_faults;
+pub(crate) use apply_faults::{cancellation as apply_cancellation, failure as apply_failure};
+
+#[path = "cell_group_sql_apply_recovery.rs"]
+mod apply_recovery;
+pub(crate) use apply_recovery::recover as recover_apply;
+
+#[path = "cell_group_sql_registered.rs"]
+mod registered;
+pub(crate) use registered::commands as registered_commands;
+
+#[path = "cell_group_sql_registered_queries.rs"]
+mod registered_queries;
+pub(crate) use registered_queries::queries as registered_queries;
+
+#[path = "cell_group_sql_dispatch.rs"]
+mod dispatch;
+pub(crate) use dispatch::routed as routed_queries;
+
+#[path = "cell_group_sql_command_dispatch.rs"]
+mod command_dispatch;
+pub(crate) use command_dispatch::commands as routed_commands;
+
+#[path = "cell_group_controller_archive.rs"]
+#[allow(dead_code, unused_imports)]
+mod archive_controller;
+#[path = "cell_group_s3_commands.rs"]
+#[allow(dead_code)]
+mod s3_commands;
+#[path = "cell_group_s3_response.rs"]
+// Selected by the archive-controller target; sibling targets share this SQL fixture.
+#[allow(dead_code)]
+mod s3_response;
+#[allow(unused_imports)]
+pub(crate) use s3_commands::{s3_commands, s3_deadline, s3_missing_sibling, s3_namespace_minimum};
+#[allow(unused_imports)]
+pub(crate) use s3_response::unproved_s3_responses;
+#[path = "cell_group_controller.rs"]
+mod controller;
+#[allow(unused_imports)]
+pub(crate) use archive_controller::{archive_controller_publish, archive_controller_reconcile};
+#[allow(unused_imports)]
+pub(crate) use archive_controller::{
+    archive_controller_publish_store, archive_controller_reconcile_store,
+};
+#[path = "cell_group_controller_commands.rs"]
+mod controller_commands;
+pub(crate) use controller::{
+    controller_apply_faults, controller_close, controller_owners, controller_replication,
+};
+pub(crate) use controller_commands::{owned_command_failure, owned_commands};
+
+pub(super) async fn commands_over_tcp(rooted: bool) -> Result<()> {
+    Box::pin(command_dispatch::commands_with_transport(rooted, true)).await
+}
+
+#[path = "cell_group_controller_enrollment.rs"]
+mod controller_enrollment;
+pub(crate) use controller_enrollment::{
+    enrollment_requires_registration, owned_enrollment, owned_enrollment_failure,
+};
+
+#[path = "cell_group_remote_queries.rs"]
+mod remote_queries;
+pub(crate) use remote_queries::{remote_queries, remote_query_lifecycle};
+
+#[path = "cell_group_query_origins.rs"]
+mod query_origins;
+pub(crate) use query_origins::{nonmember_queries, nonmember_query_revocation};
+
+#[path = "cell_group_dispatch_cache_execution.rs"]
+mod dispatch_cache_execution;
+pub(crate) use dispatch_cache_execution::cached_dispatch_execution;
+
+#[path = "cell_group_remote_commands.rs"]
+mod remote_commands;
+pub(crate) use remote_commands::{remote_command_lifecycle, remote_commands};
+
+#[path = "cell_group_remote_enrollment.rs"]
+mod remote_enrollment;
+pub(crate) use remote_enrollment::{remote_enrollment, remote_enrollment_lifecycle};
+
+#[path = "cell_group_receipt_lookup.rs"]
+mod receipt_lookup;
+pub(crate) use receipt_lookup::{
+    receipt_lookup_cancelled, receipt_lookup_ingress, receipt_lookup_pending,
+};
+
+#[path = "cell_group_registration.rs"]
+mod registration;
+pub(crate) use registration::{
+    registration_close, registration_live, registration_recovery, registration_refusals,
+};
+
+#[path = "cell_group_quarantine.rs"]
+mod quarantine;
+pub(crate) use quarantine::{
+    group_quarantine_retains_producer_and_serves_healthy_group,
+    shared_engine_sync_failure_still_stops_all_groups,
+};
+
+#[path = "cell_group_provision.rs"]
+mod provision;
+pub(crate) use provision::{
+    provisioning_coalesces_and_serves, provisioning_joins_cancelled_close,
+    provisioning_recovers_selected_roots, provisioning_refusals_preserve_healthy_group,
+    provisioning_retries_retained_owner,
+};
+
+#[path = "cell_group_controller_checkpoints.rs"]
+mod controller_checkpoints;
+pub(crate) use controller_checkpoints::{
+    automatic_checkpoints, checkpoint_during_apply, controller_checkpoint_shutdown,
+};
+
+#[path = "cell_group_completion_pressure.rs"]
+mod completion_pressure;
+pub(crate) use completion_pressure::checkpoint_completion_pressure;
+
+#[path = "cell_group_checkpoint_fairness.rs"]
+mod checkpoint_fairness;
+pub(crate) use checkpoint_fairness::concurrent_checkpoints;
+
+#[path = "cell_group_membership.rs"]
+mod membership;
+pub(crate) use membership::{membership_lifecycle, membership_sync};
+
+#[path = "cell_group_seed.rs"]
+mod seed;
+pub(crate) use seed::{seed_minority, seed_source};
+
+#[path = "cell_group_seed_install.rs"]
+mod seed_install;
+pub(crate) use seed_install::seed_install;
+
+#[path = "cell_group_seed_receiver.rs"]
+mod seed_receiver;
+pub(crate) use seed_receiver::seed_receiver_faults;
+
+#[path = "cell_group_seed_persistence.rs"]
+mod seed_persistence;
+pub(crate) use seed_persistence::{seed_persistence, seed_transfer_revocation};
+
+#[path = "cell_group_seed_crash.rs"]
+mod seed_crash;
+pub(crate) use seed_crash::{seed_crash, seed_process_fixture};
+
+#[path = "cell_group_crash_fixture.rs"]
+mod crash_fixture;
+#[path = "cell_group_membership_crash.rs"]
+mod membership_crash;
+pub(crate) use membership_crash::{membership_crash, membership_process_fixture};
+
+#[path = "cell_group_node_reclaim.rs"]
+mod node_reclaim;
+pub(crate) use node_reclaim::shared_inventory;
+
+pub(crate) use seed_crash::seed_retry;

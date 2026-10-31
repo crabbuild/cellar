@@ -11,6 +11,10 @@ use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
+#[path = "generation_receive.rs"]
+mod receive;
+pub use receive::GenerationReceive;
+
 pub use crate::generation_accounting::{GenerationAccounting, GenerationResources};
 pub use crate::generation_vfs::{open_immutable, ImmutableDatabase, ReadServices};
 
@@ -199,6 +203,20 @@ pub struct GenerationPin {
 }
 
 impl GenerationPin {
+    /// Independently inspect and sync this pinned destination, including when
+    /// its seal is already cached. Run on its joined blocking owner. This
+    /// verifies physical bytes; it supplies no publication or consensus right.
+    pub fn verify_and_sync(&self) -> Result<(), GenerationError> {
+        let mut file = self
+            .inner
+            .filesystem
+            .open(&self.inner.directory.join(final_name(self.id())))?;
+        apply::inspect(&mut file, &self.state(), None)?;
+        file.sync_all()?;
+        self.inner.filesystem.sync_all(&self.inner.directory)?;
+        Ok(())
+    }
+
     pub fn id(&self) -> ImageId {
         self.image.id
     }
@@ -625,6 +643,11 @@ impl GenerationStore {
         self.inner.limits.apply
     }
 
+    /// Compare exact open directory owners without performing I/O.
+    pub fn same_inventory(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+
     /// Whether this pin belongs to this exact open directory owner. Logical
     /// image IDs and digests alone do not establish local file ownership.
     /// This does not select the image as an authoritative retained reference.
@@ -642,6 +665,48 @@ impl GenerationStore {
         update: &ImageUpdate<'_>,
     ) -> Result<GenerationPin, GenerationError> {
         self.prepare_chain(id, base, std::slice::from_ref(update))
+    }
+
+    /// Apply and verify the supplied delta even if the destination already
+    /// exists. A cached result cannot substitute for replay of untrusted LTX.
+    /// Existing images use an independently admitted anonymous scratch image;
+    /// existing inventory retention is preserved. New private results are
+    /// reclaimable once their returned pins are released, like received images.
+    pub fn prepare_verified(
+        &self,
+        id: ImageId,
+        base: Option<&GenerationPin>,
+        update: &ImageUpdate<'_>,
+    ) -> Result<GenerationPin, GenerationError> {
+        match self.prepare(id, base, update) {
+            Ok(pin) => {
+                self.retire(pin.id())?;
+                return Ok(pin);
+            }
+            Err(GenerationError::Exists) => (),
+            Err(error) => return Err(error),
+        }
+        let pin = self.pin_prepared(id, update.result)?;
+        let updates = std::slice::from_ref(update);
+        let peak = apply::peak_chain_bytes(updates, &self.inner.limits.apply)?;
+        let _scratch = self.inner.snapshot_scratch.acquire(peak, 1)?;
+        let mut file = self
+            .inner
+            .filesystem
+            .temporary_file(Some(&self.inner.directory))?;
+        let source = base.map(|pin| self.inner.directory.join(final_name(pin.id())));
+        let actual = apply::apply_private_chain(
+            self.inner.filesystem.as_ref(),
+            source.as_deref(),
+            &mut file,
+            updates,
+            &self.inner.limits.apply,
+        )?;
+        if actual != update.result {
+            return Err(GenerationError::Identity);
+        }
+        pin.verify_and_sync()?;
+        Ok(pin)
     }
 
     /// Captured physical limits; callers can partition replay without relaxing
@@ -959,6 +1024,27 @@ impl GenerationStore {
         id: ImageId,
         expected: ImageState,
     ) -> Result<GenerationPin, GenerationError> {
+        self.pin_existing(id, expected, true)
+    }
+
+    /// Reopen an exactly identified prepared image without changing its host
+    /// retention flag. Cold images are independently verified and synced before
+    /// returning a pin. This is physical preparation only: the caller must prove
+    /// the expected image from its committed input and separately publish it.
+    pub fn pin_prepared(
+        &self,
+        id: ImageId,
+        expected: ImageState,
+    ) -> Result<GenerationPin, GenerationError> {
+        self.pin_existing(id, expected, false)
+    }
+
+    fn pin_existing(
+        &self,
+        id: ImageId,
+        expected: ImageState,
+        retain: bool,
+    ) -> Result<GenerationPin, GenerationError> {
         expected.validate(&self.inner.limits.apply)?;
         let token = {
             let mut state = self.lock()?;
@@ -970,7 +1056,7 @@ impl GenerationStore {
                 if image.state != expected {
                     return Err(GenerationError::Identity);
                 }
-                entry.retained = true;
+                entry.retained |= retain;
                 return Ok(GenerationPin {
                     inner: self.inner.clone(),
                     image: image.clone(),
@@ -980,7 +1066,7 @@ impl GenerationStore {
                 return Err(GenerationError::Missing);
             }
             entry.busy = true;
-            entry.retained = true;
+            entry.retained |= retain;
             entry.token.clone()
         };
         let mut reservation = Reservation {

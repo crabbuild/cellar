@@ -27,6 +27,9 @@ pub const HOLD_LOCK_DROP: u8 = 10;
 pub const HOLD_IMAGE_READ: u8 = 11;
 pub const HOLD_SNAPSHOT_TEMP: u8 = 12;
 pub const HOLD_EXTENT_READ: u8 = 13;
+pub const FAIL_AFTER_SYNC: u8 = 14;
+pub const HOLD_DEPENDENCY_PREFIX: u8 = 15;
+pub const HOLD_DEPENDENCY_SYNC: u8 = 16;
 
 pub struct Gate {
     pub mode: AtomicU8,
@@ -36,6 +39,9 @@ pub struct Gate {
     signal: Option<std::path::PathBuf>,
     pub sync_path: Mutex<Option<std::path::PathBuf>>,
     pub image_read_paths: Mutex<Vec<std::path::PathBuf>>,
+    pub dependency_cut: Mutex<Option<(std::path::PathBuf, u64)>>,
+    /// Optional sync selection, installed before arming and cleared on release.
+    pub sync_when: Mutex<Option<Arc<dyn Fn() -> bool + Send + Sync>>>,
 }
 
 impl Gate {
@@ -48,6 +54,8 @@ impl Gate {
             signal,
             sync_path: Mutex::new(None),
             image_read_paths: Mutex::new(vec![]),
+            dependency_cut: Mutex::new(None),
+            sync_when: Mutex::new(None),
         })
     }
 
@@ -77,6 +85,7 @@ pub struct Release(Arc<Gate>);
 impl Drop for Release {
     fn drop(&mut self) {
         self.0.mode.store(OFF, Ordering::Release);
+        self.0.sync_when.lock().unwrap().take();
         *self.0.released.lock().unwrap() = true;
         self.0.release.notify_all();
     }
@@ -113,6 +122,27 @@ struct FaultFile {
     image: bool,
 }
 
+impl FaultFile {
+    fn dependency(&self) -> bool {
+        self.path == Path::new("snapshot.scratch")
+            || self
+                .path
+                .parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name == "extents")
+                && self
+                    .path
+                    .file_name()
+                    .is_some_and(|name| name.to_string_lossy().starts_with("e-"))
+    }
+
+    fn pause_dependency(&mut self) -> io::Result<()> {
+        *self.gate.dependency_cut.lock().unwrap() =
+            Some((self.path.clone(), self.inner.file_len()?));
+        self.gate.pause()
+    }
+}
+
 struct TrackedLock {
     _lock: HostFileLock,
     gate: Arc<Gate>,
@@ -137,6 +167,28 @@ impl HostFileIo for FaultFile {
     }
 
     fn write_all_at(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
+        if self.dependency()
+            && offset == 0
+            && bytes.len() > 1
+            && self
+                .gate
+                .mode
+                .compare_exchange(
+                    HOLD_DEPENDENCY_PREFIX,
+                    OFF,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_ok()
+        {
+            let prefix = bytes.len() / 2;
+            self.inner.write_all_at(offset, &bytes[..prefix])?;
+            self.inner.sync_all()?;
+            self.pause_dependency()?;
+            return self
+                .inner
+                .write_all_at(offset + prefix as u64, &bytes[prefix..]);
+        }
         if self.log
             && self
                 .gate
@@ -179,7 +231,24 @@ impl HostFileIo for FaultFile {
     }
 
     fn sync_all(&mut self) -> io::Result<()> {
-        if self.log {
+        if self.dependency()
+            && self
+                .gate
+                .mode
+                .compare_exchange(
+                    HOLD_DEPENDENCY_SYNC,
+                    OFF,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_ok()
+        {
+            self.inner.sync_all()?;
+            self.pause_dependency()?;
+            return Ok(());
+        }
+        let sync_when = self.gate.sync_when.lock().unwrap().clone();
+        if self.log && sync_when.is_none_or(|when| when()) {
             let mode = self.gate.mode.load(Ordering::Acquire);
             let mode = if matches!(
                 mode,
@@ -187,6 +256,7 @@ impl HostFileIo for FaultFile {
                     | FAIL_SYNC
                     | CRASH_BEFORE_SYNC
                     | CRASH_AFTER_SYNC
+                    | FAIL_AFTER_SYNC
                     | FAIL_SYNC_HOLD_LOCK_DROP
             ) && self
                 .gate
@@ -201,6 +271,10 @@ impl HostFileIo for FaultFile {
             match mode {
                 HOLD_SYNC | CRASH_BEFORE_SYNC => self.gate.pause()?,
                 FAIL_SYNC => return Err(io::Error::other("injected Raft sync failure")),
+                FAIL_AFTER_SYNC => {
+                    self.inner.sync_all()?;
+                    return Err(io::Error::other("injected failure after durable Raft sync"));
+                }
                 FAIL_SYNC_HOLD_LOCK_DROP => {
                     self.gate.mode.store(HOLD_LOCK_DROP, Ordering::Release);
                     return Err(io::Error::other(

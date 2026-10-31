@@ -1,0 +1,855 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+//! Cell-history admission and commands on the existing fixed node SQL workers.
+
+mod admission;
+mod apply;
+pub(in crate::raft::host_sql) use apply::ApplyRequest;
+pub use apply::CellGroupPreparedApply;
+mod query;
+mod worker;
+pub use query::{CellSqlQueryResult, CellSqlReceiptLookup};
+
+use super::{Budget, Budgets, Envelope, Permit, Pool, ResourceObserver, Worker};
+use crate::raft::cell_groups::{
+    cell_image_history_digest, CellEnrollmentAuthority, CellEnrollmentState,
+    CellExecutionAuthority, CellReconciliationAuthority, EnrollmentRecord,
+};
+use crate::raft::completion::RuntimeError;
+use crate::raft::execution::{
+    CellCommittedReceipt, CellEnrollmentAttempt, CellEnrollmentResolution, CellPreparedCommand,
+    CellPrivateEnrollment, CellPrivateExecutor, CellProposalRejection, CellReconciliation,
+    CellStageOutcome, CellSubmissionOutcome, CommandAttempt, ExecutionError, ExecutionLimits,
+    PrivateOptions, RootPrivateOptions,
+};
+use crate::raft::runtime::Terminal;
+use crate::raft::storage::ReplicaLog;
+use crate::storage::CommandTransaction;
+use admission::{Admission, Bytes, CellLease};
+use cellar_logic::cell_group::{CellHistory, GroupHistory};
+use cellar_logic::consensus::{CommandFailure, ProposalId};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+use tokio::sync::{oneshot, Notify};
+pub(super) use worker::{Cells, Request};
+
+#[derive(Clone, Copy)]
+pub struct CellSqlLimits {
+    pub workers: usize,
+    pub queue_per_worker: usize,
+    pub max_pending_cells: usize,
+    pub group_pending_cells: usize,
+    /// Each of the SQL producer and independent apply budgets has this ceiling.
+    /// Configure their combined envelope as twice this value.
+    pub node_bytes: usize,
+    pub group_bytes: usize,
+}
+
+impl CellSqlLimits {
+    fn validate(self) -> Result<(), ExecutionError> {
+        if !(1..=256).contains(&self.workers)
+            || !(1..=4096).contains(&self.queue_per_worker)
+            || !(1..=65_536).contains(&self.max_pending_cells)
+            || self.group_pending_cells == 0
+            || self.group_pending_cells > self.max_pending_cells
+            || self.group_bytes == 0
+            || self.group_bytes > self.node_bytes
+        {
+            return Err(ExecutionError::Invalid("cell SQL pool limits"));
+        }
+        Ok(())
+    }
+}
+
+/// Extent configuration without a live private workspace. The admitted worker
+/// creates and destroys that physical owner; rejected/queued requests do no I/O.
+#[derive(Clone)]
+pub struct CellSqlRootOptions {
+    pub host: cellar_ltx::LtxHost,
+    pub sqlite_vfs: Option<String>,
+    pub images: cellar_ltx::internal::NodeExtentStore,
+    pub query_services: cellar_ltx::generation::ReadServices,
+    pub application_digest: [u8; 32],
+    pub limits: ExecutionLimits,
+    pub cache_directory: std::path::PathBuf,
+    pub cache_pool: cellar_ltx::stream_snapshot::ScratchPool,
+    pub cache: cellar_ltx::internal::CacheLimits,
+}
+
+#[derive(Clone)]
+pub enum CellSqlOptions {
+    Materialized(PrivateOptions),
+    Extents(CellSqlRootOptions),
+}
+
+impl CellSqlOptions {
+    fn limits(&self) -> ExecutionLimits {
+        match self {
+            Self::Materialized(o) => o.limits,
+            Self::Extents(o) => o.limits,
+        }
+    }
+
+    fn application_digest(&self) -> [u8; 32] {
+        match self {
+            Self::Materialized(o) => o.application_digest,
+            Self::Extents(o) => o.application_digest,
+        }
+    }
+
+    fn open_enrollment(
+        self,
+        authority: CellEnrollmentAuthority,
+    ) -> Result<CellPrivateEnrollment, ExecutionError> {
+        match self {
+            Self::Materialized(o) => CellPrivateEnrollment::open(o, authority),
+            Self::Extents(o) => {
+                CellPrivateEnrollment::open_rooted(o.prepare(authority.state().cell())?, authority)
+            }
+        }
+    }
+
+    fn open(
+        self,
+        authority: CellExecutionAuthority,
+    ) -> Result<CellPrivateExecutor, ExecutionError> {
+        match self {
+            Self::Materialized(o) => CellPrivateExecutor::open(o, authority),
+            Self::Extents(o) => CellPrivateExecutor::open_rooted(
+                o.prepare(&authority.cell().version.history)?,
+                authority,
+            ),
+        }
+    }
+}
+
+impl CellSqlRootOptions {
+    fn prepare(self, cell: &CellHistory) -> Result<RootPrivateOptions, ExecutionError> {
+        let workspace = self
+            .images
+            .create_workspace(
+                cell_image_history_digest(cell),
+                RootPrivateOptions::workspace_bounds(self.limits)?,
+            )
+            .map_err(crate::raft::execution::storage)?;
+        Ok(RootPrivateOptions {
+            workspace,
+            host: self.host,
+            sqlite_vfs: self.sqlite_vfs,
+            images: self.images,
+            query_services: self.query_services,
+            application_digest: self.application_digest,
+            limits: self.limits,
+            cache_directory: self.cache_directory,
+            cache_pool: self.cache_pool,
+            cache: self.cache,
+        })
+    }
+}
+
+pub struct CellSqlEnrollment {
+    record: EnrollmentRecord,
+    _bytes: Arc<Bytes>,
+}
+
+impl CellSqlEnrollment {
+    pub fn record(&self) -> &EnrollmentRecord {
+        &self.record
+    }
+}
+
+pub enum CellSqlEnrollmentResolution {
+    Committed(Box<CellSqlEnrollment>),
+    NotCommitted,
+    Conflict,
+}
+
+/// Clones retain both node and group admission through delivery and submission.
+#[derive(Clone)]
+pub struct CellSqlPrepared {
+    prepared: CellPreparedCommand,
+    _bytes: Arc<Bytes>,
+}
+
+impl CellSqlPrepared {
+    pub(crate) fn cancel_before_submission(
+        &self,
+    ) -> Result<Option<CellSqlRejection>, RuntimeError> {
+        Ok(self
+            .prepared
+            .cancel_before_submission()?
+            .map(|proof| CellSqlRejection {
+                proof,
+                _bytes: self._bytes.clone(),
+            }))
+    }
+
+    pub async fn submit(
+        &self,
+        runtime: &crate::raft::cell_groups::CellGroupRuntime,
+    ) -> Result<CellSqlSubmission, RuntimeError> {
+        match runtime
+            .submit_retained(self.prepared.clone(), Some(self._bytes.clone()))
+            .await?
+        {
+            CellSubmissionOutcome::Accepted(accepted) => Ok(CellSqlSubmission::Accepted(accepted)),
+            CellSubmissionOutcome::Rejected(proof) => {
+                Ok(CellSqlSubmission::Rejected(CellSqlRejection {
+                    proof,
+                    _bytes: self._bytes.clone(),
+                }))
+            }
+        }
+    }
+
+    pub fn rejection(&self) -> Result<Option<CellSqlRejection>, RuntimeError> {
+        Ok(self.prepared.rejection()?.map(|proof| CellSqlRejection {
+            proof,
+            _bytes: self._bytes.clone(),
+        }))
+    }
+
+    pub fn term(&self) -> cellar_logic::consensus::Term {
+        self.prepared.term()
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        self.prepared.bytes()
+    }
+
+    pub fn proposal(&self) -> ProposalId {
+        self.prepared.proposal()
+    }
+}
+
+pub enum CellSqlSubmission {
+    Accepted(crate::raft::cell_groups::CellGroupProposal),
+    Rejected(CellSqlRejection),
+}
+
+/// Retains the original SQL output budget through delivery and lost responses.
+#[derive(Clone)]
+pub struct CellSqlRejection {
+    proof: CellProposalRejection,
+    _bytes: Arc<Bytes>,
+}
+
+pub struct CellSqlReceipt {
+    receipt: CellCommittedReceipt,
+    _retention: ReceiptRetention,
+}
+
+enum ReceiptRetention {
+    Sql {
+        _bytes: Arc<Bytes>,
+    },
+    Archive {
+        _permit: Arc<crate::raft::budget::Permit>,
+    },
+}
+
+impl CellSqlReceipt {
+    /// Only a resolved output can transfer its bytes to an independently admitted
+    /// archive owner. Acquire that reservation before releasing SQL retention.
+    pub(crate) fn retain_for_archive(
+        mut self: Box<Self>,
+        permit: Arc<crate::raft::budget::Permit>,
+    ) -> Box<Self> {
+        self._retention = ReceiptRetention::Archive { _permit: permit };
+        self
+    }
+
+    pub fn receipt(&self) -> &CellCommittedReceipt {
+        &self.receipt
+    }
+}
+
+// A stage error after a received worker reply cannot hide an installed producer:
+// Stage and Initialize insert pending ownership only on successful Prepared branches.
+// A lost reply is deliberately different and requires recovery/joined shutdown.
+pub(crate) struct CellSqlStageFailure {
+    pub error: ExecutionError,
+    pub unresolved: bool,
+}
+
+impl CellSqlStageFailure {
+    fn known(error: ExecutionError) -> Self {
+        Self {
+            error,
+            unresolved: false,
+        }
+    }
+}
+
+type SqlReply = Result<CellSqlOutcome, ExecutionError>;
+
+pub enum CellSqlOutcome {
+    Prepared(CellSqlPrepared),
+    Receipt(Box<CellSqlReceipt>),
+    Submitted,
+    Reconciled(CellSqlReconciliation),
+    Enrollment(Box<CellSqlEnrollment>),
+    EnrollmentResolved(CellSqlEnrollmentResolution),
+    Rejected,
+    Queried(CellSqlQueryResult),
+    ReceiptLookedUp(CellSqlReceiptLookup),
+}
+
+pub enum CellSqlReconciliation {
+    Committed(Box<CellSqlReceipt>),
+    NotCommitted,
+    Refused(CommandFailure),
+}
+
+pub struct CellSqlUsage {
+    /// Independent progress budget; not included in SQL producer retention.
+    pub apply_retained_bytes: usize,
+    pub apply_retained_operations: usize,
+    pub active_cells: usize,
+    pub retained_bytes: usize,
+    pub retained_operations: usize,
+    pub running_workers: usize,
+    pub worker_capacity: usize,
+    pub queued_or_running: usize,
+    pub completion_reservations: usize,
+}
+
+#[derive(Clone)]
+pub struct CellGroupSqlPool {
+    inner: Arc<Handle>,
+}
+
+pub(crate) struct WeakCellGroupSqlPool(std::sync::Weak<Handle>);
+
+impl WeakCellGroupSqlPool {
+    pub(crate) fn upgrade(&self) -> Option<CellGroupSqlPool> {
+        self.0.upgrade().map(|inner| CellGroupSqlPool { inner })
+    }
+}
+
+impl CellGroupSqlPool {
+    pub(crate) fn downgrade(&self) -> WeakCellGroupSqlPool {
+        WeakCellGroupSqlPool(Arc::downgrade(&self.inner))
+    }
+}
+
+struct Handle {
+    engine_owner: Arc<()>,
+    workers: Vec<Worker>,
+    resources: ResourceObserver,
+    admission: Arc<Admission>,
+    apply_admission: Arc<Budget>,
+    closing: Arc<AtomicBool>,
+    stop: Arc<Notify>,
+    terminal: Arc<Terminal>,
+}
+
+impl Drop for Handle {
+    fn drop(&mut self) {
+        self.closing.store(true, Ordering::Release);
+        self.stop.notify_one();
+    }
+}
+
+fn unavailable() -> ExecutionError {
+    ExecutionError::Refused(CommandFailure::Unavailable)
+}
+
+fn overloaded() -> ExecutionError {
+    ExecutionError::Refused(CommandFailure::Overloaded)
+}
+
+impl CellGroupSqlPool {
+    pub(crate) fn belongs_to_engine(&self, owner: &Arc<()>) -> bool {
+        Arc::ptr_eq(&self.inner.engine_owner, owner)
+    }
+
+    pub(crate) fn uses_domain(&self, domain: &crate::asyncrt::DomainToken) -> bool {
+        self.inner.workers[0].domain.same_owner(domain)
+    }
+
+    pub fn start(log: &ReplicaLog, limits: CellSqlLimits) -> Result<Self, ExecutionError> {
+        limits.validate()?;
+        log.cell_groups().map_err(crate::raft::execution::storage)?;
+        let lease = log
+            .claim_sql_pool()
+            .map_err(crate::raft::execution::storage)?;
+        let domain = log.domain();
+        let mut pool = Pool::start(
+            domain.clone(),
+            limits.workers,
+            limits.queue_per_worker,
+            limits.max_pending_cells,
+            Budgets {
+                business: Budget::new(limits.node_bytes, limits.max_pending_cells),
+                archive_capture: Budget::new(1, 1),
+                query_pins: Budget::new(1, 1),
+            },
+            log.performance(),
+        )?;
+        let workers = (0..limits.workers)
+            .map(|n| pool.worker(n))
+            .collect::<Result<Vec<_>, _>>()?;
+        let resources = pool.resource_observer();
+        let closing = pool.stopped.clone();
+        let stop = Arc::new(Notify::new());
+        let terminal = Arc::new(Terminal::new());
+        let inner = Arc::new(Handle {
+            engine_owner: log.owner(),
+            workers,
+            resources,
+            admission: Admission::new(limits, lease.clone()),
+            apply_admission: Budget::new(limits.node_bytes, log.limits().max_groups),
+            closing: closing.clone(),
+            stop: stop.clone(),
+            terminal: terminal.clone(),
+        });
+        let cleanup_domain = domain.clone();
+        // Cleanup owns the join handles, so cancelling a close waiter cannot
+        // release physical workers. Domain shutdown also joins this cleanup.
+        domain.spawn_cleanup(async move {
+            struct Complete(Arc<Terminal>);
+
+            impl Drop for Complete {
+                fn drop(&mut self) { self.0.complete(Err(RuntimeError::Closed)); }
+            }
+            let _complete = Complete(terminal.clone());
+            let _physical_lease = lease;
+            crate::asyncrt::select! { _ = stop.notified() => (), _ = cleanup_domain.wait_for_work() => () }
+            closing.store(true, Ordering::Release);
+            let result = pool.join().await.map_err(|e| RuntimeError::Protocol(e.to_string()));
+            drop(pool);
+            drop(_physical_lease);
+            terminal.complete(result);
+        }).map_err(|_| unavailable())?;
+        Ok(Self { inner })
+    }
+
+    pub fn usage(&self) -> Result<CellSqlUsage, ExecutionError> {
+        let (active_cells, retained_bytes, retained_operations) = self.inner.admission.usage()?;
+        let resources = self.inner.resources.capture().ok_or_else(unavailable)?;
+        let (apply_retained_bytes, apply_retained_operations) = self.inner.apply_admission.usage();
+        Ok(CellSqlUsage {
+            apply_retained_bytes,
+            apply_retained_operations,
+            active_cells,
+            retained_bytes,
+            retained_operations,
+            running_workers: resources.running_workers,
+            worker_capacity: resources.worker_capacity,
+            queued_or_running: resources.work_reservations,
+            completion_reservations: self
+                .inner
+                .workers
+                .iter()
+                .map(|w| 1 - w.completion_slots.available_permits())
+                .sum(),
+        })
+    }
+
+    fn admit(&self) -> Result<(), ExecutionError> {
+        if self.inner.closing.load(Ordering::Acquire) {
+            return Err(unavailable());
+        }
+        Ok(())
+    }
+
+    async fn call(&self, cell: CellHistory, action: worker::Action) -> SqlReply {
+        self.send(cell, action)?.await.map_err(|_| unavailable())?
+    }
+
+    fn send(
+        &self,
+        cell: CellHistory,
+        action: worker::Action,
+    ) -> Result<oneshot::Receiver<SqlReply>, ExecutionError> {
+        self.admit()?;
+        let hash = cell_image_history_digest(&cell);
+        let index = u64::from_le_bytes(
+            hash[..8]
+                .try_into()
+                .map_err(|_| ExecutionError::Invalid("cell worker key"))?,
+        ) % self.inner.workers.len() as u64;
+        let worker = &self.inner.workers[index as usize];
+        worker.domain.mono_ms().map_err(|_| unavailable())?;
+        let slots = if action.progress_priority() {
+            &worker.completion_slots
+        } else {
+            &worker.slots
+        };
+        let slot = slots
+            .clone()
+            .try_acquire_owned()
+            .map_err(|error| match error {
+                tokio::sync::TryAcquireError::Closed => unavailable(),
+                tokio::sync::TryAcquireError::NoPermits => overloaded(),
+            })?;
+        self.admit()?;
+        let (reply, wait) = oneshot::channel();
+        worker
+            .sender
+            .try_send(Envelope::Shared(Request {
+                cell,
+                action,
+                reply,
+                _slot: slot,
+                queued: worker
+                    .performance
+                    .timer(crate::raft::performance::Operation::SqlQueue),
+            }))
+            .map_err(|_| unavailable())?;
+        Ok(wait)
+    }
+
+    /// The owning worker retains the callback and admission even if this waiter
+    /// is cancelled. Caller-provided callbacks are the verification boundary;
+    /// the production host must dispatch registered operations here.
+    pub async fn stage(
+        &self,
+        options: CellSqlOptions,
+        authority: CellExecutionAuthority,
+        attempt: CommandAttempt,
+        allow_new: bool,
+        callback: impl FnOnce(&CommandTransaction<'_>) -> anyhow::Result<Vec<u8>> + Send + 'static,
+    ) -> Result<CellSqlOutcome, ExecutionError> {
+        self.stage_callback(
+            options,
+            authority,
+            attempt,
+            allow_new,
+            worker::Callback::Verification(Box::new(callback)),
+        )
+        .await
+    }
+
+    /// Dispatch an authorized namespace's compiled class on the same fixed
+    /// workers and receipt path. The class is checked against the selected route
+    /// schema; contract, input digest and inbox identity are checked on the worker
+    /// before receipt lookup. Cancellation retains the same physical ownership.
+    pub async fn stage_registered(
+        &self,
+        options: CellSqlOptions,
+        authority: CellExecutionAuthority,
+        attempt: CommandAttempt,
+        class: Arc<crate::application::consensus::RaftClass>,
+        input: Vec<u8>,
+        allow_new: bool,
+    ) -> Result<CellSqlOutcome, ExecutionError> {
+        self.stage_registered_owned(options, authority, attempt, class, input, allow_new)
+            .await
+            .map_err(|failure| failure.error)
+    }
+
+    pub(crate) async fn stage_registered_owned(
+        &self,
+        options: CellSqlOptions,
+        authority: CellExecutionAuthority,
+        attempt: CommandAttempt,
+        class: Arc<crate::application::consensus::RaftClass>,
+        input: Vec<u8>,
+        allow_new: bool,
+    ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
+        if input.len() > options.limits().envelope.max_payload_bytes {
+            return Err(CellSqlStageFailure::known(overloaded()));
+        }
+        self.stage_owned(
+            options,
+            authority,
+            attempt,
+            allow_new,
+            worker::Callback::Registered {
+                class,
+                input: input.into_boxed_slice(),
+            },
+        )
+        .await
+    }
+
+    async fn stage_callback(
+        &self,
+        options: CellSqlOptions,
+        authority: CellExecutionAuthority,
+        attempt: CommandAttempt,
+        allow_new: bool,
+        callback: worker::Callback,
+    ) -> SqlReply {
+        self.stage_owned(options, authority, attempt, allow_new, callback)
+            .await
+            .map_err(|failure| failure.error)
+    }
+
+    async fn stage_owned(
+        &self,
+        options: CellSqlOptions,
+        authority: CellExecutionAuthority,
+        attempt: CommandAttempt,
+        allow_new: bool,
+        callback: worker::Callback,
+    ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
+        let (cell, action) = self
+            .stage_request(options, authority, attempt, allow_new, callback)
+            .map_err(CellSqlStageFailure::known)?;
+        let wait = self
+            .send(cell, action)
+            .map_err(CellSqlStageFailure::known)?;
+        wait.await
+            .map_err(|_| CellSqlStageFailure {
+                error: unavailable(),
+                unresolved: true,
+            })?
+            .map_err(CellSqlStageFailure::known)
+    }
+
+    fn stage_request(
+        &self,
+        options: CellSqlOptions,
+        authority: CellExecutionAuthority,
+        attempt: CommandAttempt,
+        allow_new: bool,
+        callback: worker::Callback,
+    ) -> Result<(CellHistory, worker::Action), ExecutionError> {
+        self.admit()?;
+        if !authority.belongs_to_engine(&self.inner.engine_owner) {
+            return Err(ExecutionError::Invalid("cell SQL engine owner"));
+        }
+        if attempt.request.operation.is_empty() || attempt.request.operation.len() > 128 {
+            return Err(ExecutionError::Invalid("command operation"));
+        }
+        let limits = options.limits();
+        limits.validate()?;
+        let input_bytes = match &callback {
+            worker::Callback::Verification(_) => 0,
+            worker::Callback::Registered { input, .. } => input.len(),
+        };
+        // Bound simultaneous encoded capture, entry, preview verification and
+        // result buffers before queueing or opening SQLite. Disk/workspace
+        // reservation is separately enforced by the chosen image owner.
+        let bytes = limits
+            .envelope
+            .max_payload_bytes
+            .checked_mul(4)
+            .and_then(|n| n.checked_add(input_bytes))
+            .and_then(|n| n.checked_add(limits.max_result_bytes))
+            .and_then(|n| n.checked_add(4096))
+            .ok_or_else(overloaded)?;
+        let cell = authority.cell().version.history.clone();
+        let (lease, bytes) =
+            self.inner
+                .admission
+                .reserve(&cell, authority.route().history, bytes)?;
+        Ok((
+            cell,
+            worker::Action::Stage(Box::new(worker::Stage {
+                options,
+                authority,
+                attempt,
+                allow_new,
+                callback,
+                lease,
+                bytes,
+            })),
+        ))
+    }
+
+    /// Initialize one logical cell on the existing blocking pool. The creation
+    /// ID is immutable retry identity; a committed retry returns its original
+    /// enrollment record without opening SQLite or rerunning the callback.
+    pub async fn initialize(
+        &self,
+        options: CellSqlOptions,
+        authority: CellEnrollmentAuthority,
+        attempt: CellEnrollmentAttempt,
+        initialize: impl FnOnce(&CommandTransaction<'_>) -> anyhow::Result<()> + Send + 'static,
+    ) -> Result<CellSqlOutcome, ExecutionError> {
+        self.initialize_owned(options, authority, attempt, initialize)
+            .await
+            .map_err(|failure| failure.error)
+    }
+
+    pub(crate) async fn initialize_owned(
+        &self,
+        options: CellSqlOptions,
+        authority: CellEnrollmentAuthority,
+        attempt: CellEnrollmentAttempt,
+        initialize: impl FnOnce(&CommandTransaction<'_>) -> anyhow::Result<()> + Send + 'static,
+    ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
+        let (cell, action) = self
+            .initialize_request(options, authority, attempt, initialize)
+            .map_err(CellSqlStageFailure::known)?;
+        let wait = self
+            .send(cell, action)
+            .map_err(CellSqlStageFailure::known)?;
+        wait.await
+            .map_err(|_| CellSqlStageFailure {
+                error: unavailable(),
+                unresolved: true,
+            })?
+            .map_err(CellSqlStageFailure::known)
+    }
+
+    fn initialize_request(
+        &self,
+        options: CellSqlOptions,
+        authority: CellEnrollmentAuthority,
+        attempt: CellEnrollmentAttempt,
+        initialize: impl FnOnce(&CommandTransaction<'_>) -> anyhow::Result<()> + Send + 'static,
+    ) -> Result<(CellHistory, worker::Action), ExecutionError> {
+        self.admit()?;
+        if !authority
+            .state()
+            .belongs_to_engine(&self.inner.engine_owner)
+        {
+            return Err(ExecutionError::Invalid("cell SQL engine owner"));
+        }
+        authority
+            .check()
+            .map_err(crate::raft::execution::authority_failure)?;
+        if options.application_digest() != authority.state().route().schema_digest {
+            return Err(ExecutionError::Invalid("enrollment schema"));
+        }
+        let limits = options.limits();
+        limits.validate()?;
+        let bytes = if authority.state().record().is_some() {
+            4096
+        } else {
+            limits
+                .envelope
+                .max_payload_bytes
+                .checked_mul(4)
+                .and_then(|n| n.checked_add(4096))
+                .ok_or_else(overloaded)?
+        };
+        let cell = authority.state().cell().clone();
+        let (lease, bytes) =
+            self.inner
+                .admission
+                .reserve(&cell, authority.state().route().history, bytes)?;
+        Ok((
+            cell,
+            worker::Action::Initialize(Box::new(worker::Initialize {
+                options,
+                authority,
+                attempt,
+                callback: Box::new(initialize),
+                lease,
+                bytes,
+            })),
+        ))
+    }
+
+    pub async fn resolve_enrollment(
+        &self,
+        creation: ProposalId,
+        state: CellEnrollmentState,
+    ) -> Result<CellSqlEnrollmentResolution, ExecutionError> {
+        if !state.belongs_to_engine(&self.inner.engine_owner) {
+            return Err(ExecutionError::Invalid("cell SQL engine owner"));
+        }
+        let cell = state.cell().clone();
+        match self
+            .call(
+                cell,
+                worker::Action::ResolveEnrollment(creation, Box::new(state)),
+            )
+            .await?
+        {
+            CellSqlOutcome::EnrollmentResolved(resolution) => Ok(resolution),
+            _ => Err(ExecutionError::Invalid("enrollment resolution response")),
+        }
+    }
+
+    /// Recover a lost stage response without another callback or producer.
+    pub async fn resume(
+        &self,
+        cell: CellHistory,
+        proposal: ProposalId,
+    ) -> Result<CellSqlPrepared, ExecutionError> {
+        match self.call(cell, worker::Action::Resume(proposal)).await? {
+            CellSqlOutcome::Prepared(prepared) => Ok(prepared),
+            _ => Err(ExecutionError::Invalid("cell SQL resume response")),
+        }
+    }
+
+    pub async fn mark_submitted(
+        &self,
+        cell: CellHistory,
+        proposal: ProposalId,
+    ) -> Result<(), ExecutionError> {
+        match self.call(cell, worker::Action::Submit(proposal)).await? {
+            CellSqlOutcome::Submitted => Ok(()),
+            _ => Err(ExecutionError::Invalid("cell SQL submit response")),
+        }
+    }
+
+    /// Close the private writer only for this exact, irreversibly sealed
+    /// preparation. A generic error or another producer's proof cannot do this.
+    pub async fn reject(
+        &self,
+        cell: CellHistory,
+        rejection: CellSqlRejection,
+    ) -> Result<(), ExecutionError> {
+        if !rejection.proof.belongs_to_engine(&self.inner.engine_owner) {
+            return Err(ExecutionError::Invalid("cell rejection engine"));
+        }
+        match self
+            .call(cell, worker::Action::Reject(Box::new(rejection)))
+            .await?
+        {
+            CellSqlOutcome::Rejected => Ok(()),
+            _ => Err(ExecutionError::Invalid("cell rejection response")),
+        }
+    }
+
+    pub async fn finish(
+        &self,
+        authority: CellExecutionAuthority,
+    ) -> Result<CellSqlReceipt, ExecutionError> {
+        if !authority.belongs_to_engine(&self.inner.engine_owner) {
+            return Err(ExecutionError::Invalid("cell SQL engine owner"));
+        }
+        let cell = authority.cell().version.history.clone();
+        match self
+            .call(cell, worker::Action::Finish(Box::new(authority)))
+            .await?
+        {
+            CellSqlOutcome::Receipt(receipt) => Ok(*receipt),
+            _ => Err(ExecutionError::Invalid("cell SQL finish response")),
+        }
+    }
+
+    /// Release a producer only after receipt resolution or a newer applied
+    /// term excludes its proposal. Cancellation leaves resolution on the worker;
+    /// a lost response must be reconciled against receipts, never inferred failed.
+    pub async fn reconcile(
+        &self,
+        proposal: ProposalId,
+        authority: CellReconciliationAuthority,
+    ) -> Result<CellSqlReconciliation, ExecutionError> {
+        if !authority.belongs_to_engine(&self.inner.engine_owner) {
+            return Err(ExecutionError::Invalid("cell SQL engine owner"));
+        }
+        let cell = authority.cell().version.history.clone();
+        match self
+            .call(
+                cell,
+                worker::Action::Reconcile(proposal, Box::new(authority)),
+            )
+            .await?
+        {
+            CellSqlOutcome::Reconciled(resolution) => Ok(resolution),
+            _ => Err(ExecutionError::Invalid("cell SQL reconciliation response")),
+        }
+    }
+
+    pub async fn close(&self) -> Result<(), ExecutionError> {
+        self.inner.closing.store(true, Ordering::Release);
+        self.inner.stop.notify_one();
+        self.inner
+            .terminal
+            .wait()
+            .await
+            .map_err(crate::raft::execution::storage)
+    }
+}

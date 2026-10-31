@@ -424,7 +424,9 @@ impl Fixture {
         )
         .await?;
         let target = RaftEffectTarget::new(
-            destination.registration.birth.scope.clone(),
+            cellar_logic::cell_group::CellHistory::try_from(
+                &destination.registration.birth.scope.clone(),
+            )?,
             destination.definitions[0].definition,
             destination.definitions[0].write.clone(),
             receiver_key.verification_key(),

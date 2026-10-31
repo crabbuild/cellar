@@ -26,7 +26,10 @@ The helper uses `docker --context colima-cellar-multi-raft` explicitly. It never
 stops another Colima profile or changes the user's global Docker context.
 Preparation requires a fresh run directory and digest-pinned RustFS image. A
 randomly named private network, object volume, credentials and loopback-only
-S3 port belong to that run. RustFS has one CPU and 2 GiB memory. The readiness
+S3 port belong to that run. The helper chooses a free host port explicitly:
+Docker's guest-selected ephemeral port can collide with another Colima profile's
+host forward and reach the wrong service. The pinned image uses the same
+20-character access-key profile as SDK CI. RustFS has one CPU and 2 GiB memory. The readiness
 probe checks its actual captured cgroup settings. The S3 probe checks seven real
 HTTP operations: bucket creation, conditional creation, matching read, refused
 overwrite, ETag compare-and-swap, refused stale ETag and read after replacement.
@@ -52,6 +55,44 @@ volumes, replica directories, credentials or another run's resources. Failed
 preparations retain their environment record for diagnosis. A separate cleanup
 step can remove the exact recorded resources after their data is no longer
 needed; never use a global Docker prune or delete a Colima profile as cleanup.
+
+## Shared cell-group archive checks
+
+Commit the test and harness sources, then run the native three-voter TLS fixture
+against the prepared RustFS backend. Use an absolute Cargo target directory unique
+to this checkout and a fresh output directory:
+
+```sh
+python3 tools/multi-raft/cell_groups.py \
+  --backend /tmp/cellar-raft-local-001 \
+  --output /tmp/cellar-cell-groups-rustfs-001 \
+  --target-directory "$HOME/Workspace/crabbuild-target/cellar-my-checkout"
+```
+
+The runner verifies the backend's ownership label, image, running state, endpoint
+and actual resource limits, then makes seven signed S3 probes in a new bucket.
+It runs seven exact ignored RustFS cases, each in materialized and extent modes:
+stable publication with continuing quorum, uncertain-publication reconciliation
+with joined close, refusal of unproved S3 responses, positive local command S3
+settlement, deadline/cancellation isolation, refusal when a sibling dependency
+is missing, and namespace minimum enforcement. Catalog setup, archive
+objects, conditional registry updates and independent recovery use the actual
+S3 client. Fault injection surrounds that client; lost publication responses are
+injected after the real conditional write commits. No memory fallback exists.
+
+The refusal case verifies that an unbound dispatcher cannot claim S3 durability,
+including a namespace minimum. The positive command cases use an explicit
+controller binding, exact receipts from later archived images, retained proof
+admission and fresh routing/leader checks. Receipt lookup, enrollment and remote
+S3 responses remain unqualified. The runner does not qualify local log file purge,
+fenced recovery or performance.
+The voters run as native host tasks, so this is not the container resource gate.
+
+`record.json` retains source and executable hashes, exact selections, output
+hashes, S3 observations and captured backend identity without credentials.
+Failed runs retain their record and logs. Every run owns a new remote prefix;
+remote objects and the backend remain available for inspection until explicitly
+stopped using the command above. No cleanup deletes another run's data.
 
 ## Native node runs
 

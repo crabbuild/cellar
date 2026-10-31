@@ -2,10 +2,11 @@
 
 //! Compact complete physical occupancy, including unattached/retired histories.
 //! Immutable identities need no Raft quorum or eager application registration.
-use super::cache::GroupLog;
+use super::cache::{GroupLog, StoredGroup};
 use super::host::RaftHostObservation;
 use super::storage::LogError;
 use super::transport::TransportError;
+use cellar_logic::cell_group::GroupHistory;
 use cellar_logic::consensus::{GroupScope, MemberId};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -110,6 +111,16 @@ impl RaftPhysicalInventory {
             .map(|index| &self.histories[index]))
     }
 
+    /// Look up a cell-group history without inventing an application cell.
+    /// Its digest domain is distinct from the temporary single-cell adapter.
+    pub fn group_history(&self, history: &GroupHistory) -> Option<&RaftPhysicalHistory> {
+        let digest = group_digest(history);
+        self.histories
+            .binary_search_by_key(&digest, |h| h.scope)
+            .ok()
+            .map(|index| &self.histories[index])
+    }
+
     pub(crate) fn validate(&self, view: &RaftHostObservation) -> Result<(), TransportError> {
         super::node_inspection_wire::validate(view)?;
         if self.histories.len() > MAX_GROUPS
@@ -147,36 +158,60 @@ pub(crate) fn scope_digest(scope: &GroupScope) -> Result<[u8; 32], LogError> {
     Ok(Sha256::digest(bytes).into())
 }
 
+fn group_digest(history: &GroupHistory) -> [u8; 32] {
+    let mut digest = Sha256::new();
+    digest.update(b"cellar-cell-group-physical-history-1\0");
+    digest.update(history.cluster.bytes());
+    digest.update(history.namespace.bytes());
+    digest.update(history.group.bytes());
+    digest.update(history.incarnation.bytes());
+    digest.finalize().into()
+}
+
+pub(crate) fn capture_cells(
+    groups: &BTreeMap<GroupHistory, StoredGroup>,
+    pending: Option<&GroupHistory>,
+) -> Result<RaftPhysicalInventory, LogError> {
+    // A group-native owner cannot attach to a legacy application engine.
+    if groups.values().any(|group| !group.is_cells()) {
+        return Err(LogError::WrongIdentity);
+    }
+    capture_histories(groups, pending.map(group_digest))
+}
+
 pub(crate) fn capture(
-    groups: &BTreeMap<GroupScope, GroupLog>,
+    groups: &BTreeMap<GroupHistory, StoredGroup>,
     pending: Option<&GroupScope>,
 ) -> Result<RaftPhysicalInventory, LogError> {
     if groups.len() > MAX_GROUPS {
         return Err(LogError::Overloaded);
     }
+    if let Some(scope) = pending {
+        scope.validate().map_err(|_| LogError::WrongIdentity)?;
+        if let Some(group) = groups.get(&GroupHistory::from(scope)) {
+            if &group.as_cell()?.identity().scope != scope {
+                return Err(LogError::WrongIdentity);
+            }
+        }
+    }
+    capture_histories(groups, pending.map(scope_digest).transpose()?)
+}
+
+fn capture_histories(
+    groups: &BTreeMap<GroupHistory, StoredGroup>,
+    initializing: Option<[u8; 32]>,
+) -> Result<RaftPhysicalInventory, LogError> {
+    if groups.len() > MAX_GROUPS {
+        return Err(LogError::Overloaded);
+    }
     let mut histories = Vec::with_capacity(groups.len());
-    for (scope, group) in groups {
-        if scope != &group.identity().scope || group.birth_digest == [0; 32] {
+    for (history, group) in groups {
+        if history != &group.history() {
             return Err(LogError::WrongIdentity);
         }
-        let cache = group.read()?;
-        let completed_sequence = cache
-            .membership
-            .fleet_status()
-            .filter(|status| {
-                status.phase == Some(super::member_state::FleetPermitPhase::Complete)
-                    && status
-                        .permit
-                        .as_ref()
-                        .is_some_and(|permit| permit.sequence() == status.consumed_sequence)
-            })
-            .map_or(0, |status| status.consumed_sequence);
-        histories.push(RaftPhysicalHistory {
-            scope: scope_digest(scope)?,
-            birth: group.birth_digest,
-            member: group.identity().member.get().to_be_bytes(),
-            completed_sequence: completed_sequence.to_be_bytes(),
-            in_configuration: contains_member(&cache.conf_state, group.identity().member),
+        histories.push(match group {
+            StoredGroup::Cell(group) => capture_row(group, scope_digest(&group.identity().scope)?)?,
+            StoredGroup::Cells(group) => capture_row(group, group_digest(history))?,
         });
     }
     histories.sort_by_key(|h| h.scope);
@@ -187,7 +222,32 @@ pub(crate) fn capture(
     }
     Ok(RaftPhysicalInventory {
         histories,
-        initializing: pending.map(scope_digest).transpose()?,
+        initializing,
+    })
+}
+
+fn capture_row<S>(group: &GroupLog<S>, scope: [u8; 32]) -> Result<RaftPhysicalHistory, LogError> {
+    if group.birth_digest == [0; 32] {
+        return Err(LogError::WrongIdentity);
+    }
+    let cache = group.read()?;
+    let completed_sequence = cache
+        .membership
+        .fleet_status()
+        .filter(|status| {
+            status.phase == Some(super::member_state::FleetPermitPhase::Complete)
+                && status
+                    .permit
+                    .as_ref()
+                    .is_some_and(|permit| permit.sequence() == status.consumed_sequence)
+        })
+        .map_or(0, |status| status.consumed_sequence);
+    Ok(RaftPhysicalHistory {
+        scope,
+        birth: group.birth_digest,
+        member: group.identity().member.get().to_be_bytes(),
+        completed_sequence: completed_sequence.to_be_bytes(),
+        in_configuration: contains_member(&cache.conf_state, group.identity().member),
     })
 }
 

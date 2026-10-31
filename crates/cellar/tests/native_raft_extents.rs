@@ -78,12 +78,12 @@ struct Callbacks {
 }
 
 impl Callbacks {
-    fn record(&self, scope: &GroupScope) {
+    fn record(&self, scope: &cellar_logic::cell_group::CellHistory) {
         *self
             .by_cell
             .lock()
             .unwrap()
-            .entry(scope.cell.clone())
+            .entry(scope.cell.as_str().to_owned())
             .or_default() += 1;
     }
 

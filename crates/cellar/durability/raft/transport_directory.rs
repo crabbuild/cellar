@@ -103,9 +103,21 @@ impl RaftTransport {
             }
         }
         for old in registry
+            .physical_groups
+            .values()
+            .chain(registry.cell_query_groups.values())
+            .flat_map(|route| &route.peers)
+            .filter(|old| old.replica.node == peer.node)
+        {
+            if !same_registration(&RaftPeerNode::from(old), peer) {
+                return Err(TransportError::Identity);
+            }
+        }
+        for old in registry
             .origins
             .values()
             .chain(registry.inspection_origins.values())
+            .chain(registry.command_origins.values())
             .filter_map(|grant| grant.peer.as_ref())
             .filter(|old| old.node == peer.node)
         {
@@ -130,9 +142,15 @@ impl RaftTransport {
                 .chain(registry.query_groups.values())
                 .any(|route| route.peers.iter().any(|old| old.replica.node == peer.node))
                 || registry
+                    .physical_groups
+                    .values()
+                    .chain(registry.cell_query_groups.values())
+                    .any(|route| route.peers.iter().any(|old| old.replica.node == peer.node))
+                || registry
                     .origins
                     .values()
                     .chain(registry.inspection_origins.values())
+                    .chain(registry.command_origins.values())
                     .any(|grant| grant.peer.as_ref().is_some_and(|old| old.node == peer.node)));
         let physical = if registry.pools.contains_key(&peer.node) || routed {
             std::slice::from_ref(peer)
@@ -142,16 +160,20 @@ impl RaftTransport {
         // Reservations include old workers until physical completion. A full
         // budget refuses the refresh without partially changing routing.
         let starts = state.prepare_pools(&mut registry, physical)?;
+        refresh_routes(&mut registry.physical_groups, peer);
+        refresh_routes(&mut registry.cell_query_groups, peer);
         refresh_routes(&mut registry.groups, peer);
         refresh_routes(&mut registry.query_groups, peer);
         let Registry {
             origins,
             inspection_origins,
+            command_origins,
             ..
         } = &mut *registry;
         for grant in origins
             .values_mut()
             .chain(inspection_origins.values_mut())
+            .chain(command_origins.values_mut())
             .filter(|grant| {
                 grant
                     .peer
@@ -188,7 +210,10 @@ impl RaftTransport {
     }
 }
 
-fn refresh_routes(routes: &mut BTreeMap<GroupScope, Arc<GroupRoute>>, peer: &RaftPeerNode) {
+fn refresh_routes<S: Clone + Ord>(
+    routes: &mut BTreeMap<S, Arc<GroupRoute<S>>>,
+    peer: &RaftPeerNode,
+) {
     for route in routes.values_mut() {
         if !route
             .peers

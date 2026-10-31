@@ -3,10 +3,14 @@
 //! Marker-1 local metadata, atomically stored with its Raft log changes.
 
 use super::cache::{CachedGroup, CommittedImage, DurableApply};
-use super::storage::{GroupBootstrap, LogError};
-use crate::application::consensus::protocol::WireScope;
+use super::cell_groups::GroupManifest;
+use super::storage::{CellGroupBootstrap, GroupBootstrap, LogError};
 use ::raft::prelude::{ConfState, HardState, Snapshot};
-use cellar_logic::consensus::{DiskLineage, EngineInstanceId, LogIndex, LogPosition, NodeId, Term};
+use cellar_logic::cell_group::GroupHistory;
+use cellar_logic::consensus::{
+    ClusterId, DiskLineage, EngineInstanceId, GroupId, GroupScope, IncarnationId, LogIndex,
+    LogPosition, NamespaceId, NodeId, Term,
+};
 use protobuf::Message;
 use serde::{Deserialize, Serialize};
 
@@ -57,7 +61,9 @@ pub(crate) struct RootRecord {
 pub(crate) struct MappingRecord {
     pub format: u32,
     pub key: u64,
-    pub scope: WireScope,
+    domain: MappingDomain,
+    history: PhysicalHistory,
+    application: MappingApplication,
     pub member: u64,
     pub birth_digest: [u8; 32],
     pub initial_conf: Vec<u8>,
@@ -68,19 +74,142 @@ impl MappingRecord {
         Ok(Self {
             format: 1,
             key,
-            scope: WireScope::from(&bootstrap.scope),
+            domain: MappingDomain::Group,
+            history: PhysicalHistory::from(GroupHistory::from(&bootstrap.scope)),
+            application: MappingApplication::SingleCell(bootstrap.scope.cell.clone()),
             member: bootstrap.member.get(),
             birth_digest: bootstrap.birth_digest,
             initial_conf: conf.write_to_bytes().map_err(corrupt)?,
         })
     }
 
+    pub fn application_scope(&self) -> Result<GroupScope, LogError> {
+        let cell = match &self.application {
+            MappingApplication::SingleCell(cell) => cell.clone(),
+            MappingApplication::CellGroup(_) => return Err(LogError::WrongIdentity),
+        };
+        let history = self.history()?;
+        let scope = GroupScope {
+            cluster: history.cluster,
+            namespace: history.namespace,
+            group: history.group,
+            incarnation: history.incarnation,
+            cell,
+        };
+        scope.validate().map_err(corrupt)?;
+        Ok(scope)
+    }
+
+    pub fn new_cells(
+        key: u64,
+        bootstrap: &CellGroupBootstrap,
+        conf: &ConfState,
+    ) -> Result<Self, LogError> {
+        let marker = GroupManifest::genesis(bootstrap.route.clone()).map_err(corrupt)?;
+        Ok(Self {
+            format: 1,
+            key,
+            domain: MappingDomain::Group,
+            history: PhysicalHistory::from(bootstrap.route.history),
+            application: MappingApplication::CellGroup(Box::new(marker)),
+            member: bootstrap.member.get(),
+            birth_digest: bootstrap.route.birth_digest,
+            initial_conf: conf.write_to_bytes().map_err(corrupt)?,
+        })
+    }
+
+    pub fn history(&self) -> Result<GroupHistory, LogError> {
+        self.history.decode()
+    }
+
+    pub fn is_cells(&self) -> bool {
+        matches!(&self.application, MappingApplication::CellGroup(_))
+    }
+
+    pub fn validate_cache(&self, cache: &CachedGroup) -> Result<(), LogError> {
+        if self.format != 1 {
+            return Err(corrupt("unsupported group marker"));
+        }
+        let history = self.history()?;
+        if let Some(marker) = &cache.group_manifest {
+            if !marker.matches_group(&history, self.birth_digest) {
+                return Err(LogError::WrongIdentity);
+            }
+        }
+        match &self.application {
+            MappingApplication::SingleCell(_) => {
+                cache.membership.validate_scope(&self.application_scope()?)
+            }
+            MappingApplication::CellGroup(genesis) => {
+                let expected = GroupManifest::genesis(genesis.route().clone()).map_err(corrupt)?;
+                if genesis.as_ref() != &expected
+                    || !genesis.matches_group(&history, self.birth_digest)
+                    || cache
+                        .group_manifest
+                        .as_ref()
+                        .is_none_or(|root| root.route() != genesis.route())
+                    || cache.applied.image.is_some()
+                    || cache.membership.fleet_status().is_some()
+                {
+                    return Err(LogError::WrongIdentity);
+                }
+                Ok(())
+            }
+        }
+    }
+
     pub fn catalog_key(&self) -> Result<Vec<u8>, LogError> {
-        let scope = self.scope.clone().decode().map_err(corrupt)?;
+        let scope = self.history.decode()?;
         let mut key = b"g:".to_vec();
         key.extend_from_slice(&scope.group.bytes());
         key.extend_from_slice(&scope.incarnation.bytes());
         Ok(key)
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "domain", content = "state", deny_unknown_fields)]
+enum MappingApplication {
+    #[serde(rename = "single-cell-1")]
+    SingleCell(String),
+    #[serde(rename = "cell-group-1")]
+    CellGroup(Box<GroupManifest>),
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+enum MappingDomain {
+    #[serde(rename = "cellar-group-mapping-1")]
+    Group,
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PhysicalHistory {
+    cluster: [u8; 16],
+    namespace: [u8; 16],
+    group: [u8; 16],
+    incarnation: [u8; 16],
+}
+
+impl From<GroupHistory> for PhysicalHistory {
+    fn from(history: GroupHistory) -> Self {
+        Self {
+            cluster: history.cluster.bytes(),
+            namespace: history.namespace.bytes(),
+            group: history.group.bytes(),
+            incarnation: history.incarnation.bytes(),
+        }
+    }
+}
+
+impl PhysicalHistory {
+    fn decode(&self) -> Result<GroupHistory, LogError> {
+        Ok(GroupHistory {
+            cluster: ClusterId::new(self.cluster).map_err(corrupt)?,
+            namespace: NamespaceId::new(self.namespace).map_err(corrupt)?,
+            group: GroupId::new(self.group).map_err(corrupt)?,
+            incarnation: IncarnationId::new(self.incarnation).map_err(corrupt)?,
+        })
     }
 }
 
@@ -95,11 +224,47 @@ pub(crate) struct GroupRecord {
     pub last_index: u64,
     pub applied_index: u64,
     pub applied_term: u64,
-    pub image: Option<CommittedImage>,
+    pub application: ApplicationRecord,
+}
+
+// Explicit domains refuse the old bare-image record shape. This staged image
+// variant is removed with legacy runtime consumers at the public hard cutover.
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "domain", content = "state", deny_unknown_fields)]
+pub(crate) enum ApplicationRecord {
+    #[serde(rename = "cellar-image-apply-1")]
+    Image(Option<CommittedImage>),
+    #[serde(rename = "cellar-group-apply-1")]
+    Group(Box<GroupApplication>),
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct GroupApplication {
+    manifest: super::cell_groups::GroupManifest,
+    // Required, local to this mapping/engine, and never snapshot payload.
+    seed: LocalGroupSeed,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
+enum LocalGroupSeed {
+    Absent,
+    Installed { index: u64 },
+}
+
+impl LocalGroupSeed {
+    fn index(&self) -> Option<u64> {
+        match self {
+            Self::Absent => None,
+            Self::Installed { index } => Some(*index),
+        }
+    }
 }
 
 impl GroupRecord {
     pub fn from_cache(mapping: MappingRecord, cache: &CachedGroup) -> Result<Self, LogError> {
+        mapping.validate_cache(cache)?;
         Ok(Self {
             mapping,
             hard_state: cache.hard_state.write_to_bytes().map_err(corrupt)?,
@@ -109,7 +274,15 @@ impl GroupRecord {
             last_index: cache.last_index(),
             applied_index: cache.applied.position.index.get(),
             applied_term: cache.applied.position.term.get(),
-            image: cache.applied.image.clone(),
+            application: match &cache.group_manifest {
+                Some(marker) => ApplicationRecord::Group(Box::new(GroupApplication {
+                    manifest: marker.clone(),
+                    seed: cache.group_seed.map_or(LocalGroupSeed::Absent, |index| {
+                        LocalGroupSeed::Installed { index }
+                    }),
+                })),
+                None => ApplicationRecord::Image(cache.applied.image.clone()),
+            },
         })
     }
 
@@ -117,20 +290,49 @@ impl GroupRecord {
         if self.mapping.format != 1 {
             return Err(LogError::Corrupt("unsupported group marker".into()));
         }
-        Ok(CachedGroup {
+        let (image, group_manifest, group_seed) = match &self.application {
+            ApplicationRecord::Image(image) => (image.clone(), None, None),
+            ApplicationRecord::Group(application) => {
+                let marker = &application.manifest;
+                let scope = self.mapping.history()?;
+                if !marker.matches_group(&scope, self.mapping.birth_digest) {
+                    return Err(LogError::WrongIdentity);
+                }
+                (None, Some(marker.clone()), application.seed.index())
+            }
+        };
+        let snapshot = Snapshot::parse_from_bytes(&self.snapshot).map_err(corrupt)?;
+        let checkpoint_manifest = group_manifest
+            .as_ref()
+            .map(|current| {
+                super::cell_groups::checkpoint::persisted_marker(
+                    &snapshot,
+                    current,
+                    &self.membership,
+                )
+            })
+            .transpose()?
+            .flatten();
+        let cache = CachedGroup {
             hard_state: HardState::parse_from_bytes(&self.hard_state).map_err(corrupt)?,
             conf_state: ConfState::parse_from_bytes(&self.conf_state).map_err(corrupt)?,
             membership: self.membership.clone(),
-            snapshot: Snapshot::parse_from_bytes(&self.snapshot).map_err(corrupt)?,
+            snapshot,
             entries: Default::default(),
+            group_manifest,
+            group_seed,
+            manifest_pins: None,
+            checkpoint_manifest,
             applied: DurableApply {
                 position: LogPosition {
                     index: LogIndex::new(self.applied_index),
                     term: Term::new(self.applied_term),
                 },
-                image: self.image.clone(),
+                image,
             },
-        })
+        };
+        self.mapping.validate_cache(&cache)?;
+        Ok(cache)
     }
 }
 

@@ -425,7 +425,7 @@ pub fn counter_with_blobs(
     gate: Arc<Gate>,
     blobs: bool,
 ) -> Result<Counter> {
-    let observe = move |_: &GroupScope| {
+    let observe = move |_: &cellar_logic::cell_group::CellHistory| {
         calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     };
@@ -438,14 +438,14 @@ pub fn counter_with_blobs(
 
 /// Attribute private execution to its group without changing counter SQL or gates.
 pub fn counter_observed(
-    observe: impl Fn(&GroupScope) -> Result<()> + Send + Sync + 'static,
+    observe: impl Fn(&cellar_logic::cell_group::CellHistory) -> Result<()> + Send + Sync + 'static,
     gate: Arc<Gate>,
 ) -> Result<Counter> {
     counter_observed_with_blobs(observe, gate, false)
 }
 
 fn counter_observed_with_blobs(
-    observe: impl Fn(&GroupScope) -> Result<()> + Send + Sync + 'static,
+    observe: impl Fn(&cellar_logic::cell_group::CellHistory) -> Result<()> + Send + Sync + 'static,
     gate: Arc<Gate>,
     blobs: bool,
 ) -> Result<Counter> {

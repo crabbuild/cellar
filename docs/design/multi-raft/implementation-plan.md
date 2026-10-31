@@ -1228,6 +1228,12 @@ Verification target: `native_raft_qualification`. Run the exact list/test comman
 
 Dependencies: MR-15. Phase: scale. Initial status: TODO.
 
+The [density decision](density-decision.md) selects shared cell groups as the
+replacement for one-cell consensus. The [cell-group plan](cell-groups/README.md)
+tracks runtime, manifests, archive, recovery and SDK conversion. This does not
+complete MR-16 or relax its MR-15 dependency and physical-tier release gates.
+
+
 Modify: `crates/cellar/durability/raft/runtime.rs`, `crates/cellar/durability/raft/placement.rs`, `crates/cellar/durability/raft/apply.rs`, `tools/perf/raft_profiles.json`.
 
 Create: `docs/design/multi-raft/density-decision.md`, `crates/cellar/tests/native_raft_density.rs`.

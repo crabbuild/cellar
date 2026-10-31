@@ -342,7 +342,8 @@ impl Driver {
                             sink,
                         }) = super::super::effects::outbox::claimed(
                             &definition,
-                            &scope,
+                            &cellar_logic::cell_group::CellHistory::try_from(&scope)
+                                .map_err(|_| CommandFailure::CorruptState)?,
                             local.binding.class.schema_digest(),
                             &selected,
                             &receipt.result,

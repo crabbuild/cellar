@@ -18,7 +18,7 @@ flowchart LR
     B --> C["Measured qualification tier"]
 ```
 
-Multi-Raft distributes many small consensus groups. The first release uses one cell per group and three voters. A node may lead one cell and follow another; adding nodes does not enlarge every group's quorum. Aggregate capacity grows only while storage, network, routing, apply and workload distribution permit it.
+Multi-Raft distributes many small consensus groups. The current production runtime uses one cell per group and three voters. The [density decision](density-decision.md) selects shared cell groups as its replacement; cutover and qualification remain pending. A node may lead one group and follow another; adding nodes does not enlarge every group's quorum. Aggregate capacity grows only while storage, network, routing, apply and workload distribution permit it.
 
 ## Capacity dimensions
 
@@ -82,16 +82,27 @@ Limit concurrent snapshot generation/transfers and archive backfill. Reserve sto
 
 LTX logs replicate changed pages, which may exceed logical command size. Measure logical bytes, encoded LTX bytes, replicated bytes, SQLite copy/apply bytes and S3 bytes separately. Full-image publication is expected to constrain larger cells; do not extrapolate a small-counter benchmark to large databases.
 
-## Later group and storage refinements
+## Shared group replacement and later refinements
 
-MR-16 first measures which resource limits density. It then selects and qualifies one improvement at a time: page-versioned committed images, safe group hibernation, or several small cells in one group. Every choice requires an updated protocol and crash tests before implementation.
+The [density decision](density-decision.md) selects shared cell groups and specifies
+their identity, apply, snapshot, archive and recovery boundaries before runtime
+conversion. The [executable delivery package](cell-groups/README.md) defines the
+complete implementation, including safe dynamic split/merge and hibernation.
+Separate SQLite databases and LTX chains remain per cell. Leadership,
+membership, placement and the contiguous apply/archive prefixes become group
+scoped. Dedicated hot cells use the same implementation at occupancy one.
 
-- Shared groups retain separate SQLite databases and LTX chains.
-- Their log entries identify a cell; leadership/membership and consensus ordering are shared.
-- This reduces group count but couples placement, failure recovery and throughput.
-- It does not create cross-cell atomicity.
-- Large/hot cells may merit dedicated groups, but an online transfer must fence the source, commit a transfer boundary, install the destination and atomically change routing without admitting two writers.
-- Until that protocol is qualified, group assignment is immutable.
+With C cells and average occupancy K, group count is approximately C/K; physical
+cell database replicas remain C*R. The capacity profiles above still describe
+the one-cell baseline. Shared groups reduce fixed consensus overhead, while
+adding queueing and recovery coupling that must be measured under equal logical
+cell workloads. They provide no cross-cell transaction contract.
+
+Initial cell assignment is immutable. Online transfer, split and merge require
+source fencing, a committed transfer cut, destination installation and a fenced
+routing transition. Group hibernation is also a separate protocol and cannot be
+inferred from closing an idle cell's execution cache. MR-16's physical-tier gates
+remain unchanged; the architecture decision is not scale qualification.
 
 ## Federation for very large fleets
 

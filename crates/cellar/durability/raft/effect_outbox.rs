@@ -536,7 +536,7 @@ pub(crate) struct ClaimedDelivery {
 
 pub(crate) fn claimed(
     outbox: &RaftOutbox,
-    scope: &crate::application::consensus::GroupScope,
+    scope: &cellar_logic::cell_group::CellHistory,
     schema: [u8; 32],
     selected: &Selected,
     bytes: &[u8],

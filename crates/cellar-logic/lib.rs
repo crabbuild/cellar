@@ -14,6 +14,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 pub mod alarm;
 pub mod cache;
 pub mod cell;
+pub mod cell_group;
 pub mod consensus;
 pub mod cron;
 pub mod drain;

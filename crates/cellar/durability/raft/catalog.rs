@@ -22,6 +22,17 @@ use std::{collections::BTreeSet, fmt, sync::Arc};
 mod births;
 pub use births::BirthDisposition;
 
+#[path = "cell_groups/directory/mod.rs"]
+mod range_directory;
+pub(crate) use range_directory::RouteCache;
+pub use range_directory::{
+    CellGroupArchiveBindingError, CellGroupBirth, CellGroupBirthRequest, CellGroupBirthSpec,
+    CellGroupBootstrapPermit, CellRouteAttempt, CellRouteCacheUsage, CellRouteOperation,
+    CellRouteRequest, CellRoutingError, CellRoutingFailure, CellRoutingLimits, CellRoutingSession,
+    DirectoryLimits, DirectoryMutation, DirectoryPublication, DirectoryView,
+    PreparedCellGroupArchiveBinding, RangeDirectory, ResolvedCellRoute,
+};
+
 #[path = "catalog_inventory/mod.rs"]
 mod inventory;
 pub(crate) use inventory::{BirthImportCut, ManagedBirthInventory};

@@ -656,7 +656,7 @@ async fn registered_command_uses_exact_image_receipt_and_read_only_query() -> Re
     let class = RaftClass::new("Counter", 1, [22; 32])?
         .command("Increment", [23; 32], move |context, input| {
             called.fetch_add(1, Ordering::SeqCst);
-            assert_eq!(context.identity(), &scope());
+            assert_eq!(context.identity(), &cellar_logic::cell_group::CellHistory::try_from(&scope())?);
             assert_eq!(context.command().sequence(), 1);
             assert_eq!(context.inputs().now_unix_millis, 10);
             assert_eq!(context.inputs().random, [17; 32]);
@@ -667,8 +667,9 @@ async fn registered_command_uses_exact_image_receipt_and_read_only_query() -> Re
             Ok(value.to_be_bytes().to_vec())
         })?
         .query("Get", [24; 32], |context, _| {
-            assert_eq!(context.identity(), &scope());
-            assert!(context.version().position.index.get() > 0);
+            assert_eq!(context.identity(), &cellar_logic::cell_group::CellHistory::try_from(&scope())?);
+            let cellar::sdk::consensus::QueryVersion::GroupCut(version) = context.version() else { anyhow::bail!("single-cell adapter observation") };
+            assert!(version.position.index.get() > 0);
             for sql in [
                 "UPDATE counter SET value=999 RETURNING value",
                 "PRAGMA user_version=8",

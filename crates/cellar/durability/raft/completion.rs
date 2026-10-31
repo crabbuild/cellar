@@ -21,10 +21,13 @@ pub enum RuntimeError {
     Protocol(String),
     NotLeader,
     NotReady,
+    DeadlineExceeded,
     NotFound,
     AlreadyAttached,
     Overloaded,
     StaleCompletion,
+    /// This process retains the failed group; serving requires recovery on restart.
+    GroupQuarantined,
     Closed,
 }
 

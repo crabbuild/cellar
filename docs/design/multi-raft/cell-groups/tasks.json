@@ -1,0 +1,3125 @@
+{
+  "format": 1,
+  "planned_at": "70b6022c8baba3d0a52de6bd9fa11866bdbd3b3f",
+  "toolchain": "1.98.1",
+  "invariants": [
+    "I01",
+    "I02",
+    "I03",
+    "I04",
+    "I05",
+    "I06",
+    "I07",
+    "I08",
+    "I09",
+    "I10",
+    "I11",
+    "I12",
+    "I13",
+    "I14"
+  ],
+  "tasks": [
+    {
+      "id": "CG-01",
+      "title": "Separate logical cell history from physical group consensus",
+      "status": "DONE",
+      "priority": "P1",
+      "effort": "M",
+      "risk": "HIGH",
+      "depends_on": [],
+      "anchors": [
+        "identity",
+        "codec",
+        "version",
+        "ci"
+      ],
+      "scope": [
+        "crates/cellar-logic/",
+        "crates/cellar/application/consensus/",
+        "crates/cellar/durability/raft/version.rs",
+        "crates/cellar/lib.rs"
+      ],
+      "creates": [
+        "crates/cellar-logic/cell_group.rs",
+        "crates/cellar-logic/cell_group_tests.rs",
+        "crates/cellar/tests/native_cell_groups_contracts.rs",
+        "crates/cellar/application/consensus/group_contracts.rs",
+        "crates/cellar/application/consensus/group_protocol/mod.rs",
+        "crates/cellar/application/consensus/group_protocol/types.rs",
+        "crates/cellar/application/consensus/group_protocol/codec.rs"
+      ],
+      "test_target": "native_cell_groups_contracts",
+      "steps": [
+        {
+          "action": "Add dependency-free CellHistory, GroupHistory, CellKey, CellVersion and route/membership epoch types. Specify canonical hash bytes and infinity bounds exactly as design.md. Add private adapters while existing consumers still compile; do not introduce a public legacy/shared mode flag.",
+          "tests": [
+            "identity_and_hash_boundaries"
+          ]
+        },
+        {
+          "action": "Encode cell-addressed data and typed administrative entries under new marker-1 semantic domains. Reject unknown tags, duplicate identity fields, oversized declarations and wrong cell/schema/route before allocation or application.",
+          "tests": [
+            "envelope_rejects_wrong_cell_and_domain"
+          ]
+        },
+        {
+          "action": "Define version tokens and receipt provenance around stable cell incarnation and monotone mutation sequence. Preserve transfer compatibility within one cell history; refuse old-incarnation and cross-cell tokens. Wire validation through owning Result types.",
+          "tests": [
+            "version_survives_transfer_not_disaster"
+          ]
+        },
+        {
+          "action": "Add golden byte/negative tests and bounded decoding fixtures. Map the new module through existing lib.rs paths; keep raft-rs, I/O and serde out of cellar-logic.",
+          "tests": [
+            "codec_limits_before_allocation"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "identity_and_hash_boundaries",
+          "oracle": "Empty/control IDs, hash ties, infinity endpoints and sequence overflow reject or order exactly as the canonical specification.",
+          "invariants": [
+            "I01"
+          ]
+        },
+        {
+          "name": "envelope_rejects_wrong_cell_and_domain",
+          "oracle": "Valid LTX under another cell/route/schema and old protocol domains cannot be decoded as authorized data.",
+          "invariants": [
+            "I01",
+            "I04"
+          ]
+        },
+        {
+          "name": "version_survives_transfer_not_disaster",
+          "oracle": "Same cell incarnation/sequence token remains comparable after a group move; another cell or disaster incarnation refuses.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05"
+          ]
+        },
+        {
+          "name": "codec_limits_before_allocation",
+          "oracle": "Truncated, duplicate and excessive metadata/payload declarations fail within configured memory bounds.",
+          "invariants": [
+            "I01",
+            "I12"
+          ]
+        }
+      ],
+      "invariants": [
+        "I01",
+        "I03",
+        "I04",
+        "I05",
+        "I12"
+      ],
+      "evidence": [
+        ".cellar/cell-groups-evidence/CG-01-ee7f4a8d2dec/record.json"
+      ],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "contracts"
+    },
+    {
+      "id": "CG-02",
+      "title": "Persist complete group manifests with crash-safe cell image ownership",
+      "status": "DONE",
+      "priority": "P1",
+      "effort": "L",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-01"
+      ],
+      "anchors": [
+        "manifest",
+        "apply",
+        "extent",
+        "sql"
+      ],
+      "scope": [
+        "crates/cellar/durability/raft/",
+        "crates/cellar-ltx/src/extent/",
+        "crates/cellar-ltx/src/generation.rs",
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar/tests/support/raft_ltx_fault.rs",
+        "crates/cellar/tests/support/raft_storage_fault.rs"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/cell_groups/mod.rs",
+        "crates/cellar/durability/raft/cell_groups/manifest.rs",
+        "crates/cellar/tests/support/cell_group_recovery.rs",
+        "crates/cellar/tests/native_cell_groups_storage.rs",
+        "crates/cellar/durability/raft/cell_groups/page_store.rs",
+        "crates/cellar/durability/raft/cell_groups/page_wire.rs",
+        "crates/cellar/durability/raft/cell_groups/README.md",
+        "crates/cellar/durability/raft/cell_groups/root.rs",
+        "crates/cellar/durability/raft/cell_groups/pins.rs",
+        "crates/cellar/durability/raft/cell_groups/retention.rs",
+        "crates/cellar/durability/raft/cell_groups/image_pin.rs"
+      ],
+      "test_target": "native_cell_groups_storage",
+      "steps": [
+        {
+          "action": "Implement authenticated paged copy-on-write cell manifests and a group root. Leaves bind cell history, image/version, last group mutation and effect summary. Bound page fanout, decoded bytes, tree depth and cell count; use explicit execution-domain storage owners.",
+          "tests": [
+            "manifest_updates_only_changed_path"
+          ]
+        },
+        {
+          "action": "Separate logical-cell image bindings from group ownership in both materialized and extent paths. Sync changed images and manifest paths before one engine marker publishes applied position/root. Preserve old roots and all physical pins through failure.",
+          "tests": [
+            "manifest_marker_crash_cuts"
+          ]
+        },
+        {
+          "action": "Recover only complete durable roots; reject a missing/corrupt leaf or referenced image. Treat staged unmarked objects as non-serving orphans and reclaim only after pin/marker reconciliation.",
+          "tests": [
+            "missing_cell_image_refuses_group"
+          ]
+        },
+        {
+          "action": "Inject failures before/after image sync, manifest sync, marker commit and publication. Verify independent SQLite files, receipt floors and bounded copy-on-write work for one changed cell.",
+          "tests": [
+            "manifest_pin_reclamation",
+            "both_image_representations_share_contract"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "manifest_updates_only_changed_path",
+          "oracle": "An update rewrites bounded manifest paths and the target cell, with unchanged cell image commitments preserved.",
+          "invariants": [
+            "I04",
+            "I12"
+          ]
+        },
+        {
+          "name": "manifest_marker_crash_cuts",
+          "oracle": "Every crash cut recovers exactly the old or new durable root without partial cells or callback reexecution.",
+          "invariants": [
+            "I02",
+            "I04"
+          ]
+        },
+        {
+          "name": "missing_cell_image_refuses_group",
+          "oracle": "Removing/corrupting any referenced cell or tree page prevents serving the group.",
+          "invariants": [
+            "I04"
+          ]
+        },
+        {
+          "name": "manifest_pin_reclamation",
+          "oracle": "Reader/snapshot/apply/transition pins prevent physical deletion until their owners release them.",
+          "invariants": [
+            "I07",
+            "I12"
+          ]
+        },
+        {
+          "name": "both_image_representations_share_contract",
+          "oracle": "Materialized and extent images retain identical history, publication and receipt safety.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I04"
+          ]
+        }
+      ],
+      "invariants": [
+        "I01",
+        "I02",
+        "I03",
+        "I04",
+        "I07",
+        "I12"
+      ],
+      "evidence": [
+        ".cellar/cell-groups-evidence/CG-02-ec9d277e5041/record.json"
+      ],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "storage"
+    },
+    {
+      "id": "CG-03",
+      "title": "Prepare paged range routing and enrollment admission",
+      "status": "DONE",
+      "priority": "P1",
+      "effort": "L",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-01",
+        "CG-02"
+      ],
+      "anchors": [
+        "catalog",
+        "birth",
+        "host",
+        "fleet"
+      ],
+      "scope": [
+        "crates/cellar/durability/raft/",
+        "crates/cellar/application/consensus/",
+        "crates/cellar/node/",
+        "crates/cellar/tests/support/raft_catalog_fault.rs",
+        "crates/cellar-logic/"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/cell_groups/enrollment.rs",
+        "crates/cellar/tests/native_cell_groups_catalog.rs",
+        "crates/cellar/durability/raft/cell_groups/directory/mod.rs",
+        "crates/cellar/durability/raft/cell_groups/directory/wire.rs",
+        "crates/cellar/durability/raft/cell_groups/directory/tree.rs",
+        "crates/cellar/durability/raft/cell_groups/directory/store.rs",
+        "crates/cellar/tests/support/cell_group_directory.rs",
+        "crates/cellar/durability/raft/cell_groups/directory/birth.rs",
+        "crates/cellar/durability/raft/cell_groups/directory/bootstrap.rs",
+        "crates/cellar/durability/raft/storage_cell_genesis_tests.rs",
+        "crates/cellar/durability/raft/cell_groups/directory/routing.rs"
+      ],
+      "test_target": "native_cell_groups_catalog",
+      "steps": [
+        {
+          "action": "Implement immutable paged range-tree records and one conditional namespace-root mutation journal. Verify complete range coverage, no overlap and exact epochs. Initial explicit ranges can be lazily materialized using existing birth and permanent disk-claim rules.",
+          "tests": [
+            "range_directory_has_single_owner"
+          ]
+        },
+        {
+          "action": "Define the pure enrollment decision and codec around the current range, cell creation identity and schema. Concurrent proposals must converge on one cell history when committed. This task validates admission decisions only; CG-04 connects those decisions to the actual multi-cell group owner and independent SQLite initialization.",
+          "tests": [
+            "enrollment_decision_checks_identity"
+          ]
+        },
+        {
+          "action": "Make physical replica/log identity, engine registry and durable mappings, node storage inventory and permanent member claims group-scoped, without a synthetic cell name. Connect the exact verified birth to synced real-engine genesis before permitting voter startup. Reject old storage domains rather than adding a legacy decoder. Reconcile lost birth/root/enrollment replies by canonical operation identity. Keep unconfirmed outcomes typed; a blank claimed voter cannot bootstrap under a new path. Refuse enrollment under sealed or retired ranges. Metadata-only birth tests do not satisfy this integration boundary.",
+          "tests": [
+            "birth_unknown_and_claimed_blank_refuse"
+          ]
+        },
+        {
+          "action": "Add bounded tree traversal/cache tests, restart races and stale-route redirects with original deadlines/hop budgets. Ordinary known-group commands must not require an S3 catalog request.",
+          "tests": [
+            "bounded_catalog_discovery",
+            "sealed_range_rejects_enrollment",
+            "routing_redirect_requires_catalog_confirmation",
+            "routing_cached_requests_preserve_identity_without_catalog_reads",
+            "routing_attempt_deadline_survives_redirect_and_cancellation"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "range_directory_has_single_owner",
+          "oracle": "Duplicate/overlapping/gapped trees and stale root CAS cannot publish ownership.",
+          "invariants": [
+            "I01",
+            "I09"
+          ]
+        },
+        {
+          "name": "enrollment_decision_checks_identity",
+          "oracle": "Pure admission decisions reject wrong range/schema, preserve creation identity on retries and select one cell history; no native publication qualification is claimed here.",
+          "invariants": [
+            "I01",
+            "I03"
+          ]
+        },
+        {
+          "name": "birth_unknown_and_claimed_blank_refuse",
+          "oracle": "Real-engine genesis binds the selected group birth and permanent member claim without a cell owner; restart preserves that exact identity. Unknown creation reconciles its winner, identity substitution and old storage domains refuse, and deleting an owned claimed voter fixture cannot authorize fresh genesis under another path. No metadata observation alone grants voter-start authority.",
+          "invariants": [
+            "I01",
+            "I08"
+          ]
+        },
+        {
+          "name": "bounded_catalog_discovery",
+          "oracle": "Lookup reads a bounded tree path without namespace-wide listing; cache bounds hold under churn.",
+          "invariants": [
+            "I12"
+          ]
+        },
+        {
+          "name": "sealed_range_rejects_enrollment",
+          "oracle": "No delayed enrollment can create a cell beyond a committed seal boundary.",
+          "invariants": [
+            "I09"
+          ]
+        },
+        {
+          "name": "routing_redirect_requires_catalog_confirmation",
+          "oracle": "An untrusted relocation is followed only after an exact route lookup in the configured trusted catalog; stale tickets, foreign namespace/schema and non-advancing epochs refuse. The logical cell, original command identity, request fingerprint and invocation deadline survive a confirmed split redirect.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I09"
+          ]
+        },
+        {
+          "name": "routing_cached_requests_preserve_identity_without_catalog_reads",
+          "oracle": "Cached route admission and same-group retries perform no object-store reads during a catalog outage. The original finite attempt budget covers retries and redirects; cached bindings cannot cross cells, incarnations or catalog owners. A cached route never grants serving authority.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "routing_attempt_deadline_survives_redirect_and_cancellation",
+          "oracle": "A real held catalog read expires under the captured invocation deadline, preserving command ambiguity. Dropped discovery cannot refund an attempt, and a closed execution domain refuses even cached admission.",
+          "invariants": [
+            "I03",
+            "I12"
+          ]
+        }
+      ],
+      "invariants": [
+        "I01",
+        "I03",
+        "I08",
+        "I09",
+        "I12"
+      ],
+      "evidence": [
+        ".cellar/cell-groups-evidence/CG-03-routing-final/record.json"
+      ],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "catalog"
+    },
+    {
+      "id": "CG-04",
+      "title": "Execute many independent SQLite cells through one real Raft group",
+      "status": "DONE",
+      "priority": "P1",
+      "effort": "L",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-01",
+        "CG-02",
+        "CG-03"
+      ],
+      "anchors": [
+        "host",
+        "sql",
+        "runtime",
+        "identity",
+        "version"
+      ],
+      "scope": [
+        "crates/cellar/durability/raft/",
+        "crates/cellar/application/consensus/",
+        "crates/cellar-logic/",
+        "crates/cellar-ltx/src/generation.rs",
+        "crates/cellar-ltx/tests/private_clone.rs",
+        "crates/cellar/tests/native_cell_groups_catalog.rs",
+        "crates/cellar/tests/support/cell_group_directory.rs"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/cell_groups/owner.rs",
+        "crates/cellar/tests/native_cell_groups_execution.rs",
+        "crates/cellar/durability/raft/cell_groups/enrollment_apply.rs",
+        "crates/cellar/durability/raft/cell_groups/page_wire_tests.rs",
+        "crates/cellar/durability/raft/cell_groups/runtime/mod.rs",
+        "crates/cellar/durability/raft/cell_groups/runtime/worker.rs",
+        "crates/cellar/tests/support/cell_group_runtime.rs",
+        "crates/cellar/durability/raft/cell_groups/execution_authority.rs",
+        "crates/cellar/durability/raft/execution/cell.rs",
+        "crates/cellar/durability/raft/execution/command.rs",
+        "crates/cellar/tests/support/cell_group_sql.rs",
+        "crates/cellar/durability/raft/host_sql/cell_groups/mod.rs",
+        "crates/cellar/durability/raft/host_sql/cell_groups/admission.rs",
+        "crates/cellar/durability/raft/host_sql/cell_groups/worker.rs",
+        "crates/cellar/tests/support/cell_group_sql_pool.rs",
+        "crates/cellar/tests/support/cell_group_sql_reconcile.rs",
+        "crates/cellar/durability/raft/cell_groups/enrollment_authority.rs",
+        "crates/cellar/durability/raft/execution/enrollment.rs",
+        "crates/cellar/tests/support/cell_group_sql_enrollment.rs",
+        "crates/cellar/durability/raft/cell_groups/proposal_admission.rs",
+        "crates/cellar/tests/support/cell_group_admission.rs",
+        "crates/cellar/durability/raft/execution/submission.rs",
+        "crates/cellar/tests/support/cell_group_sql_submission.rs",
+        "crates/cellar/durability/raft/cell_groups/read_authority.rs",
+        "crates/cellar/durability/raft/cell_groups/runtime/reads.rs",
+        "crates/cellar/durability/raft/host_sql/cell_groups/query.rs",
+        "crates/cellar/tests/support/cell_group_sql_reads.rs",
+        "crates/cellar/durability/raft/cell_groups/apply/mod.rs",
+        "crates/cellar/durability/raft/cell_groups/apply/images.rs",
+        "crates/cellar/durability/raft/cell_groups/apply/summary.rs",
+        "crates/cellar/durability/raft/cell_groups/apply/summary_tests.rs",
+        "crates/cellar/durability/raft/host_sql/cell_groups/apply.rs",
+        "crates/cellar/tests/support/cell_group_sql_apply.rs",
+        "crates/cellar/durability/raft/cell_groups/apply/recovery.rs",
+        "crates/cellar/tests/support/cell_group_sql_apply_faults.rs",
+        "crates/cellar/tests/support/cell_group_sql_apply_recovery.rs",
+        "crates/cellar/durability/raft/execution/registered.rs",
+        "crates/cellar/durability/raft/effect_history.rs",
+        "crates/cellar/tests/support/cell_group_sql_registered.rs",
+        "crates/cellar/tests/support/cell_group_sql_registered_queries.rs",
+        "crates/cellar/durability/raft/cell_groups/dispatch/mod.rs",
+        "crates/cellar/tests/support/cell_group_sql_dispatch.rs",
+        "crates/cellar/durability/raft/cell_groups/dispatch/command/mod.rs",
+        "crates/cellar/tests/support/cell_group_sql_command_dispatch.rs",
+        "crates/cellar/durability/raft/transport_runtime.rs",
+        "crates/cellar/durability/raft/transport_shared.rs",
+        "crates/cellar/tests/support/cell_group_tcp.rs",
+        "crates/cellar/durability/raft/cell_groups/dispatch/command/owned.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/mod.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/worker.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/commands.rs",
+        "crates/cellar/durability/raft/execution/submission_tests.rs",
+        "crates/cellar/tests/support/cell_group_controller.rs",
+        "crates/cellar/tests/support/cell_group_controller_commands.rs",
+        "crates/cellar/durability/raft/cell_groups/dispatch/enrollment.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/enrollments.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/calls.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/requests.rs",
+        "crates/cellar/application/consensus/class_initializer_tests.rs",
+        "crates/cellar/tests/support/cell_group_controller_enrollment.rs",
+        "crates/cellar/durability/raft/query_cell_transport.rs",
+        "crates/cellar/durability/raft/query_cell_wire.rs",
+        "crates/cellar/tests/support/cell_group_remote_queries.rs",
+        "crates/cellar/durability/raft/query_cell_discovery.rs",
+        "crates/cellar/tests/support/cell_group_query_origins.rs",
+        "crates/cellar/durability/raft/cell_groups/directory/route_cache.rs",
+        "crates/cellar/tests/support/cell_group_routing_cache.rs",
+        "crates/cellar/tests/support/cell_group_dispatch_cache_execution.rs",
+        "crates/cellar/durability/raft/command_origins.rs",
+        "crates/cellar/durability/raft/command_cell_wire.rs",
+        "crates/cellar/durability/raft/command_cell_transport.rs",
+        "crates/cellar/durability/raft/cell_groups/dispatch/command/remote.rs",
+        "crates/cellar/tests/support/cell_group_remote_commands.rs",
+        "crates/cellar/durability/raft/enrollment_cell_wire.rs",
+        "crates/cellar/durability/raft/cell_groups/dispatch/enrollment_remote.rs",
+        "crates/cellar/tests/support/cell_group_remote_enrollment.rs",
+        "crates/cellar/durability/raft/cell_groups/dispatch/receipt.rs",
+        "crates/cellar/durability/raft/receipt_cell_wire.rs",
+        "crates/cellar/tests/support/cell_group_receipt_lookup.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/registration.rs",
+        "crates/cellar/tests/support/cell_group_registration.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/failure.rs",
+        "crates/cellar/tests/support/cell_group_quarantine.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/provision/mod.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/provision/config.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/provision/prepare.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/provision/manager.rs",
+        "crates/cellar/tests/support/cell_group_provision.rs"
+      ],
+      "test_target": "native_cell_groups_execution",
+      "steps": [
+        {
+          "action": "Split the combined host Cell owner into group consensus state and per-cell execution state. One GroupHistory owns exactly one RawNode per voter; cell count does not allocate additional RawNodes. Reuse shared persistence, transport and SQL pools. Integrate CG-03 enrollment decisions with replicated enrollment and independent SQLite initialization before exposing cell commands. Atomically retain the immutable enrollment creation record with the selected cell state; preserve it through mutations and transfer so retries never reinitialize or restore the initial image over newer state. Consume the prepared CellRoutingSession attempts when integrating dispatch: preserve the logical request fingerprint, original domain deadline and total attempt budget across member retries and group redirects. Catalog-confirmed mappings are hints; destination admission must validate the full binding and current authority. Command producers remain domain-owned after a routing waiter is cancelled.",
+          "tests": [
+            "three_cells_one_rawnode_per_voter",
+            "concurrent_enrollment_one_cell"
+          ]
+        },
+        {
+          "action": "Admit one unresolved proposal per cell with fair cell queues and group/node byte quotas. Allow independent cells to prepare concurrently, then publish committed entries through one contiguous group prefix with per-cell base/version checks. Enforce configured group enrollment capacity on the actual owner before append, counting applied cells and pending accepted logical creations. Exact creation retries consume no additional slot; competing creations cannot exceed the limit before apply. Verify capacity refusal leaves existing cells available and release reservations only with proven resolution.",
+          "tests": [
+            "shared_group_fair_admission",
+            "pending_enrollments_respect_group_capacity",
+            "node_runtime_bounds_proposal_acceptance_across_groups"
+          ]
+        },
+        {
+          "action": "Implement exact per-cell output settlement and receipt retry. Group no-ops/configuration entries advance group apply without changing cell version. Reject stale term/activation/completion tickets and preserve unknown proposed outcomes. Check the prepared term atomically with proposal admission on the actual Raft owner. Bind same-term acceptance retries to the original proposal identity and bytes; a lost acceptance response must recover retained acceptance or reconcile the original receipt without appending the same mutation again. Reject changed payloads under a reused identity, and retain uncertainty across elections until an applied barrier proves resolution. A definitive pre-append owner refusal must irreversibly seal all clones of that preparation before returning an identity-bound rejection proof. Generic queue errors cannot retire a submitted SQL producer. Close rejected producers on their owning worker before releasing name admission; delayed retries and proofs from another preparation must not affect a replacement producer.",
+          "tests": [
+            "cell_receipt_not_group_progress",
+            "proposal_acceptance_retries_do_not_append_twice",
+            "inherited_enrollments_count_after_applied_term_barrier",
+            "sql_submission_rejection_seals_delayed_retries",
+            "rooted_sql_submission_rejection_seals_delayed_retries"
+          ]
+        },
+        {
+          "action": "Implement Stale, AtLeast and current-term ReadIndex for the target cell. Pin coherent manifest/image views and include cross-cell noninterference and slow-apply cases in the real-engine fixture. Correlate each strong read to its own runtime-owned request context and absolute domain deadline; retain separate bounded node/group pin admission through delivery and physical SQL execution. Configure logical image-pin bytes independently of transport message/request bytes; validate overflow and supported image bounds, and test independent capacity and reservation cleanup. Persist each selected version's full commit witness in the authenticated manifest and require exact proposal matching at apply. Keep original decision provenance separate from local installation position, retain it across unchanged-cell progress/restart and carry it through query and receipt observations. Missing witness fields must refuse at marker 1. Query callbacks consume immutable pins on existing workers, preserve read-only SQL policy and contain panics. Deadline/cancellation must interrupt SQLite work while arbitrary callback ownership remains retained until it finishes; shutdown joins that work.",
+          "tests": [
+            "strong_read_at_group_barrier",
+            "apply_prefix_never_skips_slow_cell",
+            "rooted_strong_read_at_group_barrier",
+            "cell_query_pins_deadline_and_cancelled_cleanup",
+            "rooted_cell_query_pins_deadline_and_cancelled_cleanup"
+          ]
+        },
+        {
+          "action": "Run physical group apply on the existing node SQL workers with independent bounded progress admission. Transfer the startup manifest-page owner, verify the exact committed entry/base, prepare either cell image representation and derive bounded scheduling summaries. Retain preparation through response cancellation and physical publication. Materialized retries may pin only the exact verified prepared image; they cannot infer publication or reset retirement. Test the physical image store retry across restart and corruption, and reject malformed effect tables rather than reporting idle. Keep membership/topology administrative apply explicitly refused until its owning tasks implement it.",
+          "tests": [
+            "shared_workers_prepare_committed_cell_images",
+            "rooted_shared_workers_prepare_committed_cell_images"
+          ]
+        },
+        {
+          "action": "Qualify image and manifest I/O ownership at actual held/failing directory barriers. Recover complete cell-group images through the same stable physical naming and verified extent bindings used by apply; accept only the engine-selected root and retain its exact cell versions/witnesses. Cold restart may replay a committed unpublished entry but never substitutes selected files or inherited commit state for fresh serving authority. Missing closure refuses before owner admission. Keep whole-process kill/power-loss qualification distinct from joined cold restart.",
+          "tests": [
+            "shared_apply_cancelled_close_joins_preparation",
+            "rooted_shared_apply_cancelled_close_joins_preparation",
+            "shared_apply_sync_failure_preserves_selected_root",
+            "rooted_shared_apply_sync_failure_preserves_selected_root",
+            "shared_apply_recovers_selected_images_before_replay",
+            "rooted_shared_apply_recovers_selected_images_before_replay"
+          ]
+        },
+        {
+          "action": "Use logical CellHistory at registered command and signed-effect identity boundaries. Dispatch namespace-authorized classes on the existing shared SQL workers; validate operation, schema, input and authenticated inbox identity before receipt lookup. Preserve exact proposal submission/settlement and cancellation ownership. Group placement is absent from effect identity; fresh cell incarnations remain fenced. Marker-1 old group-bearing effect wire and old signature domains refuse. Catalog/SDK dispatch remains separate integration work.",
+          "tests": [
+            "registered_commands_use_cell_identity_and_receipts",
+            "rooted_registered_commands_use_cell_identity_and_receipts"
+          ]
+        },
+        {
+          "action": "Dispatch compiled queries through the existing coherent query worker and callback guard with the actual CellVersionObservation, bounded operation/input admission and original read deadline. Keep legacy group cuts explicitly typed during integration; never fabricate a cell sequence or witness. Remove the temporary group-cut observation and old constructor with CG-16; final serving uses the common cell-group path.",
+          "tests": [
+            "registered_queries_keep_cell_observation_and_ownership",
+            "rooted_registered_queries_keep_cell_observation_and_ownership"
+          ]
+        },
+        {
+          "action": "Connect catalog routing sessions to compiled query execution with a namespace-bound class and captured input/consistency. Share bounded invocation admission across dispatcher clones, preserve the original domain deadline and total retry budget, consume each attempt before entering asynchronous work, authenticate AtLeast cell tokens and return a token for the selected observation. Exact destination route and engine checks remain mandatory; a confirmed catalog redirect cannot invent a physical owner. Dropping the routing invocation must leave entered SQL owned until joined cleanup. Command/enrollment dispatch and final public SDK replacement remain required.",
+          "tests": [
+            "catalog_routed_queries_preserve_invocation_and_authority",
+            "rooted_catalog_routed_queries_preserve_invocation_and_authority"
+          ]
+        },
+        {
+          "action": "Route immutable registered command invocations through the same dispatcher and catalog sessions. Capture host time/randomness once, retain the original runtime/SQL producer across cancelled preparation, and resume it before considering a new destination. Submission acceptance is provisional; settle only an exact committed receipt or the existing newer-term absence proof. Preserve command identity, deadline and attempt budget across retries, and refuse S3 requests or S3 namespace minima until a real archive proof is integrated. The production controller must retain active invocations and drive publication; enrollment and the public SDK/controller cutover remain required.",
+          "tests": [
+            "catalog_routed_commands_preserve_producer_and_receipts",
+            "rooted_catalog_routed_commands_preserve_producer_and_receipts"
+          ]
+        },
+        {
+          "action": "Connect physical group histories to the existing node-owned peer transport without constructing the legacy runtime. Share TLS pools, lanes, byte/item banks, revocation and joined shutdown. Bind typed marker-1 history and full replica identity to authenticated requests/responses; refuse old untagged wire layouts and unsupported group snapshots. Include physical routes in all resource and endpoint-conflict checks. The temporary legacy runtime/frame adapter must be deleted with the old host in CG-16. Qualify actual multi-group replication and routed command settlement over TLS before integrating the production controller.",
+          "tests": [
+            "physical_group_transport_multiplexes_real_raft",
+            "catalog_commands_replicate_over_physical_tls",
+            "rooted_catalog_commands_replicate_over_physical_tls"
+          ]
+        },
+        {
+          "action": "Own the exclusive shared event stream and bounded per-group apply jobs in one node controller. Preserve exact owner bindings and retain physical tickets through backpressure and joined shutdown. Admit fresh command invocations independently from response waiters; retain bounded ownership beyond disconnect/deadline until exact receipt, proven non-commit or joined shutdown. Seal only never-attempted preparations across all clones. Distinguish completed stage errors from lost worker replies and never automatically replay uncertain callbacks.",
+          "tests": [
+            "group_controller_drives_tls_apply_and_bounded_retry",
+            "rooted_group_controller_drives_tls_apply_and_bounded_retry",
+            "group_controller_checks_exact_owners",
+            "group_controller_cancelled_close_joins_sql",
+            "group_controller_apply_failure_and_shutdown_preserve_selected_root",
+            "rooted_group_controller_apply_failure_and_shutdown_preserve_selected_root",
+            "controller_owned_commands_survive_sql_disconnect",
+            "controller_owned_commands_seal_late_preparations",
+            "controller_owned_commands_survive_accepted_disconnect",
+            "controller_owned_commands_resolve_after_response_deadline",
+            "controller_owned_commands_join_cancelled_shutdown",
+            "controller_owned_commands_release_completed_callback_errors",
+            "controller_owned_commands_join_a_lost_sql_reply"
+          ]
+        },
+        {
+          "action": "Register initialization with an explicit digest in the class voting schema. Route immutable creation IDs and captured host inputs through the existing catalog session into the node controller. Share command/enrollment queues and admission, preserve original response deadlines, seal only never-attempted preparations and resolve the original immutable creation record after commitment or later mutations. Distinguish completed initialization errors from lost replies, join physical shutdown, and refuse unsupported S3 durability. The old public host must refuse registered initialization until its shared-runtime cutover; do not silently ignore the callback.",
+          "tests": [
+            "controller_enrollment_survives_initializer_disconnect",
+            "controller_enrollment_seals_late_preparation",
+            "controller_enrollment_survives_accepted_disconnect",
+            "controller_enrollment_resolves_after_deadline",
+            "controller_enrollment_joins_cancelled_shutdown",
+            "controller_enrollment_releases_completed_initializer_errors",
+            "controller_enrollment_joins_lost_worker_reply",
+            "controller_enrollment_requires_registered_initializer"
+          ]
+        },
+        {
+          "action": "Route consumed shared query attempts through the existing physical peer query lane. Bind physical history, logical cell, schema, route epoch and birth to the authenticated request; use the same read-only namespace grant/revocation guard as existing queries. Destination catalog and runtime authority remain mandatory. Return signed cell observations while retaining bounded result admission, and preserve original deadlines and attempts across retries/redirects. Cancellation must leave entered SQL physically owned until joined cleanup. Complete nonmember shared discovery and public SDK binding separately; mutation RPC must use explicit write authorization, never query-origin grants. Remove temporary legacy query framing and serving with CG-16. Separate public registration admission lifetime from data retained by accepted queries; the last host registration drop must refuse new requests even while an earlier callback is held. Assign query wire sequence numbers in the single peer sender after dequeueing so concurrent ingress cannot cause a false replay refusal.",
+          "tests": [
+            "shared_remote_queries_bind_cell_versions_and_gateway_owners",
+            "shared_remote_queries_retain_cancelled_sql_until_join",
+            "shared_remote_queries_retain_expired_sql_until_join"
+          ]
+        },
+        {
+          "action": "Install bounded physical read discovery for nonmember routers without creating a local group or borrowing voting authority. Include it in shared peer-pool lifetime, endpoint consistency, node-process refresh and route admission/observability. Revalidate captured route identity before sending and after receiving. Destination namespace grants remain independently authenticated, revocable and strictly read-only. Qualify absent, foreign-namespace and wrong-process grants and held-callback revocation over real TLS, preserving physical SQL ownership. Integrate trusted discovery publication and selection into the public host in CG-07; this API does not authorize automatic membership or mutation RPC.",
+          "tests": [
+            "shared_nonmember_queries_require_grants_without_local_replicas",
+            "shared_nonmember_query_revocation_retains_physical_sql",
+            "shared_nonmember_query_route_replacement_refuses_stale_reply"
+          ]
+        },
+        {
+          "action": "Share bounded namespace range hints across query, command and enrollment invocations, with explicit entry/byte reservations and LRU eviction. Cache ranges rather than cells; a failed metadata refresh does not invent a new serving proof. Verified successor heads invalidate prior hints and older in-flight observations cannot refill them. Preserve fresh destination RPC admission until replicated transfer-seal authority is integrated. Run the full native_cell_groups_catalog suite, including dispatcher_route_cache_shares_ranges_across_operations, dispatcher_route_cache_bounds_and_refreshes_hints and dispatcher_route_cache_refuses_superseded_inflight_refill, alongside the real runtime case below. Cached mappings never replace runtime ownership, exact cell/version checks, current-term quorum or producer ownership.",
+          "tests": [
+            "shared_cached_dispatch_preserves_authority_during_catalog_outage"
+          ]
+        },
+        {
+          "action": "Connect remote shared commands to the existing bounded RPC lane and controller. Authenticate command purpose separately from read payloads, require independent bounded namespace/process write grants even for voters, and include those grants in endpoint consistency, process refresh, fleet revocation and pool lifecycle. Preserve captured inputs, immutable command identity, remaining timeout and attempt budget. Destination fresh catalog binding precedes actual leader/SQL authority; only committed exact receipts and signed cell observations return success. Disconnect/revocation cannot cancel already admitted ownership. Also run all query_wire tests, including shared_command_wire_preserves_inputs_and_refuses_query_payloads, shared_command_purpose_is_authenticated_and_cannot_reuse_read_reply and shared_command_results_bind_identity_history_and_typed_refusals. Remote enrollment and standalone receipt lookup are specified in later steps. Run command_grants_bound_tombstones_without_changing_read_permission in the full transport suite to qualify independent read grants, write tombstone caps and shared-pool cleanup. Distinguish follower execution-authority requests as NotLeader from leaders awaiting durable apply (NotReady); preserve stale captured-authority checks.",
+          "tests": [
+            "shared_remote_commands_require_write_grants_and_exact_receipts",
+            "shared_remote_commands_survive_disconnected_sql_waiters",
+            "shared_remote_command_revocation_preserves_admitted_ownership"
+          ]
+        },
+        {
+          "action": "Route enrollment through the same bounded write RPC exchange, explicit namespace/process grants and exact controller registration as commands. Authenticate Query, Command and Enrollment as distinct mandatory purposes under marker 1, with no legacy reader. Preserve creation identity, captured inputs, preview identity and original routing budget. Recheck fresh destination catalog and leader authority before transferring initialization to the controller; return only the exact committed creation record, never treat the initial image as a current version token. Reuse shared reply budgets and preserve ownership after response disconnect, revocation and publication deadline. Run all query_wire tests including shared_enrollment_wire_preserves_captured_identity_and_inputs, shared_enrollment_purpose_cannot_be_reinterpreted_as_command_or_read and shared_enrollment_reply_binds_creation_cell_schema_and_initial_image, plus all existing command/query and controller enrollment regressions. Standalone receipt lookup follows below; dynamic roster and public SDK cutover remain open.",
+          "tests": [
+            "shared_remote_enrollment_requires_write_grants_and_exact_creation",
+            "shared_remote_enrollment_survives_disconnected_initializer",
+            "shared_remote_enrollment_revocation_retains_admitted_creation",
+            "shared_remote_enrollment_resolves_after_publication_deadline"
+          ]
+        },
+        {
+          "action": "Add standalone local and remote receipt inspection with a distinct authenticated purpose on the bounded existing RPC exchange. Require explicit command-origin permission and exact controller/SQL ownership; validate command contract, payload digest and authenticated identity before reading receipts. Select a fresh catalog-bound quorum image and use immutable SQL without staging a producer, installing schema, maintaining receipts, or invoking a command/initializer. Return exact retained result/identity and signed cell observation, or ambiguous absence; absence must never retire an unresolved producer. Reuse physical read cancellation, deadline, byte accounting and joined cleanup. Run full query_wire and receipts suites, including shared_receipt_wire_refuses_command_payloads_and_preserves_identity, shared_receipt_reply_distinguishes_unknown_from_empty_committed_result, shared_receipt_purpose_cannot_authorize_mutation and cell_lookup_distinguishes_initial_absence_from_lost_schema. Keep corrupt/partial schema and replicated expiry distinct from absence. Dynamic roster/lazy group birth, per-group failure isolation, configuration lifecycle and public SDK cutover remain incomplete.",
+          "tests": [
+            "shared_receipt_lookup_requires_grants_and_never_executes_commands",
+            "shared_receipt_lookup_keeps_unresolved_producers_at_capacity",
+            "shared_receipt_lookup_cancellation_preserves_active_writer"
+          ]
+        },
+        {
+          "action": "Replace the fixed controller roster with bounded dynamic registration, including empty-controller startup. Reserve pending plus active group slots and shared command item/byte admission before transfer. Bind exact engine/history/schema, selected root and applier page owner; install an exclusively owned physical route without adopting a prior registration. Register the applier before polling attachment so early consensus/apply events remain owned. Revalidate the bootstrap catalog through the existing runtime attach path; expose application roster membership only after success, with fresh quorum still required. Retain attachment through response cancellation and join catalog/runtime attachment before closing physical dependencies. Release definite failures before responding; unexpected competing runtime owners or runtime closure keep the conservative node shutdown boundary. Complete-group membership changes follow CG-05; production request/voter orchestration and SDK/fleet binding follow CG-07. Run the full transport and shared runtime suites.",
+          "tests": [
+            "dynamic_registration_preserves_live_groups_and_disconnected_waiters",
+            "dynamic_registration_refuses_foreign_owners_and_retries_failed_catalog",
+            "dynamic_registration_joins_attachment_before_cancelled_shutdown",
+            "dynamic_registration_recovers_selected_roots_into_an_empty_controller"
+          ]
+        },
+        {
+          "action": "Isolate group-local controller apply/runtime/ambiguous command failures through a bounded retained quarantine lifecycle. Reserve a control lane to revoke execution while apply is waiting, refuse new group admission, preserve captured producer/apply owners until joined shutdown, and prevent late persistence completion from restoring authority. Keep failed group capacity charged. Shared engine I/O/corruption/closure and lost shared SQL worker replies still close the node. Expose original group failure and quarantine counts; no in-place replacement or automatic callback replay. Qualify healthy-group SQL progress and node-wide storage failure separately. Explicit local provisioning uses the lifecycle below; production configuration and public cutover are integrated in CG-07 and CG-16.",
+          "tests": [
+            "group_quarantine_retains_producer_and_serves_healthy_group",
+            "shared_engine_sync_failure_still_stops_all_groups"
+          ]
+        },
+        {
+          "action": "Provision already selected initial-member ranges through the controller with immutable explicit filesystem/image/peer settings. Bound preparation bytes, parallelism, resident failed preparations and response waiters independently from commands. Coalesce by exact physical group and directory owner; preserve recovered page owners across attachment retries. Register appliers before polling attachment and join entered catalog/filesystem work before physical shutdown. This explicit local API does not allocate ranges, orchestrate followers, authorize managed fleet admission or wire automatic request-driven/public SDK startup. CG-07 integrates those production paths after its snapshot, archive and effect dependencies.",
+          "tests": [
+            "provisioning_coalesces_and_serves",
+            "provisioning_retries_retained_owner",
+            "provisioning_joins_cancelled_close",
+            "provisioning_recovers_selected_roots",
+            "provisioning_refusals_preserve_healthy_group"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "three_cells_one_rawnode_per_voter",
+          "oracle": "Three separate SQLite histories are served by exactly three RawNodes total across three voters; interleaved values agree on all replicas.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I04"
+          ]
+        },
+        {
+          "name": "shared_group_fair_admission",
+          "oracle": "Concurrent cells receive bounded fair admission; cancellation retains physical accounting and busy SQL never blocks consensus ticks.",
+          "invariants": [
+            "I12"
+          ]
+        },
+        {
+          "name": "cell_receipt_not_group_progress",
+          "oracle": "A later update to B cannot settle or replace A; identical client/sequence in A and B remains independent.",
+          "invariants": [
+            "I02",
+            "I03"
+          ]
+        },
+        {
+          "name": "strong_read_at_group_barrier",
+          "oracle": "ReadIndex through B serves unchanged A coherently; stale leader/minority/incorrect incarnation cannot satisfy a strong read.",
+          "invariants": [
+            "I01",
+            "I05"
+          ]
+        },
+        {
+          "name": "apply_prefix_never_skips_slow_cell",
+          "oracle": "Out-of-order staging cannot publish beyond a missing earlier cell entry after crash or election.",
+          "invariants": [
+            "I04"
+          ]
+        },
+        {
+          "name": "concurrent_enrollment_one_cell",
+          "oracle": "Actual simultaneous enrollment through the real group owner creates one SQLite history per cell and one initialization effect on all voters, including a lost response and leader restart.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I04"
+          ]
+        },
+        {
+          "name": "pending_enrollments_respect_group_capacity",
+          "oracle": "Before any apply, accepted distinct creations fill the configured group capacity; exact retries reserve once, conflicting incarnations refuse and a further creation is rejected before append. Existing cells can still mutate at capacity.",
+          "invariants": [
+            "I01",
+            "I04",
+            "I12"
+          ]
+        },
+        {
+          "name": "proposal_acceptance_retries_do_not_append_twice",
+          "oracle": "An exact pending mutation retry returns its original log position and digest at saturated acceptance capacity; changed bytes under that identity refuse. After apply, a stale base cannot append again, the original image advances once on every voter and released capacity admits another cell.",
+          "invariants": [
+            "I02",
+            "I03",
+            "I04",
+            "I12"
+          ]
+        },
+        {
+          "name": "inherited_enrollments_count_after_applied_term_barrier",
+          "oracle": "Restart all voters from retained disks with an uncommitted enrollment present only on the longest log. The recovered leader refuses admission until inherited history and its current-term barrier apply, then counts that cell against capacity. Old prepared terms refuse.",
+          "invariants": [
+            "I01",
+            "I04",
+            "I12"
+          ]
+        },
+        {
+          "name": "node_runtime_bounds_proposal_acceptance_across_groups",
+          "oracle": "Pending acceptance in one physical group exhausts the shared node budget and refuses a different group, while exact retries retain their original position. Peer persistence and durable apply still progress under saturation, releasing capacity for the other group on all voters.",
+          "invariants": [
+            "I04",
+            "I12"
+          ]
+        },
+        {
+          "name": "sql_submission_rejection_seals_delayed_retries",
+          "oracle": "Actual three-voter SQL initialization and mutation distinguish queue overload from definitive owner refusal. Lost rejection responses are recovered from the sealed preparation; foreign-engine, wrong-cell and same-proposal replacement proofs refuse. Old clones remain rejected after capacity returns, remembered acceptance never re-appends after apply, and worker cleanup releases names while retained outputs keep bounded reservations. Both image modes return all retained resources on close.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_sql_submission_rejection_seals_delayed_retries",
+          "oracle": "Actual three-voter SQL initialization and mutation distinguish queue overload from definitive owner refusal. Lost rejection responses are recovered from the sealed preparation; foreign-engine, wrong-cell and same-proposal replacement proofs refuse. Old clones remain rejected after capacity returns, remembered acceptance never re-appends after apply, and worker cleanup releases names while retained outputs keep bounded reservations. Both image modes return all retained resources on close.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_strong_read_at_group_barrier",
+          "oracle": "Extent-backed strong reads require fresh quorum and contiguous apply behind another cell, preserve the target cell version, wait for AtLeast publication, retain older coherent pins and original cell witnesses for authenticated version tokens, and refuse wrong histories, expired deadlines and revoked leadership.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "cell_query_pins_deadline_and_cancelled_cleanup",
+          "oracle": "Real group read pins enforce capacity and engine binding. Immutable SQL refuses writes, interrupts deadline-bound work, contains callback panics and retains entered work after waiter cancellation; close joins it and returns all SQL reservations.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_cell_query_pins_deadline_and_cancelled_cleanup",
+          "oracle": "Real group read pins enforce capacity and engine binding. Immutable SQL refuses writes, interrupts deadline-bound work, contains callback panics and retains entered work after waiter cancellation; close joins it and returns all SQL reservations.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_workers_prepare_committed_cell_images",
+          "oracle": "The existing fixed SQL workers prepare committed enrollment and mutation images on all three voters. Wrong engines and forged entries refuse; exact duplicate preparations yield the same manifest; stale bases refuse after publication. Business admission saturation does not prevent apply. Derived scheduling hints match actual SQLite state. Preparation leaves the old root selected, and its independent reservation survives clones and blocked physical publication until the owner completion is consumed.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_shared_workers_prepare_committed_cell_images",
+          "oracle": "The existing fixed SQL workers prepare committed enrollment and mutation images on all three voters. Wrong engines and forged entries refuse; exact duplicate preparations yield the same manifest; stale bases refuse after publication. Business admission saturation does not prevent apply. Derived scheduling hints match actual SQLite state. Preparation leaves the old root selected, and its independent reservation survives clones and blocked physical publication until the owner completion is consumed.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_apply_cancelled_close_joins_preparation",
+          "oracle": "Hold actual image and manifest directory barriers separately. Cancel the apply receiver and a close waiter; entered work, bytes, progress slot and exclusive SQL lease remain retained until release. Joined close refunds the reservations without publishing; a fresh pool repeats exact preparation and the real Raft owner publishes it.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_shared_apply_cancelled_close_joins_preparation",
+          "oracle": "Hold actual image and manifest directory barriers separately. Cancel the apply receiver and a close waiter; entered work, bytes, progress slot and exclusive SQL lease remain retained until release. Joined close refunds the reservations without publishing; a fresh pool repeats exact preparation and the real Raft owner publishes it.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_apply_sync_failure_preserves_selected_root",
+          "oracle": "Inject actual image and manifest directory-sync failures separately. Preparation fails, refunds its admission, and never advances the selected root or applied index despite the entry being committed.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_shared_apply_sync_failure_preserves_selected_root",
+          "oracle": "Inject actual image and manifest directory-sync failures separately. Preparation fails, refunds its admission, and never advances the selected root or applied index despite the entry being committed.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_apply_recovers_selected_images_before_replay",
+          "oracle": "Close all previous runtime, engine, manifest and image owners. Recover the engine-selected manifest and physical image closure in a new process generation, ignoring an already prepared but unpublished cell. Replay that committed entry without inventing fresh quorum/serving authority. After another cold restart, missing selected image files must refuse recovery without changing the persisted marker.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_shared_apply_recovers_selected_images_before_replay",
+          "oracle": "Close all previous runtime, engine, manifest and image owners. Recover the engine-selected manifest and physical image closure in a new process generation, ignoring an already prepared but unpublished cell. Replay that committed entry without inventing fresh quorum/serving authority. After another cold restart, missing selected image files must refuse recovery without changing the persisted marker.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "registered_commands_use_cell_identity_and_receipts",
+          "oracle": "Dispatch a real registered class through the shared SQL pool and production image applier on three voters. Two logical cells in one group receive their exact histories, mutate independently and retain alarm hints. After B advances group progress, A returns its original receipt without rerunning its callback. Wrong contract, input digest, operation and class schema refuse even on a receipt retry, releasing physical admission.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_registered_commands_use_cell_identity_and_receipts",
+          "oracle": "Dispatch a real registered class through the shared SQL pool and production image applier on three voters. Two logical cells in one group receive their exact histories, mutate independently and retain alarm hints. After B advances group progress, A returns its original receipt without rerunning its callback. Wrong contract, input digest, operation and class schema refuse even on a receipt retry, releasing physical admission.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "registered_queries_keep_cell_observation_and_ownership",
+          "oracle": "Run a registered read-only callback on the existing worker with a real selected cell observation. An older A pin remains readable after A and B mutate; a fresh linearizable A query returns A's sequence and decision witness, not B's group progress, and round-trips its signed token. Invalid contract/kind/operation/schema/input refuses before callback execution. Panic and deadline interruption leave the worker usable. Cancelled query/close retain input, image and physical callback ownership until joined cleanup.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_registered_queries_keep_cell_observation_and_ownership",
+          "oracle": "Run a registered read-only callback on the existing worker with a real selected cell observation. An older A pin remains readable after A and B mutate; a fresh linearizable A query returns A's sequence and decision witness, not B's group progress, and round-trips its signed token. Invalid contract/kind/operation/schema/input refuses before callback execution. Panic and deadline interruption leave the worker usable. Cancelled query/close retain input, image and physical callback ownership until joined cleanup.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "catalog_routed_queries_preserve_invocation_and_authority",
+          "oracle": "Resolve a real catalog route and execute a registered linearizable query on three voters. A dropped response retries the same fingerprint/deadline, an authenticated AtLeast token reads on a follower, and a foreign cell token/domain/class refuses before callback execution. Invocation admission is shared across clones and total attempts/deadlines cannot reset. A catalog-confirmed replacement preserves request identity but refuses execution without its physical owner. Cancelled routing releases only its own reservation; held SQL remains charged and joined.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_catalog_routed_queries_preserve_invocation_and_authority",
+          "oracle": "Resolve a real catalog route and execute a registered linearizable query on three voters. A dropped response retries the same fingerprint/deadline, an authenticated AtLeast token reads on a follower, and a foreign cell token/domain/class refuses before callback execution. Invocation admission is shared across clones and total attempts/deadlines cannot reset. A catalog-confirmed replacement preserves request identity but refuses execution without its physical owner. Cancelled routing releases only its own reservation; held SQL remains charged and joined.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "catalog_routed_commands_preserve_producer_and_receipts",
+          "oracle": "A real catalog-routed registered command on three voters resumes a held/cancelled preparation without another callback or a foreign-node producer. Repeated submission retains the original acceptance; same-term receipt absence stays ambiguous and charged. Exact publication returns the original cell receipt and token, including a duplicate after another cell advances group progress. Real leader transfer permits NotCommitted only behind the newer applied term, then retry preserves captured time/randomness and command identity. S3 request and namespace minima refuse without weakening durability.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_catalog_routed_commands_preserve_producer_and_receipts",
+          "oracle": "A real catalog-routed registered command on three voters resumes a held/cancelled preparation without another callback or a foreign-node producer. Repeated submission retains the original acceptance; same-term receipt absence stays ambiguous and charged. Exact publication returns the original cell receipt and token, including a duplicate after another cell advances group progress. Real leader transfer permits NotCommitted only behind the newer applied term, then retry preserves captured time/randomness and command identity. S3 request and namespace minima refuse without weakening durability.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "physical_group_transport_multiplexes_real_raft",
+          "oracle": "Two physical Raft groups on three real TLS endpoints replicate three independent SQLite cells each using the same bounded per-peer connection pools. Unknown groups, wrong schema/local process, conflicting query/inspection endpoints and unsupported snapshots refuse. Removing one group preserves the other group and peer pools; restored routing delivers again. Exclusive transport ownership refuses a second service until joined shutdown.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "catalog_commands_replicate_over_physical_tls",
+          "oracle": "Run the catalog-routed registered command cancellation, duplicate acceptance, exact receipt and real leader-transfer retry assertions over production physical-group TLS delivery in this image mode. Preserve captured command inputs and original producer ownership; no fixture-direct peer delivery occurs after transport attachment. The fixture still drives runtime apply and completion events, so this does not qualify production controller ownership.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_catalog_commands_replicate_over_physical_tls",
+          "oracle": "Run the catalog-routed registered command cancellation, duplicate acceptance, exact receipt and real leader-transfer retry assertions over production physical-group TLS delivery in this image mode. Preserve captured command inputs and original producer ownership; no fixture-direct peer delivery occurs after transport attachment. The fixture still drives runtime apply and completion events, so this does not qualify production controller ownership.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "group_controller_drives_tls_apply_and_bounded_retry",
+          "oracle": "Two groups replicate over real TLS using one SQL worker per node. The controller exclusively drives events, preserves per-group apply order and retries SQL capacity without fixture pumping.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_group_controller_drives_tls_apply_and_bounded_retry",
+          "oracle": "Repeat autonomous multi-group TLS replication, bounded SQL backoff and exact receipt publication with extent images.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "group_controller_checks_exact_owners",
+          "oracle": "Refuse foreign runtime/event/transport and engine/SQL/applier combinations even within the same execution domain.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "group_controller_cancelled_close_joins_sql",
+          "oracle": "Cancel a close waiter or drop the final public controller handle while physical work is blocked. Retain claims and tickets until physical SQL and runtime joins complete.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "group_controller_apply_failure_and_shutdown_preserve_selected_root",
+          "oracle": "A real manifest sync failure quarantines the group without advancing the selected root. Captured authority refuses; explicit shutdown still joins physical ownership. Interrupted preparation cannot publish or allow premature replacement.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "rooted_group_controller_apply_failure_and_shutdown_preserve_selected_root",
+          "oracle": "Repeat group quarantine after manifest sync failure and joined controller shutdown with extent images; preserve the engine-selected root and physical ownership.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_owned_commands_survive_sql_disconnect",
+          "oracle": "Drop the response while a registered SQL callback is physically held. Retain bounded controller/producer/invocation admission, then settle the exact receipt without callback replay in both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_owned_commands_seal_late_preparations",
+          "oracle": "Expire the response while a callback is held. Seal the eventual never-submitted preparation, join private cleanup and leave the selected cell unchanged. An explicit retry may execute once, in both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_owned_commands_survive_accepted_disconnect",
+          "oracle": "Drop the response after commitment while manifest sync is held. Preserve command ownership until exact publication, and return the original receipt on identity retry without replay in both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_owned_commands_resolve_after_response_deadline",
+          "oracle": "Expire the original response deadline after commitment while manifest sync is held. Continue bounded resolution and settle the exact receipt without replay in both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_owned_commands_join_cancelled_shutdown",
+          "oracle": "Cancel a close waiter during a physically blocked callback. Retain the invocation and engine/SQL claims until joined shutdown; release all command admission only afterward, in both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_owned_commands_release_completed_callback_errors",
+          "oracle": "A received callback error discards its private mutation and releases command ownership without closing the node. Explicit identity retry succeeds exactly once; both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_owned_commands_join_a_lost_sql_reply",
+          "oracle": "An injected physical image-capture panic loses the stage reply. Preserve ambiguous invocation ownership through controller failure and physical SQL joins, then release admission; both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_enrollment_survives_initializer_disconnect",
+          "oracle": "Drop the response while the registered initializer is held on a real SQL worker. Retain shared command/enrollment admission, settle the original creation record after release, and return it unchanged after a later mutation. Conflicting creation IDs/incarnations refuse without callback replay in both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_enrollment_seals_late_preparation",
+          "oracle": "Expire the response while initialization is held. Seal the eventual never-attempted preparation, join private cleanup and leave the cell absent. An explicit creation retry may initialize once; both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_enrollment_survives_accepted_disconnect",
+          "oracle": "Disconnect after commitment while manifest publication is held. Retain creation ownership until exact publication, then return the same creation record without reinitialization, including after mutation; both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_enrollment_resolves_after_deadline",
+          "oracle": "Expire the response after commitment while manifest sync is held. Continue bounded creation resolution independently of the waiter, and preserve the original creation record on retry in both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_enrollment_joins_cancelled_shutdown",
+          "oracle": "Cancel controller close during a held initializer. Preserve SQL admission and engine claims until physical worker joins, then release all invocation/command retention in both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_enrollment_releases_completed_initializer_errors",
+          "oracle": "A completed initializer error rolls back private schema changes and releases invocation ownership without closing the node. Explicit same-creation retry commits once in both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_enrollment_joins_lost_worker_reply",
+          "oracle": "A physical capture panic loses the initialization reply. Keep ambiguous creation ownership through failed-controller cleanup and physical worker joins, releasing admission only afterward; both image modes.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "controller_enrollment_requires_registered_initializer",
+          "oracle": "Refuse enrollment before routing/SQL when the namespace-bound class has no registered initializer, and release invocation admission.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_remote_queries_bind_cell_versions_and_gateway_owners",
+          "oracle": "Two cells share one physical group and production query TLS lane in both image modes. Linearizable, stale and AtLeast reads preserve actual cell observations and signed tokens. Retries retain deadlines/attempt limits; unconsumed replies retain transport admission. Foreign tokens, logical incarnations, signing keys, SQL owners and duplicate/missing gateway registrations refuse. A catalog replacement after route capture refuses at the old destination without callbacks; a confirmed redirect cannot invent the new physical owner. Concurrent callers query different cells through the same peer lane without replay refusals.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_remote_queries_retain_cancelled_sql_until_join",
+          "oracle": "Disconnect a remote query while its compiled SQL callback is physically held, in both image modes. Raft still establishes another linearizable read barrier. Routing/transport reservations release after cancellation, but SQL input/image/work ownership remains charged. Cancelling controller close cannot release the worker before its physical join. Dropping the final host gateway registration while the original callback is held refuses new reads before any additional callback; in-flight data retention cannot extend admission.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_remote_queries_retain_expired_sql_until_join",
+          "oracle": "Expire the original remote-query deadline while SQL is held, in both image modes. Node/peer query admission drains while the SQL owner remains retained. Raft control progress continues and cancelled shutdown waits for physical cleanup. Dropping the final host gateway registration while the original callback is held refuses new reads before any additional callback; in-flight data retention cannot extend admission.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_nonmember_queries_require_grants_without_local_replicas",
+          "oracle": "A fourth real TLS endpoint queries two cells in both image modes without local group storage or a RawNode. Discovery alone and wrong-namespace/process grants refuse before SQL. Explicit grants permit leader strong reads and follower stale/AtLeast reads with authenticated logical observations. A strong attempt at a follower refuses before SQL; retrying the leader preserves the original deadline and total attempt budget. Consensus submission remains refused. Read discovery shares route/peer limits, rejects conflicting endpoints and stale revisions, and releases unused pools on removal.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_nonmember_query_revocation_retains_physical_sql",
+          "oracle": "Revoke the nonmember namespace grant while its remote SQL callback is physically held, in both image modes. The waiter refuses and transport reservations drain while physical SQL remains owned. Stale grant revision cannot reopen admission and new requests cannot enter SQL. A newer explicit grant permits reads after physical cleanup; no local replica appears.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_nonmember_query_route_replacement_refuses_stale_reply",
+          "oracle": "Replace the router discovery revision while remote SQL is held, in both image modes. The complete authenticated reply under the captured old route is refused as stale. A new attempt under the replacement succeeds, without leaking invocation/transport ownership or creating a router replica.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_cached_dispatch_preserves_authority_during_catalog_outage",
+          "oracle": "Warm one range hint, remove the actual catalog head, then query another cell, commit a command and enroll a new cell through real controller/SQL/TLS owners in both image modes without fresh mapping reads. Cache occupancy stays one range. Strong local reads still use real quorum. Explicit refresh fails; remote gateway admission remains fresh and refuses while the catalog head is absent. Restore metadata and join every owner.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_remote_commands_require_write_grants_and_exact_receipts",
+          "oracle": "Over real TLS and both image modes, a router without local group storage cannot invoke commands using discovery, a read grant, a wrong-process or foreign-namespace write grant, or voter membership. A fully registered follower with write permission still refuses before SQL. Explicit namespace/process write permission at the leader permits a committed receipt with authenticated cell observation. Same-identity retries return that receipt without another callback; conflicting input refuses. Original attempt deadlines, exact controller ownership, response byte admission and host-registration drop remain enforced.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_remote_commands_survive_disconnected_sql_waiters",
+          "oracle": "Hold entered command SQL behind a physical callback gate, disconnect the remote waiter, and verify the destination controller retains the producer. Release SQL, observe ownership resolve, then retry the exact command and obtain one committed effect in both image modes. No fixture event pumping or local router replica is used.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_remote_command_revocation_preserves_admitted_ownership",
+          "oracle": "During a held admitted command, revoke the explicit write grant. The remote response terminates ambiguously while controller ownership remains. Stale grant revisions refuse; after physical completion a newer grant allows the original committed receipt to be returned without another callback. Run both image modes with no read grant.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_remote_enrollment_requires_write_grants_and_exact_creation",
+          "oracle": "Over real TLS in both image modes, nonmember ingress without write grants, read-only ingress and voter membership cannot enroll. A fully registered follower with a write grant returns NotLeader before initialization. Leader admission returns the exact creation identity and original image; duplicate enrollment after a later remote command preserves the original record without rerunning initialization. Creation/incarnation conflicts refuse. Consumed attempts, original deadlines, response admission and gateway drop remain enforced; routed work cannot masquerade as fresh local work.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_remote_enrollment_survives_disconnected_initializer",
+          "oracle": "Hold entered initialization, disconnect the remote waiter, and verify controller ownership survives while network admission drains. Release SQL and retry the exact creation identity; one initialized cell and the committed creation record survive in both image modes.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_remote_enrollment_revocation_retains_admitted_creation",
+          "oracle": "Revoke explicit write permission while initialization is physically held. The remote error remains ambiguous and controller ownership remains until the creation resolves. Renew permission and recover the exact record without rerunning initialization, in both image modes.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_remote_enrollment_resolves_after_publication_deadline",
+          "oracle": "Hold committed manifest publication until the remote deadline expires. The caller receives an ambiguous error while the controller retains accepted creation. Release publication and retry the same identity; the exact original record returns with one initialization in both image modes.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_receipt_lookup_requires_grants_and_never_executes_commands",
+          "oracle": "Over four real TLS endpoints in one process and both image modes, receipt inspection requires explicit command-origin permission; discovery and read grants refuse. Initial receipt absence returns an authenticated cell observation without invoking the command. After a normal commit, lookup returns the exact retained result and retry horizon without a second callback. Conflicting payload and sequence gaps remain typed. Original deadlines, one-use attempts, result admission and gateway drop remain enforced; the router has no local group replica.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_receipt_lookup_keeps_unresolved_producers_at_capacity",
+          "oracle": "With a prepared command retaining its producer, quorum lookup observes only the committed image and reports ambiguous absence. Holding that lookup result fills the two-reservation SQL budget; another lookup refuses overload without releasing the producer. It neither exposes the uncommitted receipt nor releases the producer. Contract/digest mismatch and non-quorum read authority refuse. After the original command publishes, lookup returns its receipt while leaving producer cleanup to its actual owner; no callback reruns. Closed controller handles cannot retain the engine claim after the SQL pool closes; a replacement pool starts. Run both image modes.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_receipt_lookup_cancellation_preserves_active_writer",
+          "oracle": "Hold a local controller command inside SQL, queue a remote lookup on a bounded two-slot fixture worker, then disconnect the lookup. Network admission drains while the active writer remains controller-owned. Release SQL, join the cancelled read, and inspect the committed receipt without a second command callback in both image modes.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "dynamic_registration_preserves_live_groups_and_disconnected_waiters",
+          "oracle": "Three real voter controllers register a second group while its catalog reads are held; the first group continues replicated SQL apply. Pending and active slots enforce the same capacity, duplicate attachment refuses, and disconnected registration waiters cannot abandon ownership. After revalidation the new group establishes quorum and runs registered enrollment and exact creation retry through the shared SQL workers and TLS pools, in both image modes.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "dynamic_registration_refuses_foreign_owners_and_retries_failed_catalog",
+          "oracle": "Reject foreign engines, roots and a different page owner on the same engine. Refuse adoption of an existing transport route. A real bootstrap catalog-read failure releases only the failed registration slot/route; an already serving group continues. Retry the same prepared history successfully and enroll after real quorum, in both image modes.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "dynamic_registration_joins_attachment_before_cancelled_shutdown",
+          "oracle": "Hold real catalog revalidation after registration admission, drop the response and cancel the close waiter. The controller retains the pending slot and runtime engine claim until attachment joins. After release, close finishes and a replacement runtime may start; run both image modes.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "dynamic_registration_recovers_selected_roots_into_an_empty_controller",
+          "oracle": "After registering and mutating a group, join all controllers, close and reopen all engines from the existing voter disks under a new process generation, reopen manifest page owners and recover selected roots into fresh empty controllers. Attachment alone refuses leader authority; fresh quorum then returns the prior exact receipt without another SQL mutation. Verify the persisted value and cell sequence in both image modes. Image-store handles remain in the same process. This is joined engine/runtime/page-store restart, not independent-process or power-loss qualification.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "group_quarantine_retains_producer_and_serves_healthy_group",
+          "oracle": "A real manifest directory-sync failure quarantines one group in both image modes. Preserve its selected root, revoke captured leader authority and new reads/writes, refuse callback replay, and retain its ambiguous producer and group capacity. Dynamically register another group on the same engine/SQL/TLS resources and prove controller enrollment, command, exact retry and linearizable SQLite query remain usable with per-group producer admission. Joined close releases retained command admission.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "shared_engine_sync_failure_still_stops_all_groups",
+          "oracle": "A real shared Raft-engine sync failure remains node-wide in both image modes: both groups refuse serving, controller/physical services join, and replacement runtime admission refuses the uncertain engine.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "provisioning_coalesces_and_serves",
+          "oracle": "Starting from selected reserved ranges with no genesis or page owners, production provisioning materializes birth, verifies configured members, bootstraps all three engines, recovers roots and attaches real TLS peers. Same-owner concurrent calls share one preparation; dropped waiters cannot cancel it. Waiter, pending and active group limits refuse excess requests; conflicting assignments refuse. A single command slot remains usable. Both image modes then enroll, mutate and return the exact retry without another cell mutation.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "provisioning_retries_retained_owner",
+          "oracle": "A catalog failure before recovery releases preparation and group capacity. A real filesystem hook injects a catalog failure after physical recovery but before attachment; the exact page owner remains locked and charged. Retrying the same assignment succeeds without reopening or syncing the page store again. Both image modes retain the same selected-root owner.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "provisioning_joins_cancelled_close",
+          "oracle": "Hold a real manifest directory sync inside execution-domain recovery, cancel close and drop the response. Preparation admission and the runtime engine claim remain held; a replacement runtime refuses. Release the physical operation, then observe joined close and released preparation capacity in both image modes.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "provisioning_recovers_selected_roots",
+          "oracle": "After actual controller enrollment and mutation through provisioned groups, join all controllers and reopen all three voter engines under a new process generation. Empty controllers recover using the same production provisioner. Removing the engine-selected manifest page refuses recovery and leaves the selected marker unchanged; restoring its exact bytes permits recovery. Attachment alone refuses leader authority; fresh quorum then returns the prior exact receipt and a linearizable query verifies value 8 and cell sequence 2. Run both image modes. Image-store handles remain in process; this is not independent-process or power-loss qualification.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        },
+        {
+          "name": "provisioning_refusals_preserve_healthy_group",
+          "oracle": "In both image modes, configured peers missing an immutable birth member refuse before genesis and free preparation capacity. A configured but wrong local endpoint fails physical registration after recovery, retains the prepared owner and its budget, and leaves healthy groups serving actual controller commands. Neither refusal grants membership or authority. Joined close releases all owners.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I12"
+          ]
+        }
+      ],
+      "invariants": [
+        "I01",
+        "I02",
+        "I03",
+        "I04",
+        "I05",
+        "I12"
+      ],
+      "evidence": [
+        ".cellar/cell-groups-evidence/CG-04-qualified/checkpoint.json"
+      ],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "execution"
+    },
+    {
+      "id": "CG-05",
+      "title": "Snapshot and rebuild complete groups through membership changes",
+      "status": "DONE",
+      "priority": "P1",
+      "effort": "L",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-04"
+      ],
+      "anchors": [
+        "snapshot",
+        "membership",
+        "manifest",
+        "extent"
+      ],
+      "scope": [
+        "crates/cellar/durability/raft/",
+        "crates/cellar-ltx/src/",
+        "crates/cellar/tests/native_cell_groups_execution.rs",
+        "crates/cellar/tests/support/cell_group_checkpoint.rs",
+        "crates/cellar/tests/support/cell_group_checkpoint_receive.rs",
+        "crates/cellar/tests/support/cell_group_runtime.rs",
+        "crates/cellar/tests/support/cell_group_sql.rs",
+        "crates/cellar/tests/support/cell_group_sql_apply.rs",
+        "crates/cellar/tests/support/cell_group_snapshot_owner.rs",
+        "crates/cellar/durability/raft/cell_groups/checkpoint/local.rs",
+        "crates/cellar/tests/support/cell_group_checkpoint_local.rs",
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar/tests/support/cell_group_network_probes.rs",
+        "crates/cellar/tests/support/cell_group_controller.rs",
+        "crates/cellar/tests/support/cell_group_controller_checkpoints.rs",
+        "crates/cellar/tests/support/cell_group_membership.rs",
+        "crates/cellar/tests/support/cell_group_seed.rs",
+        "crates/cellar/tests/support/cell_group_seed_install.rs",
+        "crates/cellar/tests/support/cell_group_seed_probes.rs",
+        "crates/cellar/tests/support/cell_group_seed_receiver.rs",
+        "crates/cellar/tests/support/raft_storage_fault.rs"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/cell_groups/checkpoint/mod.rs",
+        "crates/cellar/tests/native_cell_groups_snapshot.rs",
+        "crates/cellar/tests/support/cell_group_seed_persistence.rs",
+        "crates/cellar/tests/support/cell_group_seed_crash.rs",
+        "crates/cellar/tests/support/cell_group_crash_fixture.rs",
+        "crates/cellar/tests/support/cell_group_membership_crash.rs",
+        "crates/cellar/tests/support/cell_group_checkpoint_pressure.rs",
+        "crates/cellar/tests/support/cell_group_engine_fixture.rs",
+        "crates/cellar/durability/raft/cell_groups/reclaim.rs",
+        "crates/cellar/tests/support/cell_group_node_reclaim.rs",
+        "crates/cellar/tests/support/cell_group_seed_retry.rs",
+        "crates/cellar/tests/support/cell_group_completion_pressure.rs",
+        "crates/cellar/tests/support/cell_group_checkpoint_fairness.rs"
+      ],
+      "test_target": "native_cell_groups_snapshot",
+      "steps": [
+        {
+          "action": "Capture one group root at cut K with every enrolled cell, membership, range and transition state. Pin immutable dependencies while cells continue preparing later writes; stream bounded chunks rather than aggregate all images in memory.",
+          "tests": [
+            "snapshot_contains_every_cell_at_cut"
+          ]
+        },
+        {
+          "action": "Verify and sync every receiver dependency before atomic group install. Incomplete, mixed-cut or wrong-history snapshots fail closed. Match materialized and extent representations, including an enrolled empty cell.",
+          "tests": [
+            "partial_snapshot_never_serves"
+          ]
+        },
+        {
+          "action": "Adapt learner admission, joint configuration, leadership handoff and disk replacement to whole groups. Preserve permanent disk lineage and learner catch-up proofs; snapshots do not authorize new voters.",
+          "tests": [
+            "whole_group_learner_and_joint_change"
+          ]
+        },
+        {
+          "action": "Run real peer catch-up, process restart and lost-disk scenarios while a different cell writes. Reclaim transferred scratch only after physical owner release.",
+          "tests": [
+            "snapshot_empty_cell_and_extent_restart",
+            "snapshot_memory_and_pin_bounds"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "snapshot_contains_every_cell_at_cut",
+          "oracle": "A concurrent writer cannot produce a snapshot mixing cells from different group cuts.",
+          "invariants": [
+            "I04",
+            "I07"
+          ]
+        },
+        {
+          "name": "partial_snapshot_never_serves",
+          "oracle": "Interrupted/corrupt/foreign dependency install leaves the prior root or refuses admission.",
+          "invariants": [
+            "I01",
+            "I04"
+          ]
+        },
+        {
+          "name": "whole_group_learner_and_joint_change",
+          "oracle": "Fresh learner installs all cells before promotion; one failed voter remains tolerable and minority writes refuse.",
+          "invariants": [
+            "I02",
+            "I08"
+          ]
+        },
+        {
+          "name": "snapshot_empty_cell_and_extent_restart",
+          "oracle": "Empty enrolled cells and extent/materialized populated cells survive checkpoint and retained restart.",
+          "invariants": [
+            "I03",
+            "I04"
+          ]
+        },
+        {
+          "name": "snapshot_memory_and_pin_bounds",
+          "oracle": "Large group transfer stays within declared scratch/buffer slots and preserves live reader pins.",
+          "invariants": [
+            "I07",
+            "I12"
+          ]
+        }
+      ],
+      "invariants": [
+        "I01",
+        "I02",
+        "I03",
+        "I04",
+        "I07",
+        "I08",
+        "I12"
+      ],
+      "evidence": [
+        ".cellar/cell-groups-evidence/CG-05-completion-admission/qualification/checkpoint.json"
+      ],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "snapshot"
+    },
+    {
+      "id": "CG-06",
+      "title": "Archive and reclaim the complete group recovery history",
+      "status": "IN_PROGRESS",
+      "priority": "P1",
+      "effort": "L",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-04",
+        "CG-05"
+      ],
+      "anchors": [
+        "archive",
+        "snapshot",
+        "disaster",
+        "manifest"
+      ],
+      "scope": [
+        "crates/cellar/durability/raft/",
+        "crates/cellar-ltx/src/",
+        "crates/cellar/tests/support/cell_group_checkpoint.rs",
+        "crates/cellar/tests/support/cell_group_engine_fixture.rs"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/cell_groups/archive/mod.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/checkpoint.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/objects.rs",
+        "crates/cellar/tests/native_cell_groups_archive.rs",
+        "crates/cellar/tests/support/cell_group_archive_store.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/tail.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/tail_admission.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/tail_codec.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/replay.rs",
+        "crates/cellar/durability/raft/cell_groups/apply/transition.rs",
+        "crates/cellar/tests/support/cell_group_archive_tail.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/data_store.rs",
+        "crates/cellar/durability/raft/cell_groups/checkpoint/receive_archive.rs",
+        "crates/cellar/tests/support/cell_group_archive_isolation.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/collection.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/graph.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/publication.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/upload.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/ownership/mod.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/ownership/state.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/ownership/wire.rs",
+        "crates/cellar/tests/support/cell_group_archive_publication.rs",
+        "crates/cellar/durability/raft/cell_groups/directory/archive.rs",
+        "crates/cellar/tests/support/cell_group_archive_binding.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/execution.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/execution_tests.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/archive/mod.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/archive/job.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/archive/journal.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/archive/journal_tests.rs",
+        "crates/cellar/tests/native_cell_groups_archive_controller.rs",
+        "crates/cellar/tests/support/cell_group_controller_archive.rs",
+        "crates/cellar/tests/support/cell_group_rustfs.rs",
+        "crates/cellar/tests/support/cell_group_s3_response.rs",
+        "tools/multi-raft/cell_groups.py",
+        "crates/cellar/durability/raft/cell_groups/archive/receipt.rs",
+        "crates/cellar/durability/raft/cell_groups/controller/archive/settlement.rs",
+        "crates/cellar/tests/support/cell_group_s3_commands.rs"
+      ],
+      "test_target": "native_cell_groups_archive",
+      "steps": [
+        {
+          "action": "Replace single-cell archive envelopes with complete group checkpoint and cell-addressed tail closures. Verify membership, administrative entries and every cell base chain before publishing group coverage; reuse unchanged immutable payloads.",
+          "tests": [
+            "group_archive_requires_all_dependencies"
+          ]
+        },
+        {
+          "action": "Keep Quorum acknowledgement independent from asynchronous S3 publication; S3-mode settlement requires complete confirmed group coverage. Bound unarchived bytes and expose group lag without crediting uploaded-but-unverified objects.",
+          "tests": [
+            "quorum_continues_bounded_s3_outage"
+          ]
+        },
+        {
+          "action": "Tie local truncation and physical shared-engine purge to covering snapshots, archive policy and all live group/reader/transition pins. Preserve lagging-peer snapshot availability and prevent deleting another group range.",
+          "tests": [
+            "group_reclaim_restart_keeps_history"
+          ]
+        },
+        {
+          "action": "Implement unmanaged fresh-incarnation whole-group S3 seeding through the existing fencing authority. Preserve selected-cut receipts, reject old tokens and prove no callback replay; later CG-13 adds managed and in-transition recovery.",
+          "tests": [
+            "fenced_group_seed_new_incarnations",
+            "archive_tails_cover_enrollment_and_controls"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "group_archive_requires_all_dependencies",
+          "oracle": "A delayed/corrupt image for B blocks coverage and S3 acknowledgement of a later A entry.",
+          "invariants": [
+            "I06"
+          ]
+        },
+        {
+          "name": "quorum_continues_bounded_s3_outage",
+          "oracle": "Quorum can progress without S3 until explicit retention admission limits; S3 outputs cannot.",
+          "invariants": [
+            "I02",
+            "I06",
+            "I12"
+          ]
+        },
+        {
+          "name": "group_reclaim_restart_keeps_history",
+          "oracle": "Actual log files can be reclaimed without losing any acknowledged cell effect/receipt on retained restart.",
+          "invariants": [
+            "I03",
+            "I07"
+          ]
+        },
+        {
+          "name": "fenced_group_seed_new_incarnations",
+          "oracle": "Complete archived group restores under fresh identities with exact results, old-token rejection and fresh-quorum admission.",
+          "invariants": [
+            "I06",
+            "I11"
+          ]
+        },
+        {
+          "name": "archive_tails_cover_enrollment_and_controls",
+          "oracle": "Enrollment, no-ops and membership/administrative cuts replay without holes or synthetic cells.",
+          "invariants": [
+            "I04",
+            "I06"
+          ]
+        }
+      ],
+      "invariants": [
+        "I02",
+        "I03",
+        "I04",
+        "I06",
+        "I07",
+        "I11",
+        "I12"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "archive"
+    },
+    {
+      "id": "CG-07",
+      "title": "Cut public SDK routing and managed fleet over to shared groups",
+      "status": "TODO",
+      "priority": "P1",
+      "effort": "L",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-03",
+        "CG-04",
+        "CG-05",
+        "CG-06",
+        "CG-08"
+      ],
+      "anchors": [
+        "public",
+        "host",
+        "fleet",
+        "placement",
+        "version"
+      ],
+      "scope": [
+        "crates/cellar/durability/raft/",
+        "crates/cellar/application/consensus/",
+        "crates/cellar/node/",
+        "crates/cellar/cli/",
+        "crates/cellar-axum/",
+        "crates/cellar-admin/",
+        "examples/",
+        "crates/cellar/sdk.rs"
+      ],
+      "creates": [
+        "crates/cellar/tests/native_cell_groups_public.rs"
+      ],
+      "test_target": "native_cell_groups_public",
+      "steps": [
+        {
+          "action": "Switch the existing public host/startup/registration APIs to group placement plus cell enrollment. Preserve cell-addressed application calls and explicit query consistency. Remove production creation of one RawNode for each ordinary cell.",
+          "tests": [
+            "sdk_many_cells_share_group"
+          ]
+        },
+        {
+          "action": "Adapt managed namespace import, capacity accounting, repair, drain, maintenance and topology inventory to group replicas plus separate cell/image occupancy. Reuse existing CAS journal, permissions and disruption debt; do not bypass managed admission.",
+          "tests": [
+            "managed_group_lifecycle"
+          ]
+        },
+        {
+          "action": "Update native/Axum dispatch, CLI configuration, admin/operator views and examples. Validate tenant/cell authorization independently from group route; give stale hints bounded redirects and typed ambiguous mutation results.",
+          "tests": [
+            "ingress_cannot_cross_cell_authority"
+          ]
+        },
+        {
+          "action": "Audit all GroupScope.cell consumers, codecs, receipt/token paths and example configs. Delete superseded single-image/one-cell host assumptions after all consumers use shared groups; occupancy-one must use the exact same code.",
+          "tests": [
+            "occupancy_one_uses_shared_path",
+            "feature_off_fleet_contract_unchanged"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "sdk_many_cells_share_group",
+          "oracle": "Public startup and cell handles serve independent SQLite cells under one configured group on all replicas.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03"
+          ]
+        },
+        {
+          "name": "managed_group_lifecycle",
+          "oracle": "Repair, drain, stop/return/resume and capacity charges move complete groups while preserving cell count and physical debt.",
+          "invariants": [
+            "I08",
+            "I12"
+          ]
+        },
+        {
+          "name": "ingress_cannot_cross_cell_authority",
+          "oracle": "Native/Axum/admin routes reject forged tenant/cell/group bindings; retries preserve caller command identity.",
+          "invariants": [
+            "I01",
+            "I03"
+          ]
+        },
+        {
+          "name": "occupancy_one_uses_shared_path",
+          "oracle": "Single-cell and multi-cell configurations exercise one host/manifest/snapshot/archive implementation with no legacy fallback.",
+          "invariants": [
+            "I04",
+            "I06"
+          ]
+        },
+        {
+          "name": "feature_off_fleet_contract_unchanged",
+          "oracle": "Existing non-Raft feature modes retain their ownership and durability behavior through the full regression suite.",
+          "invariants": [
+            "I14"
+          ]
+        }
+      ],
+      "invariants": [
+        "I01",
+        "I02",
+        "I03",
+        "I04",
+        "I06",
+        "I08",
+        "I12",
+        "I14"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "public"
+    },
+    {
+      "id": "CG-08",
+      "title": "Preserve per-cell effects and bounded idle execution caches",
+      "status": "TODO",
+      "priority": "P1",
+      "effort": "L",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-04",
+        "CG-05",
+        "CG-06"
+      ],
+      "anchors": [
+        "effects",
+        "sql",
+        "host",
+        "manifest"
+      ],
+      "scope": [
+        "crates/cellar/durability/raft/",
+        "crates/cellar-ltx/src/"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/cell_groups/effect_index.rs",
+        "crates/cellar/tests/native_cell_groups_effects.rs"
+      ],
+      "test_target": "native_cell_groups_effects",
+      "steps": [
+        {
+          "action": "Move alarm/outbox/inbox identity to CellHistory and retain existing receiver dedupe/client floors. Record effect summaries in the cell manifest and maintain a bounded next-due index owned by node services.",
+          "tests": [
+            "effect_identity_stable_across_group_binding"
+          ]
+        },
+        {
+          "action": "Close idle execution/SQLite caches only after unresolved proposals, dispatches and unsafe pins settle. Reopen against the exact committed cell root without resetting ownership or acknowledging based on cached state.",
+          "tests": [
+            "idle_cache_reopens_exact_cell_base"
+          ]
+        },
+        {
+          "action": "Make fair effect discovery independent of opening every cell database. Serialize control decisions with cell commands and preserve unknown dispatched outcomes through leadership change and future transfer seals.",
+          "tests": [
+            "due_effect_without_client_request"
+          ]
+        },
+        {
+          "action": "Integrate all cache/effect workers with shutdown, resource observation and physical permit lifetimes. Cover due alarms with no client traffic and mixed hot/cold group cells.",
+          "tests": [
+            "pending_command_or_dispatch_pins_cache",
+            "cache_and_effect_shutdown_joins"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "effect_identity_stable_across_group_binding",
+          "oracle": "Changing placement metadata never allocates a new delivery identity or loses receiver duplicate suppression.",
+          "invariants": [
+            "I03",
+            "I13"
+          ]
+        },
+        {
+          "name": "idle_cache_reopens_exact_cell_base",
+          "oracle": "Eviction saves disposable resources and the next command starts from the verified committed image without an election requirement.",
+          "invariants": [
+            "I04",
+            "I12"
+          ]
+        },
+        {
+          "name": "due_effect_without_client_request",
+          "oracle": "Durable due summaries schedule alarms/outbox work without scanning or hydrating every cell.",
+          "invariants": [
+            "I12",
+            "I13"
+          ]
+        },
+        {
+          "name": "pending_command_or_dispatch_pins_cache",
+          "oracle": "Uncertain proposal/delivery cannot be evicted and forgotten after cancellation or leader loss.",
+          "invariants": [
+            "I02",
+            "I03",
+            "I13"
+          ]
+        },
+        {
+          "name": "cache_and_effect_shutdown_joins",
+          "oracle": "All retained cache/pin/timer workers finish or preserve durable debt before joined stop reports success.",
+          "invariants": [
+            "I12"
+          ]
+        }
+      ],
+      "invariants": [
+        "I02",
+        "I03",
+        "I04",
+        "I12",
+        "I13"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "effects"
+    },
+    {
+      "id": "CG-09",
+      "title": "Implement irreversible source sealing and destination activation",
+      "status": "TODO",
+      "priority": "P1",
+      "effort": "L",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-07",
+        "CG-08"
+      ],
+      "anchors": [
+        "fleet",
+        "membership",
+        "archive",
+        "version"
+      ],
+      "scope": [
+        "crates/cellar/durability/raft/",
+        "crates/cellar-logic/"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/cell_groups/transition.rs",
+        "crates/cellar/durability/raft/cell_groups/transition_tests.rs",
+        "crates/cellar/tests/native_cell_groups_transitions.rs"
+      ],
+      "test_target": "native_cell_groups_transitions",
+      "steps": [
+        {
+          "action": "Implement Planned/Prepared/SealAuthorized/Sealed/Installed/Published/Active/Retired journal states from protocols.md. Seal authorization and pre-seal cancellation CAS the same state; no source Seal request is allowed before authorization wins.",
+          "tests": [
+            "seal_authorization_cancel_race"
+          ]
+        },
+        {
+          "action": "Commit parent seals after accepted mutations, block new enrollment/writes/strong reads, and pin the exact cell/effect/receipt cuts. After SealAuthorized only roll forward, including unknown replies and partially sealed merges.",
+          "tests": [
+            "source_seal_blocks_delayed_work"
+          ]
+        },
+        {
+          "action": "Seed fresh non-serving child group histories with preserved CellHistory/versions/receipts/effect IDs. Require child quorum install receipts and an atomic range-tree publication certificate before committed child activation. Publish and verify a complete remote transfer closure before changing active ranges; pin its digest in the publication certificate so all-voter loss immediately after publication remains recoverable.",
+          "tests": [
+            "child_requires_install_and_publication",
+            "publication_requires_remote_transfer_closure"
+          ]
+        },
+        {
+          "action": "Persist stale-authority tombstones and transition resources across controller/leader/node restart. Release source data only after all child baseline archives and physical pins are safe; no timer may reopen the parent.",
+          "tests": [
+            "transition_restart_retains_single_writer",
+            "transfer_preserves_tokens_receipts_effects",
+            "retirement_keeps_required_archive_pins"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "seal_authorization_cancel_race",
+          "oracle": "Exactly one root decision wins; cancelled intents cannot seal and authorized intents cannot roll back after unknown responses.",
+          "invariants": [
+            "I09"
+          ]
+        },
+        {
+          "name": "source_seal_blocks_delayed_work",
+          "oracle": "Accepted-before-seal work appears in the cut; delayed/new mutation/enrollment/strong read cannot pass the seal.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I09"
+          ]
+        },
+        {
+          "name": "child_requires_install_and_publication",
+          "oracle": "Copied bytes or a catalog hint alone cannot activate a child; quorum seed plus exact publication and activation are required.",
+          "invariants": [
+            "I02",
+            "I04",
+            "I09"
+          ]
+        },
+        {
+          "name": "transition_restart_retains_single_writer",
+          "oracle": "Crash at every phase and lost CAS replies preserve a single writable owner and resume the same transition.",
+          "invariants": [
+            "I09",
+            "I12"
+          ]
+        },
+        {
+          "name": "transfer_preserves_tokens_receipts_effects",
+          "oracle": "Old cell-history versions and duplicate commands remain valid at the child while effect IDs and receiver dedupe survive.",
+          "invariants": [
+            "I03",
+            "I05",
+            "I13"
+          ]
+        },
+        {
+          "name": "retirement_keeps_required_archive_pins",
+          "oracle": "Source cleanup cannot orphan any child baseline, archived acknowledgement or unresolved physical owner.",
+          "invariants": [
+            "I06",
+            "I07"
+          ]
+        },
+        {
+          "name": "publication_requires_remote_transfer_closure",
+          "oracle": "Missing remote transfer dependencies block publication. Erase all local copies immediately after publication in the native fixture; independent archive replay of the pinned closure retains every prior S3-acknowledged cell effect. CG-13/15 qualify fenced live recovery through the public disaster API.",
+          "invariants": [
+            "I06",
+            "I09",
+            "I11"
+          ]
+        }
+      ],
+      "invariants": [
+        "I01",
+        "I02",
+        "I03",
+        "I04",
+        "I05",
+        "I06",
+        "I07",
+        "I09",
+        "I11",
+        "I12",
+        "I13"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "transitions"
+    },
+    {
+      "id": "CG-10",
+      "title": "Split hot groups and merge compatible adjacent ranges",
+      "status": "TODO",
+      "priority": "P1",
+      "effort": "L",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-09"
+      ],
+      "anchors": [
+        "placement",
+        "fleet",
+        "host",
+        "catalog"
+      ],
+      "scope": [
+        "crates/cellar/durability/raft/",
+        "crates/cellar-logic/",
+        "crates/cellar-admin/",
+        "crates/cellar/cli/"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/cell_groups/partition.rs",
+        "crates/cellar/tests/native_cell_groups_split_merge.rs"
+      ],
+      "test_target": "native_cell_groups_split_merge",
+      "steps": [
+        {
+          "action": "Build split decisions over whole ordered CellKeys with exact equal-union range proofs, including empty edges and hash collisions. Allocate fresh child histories; parent group retirement uses CG-09 instead of in-place identity reuse.",
+          "tests": [
+            "split_equal_union_whole_cells"
+          ]
+        },
+        {
+          "action": "Build merge decisions for adjacent compatible namespace/schema/durability/failure-domain ranges. Seal all parents, install one fresh child and publish one atomic root replacement; partial parent failure cannot admit the child.",
+          "tests": [
+            "merge_requires_adjacent_compatible_ranges"
+          ]
+        },
+        {
+          "action": "Pre-copy immutable state and apply final sealed deltas with bounded parallelism and resource reservations. Define explicit operator split/merge/status/resume APIs; waiting remains read-only and ambiguous requests retain their IDs.",
+          "tests": [
+            "partial_merge_failure_no_double_writer"
+          ]
+        },
+        {
+          "action": "Exercise repeated split/merge under foreground writes, stale client routes, controller loss and skew. A dedicated hot cell is a range with one cell using the common runtime.",
+          "tests": [
+            "split_merge_under_writes",
+            "transition_precopy_resource_bounds"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "split_equal_union_whole_cells",
+          "oracle": "Children partition the parent exactly, never split a SQLite database, and tolerate hash ties without aliasing.",
+          "invariants": [
+            "I01",
+            "I09"
+          ]
+        },
+        {
+          "name": "merge_requires_adjacent_compatible_ranges",
+          "oracle": "Non-adjacent or policy/schema-incompatible sources refuse before sealing or allocating unsafe authority.",
+          "invariants": [
+            "I01",
+            "I09"
+          ]
+        },
+        {
+          "name": "partial_merge_failure_no_double_writer",
+          "oracle": "A sealed source stays fenced while another lacks quorum; no child admits prematurely.",
+          "invariants": [
+            "I02",
+            "I09"
+          ]
+        },
+        {
+          "name": "split_merge_under_writes",
+          "oracle": "Every acknowledged effect and receipt reconciles exactly through repeated transitions and cached stale routes.",
+          "invariants": [
+            "I02",
+            "I03",
+            "I05",
+            "I09"
+          ]
+        },
+        {
+          "name": "transition_precopy_resource_bounds",
+          "oracle": "Bounded precopy/delta streaming cannot starve live groups or release transfer debt before completion.",
+          "invariants": [
+            "I07",
+            "I12"
+          ]
+        }
+      ],
+      "invariants": [
+        "I01",
+        "I02",
+        "I03",
+        "I05",
+        "I07",
+        "I09",
+        "I12"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "split_merge"
+    },
+    {
+      "id": "CG-11",
+      "title": "Schedule group placement and adaptive partition size",
+      "status": "TODO",
+      "priority": "P1",
+      "effort": "L",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-07",
+        "CG-10"
+      ],
+      "anchors": [
+        "placement",
+        "fleet",
+        "membership",
+        "public"
+      ],
+      "scope": [
+        "crates/cellar-logic/",
+        "crates/cellar/durability/raft/",
+        "crates/cellar-admin/",
+        "crates/cellar/cli/"
+      ],
+      "creates": [
+        "crates/cellar-logic/cell_group_placement.rs",
+        "crates/cellar-logic/cell_group_placement_tests.rs",
+        "crates/cellar/tests/native_cell_groups_scheduler.rs"
+      ],
+      "test_target": "native_cell_groups_scheduler",
+      "steps": [
+        {
+          "action": "Define dependency-free scheduler observations/actions using group bytes, cell count, write/apply rate, queue age, archive lag and failure-domain load. Keep observations advisory; actual owners revalidate membership, route and resource permits.",
+          "tests": [
+            "scheduler_hysteresis_and_hot_isolation"
+          ]
+        },
+        {
+          "action": "Add bounded split/merge hysteresis and cooldown with deterministic reason codes. Isolate an oversized/hot cell without claiming intra-cell parallelism; refuse unsafe merge and prevent repeated split/merge oscillation.",
+          "tests": [
+            "scheduler_cannot_grant_authority"
+          ]
+        },
+        {
+          "action": "Integrate scale-out/in, leader balance, learner movement, maintenance and repair with whole-group inventory. Serialize membership with transition/park/disaster ownership; reserve recovery capacity and keep exact physical charges.",
+          "tests": [
+            "whole_group_scale_out_in"
+          ]
+        },
+        {
+          "action": "Expose bounded metrics/status and qualify node loss under mixed load. Avoid broadcasting all cell/group metadata to every node and record topology-journal contention.",
+          "tests": [
+            "repair_preserves_failure_domains_and_reserve",
+            "control_plane_fanout_bounded"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "scheduler_hysteresis_and_hot_isolation",
+          "oracle": "Stable decisions split hot/large ranges, merge eligible small neighbors and do not oscillate at thresholds.",
+          "invariants": [
+            "I12"
+          ]
+        },
+        {
+          "name": "scheduler_cannot_grant_authority",
+          "oracle": "Stale observed plans cannot bypass current route, membership, permit or quorum checks.",
+          "invariants": [
+            "I01",
+            "I08",
+            "I09"
+          ]
+        },
+        {
+          "name": "whole_group_scale_out_in",
+          "oracle": "Adding/removing nodes transfers group replicas without remapping or reinitializing individual cells.",
+          "invariants": [
+            "I03",
+            "I08"
+          ]
+        },
+        {
+          "name": "repair_preserves_failure_domains_and_reserve",
+          "oracle": "One-domain loss repairs groups within bounded slots; a second loss cannot fabricate quorum.",
+          "invariants": [
+            "I02",
+            "I08",
+            "I12"
+          ]
+        },
+        {
+          "name": "control_plane_fanout_bounded",
+          "oracle": "Paged inventory and targeted updates remain bounded under many enrolled cells and groups.",
+          "invariants": [
+            "I12"
+          ]
+        }
+      ],
+      "invariants": [
+        "I01",
+        "I02",
+        "I03",
+        "I08",
+        "I09",
+        "I12"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "scheduler"
+    },
+    {
+      "id": "CG-12",
+      "title": "Coordinate group hibernation and authority-checked wakeup",
+      "status": "TODO",
+      "priority": "P1",
+      "effort": "L",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-08",
+        "CG-10",
+        "CG-11"
+      ],
+      "anchors": [
+        "ticks",
+        "runtime",
+        "effects",
+        "membership"
+      ],
+      "scope": [
+        "crates/cellar-logic/",
+        "crates/cellar/durability/raft/"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/cell_groups/hibernate.rs",
+        "crates/cellar-logic/cell_group_hibernation.rs",
+        "crates/cellar/tests/native_cell_groups_hibernate.rs"
+      ],
+      "test_target": "native_cell_groups_hibernate",
+      "steps": [
+        {
+          "action": "Implement PreparePark and generation-bound local durable park/closed records. Require all configured voters to acknowledge the committed applied cut, with explicit learner state and no unresolved proposal/read/topology work.",
+          "tests": [
+            "park_requires_all_voters_and_no_pending_work"
+          ]
+        },
+        {
+          "action": "Pause routine group ticks only after the exact park certificate is durable. Keep node transport/control/effect wake owners active and bounded; partial park delivery must be safe and stale certificates must never re-park a woken group.",
+          "tests": [
+            "partial_park_and_stale_certificate"
+          ]
+        },
+        {
+          "action": "Wake on API/peer/effect/topology activity or restart, durably close the park generation, resume retained Raft and obtain fresh current-term commit/read authority. Never reset votes, assume retained leadership or replace a missing quorum with S3.",
+          "tests": [
+            "wake_requires_fresh_quorum_barrier"
+          ]
+        },
+        {
+          "action": "Integrate alarm due indexes, membership serialization, cancellation and shutdown. Measure healthy cached wake, image-cache restore and leader-loss wake separately with enough samples.",
+          "tests": [
+            "alarm_and_peer_wake_no_client",
+            "parked_restart_and_leader_loss"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "park_requires_all_voters_and_no_pending_work",
+          "oracle": "A missing voter or unresolved command/effect/topology operation prevents parking but not ordinary safe quorum operation.",
+          "invariants": [
+            "I02",
+            "I10",
+            "I13"
+          ]
+        },
+        {
+          "name": "partial_park_and_stale_certificate",
+          "oracle": "Lost/late messages, generation replay and new commands cannot cause unsafe re-parking or lost work.",
+          "invariants": [
+            "I01",
+            "I10"
+          ]
+        },
+        {
+          "name": "wake_requires_fresh_quorum_barrier",
+          "oracle": "Retained leader and minority wake cannot serve strong reads/writes without current quorum proof.",
+          "invariants": [
+            "I02",
+            "I05",
+            "I10"
+          ]
+        },
+        {
+          "name": "alarm_and_peer_wake_no_client",
+          "oracle": "Due effects and peer traffic wake parked groups without client traffic or per-cell threads.",
+          "invariants": [
+            "I10",
+            "I12",
+            "I13"
+          ]
+        },
+        {
+          "name": "parked_restart_and_leader_loss",
+          "oracle": "All-voter retained restart and parked leader failure preserve term/vote/history and eventually serve through ordinary elections.",
+          "invariants": [
+            "I04",
+            "I08",
+            "I10"
+          ]
+        }
+      ],
+      "invariants": [
+        "I01",
+        "I02",
+        "I04",
+        "I05",
+        "I08",
+        "I10",
+        "I12",
+        "I13"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "hibernate"
+    },
+    {
+      "id": "CG-13",
+      "title": "Recover managed groups and incomplete transitions from S3",
+      "status": "TODO",
+      "priority": "P1",
+      "effort": "L",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-06",
+        "CG-09",
+        "CG-10",
+        "CG-11",
+        "CG-14"
+      ],
+      "anchors": [
+        "disaster",
+        "fleet",
+        "recovery",
+        "archive"
+      ],
+      "scope": [
+        "crates/cellar/durability/raft/",
+        "tools/cellar-recovery-tests/",
+        "crates/cellar/tests/support/raft_process_recovery/"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/cell_groups/disaster.rs",
+        "crates/cellar/tests/native_cell_groups_disaster.rs"
+      ],
+      "test_target": "native_cell_groups_disaster",
+      "steps": [
+        {
+          "action": "Extend recovery admission to the exact managed topology journal and transition component. Resolve publication outcome and enumerate all parent/child/replacement voting lineages that could still activate; preserve fleet debt/import exclusion.",
+          "tests": [
+            "managed_disaster_blocks_old_lifecycle"
+          ]
+        },
+        {
+          "action": "Verify complete selected recovery closures before fencing. For unpublished operations recover parent domain; for published operations require child sets or transfer closure plus child tails. A parent checkpoint alone cannot cover child S3 acknowledgements.",
+          "tests": [
+            "transition_disaster_selects_complete_closure"
+          ]
+        },
+        {
+          "action": "Use the explicit fencing-authority API to permanently revoke old launch authority and confirm isolation before publishing any new range. Create fresh cell/group/node/member/disk/process identities, seed receipts without callbacks, and require a fresh quorum.",
+          "tests": [
+            "fence_all_possible_old_writers"
+          ]
+        },
+        {
+          "action": "Test exact-request retry after unknown fencing/catalog results, old-host restart attempts, outbox ambiguity and retained-disk restart. Refuse partial fences, missing dependencies, unmanaged bypasses and unsupported rollback.",
+          "tests": [
+            "all_disks_deleted_restore_all_cells",
+            "disaster_retry_and_old_token_refusal",
+            "disaster_outbox_ambiguity_refuses"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "managed_disaster_blocks_old_lifecycle",
+          "oracle": "Import, maintenance and failure recovery cannot concurrently activate old or replacement group histories.",
+          "invariants": [
+            "I08",
+            "I09",
+            "I11"
+          ]
+        },
+        {
+          "name": "transition_disaster_selects_complete_closure",
+          "oracle": "Published children require their acknowledged tails; unpublished parents recover an exact complete domain without duplication or gaps.",
+          "invariants": [
+            "I06",
+            "I09",
+            "I11"
+          ]
+        },
+        {
+          "name": "fence_all_possible_old_writers",
+          "oracle": "Partial inventory, incomplete launch revocation or a restartable old voter prevents new incarnation publication.",
+          "invariants": [
+            "I11"
+          ]
+        },
+        {
+          "name": "all_disks_deleted_restore_all_cells",
+          "oracle": "Real RustFS restore after erasing every owned voter disk preserves all selected-cut values/receipts and admits fresh writes only after quorum.",
+          "invariants": [
+            "I02",
+            "I03",
+            "I06",
+            "I11"
+          ]
+        },
+        {
+          "name": "disaster_retry_and_old_token_refusal",
+          "oracle": "Lost replies resume the same cut/identities; old tokens refuse and duplicate results return without callback replay.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I11"
+          ]
+        },
+        {
+          "name": "disaster_outbox_ambiguity_refuses",
+          "oracle": "Old-origin uncertain external effects cannot be silently reissued under a fresh identity.",
+          "invariants": [
+            "I11",
+            "I13"
+          ]
+        }
+      ],
+      "invariants": [
+        "I01",
+        "I02",
+        "I03",
+        "I06",
+        "I08",
+        "I09",
+        "I11",
+        "I13"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "disaster"
+    },
+    {
+      "id": "CG-14",
+      "title": "Build reproducible shared-group workload and RustFS harnesses",
+      "status": "TODO",
+      "priority": "P1",
+      "effort": "M",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-07",
+        "CG-08"
+      ],
+      "anchors": [
+        "harness",
+        "recovery",
+        "fixture",
+        "ci"
+      ],
+      "scope": [
+        "tools/perf/",
+        "tools/cellar-recovery-tests/",
+        "crates/cellar/tests/support/"
+      ],
+      "creates": [
+        "tools/perf/cell_groups.py",
+        "tools/perf/test_cell_groups.py",
+        "crates/cellar/tests/native_cell_groups_harness.rs"
+      ],
+      "test_target": "native_cell_groups_harness",
+      "steps": [
+        {
+          "action": "Extend existing native workload and process-recovery fixtures with logical-cell/group population, mixed operations and per-cell independent ledgers. Observe actual RawNode/group/cell counts; do not substitute counter rows in one database.",
+          "tests": [
+            "harness_counts_real_cells_and_groups"
+          ]
+        },
+        {
+          "action": "Implement the planned harness CLI in qualification.md with explicit private fixture config, owned run directories, source/binary/image/profile hashes and resource preflight. Never change global Docker context or touch unowned resources.",
+          "tests": [
+            "harness_owned_resources_only"
+          ]
+        },
+        {
+          "action": "Separate build/setup/warmup/measurement and run equal-cell cohorts serially. Record all offered/accepted/refused/ambiguous operations, latencies, control bytes, CPU/RSS/FD, image/log writes, S3 requests/lag and cleanup/join outcomes.",
+          "tests": [
+            "harness_ledger_preserves_all_outcomes"
+          ]
+        },
+        {
+          "action": "Implement strict result validation for profiles.json and replayable fault schedules. Retain failed attempts; refuse unsupported profiles, zero selected tests, missing artifacts, source drift and fake multi-node topology claims.",
+          "tests": [
+            "harness_rejects_missing_or_drifted_evidence",
+            "harness_profile_gates_measured"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "harness_counts_real_cells_and_groups",
+          "oracle": "Metrics distinguish independent SQLite cells, RawNodes, groups and replicas and match physical inventory.",
+          "invariants": [
+            "I14"
+          ]
+        },
+        {
+          "name": "harness_owned_resources_only",
+          "oracle": "Destructive actions refuse wrong context, label, directory, container identity or run UUID.",
+          "invariants": [
+            "I11",
+            "I12",
+            "I14"
+          ]
+        },
+        {
+          "name": "harness_ledger_preserves_all_outcomes",
+          "oracle": "Refusals/timeouts/cancellations remain in offered-load and correctness accounting; no silent retry improves benchmark results.",
+          "invariants": [
+            "I02",
+            "I03",
+            "I14"
+          ]
+        },
+        {
+          "name": "harness_rejects_missing_or_drifted_evidence",
+          "oracle": "Changed sources/binaries/profiles, zero-test runs and absent logs cannot produce complete reports.",
+          "invariants": [
+            "I14"
+          ]
+        },
+        {
+          "name": "harness_profile_gates_measured",
+          "oracle": "Numeric metrics and source-bound artifacts, not a passed boolean alone, determine benchmark acceptance.",
+          "invariants": [
+            "I12",
+            "I14"
+          ]
+        }
+      ],
+      "invariants": [
+        "I02",
+        "I03",
+        "I11",
+        "I12",
+        "I14"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "harness"
+    },
+    {
+      "id": "CG-15",
+      "title": "Qualify crashes, split merge, wake and zero-quorum recovery",
+      "status": "TODO",
+      "priority": "P1",
+      "effort": "L",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-10",
+        "CG-11",
+        "CG-12",
+        "CG-13",
+        "CG-14"
+      ],
+      "anchors": [
+        "fixture",
+        "recovery",
+        "harness",
+        "runtime"
+      ],
+      "scope": [
+        "crates/cellar/durability/raft/",
+        "crates/cellar/tests/",
+        "tools/perf/",
+        "tools/cellar-recovery-tests/"
+      ],
+      "creates": [
+        "crates/cellar/tests/native_cell_groups_faults.rs"
+      ],
+      "test_target": "native_cell_groups_faults",
+      "steps": [
+        {
+          "action": "Run the full native history oracle over interleaved cells, both image modes and all new durable cuts. Include deterministic exhaustive transition/park event schedules and process SIGKILL at persistence boundaries; finite tests complement rather than prove the protocol.",
+          "tests": [
+            "history_oracle_rejects_cross_cell_loss"
+          ]
+        },
+        {
+          "action": "Run real RustFS campaigns with physical log reclamation, S3 outage, slow apply/minority, leader/controller restart and every split/merge cut. Verify per-cell values, versions, receipts, effect IDs and no two writable owners.",
+          "tests": [
+            "all_new_durable_crash_cuts"
+          ]
+        },
+        {
+          "action": "Delete all owned voter disks in standalone and in-transition scenarios after fencing; verify new incarnations, old-host restart rejection, every selected-cut cell and retained restart. Record quorum-only suffix loss separately from S3-protected effects.",
+          "tests": [
+            "rustfs_reclaim_and_transition_recovery"
+          ]
+        },
+        {
+          "action": "Run candidate density, mixed/skew, transition, hibernation, independent-domain and 24-hour profiles. Compare identical logical-cell populations and retain misses. Do not declare a physical tier from containers on one host.",
+          "tests": [
+            "rustfs_zero_quorum_transition_matrix",
+            "load_and_wake_profiles_complete",
+            "soak_and_domain_loss_history"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "history_oracle_rejects_cross_cell_loss",
+          "oracle": "Mutated histories with a lost acknowledged effect, borrowed version or duplicate receipt execution are rejected by the oracle.",
+          "invariants": [
+            "I02",
+            "I03",
+            "I05",
+            "I14"
+          ]
+        },
+        {
+          "name": "all_new_durable_crash_cuts",
+          "oracle": "Native process kills cover manifest, enrollment, seed, publication, seal, activation, park and wake boundaries without partial admission.",
+          "invariants": [
+            "I04",
+            "I09",
+            "I10"
+          ]
+        },
+        {
+          "name": "rustfs_reclaim_and_transition_recovery",
+          "oracle": "Real object-store closure plus actual log-file reclamation survives group restart and transition interruption.",
+          "invariants": [
+            "I06",
+            "I07",
+            "I09"
+          ]
+        },
+        {
+          "name": "rustfs_zero_quorum_transition_matrix",
+          "oracle": "Every specified parent/child disaster case fences old histories and restores complete selected state under fresh quorum.",
+          "invariants": [
+            "I06",
+            "I09",
+            "I11"
+          ]
+        },
+        {
+          "name": "load_and_wake_profiles_complete",
+          "oracle": "All required profile metrics, errors, samples and topology attestations meet the frozen candidate gates.",
+          "invariants": [
+            "I10",
+            "I12",
+            "I14"
+          ]
+        },
+        {
+          "name": "soak_and_domain_loss_history",
+          "oracle": "24-hour and independent-domain runs preserve history, bounded resources and joined lifecycle under foreground load.",
+          "invariants": [
+            "I08",
+            "I12",
+            "I13",
+            "I14"
+          ]
+        }
+      ],
+      "invariants": [
+        "I02",
+        "I03",
+        "I04",
+        "I05",
+        "I06",
+        "I07",
+        "I08",
+        "I09",
+        "I10",
+        "I11",
+        "I12",
+        "I13",
+        "I14"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "faults"
+    },
+    {
+      "id": "CG-16",
+      "title": "Publish the unified group runtime and qualified release envelope",
+      "status": "TODO",
+      "priority": "P1",
+      "effort": "M",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-15"
+      ],
+      "anchors": [
+        "ci",
+        "host",
+        "catalog",
+        "version",
+        "fixture"
+      ],
+      "scope": [
+        "crates/",
+        "examples/",
+        "docs/",
+        "tools/",
+        ".github/workflows/"
+      ],
+      "creates": [
+        "crates/cellar/tests/native_cell_groups_release.rs"
+      ],
+      "test_target": "native_cell_groups_release",
+      "steps": [
+        {
+          "action": "Audit every production registration, scope codec, image marker, archive, SDK and operator path for the old cell-equals-group assumption. Remove temporary staging adapters and legacy runtime choices; leave explicit one-cell occupancy on the common code. Remove QueryVersion::GroupCut and RaftClass::invoke_group_query along with the old query adapters; final QueryContext exposes the selected cell observation directly. Remove TransportRuntime::Legacy, the typed cell-history transport frame arm and old transport entry points; the final shared transport must not retain a legacy serving mode.",
+          "tests": [
+            "no_legacy_per_cell_consensus_path"
+          ]
+        },
+        {
+          "action": "Update public docs, examples, CLI/admin error messages and operator runbooks for group placement, split/merge, park/wake and fenced S3 recovery. Document fresh-root cutover and rollback limits without deleting existing state.",
+          "tests": [
+            "public_group_operations_end_to_end"
+          ]
+        },
+        {
+          "action": "Run the complete workspace/feature-off/native/Axum regression matrix and all new task tests at the same immutable release source. Repeat deployment gates at that source; evidence from different revisions cannot be added into one release pass.",
+          "tests": [
+            "release_all_modes_and_shutdown"
+          ]
+        },
+        {
+          "action": "Publish source/artifact/profile hashes, exact supported topology/load envelope and every limitation. plan.py release must refuse until all tasks, invariant cases and mandatory profile reports pass with retained evidence.",
+          "tests": [
+            "release_evidence_single_source"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "no_legacy_per_cell_consensus_path",
+          "oracle": "Public configuration cannot select a legacy one-cell host; physical group counts follow grouping, including occupancy one. No temporary GroupCut query observation or invoke_group_query constructor remains; registered queries expose the actual selected cell version and witness.",
+          "invariants": [
+            "I01",
+            "I14"
+          ]
+        },
+        {
+          "name": "public_group_operations_end_to_end",
+          "oracle": "SDK/native/Axum/admin/CLI share authorization and identity for enrollment, strong reads, split/merge, park/wake and status.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I09",
+            "I10"
+          ]
+        },
+        {
+          "name": "release_all_modes_and_shutdown",
+          "oracle": "Materialized/extents, managed/unmanaged, feature-off applications and owned shutdown pass the complete repository regression suite.",
+          "invariants": [
+            "I04",
+            "I08",
+            "I12",
+            "I13",
+            "I14"
+          ]
+        },
+        {
+          "name": "release_evidence_single_source",
+          "oracle": "All capabilities and numerical profiles are verified at the published source with no missing, stale or synthetic evidence.",
+          "invariants": [
+            "I14"
+          ]
+        }
+      ],
+      "invariants": [
+        "I01",
+        "I03",
+        "I04",
+        "I05",
+        "I08",
+        "I09",
+        "I10",
+        "I12",
+        "I13",
+        "I14"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "release"
+    }
+  ]
+}

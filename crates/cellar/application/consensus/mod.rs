@@ -10,6 +10,9 @@ mod archive_status;
 pub use archive_status::{ArchiveFailure, ArchiveReadiness, ArchiveStatus};
 mod class;
 pub(crate) mod client;
+mod group_contracts;
+pub(crate) use group_contracts::cell_routing_key;
+pub(crate) mod group_protocol;
 mod performance;
 pub use performance::{
     RaftDurationBucket, RaftOperationPerformance, RaftPerformanceCounter, RaftPerformanceSnapshot,
@@ -104,7 +107,8 @@ pub use crate::raft::operations::{
 };
 pub use crate::raft::options::{LogOpenMode, RaftRuntimeOptions, ReplicaLogOptions};
 pub use crate::raft::transport_options::{
-    NamespaceInspectionOrigin, NamespaceQueryOrigin, RaftTls, TransportOptions,
+    NamespaceCommandOrigin, NamespaceInspectionOrigin, NamespaceQueryOrigin, RaftTls,
+    TransportOptions,
 };
 pub use crate::raft::version::{
     VersionError, VersionKeys, VersionSigningKey, VersionToken, VersionVerificationKey,
@@ -112,7 +116,7 @@ pub use crate::raft::version::{
 pub use crate::storage::{CommandInputs, CommandTransaction};
 pub use class::{
     command_request_digest, CommandContext, OperationContract, OperationKind, QueryContext,
-    RaftClass, RegistrationError,
+    QueryVersion, RaftClass, RegistrationError,
 };
 pub use client::{
     CellStatus, CommandOptions, CommandReceipt, LearnerActivation, LearnerOptions, LearnerReceipt,
@@ -120,6 +124,8 @@ pub use client::{
     RaftCloseReport, StaleReadPolicy, UnfinishedCommand,
 };
 
+pub use crate::raft::version::CellVersionObservation;
+pub use cellar_logic::cell_group::{CellHistory, CellId, CellVersion};
 pub use cellar_logic::consensus::{
     ClientId, ClusterId, CommandFailure, CommandId, CommittedVersion, DiskLineage, Durability,
     EngineInstanceId, GroupId, GroupScope, IncarnationId, LogIndex, LogPosition, MemberId,
@@ -154,10 +160,12 @@ pub mod verification {
         RuntimeEventKind, SnapshotCompletion,
     };
     pub use crate::raft::execution::{
-        query_registered, AppliedExecution, CommandAttempt, CommandAuthority, CommandRequest,
-        CommittedReceipt, ExecutionError, ExecutionLimits, ExecutionStatus, PreparedCommand,
-        PrivateExecutor, PrivateOptions, RegisteredQueryOutput, RootPrivateOptions, StageOutcome,
-        StoredReceipt,
+        query_registered, AppliedExecution, CellCommittedReceipt, CellEnrollmentAttempt,
+        CellEnrollmentResolution, CellPreparedCommand, CellPrivateEnrollment, CellPrivateExecutor,
+        CellProposalRejection, CellReconciliation, CellStageOutcome, CellSubmissionOutcome,
+        CommandAttempt, CommandAuthority, CommandRequest, CommittedReceipt, ExecutionError,
+        ExecutionLimits, ExecutionStatus, PreparedCommand, PrivateExecutor, PrivateOptions,
+        RegisteredQueryOutput, RootPrivateOptions, StageOutcome, StoredReceipt,
     };
     pub use crate::raft::fleet_catalog::{
         FleetBirthAuthorization, FleetBirthReservation, FleetCatalog, FleetCatalogError,
@@ -199,11 +207,27 @@ pub mod verification {
         PreparedSnapshot, RootSnapshotSet, RootSnapshotSource, SnapshotCheckpoint,
         SnapshotDownload, SnapshotError, SnapshotLimits, SnapshotPackage, SnapshotReference,
     };
-    pub use crate::raft::storage::{GroupBootstrap, LogError, ReplicaLog, SyncReceipt};
+    pub use crate::raft::storage::{
+        CellGroupBootstrap, GroupBootstrap, LogError, ReplicaLog, SyncReceipt,
+    };
     pub use crate::raft::transport::{
-        Delivery, GroupRoute, Lane, RaftPeer, RaftTransport, TransportError, TransportUsage,
+        CellGroupCheckpointRegistration, CellGroupSeedError, CellGroupSeedSession, Delivery,
+        GroupRoute, Lane, RaftPeer, RaftTransport, TransportError, TransportUsage,
     };
     pub use crate::raft::transport_options::{
-        NamespaceInspectionOrigin, NamespaceQueryOrigin, RaftTls, TransportOptions,
+        NamespaceCommandOrigin, NamespaceInspectionOrigin, NamespaceQueryOrigin, RaftTls,
+        TransportOptions,
     };
+    /// Contracts under integration into the replacement group runtime.
+    pub mod cell_groups {
+        pub use super::super::group_contracts::cell_routing_key;
+        pub use super::super::group_protocol::*;
+        pub use crate::raft::cell_groups::*;
+        pub use crate::raft::version::{CellVersionObservation, CellVersionToken};
+        pub use cellar_logic::cell_group::{
+            CellBound, CellHistory, CellId, CellImage, CellImageCommitment, CellKey, CellRange,
+            CellVersion, CommitWitness, GroupHistory, GroupRoute, MembershipRevision,
+            MutationSequence, ParkGeneration, RouteEpoch, TransitionId,
+        };
+    }
 }

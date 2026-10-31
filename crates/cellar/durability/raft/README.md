@@ -14,6 +14,189 @@ under implementation.
 The [technical design](../../../../docs/design/multi-raft/technical-design.md) defines
 the complete contract.
 
+The replacement [cell-group design](../../../../docs/design/multi-raft/cell-groups/design.md)
+is under implementation. `verification::cell_groups::CellGroupOwner` now owns one
+real RawNode for a physical group history and consumes a verified complete root
+plus a revalidated initial-member bootstrap permit. It emits persistence,
+transport and ordered application effects; it performs no SQLite I/O or
+per-cell task creation. The existing node log worker syncs each write before
+the owner releases dependent messages or advances the selected group root.
+The exclusive ownership lease remains with queued engine work after cancellation,
+so a replacement owner cannot start while that write is still in flight.
+
+Application completions bind the owner instance, exact entry, preceding root,
+engine and manifest store. A slow cell holds the contiguous apply prefix while
+other entries commit. Bounded backlog applies transport/proposal backpressure;
+already collected Ready/LightReady batches retain room for their largest entry.
+ReadIndex output is a barrier only: serving still requires current authority and
+a coherent cell image after application through that index. The adapter currently
+refuses snapshot/configuration/topology administration until those complete-group
+protocols are connected. `CellGroupRuntime` now multiplexes physical group owners
+on one execution-domain worker per node. It reuses the bounded mailbox, byte/item
+admission, joined terminal result and existing persistence engine. Attachment
+reserves ordinary node admission before catalog revalidation or RawNode construction. A fair active
+queue collects writes across histories into one engine batch; queued and in-flight
+work stay charged. Peer-frame admission retains its node/group reservations until
+execution or discard and grants no Raft acknowledgement. Completion requests have
+reserved capacity independent from ordinary traffic. Physical settlement can
+progress under full event admission, releasing the apply reservation before its
+Applied event is admitted. Shutdown stops admission, joins the submitted batch,
+then fences the engine before releasing exclusive runtime ownership.
+
+`CellPrivateExecutor` now stages a cell-addressed mutation from an exact pinned
+cell base, with materialized or extent-backed SQLite images. It reuses the existing
+receipt admission, maintenance and atomic business/receipt transaction. The actual
+leader issues `CellExecutionAuthority`; another cell may advance while this base
+remains selected. Losing leadership or dropping the owner revokes the observation.
+A callback must recheck it after capture, and settlement requires a fresh authority,
+the exact committed entry and that cell's expected image/version. A receipt retry
+reads the selected immutable cell image and does not invoke the callback again.
+The synchronous executor must run on an owning blocking worker. It currently
+reopens after settlement. Receipt proof alone does not provide S3 coverage.
+
+`CellGroupSqlPool` now sends cell-history requests through the existing fixed
+`host_sql::Pool` workers and fair request queue. A stable cell key chooses its
+worker; the node does not create a thread or task for each enrolled cell. One
+admission lease covers queued SQL, the physical callback and its unresolved
+proposal even when the waiting caller is cancelled. Node/group byte and item
+reservations cover capture and retained outputs. Finished capture refunds its
+transient buffer budget while prepared/receipt responses retain their payload
+charge, including clones. Extent workspace creation and final cleanup run on the
+admitted blocking worker. An exclusive engine lease prevents a second node SQL
+pool until workers, the handle and retained outputs release their ownership. A lost stage response can recover the same prepared proposal without
+another callback. Admission checks the authority's exact engine owner.
+
+Each worker has one reserved progress slot, independent of its ordinary queue.
+Submission marking is idempotent for the retained proposal. Exact-entry settlement
+requires the committed receipt; group progress cannot release another cell's lease. Pool close stops admission and its domain cleanup owner joins every
+physical callback/worker even if a close waiter is cancelled. Closing a writer or
+pool does not establish a failed submitted outcome or authorize replay; the host
+must reconcile pending commands against committed state before admitting again.
+
+`CellReconciliationAuthority` selects a verified cell pin from the durable
+current-term applied group root, including on followers. It grants no write or
+strong-read authority. The pool can reconcile its exact pending proposal against
+the original command identity in that image even after a later cell mutation;
+this lookup does not require retaining the original Raft entry. It validates
+identity, sequence floors and result allocation bounds without admitting a new
+client or receipt; a full identity table cannot obscure absence. New commands
+still enforce both client and retained-receipt ceilings. A matching receipt
+settles the command. Absence can release the producer only after a strictly newer
+term's applied barrier excludes its old proposal. Replicated expiry/conflict
+refusals remain distinct from a known uncommitted outcome. Foreign engines,
+changed routes/histories, stale cell pins and same-term absence refuse without
+releasing the producer. Missing producers return uncertainty after a lost response.
+Reconciliation uses the reserved worker progress slot and closes the disposable
+writer before releasing cell admission; retained receipt outputs keep their byte
+reservation. A retry still needs fresh leader authority and receipt admission.
+Actual snapshot/compaction integration and production retry dispatch remain pending.
+
+Enrollment now uses `CellEnrollmentAuthority`, issued by the actual leader after
+its current-term committed prefix is applied. `initialize` runs one SQLite
+initializer on the existing SQL workers, captures the full initial LTX image and
+proposes a cell-addressed enrollment. Followers apply those bytes without running
+the initializer. Admission keys the logical cluster/namespace/cell name, so another
+incarnation cannot bypass an in-flight producer. Ordinary commands use the same
+name reservation. Queued and running initialization retain it through cancellation.
+
+Prepared SQL output carries its original leader term and engine/group identity.
+Use `CellSqlPrepared::submit` (or `CellGroupRuntime::submit` for standalone
+verification producers). The actual RawNode owner checks those bindings before
+new admission. Acceptance is remembered by that exact preparation, so a lost
+response can return its original position even after apply; it never proves a
+commit or S3 coverage. The first valid prepared submission irreversibly disables
+byte-only `propose`/`propose_at_term` for that owner, including raw requests already
+queued behind it. This prevents delayed byte-only retries bypassing a seal.
+
+Only a definitive owner capacity refusal seals the preparation as rejected.
+Generic queue overload, stale authority and missing responses grant no such
+proof. Every clone shares the seal and can recover it through `rejection()`, even
+if the original rejection response was lost. Returning capacity cannot unseal
+old output. The pool's `reject` progress operation matches the exact preparation,
+closes its private writer, then releases logical-name admission. It rejects
+foreign engines and proofs for another preparation, including fresh retries with
+the same proposal ID. Retained prepared outputs, queued submissions and rejection
+proofs keep their SQL byte reservations through cancellation and delivery.
+
+The owner retains a bounded acceptance record for each pending logical cell name.
+An exact proposal retry returns its original position and digest; different bytes
+under that pending identity refuse. Independent proposals for the same pending
+name wait. `max_cells_per_group` counts applied cells plus accepted creations
+before append, so concurrent enrollments cannot overfill the manifest. Existing
+cells still accept mutations at capacity. Mutation admission checks its exact
+base against the selected cell version before entering Raft.
+
+Acceptance records retain a separate node-wide budget of `max_requests` items and
+`max_request_bytes`, charging 4 KiB per record without retaining LTX payloads or
+image pins. This budget cannot block Ready or completion work. Records release
+only after exact durable apply, role/term loss, terminal failure, or owner destruction. A new leader
+cannot admit until its applied current-term barrier covers inherited entries.
+Without retained acceptance for that preparation, stale mutation bases and
+existing enrollments return `StaleCompletion`: callers must resolve the original
+receipt or creation record.
+That refusal does not establish that the prior attempt failed.
+
+A committed creation retry returns the immutable enrollment record without opening
+SQLite or rerunning the callback, even after later cell mutations. An enrollment
+state selected from a durable current-term applied root also permits resolution
+on a follower: an exact creation record proves commitment; absence/conflict can
+retire an older producer only after a strictly newer applied term. Resolution
+closes the writer before releasing name admission, while retained responses keep
+their byte charge. Unknown producers remain uncertain. Pool shutdown joins an
+entered initializer even if its waiter and close waiter were both cancelled.
+As with commands, shutdown is not proof that a submitted enrollment failed.
+
+`CellGroupRuntime::read_authority` now selects one coherent cell image for an
+invocation under an absolute execution-domain deadline. Linearizable selection
+uses a fresh nonce/counter-correlated ReadIndex, current leader term and contiguous
+applied group prefix. A committed update to B can delay a read of unchanged A,
+but cannot change A's version. Raw read requests and forwarded read messages
+cannot use the internal context namespace. The returned authority is consumed by
+one query and rejects a changed route, lost leader term, foreign engine or expired
+deadline. It is not a reusable leadership lease. Each selected leaf retains its complete
+commit witness independently of the Raft entry cache. Immutable-query results
+expose `observation()` for the exact version and witness; cell receipt results
+expose the corresponding selected-version observation, which can cover an older
+command receipt. A later mutation of another cell cannot change that observation.
+Registered dispatch must still authenticate contracts and issue tokens only from
+these authoritative results; manifest observation data alone is not authority.
+
+Stale explicitly selects a local committed image, including on followers. AtLeast
+compares logical cell history/sequence/image, not group log positions; the
+production dispatcher must authenticate the token and schema/transfer lineage.
+Neither path needs a new quorum. Future versions wait under the same original
+deadline, while wrong histories or inconsistent equal-sequence images refuse.
+
+Waiting reads and returned pins use a separate node budget of `max_pending_reads`
+items and `max_read_pin_bytes` bytes; each group admits at most
+`(max_pending_reads / 8).clamp(1, 32)` items under the same byte ceiling. Selecting
+an image extends the reservation to its logical bytes plus metadata, refusing
+before delivery if the ceiling is exceeded. This is a conservative pin-retention
+bound, not a claim that every image byte is resident. The pin-byte limit defaults
+to 64 MiB and can cover the native image-size envelope independently of transport
+limits; configure it for the largest admitted images and concurrent reads.
+Reads release ordinary peer
+queue slots before waiting for quorum/apply. Cancellation, deadlines and shutdown
+retire pending waiters; returned pins keep their reservations until consumed or
+dropped.
+
+`CellGroupSqlPool::query` consumes that authority on the existing fixed workers.
+It opens the immutable materialized/extent view without a private workspace or
+schema initialization. Queries may read committed state while a private writer
+is unresolved. They retain the read-only SQL authorizer, bounded output admission,
+worker-owned pins and original deadline. SQLite's progress hook checks domain
+expiry, waiter cancellation and shutdown; arbitrary callback work remains owned
+and must finish before shutdown joins. Callback panics are contained. Result
+accessors borrow bytes so their output reservation cannot be detached.
+
+Registered SDK creation/command/query dispatch, catalog routing integration and
+the production hard cutover remain required; the existing host still uses its
+prior single-cell owner. The new pool's callback entry point remains a verification
+boundary. Transport authentication and actual image preparation are also caller
+responsibilities at that boundary. See the
+[implementation status](../../../../docs/design/multi-raft/cell-groups/progress.md)
+for the exact qualification boundary.
+
 Managed empty hosts expose `RaftCells::inspect_peer_node` under rooted fleet
 trust. It authenticates both physical processes and a requested minimum installed
 trust revision without constructing a cell. Current enrollment state/epoch is
@@ -1577,3 +1760,155 @@ require their fleet guard.
 Earlier roots/state have no compatibility reader. Use a fresh experimental
 namespace/prefix and local state. The earlier MR-10 evidence retains its exact
 historical protocol and source scope.
+
+## Shared-group registered command boundary
+
+`CellGroupSqlPool::stage_registered` dispatches a namespace's compiled `RaftClass`
+on the existing fixed SQL workers. The selected route and private-image options
+must agree on the full class schema. Operation contract, normalized input digest,
+inbox authentication and reserved system-client checks precede receipt lookup,
+including duplicate retries. The callback receives the exact logical `CellHistory`
+from the execution authority. Prepared output follows the existing proposal,
+publication and receipt-settlement path; it is not a committed response.
+Registered input bytes are retained within the producer budget while queued or
+executing. Cancelling the waiter does not release the physical producer.
+
+`CommandContext::identity()` and `RaftEffectTarget` now use `CellHistory` without a
+physical group ID. Alarm clients, outbox lane identities and signed requests use
+that logical history; normal group reassignment preserves them, while a new cell
+incarnation separates them. Signed effects use canonical marker-1 logical-history
+records and distinct `cellar-cell-delivery-*` domains. Old group-bearing records
+and old signature domains refuse. The full class manifest uses the
+`cellar-cell-class-1` domain, so this identity change cannot silently reuse a
+previous namespace schema. There is no migration reader.
+
+The temporary single-cell host projects its actual logical binding into
+`CellHistory`; the shared command path does not manufacture `GroupScope` values.
+Registered shared queries use the boundary below. Catalog/SDK routing, shared
+effect scheduling and transfer qualification remain separate work. These APIs do not by themselves complete the production cutover.
+
+## Shared-group registered query boundary
+
+`CellGroupSqlPool::query_registered` consumes the invocation's `CellReadAuthority`
+and dispatches a compiled query on the existing workers. Operation names and
+input are bounded before queueing; retained input and output use read admission.
+The worker checks the operation kind, contract and full class schema before
+opening the selected immutable image. The same owner retains deadline, SQL
+interruption, cancellation, panic containment and joined shutdown behavior.
+A cancelled receiver cannot release a still-running callback or its image pins.
+
+`QueryContext::identity()` exposes logical `CellHistory`. On this shared path,
+`version()` yields `QueryVersion::Cell` containing the exact selected
+`CellVersionObservation`: mutation sequence, image commitment and decision witness.
+The returned `CellSqlQueryResult` retains that same observation for token issuance.
+Advancing another cell's group log position cannot relabel the selected version.
+A previously pinned image may remain a coherent historical read after publication.
+
+The temporary old host invokes `invoke_group_query` and supplies an explicit
+`QueryVersion::GroupCut`. It cannot supply or infer a logical mutation sequence.
+This in-memory staging observation is not a persisted-format reader or a final
+runtime choice. CG-16 must remove that variant and constructor with the old host,
+leaving the selected cell observation directly exposed by the final query context.
+Catalog/SDK dispatch into these workers remains required before public cutover.
+
+### Catalog-bound query dispatch
+
+`CellGroupDispatcher` binds one registered namespace directory, compiled class,
+version-key set and execution domain. Its clones share a bounded invocation bank;
+there are no per-cell worker pools. `query` freezes the operation, input and
+consistency before discovery, normalizes retained input capacity and charges both
+the retained request and one physical input copy. The canonical fingerprint binds
+logical cell identity, invocation ID, contract, input, consistency/token and routing
+limits. A non-cloneable `CellQueryInvocation` uses the existing
+`CellRoutingSession` for initial lookup, cached routes, retries and confirmed
+redirects. The original absolute deadline and total attempt count never reset.
+
+Each attempt is consumed before asynchronous execution. A caller must explicitly
+retry after losing or cancelling a response. The local destination must use the
+same execution-domain clock, and its read authority must match the entire
+catalog-confirmed route and logical cell. The existing SQL pool checks engine and
+schema ownership. AtLeast tokens are verified against the configured keys, exact
+cell history, schema and current captured-domain wall time. The response retains
+SQL output admission and signs the actual selected observation. Catalog mapping
+alone cannot manufacture a leader, group attachment or read authority.
+
+Cancellation can release the invocation's reservation; entered SQL still owns its
+input, image pin, worker and independent admission until physical cleanup joins.
+A timeout includes discovery, authority selection, callback execution and output
+signing. Cross-host transports must translate a remaining deadline through their
+own bounded request protocol; unrelated monotonic timestamps are refused here.
+This is the local query dispatch integration boundary. Command/enrollment
+invocations, transport selection and replacing the public SDK's old host binding
+remain required; it does not complete CG-04 or the public cutover. Group topology
+fencing is still owned by the later transition tasks, not by directory metadata.
+
+### Catalog-bound command phases
+
+`CellGroupDispatcher::command` captures a complete immutable command invocation,
+including the caller's stable command identity/retry window and domain-owned time
+and randomness. Its fingerprint and original deadline include that capture. The
+same namespace/class binding and shared invocation admission used by queries also
+bound commands. Current shared-group command dispatch requires both the request
+and namespace minimum to be Quorum. S3 refuses with `UnsupportedCapability` until
+CG-06 supplies a real complete-group archive proof; no acknowledgement is lowered.
+
+`CellCommandInvocation` exposes preparation, provisional submission and settlement
+as distinct phases for the production controller. Before entering SQL it retains
+its originating runtime, pool, exact route and fresh preparation IDs. Cancelling
+preparation loses only the response. Resuming retrieves that same worker-owned
+producer, even if a routing retry selects another member. A catalog redirect never
+releases an unresolved producer or runs its callback at a second destination.
+The controller must retain invocations independently from ingress response waiters.
+
+Submission uses the existing shared acceptance/seal state and original SQL
+ownership. Repeated acceptance cannot append twice. An exact pre-append rejection
+seals every clone before cleanup. Settlement reads the original receipt through
+current applied authority; same-term absence stays uncertain. Only the existing
+strictly newer applied-term proof can produce `NotCommitted`. A subsequent
+preparation uses fresh physical IDs with the same logical command and captured
+inputs. Lost duplicate/settlement responses may use registered receipt lookup with
+new command execution disabled. On a follower, a missing local producer still
+requires routing to a leader for that fallback; it is never evidence of absence.
+
+Returned `CellCommandResponse` retains SQL output admission and signs the selected
+cell observation. Acceptance itself is never a response carrying durability.
+Deadline checks cover each phase and output delivery. Errors retain the command
+ID and an explicit ambiguity bit; a deadline, lost reply or redirect is not a
+non-commit proof. Dropping the invocation never releases its worker's unresolved
+producer. The node controller still needs to own these phases through ingress
+cancellation and drive shared transport/apply/completion events. Enrollment routing,
+that production integration and final public SDK replacement remain unfinished.
+
+### Physical-group peer transport
+
+`RaftTransport::start_shared` starts directly on `CellGroupRuntime`; it never
+constructs the old cell-scoped runtime. Physical routes use
+`GroupRoute<GroupHistory>` and `RaftPeer<GroupHistory>`. Installing a route checks
+an existing group, selected schema, committed member/disk bindings, local process
+and listener addresses. It creates no storage or Raft membership and grants no
+serving authority. Unknown groups and unsupported complete-group snapshots refuse.
+
+Physical groups share the existing per-node TLS connections, control/data lanes,
+pipelining, bounded byte/item banks and joined shutdown. Group routes share the
+same configured group limit with temporary old/query routes. Node-view refresh,
+fleet revocation and pool pruning include physical routes. Query/inspection grants
+cannot replace conflicting physical-group endpoints. Queue admission, I/O and
+observer delivery recheck exact route/process and committed membership. A delivery
+response acknowledges receiver queue admission, never append, commit or apply.
+Failed sends report bounded unreachable hints without fabricating Raft responses.
+
+Marker-1 peer frames now carry an explicitly typed history under a new protocol
+digest. Physical frames contain group history without a cell key. Old untagged
+scope frames refuse; there is no compatibility reader. Both directions bind full
+history, member, node, disk, process, schema, sequence, payload digest and TLS
+exporter through the existing authenticated frame machinery. The temporary
+`TransportRuntime::Legacy` and typed cell-history frame arm support the old host
+only during integration; CG-16 must remove them with that host. They are not a
+configuration switch or an alternate final serving architecture.
+
+The transport retains its exclusive runtime claim until physical workers and
+sockets exit, including cancelled close waiters. A replacement may start only
+after that join. Complete-group snapshot streaming, shared query RPC routing and
+production controller ownership of apply/command settlement remain unfinished.
+The TLS fixtures still drive runtime events themselves; they do not qualify
+controller ownership after an ingress caller disconnects.

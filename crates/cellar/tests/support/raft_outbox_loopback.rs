@@ -45,7 +45,7 @@ pub async fn self_delivery() -> Result<()> {
         digest: [98; 32],
     };
     let target = RaftEffectTarget::new(
-        scope.clone(),
+        cellar_logic::cell_group::CellHistory::try_from(&scope.clone())?,
         definition,
         contract.clone(),
         receiver.verification_key(),

@@ -206,7 +206,7 @@ async fn main() -> Result<()> {
         let mut definitions=Vec::new();let mut listeners=Vec::new();let mut peers=Vec::new();
         for index in 0..3u8 {
             let destination=effects::receiver(sender.verification_key(),receiver.clone())?;
-            let target=RaftEffectTarget::new(effects::scope(true)?,destination.definition_digest(),destination.contract("Receive").context("Receive")?,receiver.verification_key(),Durability::S3)?;
+            let target=RaftEffectTarget::new(cellar::sdk::consensus::CellHistory::try_from(&effects::scope(true)?)?,destination.definition_digest(),destination.contract("Receive").context("Receive")?,receiver.verification_key(),Durability::S3)?;
             let source=effects::producer(sender.clone(),target,routing.clone())?;
             let contracts=(source.contract("Prime").context("source Prime")?,source.contract("Emit").context("Emit")?,source.contract("Get").context("source Get")?,destination.contract("Prime").context("receiver Prime")?,destination.contract("Get").context("receiver Get")?);
             let schemas=[source.schema_digest(),destination.schema_digest()];

@@ -11,12 +11,23 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 tokio::task_local! {
     static READ_COUNTS: std::cell::RefCell<std::collections::BTreeMap<String, usize>>;
     static MISSING_READ: String;
+    static GATED_READ: (String, std::sync::Arc<RegistryGate>);
 }
 
 // Keep a read fault local to one verifier; running nodes still see the store.
 #[allow(dead_code)]
 pub async fn missing_read<T>(path: String, work: impl std::future::Future<Output = T>) -> T {
     MISSING_READ.scope(path, work).await
+}
+
+// Scope a stalled read to one routing waiter; unrelated metadata continues.
+#[allow(dead_code)]
+pub async fn gate_read<T>(
+    path: String,
+    gate: std::sync::Arc<RegistryGate>,
+    work: impl std::future::Future<Output = T>,
+) -> T {
+    GATED_READ.scope((path, gate), work).await
 }
 
 // Shared fault adapter: only catalog work-count regressions use this scope.
@@ -59,6 +70,9 @@ impl RegistryGate {
 
 #[derive(Debug, Default)]
 pub struct Store {
+    pub range_before: RegistryGate,
+    pub range_genesis_after: RegistryGate,
+    pub range_page_puts: AtomicUsize,
     pub fail_closure_after: AtomicBool,
     pub fail_fleet_after: AtomicBool,
     pub fail_fleet_confirmation: AtomicBool,
@@ -166,6 +180,9 @@ pub struct Store {
     pub view_waiting: AtomicBool,
     pub view_resume: tokio::sync::Notify,
     pub fail_directory_reads: AtomicBool,
+    pub hold_group_head_reads: AtomicBool,
+    pub active_group_head_reads: AtomicUsize,
+    pub group_head_reads_resume: tokio::sync::Notify,
     pub hold_view_reads: AtomicBool,
     pub view_reads: AtomicUsize,
     pub active_view_reads: AtomicUsize,
@@ -244,6 +261,14 @@ impl ObjectStore for Store {
         payload: PutPayload,
         options: PutOptions,
     ) -> object_store::Result<PutResult> {
+        if path.as_ref().contains("/cell-groups/ranges/") {
+            self.range_page_puts.fetch_add(1, Ordering::AcqRel);
+        }
+        if path.as_ref().ends_with("/cell-groups/head")
+            && matches!(options.mode, PutMode::Update(_))
+        {
+            self.range_before.pause().await;
+        }
         if path.as_ref().contains("/root-extents/") {
             self.root_extent_puts.fetch_add(1, Ordering::AcqRel);
         }
@@ -374,7 +399,12 @@ impl ObjectStore for Store {
         }
         let fleet_cas =
             path.as_ref().ends_with("/fleet/head") && matches!(options.mode, PutMode::Update(_));
+        let range_genesis =
+            path.as_ref().ends_with("/cell-groups/head") && matches!(options.mode, PutMode::Create);
         let result = self.inner.put_opts(path, payload, options).await?;
+        if range_genesis {
+            self.range_genesis_after.pause().await;
+        }
         if path.as_ref().contains("/closures/")
             && self.fail_closure_after.swap(false, Ordering::AcqRel)
         {
@@ -486,6 +516,13 @@ impl ObjectStore for Store {
         let _ = READ_COUNTS.try_with(|counts| {
             *counts.borrow_mut().entry(path.to_string()).or_default() += 1;
         });
+        let gate = GATED_READ
+            .try_with(|(key, gate)| (key == path.as_ref()).then(|| gate.clone()))
+            .ok()
+            .flatten();
+        if let Some(gate) = gate {
+            gate.pause().await;
+        }
         if MISSING_READ
             .try_with(|missing| missing == path.as_ref())
             .unwrap_or(false)
@@ -547,6 +584,26 @@ impl ObjectStore for Store {
             && self.fail_directory_reads.load(Ordering::Acquire)
         {
             return Err(failure());
+        }
+        if path.filename() == Some("head") {
+            struct Reading<'a>(&'a AtomicUsize);
+
+            impl Drop for Reading<'_> {
+                fn drop(&mut self) {
+                    self.0.fetch_sub(1, Ordering::AcqRel);
+                }
+            }
+            self.active_group_head_reads.fetch_add(1, Ordering::AcqRel);
+            let _reading = Reading(&self.active_group_head_reads);
+            loop {
+                let resumed = self.group_head_reads_resume.notified();
+                tokio::pin!(resumed);
+                resumed.as_mut().enable();
+                if !self.hold_group_head_reads.load(Ordering::Acquire) {
+                    break;
+                }
+                resumed.await;
+            }
         }
         if path.filename() == Some("view") {
             self.view_reads.fetch_add(1, Ordering::AcqRel);

@@ -1107,7 +1107,10 @@ async fn stale_is_committed_prefix() -> Result<()> {
     let query = Arc::new(move |context: &QueryContext<'_>, input: &[u8]| {
         let mut value = get(context, input)?;
         if input == b"hold" {
-            let index = context.version().position.index.get();
+            let QueryVersion::GroupCut(version) = context.version() else {
+                anyhow::bail!("single-cell adapter observation")
+            };
+            let index = version.position.index.get();
             gate.wait()?;
             assert_eq!(get(context, input)?, value);
             value.extend_from_slice(&index.to_be_bytes());
