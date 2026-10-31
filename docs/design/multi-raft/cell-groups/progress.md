@@ -10,6 +10,54 @@ CG-06 is IN_PROGRESS; CG-07 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-06 independently recovered object-store checkpoints
+
+Partial source checkpoint: `650fc63892eab59e6fd5023fa90d5f361a8c7302`.
+CG-06 is IN_PROGRESS. The group-owned archive now stores complete checkpoints
+without synthetic cell identities. One node pool bounds upload/download jobs
+and retained metadata across all group handles. One-chunk channels connect
+domain-owned physical sources/receivers to object-store I/O; source and receiver
+pools separately retain closure and scratch admission through cancellation.
+
+An immutable bounded index binds the complete group marker and every ordered,
+cell-addressed chunk. Existing objects are GET-verified and reused without PUT;
+conditional creates require exact read-back even after an ambiguous PUT response.
+Corrupt existing payloads refuse overwrite. Upload returns an untrusted locator.
+Independent verification downloads every dependency, runs the physical receiver
+and checks its complete marker against the index. Preparation leaves the selected
+engine roots unchanged and grants no serving authority.
+
+All fifteen gate commands pass: four new archive cases selected individually,
+all five existing snapshot acceptance cases, all-target build/Clippy,
+formatting/layout, native dependency isolation, docs, CG-06 source preflight,
+plan validation and 37 Python validator tests. Nine distinct Rust cases run across
+two executables; ignored snapshot child entry points are exercised by their
+process-crash parents. The source-bound record
+`.cellar/cell-groups-evidence/CG-06-checkpoint-archive/qualification/checkpoint.json`
+binds 317 source hashes, both executables, hashed logs, frozen plan inputs and
+the preceding CG-05 checkpoint. An independent hash/source/selection audit passes.
+
+The new cases use real three-voter Raft Engine and SQLite/LTX with both materialized
+and extent images, empty enrollment, and the actual in-memory object-store adapter
+with instrumented faults. They verify unchanged-cut reuse without repeat PUTs,
+recovery after source-engine closure, a missing/corrupt cell despite another
+cell's later cut, ambiguous PUT confirmation, shared cross-group admission,
+chunk/index bounds, cancellation, complete-GET timeout and malformed/rehashed
+index refusal. Omitting a cell or substituting the advertised cut cannot produce
+a verified checkpoint. The five original CG-06 required cases remain pending;
+these narrower checkpoint tests do not replace them or their oracles.
+
+**Reflection and next step:** the critical gap is a complete checkpoint plus
+contiguous committed cell/control tail and a published, GC-protected coverage
+owner. Shared dispatch still refuses S3 durability. Only confirmed complete
+coverage may release S3 outputs or feed the archive retention/reclamation policy.
+Then implement bounded outage admission, actual shared-engine log reclamation
+and fenced unmanaged seeding under fresh group/cell incarnations. Current objects
+follow bounded source chunks; request coalescing and large-group limits need
+qualification before any cost/throughput claim. Follow with CG-08 effects/cache
+lifetime and CG-07 public SDK/fleet cutover. Real RustFS/load, managed recovery,
+independent domains and final removal of the old architecture remain later gates.
+
 ## CG-05 complete native snapshot/rebuild gate
 
 CG-05 is DONE at `e0550acd95a78cdf1852a408620eb054ee505669` after the complete native gate

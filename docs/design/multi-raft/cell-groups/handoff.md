@@ -15,6 +15,26 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
+The latest partial source is `650fc63892eab59e6fd5023fa90d5f361a8c7302`.
+CG-06 is IN_PROGRESS: `raft/cell_groups/archive/` implements complete group
+checkpoint objects, node-shared item/byte admission, immutable reuse/conditional
+creation and independent physical recovery. Four exact archive cases and all
+five snapshot regressions pass. All fifteen commands pass, including all-target
+build/Clippy, formatting/layout, dependency/docs/preflight and 37 validator tests.
+Its retained record under
+`.cellar/cell-groups-evidence/CG-06-checkpoint-archive/qualification/`
+binds 317 source hashes and two executables; independent verification passes.
+See the current [progress](progress.md) and [archive contract](protocols.md#apply-checkpoint-and-archive).
+
+The checkpoint locator is untrusted; the verified receiver capability grants
+neither group coverage nor S3 settlement, log deletion or fresh-incarnation
+recovery. All five original CG-06 required cases and its complete task gate remain
+pending. Next implement contiguous cell/control tails and a published,
+GC-protected coverage owner, then bounded outage admission/S3 settlement,
+archive-aware log reclamation and fenced unmanaged seeding. Shared dispatch still
+refuses S3 durability. Current object framing follows bounded source chunks;
+qualify coalescing and large-group bounds before performance/cost claims.
+
 CG-01 through CG-05 are DONE at their declared native task boundaries. CG-05
 closes at `e0550acd` with all five exact snapshot cases and eighteen passing
 commands, backed by 205 Rust cases, 337 source hashes and five executables.
