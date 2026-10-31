@@ -400,9 +400,16 @@ join. Hard checkpoint failures retain the ticket and quarantine the group, while
 shared log uncertainty closes the node. Quarantined groups can retain checkpoint
 capacity until joined restart, like their registration capacity.
 
+Native controller tests hold publication at the real engine sync after lifecycle
+and checkpoint-source admission. Cancelled close and wait retain both owners and
+the engine/SQL claims through physical completion. The healthy two-voter quorum
+continues another group's writes during the stalled node's engine sync. Release
+joins shutdown, selects the captured checkpoint and permits a replacement runtime.
+Both image forms run this cut; other controller crash/budget schedules remain open.
+
 This is an entry-count policy for active groups. It retains the final idle tail,
 and time/byte triggers, fairness under continuously saturated checkpoint capacity,
-controller checkpoint crash/held-sync cuts and complete root-pressure qualification
+controller checkpoint crash cuts and complete root-pressure qualification
 remain open. It supplies no S3 archive coverage proof. Manual publication remains
 available to lower-level owners; this policy does not introduce a second serving
 runtime or weaken exact-cut publication checks.

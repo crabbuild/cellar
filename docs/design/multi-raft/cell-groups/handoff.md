@@ -43,7 +43,31 @@ effects/cache lifecycle belong to CG-08, and final legacy removal to CG-16. Trac
 these remaining capabilities in their owning tasks.
 Shared RustFS, independent voter failure domains, power loss and load remain unqualified.
 
-The latest exact-acceptance checkpoint at `f076731a` delivers
+The latest controller-publication checkpoint at `370dcf34` passes 146
+execution cases, nineteen Raft-storage cases and the updated exact resource-bound
+snapshot case, with ten scoped commands. Its record under
+`.cellar/cell-groups-evidence/CG-05-controller-checkpoint-shutdown-final/` binds
+332 source hashes and three executables; independent hashes pass. The other
+four exact snapshot cases and all-target checks remain at their earlier source.
+CG-05 remains IN_PROGRESS and production runtime code is unchanged.
+
+Both image forms now hold the actual publication sync after lifecycle/source
+admission, fill checkpoint capacity and cancel both close and wait. Slot, source,
+bytes and engine/SQL ownership remain retained until physical release. The healthy
+two-voter quorum commits four writes to the other group during the stall. Release
+publishes the preceding checkpoint, leaves the successor unapplied, drains
+admission and permits a replacement runtime. Existing fault modes retain their
+default behavior; the predicate is opt-in and released by its guard.
+
+The next concrete implementation is interrupted-seed orphan reconciliation and
+fresh authenticated retry. Extent startup inventories partial files without
+trusting them; immutable import refuses a partial existing object. Supply complete
+node references before collecting unselected orphans, preserve selected current
+and checkpoint roots plus live pins, and verify retry on the same disk. A single
+group must not reconcile or delete another group's shared objects. Continue the
+remaining controller crash/budget/fairness and retained-root pressure qualification.
+
+The earlier exact-acceptance checkpoint at `f076731a` delivers
 `native_cell_groups_snapshot` with all five required native oracles. Each passes
 individually with `--exact --test-threads=1`, and all ten prescribed task commands
 pass. Fifteen total commands include 144 execution regression cases and package
@@ -61,8 +85,9 @@ composite membership test constructs futures outside its poll frame after phase
 probes reproduced a debug stack overflow. The standalone case passed and the
 fixed complete composite passes; no stack limits, timeouts or assertions changed.
 
-Next close the declared controller checkpoint lifecycle/saturation gaps and audit
-staged orphan reconciliation before authenticated retry. Preserve fresh quorum,
+The pending-publication cancelled-shutdown cut now passes above. Continue
+remaining controller lifecycle/saturation cuts and staged orphan reconciliation
+before authenticated retry. Preserve fresh quorum,
 physical-owner retention and selected-root checks. Production runtime code was
 unchanged in this checkpoint; RustFS/load, independent-domain and public host
 cutover qualification remain open.
@@ -878,9 +903,10 @@ Do not let plan maintenance replace implementation.
    five exact cases now pass their prescribed command gate. Close the remaining
    fault/lifecycle and availability requirements below before task completion. Preserve permanent claims, local install receipts, complete
    physical recovery and unrelated-group progress.
-2. Complete remaining CG-05 fault/lifecycle requirements: minority signed receipt
-   refusal, continuous capture fairness, exhausted apply/completion budgets, held sync/cancelled close,
-   quarantine capacity and retained-root pressure. Track automatic orphan cleanup
+2. Pending-publication sync and cancelled controller shutdown now pass in both
+   image forms. Complete remaining CG-05 fault/lifecycle requirements: minority signed receipt
+   refusal, continuous capture fairness, exhausted apply/completion budgets, other
+   capture/admission cancellation boundaries, quarantine capacity and retained-root pressure. Track automatic orphan cleanup
    and fresh-seed retry after interrupted dependency writes; safe refusal alone
    does not prove retry availability. Explicit joint restart after
    replicated entry/exit now passes; this does not qualify every in-flight or

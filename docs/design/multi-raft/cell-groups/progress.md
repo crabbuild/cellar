@@ -10,6 +10,58 @@ CG-05 is IN_PROGRESS; CG-06 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-05 controller publication ownership through cancelled shutdown
+
+Qualified source: `370dcf3465b3161c9e69e8b1f398bc9d49450c0c`. Both new controller publication tests pass
+in the complete native execution suite: 146 cases, plus nineteen native
+Raft-storage cases and the updated exact `snapshot_memory_and_pin_bounds` case.
+Ten scoped commands pass, including Clippy for all three integration targets,
+formatting, layout, dependency isolation, docs, source preflight and 37 plan
+validator tests. The other four snapshot acceptance cases and all-target checks
+were not rerun at this source; their complete earlier gate remains below.
+
+The record
+`.cellar/cell-groups-evidence/CG-05-controller-checkpoint-shutdown-final/checkpoint.json`
+binds 332 source hashes, three copied executables, frozen plan inputs and
+intermediate trial outputs. Independent source/output/executable hashes pass.
+This partial record is not a combined full task gate and keeps CG-05 IN_PROGRESS.
+Production runtime behavior is unchanged. The first scoped gate passed all
+selected Rust cases but failed Clippy on an unused helper in the shared legacy
+storage target. That method was replaced with fixture-local predicate setup.
+The failed source, outputs and three executables remain hash-bound in
+`previous_attempt`; no assertions or fault scenarios were removed.
+
+The filesystem fault now supports an opt-in sync predicate. Earlier ordinary
+append/commit syncs pass. Once the controller owns its checkpoint lifecycle slot
+and captured source, the next actual log sync holds. The test waits for all voters
+to persist the other group's election before arming this cut; it does not guess a
+sync count. Both materialized and extent cases check the following directly:
+
+- Source count, retained bytes and the one controller slot stay charged. Another
+  receiver refuses with `Busy`; the prior root and applied position stay selected.
+- Four writes to the other group commit and apply on the two healthy voters while
+  this node's shared engine is stalled. No checkpoint completion is credited early.
+- Cancelled close and wait retain physical ownership. Replacement runtime and SQL
+  pool ownership refuse until the real sync returns.
+- Release joins controller shutdown, selects the captured complete checkpoint,
+  keeps the committed successor unapplied and drains checkpoint admission. A new
+  runtime can then acquire the engine. The exact resource-bound acceptance case
+  directly composes both scenarios.
+
+This qualifies pending publication through cancelled controller shutdown in both
+image forms. It does not close every controller crash, completion-budget, capture
+fairness or retained-root pressure schedule. Native process tests do not qualify
+independent domains, power loss, real RustFS/load or the SDK/fleet cutover.
+
+**Reflection and next step:** interrupted-seed retry is now the critical recovery
+availability gap. The extent inventory deliberately keeps partial known files
+charged after reopen, and immutable import verifies existing names instead of
+silently overwriting them. Retry needs complete node-reference reconciliation
+before orphan collection, preserving all selected current/checkpoint roots and
+live pins across groups. Do not add group-local deletion of shared objects or
+weaken corruption refusal. Implement and test that reconciliation and a fresh
+authenticated retry before closing CG-05 and proceeding to CG-06 archive/reclaim.
+
 ## CG-05 exact native snapshot acceptance target
 
 Qualified source: `f076731a2d384bff65914828409c01506438c4a2`. The declared
