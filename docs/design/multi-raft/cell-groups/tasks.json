@@ -1584,7 +1584,9 @@
         "crates/cellar/durability/raft/cell_groups/checkpoint/local.rs",
         "crates/cellar/tests/support/cell_group_checkpoint_local.rs",
         "crates/cellar/application/consensus/mod.rs",
-        "crates/cellar/tests/support/cell_group_network_probes.rs"
+        "crates/cellar/tests/support/cell_group_network_probes.rs",
+        "crates/cellar/tests/support/cell_group_controller.rs",
+        "crates/cellar/tests/support/cell_group_controller_checkpoints.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/cell_groups/checkpoint/mod.rs",

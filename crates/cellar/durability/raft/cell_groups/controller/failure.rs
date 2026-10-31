@@ -44,6 +44,9 @@ pub(super) fn node_wide(error: &CellGroupControllerError) -> bool {
         }
         CellGroupControllerError::Runtime(error) => runtime(error),
         CellGroupControllerError::Apply(error) => execution(error),
+        CellGroupControllerError::Checkpoint(error) => {
+            matches!(error.as_ref(), super::super::CellGroupCheckpointError::Log(error) if storage(error))
+        }
         CellGroupControllerError::Command(error) => dispatch(&error.cause),
         CellGroupControllerError::Enrollment(error) => dispatch(&error.cause),
         CellGroupControllerError::Closed | CellGroupControllerError::Transport(_) => true,

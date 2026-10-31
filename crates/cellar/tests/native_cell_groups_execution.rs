@@ -15,6 +15,21 @@ mod runtime_fixture;
 mod checkpoint_fixture;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_controller_compacts_materialized_groups_during_writes() -> Result<()> {
+    runtime_fixture::automatic_checkpoints(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_controller_compacts_extent_groups_during_writes() -> Result<()> {
+    runtime_fixture::automatic_checkpoints(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_controller_busy_pool_preserves_apply_and_other_group_progress() -> Result<()> {
+    runtime_fixture::automatic_checkpoints(false, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn checkpoint_tcp_refuses_invalid_streams_and_preserves_other_group_progress() -> Result<()> {
     runtime_fixture::tcp_protocol().await
 }

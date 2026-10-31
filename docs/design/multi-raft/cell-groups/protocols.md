@@ -275,10 +275,35 @@ known peer while retaining its reservation, then applies it after the in-flight
 Ready has settled. A completed transfer remains owned until feedback admission or
 transport shutdown; an I/O response timeout cannot silently discard required
 failure feedback. Immediate snapshot queue refusals also report failure, allowing
-Raft to leave its paused snapshot state and generate a retry. Automatic local
-checkpoint selection/publication and whole-group membership orchestration remain
-separate integration work. No transfer reply grants new voter, serving, archival
+Raft to leave its paused snapshot state and generate a retry. Whole-group
+membership orchestration remains separate integration work. No transfer reply grants new voter, serving, archival
 or reclamation authority.
+
+The controller's optional `CellGroupCheckpointPolicy` selects a checkpoint before
+starting a successor apply when the configured entry interval has elapsed. It
+uses the transport's already configured pool and owns initial checkpoint endpoint
+registrations. One node slot spans blocking capture, admission and durable
+publication; each selected group retains its exact successor ticket. The current
+root therefore cannot advance during capture. A private completion-lane request
+checks that ticket and the current root, and can publish despite ordinary request
+or apply pressure. Pending Raft work may still append a suffix. Only the matching
+`CheckpointPublished` event releases the successor to physical apply; an admission
+reply alone does not. Reply/event ordering is handled in either order.
+
+Pool contention or transient admission overload releases the successor and backs
+off until a later apply boundary using the controller's node timer. There is no
+per-cell task or unbounded retry loop. Capture jobs are joined before releasing the
+runtime's engine claim; accepted writes remain owned by the runtime through its
+join. Hard checkpoint failures retain the ticket and quarantine the group, while
+shared log uncertainty closes the node. Quarantined groups can retain checkpoint
+capacity until joined restart, like their registration capacity.
+
+This is an entry-count policy for active groups. It retains the final idle tail,
+and time/byte triggers, fairness under continuously saturated checkpoint capacity,
+controller checkpoint crash/held-sync cuts and complete root-pressure qualification
+remain open. It supplies no S3 archive coverage proof. Manual publication remains
+available to lower-level owners; this policy does not introduce a second serving
+runtime or weaken exact-cut publication checks.
 
 An archive publishes a complete checkpoint plus a contiguous committed tail to K.
 The tail addresses cells and validates each base chain; administrative entries

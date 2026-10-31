@@ -591,3 +591,7 @@ pub(crate) use provision::{
     provisioning_recovers_selected_roots, provisioning_refusals_preserve_healthy_group,
     provisioning_retries_retained_owner,
 };
+
+#[path = "cell_group_controller_checkpoints.rs"]
+mod controller_checkpoints;
+pub(crate) use controller_checkpoints::automatic_checkpoints;

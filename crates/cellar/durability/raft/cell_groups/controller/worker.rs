@@ -45,6 +45,8 @@ pub(super) struct Worker {
     registrations: FuturesUnordered<BoxFuture<'static, registration::Completed>>,
     routes: BTreeMap<GroupHistory, crate::raft::transport::PhysicalRegistration>,
     progress: tokio::sync::watch::Sender<()>,
+    checkpoints: checkpoints::Manager,
+    _checkpoint_routes: Vec<crate::raft::transport::CellGroupCheckpointRegistration>,
 }
 
 impl Worker {
@@ -56,8 +58,18 @@ impl Worker {
         roster: BTreeMap<GroupHistory, CellGroupApplier>,
         requests: tokio::sync::mpsc::Receiver<requests::Request>,
         shared: Arc<Shared>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, CellGroupControllerError> {
+        let mut checkpoint_routes = Vec::new();
+        if shared.checkpoints.is_some() {
+            for applier in roster.values() {
+                checkpoint_routes.push(
+                    transport
+                        .register_group_checkpoint(applier.clone())
+                        .map_err(CellGroupControllerError::Transport)?,
+                );
+            }
+        }
+        Ok(Self {
             runtime,
             events,
             transport,
@@ -78,10 +90,12 @@ impl Worker {
             provisioning: provision::Manager::default(),
             routes: BTreeMap::new(),
             progress: tokio::sync::watch::channel(()).0,
-        }
+            checkpoints: checkpoints::Manager::default(),
+            _checkpoint_routes: checkpoint_routes,
+        })
     }
 
-    fn launch(&mut self, now: u64) {
+    fn launch(&mut self, now: u64) -> Result<(), CellGroupControllerError> {
         // Rotate the bounded roster queue. A busy group cannot monopolize the
         // next available apply slot, and successors never run concurrently.
         for _ in 0..self.pending.len() {
@@ -95,8 +109,18 @@ impl Worker {
                 self.retained_apply.push(job.work);
                 continue;
             }
-            if job.retry_at > now || self.active.contains(&job.group) {
+            if job.retry_at > now
+                || self.active.contains(&job.group)
+                || self.checkpoints.contains(&job.group)
+            {
                 self.pending.push_back(job);
+                continue;
+            }
+            let checkpoint_started = match &job.work {
+                Work::Prepare(work) => self.checkpoints.start(work, now, &self.shared)?,
+                Work::Publish(_) => false,
+            };
+            if checkpoint_started {
                 continue;
             }
             self.active.insert(job.group);
@@ -115,6 +139,7 @@ impl Worker {
         self.shared
             .pending_apply
             .store(self.pending.len(), Ordering::Release);
+        Ok(())
     }
 
     async fn quarantine(
@@ -151,7 +176,7 @@ impl Worker {
             let now = domain
                 .mono_ms()
                 .map_err(|_| CellGroupControllerError::Closed)?;
-            self.launch(now);
+            self.launch(now)?;
             let timer = domain
                 .sleep_until(wake_at)
                 .map_err(|_| CellGroupControllerError::Closed)?;
@@ -217,6 +242,23 @@ impl Worker {
                         Ok(None) => (),
                     }
                 }
+                completed = self.checkpoints.next(), if self.checkpoints.running() => {
+                    match completed {
+                    checkpoints::Completed::Captured((group, result)) => match result {
+                        Ok(checkpoint) if !self.quarantined.contains(&group) => self.checkpoints.publish(group, checkpoint, &self.runtime)?,
+                        Ok(_) => {
+                            if let Some(work) = self.checkpoints.remove(group, &self.shared) { self.retained_apply.push(Work::Prepare(work)); }
+                        }
+                        Err(error) => self.checkpoint_failed(group, error, now).await?,
+                    },
+                    checkpoints::Completed::Admitted((group, result)) => match result {
+                        Ok(()) => {
+                            if let Some(work) = self.checkpoints.accept(group, &self.shared)? { self.resume_apply(group, work, now); }
+                        }
+                        Err(error) => self.checkpoint_failed(group, error.into(), now).await?,
+                    },
+                    }
+                }
                 Some(()) = self.hints.next(), if !self.hints.is_empty() => (),
                 event = self.events.recv() => {
                     let event = event.ok_or(CellGroupControllerError::Closed)?;
@@ -278,7 +320,11 @@ impl Worker {
                             self.shared.applied.fetch_add(1, Ordering::Relaxed);
                             self.progress.send_replace(());
                         }
-                        CellGroupEffect::CheckpointPublished { .. } => {
+                        CellGroupEffect::CheckpointPublished { manifest } => {
+                            self.shared.checkpoints_published.fetch_add(1, Ordering::Relaxed);
+                            if let Some(work) = self.checkpoints.observed(group, manifest.position().index.get(), &self.shared)? {
+                                self.resume_apply(group, work, now);
+                            }
                             // Local compaction does not advance applied state.
                             self.progress.send_replace(());
                         }
@@ -290,6 +336,37 @@ impl Worker {
         }
     }
 
+    fn resume_apply(&mut self, group: GroupHistory, work: Box<CellGroupApply>, now: u64) {
+        if self.quarantined.contains(&group) {
+            self.retained_apply.push(Work::Prepare(work));
+        } else {
+            self.pending.push_back(Pending {
+                group,
+                work: Work::Prepare(work),
+                retry_at: now,
+            });
+        }
+    }
+
+    async fn checkpoint_failed(
+        &mut self,
+        group: GroupHistory,
+        error: CellGroupControllerError,
+        now: u64,
+    ) -> Result<(), CellGroupControllerError> {
+        if checkpoints::retryable(&error) {
+            if let Some(work) = self.checkpoints.retry(group, now, &self.shared) {
+                self.resume_apply(group, work, now);
+            }
+        } else {
+            if let Some(work) = self.checkpoints.remove(group, &self.shared) {
+                self.retained_apply.push(Work::Prepare(work));
+            }
+            self.quarantine(group, error).await?;
+        }
+        Ok(())
+    }
+
     pub(super) async fn finish(&mut self) -> Result<(), CellGroupControllerError> {
         self.requests.close();
         while self.requests.try_recv().is_ok() {}
@@ -299,6 +376,7 @@ impl Worker {
             let _ = completed.finish(true);
         }
         self.provisioning.join().await;
+        self.checkpoints.join().await;
         self.transport.close().await;
         let sql = self
             .sql

@@ -64,6 +64,16 @@ impl RaftTransport {
         Ok(())
     }
 
+    pub(crate) fn group_checkpoint_pool(&self) -> Result<CellGroupCheckpointPool, TransportError> {
+        let state = &self.handle.0;
+        let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
+        state.admit(&registry)?;
+        registry
+            .group_checkpoint_pool
+            .clone()
+            .ok_or(TransportError::Refused)
+    }
+
     pub fn register_group_checkpoint(
         &self,
         applier: CellGroupApplier,

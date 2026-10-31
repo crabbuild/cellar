@@ -4,6 +4,8 @@
 //! Admitted command ownership survives response cancellation and expiry.
 
 mod calls;
+mod checkpoints;
+pub use checkpoints::CellGroupCheckpointPolicy;
 mod commands;
 mod enrollments;
 mod failure;
@@ -45,6 +47,9 @@ pub struct CellGroupControllerLimits {
     /// Invocation/input/options retention. SQL capture, apply and result bytes
     /// retain the SQL pool's independent admission as well.
     pub max_command_bytes: usize,
+    /// Automatic compaction at an apply boundary. Requires the transport's
+    /// shared checkpoint pool. None leaves local publication to its caller.
+    pub checkpoints: Option<CellGroupCheckpointPolicy>,
 }
 
 #[derive(Clone, Debug)]
@@ -52,6 +57,7 @@ pub enum CellGroupControllerError {
     Invalid(&'static str),
     Runtime(RuntimeError),
     Apply(Arc<ExecutionError>),
+    Checkpoint(Arc<super::CellGroupCheckpointError>),
     Transport(TransportError),
     Catalog(Arc<crate::raft::catalog::CatalogError>),
     Command(Arc<super::CellCommandError>),
@@ -82,6 +88,9 @@ pub struct CellGroupControllerUsage {
     pub active_apply: usize,
     pub pending_apply: usize,
     pub applied: u64,
+    pub active_checkpoints: usize,
+    pub checkpoints_published: u64,
+    pub checkpoint_retries: u64,
     pub apply_retries: u64,
     /// Immediate queue/route refusals. The transport tracks later I/O failures.
     pub send_refusals: u64,
@@ -105,6 +114,10 @@ struct Shared {
     active_apply: AtomicUsize,
     pending_apply: AtomicUsize,
     applied: AtomicU64,
+    checkpoints: Option<checkpoints::Config>,
+    active_checkpoints: AtomicUsize,
+    checkpoints_published: AtomicU64,
+    checkpoint_retries: AtomicU64,
     apply_retries: AtomicU64,
     send_refusals: AtomicU64,
     closing: AtomicBool,
@@ -198,6 +211,7 @@ impl CellGroupController {
         {
             return Err(CellGroupControllerError::Invalid("controller owner"));
         }
+        let checkpoints = checkpoints::Config::new(limits, &transport)?;
         let mut roster = BTreeMap::new();
         for applier in appliers {
             if !applier.belongs_to_engine(&runtime.log().owner())
@@ -224,6 +238,10 @@ impl CellGroupController {
             active_apply: AtomicUsize::new(0),
             pending_apply: AtomicUsize::new(0),
             applied: AtomicU64::new(0),
+            checkpoints,
+            active_checkpoints: AtomicUsize::new(0),
+            checkpoints_published: AtomicU64::new(0),
+            checkpoint_retries: AtomicU64::new(0),
             apply_retries: AtomicU64::new(0),
             send_refusals: AtomicU64::new(0),
             closing: AtomicBool::new(false),
@@ -237,17 +255,17 @@ impl CellGroupController {
         let worker_domain = domain.clone();
         // Infrastructure cleanup is not cancelled with application tasks. The
         // worker retains tickets/appliers until all physical owners have joined.
+        let mut worker = worker::Worker::new(
+            runtime,
+            events,
+            transport,
+            sql,
+            roster,
+            receiver,
+            shared.clone(),
+        )?;
         domain
             .spawn_cleanup(async move {
-                let mut worker = worker::Worker::new(
-                    runtime,
-                    events,
-                    transport,
-                    sql,
-                    roster,
-                    receiver,
-                    shared.clone(),
-                );
                 let result = std::panic::AssertUnwindSafe(worker.run(&worker_domain))
                     .catch_unwind()
                     .await
@@ -262,6 +280,7 @@ impl CellGroupController {
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .take();
+                shared.active_checkpoints.store(0, Ordering::Release);
                 shared.active_apply.store(0, Ordering::Release);
                 shared.pending_apply.store(0, Ordering::Release);
                 shared.complete(result.and(joined));
@@ -305,6 +324,9 @@ impl CellGroupController {
             active_apply: shared.active_apply.load(Ordering::Acquire),
             pending_apply: shared.pending_apply.load(Ordering::Acquire),
             applied: shared.applied.load(Ordering::Relaxed),
+            active_checkpoints: shared.active_checkpoints.load(Ordering::Acquire),
+            checkpoints_published: shared.checkpoints_published.load(Ordering::Relaxed),
+            checkpoint_retries: shared.checkpoint_retries.load(Ordering::Relaxed),
             apply_retries: shared.apply_retries.load(Ordering::Relaxed),
             send_refusals: shared.send_refusals.load(Ordering::Relaxed),
             closing: shared.closing.load(Ordering::Acquire),

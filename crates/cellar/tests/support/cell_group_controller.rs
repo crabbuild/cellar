@@ -15,6 +15,7 @@ pub(super) fn limits() -> CellGroupControllerLimits {
         retry_interval_ms: 5,
         max_commands: 2,
         max_command_bytes: 64 * 1024,
+        checkpoints: None,
     }
 }
 
@@ -26,7 +27,9 @@ pub(super) async fn start_with_limits(
     fixture: &mut RuntimeCluster,
     bounds: CellGroupControllerLimits,
 ) -> Result<Vec<CellGroupController>> {
-    fixture.connect_tcp().await?;
+    if fixture.transports.is_empty() {
+        fixture.connect_tcp().await?;
+    }
     let mut controllers = Vec::new();
     for (node, events) in fixture.events.drain(..).enumerate() {
         let selected: Vec<_> = fixture
@@ -53,7 +56,7 @@ pub(super) async fn start_with_limits(
     Ok(controllers)
 }
 
-async fn wait_for(mut predicate: impl AsyncFnMut() -> Result<bool>) -> Result<()> {
+pub(super) async fn wait_for(mut predicate: impl AsyncFnMut() -> Result<bool>) -> Result<()> {
     tokio::time::timeout(Duration::from_secs(15), async {
         while !predicate().await? {
             tokio::time::sleep(Duration::from_millis(2)).await;
@@ -63,7 +66,11 @@ async fn wait_for(mut predicate: impl AsyncFnMut() -> Result<bool>) -> Result<()
     .await?
 }
 
-async fn applied(fixture: &RuntimeCluster, group: GroupHistory, index: LogIndex) -> Result<()> {
+pub(super) async fn applied(
+    fixture: &RuntimeCluster,
+    group: GroupHistory,
+    index: LogIndex,
+) -> Result<()> {
     wait_for(async || {
         for runtime in &fixture.runtimes {
             if runtime.status(group).await?.applied.index < index {

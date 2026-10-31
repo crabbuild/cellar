@@ -102,6 +102,7 @@ enum Command {
     Step(Message),
     Checkpoint(Message, PreparedCellGroupCheckpoint),
     PublishCheckpoint(PreparedLocalCellGroupCheckpoint),
+    CheckpointBeforeApply(CellGroupTicket, PreparedLocalCellGroupCheckpoint),
     AdmitStep(Message),
     Propose(Vec<u8>),
     ProposeAtTerm(cellar_logic::consensus::Term, Vec<u8>),
@@ -282,7 +283,10 @@ impl CellGroupRuntime {
         bytes: usize,
     ) -> Result<Response, RuntimeError> {
         self.admit()?;
-        let completion = matches!(command, Command::Apply(..) | Command::Quarantine);
+        let completion = matches!(
+            command,
+            Command::Apply(..) | Command::CheckpointBeforeApply(..) | Command::Quarantine
+        );
         let snapshot_hint = matches!(command, Command::SnapshotStatus(..));
         let budget = if snapshot_hint {
             &self.inner.snapshot_hints
@@ -553,6 +557,26 @@ impl CellGroupRuntime {
         self.call(Some(history), Command::PublishCheckpoint(checkpoint), bytes)
             .await
             .map(|_| ())
+    }
+
+    pub(crate) async fn checkpoint_before_apply(
+        &self,
+        history: GroupHistory,
+        ticket: CellGroupTicket,
+        checkpoint: PreparedLocalCellGroupCheckpoint,
+    ) -> Result<(), RuntimeError> {
+        let bytes = checkpoint
+            .root()
+            .reserved_bytes()
+            .saturating_add(checkpoint.snapshot().compute_size() as usize)
+            .saturating_add(4096);
+        self.call(
+            Some(history),
+            Command::CheckpointBeforeApply(ticket, checkpoint),
+            bytes,
+        )
+        .await
+        .map(|_| ())
     }
 
     /// Queue a verified snapshot on this group owner. Admission is not a

@@ -279,7 +279,10 @@ impl Worker {
             let _ = answer.send(Ok(Response::Unit));
             return;
         }
-        if matches!(request.command, Command::Apply(..)) {
+        if matches!(
+            request.command,
+            Command::Apply(..) | Command::CheckpointBeforeApply(..)
+        ) {
             if group.completion.is_some() {
                 reply(request, Err(RuntimeError::Overloaded));
                 return;
@@ -321,10 +324,15 @@ impl Worker {
             group.queued = false;
             if group.failed.is_none() {
                 if let Some(request) = group.completion.take() {
-                    let Command::Apply(ticket, next) = &request.command else {
-                        return Err(RuntimeError::Protocol("completion queue".into()));
+                    let result = match &request.command {
+                        Command::Apply(ticket, next) => {
+                            group.owner.complete_apply(ticket.clone(), (**next).clone())
+                        }
+                        Command::CheckpointBeforeApply(ticket, checkpoint) => group
+                            .owner
+                            .checkpoint_before_apply(ticket, checkpoint.clone()),
+                        _ => return Err(RuntimeError::Protocol("completion queue".into())),
                     };
-                    let result = group.owner.complete_apply(ticket.clone(), (**next).clone());
                     if matches!(result, Err(RuntimeError::NotReady)) {
                         group.completion = Some(request);
                     } else {

@@ -495,6 +495,35 @@ impl CellGroupOwner {
         if !self.idle() || self.applying.is_some() {
             return Err(RuntimeError::NotReady);
         }
+        self.select_local_checkpoint(checkpoint)
+    }
+
+    /// The controller holds this exact successor ticket without starting apply.
+    /// Publishing its base cannot race another applied root or snapshot install.
+    /// Pending Ready work may persist a later suffix; it cannot change this cut.
+    pub(super) fn checkpoint_before_apply(
+        &mut self,
+        ticket: &CellGroupTicket,
+        checkpoint: PreparedLocalCellGroupCheckpoint,
+    ) -> Result<(), RuntimeError> {
+        self.live()?;
+        if self.phase.is_some() || self.checkpoint.is_some() || self.waiting.is_some() {
+            return Err(RuntimeError::NotReady);
+        }
+        if self
+            .applying
+            .as_ref()
+            .is_none_or(|active| !active.matches(ticket))
+        {
+            return Err(RuntimeError::StaleCompletion);
+        }
+        self.select_local_checkpoint(checkpoint)
+    }
+
+    fn select_local_checkpoint(
+        &mut self,
+        checkpoint: PreparedLocalCellGroupCheckpoint,
+    ) -> Result<(), RuntimeError> {
         let root = checkpoint.root();
         if root.marker() != self.current.marker()
             || !Arc::ptr_eq(&root.engine_owner, &self.group.owner)
