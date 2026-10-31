@@ -748,7 +748,8 @@ its cancelled flag interrupts SQL, and the archive-specific owner joins the clos
 Pending requests and unconsumed responses retain bounded S3 admission.
 
 A successful response retains the complete physical coverage, its pool admission
-and the exclusive journal lock. The journal owner tracks weak uses and refuses
+and the exclusive journal lock. Immutable route authority is shared per group,
+so membership records are not copied into every response. The journal owner tracks weak uses and refuses
 predecessor-hold retirement while a response still retains that coverage. A
 replacement owner cannot acquire that journal lock before the response drops.
 Idle registrations do not retain replay workspaces. Active consumers can occupy

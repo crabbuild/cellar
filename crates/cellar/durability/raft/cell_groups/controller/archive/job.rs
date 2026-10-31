@@ -10,6 +10,21 @@ pub(super) struct Context {
     pub journal: Arc<Journal>,
     pub registry: CellGroupArchiveRegistry,
     pub uses: Arc<Mutex<Vec<crate::raft::cell_groups::archive::CoverageUse>>>,
+    pub authority: Arc<Authority>,
+}
+
+pub(super) struct Authority {
+    directory: RangeDirectory,
+    birth: CellGroupBirth,
+}
+
+impl Authority {
+    pub(super) async fn require_current(&self) -> Result<()> {
+        self.directory
+            .require_current_group_birth(&self.birth)
+            .await
+            .map_err(|error| Error::Binding(error.into()))
+    }
 }
 
 pub(super) async fn open(
@@ -58,6 +73,10 @@ pub(super) async fn open(
         journal: Arc::new(journal),
         registry,
         uses: Arc::new(Mutex::new(Vec::new())),
+        authority: Arc::new(Authority {
+            directory: registration.directory.clone(),
+            birth: registration.birth.clone(),
+        }),
     })
 }
 

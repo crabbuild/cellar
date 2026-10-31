@@ -17,16 +17,15 @@ pub(crate) struct CommandProof {
     // A replacement owner cannot retire this hold while a consumer still uses it.
     _journal: Arc<journal::Journal>,
     _permit: Arc<Permit>,
-    directory: RangeDirectory,
-    birth: CellGroupBirth,
+    authority: Arc<job::Authority>,
 }
 
 impl CommandProof {
     pub(crate) async fn require_current(&self) -> std::result::Result<(), CellDispatchError> {
-        self.directory
-            .require_current_group_birth(&self.birth)
+        self.authority
+            .require_current()
             .await
-            .map_err(|error| CellDispatchError::Archive(Arc::new(Error::Binding(error.into()))))
+            .map_err(|error| CellDispatchError::Archive(Arc::new(error)))
     }
 }
 
@@ -275,12 +274,8 @@ pub(super) async fn prove(
             Ok(false) | Err(CellGroupArchiveError::Busy) => waiting.push(request),
             Err(error) => request.fail(Arc::new(Error::Archive(error))),
             Ok(true) => {
-                if let Err(error) = registration
-                    .directory
-                    .require_current_group_birth(&registration.birth)
-                    .await
-                {
-                    request.fail(Arc::new(Error::Binding(error.into())));
+                if let Err(error) = context.authority.require_current().await {
+                    request.fail(Arc::new(error));
                     continue;
                 }
                 let Request {
@@ -295,8 +290,7 @@ pub(super) async fn prove(
                         _coverage: coverage.clone(),
                         _journal: context.journal.clone(),
                         _permit: permit,
-                        directory: registration.directory.clone(),
-                        birth: registration.birth.clone(),
+                        authority: context.authority.clone(),
                     }),
                 }));
             }
