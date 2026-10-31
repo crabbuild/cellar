@@ -412,6 +412,14 @@ or apply pressure. Pending Raft work may still append a suffix. Only the matchin
 `CheckpointPublished` event releases the successor to physical apply; an admission
 reply alone does not. Reply/event ordering is handled in either order.
 
+Checkpoint selection precedes the SQL apply-capacity check in the controller's
+bounded pending scan. An occupied SQL slot therefore does not block another
+group's capture/publication. SQL work stays queued when its capacity is full;
+checkpoint lifecycle, source and completion admission remain independently bounded.
+Native tests hold actual image-directory persistence in both image forms, publish
+an unrelated complete checkpoint, retain its unapplied suffix, then release and
+join the original physical apply.
+
 Pool contention or transient admission overload releases the successor and backs
 off until a later apply boundary using the controller's node timer. There is no
 per-cell task or unbounded retry loop. Capture jobs are joined before releasing the

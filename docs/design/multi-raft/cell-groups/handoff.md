@@ -43,7 +43,25 @@ effects/cache lifecycle belong to CG-08, and final legacy removal to CG-16. Trac
 these remaining capabilities in their owning tasks.
 Shared RustFS, independent voter failure domains, power loss and load remain unqualified.
 
-The latest checkpoint at `5cfa9fb6` adds production idle-node orphan
+The latest checkpoint at `bad0387c` removes checkpoint scheduling's
+dependence on free SQL apply slots. The bounded pending scan still visits other
+groups when SQL is full, starts checkpoint work within its own capacity, then
+defers SQL work without increasing its limit. Two physical image-barrier cases
+hold node-zero apply in both image forms while another group's preceding complete
+checkpoint publishes. Healthy voters apply its successor; node zero retains its
+current root, suffix and SQL ownership until release. Both new cases also run
+inside the exact resource-bound snapshot case.
+
+All five exact snapshot cases, 152 execution cases and nineteen storage cases
+pass, along with all sixteen commands including the prescribed gate. Its record
+under `.cellar/cell-groups-evidence/CG-05-checkpoint-apply-scheduling/qualification/`
+binds 335 source hashes and three executables. Both original and diagnostic
+failures retain their source/output/executable hashes; independent verification
+and `check_evidence` pass. No timeout, assertion or physical fence was weakened.
+CG-05 remains IN_PROGRESS pending completion-lane saturation and sustained capture
+fairness qualification. S3 archival, public cutover and deployment gates stay open.
+
+The preceding checkpoint at `5cfa9fb6` adds production idle-node orphan
 maintenance and authenticated retry on the same interrupted learner disk. All five
 exact snapshot cases, 150 execution cases, nineteen Raft-storage cases and 38
 relevant LTX cases pass. All nineteen commands pass, including the complete CG-05
@@ -913,7 +931,9 @@ Do not let plan maintenance replace implementation.
    fault/lifecycle and availability requirements below before task completion. Preserve permanent claims, local install receipts, complete
    physical recovery and unrelated-group progress.
 2. Pending-publication sync and cancelled controller shutdown now pass in both
-   image forms. Complete remaining CG-05 fault/lifecycle requirements: minority signed receipt
+   image forms. An unrelated checkpoint now publishes while the sole SQL apply
+   slot remains physically held, with all owners retained. Complete remaining
+   CG-05 fault/lifecycle requirements: minority signed receipt
    refusal, continuous capture fairness, exhausted apply/completion budgets, other
    capture/admission cancellation boundaries, quarantine capacity and retained-root pressure.
    Idle-node orphan collection and fresh-seed retry after interrupted dependency

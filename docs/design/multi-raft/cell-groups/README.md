@@ -26,8 +26,9 @@ Controller publication through cancelled shutdown now passes in both image forms
 Idle-node complete-inventory orphan collection and fresh authenticated retry on the
 same interrupted learner disk now pass in both forms, including live suffix catch-up
 and cold restart. Remaining capture fairness and controller/budget/root-pressure
-qualification precedes verified S3 archive/reclamation. The production host has
-not yet cut over to shared groups.
+qualification precedes verified S3 archive/reclamation. Checkpoint capture and
+publication now progress while an unrelated physical apply occupies all SQL apply
+capacity. The production host has not yet cut over to shared groups.
 See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.
 

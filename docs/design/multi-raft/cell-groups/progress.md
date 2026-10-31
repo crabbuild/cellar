@@ -10,6 +10,49 @@ CG-05 is IN_PROGRESS; CG-06 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-05 checkpoint progress while SQL apply capacity is full
+
+Qualified source: `bad0387cb025fbba62f37aa42ba80b81d75366dd`. The production controller now
+scans its bounded pending queue even when every SQL apply slot is occupied.
+Checkpoint capture/publication uses independent capacity and can start before
+SQL work is deferred. This removes a reproduced dependency between unrelated
+groups without increasing SQL concurrency or releasing physical ownership early.
+
+All five required snapshot cases, 152 shared-execution cases and nineteen
+Raft-storage cases pass: 176 distinct Rust cases. All sixteen commands pass,
+including the complete prescribed CG-05 native gate, all-target build/Clippy,
+formatting/layout, dependency isolation, docs, source preflight and 37 plan-validator
+tests. The record
+`.cellar/cell-groups-evidence/CG-05-checkpoint-apply-scheduling/qualification/checkpoint.json`
+binds 335 source hashes, three executables, frozen plan inputs and the prior
+checkpoint. Independent hashes and `check_evidence` pass. CG-05 stays IN_PROGRESS.
+
+Two new cases hold actual node-zero image-directory persistence, once with
+materialized apply and once with extent apply. The sole SQL apply slot and its
+retained completion stay charged. A second group commits a successor, which the
+other two voters apply. Node zero publishes that group's preceding complete
+checkpoint while preserving its unchanged current root and unapplied suffix.
+After physical release both groups apply, independent sequence-1 cells verify,
+and controller shutdown joins all owners. The exact resource-bound snapshot case
+directly runs both scenarios.
+
+Both cases failed before the production change at the same five-second checkpoint
+deadline. A second reproduction first verified the other voters' applied successor;
+diagnostics showed one active and one pending apply, zero active checkpoints and
+zero checkpoint sources. The worker stopped scanning solely because SQL capacity
+was full. Moving that capacity check after checkpoint admission makes both cases
+pass. The initial and diagnostic reproductions retain their exact source copies,
+outputs and executables; an intermediate diagnostic-format compiler failure is
+also retained. No timeout, assertion, resource bound or persistence fence changed.
+
+**Reflection and next step:** checkpoint capture is now independent of occupied
+SQL apply capacity. Publication with an exhausted completion lane and capture
+fairness under sustained traffic still need direct qualification before closing
+CG-05. Then deliver CG-06 complete S3 checkpoint/tail coverage and safe Raft log
+reclamation, followed by effects/cache lifetime and SDK/fleet cutover. Real RustFS,
+load, independent failure domains, zero-quorum recovery and final legacy removal
+remain open. This gate does not combine earlier LTX binaries into its case count.
+
 ## CG-05 idle-node orphan reclamation and authenticated cold retry
 
 Qualified source: `5cfa9fb652c32cc75934ef3d0a32e22ffc009f35`. `ReplicaLog::reclaim_cell_storage`
