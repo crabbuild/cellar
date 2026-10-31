@@ -40,6 +40,7 @@ pub struct Gate {
     pub sync_path: Mutex<Option<std::path::PathBuf>>,
     pub image_read_paths: Mutex<Vec<std::path::PathBuf>>,
     pub dependency_cut: Mutex<Option<(std::path::PathBuf, u64)>>,
+    sync_when: Mutex<Option<Arc<dyn Fn() -> bool + Send + Sync>>>,
 }
 
 impl Gate {
@@ -53,12 +54,26 @@ impl Gate {
             sync_path: Mutex::new(None),
             image_read_paths: Mutex::new(vec![]),
             dependency_cut: Mutex::new(None),
+            sync_when: Mutex::new(None),
         })
     }
 
     pub fn arm(self: &Arc<Self>, mode: u8) -> Release {
+        *self.sync_when.lock().unwrap() = None;
         *self.released.lock().unwrap() = false;
         self.mode.store(mode, Ordering::Release);
+        Release(self.clone())
+    }
+
+    /// Hold a real log sync only after the owning lifecycle is entered. Earlier
+    /// Raft append/commit syncs pass normally; no sync-count assumption is needed.
+    pub fn arm_sync_when(
+        self: &Arc<Self>,
+        when: impl Fn() -> bool + Send + Sync + 'static,
+    ) -> Release {
+        *self.released.lock().unwrap() = false;
+        *self.sync_when.lock().unwrap() = Some(Arc::new(when));
+        self.mode.store(HOLD_SYNC, Ordering::Release);
         Release(self.clone())
     }
 
@@ -82,6 +97,7 @@ pub struct Release(Arc<Gate>);
 impl Drop for Release {
     fn drop(&mut self) {
         self.0.mode.store(OFF, Ordering::Release);
+        self.0.sync_when.lock().unwrap().take();
         *self.0.released.lock().unwrap() = true;
         self.0.release.notify_all();
     }
@@ -243,7 +259,8 @@ impl HostFileIo for FaultFile {
             self.pause_dependency()?;
             return Ok(());
         }
-        if self.log {
+        let sync_when = self.gate.sync_when.lock().unwrap().clone();
+        if self.log && sync_when.is_none_or(|when| when()) {
             let mode = self.gate.mode.load(Ordering::Acquire);
             let mode = if matches!(
                 mode,

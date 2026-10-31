@@ -142,6 +142,16 @@ async fn checkpoint_controller_busy_pool_preserves_apply_and_other_group_progres
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_controller_materialized_holds_sync_and_joins_cancelled_close() -> Result<()> {
+    runtime_fixture::controller_checkpoint_shutdown(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_controller_extents_hold_sync_and_join_cancelled_close() -> Result<()> {
+    runtime_fixture::controller_checkpoint_shutdown(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn checkpoint_tcp_refuses_invalid_streams_and_preserves_other_group_progress() -> Result<()> {
     runtime_fixture::tcp_protocol().await
 }

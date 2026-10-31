@@ -814,7 +814,7 @@ pub(super) use sql::{
     provisioning_retries_retained_owner,
 };
 
-pub(super) use sql::automatic_checkpoints;
+pub(super) use sql::{automatic_checkpoints, controller_checkpoint_shutdown};
 
 pub(super) use sql::{membership_lifecycle, membership_sync};
 
