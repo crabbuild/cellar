@@ -10,6 +10,64 @@ CG-06 is IN_PROGRESS; CG-07 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-06 local enrollment S3 response settlement
+
+Source: `c2801b6586ffc8b3b765312e0042986e881d773a`. CG-06 remains IN_PROGRESS. The explicit
+`CellGroupDispatcher::with_s3` binding now also settles local enrollment responses.
+The existing fair archive lane owns both output kinds under independent bounded
+S3 admission. Enrollment reserves its bounded original creation record before
+releasing resolved SQL output retention; no original SQL/command quota changes.
+
+Required durability is the maximum of request and immutable namespace minimum,
+captured in the invocation fingerprint. Exact runtime ownership and active archive
+registration precede initialization. After commitment, producer/preparation
+ownership clears before the archive wait. A complete independently recovered group
+must contain the exact history, creation ID, schema and initial image commitment.
+An older cut waits; conflicting creation refuses. Subsequent mutations preserve
+that original provenance without retaining superseded initial bytes. Proof and
+exact retry never rerun initialization.
+
+The response rechecks catalog birth, actual leader authority and its exact current
+creation record under the original deadline. `CellSqlEnrollment::durability`
+reports S3 only while retaining its private complete-coverage proof, pool admission
+and journal lock. Active outputs backpressure the shared proof pools until release;
+idle groups retain no replay workspace. Remote enrollment explicitly refuses S3
+before transmission until its wire contract is integrated.
+
+Nine exact RustFS cases pass in both image formats. The two new cases also exercise
+request and namespace minimums, a foreign runtime refusing before initialization,
+publication-held output, a later same-cell Quorum mutation during the S3 wait,
+retained proof slots, original-record duplicates and conflicting creation IDs.
+Deadline and dropped-reply branches keep the one-command/one-SQL-slot quotas,
+refund admission, allow a Quorum successor during archive outage and retry the
+same creation with exactly one initializer invocation. Seven signed S3 probes
+and all earlier local command/archive/refusal cases pass.
+
+All fourteen regression/check commands pass: 195 distinct Rust cases across six
+copied executables, locked all-target Clippy for Cellar/logic/LTX, format/layout,
+dependency/docs/preflight/plan checks, 37 Python tests and system-Python hashing.
+The retained records under `.cellar/cell-groups-evidence/CG-06-s3-enrollment/`
+bind 2566 source hashes, frozen plan inputs, exact selections, executable
+and output hashes, orchestration sources and prior qualification. Independent
+source/hash/selection and credential-exclusion audit passes. No original task
+case, oracle or pre-existing quota was weakened. The initial fixture-allocation
+Clippy refusal and its exact source/log remain retained; the correction changes
+only two literals. Four original CG-06 cases and its full gate remain pending;
+this is partial task evidence.
+
+Reflection: finish local receipt lookup, preserving typed expiry/conflict and the
+ambiguity of an absent row, then remote command/enrollment/receipt output proofs
+with retention through physical delivery. Add explicit unarchived-byte/disk
+admission, physical shared-engine Raft file purge and fenced new-incarnation
+serving with complete old-voter lineage inventory. Qualify multi-head proof
+retention, controller process-kill restart and physical-read shutdown cuts.
+A performance opportunity is incremental committed-tail scheduling and smaller
+sealed output attestations backed by real hold leases, qualified under load.
+CG-08 lifetimes/maintenance precede CG-07 public SDK/fleet cutover; topology,
+placement, hibernation, managed recovery, load and final legacy removal remain.
+Voters share one host and RustFS one local VM; independent hosts, measured load,
+fenced replacement-quorum serving and the full hard cutover remain unqualified.
+
 ## CG-06 local command S3 response settlement
 
 Source: `3d564f3db2c2eefc87119e7b3395f1bca17b99fa`. CG-06 remains IN_PROGRESS. An explicit
