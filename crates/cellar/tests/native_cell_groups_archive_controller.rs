@@ -3,9 +3,6 @@
 //! Controller-owned archive publication; no fixture event pumping after startup.
 #![allow(clippy::disallowed_methods)]
 
-#[path = "support/cell_group_archive_store.rs"]
-#[allow(dead_code)]
-mod archive_store;
 #[path = "support/cell_group_checkpoint.rs"]
 #[allow(dead_code)]
 mod checkpoint_fixture;
