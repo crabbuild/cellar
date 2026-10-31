@@ -51,6 +51,7 @@ async fn partial_snapshot_never_serves() -> Result<()> {
         // These parents launch this same executable's ignored child and verify
         // actual retained disks after owned SIGKILL at all six install cuts.
         Box::pin(runtime_fixture::seed_crash(rooted)).await?;
+        fixture(|| runtime_fixture::seed_retry(rooted)).await?;
     }
     Ok(())
 }
@@ -85,6 +86,7 @@ async fn snapshot_empty_cell_and_extent_restart() -> Result<()> {
 async fn snapshot_memory_and_pin_bounds() -> Result<()> {
     for rooted in [false, true] {
         runtime_fixture::transfer_pressure(rooted).await?;
+        fixture(|| runtime_fixture::shared_inventory(rooted)).await?;
     }
     checkpoint_fixture::ownership().await?;
     runtime_fixture::local_shutdown().await?;

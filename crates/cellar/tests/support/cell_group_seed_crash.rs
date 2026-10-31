@@ -14,6 +14,7 @@ use std::path::Path;
 #[serde(deny_unknown_fields)]
 struct Oracle {
     rooted: bool,
+    source_root: std::path::PathBuf,
     cut: String,
     staged: GroupManifest,
     expected: GroupManifest,
@@ -44,7 +45,14 @@ pub(crate) async fn seed_process_fixture() -> Result<()> {
     anyhow::ensure!(
         matches!(
             cut.as_str(),
-            "staged" | "image-prefix" | "image-synced" | "before-sync" | "after-sync" | "published"
+            "staged"
+                | "image-prefix"
+                | "image-synced"
+                | "retry-prefix"
+                | "retry-synced"
+                | "before-sync"
+                | "after-sync"
+                | "published"
         ),
         "invalid crash cut"
     );
@@ -142,6 +150,7 @@ pub(crate) async fn seed_process_fixture() -> Result<()> {
         &root.join("oracle.json"),
         &serde_json::to_vec(&Oracle {
             rooted,
+            source_root: fixture.cluster._root.path().to_path_buf(),
             cut: cut.clone(),
             staged,
             expected: expected.clone(),
@@ -180,8 +189,11 @@ pub(crate) async fn seed_process_fixture() -> Result<()> {
         "after-sync" => Some(gate.arm(fault::CRASH_AFTER_SYNC)),
         _ => None,
     };
-    if matches!(cut.as_str(), "image-prefix" | "image-synced") {
-        let _release_image = image_gate.arm(if cut == "image-prefix" {
+    if matches!(
+        cut.as_str(),
+        "image-prefix" | "image-synced" | "retry-prefix" | "retry-synced"
+    ) {
+        let _release_image = image_gate.arm(if cut.ends_with("prefix") {
             fault::HOLD_DEPENDENCY_PREFIX
         } else {
             fault::HOLD_DEPENDENCY_SYNC
@@ -351,3 +363,7 @@ async fn recover(root: &Path, rooted: bool, cut: &str) -> Result<()> {
     domain.shutdown().await;
     Ok(())
 }
+
+#[path = "cell_group_seed_retry.rs"]
+mod retry;
+pub(crate) use retry::seed_retry;

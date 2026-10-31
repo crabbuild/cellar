@@ -5,6 +5,10 @@
 use super::cache::{
     genesis, validate_conf, CachedGroup, GroupLog, GroupWrite, SnapshotChange, StoredGroup,
 };
+use super::cell_groups::{
+    reclaim::ReclaimCells, CellGroupApplier, CellGroupReclaimError, CellGroupReclaimLimits,
+    CellGroupReclaimReport, PreparedGroupManifest,
+};
 use super::filesystem::EngineFileSystem;
 use super::fleet_stop::{Guard, LifecycleRecord, LifecycleUpdate};
 use super::options::{LogOpenMode, ReplicaLogOptions};
@@ -257,6 +261,11 @@ enum Work {
         Vec<GroupWrite<GroupHistory>>,
         Reply<SyncReceipt<GroupHistory>>,
     ),
+    ReclaimCells(
+        Box<ReclaimCells>,
+        MaintenanceLease,
+        Reply<Result<CellGroupReclaimReport, CellGroupReclaimError>>,
+    ),
     Purge(Reply<()>),
 }
 
@@ -265,6 +274,21 @@ pub(crate) struct RuntimeLease(Arc<LogHandle>);
 
 /// Held by the SQL owner, physical workers and retained response admission.
 pub(crate) struct SqlPoolLease(Arc<LogHandle>);
+
+// Maintenance performs no consensus writes of its own. It may refund an
+// unqueued reservation, but an entered operation retains both claims to exit.
+struct MaintenanceLease {
+    runtime: Option<RuntimeLease>,
+    _sql: Arc<SqlPoolLease>,
+}
+
+impl Drop for MaintenanceLease {
+    fn drop(&mut self) {
+        if let Some(runtime) = self.runtime.take() {
+            runtime.release();
+        }
+    }
+}
 
 impl Drop for SqlPoolLease {
     fn drop(&mut self) {
@@ -545,6 +569,50 @@ impl ReplicaLog {
             .values()
             .map(|group| group.as_cells().cloned())
             .collect()
+    }
+
+    /// Reconcile every physical group in this engine, then collect a bounded
+    /// batch of unselected image/page files. Supply one exact applier per group,
+    /// including unattached/retired groups, and every additional durable archive
+    /// or transition root. Image stores must belong exclusively to this node
+    /// engine. Live reader/transfer pins remain protected independently.
+    ///
+    /// Runtime and SQL ownership must have joined shutdown before maintenance;
+    /// the engine reserves both claims until verification/deletion finishes.
+    /// A busy applier refuses instead of waiting. Cancellation retains work and admission;
+    /// log.close() joins physical completion. This supplies no serving, archive
+    /// coverage, log truncation or voting authority.
+    pub async fn reclaim_cell_storage(
+        &self,
+        appliers: Vec<CellGroupApplier>,
+        retained: Vec<PreparedGroupManifest>,
+        limits: CellGroupReclaimLimits,
+    ) -> Result<CellGroupReclaimReport, CellGroupReclaimError> {
+        let work = ReclaimCells::new(appliers, retained, limits)?;
+        let bytes = work.reservation_bytes()?;
+        let runtime = self.claim_runtime().map_err(|e| match e {
+            LogError::AlreadyExists => CellGroupReclaimError::Busy,
+            e => CellGroupReclaimError::Log(e),
+        })?;
+        let sql = match self.claim_sql_pool() {
+            Ok(sql) => sql,
+            Err(error) => {
+                runtime.release();
+                return Err(match error {
+                    LogError::AlreadyExists => CellGroupReclaimError::Busy,
+                    e => CellGroupReclaimError::Log(e),
+                });
+            }
+        };
+        let lease = MaintenanceLease {
+            runtime: Some(runtime),
+            _sql: sql,
+        };
+        self.request(bytes, |reply| {
+            Work::ReclaimCells(Box::new(work), lease, reply)
+        })
+        .await
+        .map_err(CellGroupReclaimError::Log)?
     }
 
     pub fn cell_group(&self, history: &GroupHistory) -> Result<GroupLog<GroupHistory>, LogError> {
@@ -1617,6 +1685,23 @@ impl Worker {
                     }
                     let _ = reply.send(result);
                     fatal
+                }
+                Work::ReclaimCells(work, lease, reply) => {
+                    let result = (|| {
+                        let groups = self
+                            .groups
+                            .read()
+                            .map_err(|_| LogError::Closed)?
+                            .values()
+                            .map(|g| g.as_cells().cloned())
+                            .collect::<Result<Vec<_>, _>>()?;
+                        Ok(work.run(&self.owner, groups))
+                    })();
+                    // Physical stores quarantine their own uncertain deletes;
+                    // a refused maintenance request cannot relabel log state.
+                    drop(lease);
+                    let _ = reply.send(result);
+                    None
                 }
                 Work::Seeded(seed, reply) => {
                     let result = self.seeded(*seed);

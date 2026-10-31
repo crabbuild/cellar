@@ -15,6 +15,26 @@ mod runtime_fixture;
 mod checkpoint_fixture;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn seed_retry_materialized_reclaims_interrupted_disk() -> Result<()> {
+    Box::pin(runtime_fixture::seed_retry(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn seed_retry_extents_reclaim_interrupted_disk() -> Result<()> {
+    Box::pin(runtime_fixture::seed_retry(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn node_reclaim_materialized_preserves_complete_shared_inventory() -> Result<()> {
+    Box::pin(runtime_fixture::shared_inventory(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn node_reclaim_extents_preserve_complete_shared_inventory() -> Result<()> {
+    Box::pin(runtime_fixture::shared_inventory(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn seed_transfer_materialized_revocation_retains_physical_owner() -> Result<()> {
     Box::pin(runtime_fixture::seed_transfer_revocation(false)).await
 }

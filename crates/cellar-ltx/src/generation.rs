@@ -629,6 +629,11 @@ impl GenerationStore {
         self.inner.limits.apply
     }
 
+    /// Compare exact open directory owners without performing I/O.
+    pub fn same_inventory(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+
     /// Whether this pin belongs to this exact open directory owner. Logical
     /// image IDs and digests alone do not establish local file ownership.
     /// This does not select the image as an authoritative retained reference.

@@ -122,11 +122,24 @@ pub(super) async fn restore_catalog(
     route: &GroupRoute,
     domain: &ExecutionDomain,
 ) -> Result<(RangeDirectory, CellGroupBirth)> {
+    let (directory, birth, _) = restore_catalog_store(objects, route, domain).await?;
+    Ok((directory, birth))
+}
+
+pub(super) async fn restore_catalog_store(
+    objects: Vec<(String, Vec<u8>)>,
+    route: &GroupRoute,
+    domain: &ExecutionDomain,
+) -> Result<(
+    RangeDirectory,
+    CellGroupBirth,
+    Arc<object_store::memory::InMemory>,
+)> {
     let store = Arc::new(object_store::memory::InMemory::new());
     for (name, bytes) in objects {
         store.put(&ObjectPath::from(name), bytes.into()).await?;
     }
-    let catalog = Catalog::new(store, CatalogOptions::default())?;
+    let catalog = Catalog::new(store.clone(), CatalogOptions::default())?;
     let namespace = domain
         .run(catalog.open_namespace(NamespaceConfig::new(
             route.history.cluster,
@@ -139,5 +152,5 @@ pub(super) async fn restore_catalog(
     let birth = domain
         .run(directory.materialize_selected_group(route))
         .await??;
-    Ok((directory, birth))
+    Ok((directory, birth, store))
 }

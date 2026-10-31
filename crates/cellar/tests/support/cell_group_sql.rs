@@ -625,3 +625,9 @@ mod crash_fixture;
 #[path = "cell_group_membership_crash.rs"]
 mod membership_crash;
 pub(crate) use membership_crash::{membership_crash, membership_process_fixture};
+
+#[path = "cell_group_node_reclaim.rs"]
+mod node_reclaim;
+pub(crate) use node_reclaim::shared_inventory;
+
+pub(crate) use seed_crash::seed_retry;

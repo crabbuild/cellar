@@ -829,3 +829,5 @@ pub(super) use sql::{seed_persistence, seed_transfer_revocation};
 pub(super) use sql::{seed_crash, seed_process_fixture};
 
 pub(super) use sql::{membership_crash, membership_process_fixture};
+
+pub(super) use sql::{seed_retry, shared_inventory};

@@ -40,22 +40,30 @@ impl CellGroupApplier {
     /// owning blocking domain. Never reopen a page directory while its selected
     /// roots still hold pins. This grants no catalog, quorum or serving authority.
     pub fn recover_selected(&self) -> Result<PreparedGroupManifest, ExecutionError> {
+        let mut owner = self
+            .storage
+            .lock()
+            .map_err(|_| ExecutionError::Invalid("poisoned recovery owner"))?;
+        Ok(self.recover_roots(&mut owner)?.0)
+    }
+
+    pub(in crate::raft::cell_groups) fn recover_roots(
+        &self,
+        owner: &mut Storage,
+    ) -> Result<(PreparedGroupManifest, Option<PreparedGroupManifest>), ExecutionError> {
         let marker = self
             .group
             .group_manifest()
             .map_err(storage)?
             .ok_or(ExecutionError::Invalid("recovery manifest missing"))?;
-        let prepared = {
-            let mut owner = self
-                .storage
-                .lock()
-                .map_err(|_| ExecutionError::Invalid("poisoned recovery owner"))?;
-            let Storage {
-                tree,
-                pages,
-                images,
-                ..
-            } = &mut *owner;
+        let checkpoint = self.group.checkpoint_manifest().map_err(storage)?;
+        let Storage {
+            tree,
+            pages,
+            images,
+            ..
+        } = owner;
+        let mut prepare = |marker: &GroupManifest| {
             tree.prepare_complete(
                 &self.group,
                 pages,
@@ -68,37 +76,16 @@ impl CellGroupApplier {
                         .map_err(|error| ManifestError::Io(std::io::Error::other(error)))
                 },
             )
-            .map_err(storage)?
+            .map_err(storage)
         };
-        if let Some(checkpoint) = self.group.checkpoint_manifest().map_err(storage)? {
-            let mut owner = self
-                .storage
-                .lock()
-                .map_err(|_| ExecutionError::Invalid("poisoned recovery owner"))?;
-            let Storage {
-                tree,
-                pages,
-                images,
-                ..
-            } = &mut *owner;
-            tree.prepare_complete(
-                &self.group,
-                pages,
-                checkpoint.root(),
-                checkpoint.position(),
-                checkpoint.membership_revision(),
-                |leaf| {
-                    images
-                        .recover_image(leaf, checkpoint.route().schema_digest)
-                        .map_err(|error| ManifestError::Io(std::io::Error::other(error)))
-                },
-            )
-            .map_err(storage)?;
-        }
-        if self.group.group_manifest().map_err(storage)?.as_ref() != Some(&marker) {
+        let current = prepare(&marker)?;
+        let retained = checkpoint.as_ref().map(&mut prepare).transpose()?;
+        if self.group.group_manifest().map_err(storage)?.as_ref() != Some(&marker)
+            || self.group.checkpoint_manifest().map_err(storage)? != checkpoint
+        {
             return Err(ExecutionError::Invalid("recovery selection changed"));
         }
-        Ok(prepared)
+        Ok((current, retained))
     }
 }
 
