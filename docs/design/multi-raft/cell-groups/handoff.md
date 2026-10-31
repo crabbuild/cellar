@@ -15,6 +15,24 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
+The latest local RustFS qualification source is `d739bf795f7e58c1c27b2c6c496f9f57355e3c02`; production runtime
+bytes remain unchanged from `7914177d`. Use
+[the RustFS runner](../../../../tools/multi-raft/cell_groups.py) and
+[setup instructions](../../../../tools/multi-raft/README.md#shared-cell-group-archive-checks)
+for local S3 verification. Three exact cases pass in both image modes: controller
+publication, uncertain publication/reconciliation with joined close, and refusal
+of unproved S3 command/receipt/enrollment responses and namespace minimums.
+Seven signed S3 probes, 183 native regressions and all ten check commands pass.
+The source/executable/output-bound record and independent audit are under
+`.cellar/cell-groups-evidence/CG-06-rustfs-controller/`. Credentials stay outside
+source/evidence. Port allocation now accounts for other Colima profiles' host
+forwards. The backend is real RustFS; voters are host-native tasks.
+
+Next extend this runner with positive S3 output cases while implementing exact
+operation proof ownership. Existing refusal cases are not successful S3 settlement.
+Unarchived-byte/disk limits, physical Raft log purge, fencing/fresh serving, measured
+load and public cutover remain open. See the newest [progress](progress.md) entry.
+
 The latest partial source is `7914177d6f17e3f6d647a39dc496122157283591`.
 CG-06 is IN_PROGRESS. One fair archive lane now runs on the existing node controller,
 using a deduplicated dirty-group queue, existing timer and shared admission pools.

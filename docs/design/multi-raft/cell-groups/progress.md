@@ -10,6 +10,48 @@ CG-06 is IN_PROGRESS; CG-07 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-06 local RustFS archive and response-boundary qualification
+
+Source: `d739bf795f7e58c1c27b2c6c496f9f57355e3c02`. Production runtime bytes are unchanged from `7914177d`.
+CG-06 remains IN_PROGRESS. The local qualification backend is real RustFS, as
+requested. [The runner](../../../../tools/multi-raft/cell_groups.py) verifies the
+owned backend's image, running state, endpoint and actual cgroup limits, then
+creates a fresh bucket and isolated scenario/image prefixes. Explicit S3 clients
+use ETag conditional writes without a memory or ambient-credential fallback.
+
+All three exact ignored cases pass in both materialized and extent modes:
+controller publication while quorum advances, lost publication response/readback
+with exact-intent reconciliation and joined close, and refusal of unproved S3
+command/receipt/enrollment responses, including a namespace S3 minimum. Catalog
+setup and archive recovery use RustFS. Lost-response injection follows a real
+successful conditional write. The refusal case does not qualify successful S3
+acknowledgements; shared dispatch still refuses those until exact operation proofs
+are connected. Existing assertions and required CG-06 cases remain unchanged.
+
+Seven signed S3 protocol operations and all ten regression commands pass, including
+183 native execution/archive/controller/snapshot cases, all-target Cellar Clippy,
+format/layout, dependency/docs/preflight/plan checks and 37 Python tests. System
+Python 3.9 evidence hashing passes. The record under
+`.cellar/cell-groups-evidence/CG-06-rustfs-controller/` binds 2561
+source hashes, copied executables, exact selections and output hashes, plus prior
+qualification and retained setup/runner/Clippy failures. Independent source/hash,
+selection and credential-exclusion audit passes. No credentials enter evidence.
+
+The initial health check reached an unrelated VM's port forward because Docker
+allocated its port inside the guest. The helper now selects a free host port
+explicitly; signed requests then verify the credential-bound service. The access
+key uses SDK CI's 20-character profile. Source-bound corrections retain the system
+Python hashing failure and the target-specific shared-fixture dead-code failure.
+
+Reflection: extend this executable RustFS path with positive S3 command, receipt
+and enrollment cases while adding exact cell-version/result/current-route proof
+ownership. Preserve captured identity, original deadlines and callback-once
+behavior. Then bound unarchived-byte/disk admission, physically reclaim Raft files
+and qualify fenced fresh-incarnation serving. These host-native voters and a
+single local RustFS VM do not qualify container node limits, load, process-kill
+restart, independent hosts or disaster recovery. Four original CG-06 cases and
+its full gate remain pending; CG-08 lifetimes precede CG-07 public cutover.
+
 ## CG-06 controller-owned archive publication
 
 Source: `7914177d6f17e3f6d647a39dc496122157283591`. CG-06 remains IN_PROGRESS.
