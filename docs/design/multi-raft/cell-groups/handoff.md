@@ -15,79 +15,54 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The latest local RustFS qualification source is `d739bf795f7e58c1c27b2c6c496f9f57355e3c02`; production runtime
-bytes remain unchanged from `7914177d`. Use
-[the RustFS runner](../../../../tools/multi-raft/cell_groups.py) and
-[setup instructions](../../../../tools/multi-raft/README.md#shared-cell-group-archive-checks)
-for local S3 verification. Three exact cases pass in both image modes: controller
-publication, uncertain publication/reconciliation with joined close, and refusal
-of unproved S3 command/receipt/enrollment responses and namespace minimums.
-Seven signed S3 probes, 183 native regressions and all ten check commands pass.
-The source/executable/output-bound record and independent audit are under
-`.cellar/cell-groups-evidence/CG-06-rustfs-controller/`. Credentials stay outside
-source/evidence. Port allocation now accounts for other Colima profiles' host
-forwards. The backend is real RustFS; voters are host-native tasks.
+The latest partial runtime/qualification source is `3d564f3db2c2eefc87119e7b3395f1bca17b99fa`.
+CG-06 remains IN_PROGRESS. Local command S3 responses are enabled only through
+`CellGroupDispatcher::with_s3` and that exact controller/runtime's archive owner.
+A complete published cut is physically replayed, then its immutable SQL receipt
+must match the exact command/history/version/result. Later images can prove older
+receipts. Catalog birth and live leader authority are rechecked before the token.
+Request, namespace and stored durability minima are never lowered.
 
-Next extend this runner with positive S3 output cases while implementing exact
-operation proof ownership. Existing refusal cases are not successful S3 settlement.
-Unarchived-byte/disk limits, physical Raft log purge, fencing/fresh serving, measured
-load and public cutover remain open. See the newest [progress](progress.md) entry.
+A committed producer resolves before its S3 wait. Independent S3 admission takes
+result retention before SQL releases its operation/byte permit; existing quotas
+remain unchanged. One fair archive lane batches at most 32 proofs per group turn.
+Successful outputs retain complete physical coverage, S3 admission and the journal
+lock, and weak owner uses prevent premature predecessor-hold retirement. Those
+active consumers can backpressure the shared replay pools; idle groups retain no
+workspace. Cancellation/deadlines keep their original identity and cannot rerun
+callbacks or quarantine already-resolved SQL ownership.
 
-The latest partial source is `7914177d6f17e3f6d647a39dc496122157283591`.
-CG-06 is IN_PROGRESS. One fair archive lane now runs on the existing node controller,
-using a deduplicated dirty-group queue, existing timer and shared admission pools.
-Registration requires the initialized namespace binding and a private verifier store.
-An engine/creation-bound locked journal fsyncs exact intents before remote mutations.
-Missing established metadata refuses. Uncertain publication reconciles its exact
-hold, or abort-fences the ticket and reconciles again before allocating anything new.
-New head plus predecessor retirement are journaled before release. Physical coverage
-stays job-scoped; archive status is historical metadata without S3 settlement rights.
+Seven exact RustFS cases pass in both image forms, plus seven signed backend probes.
+All fourteen check/regression commands pass, covering 193 Rust cases across six
+copied executables, all-target Clippy, format/layout, dependency/docs/preflight/plan
+checks, 37 Python tests and system-Python hashing. Source/artifact/exact-selection
+and credential-exclusion audits pass. Retained records, frozen inputs and the
+initial unchanged-quota retention failure are under
+`.cellar/cell-groups-evidence/CG-06-s3-commands/`. See the newest
+[progress](progress.md), [S3 response contract](protocols.md#local-command-s3-response-gate)
+and [RustFS runner](../../../../tools/multi-raft/cell_groups.py).
 
-Completion compares covered position with runtime applied state and consumed apply
-events. This fixes the reproduced idle-tail gap after recovery of an older publication.
-Both image forms pass held publication/quorum progress, lost CAS reply/readback outage,
-exact-intent recovery, cancelled registration response, joined close, single current
-hold and independent recovery of every cell. Journal reopen/missing-state and orphaned
-physical waiter tests pass. A sealed scheduling capability uses captured domain tokens
-without shutdown rights; archive-specific physical joins precede private-store,
-journal-lock and runtime/SQL teardown. New verifier stores are required on restart.
+Next integrate S3 enrollment, receipt lookup and remote response settlement;
+those paths still refuse unsupported S3 capabilities. Add explicit unarchived-byte/
+disk limits, then physical local Raft Engine file purge and fenced fresh-incarnation
+serving. Retention across multiple heads, controller process-kill restart and
+physical-read shutdown cuts need qualification. The fence inventory must cover
+every possible old voting lineage, including joins after the recovery cut.
+Fencing-authority API plus Docker qualification remains the accepted direction.
+CG-08 effect/cache/result lifetime and maintenance precedes CG-07 public SDK/fleet
+cutover. Topology, placement, hibernation, managed recovery, measured load and final
+legacy removal remain. The source/runtime goal is not complete.
 
-All 40 gate commands pass: nineteen exact archive, two exact controller and two exact
-lifecycle/journal unit cases, 157 execution, five snapshot and four LTX regressions
-(189 distinct Rust cases across six copied executables), all-target build/Clippy,
-formatting/layout, dependencies/docs/preflight and all 37 Python tests. The record at
-`.cellar/cell-groups-evidence/CG-06-controller-archive/qualification/checkpoint.json`
-binds 344 source hashes, frozen inputs, hashed logs and its catalog-cut predecessor.
-Independent source/artifact/exact-selection audit passes. Initial compile, native
-idle-progress, strict source-refusal and Clippy failures are source-bound and retained. See [progress](progress.md)
-and the [controller archive contract](protocols.md#controller-owned-archive-publication).
-
-Next implement actual S3 command/enrollment/receipt output settlement using retained
-independently verified coverage with exact cell version/result/current-route checks.
-Preserve captured identities/inputs and deadlines; never rerun callbacks. Shared
-dispatch still refuses S3. Add explicit unarchived-byte/disk admission for bounded
-Quorum availability without S3. Then qualify physical local Raft Engine file purge,
-fenced unmanaged recovery into fresh group/cell incarnations and complete old-voter
-lineage inventory, including joins after the recovery cut. Fencing-authority API plus
-Docker qualification remains the accepted direction. Automatic remote/private-cache
-maintenance and process-kill controller restart are still unqualified. This initial
-controller coalesces complete cuts; measured incremental scheduling remains future work.
-
-Namespace binding fixes expected registry identity and canonical storage location.
-Runtime source capture/upload_cut keeps root/configuration/permanent membership
-stable across I/O. All-voter disk/journal erasure still recovers data via a fresh catalog
-owner and externally retained untrusted locators, without fencing/replacement voters.
-Protected publication/collection retains exact-intent, never-reused generation,
-pending-parent/reader hold and delayed-DELETE guarantees. Persist every intent before
-mutation; unknown outcomes never justify another identity or counter reset.
-
-CG-08 effect/cache/result lifetime and maintenance precede CG-07 public SDK/fleet
-cutover. Topology, placement, hibernation, managed recovery, RustFS/load/fault gates
-and final legacy removal remain. Actual in-memory adapters supply the current native
-evidence. Real RustFS, Docker fencing, fresh-quorum serving, measured load and full
-hard cutover remain unqualified. Four original CG-06 cases and its full task gate are
-pending. Preserve catalog-cut source `df0ba1f6`, protected publication `87348477`,
-isolated verifier `14955f2d`, committed tail `7a29c2a9` and their ignored evidence.
+Namespace bindings, stable runtime cut capture/upload, exact-intent journals,
+protected publication/remote collection and source-independent complete recovery
+retain their earlier contracts. Persist every exact intent before mutation;
+unknown outcomes never allocate another identity or reset counters. The prior
+RustFS qualification at `d739bf79` and runtime source `7914177d`, catalog-cut
+`df0ba1f6`, protected publication `87348477`, isolated verifier `14955f2d` and
+committed tail `7a29c2a9` remain retained. Current voters are host-native tasks with
+one local RustFS VM; no node-container resource gate, independent hosts, measured
+load, fenced fresh-quorum disaster serving or complete hard cutover is claimed.
+Four original CG-06 acceptance cases and its full task gate remain pending.
 
 CG-01 through CG-05 are DONE at their declared native task boundaries. CG-05
 closes at `e0550acd` with all five exact snapshot cases and eighteen passing

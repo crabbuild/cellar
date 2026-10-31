@@ -10,6 +10,62 @@ CG-06 is IN_PROGRESS; CG-07 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-06 local command S3 response settlement
+
+Source: `3d564f3db2c2eefc87119e7b3395f1bca17b99fa`. CG-06 remains IN_PROGRESS. An explicit
+`CellGroupDispatcher::with_s3` binding now settles local commands through the
+existing node archive lane. It checks the exact runtime owner and active group
+registration. Required durability is the maximum of request, namespace and stored
+receipt minimums. Unbound dispatchers retain their refusal; receipt lookup,
+enrollment and remote S3 response gates remain unfinished.
+
+SQL resolution clears producer ownership before archival. A separate bounded S3
+stage acquires admission before taking over the committed result bytes; resolved
+preparations no longer retain duplicate SQL admission. Existing SQL/command quotas
+are unchanged. The first same-cell successor test reproduced Overloaded because
+the waiting receipt still held the SQL pool's only operation permit. Its source
+snapshot, executable and output are retained. The fixed test passes with that same
+one-slot SQL quota, including an explicit zero retained-SQL-operation assertion.
+
+The fair archive lane takes at most 32 receipt proofs per group turn. A published
+complete cut is independently replayed and its exact immutable receipt is read
+without callbacks. History/version/position, equal-version decision and every
+stored receipt field/result must match. A later image can prove an older receipt;
+an advisory index or sibling progress cannot. The response rechecks catalog birth
+and live leader authority before its token. It retains physical coverage/admission,
+S3 byte/item retention and the exclusive journal lock. Weak owner uses block
+predecessor-hold retirement until consumers release the coverage. Idle groups keep
+no replay workspace; held outputs intentionally backpressure those shared pools.
+
+Seven exact RustFS cases pass in both image modes, including positive S3 responses,
+a later same-cell quorum mutation during archive outage, publication-held output,
+Quorum retries honoring a stored S3 minimum, proof-slot retention, callback-once
+retries, one-command-slot expiry/cancellation isolation and missing-B dependency
+refusal while A's receipt and quorum remain healthy. Foreign runtimes refuse
+before SQL. A namespace S3 minimum overrides a Quorum request, persists that
+minimum and keeps its response pending until publication. The three earlier setup/publication/refusal scenarios still pass.
+The actual S3 client performs catalog/archive I/O and conditional writes.
+
+All fourteen regression/check commands pass: 193 distinct Rust cases across six
+executables, locked all-target Clippy for Cellar/logic/LTX, format/layout,
+dependency/docs/preflight/plan checks, 37 Python tests and system-Python hashing.
+The records under `.cellar/cell-groups-evidence/CG-06-s3-commands/` bind
+2564 source hashes, frozen inputs, copied executables, exact selections,
+output hashes and predecessors. Independent source/hash/selection/credential
+exclusion audit passes. The source-bound Clippy large-enum failure is retained;
+boxing the private proof bundle fixes it without public variant or contract changes.
+No original required case/oracle or pre-existing quota was weakened. Four original
+CG-06 cases and its full task gate remain pending; this is partial evidence.
+
+Reflection: integrate S3 enrollment, receipt lookup and remote output contracts
+using this retained owner, then explicit unarchived-byte/disk admission. Qualify
+multi-head retention, controller process-kill restart and physical-read shutdown
+cuts, physical shared-engine Raft log purge and fenced recovery into fresh group/
+cell incarnations. Keep the complete old-voter lineage inventory, including later
+joins. CG-08 cache/effect/result lifetime work precedes CG-07 public SDK/fleet
+cutover. Native voters share one host and RustFS one local VM; no independent
+failure-domain, load, complete disaster recovery or full hard cutover is claimed.
+
 ## CG-06 local RustFS archive and response-boundary qualification
 
 Source: `d739bf795f7e58c1c27b2c6c496f9f57355e3c02`. Production runtime bytes are unchanged from `7914177d`.
