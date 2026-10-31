@@ -163,6 +163,13 @@ pub struct CellGroupCheckpointPool {
     limits: CellGroupCheckpointLimits,
 }
 
+#[derive(Clone, Copy)]
+enum SourceRoot {
+    Published,
+    Retained,
+    OwnerCurrent,
+}
+
 impl CellGroupCheckpointPool {
     pub fn new(limits: CellGroupCheckpointLimits) -> Result<Self> {
         if !(1..=4096).contains(&limits.max_sources)
@@ -224,6 +231,31 @@ impl CellGroupCheckpointPool {
         root: &PreparedGroupManifest,
         is_retained: bool,
     ) -> Result<CellGroupCheckpoint> {
+        self.capture_checked(
+            group,
+            root,
+            if is_retained {
+                SourceRoot::Retained
+            } else {
+                SourceRoot::Published
+            },
+        )
+    }
+
+    pub(super) fn capture_owner(
+        &self,
+        group: &GroupLog<GroupHistory>,
+        root: &PreparedGroupManifest,
+    ) -> Result<CellGroupCheckpoint> {
+        self.capture_checked(group, root, SourceRoot::OwnerCurrent)
+    }
+
+    fn capture_checked(
+        &self,
+        group: &GroupLog<GroupHistory>,
+        root: &PreparedGroupManifest,
+        source: SourceRoot,
+    ) -> Result<CellGroupCheckpoint> {
         if !Arc::ptr_eq(&root.engine_owner, &group.owner)
             || !root
                 .marker()
@@ -273,7 +305,7 @@ impl CellGroupCheckpointPool {
         let header = {
             let cache = group.read()?;
             let marker = root.marker();
-            if is_retained {
+            if matches!(source, SourceRoot::Retained) {
                 if cache.checkpoint_manifest.as_ref() != Some(marker) {
                     return Err(CellGroupCheckpointError::Invalid(
                         "retained checkpoint changed",
@@ -299,7 +331,21 @@ impl CellGroupCheckpointPool {
                         .as_ref()
                         .is_some_and(|pins| pins.root() != marker.root())
                 {
-                    return Err(CellGroupCheckpointError::NotReady);
+                    // Only the owner's sealed prior applied root may race a
+                    // newer engine publication. Public callers supplying stale
+                    // or prospective preparations retain strict refusal.
+                    if matches!(source, SourceRoot::OwnerCurrent)
+                        && cache.applied.position.index > marker.position().index
+                        && cache.applied.image.is_none()
+                        && cache.hard_state.commit >= marker.position().index.get()
+                        && cache.group_manifest.as_ref().is_some_and(|published| {
+                            published.position() == cache.applied.position
+                                && published.route() == marker.route()
+                        })
+                    {
+                        return Err(CellGroupCheckpointError::NotReady);
+                    }
+                    return Err(CellGroupCheckpointError::Invalid("source durable cut"));
                 }
                 cache
                     .membership

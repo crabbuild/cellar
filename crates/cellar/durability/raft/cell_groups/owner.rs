@@ -338,7 +338,7 @@ impl CellGroupOwner {
     ) -> Result<super::CellGroupCheckpoint, super::CellGroupCheckpointError> {
         self.live()
             .map_err(super::CellGroupCheckpointError::Authority)?;
-        pool.capture(&self.group, &self.current)
+        pool.capture_owner(&self.group, &self.current)
     }
 
     pub(super) fn select_read(
