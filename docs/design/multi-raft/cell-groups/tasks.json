@@ -1597,7 +1597,9 @@
         "crates/cellar/durability/raft/cell_groups/checkpoint/mod.rs",
         "crates/cellar/tests/native_cell_groups_snapshot.rs",
         "crates/cellar/tests/support/cell_group_seed_persistence.rs",
-        "crates/cellar/tests/support/cell_group_seed_crash.rs"
+        "crates/cellar/tests/support/cell_group_seed_crash.rs",
+        "crates/cellar/tests/support/cell_group_crash_fixture.rs",
+        "crates/cellar/tests/support/cell_group_membership_crash.rs"
       ],
       "test_target": "native_cell_groups_snapshot",
       "steps": [

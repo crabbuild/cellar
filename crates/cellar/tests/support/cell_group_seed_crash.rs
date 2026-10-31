@@ -2,14 +2,12 @@
 
 //! Owned process kills around an authenticated, whole-group learner install.
 //! Frozen synthetic catalog bytes are fixture input, not an S3 recovery protocol.
+use super::crash_fixture::{save, stop_at};
 use super::*;
 use cellar::application::consensus::verification::JoiningMember;
-use futures_util::TryStreamExt;
-use object_store::{path::Path as ObjectPath, ObjectStore};
 use raft::prelude::{ConfChangeTransition, ConfChangeType};
 use raft::Storage;
 use serde::{Deserialize, Serialize};
-use std::io::Write;
 use std::path::Path;
 
 #[derive(Serialize, Deserialize)]
@@ -22,74 +20,11 @@ struct Oracle {
     objects: Vec<(String, Vec<u8>)>,
 }
 
-struct Child(std::process::Child);
-
-impl Drop for Child {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
 pub(crate) async fn seed_crash(rooted: bool) -> Result<()> {
     for cut in ["staged", "before-sync", "after-sync", "published"] {
         let directory = tempfile::tempdir()?;
         let root = directory.path();
-        let output = root.join("child.log");
-        let file = std::fs::File::create(&output)?;
-        let mut child = Child(
-            std::process::Command::new(std::env::current_exe()?)
-                .args([
-                    "--ignored",
-                    "--exact",
-                    "seed_process_fixture",
-                    "--nocapture",
-                    "--test-threads=1",
-                ])
-                .env("CELLAR_GROUP_SEED_CRASH_ROOT", root)
-                .env(
-                    "CELLAR_GROUP_SEED_CRASH_MODE",
-                    if rooted { "extents" } else { "materialized" },
-                )
-                .env("CELLAR_GROUP_SEED_CRASH_CUT", cut)
-                .stdout(file.try_clone()?)
-                .stderr(file)
-                .spawn()?,
-        );
-        let wait = tokio::time::timeout(Duration::from_secs(30), async {
-            loop {
-                let reached = match std::fs::read(root.join("signal")) {
-                    Ok(bytes) => bytes == b"reached",
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
-                    Err(error) => return Err(error.into()),
-                };
-                if reached {
-                    break;
-                }
-                if let Some(status) = child.0.try_wait()? {
-                    anyhow::bail!("child exited before {cut}: {status}");
-                }
-                tokio::time::sleep(Duration::from_millis(5)).await;
-            }
-            Ok::<_, anyhow::Error>(())
-        })
-        .await;
-        let reached = wait.map_err(anyhow::Error::from).and_then(|r| r);
-        reached.with_context(|| {
-            format!(
-                "{rooted}/{cut}: {}",
-                std::fs::read_to_string(&output).unwrap_or_default()
-            )
-        })?;
-        assert_eq!(std::fs::read(root.join("signal"))?, b"reached");
-        child.0.kill()?;
-        let status = child.0.wait()?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::ExitStatusExt;
-            assert_eq!(status.signal(), Some(9));
-        }
-        assert!(!status.success());
+        crash_fixture::kill_at(root, "seed_process_fixture", rooted, cut).await?;
         Box::pin(recover(root, rooted, cut))
             .await
             .with_context(|| format!("cold recovery {rooted}/{cut}"))?;
@@ -97,37 +32,14 @@ pub(crate) async fn seed_crash(rooted: bool) -> Result<()> {
     Ok(())
 }
 
-fn save(path: &Path, bytes: &[u8]) -> Result<()> {
-    let mut file = std::fs::File::create(path)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    Ok(())
-}
-
-async fn stop_at(root: &Path) -> Result<()> {
-    save(&root.join("signal"), b"reached")?;
-    std::future::pending::<()>().await;
-    unreachable!("parent kills the held child")
-}
-
 pub(crate) async fn seed_process_fixture() -> Result<()> {
-    let root = std::path::PathBuf::from(std::env::var("CELLAR_GROUP_SEED_CRASH_ROOT")?);
-    let rooted = match std::env::var("CELLAR_GROUP_SEED_CRASH_MODE")?.as_str() {
-        "materialized" => false,
-        "extents" => true,
-        _ => anyhow::bail!("invalid crash image mode"),
-    };
-    let cut = std::env::var("CELLAR_GROUP_SEED_CRASH_CUT")?;
+    let (root, rooted, cut) = crash_fixture::parameters()?;
     anyhow::ensure!(
         matches!(
             cut.as_str(),
             "staged" | "before-sync" | "after-sync" | "published"
         ),
         "invalid crash cut"
-    );
-    anyhow::ensure!(
-        root.is_dir() && !root.join("signal").exists(),
-        "fresh owned parent directory required"
     );
     let class = RaftClass::new("Counter", 1, [81; 32])?;
     let (mut fixture, route, _, _) = Box::pin(registered::setup_in(
@@ -218,28 +130,7 @@ pub(crate) async fn seed_process_fixture() -> Result<()> {
     // The catalog is external to the learner disk. Freeze its synthetic objects
     // before the fault, including the permanent destination claim. The parent
     // never manufactures a replacement claim from the recovered disk.
-    let mut objects = Vec::new();
-    let listed = fixture
-        .cluster
-        .store
-        .list(None)
-        .try_collect::<Vec<_>>()
-        .await?;
-    anyhow::ensure!(listed.len() <= 128, "bounded fixture catalog");
-    let mut bytes = 0;
-    for item in listed {
-        let body = fixture
-            .cluster
-            .store
-            .get(&item.location)
-            .await?
-            .bytes()
-            .await?
-            .to_vec();
-        bytes += body.len();
-        anyhow::ensure!(bytes < 1024 * 1024, "bounded fixture catalog bytes");
-        objects.push((item.location.to_string(), body));
-    }
+    let objects = crash_fixture::capture_catalog(fixture.cluster.store.as_ref()).await?;
     save(
         &root.join("oracle.json"),
         &serde_json::to_vec(&Oracle {
@@ -291,23 +182,8 @@ async fn recover(root: &Path, rooted: bool, cut: &str) -> Result<()> {
     let route = oracle.expected.route().clone();
     let local = seed_install::target(route.history)?;
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
-    let store = Arc::new(object_store::memory::InMemory::new());
-    for (name, bytes) in oracle.objects {
-        store.put(&ObjectPath::from(name), bytes.into()).await?;
-    }
-    let catalog = Catalog::new(store, CatalogOptions::default())?;
-    let namespace = domain
-        .run(catalog.open_namespace(NamespaceConfig::new(
-            route.history.cluster,
-            route.history.namespace,
-            cellar_logic::NamespaceMode::Raft,
-            route.schema_digest,
-        )))
-        .await??;
-    let directory = RangeDirectory::new(namespace, DirectoryLimits::default())?;
-    let birth = domain
-        .run(directory.materialize_selected_group(&route))
-        .await??;
+    let (directory, birth) =
+        crash_fixture::restore_catalog(oracle.objects, &route, &domain).await?;
     let base = root.join("learner");
     let log = domain
         .run(ReplicaLog::open(

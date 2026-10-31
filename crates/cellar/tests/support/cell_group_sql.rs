@@ -619,3 +619,9 @@ pub(crate) use seed_persistence::seed_persistence;
 #[path = "cell_group_seed_crash.rs"]
 mod seed_crash;
 pub(crate) use seed_crash::{seed_crash, seed_process_fixture};
+
+#[path = "cell_group_crash_fixture.rs"]
+mod crash_fixture;
+#[path = "cell_group_membership_crash.rs"]
+mod membership_crash;
+pub(crate) use membership_crash::{membership_crash, membership_process_fixture};

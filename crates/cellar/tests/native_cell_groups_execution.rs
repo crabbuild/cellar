@@ -15,6 +15,22 @@ mod runtime_fixture;
 mod checkpoint_fixture;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn membership_crash_materialized_recovers_and_completes_joint_consensus() -> Result<()> {
+    Box::pin(runtime_fixture::membership_crash(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn membership_crash_extents_recover_and_complete_joint_consensus() -> Result<()> {
+    Box::pin(runtime_fixture::membership_crash(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "owned child process controlled by membership crash tests"]
+async fn membership_process_fixture() -> Result<()> {
+    Box::pin(runtime_fixture::membership_process_fixture()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn seed_crash_materialized_recovers_atomic_install() -> Result<()> {
     Box::pin(runtime_fixture::seed_crash(false)).await
 }
