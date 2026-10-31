@@ -42,6 +42,16 @@ async fn populate(
     lagging: bool,
     partition: bool,
 ) -> Result<(Cluster, BTreeMap<String, Vec<u8>>)> {
+    populate_images(rooted, lagging, partition, 0, 4_202_496).await
+}
+
+pub(super) async fn populate_images(
+    rooted: bool,
+    lagging: bool,
+    partition: bool,
+    additional: usize,
+    padding: usize,
+) -> Result<(Cluster, BTreeMap<String, Vec<u8>>)> {
     let mut cluster = Cluster::new().await?;
     cluster.elect().await?;
     cluster.voters[2].paused = lagging;
@@ -56,14 +66,20 @@ async fn populate(
         }
     }
     let mut expected = BTreeMap::new();
-    for name in ["alpha", "beta", "empty"] {
-        let cell = history(&route, name)?;
+    let names = ["alpha", "beta", "empty"]
+        .into_iter()
+        .map(str::to_owned)
+        .chain((0..additional).map(|n| format!("cell-{n:03}")));
+    for (ordinal, name) in names.enumerate() {
+        let cell = history(&route, &name)?;
         let bytes = if name == "empty" {
             Vec::new()
         } else {
-            // More than one verified extent; the two images also exceed one
-            // source workspace together. Source transfer never aggregates them.
-            images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES(1); CREATE TABLE padding(bytes); INSERT INTO padding VALUES(zeroblob(4202496));")?
+            // Keep the original two-image fixture unchanged. Pressure cohorts
+            // use unique contents so other cells cannot accidentally retain an
+            // old reader's extent after that cell advances.
+            let value = if additional == 0 { 1 } else { ordinal + 1 };
+            images::image(None, &format!("CREATE TABLE value(n); INSERT INTO value VALUES({value}); CREATE TABLE padding(bytes); INSERT INTO padding VALUES(zeroblob({padding}));"))?
         };
         let encoded = if bytes.is_empty() {
             CellGroupEntry {
@@ -135,6 +151,16 @@ fn extent_commitment(
 }
 
 async fn advance(cluster: &mut Cluster, name: &str, before: &[u8], rooted: bool) -> Result<()> {
+    advance_partition(cluster, name, before, rooted, None).await
+}
+
+pub(super) async fn advance_partition(
+    cluster: &mut Cluster,
+    name: &str,
+    before: &[u8],
+    rooted: bool,
+    excluded: Option<usize>,
+) -> Result<()> {
     let route = cluster.birth.route().clone();
     let cell = history(&route, name)?;
     let after = images::image(Some(before), "UPDATE value SET n=n+1")?;
@@ -153,7 +179,7 @@ async fn advance(cluster: &mut Cluster, name: &str, before: &[u8], rooted: bool)
         .as_mut()
         .unwrap()
         .propose(entry.encode(&route, GroupEntryLimits::default())?)?;
-    cluster.drive(false).await?;
+    cluster.drive_partition(false, excluded).await?;
     Ok(())
 }
 

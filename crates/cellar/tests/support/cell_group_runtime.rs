@@ -22,6 +22,10 @@ pub(super) use snapshot_owner::{
     checkpoint_bounds, checkpoint_matching_log, checkpoint_owner, checkpoint_shutdown,
 };
 
+#[path = "cell_group_checkpoint_pressure.rs"]
+mod checkpoint_pressure;
+pub(super) use checkpoint_pressure::transfer_pressure;
+
 #[path = "cell_group_checkpoint_receive.rs"]
 mod checkpoint_receive;
 pub(super) use checkpoint_receive::{install_checkpoint, refuse_checkpoint};

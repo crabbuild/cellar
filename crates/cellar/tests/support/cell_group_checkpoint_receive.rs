@@ -41,7 +41,7 @@ pub(super) fn config(
     })
 }
 
-fn applier(cluster: &mut Cluster) -> Result<CellGroupApplier> {
+pub(super) fn applier(cluster: &mut Cluster) -> Result<CellGroupApplier> {
     let route = cluster.birth.route();
     let voter = &mut cluster.voters[2];
     drop(voter.owner.take());

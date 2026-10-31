@@ -15,6 +15,16 @@ mod runtime_fixture;
 mod checkpoint_fixture;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_pressure_materialized_preserves_bounds_and_reader() -> Result<()> {
+    runtime_fixture::transfer_pressure(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_pressure_extents_preserves_bounds_and_reader() -> Result<()> {
+    runtime_fixture::transfer_pressure(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn membership_crash_materialized_recovers_and_completes_joint_consensus() -> Result<()> {
     Box::pin(runtime_fixture::membership_crash(false)).await
 }

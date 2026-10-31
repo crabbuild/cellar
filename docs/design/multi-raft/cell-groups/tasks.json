@@ -1599,7 +1599,8 @@
         "crates/cellar/tests/support/cell_group_seed_persistence.rs",
         "crates/cellar/tests/support/cell_group_seed_crash.rs",
         "crates/cellar/tests/support/cell_group_crash_fixture.rs",
-        "crates/cellar/tests/support/cell_group_membership_crash.rs"
+        "crates/cellar/tests/support/cell_group_membership_crash.rs",
+        "crates/cellar/tests/support/cell_group_checkpoint_pressure.rs"
       ],
       "test_target": "native_cell_groups_snapshot",
       "steps": [
