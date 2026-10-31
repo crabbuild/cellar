@@ -526,8 +526,13 @@ pub(crate) use dispatch::routed as routed_queries;
 mod command_dispatch;
 pub(crate) use command_dispatch::commands as routed_commands;
 
+#[path = "cell_group_controller_archive.rs"]
+#[allow(dead_code, unused_imports)]
+mod archive_controller;
 #[path = "cell_group_controller.rs"]
 mod controller;
+#[allow(unused_imports)]
+pub(crate) use archive_controller::{archive_controller_publish, archive_controller_reconcile};
 #[path = "cell_group_controller_commands.rs"]
 mod controller_commands;
 pub(crate) use controller::{

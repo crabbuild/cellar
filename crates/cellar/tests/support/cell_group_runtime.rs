@@ -803,6 +803,8 @@ pub(super) async fn attachment_reserves_before_owner() -> Result<()> {
 
 #[path = "cell_group_sql.rs"]
 mod sql;
+#[allow(unused_imports)]
+pub(super) use sql::{archive_controller_publish, archive_controller_reconcile};
 pub(super) use sql::{
     controller_apply_faults, controller_close, controller_owners, controller_replication,
 };

@@ -87,7 +87,7 @@ impl CellGroupArchiveRegistry {
     /// but cannot permit a deleted key to be rebound by a later allocation.
     pub async fn collect(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         owners: &CellGroupArchiveUploadPool,
         tails: &CellGroupArchiveTailPool,
         limits: CellGroupArchiveCollectionLimits,

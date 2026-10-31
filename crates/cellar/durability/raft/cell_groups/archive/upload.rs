@@ -103,7 +103,7 @@ impl CellGroupArchiveRegistry {
     /// process must fence its predecessor before sharing/retiring that owner.
     pub async fn open_upload(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         pool: &CellGroupArchiveUploadPool,
         ticket: &CellGroupArchiveUploadTicket,
         tails: &CellGroupArchiveTailPool,

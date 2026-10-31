@@ -3,12 +3,9 @@
 //! Namespace-owned archive identity. Recovery reads the expected identity from
 //! immutable catalog metadata, never by trusting a mutable registry's identity.
 use super::*;
-use crate::{
-    raft::cell_groups::{
-        CellGroupArchive, CellGroupArchiveCreation, CellGroupArchiveError, CellGroupArchivePool,
-        CellGroupArchiveRegistry, PreparedCellGroupArchiveCreation,
-    },
-    sdk::ExecutionDomain,
+use crate::raft::cell_groups::{
+    CellGroupArchive, CellGroupArchiveCreation, CellGroupArchiveError, CellGroupArchiveExecution,
+    CellGroupArchivePool, CellGroupArchiveRegistry, PreparedCellGroupArchiveCreation,
 };
 use serde::{Deserialize, Serialize};
 
@@ -70,7 +67,10 @@ impl PreparedCellGroupArchiveBinding {
         &self.bytes
     }
 
-    pub async fn commit(self, domain: &ExecutionDomain) -> Result<CellGroupArchiveRegistry> {
+    pub async fn commit(
+        self,
+        domain: &impl CellGroupArchiveExecution,
+    ) -> Result<CellGroupArchiveRegistry> {
         domain
             .run(async {
                 self.directory
@@ -137,7 +137,7 @@ impl RangeDirectory {
     /// can substitute another group's archive. This grants no serving authority.
     pub async fn prepare_group_archive_binding(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         pool: &CellGroupArchivePool,
         birth: &CellGroupBirth,
     ) -> Result<PreparedCellGroupArchiveBinding> {
@@ -172,7 +172,7 @@ impl RangeDirectory {
     /// This does not recreate metadata, fence old owners or authorize new voters.
     pub async fn open_group_archive(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         pool: &CellGroupArchivePool,
         birth: &CellGroupBirth,
     ) -> Result<CellGroupArchiveRegistry> {

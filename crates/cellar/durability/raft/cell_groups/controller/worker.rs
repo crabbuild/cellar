@@ -46,6 +46,7 @@ pub(super) struct Worker {
     routes: BTreeMap<GroupHistory, crate::raft::transport::PhysicalRegistration>,
     progress: tokio::sync::watch::Sender<()>,
     checkpoints: checkpoints::Manager,
+    archives: archive::Manager,
     _checkpoint_routes: Vec<crate::raft::transport::CellGroupCheckpointRegistration>,
 }
 
@@ -69,6 +70,7 @@ impl Worker {
                 );
             }
         }
+        let archives = archive::Manager::new(shared.domain.clone());
         Ok(Self {
             runtime,
             events,
@@ -91,6 +93,7 @@ impl Worker {
             routes: BTreeMap::new(),
             progress: tokio::sync::watch::channel(()).0,
             checkpoints: checkpoints::Manager::default(),
+            archives,
             _checkpoint_routes: checkpoint_routes,
         })
     }
@@ -181,6 +184,7 @@ impl Worker {
                 .mono_ms()
                 .map_err(|_| CellGroupControllerError::Closed)?;
             self.launch(now)?;
+            self.archives.launch(&self.runtime, &self.shared, now);
             let timer = domain
                 .sleep_until(wake_at)
                 .map_err(|_| CellGroupControllerError::Closed)?;
@@ -194,6 +198,7 @@ impl Worker {
                 },
                 Some(request) = self.requests.recv() => {
                     match request {
+                        requests::Request::Archive(request) => self.archives.request(*request, &self.shared),
                         requests::Request::Provision(request) => self.provisioning.request(*request, &self.shared),
                         requests::Request::Registration(request) => {
                             let group = request.registration.applier.history();
@@ -264,6 +269,10 @@ impl Worker {
                     }
                 }
                 Some(()) = self.hints.next(), if !self.hints.is_empty() => (),
+                completed = self.archives.next(), if self.archives.running() => {
+                    self.archives.complete(completed, &self.shared, now, false);
+                    self.progress.send_replace(());
+                }
                 event = self.events.recv() => {
                     let event = event.ok_or(CellGroupControllerError::Closed)?;
                     let group = event.group();
@@ -319,7 +328,8 @@ impl Worker {
                             let work = event.retain_apply().ok_or(CellGroupControllerError::Invalid("apply ticket"))?;
                             self.pending.push_back(Pending { group, work: Work::Prepare(Box::new(work)), retry_at: now });
                         }
-                        CellGroupEffect::Applied { .. } | CellGroupEffect::CheckpointInstalled { .. } => {
+                        CellGroupEffect::Applied { manifest, .. } | CellGroupEffect::CheckpointInstalled { manifest } => {
+                            self.archives.applied(group, manifest.position().index);
                             // Only this post-sync event advances the published count.
                             self.shared.applied.fetch_add(1, Ordering::Relaxed);
                             self.progress.send_replace(());
@@ -381,6 +391,7 @@ impl Worker {
         }
         self.provisioning.join().await;
         self.checkpoints.join().await;
+        self.archives.finish(&self.shared).await;
         self.transport.close().await;
         let sql = self
             .sql

@@ -40,7 +40,10 @@ impl PreparedCellGroupArchiveCreation {
         &self.identity
     }
 
-    pub async fn commit(self, domain: &ExecutionDomain) -> Result<CellGroupArchiveRegistry> {
+    pub async fn commit(
+        self,
+        domain: &impl CellGroupArchiveExecution,
+    ) -> Result<CellGroupArchiveRegistry> {
         self.archive.create_registry(domain, &self.identity).await
     }
 }
@@ -202,7 +205,7 @@ impl CellGroupArchive {
     /// randomness; the caller durably records the complete result before create.
     pub async fn prepare_registry_creation(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         route: GroupRoute,
     ) -> Result<PreparedCellGroupArchiveCreation> {
         domain
@@ -226,7 +229,7 @@ impl CellGroupArchive {
 
     async fn create_registry(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         creation: &CellGroupArchiveCreation,
     ) -> Result<CellGroupArchiveRegistry> {
         domain
@@ -274,7 +277,7 @@ impl CellGroupArchive {
     /// versions refuse; opening never allocates or repairs a missing record.
     pub async fn open_registry(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         expected: &CellGroupArchiveCreation,
     ) -> Result<CellGroupArchiveRegistry> {
         domain
@@ -363,7 +366,10 @@ impl CellGroupArchiveRegistry {
         Ok((state, version))
     }
 
-    pub async fn prepare_upload(&self, domain: &ExecutionDomain) -> Result<CellGroupArchiveIntent> {
+    pub async fn prepare_upload(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+    ) -> Result<CellGroupArchiveIntent> {
         domain
             .run(async {
                 let _io = self.archive.admit()?;
@@ -381,7 +387,7 @@ impl CellGroupArchiveRegistry {
 
     pub async fn reserve(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         intent: &CellGroupArchiveIntent,
     ) -> Result<CellGroupArchiveUploadTicket> {
         if !matches!(intent.action, Action::Reserve { .. }) {
@@ -401,7 +407,7 @@ impl CellGroupArchiveRegistry {
 
     pub async fn prepare_acquire(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
     ) -> Result<CellGroupArchiveIntent> {
         domain
             .run(async {
@@ -419,7 +425,7 @@ impl CellGroupArchiveRegistry {
 
     pub async fn acquire(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         intent: &CellGroupArchiveIntent,
     ) -> Result<CellGroupArchiveHold> {
         if !matches!(intent.action, Action::Acquire { .. }) {
@@ -554,7 +560,7 @@ impl CellGroupArchiveRegistry {
 
     pub async fn release(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         hold: &CellGroupArchiveHold,
     ) -> Result<()> {
         if hold.registry != self.identity.id {
@@ -568,7 +574,7 @@ impl CellGroupArchiveRegistry {
 
     pub async fn abort(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         ticket: &CellGroupArchiveUploadTicket,
     ) -> Result<()> {
         if ticket.registry != self.identity.id {

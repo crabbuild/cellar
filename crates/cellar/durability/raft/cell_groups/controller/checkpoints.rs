@@ -243,7 +243,7 @@ impl Manager {
 }
 
 pub(super) fn retryable(error: &CellGroupControllerError) -> bool {
-    matches!(error, CellGroupControllerError::Checkpoint(error) if matches!(error.as_ref(), CellGroupCheckpointError::Busy))
+    matches!(error, CellGroupControllerError::Checkpoint(error) if matches!(error.as_ref(), CellGroupCheckpointError::Busy | CellGroupCheckpointError::NotReady))
         || matches!(
             error,
             CellGroupControllerError::Runtime(RuntimeError::Overloaded)

@@ -278,7 +278,7 @@ impl CellGroupArchiveUpload {
     /// released before the caller starts independent recovery verification.
     pub async fn upload_cut(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         pool: &CellGroupArchiveTailPool,
         checkpoint: CellGroupCheckpoint,
     ) -> Result<CellGroupArchiveUploadedTail> {
@@ -342,7 +342,7 @@ impl CellGroupArchiveUpload {
     /// returns an untrusted locator; all base bytes and replay must still verify.
     pub async fn upload_tail(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         pool: &CellGroupArchiveTailPool,
         checkpoint: &CellGroupArchiveReference,
         group: &GroupLog<GroupHistory>,
@@ -358,7 +358,7 @@ impl CellGroupArchiveUpload {
     /// required, and the caller's publication owner must protect the base/prefix.
     pub async fn extend_tail(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         pool: &CellGroupArchiveTailPool,
         previous: &CellGroupArchiveTailReference,
         group: &GroupLog<GroupHistory>,
@@ -370,7 +370,7 @@ impl CellGroupArchiveUpload {
 
     async fn upload_from(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         pool: &CellGroupArchiveTailPool,
         origin: Origin<'_>,
         group: &GroupLog<GroupHistory>,
@@ -496,7 +496,7 @@ impl CellGroupArchiveUpload {
 impl CellGroupArchive {
     pub(super) async fn read_tail_index(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         reference: &CellGroupArchiveTailReference,
         limits: CellGroupArchiveTailLimits,
         io: Arc<Permit>,
@@ -535,7 +535,7 @@ impl CellGroupArchive {
     /// head/GC protection, serving permission or S3 settlement is supplied here.
     pub async fn verify_tail(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         pool: &CellGroupArchiveTailPool,
         reference: &CellGroupArchiveTailReference,
         receiver: CellGroupArchiveCheckpointReceiver,

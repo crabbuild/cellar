@@ -119,7 +119,10 @@ impl PreparedCellGroupArchivePublication {
         &self.intent
     }
 
-    pub async fn commit(self, domain: &ExecutionDomain) -> Result<CellGroupArchiveCoverage> {
+    pub async fn commit(
+        self,
+        domain: &impl CellGroupArchiveExecution,
+    ) -> Result<CellGroupArchiveCoverage> {
         domain
             .run(async {
                 let _io = self.upload.admit()?;
@@ -174,7 +177,7 @@ impl CellGroupArchiveUpload {
     /// Callbacks, engine installation and S3 command settlement do not run here.
     pub async fn prepare_publication(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         tails: &CellGroupArchiveTailPool,
         uploaded: &CellGroupArchiveUploadedTail,
         receiver: CellGroupArchiveCheckpointReceiver,
@@ -254,7 +257,7 @@ impl CellGroupArchiveRegistry {
     /// intent. This never sends a publishing CAS or substitutes a newer head.
     pub async fn reconcile_publication(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         intent: &CellGroupArchiveIntent,
         tails: &CellGroupArchiveTailPool,
         receiver: CellGroupArchiveCheckpointReceiver,
@@ -273,7 +276,7 @@ impl CellGroupArchiveRegistry {
     /// and recheck the persistent hold before returning historical coverage.
     pub async fn verify_hold(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         hold: &CellGroupArchiveHold,
         tails: &CellGroupArchiveTailPool,
         receiver: CellGroupArchiveCheckpointReceiver,

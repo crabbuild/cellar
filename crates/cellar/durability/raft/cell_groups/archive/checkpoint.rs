@@ -109,7 +109,7 @@ impl CellGroupArchiveUpload {
     /// Success confirms immutable bytes, without granting group coverage.
     pub async fn upload_checkpoint(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         source: CellGroupCheckpoint,
     ) -> Result<CellGroupArchiveReference> {
         domain
@@ -120,7 +120,7 @@ impl CellGroupArchiveUpload {
 
     async fn upload(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         mut source: CellGroupCheckpoint,
     ) -> Result<CellGroupArchiveReference> {
         if source.marker().route().history != self.history {
@@ -211,7 +211,7 @@ impl CellGroupArchive {
     /// receiver; cancellation retains its permits until physical work finishes.
     pub async fn verify_checkpoint(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         reference: &CellGroupArchiveReference,
         receiver: CellGroupArchiveCheckpointReceiver,
     ) -> Result<VerifiedCellGroupArchiveCheckpoint> {
@@ -223,7 +223,7 @@ impl CellGroupArchive {
 
     async fn verify(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         reference: &CellGroupArchiveReference,
         receiver: CellGroupArchiveCheckpointReceiver,
     ) -> Result<VerifiedCellGroupArchiveCheckpoint> {
@@ -234,7 +234,7 @@ impl CellGroupArchive {
 
     pub(super) async fn checkpoint_marker(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         reference: &CellGroupArchiveReference,
         permit: Arc<Permit>,
     ) -> Result<GroupManifest> {
@@ -246,7 +246,7 @@ impl CellGroupArchive {
 
     pub(super) async fn checkpoint_index(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         reference: &CellGroupArchiveReference,
         permit: Arc<Permit>,
     ) -> Result<Index> {
@@ -278,7 +278,7 @@ impl CellGroupArchive {
 
     pub(super) async fn verify_admitted(
         &self,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         reference: &CellGroupArchiveReference,
         mut receiver: CellGroupArchiveCheckpointReceiver,
         permit: Arc<Permit>,

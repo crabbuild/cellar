@@ -25,19 +25,47 @@ pub struct Store {
     pub lose_delete_response: AtomicBool,
     held: Mutex<Option<(Path, usize, Arc<Gate>)>>,
     held_delete: Mutex<Option<(Path, Arc<Gate>)>>,
+    publication: Mutex<Option<Arc<Gate>>>,
+    pub publication_cuts: Mutex<Vec<u64>>,
+    pub outage: AtomicBool,
+    pub lose_publication_and_reads: AtomicBool,
 }
 
 impl Store {
     pub fn new() -> Arc<Self> {
+        Self::around(Arc::new(memory::InMemory::new()))
+    }
+
+    pub fn around(inner: Arc<memory::InMemory>) -> Arc<Self> {
         Arc::new(Self {
-            inner: Arc::new(memory::InMemory::new()),
+            inner,
             puts: AtomicUsize::new(0),
             lose_put_response: AtomicBool::new(false),
             deletes: AtomicUsize::new(0),
             lose_delete_response: AtomicBool::new(false),
             held: Mutex::new(None),
             held_delete: Mutex::new(None),
+            publication: Mutex::new(None),
+            publication_cuts: Mutex::new(Vec::new()),
+            outage: AtomicBool::new(false),
+            lose_publication_and_reads: AtomicBool::new(false),
         })
+    }
+
+    pub fn hold_publication(&self) -> Arc<Gate> {
+        let gate = Arc::new(Gate::default());
+        *self.publication.lock().unwrap() = Some(gate.clone());
+        gate
+    }
+
+    fn available(&self) -> Result<()> {
+        if self.outage.load(Ordering::Acquire) {
+            return Err(Error::Generic {
+                store: "archive outage",
+                source: "injected".into(),
+            });
+        }
+        Ok(())
     }
 
     pub fn hold(&self, path: Path) -> Arc<Gate> {
@@ -75,8 +103,40 @@ impl ObjectStore for Store {
         payload: PutPayload,
         opts: PutOptions,
     ) -> Result<PutResult> {
+        self.available()?;
         self.puts.fetch_add(1, Ordering::AcqRel);
+        let publication = if path.as_ref().ends_with("/ownership/registry") {
+            let bytes: Vec<u8> = payload
+                .iter()
+                .flat_map(|bytes| bytes.iter().copied())
+                .collect();
+            let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            value["selected"]["marker"]["index"].as_u64()
+        } else {
+            None
+        };
+        if publication.is_some() {
+            let gate = self.publication.lock().unwrap().take();
+            if let Some(gate) = gate {
+                gate.entered.notify_one();
+                gate.release.notified().await;
+            }
+        }
         let result = self.inner.put_opts(path, payload, opts).await?;
+        if let Some(index) = publication {
+            self.publication_cuts.lock().unwrap().push(index);
+        }
+        if publication.is_some()
+            && self
+                .lose_publication_and_reads
+                .swap(false, Ordering::AcqRel)
+        {
+            self.outage.store(true, Ordering::Release);
+            return Err(Error::Generic {
+                store: "lost archive publication",
+                source: "injected".into(),
+            });
+        }
         if self.lose_put_response.swap(false, Ordering::AcqRel) {
             return Err(Error::Generic {
                 store: "lost PUT response",
@@ -95,6 +155,7 @@ impl ObjectStore for Store {
     }
 
     async fn get_opts(&self, path: &Path, opts: GetOptions) -> Result<GetResult> {
+        self.available()?;
         let gate = self
             .held
             .lock()

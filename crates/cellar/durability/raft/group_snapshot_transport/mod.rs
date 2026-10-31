@@ -163,6 +163,7 @@ impl State {
 fn checkpoint_error(error: CellGroupCheckpointError) -> TransportError {
     match error {
         CellGroupCheckpointError::Busy => TransportError::Overloaded,
+        CellGroupCheckpointError::NotReady => TransportError::Runtime(RuntimeError::NotReady),
         CellGroupCheckpointError::Authority(error) => TransportError::Runtime(error),
         CellGroupCheckpointError::Limit => TransportError::Limit,
         other => TransportError::Invalid(other.to_string()),

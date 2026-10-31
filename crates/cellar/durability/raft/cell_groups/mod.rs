@@ -19,14 +19,14 @@ mod archive;
 pub use archive::{
     CellGroupArchive, CellGroupArchiveCheckpointReceiver, CellGroupArchiveCollectionLimits,
     CellGroupArchiveCollectionReport, CellGroupArchiveCoverage, CellGroupArchiveCreation,
-    CellGroupArchiveError, CellGroupArchiveHold, CellGroupArchiveIntent, CellGroupArchiveLimits,
-    CellGroupArchivePool, CellGroupArchiveReference, CellGroupArchiveRegistry,
-    CellGroupArchiveStore, CellGroupArchiveTailLimits, CellGroupArchiveTailPool,
-    CellGroupArchiveTailReference, CellGroupArchiveUpload, CellGroupArchiveUploadLimits,
-    CellGroupArchiveUploadPool, CellGroupArchiveUploadTicket, CellGroupArchiveUploadedTail,
-    CellGroupArchiveUsage, PreparedCellGroupArchiveCheckpoint, PreparedCellGroupArchiveCreation,
-    PreparedCellGroupArchivePublication, VerifiedCellGroupArchiveCheckpoint,
-    VerifiedCellGroupArchiveRecovery,
+    CellGroupArchiveError, CellGroupArchiveExecution, CellGroupArchiveHold, CellGroupArchiveIntent,
+    CellGroupArchiveLimits, CellGroupArchivePool, CellGroupArchiveReference,
+    CellGroupArchiveRegistry, CellGroupArchiveStore, CellGroupArchiveTailLimits,
+    CellGroupArchiveTailPool, CellGroupArchiveTailReference, CellGroupArchiveUpload,
+    CellGroupArchiveUploadLimits, CellGroupArchiveUploadPool, CellGroupArchiveUploadTicket,
+    CellGroupArchiveUploadedTail, CellGroupArchiveUsage, PreparedCellGroupArchiveCheckpoint,
+    PreparedCellGroupArchiveCreation, PreparedCellGroupArchivePublication,
+    VerifiedCellGroupArchiveCheckpoint, VerifiedCellGroupArchiveRecovery,
 };
 pub(crate) mod checkpoint;
 pub use checkpoint::{
@@ -38,10 +38,11 @@ pub use checkpoint::{
 mod controller;
 pub use controller::{
     CellCommandAdmissionError, CellCommandCall, CellEnrollmentAdmissionError, CellEnrollmentCall,
-    CellGroupCheckpointPolicy, CellGroupController, CellGroupControllerError,
-    CellGroupControllerLimits, CellGroupControllerUsage, CellGroupProvisionCall,
-    CellGroupProvisioning, CellGroupRegistration, CellGroupRegistrationCall,
-    CellGroupRegistrationError,
+    CellGroupArchiveCall, CellGroupArchiveControlError, CellGroupArchiveRegistration,
+    CellGroupArchiveStatus, CellGroupCheckpointPolicy, CellGroupController,
+    CellGroupControllerError, CellGroupControllerLimits, CellGroupControllerUsage,
+    CellGroupProvisionCall, CellGroupProvisioning, CellGroupRegistration,
+    CellGroupRegistrationCall, CellGroupRegistrationError,
 };
 mod dispatch;
 pub use apply::{CellGroupApplier, CellGroupApplyImages};

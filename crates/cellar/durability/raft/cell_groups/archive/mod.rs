@@ -8,15 +8,16 @@ pub use super::checkpoint::{
     CellGroupArchiveCheckpointReceiver, PreparedCellGroupArchiveCheckpoint,
 };
 use super::{checkpoint::wire, CellGroupCheckpoint, CellGroupCheckpointError, GroupManifest};
-use crate::{
-    asyncrt::ExecutionDomain,
-    raft::budget::{Budget, Permit},
-};
+use crate::raft::budget::{Budget, Permit};
 use cellar_logic::cell_group::GroupHistory;
 use object_store::{path::Path, ObjectStore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{fmt, sync::Arc};
+
+mod execution;
+pub use execution::CellGroupArchiveExecution;
+pub(super) use execution::ControllerExecution;
 
 mod checkpoint;
 mod data_store;

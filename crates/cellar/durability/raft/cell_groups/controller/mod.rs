@@ -3,7 +3,12 @@
 //! Owns registered groups' consensus events, transport dispatch and physical apply.
 //! Admitted command ownership survives response cancellation and expiry.
 
+mod archive;
 mod calls;
+pub use archive::{
+    CellGroupArchiveCall, CellGroupArchiveControlError, CellGroupArchiveRegistration,
+    CellGroupArchiveStatus,
+};
 mod checkpoints;
 pub use checkpoints::CellGroupCheckpointPolicy;
 mod commands;
@@ -111,6 +116,7 @@ struct Shared {
     commands: Arc<crate::raft::budget::Budget>,
     provisioning: Mutex<Option<Arc<provision::Config>>>,
     requests: tokio::sync::mpsc::Sender<requests::Request>,
+    archives: Mutex<BTreeMap<cellar_logic::cell_group::GroupHistory, CellGroupArchiveStatus>>,
     active_apply: AtomicUsize,
     pending_apply: AtomicUsize,
     applied: AtomicU64,
@@ -235,6 +241,7 @@ impl CellGroupController {
             commands: commands::budget(limits),
             provisioning: Mutex::new(None),
             requests,
+            archives: Mutex::new(BTreeMap::new()),
             active_apply: AtomicUsize::new(0),
             pending_apply: AtomicUsize::new(0),
             applied: AtomicU64::new(0),

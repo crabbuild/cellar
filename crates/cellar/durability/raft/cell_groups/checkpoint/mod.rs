@@ -83,6 +83,9 @@ pub enum CellGroupCheckpointError {
     Invalid(&'static str),
     Limit,
     Busy,
+    /// The requested current cut raced durable apply. Retry after progress;
+    /// unlike malformed source metadata, this does not establish corruption.
+    NotReady,
     Manifest(super::ManifestError),
     Log(crate::raft::storage::LogError),
     Image(cellar_ltx::generation::GenerationError),
@@ -296,7 +299,7 @@ impl CellGroupCheckpointPool {
                         .as_ref()
                         .is_some_and(|pins| pins.root() != marker.root())
                 {
-                    return Err(CellGroupCheckpointError::Invalid("source durable cut"));
+                    return Err(CellGroupCheckpointError::NotReady);
                 }
                 cache
                     .membership

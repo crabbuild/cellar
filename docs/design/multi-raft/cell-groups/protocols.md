@@ -623,7 +623,7 @@ can replace the source witness for a new publication.
 `CellGroupRuntime::capture_checkpoint` asks the existing worker to capture its
 owner's exact durable applied root. It performs bounded metadata capture only;
 physical streaming and remote I/O remain outside the worker. Owner/cache mismatch
-during concurrent persistence may refuse transiently, to retry after apply.
+during concurrent persistence returns typed `NotReady`, to retry after apply.
 `upload_cut` consumes that sealed checkpoint, retains its original configuration
 and permanent membership under the upload-owner budget, uploads the checkpoint,
 and writes a zero-entry tail for that same cut. It never recaptures a live root
@@ -670,6 +670,53 @@ fresh group/cell incarnations and fresh-quorum serving remain required. The
 fencing inventory must cover every possible old voting lineage, including joins
 after the selected archived cut. Real RustFS, Docker fencing and measured-load
 qualification remain later gates.
+
+### Controller-owned archive publication
+
+`CellGroupController::archive` installs archival for an already attached group.
+The namespace binding must already be initialized. Registration checks the exact
+birth/store route, then opens only the namespace's expected registry. One fair
+archive lane on the existing node worker rotates a deduplicated dirty-group
+queue, independently of SQL apply capacity. Clean groups require no roster scan. Apply/checkpoint-install events mark a group dirty. Transient
+I/O/admission failures use the existing node timer; malformed metadata and lost
+journal state refuse archival. Completions compare the covered cut with both the
+owner applied index and consumed apply events; recovery of an older publication
+cannot lose an idle final tail. This does not enable S3 command acknowledgements
+or authorize local log reclamation.
+
+Each group has an exclusively locked node journal bound to the engine creation
+identity and expected archive creation. Its immutable identity guard precedes its
+initial state; missing identity/state never reconstructs an interrupted journal.
+Updates write an exclusive temporary, sync it, rename, sync the directory and
+read back the exact bytes. Every attempt reloads the selected state, so an error
+after rename cannot roll back to stale in-memory intent. Record size is bounded
+to 32 KiB; the roster and single active lane bound retained control metadata.
+
+| Selected journal phase | Permitted next action |
+| --- | --- |
+| None | Verify an already sufficient held cut, or prepare and persist one reservation intent. |
+| Reserve | Reconcile/reserve that exact intent, then persist its ticket before any object upload. Definite expiry permits a newly persisted intent. |
+| Upload | Capture and upload a sealed complete cut using that pending generation; physically verify it and persist the exact publication intent before CAS. |
+| Publish | Reconcile only the exact existing publication. If absent, abort its pending ticket to fence a delayed CAS, then reconcile again before allocating anything new. |
+
+Selecting a new head first persists its explicit hold and the predecessor to
+retire. Only afterward may the old hold be released; both release and the journal
+clear are idempotent. Source callbacks never run in this workflow. Physical
+coverage/root admission stays scoped to the job, rather than retaining a replay
+workspace for every registered group. `archive_status` exposes historical metadata
+and errors only; it is neither a physical coverage capability nor an S3 receipt.
+
+The sealed archive execution capability accepts either the full execution domain
+or a controller's captured token, without acquiring shutdown rights. A controller
+tracks its admitted blocking closures independently of their async waiters.
+Shutdown joins logical archive work, drains those physical closures, closes private
+verifier stores and releases journal locks before closing runtime/SQL ownership.
+Fresh verifier stores are required on restart. No unrelated domain work is joined
+through this archive-specific drain.
+
+Actual S3 command/enrollment/receipt settlement, explicit unarchived-byte/disk
+admission, physical shared-engine Raft file purge, fenced fresh-incarnation serving,
+RustFS/load and process-kill qualification remain required gates.
 
 ## Split and merge
 

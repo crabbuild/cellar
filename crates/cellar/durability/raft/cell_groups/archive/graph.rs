@@ -98,7 +98,7 @@ impl Graph {
 
     pub async fn load(
         archive: &CellGroupArchive,
-        domain: &ExecutionDomain,
+        domain: &impl CellGroupArchiveExecution,
         descriptor: &Descriptor,
         limits: CellGroupArchiveTailLimits,
         io: Arc<Permit>,
