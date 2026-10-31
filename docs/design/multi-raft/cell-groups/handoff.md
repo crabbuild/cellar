@@ -42,7 +42,24 @@ effects/cache lifecycle belong to CG-08, and final legacy removal to CG-16. Trac
 these remaining capabilities in their owning tasks.
 Shared RustFS, independent-process/power-loss and load remain unqualified.
 
-The latest seed-fault/reconnect checkpoint at `de552f6d` passes 238 Rust
+The latest receiver-fault checkpoint at `3db498ea` passes 167 selected Rust
+cases across shared execution/catalog/storage and eight gate commands. Its record
+under `.cellar/cell-groups-evidence/CG-05-seed-receiver-faults/` binds 322 source
+hashes and three executables. Two new cases cover ten malformed reply and eleven
+chunk/end scenarios in both image forms, followed by successful same-engine install.
+A newer published NodeView revokes an admitted pre-install grant and stale source
+hints. Current and retained roots remain unchanged. Both seed and ordinary
+checkpoint loops now observe physical verifier failure while network input is
+pending; reproduced held-open offset failures no longer retain admission until
+timeout. Unchanged legacy snapshot/storage suites were not rerun in this scoped gate.
+
+Next qualify revocation while transferring or queued for persistence, sync-error
+and process-kill installation outcomes, joint-transition restart, signed minority
+receipt refusal, large/empty group bounds and all five exact CG-05 cases. Native
+pre-install process revocation does not qualify the queued/entered persistence
+boundary or managed fleet, independent-process, RustFS/load and zero-quorum recovery.
+
+The earlier seed-fault/reconnect checkpoint at `de552f6d` passes 238 Rust
 cases and eight commands. Its record under
 `.cellar/cell-groups-evidence/CG-05-seed-fault-reconnect/` binds 321 source hashes
 and five copied executables. Both image forms refuse eleven invalid seed requests,
@@ -53,11 +70,9 @@ and commit. Isolation cannot advance applied state or satisfy a linearizable rea
 after stepdown new proposals refuse. This is one OS process with explicit routes
 and clock advancement, not managed fleet or process-kill qualification.
 
-Next cover seed reply/chunk faults at the receiver, process-generation revocation,
-sync-error/process-kill and joint-transition cuts, minority signed receipts,
-large/empty group bounds and all five exact CG-05 cases. Source capture fairness
-and controller pressure remain open. Shared RustFS/load/power-loss/zero-quorum
-proof is not supplied by these native tests.
+The newer receiver checkpoint above adds reply/chunk faults and pre-install
+process revocation. The remaining queued/entered persistence and full-task gaps
+are listed above. Source capture fairness and controller pressure remain open.
 
 The earlier learner-install checkpoint at `ab2a308a` passes 238 Rust cases,
 eight gate commands and 37 validator tests. Its record under
@@ -733,8 +748,9 @@ Do not let plan maintenance replace implementation.
 
 1. Finish the full CG-05 acceptance gate around the implemented fresh-learner
    replacement path. Extend `group_snapshot_transport/seed/` and its production
-   controller fixture with malformed/replayed seed replies/chunks at the receiver,
-   process-generation revocation, sync failures and process-kill cuts. Qualify
+   controller fixture with process-generation revocation during transfer and queued
+   persistence, sync failures and process-kill cuts. Reply/chunk faults and
+   pre-install process revocation now pass in both image forms. Qualify
    minority signed receipt refusal and joint-transition restart. Native retained
    peer reconnection and minority commit/read refusal now pass in both image forms.
    Preserve permanent claims, local install receipts and complete physical recovery.

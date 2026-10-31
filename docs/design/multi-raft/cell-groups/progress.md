@@ -10,6 +10,58 @@ CG-05 is IN_PROGRESS; CG-06 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-05 receiver faults and physical verifier completion
+
+Qualified source: `3db498eacf4bd0621b7a0ecdf11ee68fe2a3ed32`. All 167 selected Rust cases pass across shared
+execution, catalog and storage. All eight commands pass: all-target Clippy for
+Cellar/core/LTX, those three native suites, formatting/layout, dependency isolation,
+docs, source preflight and 37 plan-validator tests. The source-bound record is
+`.cellar/cell-groups-evidence/CG-05-seed-receiver-faults/checkpoint.json`, with
+322 source hashes, three copied executables, frozen plan inputs and retained
+intermediate logs. Independent hash verification passes. The unchanged legacy
+snapshot/storage suites were not repeated in this scoped gate; their earlier
+results remain in the predecessor record. CG-05 remains IN_PROGRESS.
+
+Adversarial receive tests exposed a production resource-lifetime defect in both
+seed and ordinary group-checkpoint transport: a physical worker could reject a
+chunk while the network loop waited for the peer's next header. The connection
+and network admission survived until timeout. Both loops now observe physical
+completion throughout network reads and bounded-channel sends. Failure closes the
+exchange promptly. Explicit End, complete closure verification and the real engine
+fence remain necessary for installation. Work already admitted to persistence is
+still owned until completion. Both original failures are retained in the evidence.
+
+Two new cases use independent TLS test peers in both image modes. Their payload
+comes from a real quorum-authorized complete source; the deliberately small fixture
+buffers less than 2 MiB of chunk payload and is not a production streaming
+benchmark. Ten faulty
+replies cover exporter authentication, correlation, nonce, source process, payload
+digest, impossible/noncanonical barrier, unknown fields, invalid descriptor and
+oversized payload. They cannot create a destination stage. Eleven chunk/end faults
+cover wrong binding/sequence/digest, unknown fields, bad physical offset, premature
+End, oversized chunk, disconnect after the first part, replay, and malformed End
+offset/body. They cannot change the staged root, install a checkpoint or authorize
+bootstrap. Physical and wire admission release after every case. A valid transfer
+then installs both cells on the same engine and identities.
+
+The fixture captures a later cut and admits its signed descriptor, then closes and
+reopens the source engine with a new process generation. Normal catalog/storage
+publication produces a newer NodeView. Accepting that view revokes the pending
+session; both current and retained destination roots stay unchanged and an old
+source hint explicitly returns StalePeer. This is revocation before install begins,
+not a process-kill or revocation during queued/entered engine persistence. The
+ordinary checkpoint protocol also has a held-open malformed-offset regression.
+
+**Reflection and next step:** seed reply/chunk refusal and pre-install process
+revocation now have direct native coverage, and verifier failure no longer retains
+network admission until timeout. Next qualify revocation during transfer/queued
+persistence, sync-error/process-kill installation outcomes and joint-transition
+restart. Signed minority receipt refusal, large/empty group pressure, retained pins,
+sustained capture fairness and all five exact CG-05 cases remain required. No
+managed fleet, independent-process, shared-group RustFS/load/power-loss/zero-quorum
+qualification is claimed. Complete CG-05 before verified S3 archive/reclamation
+and the effects/cache plus SDK/fleet cutover tasks.
+
 ## CG-05 seed refusal and restarted voter reconnection
 
 Qualified source: `de552f6daabf786c14fe9df97565538ba5d302b4`. All 238 Rust cases and eight gate commands
