@@ -10,6 +10,73 @@ CG-06 is IN_PROGRESS; CG-07 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-06 local receipt S3 observations and bounded result reads
+
+Source: `cde0eea2f516486578fdee7a4cc0b8be9ba8f72a`. CG-06 remains IN_PROGRESS. Local command,
+enrollment and receipt outputs now share the explicitly bound controller archive
+owner. `CellReceiptInvocation::select` returns an opaque quorum selection; its
+consuming `response` settles required durability. Existing `execute` runs both.
+S3 admission takes the selected bytes before SQL read admission releases. The
+selection queues no archive work until response; dropping it refunds admission.
+Request, namespace and stored receipt minima are never lowered.
+
+The complete independently recovered group must cover the quorum cell history/
+version and equal-version decision. Known receipts remain exact across later
+images. An initially absent receipt is read again from the actual archive, which
+may now contain the command. Return that image's actual observation and token;
+never attest an old absence against a changed image. None remains ambiguous and
+never releases a producer. Empty results remain distinct. Lookup runs no command,
+initializer or receipt maintenance; expiry, conflict and sequence gaps stay typed.
+
+Result length is inspected before payload fetch. The same S3 permit grows for
+actual bytes without another item slot or increased node ceilings. A legitimate
+40 KiB result exceeds the unchanged 64 KiB fixture S3 envelope with duplicate-read
+headroom: S3 returns typed Overloaded before allocation, then Quorum still reads
+the intact result. Original SQL/S3 node quotas remain unchanged. The new expiry
+scenario deliberately fills a two-receipt ceiling so normal replicated maintenance
+prunes an expired prefix while retaining the latest receipt and permanent floor.
+
+S3 outputs retain complete physical coverage, shared pool admission and the journal
+lock. Catalog proof rechecks enter the captured execution domain and remain bounded
+by the original deadline for all three output kinds. Receipt output additionally
+checks a fresh correlated quorum read's current leader/route and version floor.
+That read fence tolerates later cell mutations without retaining a writer's base.
+Remote S3 delivery remains guarded on both ends, including provider-configured
+receivers that discover a stored S3 minimum. A rejected committed command duplicate
+clears SQL ownership first and remains ambiguous to its remote caller.
+
+All thirteen exact RustFS cases pass in both image formats, plus seven signed S3
+probes. The four new cases cover later receipts replacing initial absence, known
+results at newer cuts, signed observations, empty/absent results, namespace/stored
+minima, unsubmitted-phase drops, foreign providers, typed conflict/expiry, payload
+admission, read deadlines/cancellation and actual TLS receiver refusal without
+callback replay or quarantine. The earlier archive/command/enrollment cases pass.
+
+All sixteen check/regression commands pass: 205 distinct Rust cases across six
+copied executables, locked all-target Cellar/logic/LTX Clippy, format/layout,
+dependency/docs/preflight/plan checks, 37 Python tests and system-Python hashing.
+Records under `.cellar/cell-groups-evidence/CG-06-s3-receipts/` bind
+2567 source hashes, exact selections, frozen plan inputs, executable/output
+hashes and predecessors. Independent source/hash/selection and credential-exclusion
+audit passes. The initial direct-caller domain panic retains its exact source,
+executable, output and minimized backtrace. Production scoping fixes it; no global
+host handle or assertion workaround was added. The intermediate four-case success
+and final deadline-bound source remain distinguishable. The fixture macro-lint
+refusal is retained; cancellation now polls the response and observes an actual
+archive attempt before dropping it. No original task oracle
+or existing quota was weakened. Four original CG-06 cases/full gate remain pending.
+
+Reflection: implement remote S3 output proofs through physical delivery, preserving
+authenticated purpose, achieved durability, route/version and original deadlines.
+Then explicit unarchived-byte/disk admission, physical shared-engine Raft purge
+and fenced fresh-incarnation serving with every possible old-voter lineage.
+Qualify multi-head leases, process-kill restart and physical-read shutdown cuts.
+Incremental committed tails and smaller sealed attestations backed by real remote
+hold leases remain performance opportunities. CG-08 lifetimes/maintenance precede
+CG-07 SDK/fleet cutover; topology, placement, hibernation, managed recovery, load
+and final legacy removal remain. Voters share one host and RustFS one local VM;
+independent hosts, measured load and fenced replacement serving remain unqualified.
+
 ## CG-06 local enrollment S3 response settlement
 
 Source: `c2801b6586ffc8b3b765312e0042986e881d773a`. CG-06 remains IN_PROGRESS. The explicit
