@@ -10,6 +10,66 @@ CG-05 is IN_PROGRESS; CG-06 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-05 exact native snapshot acceptance target
+
+Qualified source: `f076731a2d384bff65914828409c01506438c4a2`. The declared
+`native_cell_groups_snapshot` target now contains all five required named cases,
+plus two ignored child entry points used by its actual process-kill parents.
+Every required case passes separately with `--exact --test-threads=1`; inventory
+and exact one-test results pass the plan's evidence validator. The
+execution target's 144 regression cases also pass. Fifteen commands pass: all ten
+prescribed CG-05 commands, the execution regression suite, dependency isolation,
+docs, source preflight and 37 plan-validator tests. The prescribed commands include
+all-target checks and Clippy for cellar/cellar-logic, formatting and layout.
+
+The record `.cellar/cell-groups-evidence/CG-05-snapshot-acceptance/checkpoint.json`
+binds 332 source hashes, two executables, frozen plan inputs and intermediate
+logs. Independent hash verification and `check_evidence` pass. No required case
+or command was removed or renamed. This record does not mark the task complete;
+remaining lifecycle/availability gaps below keep CG-05 IN_PROGRESS.
+
+The cases directly compose existing real-engine, SQLite/LTX, TLS and owned-crash
+fixtures. They do not infer an oracle from another test process's success. The
+engine helper extraction preserves its body byte-for-byte after keeping the
+execution-only import and restart method in the original target. The process-kill
+children retain their exact names and run the same snapshot executable. Fixture
+progress messages use ordinary test capture, leaving the validator's required
+per-case pass lines unambiguous while retaining failure diagnostics.
+
+| Exact case | Direct native coverage |
+| --- | --- |
+| `snapshot_contains_every_cell_at_cut` | Both image forms, two concurrent cell advances, exact original closure, stale/foreign cut refusal and corrupt physical bytes. |
+| `partial_snapshot_never_serves` | Receiver corruption/partial/foreign/budget failures, exact Raft persistence, forged TLS seed data, revoked source, sync failures and twelve owned seed SIGKILL scenarios. |
+| `whole_group_learner_and_joint_change` | Fresh quorum seed authority, deleted-voter replacement, complete learner install and catch-up before promotion, explicit/implicit joint changes, leader handoff, four explicit joint SIGKILL scenarios, sync ownership and minority refusal. |
+| `snapshot_empty_cell_and_extent_restart` | Raft-generated TLS catch-up, empty and populated enrollment, retained checkpoint/current suffix cold recovery and missing closure refusal in both forms. |
+| `snapshot_memory_and_pin_bounds` | 32-cell transfers, scratch/metadata admission, unique old reader preservation and actual deletion after release, cancellation, joined publication/installation shutdown and controller pool contention. |
+
+The audit strengthened two fixture oracles. Replacement-group and unrelated-group
+writes now commit while the receiver is physically held at its install fence;
+the learner later obtains those cell changes through the Raft suffix. Cold
+checkpoint restart explicitly verifies empty enrollment remains at sequence 1,
+transaction 0 and an empty image, while alpha/beta/suffix retain populated images
+at sequence 1.
+
+The initial composite membership test overflowed its stack even with boxed
+futures. Phase probes located the failure entering seed installation, whose
+standalone counterpart passed. A non-inlined future factory releases construction
+temporaries before polling nested fixtures; the complete original case then
+passes in both image modes. No stack limit, timeout, assertion or fault was
+relaxed. Temporary phase probes were removed and their logs retained. Production
+runtime behavior is unchanged.
+
+**Reflection and next step:** the exact test target and its prescribed command
+gate are delivered. The next concrete test should hold controller checkpoint capture, fill its
+lifecycle capacity, then cancel close and verify that physical owners remain
+charged until release and shutdown joins them. Follow with staged-orphan cleanup
+and authenticated retry on the same disk; safe
+refusal of interrupted state alone does not prove availability. Retain explicit
+gaps for continuous capture fairness, minority signed receipts and retained-root
+pressure. This is native qualification, not real RustFS/load, independent domains
+or production SDK/fleet cutover. Complete the remaining CG-05 obligations before
+CG-06 archive/reclamation; the full hard cutover remains pending.
+
 ## CG-05 interrupted seed dependency writes and process revocation
 
 Qualified source: `6e56f21f2209ce3f02d78ffeeb3150a763a1476e`. All 144 native shared-execution tests

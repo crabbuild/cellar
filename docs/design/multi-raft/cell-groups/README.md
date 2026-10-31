@@ -21,7 +21,8 @@ Staged and engine-boundary seed SIGKILL recovery now passes in both image forms.
 Explicit joint-consensus SIGKILL/restart and completion now pass in both image forms.
 Bounded 32-cell transfer, scratch contention and old-reader image retention/release
 now pass in both image forms. Partial/synced seed-dependency SIGKILL cuts and transfer-time source-process
-revocation now pass. Remaining CG-05 controller pressure and full acceptance gates precede
+revocation now pass. All five exact native acceptance cases and their prescribed command gate now pass.
+Remaining CG-05 lifecycle/availability qualification precedes
 verified S3 archive/reclamation. The production host has not yet cut over to shared groups.
 See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.
@@ -99,13 +100,13 @@ qualification belongs only to the harness's recorded, owned disposable resources
 ### Current executor handoff
 
 The implementation executor should continue from the existing code and retained
-evidence. Review the working diff before resuming CG-04; intermediate owner and
-storage checkpoints do not replace its full shared-execution gate.
+evidence. Resume CG-05 from its exact acceptance gate and remaining lifecycle/availability
+obligations; intermediate checkpoints do not establish full task completion.
 
-Continue CG-04 after reading
+Continue CG-05 after reading
 [progress](progress.md) and inspecting the working diff.
-CG-01 through CG-03 are DONE only at their named contract/storage/admission
-boundaries; the remaining tasks still require implementation. `ready` lists eligible TODO tasks;
+CG-01 through CG-04 are DONE only at their named contract/storage/admission
+and shared-execution boundaries; the remaining tasks still require implementation. `ready` lists eligible TODO tasks;
 an IN_PROGRESS task is resumed from its existing brief and working state. Each
 task's complete source-bound evidence gate must pass before changing its status
 to DONE. Continue in the generated dependency order afterward.

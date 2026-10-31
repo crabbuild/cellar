@@ -35,14 +35,39 @@ Automatic entry-count checkpointing at controller apply boundaries now passes it
 partial gate. Durable whole-group membership and leadership handoff now pass
 an additional partial gate. Authenticated fresh-learner installation, catch-up,
 promotion and deleted-voter-disk replacement now pass a native partial gate.
-Complete the remaining fault/pressure checks and all five CG-05 acceptance cases.
+All five CG-05 acceptance cases now pass; complete the remaining fault/pressure
+and retry-availability obligations before closing the task.
 CG-06 follows with archival reclamation. Automatic
 production request/voter startup and public SDK/fleet binding belong to CG-07;
 effects/cache lifecycle belong to CG-08, and final legacy removal to CG-16. Track
 these remaining capabilities in their owning tasks.
 Shared RustFS, independent voter failure domains, power loss and load remain unqualified.
 
-The latest interrupted-transfer checkpoint at `6e56f21f` passes all 144
+The latest exact-acceptance checkpoint at `f076731a` delivers
+`native_cell_groups_snapshot` with all five required native oracles. Each passes
+individually with `--exact --test-threads=1`, and all ten prescribed task commands
+pass. Fifteen total commands include 144 execution regression cases and package
+checks. The record under `.cellar/cell-groups-evidence/CG-05-snapshot-acceptance/`
+binds 332 source hashes and two executables; both independent hashes and the
+plan's full `check_evidence` validator pass. CG-05 remains IN_PROGRESS pending the
+controller/lifecycle and orphan-retry audit; the new gate is not a release claim.
+
+Shared root-level engine helpers now live in `cell_group_engine_fixture.rs`;
+the existing execution-only restart method stays in the original target. Exact
+cases compose the real fixtures and preserve owned-child names. Writes now commit
+in the replacement and unrelated groups while a learner install fence is held;
+cold restart explicitly checks empty and populated cell sequences/images. The
+composite membership test constructs futures outside its poll frame after phase
+probes reproduced a debug stack overflow. The standalone case passed and the
+fixed complete composite passes; no stack limits, timeouts or assertions changed.
+
+Next close the declared controller checkpoint lifecycle/saturation gaps and audit
+staged orphan reconciliation before authenticated retry. Preserve fresh quorum,
+physical-owner retention and selected-root checks. Production runtime code was
+unchanged in this checkpoint; RustFS/load, independent-domain and public host
+cutover qualification remain open.
+
+The earlier interrupted-transfer checkpoint at `6e56f21f` passes all 144
 shared-execution tests and nineteen native Raft-storage tests, with eight scoped commands.
 Its record under `.cellar/cell-groups-evidence/CG-05-seed-transfer-cuts/` binds
 330 source hashes and two executables. The seed crash matrix now includes
@@ -58,11 +83,11 @@ physical release drains it without publishing any seed. Cold recovery again
 refuses startup. These revocation cases use an independently authenticated captured
 peer. Production runtime code is unchanged. No automatic orphan cleanup/retry,
 all-wire-boundary, power-loss, independent-domain or RustFS/load claim is made.
-Next audit the five required CG-05 oracles, deliver their exact test target and
-close the remaining controller/lifecycle saturation requirements.
+That checkpoint preceded the exact acceptance target delivered above; its
+controller/lifecycle and retry-availability limits remain explicit.
 
-The starting fixture mapping for the exact target is below. This is an audit map,
-not evidence that the named target exists or its five gates have passed. Reuse the
+The earlier starting fixture mapping for the exact target is below. The newer
+checkpoint above implements that target and records its exact five-case gate. Reuse the
 real fixture owners and direct assertions, without launching another test binary
 as an oracle or replacing any required case.
 
@@ -74,12 +99,10 @@ as an oracle or replacing any required case.
 | `snapshot_empty_cell_and_extent_restart` | `tcp_publication` transfers the complete populated/empty closure and reopens retained checkpoint plus current suffix in both forms. |
 | `snapshot_memory_and_pin_bounds` | `transfer_pressure` and `local_shutdown` retain bounded physical work and old reader images through concurrent apply/shutdown. |
 
-The native execution test currently keeps reusable imports, `Voter`, `Cluster`
-and image/apply helpers between the `images` module declaration and
-`three_cells_one_rawnode_per_voter`. Extract those helpers without changing their
-semantics so the new snapshot target shares the same real engine fixture. Preserve
-the root module paths used by the support files and the exact ignored child names
-used by owned-process tests.
+The shared imports, `Voter`, `Cluster` and image/apply helpers are now extracted
+without semantic changes into `cell_group_engine_fixture.rs`. Both integration
+targets include them at their root, preserving support-module paths and exact
+ignored child names used by owned-process tests.
 
 The earlier pressure checkpoint at `a2036e50` passes all 142 native
 shared-execution tests and eight scoped commands. Its record under
@@ -851,9 +874,9 @@ Do not let plan maintenance replace implementation.
 1. Finish the full CG-05 acceptance gate around the implemented checkpoint,
    learner and membership paths. Bounded 32-cell transfer and physical reader
    retention/release now pass, as do partial/synced dependency crash cuts and
-   transfer-time source-process revocation. Audit all five exact oracles and
-   deliver the declared native_cell_groups_snapshot target, closing remaining
-   fault/lifecycle requirements below. Preserve permanent claims, local install receipts, complete
+   transfer-time source-process revocation. The declared snapshot target and all
+   five exact cases now pass their prescribed command gate. Close the remaining
+   fault/lifecycle and availability requirements below before task completion. Preserve permanent claims, local install receipts, complete
    physical recovery and unrelated-group progress.
 2. Complete remaining CG-05 fault/lifecycle requirements: minority signed receipt
    refusal, continuous capture fairness, exhausted apply/completion budgets, held sync/cancelled close,
