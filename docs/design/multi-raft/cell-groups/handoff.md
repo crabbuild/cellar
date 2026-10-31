@@ -15,42 +15,45 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The latest partial source is `7a29c2a9bff5c2daddf37f53c50bc5d575e0b069`.
-CG-06 is IN_PROGRESS: complete immutable checkpoints plus contiguous committed
-tails now recover every cell and configuration through independent LTX/data
-replay. `extend_tail` reuses archived entry references after actual local prefix
-compaction, with only a new suffix entry/index PUT in the tested two-entry case.
-The obsolete tail index is deleted before recovery; actual physical shared-engine
-file purge is not qualified. No callback, synthetic cell or engine install occurs.
+The latest partial source is `14955f2dc2b01a6f6ab6b75b0122c812e5de6765`.
+CG-06 is IN_PROGRESS. Complete checkpoints and contiguous tails now recover through
+an independent physical archive store, with no destination Raft engine, member
+claim, replacement genesis or surviving voter disk. Both image forms recover after
+all three source voter directories and extent directories are deleted. A held
+remote dependency permits source quorum progress in another execution domain;
+newer and older cuts verify independently. Private archive roots are refused by
+actual exact-cut engine publication and source capture. Closed stores refuse new
+and outstanding receives. Newly replayed private images become reclaimable after
+proof pins close; full remote replay succeeds after their physical eviction.
 
-All 22 commands pass: nine exact archive cases, 156 execution cases, five snapshot
-cases and four generation regressions (174 distinct Rust cases), all-target
-build/Clippy, formatting/layout, dependencies/docs/preflight and 37 validator tests.
-The record under
-`.cellar/cell-groups-evidence/CG-06-committed-tail/qualification/`
-binds 323 source hashes, four executables, frozen inputs, both fixture failures and
-the preceding checkpoint. Independent hashes/source/exact-selection verification
-passes. See [progress](progress.md) and the
+All 24 commands pass: eleven exact archive cases, 156 execution cases, five
+snapshot cases and four generation regressions (176 distinct Rust cases),
+all-target build/Clippy, formatting/layout, dependencies/docs/preflight and 37
+validator tests. The record under
+`.cellar/cell-groups-evidence/CG-06-isolated-verifier/qualification/`
+binds 326 source hashes, four executables, frozen inputs and the previous tail
+checkpoint. Independent hashes/source/exact-selection verification passes.
+See [progress](progress.md) and the
 [archive contract](protocols.md#apply-checkpoint-and-archive).
 
-The original `archive_tails_cover_enrollment_and_controls` case passes with an
-empty checkpoint, four real enrollments, later mutations, explicit joint demotion/
-leave and production leadership-transfer no-op. The other four original CG-06
-cases and its complete task gate remain pending. A cached result cannot replace
-incoming LTX replay; wrong but correctly hashed deltas and warm image corruption
-refuse. Physical-read cancellation retains admission while another cell commits;
-domain shutdown joins the held worker before refunding. Source/receiver/archive
-limits, readiness assertions and the exact nine-entry control trace are unchanged.
+The original `archive_tails_cover_enrollment_and_controls` case and all prior
+missing/corrupt/warm-LTX, physical cancellation/join and post-compaction extension
+cases remain passing on the new neutral stores. The other four original CG-06
+cases and full task gate remain pending. No required oracle or bound was weakened.
 
-Uploaded locators and verified physical state grant no archive coverage, serving
-right, S3 settlement or disaster-recovery authorization. Next isolate the data
-verifier from a serving engine's advancing cut and surviving voter disks. Then
-build published/GC-protected coverage, bounded outage admission/S3 settlement,
-archive-aware file reclamation and fenced unmanaged seeding under fresh group/cell
-incarnations. Shared dispatch still refuses S3 durability. Qualify framing/
-coalescing and large-group limits before cost/throughput claims. Actual RustFS,
-zero-quorum erasure/fencing, managed recovery and the public hard cutover remain
-later required work. The previous checkpoint-only record at `650fc638` is retained.
+Next implement conditionally published, GC-protected complete-cut coverage,
+bounded outage admission/S3 settlement, archive-aware physical log reclamation
+and fenced unmanaged seeding under fresh group/cell incarnations. Keep source
+birth/provenance and the authoritative inventory of every possible old voting
+lineage, including joins after the chosen recovery cut. Selected-cut membership
+alone is insufficient to fence every old host. Physical data verification grants
+no serving, coverage, S3 settlement or fencing authority. Shared dispatch still
+refuses S3 durability. The native erasure drill uses the actual in-memory store;
+RustFS, Docker fencing, fresh-quorum serving, load and public hard cutover remain
+later required work. Retain the preceding committed-tail record at `7a29c2a9`.
+Before managed integration, retain the verified archive result alongside derived
+manifest roots: raw root clones do not preserve the parent archive quota. Qualify
+that ownership propagation and private-cache maintenance in CG-08.
 
 CG-01 through CG-05 are DONE at their declared native task boundaries. CG-05
 closes at `e0550acd` with all five exact snapshot cases and eighteen passing

@@ -555,6 +555,10 @@ are explicit and do not change the ordinary archive/checkpoint pool limits. The
 returned `VerifiedCellGroupArchiveRecovery` retains this admission with physical
 pins. Cancellation stops further replay work and retains entered physical owners;
 domain shutdown joins them. Typed contention and poisoned-owner failures differ.
+Orchestration must keep the verified archive result alongside any derived raw
+manifest roots: cloning `PreparedGroupManifest` does not clone its parent archive
+admission. Controller ownership propagation and private-cache maintenance require
+CG-08 qualification before managed integration.
 
 This remains data-only recovery through an independent physical storage owner.
 Published/GC-protected archive coverage, S3 settlement/outage admission,

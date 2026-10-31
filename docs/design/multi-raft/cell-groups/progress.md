@@ -10,6 +10,58 @@ CG-06 is IN_PROGRESS; CG-07 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-06 archive verification without voter metadata
+
+Source: `14955f2dc2b01a6f6ab6b75b0122c812e5de6765`. CG-06 remains IN_PROGRESS.
+The archive verifier owns dedicated physical stores and needs no GroupLog, bootstrap/member claim,
+replacement genesis or surviving voter metadata. Its typed checkpoint is distinct
+from the engine-bound snapshot output. Shared physical decoding preserves the
+live receiver's selected-base, membership, owner and installation checks; private
+archive roots have a freshly minted owner token that live engines refuse.
+
+Both image forms recover the exact checkpoint/tail cut, all four cells including
+empty enrollment, and permanent membership after closing all three source engines,
+dropping their physical owners and deleting every voter log/page/image directory
+and source extent directory. Destination stores are opened only after erasure.
+A separate native scenario holds a remote dependency while another execution
+domain advances the healthy source quorum, then verifies newer and older archive
+cuts independently. Exact-cut engine publication and source capture refuse the
+private archive root; engine-selected state stays unchanged. Closed stores refuse
+both outstanding and new receives. New private materialized replay results release
+retention after proof pins close, and complete remote recovery succeeds after
+actual private-image eviction. Existing host retention is preserved.
+
+All 24 commands pass: eleven exact archive cases, 156 execution cases, five snapshot
+cases and four LTX generation regressions (176 distinct Rust cases across four
+executables), all-target build/Clippy for Cellar/logic/LTX, formatting/layout,
+dependency isolation, docs, CG-06 preflight, plan validation and 37 Python tests.
+The partial record at
+`.cellar/cell-groups-evidence/CG-06-isolated-verifier/qualification/checkpoint.json`
+binds 326 source hashes, copied executables, frozen plan inputs and command
+outputs. Independent source/artifact/exact-selection verification passes. Transfer
+this ignored evidence with its committed-tail predecessor to reproduce the audit.
+No required task case, oracle, quota or readiness assertion was weakened.
+
+Reflection and next priorities: data integrity alone cannot authorize S3 settlement
+or truncation. Implement conditionally published, GC-protected coverage of the
+exact complete committed cut, then bounded outage admission/S3 output settlement,
+archive-aware shared-engine file purge and fenced unmanaged recovery into fresh
+group/cell incarnations. Preserve source birth/provenance and an authoritative
+inventory of all possible old voting lineages, including voters joined after the
+selected archive cut; fencing only selected-cut members is insufficient. Follow
+with CG-08 effects/cache lifetimes and CG-07 public SDK/fleet cutover, then topology,
+placement, hibernation, managed recovery and final legacy removal. Controller
+composition must retain the verified archive result alongside derived manifest
+roots: a raw `PreparedGroupManifest` clone does not carry its parent archive quota.
+Qualify that ownership propagation in CG-08 before managed integration.
+
+The erasure drill uses real local Raft Engine/SQLite/LTX and the actual in-memory
+object-store adapter. It does not qualify RustFS, Docker fencing, a new serving
+incarnation, process/machine failure isolation, measured load or the production
+hard cutover. The other four original CG-06 acceptance cases and full task gate
+remain pending. Shared dispatch still refuses S3 durability. The preceding
+committed-tail source/evidence is preserved below.
+
 ## CG-06 committed-tail replay and extension after compaction
 
 Partial source checkpoint: `7a29c2a9bff5c2daddf37f53c50bc5d575e0b069`.
