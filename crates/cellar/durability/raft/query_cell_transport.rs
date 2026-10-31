@@ -404,7 +404,7 @@ impl IncomingCall {
         self,
         state: &State,
         route: &QueryRoute,
-    ) -> Result<Vec<u8>, TransportError> {
+    ) -> Result<super::query_replies::Reply, TransportError> {
         match self {
             Self::Command(call) => state.execute_cell_command(route, call).await,
             Self::Enrollment(call) => state.execute_cell_enrollment(route, call).await,
@@ -431,6 +431,7 @@ impl IncomingCall {
                     return Err(TransportError::Identity);
                 }
                 wire::encode_result(&result, state.options.max_query_response_bytes)
+                    .map(super::query_replies::Reply::plain)
             }
             Self::Shared(call) => {
                 let (_, target, cell) = route.decode_shared()?;
@@ -449,6 +450,7 @@ impl IncomingCall {
                     .await
                     .map_err(query_failure);
                 wire::cell::encode_cell_result(&result, state.options.max_query_response_bytes)
+                    .map(super::query_replies::Reply::plain)
             }
         }
     }

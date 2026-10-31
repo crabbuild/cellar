@@ -71,14 +71,17 @@ python3 tools/multi-raft/cell_groups.py \
 
 The runner verifies the backend's ownership label, image, running state, endpoint
 and actual resource limits, then makes seven signed S3 probes in a new bucket.
-It runs thirteen exact ignored RustFS cases, each in materialized and extent modes:
+It runs sixteen exact ignored RustFS cases, each in materialized and extent modes:
 stable publication with continuing quorum, uncertain-publication reconciliation
 with joined close, refusal of unproved S3 responses, positive local command S3
 settlement, deadline/cancellation isolation, refusal when a sibling dependency
 is missing, namespace minimum enforcement, original enrollment creation proofs
 and enrollment deadline/cancellation isolation. Receipt cases cover later archived
 observations, namespace/stored minima, typed failures and payload admission, and
-read cancellation/deadlines. Catalog setup, archive
+read cancellation/deadlines. Remote cases cover all three authenticated output
+kinds, namespace/stored minima, original creation provenance, archive-wait
+deadlines/cancellation and real TLS backpressure through drain, disconnect,
+revocation and timeout. Catalog setup, archive
 objects, conditional registry updates and independent recovery use the actual
 S3 client. Fault injection surrounds that client; lost publication responses are
 injected after the real conditional write commits. No memory fallback exists.
@@ -90,8 +93,9 @@ admission and fresh routing/leader checks. Enrollment cases preserve the origina
 creation after later mutations, honor namespace minimums, retain output proofs and
 retry without rerunning initialization. Receipt lookup preserves ambiguous absence,
 returns the actual later archived observation, reserves result bytes before fetch,
-and tests remote refusal with a provider-configured TLS gateway. Remote S3
-responses remain unqualified. The runner does not qualify local log file purge,
+and tests stored-minimum S3 delivery with a provider-configured TLS gateway.
+Reduced real socket buffers hold 28 KiB replies inside the original 64 KiB S3
+envelope while a Quorum successor progresses. The runner does not qualify local log file purge,
 fenced recovery or performance.
 The voters run as native host tasks, so this is not the container resource gate.
 

@@ -19,6 +19,7 @@ pub(in crate::raft) struct CellCommandCall {
 
 pub(in crate::raft) struct CellCommandValue {
     pub command: CommandId,
+    pub durability: Durability,
     pub retry_until_ms: u64,
     pub value: cell::CellQueryValue,
 }
@@ -34,7 +35,6 @@ impl CellCommandCall {
             || r.contract.operation.len() > 128
             || r.contract.operation.chars().any(char::is_control)
             || !(1..=3_600_000).contains(&self.timeout_ms)
-            || r.durability != Durability::Quorum
         {
             return Err(TransportError::Protocol);
         }
@@ -45,7 +45,7 @@ impl CellCommandCall {
         body.extend_from_slice(&self.birth_digest);
         string(&mut body, &r.contract.operation)?;
         body.extend_from_slice(&r.contract.digest);
-        body.push(1); // Quorum; never silently lower an S3 request.
+        body.push(durability_code(r.durability));
         body.extend_from_slice(&r.retry_until_ms.to_be_bytes());
         body.extend_from_slice(&self.inputs.now_unix_millis.to_be_bytes());
         body.extend_from_slice(&self.inputs.random);
@@ -87,9 +87,7 @@ impl CellCommandCall {
             kind: OperationKind::Command,
             digest: body.array()?,
         };
-        if body.byte()? != 1 {
-            return Err(TransportError::Protocol);
-        }
+        let durability = read_durability(&mut body)?;
         let retry_until_ms = u64::from_be_bytes(body.array()?);
         let inputs = CommandInputs {
             now_unix_millis: u64::from_be_bytes(body.array()?),
@@ -109,7 +107,7 @@ impl CellCommandCall {
                 id,
                 contract,
                 input,
-                durability: Durability::Quorum,
+                durability,
                 retry_until_ms,
             },
             inputs,
@@ -134,6 +132,7 @@ pub(in crate::raft) fn encode_result(
         Ok(response) => {
             let receipt = &response.receipt().receipt;
             body.push(0);
+            body.push(durability_code(response.durability()));
             body.extend_from_slice(&receipt.command().client.bytes());
             body.extend_from_slice(&receipt.command().sequence().to_be_bytes());
             body.extend_from_slice(&receipt.retry_until_ms().to_be_bytes());
@@ -171,7 +170,7 @@ pub(in crate::raft) fn encode_result(
 
 pub(in crate::raft) fn decode_result(
     bytes: &[u8],
-    expected: (CommandId, &CellHistory),
+    expected: (CommandId, &CellHistory, Durability),
     schema: [u8; 32],
     keys: &VersionKeys,
     now: u64,
@@ -187,6 +186,10 @@ pub(in crate::raft) fn decode_result(
     }
     let result = match body.byte()? {
         0 => {
+            let durability = read_durability(&mut body)?;
+            if durability < expected.2 {
+                return Err(TransportError::Authentication);
+            }
             let command = command_id(&mut body)?;
             if command != expected.0 {
                 return Err(TransportError::Authentication);
@@ -200,6 +203,7 @@ pub(in crate::raft) fn decode_result(
             let length = u32::from_be_bytes(body.array()?) as usize;
             Ok(CellCommandValue {
                 command,
+                durability,
                 retry_until_ms,
                 value: cell::CellQueryValue {
                     result: body.take(length)?.to_vec(),

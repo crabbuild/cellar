@@ -31,7 +31,6 @@ impl CellReceiptCall {
             || r.contract.operation.len() > 128
             || r.contract.operation.chars().any(char::is_control)
             || !(1..=3_600_000).contains(&self.timeout_ms)
-            || r.durability != Durability::Quorum
         {
             return Err(TransportError::Protocol);
         }
@@ -42,7 +41,7 @@ impl CellReceiptCall {
         body.extend_from_slice(&self.birth_digest);
         string(&mut body, &r.contract.operation)?;
         body.extend_from_slice(&r.contract.digest);
-        body.push(1); // Quorum; never silently lower an S3 request.
+        body.push(durability_code(r.durability));
         body.extend_from_slice(&self.timeout_ms.to_be_bytes());
         let length = u32::try_from(r.input.len()).map_err(|_| TransportError::Limit)?;
         if body
@@ -81,9 +80,7 @@ impl CellReceiptCall {
             kind: OperationKind::Command,
             digest: body.array()?,
         };
-        if body.byte()? != 1 {
-            return Err(TransportError::Protocol);
-        }
+        let durability = read_durability(&mut body)?;
         let timeout_ms = u64::from_be_bytes(body.array()?);
         if !(1..=3_600_000).contains(&timeout_ms) {
             return Err(TransportError::Protocol);
@@ -98,7 +95,7 @@ impl CellReceiptCall {
                 id,
                 contract,
                 input,
-                durability: Durability::Quorum,
+                durability,
             },
             timeout_ms,
             route_epoch,
@@ -115,6 +112,7 @@ pub(in crate::raft) fn encode_result(
     match result {
         Ok(response) => {
             body.push(if response.receipt().is_some() { 0 } else { 13 });
+            body.push(durability_code(response.durability()));
             body.extend_from_slice(&response.command().client.bytes());
             body.extend_from_slice(&response.command().sequence().to_be_bytes());
             string(&mut body, response.token().as_str())?;
@@ -154,7 +152,7 @@ pub(in crate::raft) fn encode_result(
 
 pub(in crate::raft) fn decode_result(
     bytes: &[u8],
-    expected: (CommandId, &CellHistory),
+    expected: (CommandId, &CellHistory, Durability),
     schema: [u8; 32],
     keys: &VersionKeys,
     now: u64,
@@ -170,6 +168,10 @@ pub(in crate::raft) fn decode_result(
     }
     let result = match body.byte()? {
         status @ (0 | 13) => {
+            let durability = read_durability(&mut body)?;
+            if durability < expected.2 {
+                return Err(TransportError::Authentication);
+            }
             let command = command::command_id(&mut body)?;
             if command != expected.0 {
                 return Err(TransportError::Authentication);
@@ -191,6 +193,7 @@ pub(in crate::raft) fn decode_result(
                 retained,
                 value: command::CellCommandValue {
                     command,
+                    durability,
                     retry_until_ms,
                     value: cell::CellQueryValue {
                         result,

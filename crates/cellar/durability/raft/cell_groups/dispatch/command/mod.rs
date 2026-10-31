@@ -366,11 +366,6 @@ impl CellCommandInvocation {
             return Err(CellDispatchError::Invalid("destination route binding"));
         }
         if self.request.durability == Durability::S3 {
-            if self.remote_route.is_some() {
-                return Err(CellDispatchError::Execution(ExecutionError::Refused(
-                    CommandFailure::UnsupportedCapability,
-                )));
-            }
             self.dispatcher
                 .s3
                 .as_ref()
@@ -670,11 +665,6 @@ impl CellCommandInvocation {
             .durability
             .max(receipt.receipt().receipt.minimum_durability());
         let (receipt, s3, authority) = if required == Durability::S3 {
-            if self.remote_route.is_some() {
-                return Err(CellDispatchError::Execution(ExecutionError::Refused(
-                    CommandFailure::UnsupportedCapability,
-                )));
-            }
             let owner = self
                 .dispatcher
                 .s3

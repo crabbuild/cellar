@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-"""Qualify shared-group archive setup and local command/enrollment/receipt responses against local RustFS.
+"""Qualify shared-group archive setup and local/remote command/enrollment/receipt responses against local RustFS.
 
 Uses only the recorded owned backend. Each invocation owns a new evidence
 directory and remote prefix. Credentials are passed through the child environment,
@@ -25,6 +25,9 @@ from store_probe import probe
 ROOT = Path(__file__).resolve().parents[2]
 TARGET = "native_cell_groups_archive_controller"
 CASES = (
+    "rustfs_s3_remote_outputs_preserve_durability_and_creation",
+    "rustfs_s3_remote_deadlines_preserve_ambiguity_and_callbacks",
+    "rustfs_s3_remote_slow_delivery_retains_proofs_and_bounds",
     "rustfs_controller_archive_publishes_stable_cuts",
     "rustfs_controller_archive_reconciles_exact_intent_and_joins_close",
     "rustfs_unproved_s3_responses_refuse",
@@ -112,11 +115,11 @@ def main():
     out.mkdir(mode=0o700, parents=True, exist_ok=False)
     prefix = "cell-groups/" + secrets.token_hex(16)
     record = {
-        "format": 1, "status": "RUNNING", "scope": "shared-group RustFS archive/setup and local command/enrollment/receipt S3 settlement",
+        "format": 1, "status": "RUNNING", "scope": "shared-group RustFS archive/setup and local/remote command/enrollment/receipt S3 settlement",
         "source_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "source_inputs": sources(), "backend": remote, "prefix": prefix, "commands": [],
         "limitations": "Host-native three-voter TLS fixture, both image forms; RustFS runs in one local VM. "
-                        "No remote S3 acknowledgements, byte/disk outage bound, "
+                        "No byte/disk outage bound, "
                         "Raft log file purge, process-kill restart, fencing/DR, performance or independent hosts.",
     }
 

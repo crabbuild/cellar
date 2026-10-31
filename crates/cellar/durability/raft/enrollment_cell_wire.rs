@@ -19,21 +19,25 @@ pub(in crate::raft) struct CellEnrollmentCall {
     pub birth_digest: [u8; 32],
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(in crate::raft) struct CellEnrollmentValue {
+    pub record: EnrollmentRecord,
+    pub durability: Durability,
+}
+
 impl CellEnrollmentCall {
     pub fn encode(&self, limit: usize) -> Result<Vec<u8>, TransportError> {
         if self.route_epoch == 0 || self.birth_digest == [0; 32] {
             return Err(TransportError::Identity);
         }
-        if !(1..=3_600_000).contains(&self.timeout_ms)
-            || self.request.durability != Durability::Quorum
-        {
+        if !(1..=3_600_000).contains(&self.timeout_ms) {
             return Err(TransportError::Protocol);
         }
         let mut body = b"CLGCEQ01".to_vec();
         body.extend_from_slice(&self.request.creation.bytes());
         body.extend_from_slice(&self.route_epoch.to_be_bytes());
         body.extend_from_slice(&self.birth_digest);
-        body.push(1);
+        body.push(durability_code(self.request.durability));
         body.extend_from_slice(&self.inputs.now_unix_millis.to_be_bytes());
         body.extend_from_slice(&self.inputs.random);
         body.extend_from_slice(&self.preview.bytes());
@@ -55,9 +59,7 @@ impl CellEnrollmentCall {
         let creation = ProposalId::new(body.array()?).map_err(|_| TransportError::Identity)?;
         let route_epoch = u64::from_be_bytes(body.array()?);
         let birth_digest = body.array()?;
-        if body.byte()? != 1 {
-            return Err(TransportError::Protocol);
-        }
+        let durability = read_durability(&mut body)?;
         let inputs = CommandInputs {
             now_unix_millis: u64::from_be_bytes(body.array()?),
             random: body.array()?,
@@ -66,7 +68,7 @@ impl CellEnrollmentCall {
         let call = Self {
             request: CellEnrollmentRequest {
                 creation,
-                durability: Durability::Quorum,
+                durability,
             },
             inputs,
             preview,
@@ -84,14 +86,15 @@ impl CellEnrollmentCall {
 }
 
 pub(in crate::raft) fn encode_result(
-    result: &Result<EnrollmentRecord, CommandFailure>,
+    result: &Result<(&EnrollmentRecord, Durability), CommandFailure>,
     limit: usize,
 ) -> Result<Vec<u8>, TransportError> {
     let mut body = b"CLGCES01".to_vec();
     match result {
-        Ok(record) => {
+        Ok((record, durability)) => {
             let record = record.encode().map_err(|_| TransportError::Protocol)?;
             body.push(0);
+            body.push(durability_code(*durability));
             body.extend_from_slice(&(record.len() as u32).to_be_bytes());
             body.extend_from_slice(&record);
         }
@@ -112,11 +115,11 @@ pub(in crate::raft) fn encode_result(
 /// creation data, never a signed version token or proof of the current cell image.
 pub(in crate::raft) fn decode_result(
     bytes: &[u8],
-    creation: ProposalId,
+    expected: (ProposalId, Durability),
     cell: &CellHistory,
     schema: [u8; 32],
     limit: usize,
-) -> Result<Result<EnrollmentRecord, CommandFailure>, TransportError> {
+) -> Result<Result<CellEnrollmentValue, CommandFailure>, TransportError> {
     if bytes.len() > limit {
         return Err(TransportError::Limit);
     }
@@ -126,13 +129,18 @@ pub(in crate::raft) fn decode_result(
     }
     let result = match body.byte()? {
         0 => {
+            let durability = read_durability(&mut body)?;
+            if durability < expected.1 {
+                return Err(TransportError::Authentication);
+            }
             let length = u32::from_be_bytes(body.array()?) as usize;
             let record = EnrollmentRecord::decode(body.take(length)?)
                 .map_err(|_| TransportError::Protocol)?;
-            if record.creation() != creation || record.cell() != cell || record.schema() != schema {
+            if record.creation() != expected.0 || record.cell() != cell || record.schema() != schema
+            {
                 return Err(TransportError::Authentication);
             }
-            Ok(record)
+            Ok(CellEnrollmentValue { record, durability })
         }
         9 => Err(CommandFailure::CommandConflict),
         12 => {

@@ -81,14 +81,6 @@ impl CellEnrollmentInvocation {
                 "consumed or local enrollment attempt",
             )));
         }
-        // The remote response schema has no retained archive proof contract yet.
-        if self.durability == Durability::S3 {
-            return Err(
-                self.error(CellDispatchError::Execution(ExecutionError::Refused(
-                    CommandFailure::UnsupportedCapability,
-                ))),
-            );
-        }
         if !transport.uses_command_domain(&self.dispatcher.domain) {
             return Err(self.error(CellDispatchError::Invalid("enrollment transport domain")));
         }
@@ -108,7 +100,7 @@ impl CellEnrollmentInvocation {
         let call = CellEnrollmentCall {
             request: CellEnrollmentRequest {
                 creation: self.creation,
-                durability: Durability::Quorum,
+                durability: self.durability,
             },
             inputs: self.inputs,
             preview: self.preview,

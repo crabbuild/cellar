@@ -21,6 +21,81 @@ mod rustfs;
 include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn s3_remote_outputs_preserve_durability_and_creation() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_remote_outputs(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn s3_remote_deadlines_preserve_ambiguity_and_callbacks() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_remote_deadlines(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn s3_remote_slow_delivery_retains_proofs_and_bounds() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_remote_slow_delivery(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
+async fn rustfs_s3_remote_outputs_preserve_durability_and_creation() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_remote_outputs(
+            rooted,
+            rustfs::store("s3-remote-outputs", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
+async fn rustfs_s3_remote_deadlines_preserve_ambiguity_and_callbacks() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_remote_deadlines(
+            rooted,
+            rustfs::store("s3-remote-deadlines", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
+async fn rustfs_s3_remote_slow_delivery_retains_proofs_and_bounds() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_remote_slow_delivery(
+            rooted,
+            rustfs::store("s3-remote-delivery", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn s3_namespace_minimum_cannot_be_downgraded() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(runtime_fixture::s3_namespace_minimum(

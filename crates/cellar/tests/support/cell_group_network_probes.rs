@@ -23,6 +23,14 @@ impl Connection {
         address: std::net::SocketAddr,
         label: &[u8],
     ) -> Result<Self> {
+        Self::open_with_receive_buffer(address, label, None).await
+    }
+
+    pub(super) async fn open_with_receive_buffer(
+        address: std::net::SocketAddr,
+        label: &[u8],
+        receive_buffer: Option<u32>,
+    ) -> Result<Self> {
         let mut roots = rustls::RootCertStore::empty();
         roots.add(
             include_bytes!("../../transport/tcp/fixtures/ca.der")
@@ -36,11 +44,15 @@ impl Connection {
         .with_root_certificates(roots)
         .with_no_client_auth();
         config.alpn_protocols = vec![b"cellar-raft-1".to_vec()];
+        let tcp = if let Some(bytes) = receive_buffer {
+            let socket = tokio::net::TcpSocket::new_v4()?;
+            socket.set_recv_buffer_size(bytes)?;
+            socket.connect(address).await?
+        } else {
+            TcpStream::connect(address).await?
+        };
         let stream = tokio_rustls::TlsConnector::from(Arc::new(config))
-            .connect(
-                rustls::pki_types::ServerName::try_from("localhost")?,
-                TcpStream::connect(address).await?,
-            )
+            .connect(rustls::pki_types::ServerName::try_from("localhost")?, tcp)
             .await?;
         let exporter = stream
             .get_ref()
@@ -70,19 +82,35 @@ impl<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin> Connection<S> {
         body: &[u8],
     ) -> Result<[u8; 32]> {
         let header = serde_json::to_vec(&header)?;
+        self.frame_bytes(magic, purpose, Some(binding), &header, body)
+            .await
+    }
+
+    pub(super) async fn frame_bytes(
+        &mut self,
+        magic: &[u8; 4],
+        purpose: &[u8],
+        binding: Option<&[u8]>,
+        header: &[u8],
+        body: &[u8],
+    ) -> Result<[u8; 32]> {
         let mut prefix = [0; 20];
         prefix[..4].copy_from_slice(magic);
         prefix[4..8].copy_from_slice(&1u32.to_be_bytes());
         prefix[8..12].copy_from_slice(&(header.len() as u32).to_be_bytes());
         prefix[12..].copy_from_slice(&(body.len() as u64).to_be_bytes());
         let mut mac = Hmac::<Sha256>::new_from_slice(&[17; 32])?;
-        for part in [purpose, &self.exporter, binding, &prefix, &header] {
+        for part in std::iter::once(purpose)
+            .chain(std::iter::once(self.exporter.as_slice()))
+            .chain(binding)
+            .chain([prefix.as_slice(), header])
+        {
             mac.update(&(part.len() as u64).to_be_bytes());
             mac.update(part);
         }
         let tag: [u8; 32] = mac.finalize().into_bytes().into();
         self.stream.write_all(&prefix).await?;
-        self.stream.write_all(&header).await?;
+        self.stream.write_all(header).await?;
         self.stream.write_all(&tag).await?;
         self.stream.write_all(body).await?;
         self.stream.flush().await?;
@@ -97,6 +125,20 @@ impl<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin> Connection<S> {
         purpose: &[u8],
         binding: &[u8],
     ) -> Result<(Value, Vec<u8>, [u8; 32])> {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let (header, length, tag) = self.receive_head(magic, purpose, binding).await?;
+            let body = self.receive_body(length).await?;
+            Ok((header, body, tag))
+        })
+        .await?
+    }
+
+    pub(super) async fn receive_head(
+        &mut self,
+        magic: &[u8; 4],
+        purpose: &[u8],
+        binding: &[u8],
+    ) -> Result<(Value, usize, [u8; 32])> {
         tokio::time::timeout(Duration::from_secs(5), async {
             let mut prefix = [0; 20];
             self.stream.read_exact(&mut prefix).await?;
@@ -115,11 +157,16 @@ impl<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin> Connection<S> {
                 mac.update(part);
             }
             mac.verify_slice(&tag)?;
-            let mut body = vec![0; body_len as usize];
-            self.stream.read_exact(&mut body).await?;
-            Ok((serde_json::from_slice(&header)?, body, tag))
+            Ok((serde_json::from_slice(&header)?, body_len as usize, tag))
         })
         .await?
+    }
+
+    pub(super) async fn receive_body(&mut self, length: usize) -> Result<Vec<u8>> {
+        assert!(length <= 64 * 1024);
+        let mut body = vec![0; length];
+        tokio::time::timeout(Duration::from_secs(5), self.stream.read_exact(&mut body)).await??;
+        Ok(body)
     }
 
     pub(super) async fn refused(mut self) -> Result<()> {

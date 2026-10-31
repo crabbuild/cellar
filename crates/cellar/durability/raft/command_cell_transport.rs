@@ -11,7 +11,7 @@ use crate::raft::query_identity::QueryRoute;
 use crate::raft::query_wire::{
     self as wire,
     command::{CellCommandCall, CellCommandValue},
-    enrollment::CellEnrollmentCall,
+    enrollment::{CellEnrollmentCall, CellEnrollmentValue},
     receipt::{CellReceiptCall, CellReceiptValue},
 };
 use crate::raft::version::{CellVersionObservation, CellVersionToken, VersionKeys};
@@ -65,7 +65,7 @@ impl CellRemoteCommandResponse {
     }
 
     pub fn durability(&self) -> cellar_logic::consensus::Durability {
-        cellar_logic::consensus::Durability::Quorum
+        self.value.durability
     }
 
     pub fn result(&self) -> &[u8] {
@@ -89,6 +89,7 @@ impl CellRemoteCommandResponse {
 /// The original enrollment image is not a claim about the latest cell version.
 pub struct CellRemoteEnrollmentResponse {
     record: EnrollmentRecord,
+    durability: cellar_logic::consensus::Durability,
     served_by: MemberId,
     _node: Permit,
     _peer: Permit,
@@ -104,7 +105,7 @@ impl CellRemoteEnrollmentResponse {
     }
 
     pub fn durability(&self) -> cellar_logic::consensus::Durability {
-        cellar_logic::consensus::Durability::Quorum
+        self.durability
     }
 }
 
@@ -116,6 +117,10 @@ pub struct CellRemoteReceiptResponse {
 }
 
 impl CellRemoteReceiptResponse {
+    pub fn durability(&self) -> cellar_logic::consensus::Durability {
+        self.value.value.durability
+    }
+
     pub fn command(&self) -> cellar_logic::consensus::CommandId {
         self.value.value.command
     }
@@ -181,7 +186,7 @@ impl WriteCall {
 
 enum WriteValue {
     Command(CellCommandValue),
-    Enrollment(EnrollmentRecord),
+    Enrollment(CellEnrollmentValue),
     Receipt(CellReceiptValue),
 }
 
@@ -309,11 +314,12 @@ impl RaftTransport {
                 deadline,
             )
             .await?;
-        let WriteValue::Enrollment(record) = response.value else {
+        let WriteValue::Enrollment(value) = response.value else {
             return Err(TransportError::Protocol);
         };
         Ok(CellRemoteEnrollmentResponse {
-            record,
+            record: value.record,
+            durability: value.durability,
             served_by: response.served_by,
             _node: response.node,
             _peer: response.peer,
@@ -542,7 +548,7 @@ impl State {
                                 .map_err(|_| TransportError::Authentication)?;
                             wire::command::decode_result(
                                 &body,
-                                (call.request.id, &request.cell),
+                                (call.request.id, &request.cell, call.request.durability),
                                 request.route.schema_digest,
                                 &request.keys,
                                 now,
@@ -556,7 +562,7 @@ impl State {
                                 .map_err(|_| TransportError::Authentication)?;
                             wire::receipt::decode_result(
                                 &body,
-                                (call.request.id, &request.cell),
+                                (call.request.id, &request.cell, call.request.durability),
                                 request.route.schema_digest,
                                 &request.keys,
                                 now,
@@ -567,7 +573,7 @@ impl State {
                         }
                         WriteCall::Enrollment(call) => wire::enrollment::decode_result(
                             &body,
-                            call.request.creation,
+                            (call.request.creation, call.request.durability),
                             &request.cell,
                             request.route.schema_digest,
                             self.options.max_query_response_bytes,
@@ -596,7 +602,7 @@ impl State {
         &self,
         route: &QueryRoute,
         call: CellReceiptCall,
-    ) -> Result<Vec<u8>, TransportError> {
+    ) -> Result<super::query_replies::Reply, TransportError> {
         let (_, target, cell) = route.decode_shared()?;
         let gateway = self
             .cell_command_gateways
@@ -637,14 +643,14 @@ impl State {
                 .map_err(|e| command_failure(&e))
         }
         .await;
-        wire::receipt::encode_result(&result, self.options.max_query_response_bytes)
+        super::query_replies::Reply::receipt(result, self.options.max_query_response_bytes)
     }
 
     pub(super) async fn execute_cell_enrollment(
         &self,
         route: &QueryRoute,
         call: CellEnrollmentCall,
-    ) -> Result<Vec<u8>, TransportError> {
+    ) -> Result<super::query_replies::Reply, TransportError> {
         let (_, target, cell) = route.decode_shared()?;
         let gateway = self
             .cell_command_gateways
@@ -687,21 +693,19 @@ impl State {
                 .controller
                 .enroll(invocation, gateway.options.clone())
                 .map_err(|error| command_failure(&error.error.cause))?;
-            let response = call
-                .response()
+            call.response()
                 .await
-                .map_err(|error| command_failure(&error.cause))?;
-            Ok(response.record().clone())
+                .map_err(|error| command_failure(&error.cause))
         }
         .await;
-        wire::enrollment::encode_result(&result, self.options.max_query_response_bytes)
+        super::query_replies::Reply::enrollment(result, self.options.max_query_response_bytes)
     }
 
     pub(super) async fn execute_cell_command(
         &self,
         route: &QueryRoute,
         call: CellCommandCall,
-    ) -> Result<Vec<u8>, TransportError> {
+    ) -> Result<super::query_replies::Reply, TransportError> {
         let (_, target, cell) = route.decode_shared()?;
         let gateway = self
             .cell_command_gateways
@@ -751,7 +755,7 @@ impl State {
                 .map_err(|error| command_failure(&error.cause))
         }
         .await;
-        wire::command::encode_result(&result, self.options.max_query_response_bytes)
+        super::query_replies::Reply::command(result, self.options.max_query_response_bytes)
     }
 }
 

@@ -681,7 +681,14 @@ fn shared_command_wire_preserves_inputs_and_refuses_query_payloads() {
     assert!(command::CellCommandCall::decode(&bytes, bytes.len() - 1).is_err());
     let mut call = call;
     call.request.durability = Durability::S3;
-    assert!(call.encode(4096).is_err());
+    let bytes = call.encode(4096).unwrap();
+    assert_eq!(
+        command::CellCommandCall::decode(&bytes, 4096)
+            .unwrap()
+            .request
+            .durability,
+        Durability::S3
+    );
 }
 
 #[test]
@@ -756,6 +763,7 @@ fn shared_command_results_bind_identity_history_and_typed_refusals() {
     let token = keys().issue_cell(&observation, [9; 32], 1000).unwrap();
     let mut body = b"CLGCCS01".to_vec();
     body.push(0);
+    body.push(1);
     body.extend_from_slice(&call.request.id.client.bytes());
     body.extend_from_slice(&call.request.id.sequence().to_be_bytes());
     body.extend_from_slice(&9000u64.to_be_bytes());
@@ -764,7 +772,7 @@ fn shared_command_results_bind_identity_history_and_typed_refusals() {
     body.extend_from_slice(b"ok");
     let decoded = command::decode_result(
         &body,
-        (call.request.id, cell),
+        (call.request.id, cell, Durability::Quorum),
         [9; 32],
         &keys(),
         1001,
@@ -778,7 +786,7 @@ fn shared_command_results_bind_identity_history_and_typed_refusals() {
     let wrong = CommandId::new(call.request.id.client, 4).unwrap();
     assert!(command::decode_result(
         &body,
-        (wrong, cell),
+        (wrong, cell, Durability::Quorum),
         [9; 32],
         &keys(),
         1001,
@@ -790,7 +798,7 @@ fn shared_command_results_bind_identity_history_and_typed_refusals() {
     other.incarnation = IncarnationId::new([78; 16]).unwrap();
     assert!(command::decode_result(
         &body,
-        (call.request.id, &other),
+        (call.request.id, &other, Durability::Quorum),
         [9; 32],
         &keys(),
         1001,
@@ -809,7 +817,7 @@ fn shared_command_results_bind_identity_history_and_typed_refusals() {
         let body = command::encode_result(&Err(failure.clone()), 4096).unwrap();
         let decoded = command::decode_result(
             &body,
-            (call.request.id, cell),
+            (call.request.id, cell, Durability::Quorum),
             [9; 32],
             &keys(),
             1001,
@@ -818,6 +826,105 @@ fn shared_command_results_bind_identity_history_and_typed_refusals() {
         )
         .unwrap();
         assert_eq!(decoded.err(), Some(failure));
+    }
+}
+
+#[test]
+fn shared_s3_results_refuse_durability_downgrades() {
+    let call = command_call();
+    let observation = cell_observation();
+    let cell = &observation.version.history;
+    let token = keys().issue_cell(&observation, [9; 32], 1000).unwrap();
+    let creation = enrollment_call().request.creation;
+    let record = crate::raft::cell_groups::EnrollmentRecord::new(
+        cell.clone(),
+        creation,
+        [9; 32],
+        observation.version.image,
+    )
+    .unwrap();
+    for achieved in [Durability::Quorum, Durability::S3] {
+        let mut command = b"CLGCCS01".to_vec();
+        command.extend_from_slice(&[0, durability_code(achieved)]);
+        command.extend_from_slice(&call.request.id.client.bytes());
+        command.extend_from_slice(&call.request.id.sequence().to_be_bytes());
+        command.extend_from_slice(&9000_u64.to_be_bytes());
+        string(&mut command, token.as_str()).unwrap();
+        command.extend_from_slice(&0_u32.to_be_bytes());
+        let mut receipt = b"CLGCRS01".to_vec();
+        receipt.extend_from_slice(&[13, durability_code(achieved)]);
+        receipt.extend_from_slice(&call.request.id.client.bytes());
+        receipt.extend_from_slice(&call.request.id.sequence().to_be_bytes());
+        string(&mut receipt, token.as_str()).unwrap();
+        let enrollment = enrollment::encode_result(&Ok((&record, achieved)), 4096).unwrap();
+        for required in [Durability::Quorum, Durability::S3] {
+            let a = command::decode_result(
+                &command,
+                (call.request.id, cell, required),
+                [9; 32],
+                &keys(),
+                1001,
+                4096,
+                MemberId::new(2).unwrap(),
+            );
+            let b = receipt::decode_result(
+                &receipt,
+                (call.request.id, cell, required),
+                [9; 32],
+                &keys(),
+                1001,
+                4096,
+                MemberId::new(2).unwrap(),
+            );
+            let c =
+                enrollment::decode_result(&enrollment, (creation, required), cell, [9; 32], 4096);
+            if achieved < required {
+                assert!(matches!(a, Err(TransportError::Authentication)));
+                assert!(matches!(b, Err(TransportError::Authentication)));
+                assert!(matches!(c, Err(TransportError::Authentication)));
+            } else {
+                assert_eq!(a.unwrap().unwrap().durability, achieved);
+                assert_eq!(b.unwrap().unwrap().value.durability, achieved);
+                let value = c.unwrap().unwrap();
+                assert_eq!(value.record, record);
+                assert_eq!(value.durability, achieved);
+            }
+        }
+        // Unknown durability codes must not become either successful contract.
+        for invalid in [0, 3, 255] {
+            command[9] = invalid;
+            receipt[9] = invalid;
+            let mut enrollment = enrollment.clone();
+            enrollment[9] = invalid;
+            assert!(command::decode_result(
+                &command,
+                (call.request.id, cell, Durability::Quorum),
+                [9; 32],
+                &keys(),
+                1001,
+                4096,
+                MemberId::new(2).unwrap()
+            )
+            .is_err());
+            assert!(receipt::decode_result(
+                &receipt,
+                (call.request.id, cell, Durability::Quorum),
+                [9; 32],
+                &keys(),
+                1001,
+                4096,
+                MemberId::new(2).unwrap()
+            )
+            .is_err());
+            assert!(enrollment::decode_result(
+                &enrollment,
+                (creation, Durability::Quorum),
+                cell,
+                [9; 32],
+                4096
+            )
+            .is_err());
+        }
     }
 }
 
@@ -863,7 +970,14 @@ fn shared_enrollment_wire_preserves_captured_identity_and_inputs() {
     assert!(cell::CellQueryCall::decode(&bytes, 4096).is_err());
     let mut call = call;
     call.request.durability = Durability::S3;
-    assert!(call.encode(4096).is_err());
+    let bytes = call.encode(4096).unwrap();
+    assert_eq!(
+        enrollment::CellEnrollmentCall::decode(&bytes, 4096)
+            .unwrap()
+            .request
+            .durability,
+        Durability::S3
+    );
     call.request.durability = Durability::Quorum;
     call.timeout_ms = 0;
     assert!(call.encode(4096).is_err());
@@ -928,24 +1042,44 @@ fn shared_enrollment_reply_binds_creation_cell_schema_and_initial_image() {
         image,
     )
     .unwrap();
-    let bytes = enrollment::encode_result(&Ok(record.clone()), 4096).unwrap();
+    let bytes = enrollment::encode_result(&Ok((&record, Durability::Quorum)), 4096).unwrap();
     assert_eq!(
-        enrollment::decode_result(&bytes, call.request.creation, &cell, [9; 32], 4096)
-            .unwrap()
-            .unwrap(),
+        enrollment::decode_result(
+            &bytes,
+            (call.request.creation, Durability::Quorum),
+            &cell,
+            [9; 32],
+            4096
+        )
+        .unwrap()
+        .unwrap()
+        .record,
         record
     );
     let mut other = cell.clone();
     other.incarnation = cellar_logic::consensus::IncarnationId::new([85; 16]).unwrap();
-    assert!(
-        enrollment::decode_result(&bytes, call.request.creation, &other, [9; 32], 4096).is_err()
-    );
-    assert!(
-        enrollment::decode_result(&bytes, call.request.creation, &cell, [8; 32], 4096).is_err()
-    );
     assert!(enrollment::decode_result(
         &bytes,
-        cellar_logic::consensus::ProposalId::new([86; 16]).unwrap(),
+        (call.request.creation, Durability::Quorum),
+        &other,
+        [9; 32],
+        4096
+    )
+    .is_err());
+    assert!(enrollment::decode_result(
+        &bytes,
+        (call.request.creation, Durability::Quorum),
+        &cell,
+        [8; 32],
+        4096
+    )
+    .is_err());
+    assert!(enrollment::decode_result(
+        &bytes,
+        (
+            cellar_logic::consensus::ProposalId::new([86; 16]).unwrap(),
+            Durability::Quorum
+        ),
         &cell,
         [9; 32],
         4096
@@ -954,7 +1088,7 @@ fn shared_enrollment_reply_binds_creation_cell_schema_and_initial_image() {
     for end in 0..bytes.len() {
         assert!(enrollment::decode_result(
             &bytes[..end],
-            call.request.creation,
+            (call.request.creation, Durability::Quorum),
             &cell,
             [9; 32],
             4096
@@ -963,9 +1097,14 @@ fn shared_enrollment_reply_binds_creation_cell_schema_and_initial_image() {
     }
     let mut extra = bytes.clone();
     extra.push(0);
-    assert!(
-        enrollment::decode_result(&extra, call.request.creation, &cell, [9; 32], 4096).is_err()
-    );
+    assert!(enrollment::decode_result(
+        &extra,
+        (call.request.creation, Durability::Quorum),
+        &cell,
+        [9; 32],
+        4096
+    )
+    .is_err());
     for failure in [
         CommandFailure::CommandConflict,
         CommandFailure::NotLeader {
@@ -975,9 +1114,15 @@ fn shared_enrollment_reply_binds_creation_cell_schema_and_initial_image() {
     ] {
         let bytes = enrollment::encode_result(&Err(failure.clone()), 4096).unwrap();
         assert_eq!(
-            enrollment::decode_result(&bytes, call.request.creation, &cell, [9; 32], 4096)
-                .unwrap()
-                .unwrap_err(),
+            enrollment::decode_result(
+                &bytes,
+                (call.request.creation, Durability::Quorum),
+                &cell,
+                [9; 32],
+                4096
+            )
+            .unwrap()
+            .unwrap_err(),
             failure
         );
     }
@@ -1018,7 +1163,14 @@ fn shared_receipt_wire_refuses_command_payloads_and_preserves_identity() {
     assert!(receipt::CellReceiptCall::decode(&command_call().encode(4096).unwrap(), 4096).is_err());
     let mut call = call;
     call.request.durability = Durability::S3;
-    assert!(call.encode(4096).is_err());
+    let bytes = call.encode(4096).unwrap();
+    assert_eq!(
+        receipt::CellReceiptCall::decode(&bytes, 4096)
+            .unwrap()
+            .request
+            .durability,
+        Durability::S3
+    );
 }
 
 #[test]
@@ -1031,6 +1183,7 @@ fn shared_receipt_reply_distinguishes_unknown_from_empty_committed_result() {
     for retained in [false, true] {
         let mut body = b"CLGCRS01".to_vec();
         body.push(if retained { 0 } else { 13 });
+        body.push(1);
         body.extend_from_slice(&call.request.id.client.bytes());
         body.extend_from_slice(&call.request.id.sequence().to_be_bytes());
         string(&mut body, token.as_str()).unwrap();
@@ -1040,7 +1193,7 @@ fn shared_receipt_reply_distinguishes_unknown_from_empty_committed_result() {
         }
         let value = receipt::decode_result(
             &body,
-            (call.request.id, cell),
+            (call.request.id, cell, Durability::Quorum),
             [9; 32],
             &keys(),
             1000,
@@ -1056,7 +1209,7 @@ fn shared_receipt_reply_distinguishes_unknown_from_empty_committed_result() {
         for end in 0..body.len() {
             assert!(receipt::decode_result(
                 &body[..end],
-                (call.request.id, cell),
+                (call.request.id, cell, Durability::Quorum),
                 [9; 32],
                 &keys(),
                 1000,
@@ -1068,7 +1221,7 @@ fn shared_receipt_reply_distinguishes_unknown_from_empty_committed_result() {
         let other_id = CommandId::new(call.request.id.client, 99).unwrap();
         assert!(receipt::decode_result(
             &body,
-            (other_id, cell),
+            (other_id, cell, Durability::Quorum),
             [9; 32],
             &keys(),
             1000,
@@ -1078,7 +1231,7 @@ fn shared_receipt_reply_distinguishes_unknown_from_empty_committed_result() {
         .is_err());
         assert!(receipt::decode_result(
             &body,
-            (call.request.id, cell),
+            (call.request.id, cell, Durability::Quorum),
             [8; 32],
             &keys(),
             1000,
@@ -1090,7 +1243,7 @@ fn shared_receipt_reply_distinguishes_unknown_from_empty_committed_result() {
         other.incarnation = IncarnationId::new([99; 16]).unwrap();
         assert!(receipt::decode_result(
             &body,
-            (call.request.id, &other),
+            (call.request.id, &other, Durability::Quorum),
             [9; 32],
             &keys(),
             1000,
@@ -1100,7 +1253,7 @@ fn shared_receipt_reply_distinguishes_unknown_from_empty_committed_result() {
         .is_err());
         assert!(command::decode_result(
             &body,
-            (call.request.id, cell),
+            (call.request.id, cell, Durability::Quorum),
             [9; 32],
             &keys(),
             1000,
@@ -1111,7 +1264,7 @@ fn shared_receipt_reply_distinguishes_unknown_from_empty_committed_result() {
         body.push(0);
         assert!(receipt::decode_result(
             &body,
-            (call.request.id, cell),
+            (call.request.id, cell, Durability::Quorum),
             [9; 32],
             &keys(),
             1000,
@@ -1129,7 +1282,7 @@ fn shared_receipt_reply_distinguishes_unknown_from_empty_committed_result() {
         assert_eq!(
             receipt::decode_result(
                 &body,
-                (call.request.id, cell),
+                (call.request.id, cell, Durability::Quorum),
                 [9; 32],
                 &keys(),
                 1000,

@@ -48,6 +48,8 @@ mod cell_commands;
 mod cell_queries;
 #[path = "command_origins.rs"]
 mod command_origins;
+#[path = "query_reply.rs"]
+mod query_replies;
 pub use cell_commands::{
     CellCommandGateway, CellRemoteCommandResponse, CellRemoteEnrollmentResponse,
     CellRemoteReceiptResponse,

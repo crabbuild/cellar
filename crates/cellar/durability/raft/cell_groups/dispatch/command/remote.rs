@@ -28,13 +28,6 @@ impl CellCommandInvocation {
                 "consumed or local command attempt",
             )));
         }
-        if self.request.durability == Durability::S3 {
-            return Err(
-                self.error(CellDispatchError::Execution(ExecutionError::Refused(
-                    CommandFailure::UnsupportedCapability,
-                ))),
-            );
-        }
         if !transport.uses_command_domain(&self.dispatcher.domain) {
             return Err(self.error(CellDispatchError::Invalid("command transport domain")));
         }

@@ -5,6 +5,8 @@
 mod enrollment;
 #[path = "cell_group_s3_receipts.rs"]
 mod receipts;
+#[path = "cell_group_s3_remote.rs"]
+mod remote;
 use super::*;
 pub(crate) use enrollment::{s3_enrollment, s3_enrollment_deadline};
 use futures_util::TryStreamExt;
@@ -12,6 +14,7 @@ use object_store::{path::Path as ObjectPath, ObjectStore};
 pub(crate) use receipts::{
     s3_receipt_deadline, s3_receipt_failures, s3_receipt_minimums, s3_receipt_observations,
 };
+pub(crate) use remote::{s3_remote_deadlines, s3_remote_outputs, s3_remote_slow_delivery};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct Harness {
@@ -53,6 +56,17 @@ impl Harness {
         minimum: Durability,
         result_size: Option<usize>,
     ) -> Result<Self> {
+        Self::configured_transport(rooted, store, max_commands, minimum, result_size, None).await
+    }
+
+    async fn configured_transport(
+        rooted: bool,
+        store: Arc<dyn object_store::ObjectStore>,
+        max_commands: usize,
+        minimum: Durability,
+        result_size: Option<usize>,
+        send_buffer: Option<u32>,
+    ) -> Result<Self> {
         let calls = Arc::new(AtomicUsize::new(0));
         let count = calls.clone();
         let initializations = Arc::new(AtomicUsize::new(0));
@@ -85,6 +99,9 @@ impl Harness {
         .await?;
         let (archive, remote) =
             archive_controller::registration_minimum(&fixture, &route, rooted, minimum).await?;
+        if send_buffer.is_some() {
+            fixture.connect_tcp_with_query_buffer(send_buffer).await?;
+        }
         let controllers = controller::start_with_limits(
             &mut fixture,
             CellGroupControllerLimits {

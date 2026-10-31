@@ -720,8 +720,8 @@ through this archive-specific drain.
 the same execution domain. Execution also requires its exact runtime owner and
 an active archive registration for the selected group/route. Effective durability
 is the maximum of the request, namespace minimum and existing receipt minimum.
-Remote S3 response paths retain refusal gates until their own output proofs
-are integrated, including when the receiver has a configured archive provider.
+Remote execution uses the same receiver-side proof gate and retains its output
+through physical delivery as specified below. An unbound provider still refuses.
 
 A committed SQL receipt resolves its producer before any archive wait. The owner
 acquires independent S3 byte/item admission before transferring output retention
@@ -756,8 +756,7 @@ Idle registrations do not retain replay workspaces. Active consumers can occupy
 those shared workspaces and backpressure subsequent archival until consumption;
 this is explicit pool admission, without an unaccounted metadata-only proof cache.
 
-Remote S3 responses, explicit unarchived-byte/disk
-admission, physical shared-engine Raft file purge, fenced fresh-incarnation serving,
+Explicit unarchived-byte/disk admission, physical shared-engine Raft file purge, fenced fresh-incarnation serving,
 load and process-kill qualification remain required gates. This local command
 boundary is not the complete CG-06 or public SDK/fleet cutover gate.
 
@@ -767,8 +766,8 @@ The same explicit dispatcher binding and bounded archive lane also settle local
 enrollments. Required durability is the maximum of the request and immutable
 namespace minimum, captured in the invocation fingerprint. The exact runtime
 owner and active archive registration are checked before entering initialization.
-Remote enrollment refuses S3 before transmission until its wire proof contract
-is integrated; it cannot silently send a Quorum request.
+Remote enrollment carries the effective request requirement unchanged and returns
+authenticated achieved durability with the original creation record.
 
 SQL resolves and closes the initializer before archival. A separately admitted
 S3 output takes retention of the bounded original creation record before SQL
@@ -818,11 +817,41 @@ fence permits later concurrent mutations without retaining a private writer's
 base. A successful response retains full physical coverage, S3 admission and the
 journal lock, and reports achieved durability from that private proof.
 
-Remote senders refuse explicit/effective S3 requests. Receivers also refuse S3
-before SQL when already required, or after read-only duplicate inspection when a
-stored minimum requires it. Configuring an S3 provider cannot enable an unqualified
-wire response. Command duplicate refusal clears resolved producer ownership first.
-Remote proof ownership through physical delivery remains a separate required gate.
+### Remote S3 response delivery gate
+
+Command, enrollment and receipt RPCs carry the effective request durability. Each
+purpose retains its separate authenticated route and marker-1 payload. Successful
+payloads also carry achieved durability, including an ambiguous receipt absence.
+The exporter-bound MAC covers the entire response digest and the exact outstanding
+request tag, purpose, node/disk/process, group/cell history and schema. Decoders
+reject unknown durability codes and any achieved level below the original request.
+Version tokens bind command/receipt observations; enrollment binds the original
+creation/history/schema/image record and does not become a current-version token.
+
+The receiver applies the same local proof gates above, including namespace and
+stored receipt minima. A configured provider must own its exact runtime and active
+archive registration. An unbound receiver refuses before mutation when S3 is
+already required; a stored-minimum duplicate resolves SQL before refusing. The
+sender retains its original invocation, captured inputs and deadline. Possible
+transmission keeps mutation failures ambiguous; a lost or rejected reply never
+proves non-commit and no transport retry invokes callbacks automatically.
+
+Encoding returns a bounded owned reply. S3 replies retain the native output,
+complete physical coverage, S3 admission and journal/remote-hold ownership alongside
+the encoded bytes; the existing transport reservation admits those bytes. Quorum
+replies release their resolved SQL output as before. The physical write stage owns
+the TLS stream and reply together, with stream destruction ordered before proof
+release. Flush completes before normal consumption; cancellation, revocation,
+deadline or task destruction closes the stream before refunding its proof. No new
+per-cell task, timer or proof cache is introduced. Client outputs retain their
+existing node/peer byte admission through consumption.
+
+Qualification must observe an actual blocked TLS body, retained S3/coverage slots,
+SQL release, bounded overload, a same-cell Quorum successor and physical refund on
+drain, disconnect, timeout and grant revocation. Exact retries must return the
+original result or creation record without callback replay. This delivery gate
+does not establish outage disk bounds, local Raft file purge, fresh-incarnation
+serving, process-kill recovery, independent hosts or load performance.
 
 ## Split and merge
 

@@ -25,6 +25,26 @@ pub(super) async fn start(
     runtime: &CellGroupRuntime,
     n: usize,
 ) -> Result<RaftTransport, TransportError> {
+    start_with_query_buffer(runtime, n, None).await
+}
+
+async fn start_with_query_buffer(
+    runtime: &CellGroupRuntime,
+    n: usize,
+    send_buffer: Option<u32>,
+) -> Result<RaftTransport, TransportError> {
+    let query = if let Some(bytes) = send_buffer {
+        let socket = tokio::net::TcpSocket::new_v4()?;
+        socket.set_send_buffer_size(bytes)?;
+        socket.bind(
+            "127.0.0.1:0"
+                .parse()
+                .map_err(|_| TransportError::Identity)?,
+        )?;
+        socket.listen(128)?
+    } else {
+        TcpListener::bind("127.0.0.1:0").await?
+    };
     RaftTransport::start_shared(
         runtime.clone(),
         Arc::new(
@@ -34,7 +54,7 @@ pub(super) async fn start(
         tls().map_err(|e| TransportError::Invalid(e.to_string()))?,
         TcpListener::bind("127.0.0.1:0").await?,
         TcpListener::bind("127.0.0.1:0").await?,
-        TcpListener::bind("127.0.0.1:0").await?,
+        query,
         TransportOptions::default(),
     )
     .await
@@ -42,10 +62,15 @@ pub(super) async fn start(
 
 impl RuntimeCluster {
     pub(super) async fn connect_tcp(&mut self) -> Result<()> {
+        self.connect_tcp_with_query_buffer(None).await
+    }
+
+    pub(super) async fn connect_tcp_with_query_buffer(&mut self, bytes: Option<u32>) -> Result<()> {
         assert!(self.transports.is_empty());
         assert!(self.network.is_empty());
         for (n, runtime) in self.runtimes.iter().enumerate() {
-            self.transports.push(start(runtime, n).await?);
+            self.transports
+                .push(start_with_query_buffer(runtime, n, bytes).await?);
         }
         for history in self.applied.keys() {
             let route = self.tcp_route(*history)?;

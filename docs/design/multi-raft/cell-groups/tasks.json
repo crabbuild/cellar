@@ -1767,7 +1767,10 @@
         "crates/cellar/tests/support/cell_group_s3_commands.rs",
         "crates/cellar/durability/raft/cell_groups/archive/enrollment.rs",
         "crates/cellar/tests/support/cell_group_s3_enrollment.rs",
-        "crates/cellar/tests/support/cell_group_s3_receipts.rs"
+        "crates/cellar/tests/support/cell_group_s3_receipts.rs",
+        "crates/cellar/durability/raft/query_reply.rs",
+        "crates/cellar/tests/support/cell_group_s3_remote.rs",
+        "crates/cellar/tests/support/cell_group_s3_remote_wire.rs"
       ],
       "test_target": "native_cell_groups_archive",
       "steps": [

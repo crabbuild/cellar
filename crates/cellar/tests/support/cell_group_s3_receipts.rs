@@ -4,7 +4,7 @@
 use super::*;
 
 impl Harness {
-    fn receipt_request(
+    pub(super) fn receipt_request(
         &self,
         sequence: u64,
         input: &[u8],
@@ -278,24 +278,22 @@ pub(crate) async fn s3_receipt_minimums(rooted: bool, store: Arc<dyn ObjectStore
                     peer: router.peer.clone(),
                 },
             )?;
-            // The gateway has a valid S3 provider, but remote proof delivery is
-            // still guarded when a Quorum request discovers a stored S3 minimum.
+            // A Quorum retry of an S3 command must achieve and report S3
+            // through the authenticated wire, without invoking its callback.
             let mut remote = h
                 .lookup(
                     h.receipt_request(1, b"once", Durability::Quorum)?,
                     Duration::from_secs(15),
                 )
                 .await?;
-            assert!(matches!(
-                remote
-                    .execute_remote(&router.transport, MemberId::new(1)?)
-                    .await
-                    .err(),
-                Some(CellDispatchError::Execution(ExecutionError::Refused(
-                    CommandFailure::UnsupportedCapability
-                )))
-            ));
+            let response = remote
+                .execute_remote(&router.transport, MemberId::new(1)?)
+                .await?;
+            assert_eq!(response.durability(), Durability::S3);
+            assert_eq!(response.result(), Some(b"once".as_slice()));
+            drop(response);
             drop(remote);
+            controller::wait_for(async || Ok(h.controllers[0].usage().retained_s3 == 0)).await?;
             let mut duplicate = h
                 .dispatcher
                 .command(
@@ -315,20 +313,14 @@ pub(crate) async fn s3_receipt_minimums(rooted: bool, store: Arc<dyn ObjectStore
                 )
                 .await?;
             duplicate.begin().await?;
-            let error = duplicate
+            let response = duplicate
                 .execute_remote(&router.transport, MemberId::new(1)?)
-                .await
-                .err()
-                .context("remote stored S3 command refused")?;
-            assert!(error.ambiguous);
-            assert!(matches!(
-                error.cause.as_ref(),
-                CellDispatchError::Execution(ExecutionError::Refused(
-                    CommandFailure::UnsupportedCapability
-                ))
-            ));
+                .await?;
+            assert_eq!(response.durability(), Durability::S3);
+            assert_eq!(response.result(), b"once");
+            drop(response);
             drop(duplicate);
-            assert_eq!(h.controllers[0].usage().retained_s3, 0);
+            controller::wait_for(async || Ok(h.controllers[0].usage().retained_s3 == 0)).await?;
             assert!(h.controllers[0].group_failure(h.route.history)?.is_none());
             drop(gateway);
             router.close().await?;

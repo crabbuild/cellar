@@ -675,16 +675,28 @@ impl State {
                 &exporter,
                 &header,
                 &head.tag,
-                &body,
+                body.bytes(),
                 &self.options,
             )?;
+            // This aggregate closes the stream before dropping the output proof
+            // on every exit, including destruction of the entire serving task.
+            let mut writing = super::query_replies::Write {
+                stream,
+                reply: body,
+            };
             self.query_until(&pool, until, cancel, permission, async {
-                write_head(&mut stream, &response).await?;
-                stream.write_all(&body).await?;
-                stream.flush().await?;
+                write_head(&mut writing.stream, &response).await?;
+                writing.stream.write_all(writing.reply.bytes()).await?;
+                writing.stream.flush().await?;
                 Ok(())
             })
             .await?;
+            let super::query_replies::Write {
+                stream: resumed,
+                reply,
+            } = writing;
+            stream = resumed;
+            drop(reply);
             self.accepted.fetch_add(1, Ordering::Relaxed);
         }
     }

@@ -12,7 +12,7 @@ use crate::application::consensus::{
     QueryRouting, StaleReadPolicy, VersionKeys, VersionToken,
 };
 use crate::peer_auth::PeerAuth;
-use cellar_logic::consensus::{GroupScope, MemberId};
+use cellar_logic::consensus::{Durability, GroupScope, MemberId};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::time::Duration;
@@ -25,6 +25,21 @@ pub(super) mod command;
 pub(super) mod enrollment;
 #[path = "receipt_cell_wire.rs"]
 pub(super) mod receipt;
+
+fn durability_code(value: Durability) -> u8 {
+    match value {
+        Durability::Quorum => 1,
+        Durability::S3 => 2,
+    }
+}
+
+fn read_durability(body: &mut Reader<'_>) -> Result<Durability, TransportError> {
+    match body.byte()? {
+        1 => Ok(Durability::Quorum),
+        2 => Ok(Durability::S3),
+        _ => Err(TransportError::Protocol),
+    }
+}
 
 pub(super) const EXPORT_LABEL: &[u8] = b"EXPORTER-cellar-raft-query-1";
 const REQUEST: &[u8] = b"cellar-raft-query-request-1";

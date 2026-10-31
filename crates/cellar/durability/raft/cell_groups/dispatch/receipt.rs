@@ -264,11 +264,6 @@ impl CellReceiptInvocation {
             return Err(CellDispatchError::Invalid("receipt execution domain"));
         }
         if self.request.durability == Durability::S3 {
-            if self.remote_route.is_some() {
-                return Err(CellDispatchError::Execution(ExecutionError::Refused(
-                    CommandFailure::UnsupportedCapability,
-                )));
-            }
             let owner = self
                 .dispatcher
                 .s3
@@ -320,11 +315,6 @@ impl CellReceiptInvocation {
                 .map_or(Durability::Quorum, |row| row.minimum_durability()),
         );
         let selected = if required == Durability::S3 {
-            if self.remote_route.is_some() {
-                return Err(CellDispatchError::Execution(ExecutionError::Refused(
-                    CommandFailure::UnsupportedCapability,
-                )));
-            }
             let owner = self
                 .dispatcher
                 .s3
@@ -437,11 +427,6 @@ impl CellReceiptInvocation {
             .map_err(CellDispatchError::Routing)?;
         if self.dispatched || self.remote_route.is_some() {
             return Err(CellDispatchError::Invalid("consumed receipt attempt"));
-        }
-        if self.request.durability == Durability::S3 {
-            return Err(CellDispatchError::Execution(ExecutionError::Refused(
-                CommandFailure::UnsupportedCapability,
-            )));
         }
         self.dispatched = true;
         if !transport.uses_command_domain(&self.dispatcher.domain) {
