@@ -10,6 +10,69 @@ CG-06 is IN_PROGRESS; CG-07 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-06 namespace archive identity and stable cut capture
+
+Source: `df0ba1f67c0253a57127a215540f08bb13135279`. CG-06 remains IN_PROGRESS.
+The namespace catalog now
+owns the expected archive registry identity and its object-store/data location.
+A one-use initializer binds the namespace root and exact group birth route before
+registry creation; persist its canonical bytes before mutation. A fresh catalog
+owner can reopen only that immutable identity. Competing initializers, missing
+bindings and missing counters refuse rather than replacing or repairing state.
+Interrupted initialization remains fail-closed and requires authority recovery.
+
+`CellGroupRuntime::capture_checkpoint` performs bounded metadata capture on the
+existing worker, using its owner and node checkpoint pool. Physical I/O remains
+outside that worker. A held source consumes its quota, permits subsequent quorum
+writes, and refunds on final release. New capture refuses after joined shutdown.
+`upload_cut` retains the captured root/configuration/permanent membership before
+upload starts and writes a zero-entry tail for that same cut. It never recaptures
+a moving source after remote I/O. A held B upload allows A to commit while the old
+cut still uploads, independently verifies and publishes in both image forms.
+The same single-source checkpoint pool can admit the later independent receiver.
+
+The all-three-voter erasure scenario now also deletes every local archive intent
+journal and drops the uploader/registry owners. It reconstructs the expected
+registry identity through a fresh catalog owner from remote namespace metadata
+before physically recovering the exact cut. No local intent journal or voter
+metadata supplies that identity. This remains data-only recovery with externally
+retained untrusted checkpoint/tail locators, without a fence or replacement voters.
+
+All 32 gate commands pass: nineteen exact archive cases, 157 execution cases, five
+snapshot cases and four LTX generation regressions (185 distinct Rust cases across
+four executables), all-target build/Clippy for Cellar/logic/LTX, formatting/layout,
+dependency isolation, docs, preflight, plan validation and 37 Python tests.
+The partial record at
+`.cellar/cell-groups-evidence/CG-06-catalog-cut/qualification/checkpoint.json`
+binds 336 source hashes, four copied executables, frozen plan inputs, hashed
+outputs and the preceding protected-publication checkpoint. Independent source,
+artifact and exact-selection verification passes. No original required case,
+oracle or pre-existing quota was weakened. The first final Python run caught the
+unrefreshed catalog source anchor: only reexports changed, moving the unchanged
+NamespaceConfig/BirthProposal excerpts by one line. That failed source-bound output
+and its old baseline are retained under `plan-baseline-failure/`. After reviewing
+and pinning all anchors to the qualified source, docs, preflight, plan validation
+and all 37 Python tests pass. Rust source stayed fixed; its passing checks were
+retained. This record is not full task evidence.
+
+Reflection and next priorities: compose controller-owned publication with durable
+journaling and exact unknown-outcome reconciliation, joined cancellation/shutdown,
+verified-result lifetime ownership and fair bounded retry. Then implement actual
+S3 command/enrollment/receipt output settlement against exact cell versions/results
+and current routing authority, preserving captured inputs without callback replay.
+Add explicit unarchived-byte/disk admission so bounded Quorum progress does not
+require S3. Follow with physical local shared-engine Raft file purge and fenced
+unmanaged recovery under fresh group/cell incarnations. The permanent fence inventory
+must cover every possible old voting lineage, including joins after the archived cut.
+
+CG-08 effect/cache lifetime composition precedes CG-07 public SDK/fleet cutover;
+then topology, placement, hibernation, managed recovery, RustFS/load/fault qualification
+and final legacy removal remain. Shared dispatch still refuses S3 durability. The
+other four original CG-06 acceptance cases and full task gate remain pending.
+These native scenarios use the actual in-memory object-store adapter. No real
+RustFS, Docker fence, fresh-quorum serving, measured load or full DR is claimed.
+Preserve and transfer ignored evidence and its predecessors for audit.
+
 ## CG-06 protected publication and remote object collection
 
 Source: `873484774c1ad5fb261257e4890291f8ad956f6e`. CG-06 remains IN_PROGRESS.

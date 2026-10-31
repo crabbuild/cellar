@@ -15,53 +15,62 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The latest partial source is `873484774c1ad5fb261257e4890291f8ad956f6e`.
-CG-06 is IN_PROGRESS. Protected publication now combines a sealed committed-source
-witness with independently recovered checkpoint/tail data. One conditional registry
-update selects a non-regressing complete root and allocates an explicit remote hold.
-Exact persisted intents reconcile unknown replies without republishing or allocating
-again; retired/aborted tokens cannot resurrect. Source writes can advance while a
-delayed dependency blocks publication of the earlier sealed cut.
+The latest partial source is `df0ba1f67c0253a57127a215540f08bb13135279`.
+CG-06 is IN_PROGRESS. Namespace-owned immutable binding now fixes the expected
+archive registry, complete birth route and namespace data location. Persist the
+one-use initializer's canonical bytes before commit. Fresh catalog owners reopen
+only that expected identity; competing initialization and missing binding/counters
+refuse. Interrupted initialization requires authority recovery, never repair/reset.
 
-Keys include a registry ID and never-reused generation. Pending owners retain their
-exact parent closure, and arbitrary unprotected old dependencies refuse even after
-successful physical replay. Remote collection verifies every protected object before
-DELETE and retains selected roots, reader holds, pending parents/generations and
-newer generations. Native races prove late old-generation DELETE cannot erase an
-identical new copy and actual remote reclamation preserves the current cut. Missing
-counters/uncertain initial creation refuse; source-witness clones retain node quota.
+The existing runtime worker can capture its exact durable applied root with the
+node checkpoint pool. Physical reads and remote I/O run outside the worker.
+`upload_cut` seals that checkpoint's root/configuration/permanent membership before
+upload and creates a zero-entry tail without recapturing the moving live source.
+Both image modes qualify held B upload plus advancing A quorum, physical verification
+and publication of the exact earlier cut. A single-source pool admits upload and
+later verification sequentially. Runtime capture respects quotas and joined close.
 
-All 30 commands pass: seventeen exact archive cases, 156 execution cases, five
-snapshot cases and four generation regressions (182 distinct Rust cases), all-target
+All-three-voter disk erasure now removes local archive intent journals and drops
+uploader/registry owners, then reconstructs expected identity from remote namespace
+metadata through a fresh catalog owner before physical data recovery. Untrusted
+checkpoint/tail locators remain externally retained. This is not fenced fresh serving.
+
+All 32 gate commands pass: nineteen exact archive cases, 157 execution cases, five
+snapshot cases and four LTX generation regressions (185 distinct Rust cases), all-target
 build/Clippy, formatting/layout, dependencies/docs/preflight and 37 Python tests.
-The record under
-`.cellar/cell-groups-evidence/CG-06-protected-head/qualification/`
-binds 334 source hashes, four executables, frozen inputs and the previous neutral-
-verifier checkpoint. Independent hashes/source/exact-selection verification passes.
-The preceding preflight compiler failure at `a5d506a6` is retained in `build-failure/`.
-See [progress](progress.md) and the
+The partial record under
+`.cellar/cell-groups-evidence/CG-06-catalog-cut/qualification/`
+binds 336 source hashes, four copied executables, frozen inputs, hashed outputs
+and its protected-publication predecessor. Independent hashes/source/exact-selection
+verification passes. See [progress](progress.md) and the
 [archive contract](protocols.md#protected-publication-and-remote-collection).
 
-Next persist the exact expected registry identity in authoritative namespace/owner
-state and wire the publisher into node-owned work. Implement real S3 output settlement
-with receipt/version/current-route proofs, captured identity and no callback replay;
-add bounded unarchived-byte/disk admission independent of Quorum. Shared dispatch
-still refuses S3. Then qualify actual local shared-engine Raft file purge and fenced
-unmanaged seeding with fresh group/cell incarnations. Source birth/provenance and
-all possible old voter lineages, including joins after the recovery cut, must survive
-voter loss. Selected-cut membership alone cannot establish the complete fence.
+Next compose controller-owned archive work with durable operation journals, bounded
+retry, joined cancellation/shutdown and retained verification admission. Settle
+actual S3 command/enrollment/receipt outputs using their exact cell version/result
+and current routing authority, preserving captured inputs and never rerunning callbacks.
+Shared dispatch still refuses S3. Add explicit unarchived-byte/disk admission so
+Quorum can progress independently of S3 within its bound. Qualify physical local
+shared-engine Raft file purge and fenced unmanaged recovery with fresh group/cell
+incarnations. Source birth/provenance and every possible old voter lineage, including
+joins after the recovery cut, must survive voter loss; selected-cut membership is
+not the complete fence. The fencing-authority API plus Docker qualification remains
+the accepted direction.
 
-Fresh registry creation is a non-deserializable one-use authority. Persist its intent
-before commit; restart only opens the exact expected identity. An incomplete identity
-requires authority recovery, never automatic counter recreation. Coverage is historical
-data durability; it supplies no current quorum, serving or DR authorization. Controller
-composition must retain verified result admission alongside derived raw roots; CG-08
-still needs that propagation and private-cache maintenance before managed integration.
+Protected publication/remote collection retains the earlier source-witness,
+independent replay, explicit reader/pending-parent holds, never-reused generation
+and delayed-DELETE guarantees. Persist every exact intent before mutation. Unknown
+outcomes reconcile only the original intent; retired/aborted tokens cannot resurrect.
+Coverage is historical data durability, without current serving/quorum/DR authority.
+CG-08 still owns cache/effect/result lifetime composition and private-cache maintenance,
+then CG-07 cuts the public SDK/fleet over. Topology, placement, hibernation, managed
+recovery, RustFS/load/fault qualification and final legacy removal remain.
 
 The actual in-memory adapter supplies native evidence. Real RustFS, Docker fencing,
-fresh-quorum serving, load and public hard cutover remain later gates. The other four
-original CG-06 cases and full task gate remain pending. Preserve the preceding independent-
-verifier record at `14955f2d` and committed-tail record at `7a29c2a9`.
+fresh-quorum serving, measured load and public hard cutover remain unqualified. The
+other four original CG-06 cases and full task gate are pending. Preserve the protected-
+publication source `87348477`, isolated-verifier source `14955f2d`, committed-tail
+source `7a29c2a9` and their ignored evidence for audit.
 
 CG-01 through CG-05 are DONE at their declared native task boundaries. CG-05
 closes at `e0550acd` with all five exact snapshot cases and eighteen passing
