@@ -10,6 +10,61 @@ CG-05 is IN_PROGRESS; CG-06 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-05 authenticated learner installation and replacement
+
+Qualified source: `ab2a308a937f349d3482a825d4b669d042cb03c3`. All 238 selected Rust cases and eight
+gate commands pass, including all-target Clippy for Cellar/core/LTX, five native
+suites, formatting/layout, dependency isolation, docs, source preflight and 37
+plan-validator tests. `.cellar/cell-groups-evidence/CG-05-learner-install-final/checkpoint.json`
+binds 320 source hashes, five copied executables, frozen plan inputs and logs.
+Transfer this ignored evidence with its predecessors. CG-05 remains IN_PROGRESS.
+
+A dedicated authenticated seed exchange now binds the exact physical identities,
+fresh group ReadIndex barrier and canonical complete checkpoint. Destination
+staging reconciles permanent node/disk/engine and member claims but cannot serve.
+Only a verified complete transfer followed by the actual engine fence installs a
+local seed receipt atomically with configuration, membership and both root cuts.
+The receipt never travels in snapshots; generic snapshot installation cannot mint
+it. Joined-member bootstrap requires this receipt, the unchanged permanent claim
+and active membership. Startup still needs physical recovery and fresh quorum.
+The internal marker-1 group application record now requires `manifest` and `seed`;
+the previous bare-manifest shape refuses. No legacy reader or data deletion is added.
+
+Two new tests use production controllers, real TLS, independent native engines
+and SQLite/LTX in both image forms. They delete voter 3's fixture disk before
+transfer and prove its old identity cannot recreate storage. An isolated source
+cannot create a stage. Staged cancellation retries retain exact identities and
+the original deadline; transient source-slot ownership is allowed to finish.
+Initial-member bootstrap and generic-snapshot bootstrap refuse the staged learner.
+A held engine sync cannot publish the receipt. Cancelling the materialized caller
+retains physical owners through sync; `recover_selected` reconciles using the same
+page store without bypassing its lock. The new learner installs every prior cell,
+catches up a later Raft suffix while another group progresses, joins the voter set
+through joint consensus, retires member 3, takes leadership and commits another
+cell. Cold reopen verifies current and retained checkpoints, then starts a new
+process owner that is correctly not quorum-ready.
+
+The tests also exposed a production joint-leave bug: RawNode's historical hash
+iteration order can differ from pure configuration replay. Owner completion now
+compares validated canonical configurations, preserving all sets and auto-leave
+state. Fixture setup was split to avoid an oversized combined debug future; no
+stack limit or safety assertion was relaxed. Intermediate failures and the final
+passing runs are retained, and temporary debug probes were removed. The first
+broad gate hit eight macOS socket-address allocation errors; all ten remote RPC
+cases passed unchanged in a targeted recheck, followed by the complete final gate.
+Host samples showed thousands of transient loopback sockets. The failed broad
+run and diagnostics are retained; no global network settings were changed.
+
+**Reflection and next step:** the fresh-disk replacement path is implemented and
+locally exercised. The immediate remaining CG-05 work is adversarial seed-frame
+and process-revocation coverage, sync-error/process-kill and joint-transition crash
+cuts, restarted-peer reconnection, minority write/receipt refusal, and the complete
+five-case gate including empty-cell and pressure/pin scenarios. Sustained-write
+capture fairness and controller pressure cuts remain open. Complete those gates,
+then deliver CG-06 verified S3 archive/reclamation, CG-08 effects/caches and CG-07
+SDK/fleet cutover. Managed fleet orchestration, shared-group RustFS/load, power-loss
+and zero-quorum DR remain unqualified; native disk deletion is not those proofs.
+
 ## CG-05 live-quorum learner seed source
 
 Qualified source: `0c3769eccbb845a5943ef60e771c107f1800d9f2`. All 236 selected Rust cases and eight

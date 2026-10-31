@@ -249,16 +249,47 @@ must obtain a fresh authority. After capture, ordinary cell writes may continue
 while the source streams its immutable cut. Membership changes, term changes,
 leadership transfer, shutdown and deadline expiry revoke the source. Every sink
 call has checks before and after it; the final completion also checks authority.
-An incomplete or revoked stream cannot produce a successful End. The source binds
-the requested process identity but does not authenticate it; the future seed RPC
-must bind that identity to its authenticated connection and process revocation.
+An incomplete or revoked stream cannot produce a successful End. The source API
+binds the requested process identity; `prepare_group_seed` authenticates it through
+a separate TLS-exporter-bound seed exchange. Requests, grants, readiness and chunks
+have distinct marker-1 domains. The reply binds the request tag, nonce, complete
+physical route, fresh barrier and canonical checkpoint descriptor. Chunk sequence,
+digests and explicit End are authenticated within that exchange. Peer replacement,
+transport shutdown and the original deadline revoke pending destination work.
 
-This is a source boundary, not a destination bootstrap permit. Authenticated seed
-exchange, permanent destination claims, new-member installation/attachment,
-initial-member replacement, lost-disk rebuild and managed fleet orchestration
-remain required CG-05 work. Existing bootstrap permits still
-admit only initial birth members. A metadata reopen is not a fresh-member seed,
-quorum proof, verified physical recovery or serving permission.
+The destination reconciles the namespace node pin and permanent member claim
+against the exact node/disk/engine. Its synced staging mapping retains the original
+birth configuration and grants no startup permission. An existing remote claim
+cannot recreate a missing mapping. `CellGroupSeedSession` exposes the staged group
+only to construct its physical stores; dropping an uninstalled session abandons
+the exchange and leaves a non-serving stage that needs a fresh authenticated retry.
+
+The receiver verifies and syncs the entire physical closure before a single engine
+fence installs configuration, membership, complete root, retained checkpoint and a
+local authenticated-install receipt. That receipt is required in the marker-1
+`cellar-group-apply-1` storage record (`manifest` plus `seed`); the old bare-manifest
+shape refuses decoding. The receipt never travels in a snapshot and generic
+snapshot installation cannot mint it. No old-format reader or user-data deletion
+is introduced. Live grant and exact engine/process checks run before entering the
+fence. Once physical persistence begins, cancellation and close retain the grant,
+image owners, task reservation and consensus lease until actual completion.
+
+`CellGroupApplier::recover_selected` reconciles an unknown install outcome using
+the existing physical store owner; selected pins prevent reopening that directory
+while it is still owned. It verifies current and retained checkpoint closures
+without introducing catalog or quorum authority.
+
+`bootstrap_joined_group_member` resumes only a locally receipted install with the
+same permanent remote claim and active node/disk-bound membership. Full physical
+recovery still verifies both current and retained checkpoint closures before
+attachment. Birth-member bootstrap continues to admit only original members.
+Neither API grants current-term quorum authority. A new learner must catch up
+through ordinary Raft replication before promotion; a lost install response is
+reconciled from durable local state instead of assuming failure or resetting disk.
+
+Native transfer/replacement qualification is recorded in progress.md. Managed
+fleet orchestration, sustained-write capture fairness, the complete CG-05 fault
+matrix and deployment qualification remain open.
 
 ## Apply, checkpoint and archive
 

@@ -11,8 +11,9 @@ catch-up, authenticated snapshot RPC and automatic controller checkpoint policy
 pass their scoped regression gates. Durable joint membership and leadership handoff
 also pass a partial gate. A learner seed source authorized by a fresh quorum read
 now covers empty groups, bounded capture of complete roots and stream revocation.
-Authenticated destination bootstrap, catch-up/promotion and lost-disk replacement
-are the next feature priorities. The production host has not yet cut over to shared groups.
+Authenticated destination staging/install, caught-up promotion and replacement
+after deleting a voter disk now pass native tests in both image forms. Remaining
+CG-05 crash/pressure and full acceptance gates precede verified S3 archive/reclamation. The production host has not yet cut over to shared groups.
 See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.
 

@@ -33,15 +33,33 @@ Local checkpoint publication and native Raft-generated catch-up now pass their
 partial gate. Authenticated checkpoint streams now pass their partial transport gate.
 Automatic entry-count checkpointing at controller apply boundaries now passes its
 partial gate. Durable whole-group membership and leadership handoff now pass
-an additional partial gate. Continue with fresh learner bootstrap and lost-disk
-replacement; retain the remaining pressure/fault checks in the full CG-05 gate.
+an additional partial gate. Authenticated fresh-learner installation, catch-up,
+promotion and deleted-voter-disk replacement now pass a native partial gate.
+Complete the remaining fault/pressure checks and all five CG-05 acceptance cases.
 CG-06 follows with archival reclamation. Automatic
 production request/voter startup and public SDK/fleet binding belong to CG-07;
 effects/cache lifecycle belong to CG-08, and final legacy removal to CG-16. Track
 these remaining capabilities in their owning tasks.
 Shared RustFS, independent-process/power-loss and load remain unqualified.
 
-The latest seed-source checkpoint at `0c3769ec` passes 236 selected Rust
+The latest learner-install checkpoint at `ab2a308a` passes 238 Rust cases,
+eight gate commands and 37 validator tests. Its record under
+`.cellar/cell-groups-evidence/CG-05-learner-install-final/` binds 320 source hashes and
+five copied executables. Authenticated seed exchange, permanent claims, non-serving
+staging, atomic local receipt, joined-member bootstrap and same-owner unknown-result
+reconciliation are implemented. Both image forms replace a deleted voter disk,
+catch up the post-capture suffix, promote/retire through joint consensus, transfer
+leadership and commit new state. Cold recovery checks both retained and current
+closures. Held-sync receipt refusal and materialized caller cancellation pass.
+The tests caught and fixed noncanonical configuration equality after joint leave.
+
+Next complete seed-specific authentication/revocation faults, sync-error/process-kill
+and joint-transition cuts, restarted-peer reconnection, minority receipt refusal,
+large/empty group bounds and all five exact CG-05 cases. Preserve the original
+acceptance requirements. Source capture fairness and controller pressure remain
+open; no managed fleet, shared RustFS/load/power-loss/zero-quorum proof is claimed.
+
+The earlier seed-source checkpoint at `0c3769ec` passes 236 selected Rust
 cases, eight gate commands and 37 validator tests. Its record under
 `.cellar/cell-groups-evidence/CG-05-seed-source/` binds 312 source hashes and five
 copied executables. `seed_authority` uses a fresh group ReadIndex, including for
@@ -52,15 +70,10 @@ budgets remain owned through physical work. Both image forms, receiver verificat
 stale/invalid targets, bounded admission, held-sink revocation, final-chunk expiry,
 isolated ready-leader refusal and independent group progress pass local tests.
 
-Continue from `cell_groups/seed_authority.rs`, `directory/bootstrap.rs` and the
-existing authenticated checkpoint stream/atomic receiver path. The immediate gap is
-authenticated seed exchange plus permanent fresh-disk claims and joined-member
-installation/attachment. The source API binds but does not authenticate the requested
-process and cannot authorize a destination. Catch-up/promotion and deleted-voter-disk
-replacement remain unimplemented integration, not qualified by the source tests.
-Coordinate capture with an apply boundary or bounded fresh-selection retries;
-continuous-write capture fairness remains unqualified. Keep all five CG-05 cases
-and shared RustFS/load/crash gates open.
+That source-only checkpoint did not authorize destination startup. The newer
+learner-install checkpoint above supplies authenticated exchange, permanent claims,
+installation, catch-up/promotion and native deleted-disk replacement. Continuous-write
+capture fairness and the full five-case CG-05/RustFS/load/crash gates remain open.
 
 The receiver checkpoint at `cb164e02` passes 226 selected Rust cases,
 9 gate commands and 37 validator tests. Its evidence binds 295 source hashes
@@ -118,10 +131,10 @@ Two real-TCP controller cases cover both image forms; a third holds configuratio
 sync through continued operation and cancelled/joined shutdown. Automatic joint
 leave now replicates immediately without another write or tick.
 
-Fresh learner 4 is intentionally not started: seed admission and lost-disk rebuild
-remain the next feature-critical work. Metadata reopen is not complete physical
-recovery or serving permission. Existing bootstrap permits still require birth
-membership. Preserve all five CG-05 cases, outstanding crash/pressure cuts and
+That earlier membership fixture intentionally did not start learner 4. The newer
+learner-install fixture above covers that integration. Metadata reopen still cannot
+replace complete physical recovery or serving permission. Birth-member bootstrap
+retains its original contract; joined bootstrap requires the new local seed receipt. Preserve all five CG-05 cases, outstanding crash/pressure cuts and
 shared RustFS/load qualification. See [progress](progress.md) for exact evidence
 and the retained intermediate failures.
 
@@ -140,9 +153,9 @@ The three new cases prove repeated compaction across two groups in both image
 forms and progress/recovery while the checkpoint pool is saturated. The policy
 retains the final idle tail. Continuous-saturation fairness, exhausted apply and
 completion budgets, held sync/cancelled close, checkpoint failure/quarantine capacity
-and retained-root pressure remain qualification gaps. Fresh learner bootstrap and
-lost-disk replacement are the next feature priorities; receiver crash/sync-error
-cuts also remain required. All five declared CG-05 acceptance cases remain required. See
+and retained-root pressure remain qualification gaps. The newer learner-install
+checkpoint above covers native fresh-disk replacement; receiver crash/sync-error
+cuts remain required. All five declared CG-05 acceptance cases remain required. See
 [progress](progress.md) for limits and intermediate failures.
 
 The source checkpoint at `b15da415` passes 138 Rust cases, eight gate commands
@@ -703,22 +716,20 @@ boundary. At the end of each turn, record the completed behavior, evidence and
 limits, then identify the most critical remaining gap and the concrete next step.
 Do not let plan maintenance replace implementation.
 
-1. Finish CG-05 fresh learner seeding and lost-disk replacement. Reuse the
-   implemented fresh-ReadIndex source authority; authenticate the seed exchange
-   and bind destination installation to permanent node/disk/engine claims and
-   the complete verified checkpoint. Existing bootstrap permits admit only birth
-   members; do not weaken them to accept an untrusted metadata observation. Bring
-   up the new learner through production transport, install every cell, catch up,
-   promote through joint consensus and retire the old member. Prove replacement
-   after deleting that voter's disk, minority refusal and one-voter-loss tolerance.
-2. Complete CG-05 qualification while delivering those membership features.
+1. Finish the full CG-05 acceptance gate around the implemented fresh-learner
+   replacement path. Extend `group_snapshot_transport/seed/` and its production
+   controller fixture with seed-specific malformed/replayed/wrong-process traffic,
+   process revocation, sync failures and process-kill cuts. Reconnect a restarted
+   joined member, prove minority write/receipt refusal and joint-transition restart.
+   Preserve permanent claims, local install receipts and complete physical recovery.
+2. Complete CG-05 qualification around the delivered membership features.
    Preserve all five exact acceptance cases. Add joint-transition crash cuts,
    receiver crash/sync-error cuts, continuous checkpoint saturation fairness,
    exhausted apply/completion budgets,
    held sync/cancelled close, quarantine capacity and retained-root pressure.
    Keep unrelated-group progress and bounded physical ownership observable.
    Idle/time/byte checkpoint triggers require an explicit cut-reservation contract;
-   they must not displace fresh-member recovery as the next feature priority.
+   keep the exact five-case task gate ahead of the archive feature dependency.
 3. Deliver CG-06 archive/reclamation with verified complete checkpoints and
    contiguous tails. Upload completion alone cannot authorize reclaiming local
    recovery dependencies or an S3 durability acknowledgement.
@@ -733,14 +744,14 @@ Do not let plan maintenance replace implementation.
    paths must not become permanent modes. Never derive cell sequence or witness
    from a group log position. Final qualification reruns all gates at one revision.
 
-Continue from `cell_groups/seed_authority.rs`, the authenticated checkpoint
-transport, `directory/bootstrap.rs` and the atomic checkpoint installation path.
-Keep configuration, membership revision and complete root atomic. A captured
-metadata observation, transport admission reply or lost response cannot create
-new serving authority. Reuse permanent member claims and the node checkpoint pool
-for learner bootstrap; retain physical closure owners through cancellation and
-joined shutdown. Extend the production-controller membership fixture rather than
-manually manufacturing committed transitions.
+Continue from `group_snapshot_transport/seed/`,
+`cell_groups/directory/joined_bootstrap.rs`, `cell_groups/apply/recovery.rs` and
+`tests/support/cell_group_seed_install.rs`. Seed metadata and an imported snapshot
+cannot mint the local authenticated-install receipt. Keep configuration, membership,
+receipt and complete root atomic. Reconcile unknown results through the exact
+permanent claim and the existing page owner; retain physical owners through
+cancellation and joined shutdown. Use canonical configuration equality when
+comparing replay with live RawNode membership.
 
 The opportunity is to reuse the existing shared consensus, SQL, read, apply and
 provisioning paths. Avoid adding per-cell workers or another serving mode while
