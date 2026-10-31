@@ -42,7 +42,24 @@ effects/cache lifecycle belong to CG-08, and final legacy removal to CG-16. Trac
 these remaining capabilities in their owning tasks.
 Shared RustFS, independent-process/power-loss and load remain unqualified.
 
-The latest learner-install checkpoint at `ab2a308a` passes 238 Rust cases,
+The latest seed-fault/reconnect checkpoint at `de552f6d` passes 238 Rust
+cases and eight commands. Its record under
+`.cellar/cell-groups-evidence/CG-05-seed-fault-reconnect/` binds 321 source hashes
+and five copied executables. Both image forms refuse eleven invalid seed requests,
+five post-reply source faults and revoked/expired destination sessions without
+minting startup permission. After retained cold recovery, fresh runtime/transport/
+controller owners reconnect over TLS with a new process generation, regain quorum
+and commit. Isolation cannot advance applied state or satisfy a linearizable read;
+after stepdown new proposals refuse. This is one OS process with explicit routes
+and clock advancement, not managed fleet or process-kill qualification.
+
+Next cover seed reply/chunk faults at the receiver, process-generation revocation,
+sync-error/process-kill and joint-transition cuts, minority signed receipts,
+large/empty group bounds and all five exact CG-05 cases. Source capture fairness
+and controller pressure remain open. Shared RustFS/load/power-loss/zero-quorum
+proof is not supplied by these native tests.
+
+The earlier learner-install checkpoint at `ab2a308a` passes 238 Rust cases,
 eight gate commands and 37 validator tests. Its record under
 `.cellar/cell-groups-evidence/CG-05-learner-install-final/` binds 320 source hashes and
 five copied executables. Authenticated seed exchange, permanent claims, non-serving
@@ -53,11 +70,9 @@ leadership and commit new state. Cold recovery checks both retained and current
 closures. Held-sync receipt refusal and materialized caller cancellation pass.
 The tests caught and fixed noncanonical configuration equality after joint leave.
 
-Next complete seed-specific authentication/revocation faults, sync-error/process-kill
-and joint-transition cuts, restarted-peer reconnection, minority receipt refusal,
-large/empty group bounds and all five exact CG-05 cases. Preserve the original
-acceptance requirements. Source capture fairness and controller pressure remain
-open; no managed fleet, shared RustFS/load/power-loss/zero-quorum proof is claimed.
+The newer checkpoint above extends this installation slice with source wire faults,
+revoked/expired destination sessions, retained-peer reconnection and minority
+commit/read refusal. Preserve the remaining acceptance requirements listed above.
 
 The earlier seed-source checkpoint at `0c3769ec` passes 236 selected Rust
 cases, eight gate commands and 37 validator tests. Its record under
@@ -718,9 +733,10 @@ Do not let plan maintenance replace implementation.
 
 1. Finish the full CG-05 acceptance gate around the implemented fresh-learner
    replacement path. Extend `group_snapshot_transport/seed/` and its production
-   controller fixture with seed-specific malformed/replayed/wrong-process traffic,
-   process revocation, sync failures and process-kill cuts. Reconnect a restarted
-   joined member, prove minority write/receipt refusal and joint-transition restart.
+   controller fixture with malformed/replayed seed replies/chunks at the receiver,
+   process-generation revocation, sync failures and process-kill cuts. Qualify
+   minority signed receipt refusal and joint-transition restart. Native retained
+   peer reconnection and minority commit/read refusal now pass in both image forms.
    Preserve permanent claims, local install receipts and complete physical recovery.
 2. Complete CG-05 qualification around the delivered membership features.
    Preserve all five exact acceptance cases. Add joint-transition crash cuts,

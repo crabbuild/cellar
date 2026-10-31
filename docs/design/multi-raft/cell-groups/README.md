@@ -12,8 +12,10 @@ pass their scoped regression gates. Durable joint membership and leadership hand
 also pass a partial gate. A learner seed source authorized by a fresh quorum read
 now covers empty groups, bounded capture of complete roots and stream revocation.
 Authenticated destination staging/install, caught-up promotion and replacement
-after deleting a voter disk now pass native tests in both image forms. Remaining
-CG-05 crash/pressure and full acceptance gates precede verified S3 archive/reclamation. The production host has not yet cut over to shared groups.
+after deleting a voter disk now pass native tests in both image forms. Seed request
+refusal, revoked/expired sessions, retained-peer reconnection and minority commit/read
+refusal also pass. Remaining CG-05 receiver faults, crash/pressure and full acceptance
+gates precede verified S3 archive/reclamation. The production host has not yet cut over to shared groups.
 See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.
 

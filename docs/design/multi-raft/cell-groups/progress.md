@@ -10,6 +10,56 @@ CG-05 is IN_PROGRESS; CG-06 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-05 seed refusal and restarted voter reconnection
+
+Qualified source: `de552f6daabf786c14fe9df97565538ba5d302b4`. All 238 Rust cases and eight gate commands
+pass, including all-target Clippy for Cellar/core/LTX, five native suites,
+formatting/layout, dependency isolation, docs, source preflight and 37 plan-validator
+tests. `.cellar/cell-groups-evidence/CG-05-seed-fault-reconnect/checkpoint.json`
+binds 321 source hashes, five copied executables, frozen plan inputs and
+retained intermediate logs. Independent hash verification passes. These strengthen
+two existing replacement cases; the test count is unchanged. CG-05 remains IN_PROGRESS.
+
+Both image modes now exercise independent wire probes against the production TLS
+seed source. Eleven invalid requests cover exporter authentication, stale process,
+wrong disk/incarnation/schema, zero and noncanonical nonce, zero and excessive
+timeout, unknown fields and an ineligible voter. Five post-reply scenarios cover
+wrong Ready sequence, a previous exchange's binding, unknown Ready fields, source
+endpoint revocation and receiver disconnect. The probe independently verifies reply
+framing, exporter-bound MAC, correlation and digest. Every scenario releases the
+source pin and wire admission. A normal complete transfer later succeeds in the
+same fixture, so refusal is not inferred from an unusable source.
+
+Production destination sessions also refuse source revocation after the signed
+descriptor and expiry while the user retains the session. Neither changes the
+staged root, installs a checkpoint or grants joined-member bootstrap. The same
+engine and identities then complete installation and replacement.
+
+After cold recovery, the replacement now starts a new runtime, transport and
+controller with a new process generation. Explicit physical routes remove retired
+voter 3 and advertise the new endpoint. Survivors reconnect over TLS, the replacement
+regains quorum and commits another cell. A linearizable read succeeds. Isolating
+that group then leaves a deliberately stale ready flag: a proposal is admitted,
+but cannot advance applied state or the selected root, and a fresh linearizable
+read expires. After check-quorum stepdown, new proposals refuse. Admission remains
+distinct from commitment. The fixture uses no event pumping after controller start.
+
+Two intermediate failures were fixture mistakes, retained in the evidence: the
+first route still advertised retired voter 3; the second advanced only the restarted
+voter's clock while survivor leader leases remained frozen. The final fixture
+advances every voter and uses normal caught-up leadership handoff if a survivor
+wins first. No production check or safety assertion was weakened.
+
+**Reflection and next step:** native reconnect and minority commit/read refusal are
+now covered. Next test malformed/replayed seed replies and chunks at the receiver,
+source process-generation revocation during admitted work, and sync failures or
+process kills across seed installation and joint configuration. Signed receipt
+refusal, large/empty group pressure, retained pins, sustained capture fairness and
+the five exact CG-05 acceptance cases remain open. These tests restart runtime
+owners in one OS process; they do not qualify managed fleet orchestration,
+independent-process failure, power loss, shared-group RustFS/load or zero-quorum
+recovery. Complete CG-05 before CG-06 archive/reclamation and CG-08/CG-07 cutover.
+
 ## CG-05 authenticated learner installation and replacement
 
 Qualified source: `ab2a308a937f349d3482a825d4b669d042cb03c3`. All 238 selected Rust cases and eight
