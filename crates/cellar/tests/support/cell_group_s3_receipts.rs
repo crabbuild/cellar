@@ -470,11 +470,21 @@ pub(crate) async fn s3_receipt_deadline(
         .select(runtime, pool, h.fixture.cell_options(&h.cell).await?)
         .await?;
     h.remote.outage.store(true, Ordering::Release);
+    let attempts = h.controllers[0]
+        .archive_status(h.route.history)?
+        .context("archive registration")?
+        .attempts;
     let mut pending = Box::pin(selection.response());
-    tokio::select! {
-        result = pending.as_mut() => { let _ = result?; anyhow::bail!("lookup completed during archive outage"); }
-        result = h.waiting() => result?,
-    }
+    assert!(futures_util::poll!(pending.as_mut()).is_pending());
+    controller::wait_for(async || {
+        Ok(h.controllers[0]
+            .archive_status(h.route.history)?
+            .context("archive status")?
+            .attempts
+            > attempts
+            && h.controllers[0].usage().retained_s3 == 1)
+    })
+    .await?;
     assert_eq!(pool.usage()?.retained_operations, 0);
     if !cancel {
         assert!(matches!(
