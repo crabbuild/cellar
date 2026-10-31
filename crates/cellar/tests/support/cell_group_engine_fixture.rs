@@ -450,6 +450,16 @@ fn prepare_cell_image(
 }
 
 fn prepare(voter: &mut Voter, apply: &CellGroupApply) -> Result<PreparedGroupManifest> {
+    if apply.entry.get_entry_type() == raft::prelude::EntryType::EntryConfChangeV2 {
+        let group = voter.log.cell_group(&apply.base.marker().route().history)?;
+        return Ok(voter.tree.prepare_membership(
+            voter.pages.as_ref().context("fixture page owner")?,
+            &apply.base,
+            &apply.entry,
+            &raft::Storage::initial_state(&group)?.conf_state,
+            &group.membership()?,
+        )?);
+    }
     if apply.entry.data.is_empty() {
         return Ok(voter.tree.prepare_unchanged(
             voter.pages.as_ref().context("fixture page owner")?,

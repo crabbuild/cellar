@@ -180,6 +180,40 @@ pub(crate) struct Transition {
     pub membership: GroupMembership,
 }
 
+impl super::ManifestTree {
+    /// Prepare the unchanged cell root and new configuration revision for one
+    /// canonical membership entry. This proves data preparation only; the Raft
+    /// owner must validate its committed entry/ticket and atomically persist the
+    /// matching configuration and membership before acknowledging application.
+    pub fn prepare_membership(
+        &self,
+        pages: &super::ManifestPageStore,
+        previous: &super::PreparedGroupManifest,
+        entry: &Entry,
+        before: &ConfState,
+        membership: &GroupMembership,
+    ) -> Result<super::PreparedGroupManifest, super::ManifestError> {
+        let mut prepared = self.prepare_unchanged(
+            pages,
+            previous,
+            crate::raft::completion::entry_position(entry),
+        )?;
+        if previous.marker().membership_revision() != membership.revision().get() {
+            return Err(super::ManifestError::Invalid(
+                "membership preparation revision",
+            ));
+        }
+        membership
+            .validate(before, previous.marker().position().index.get())
+            .map_err(|e| super::ManifestError::Io(std::io::Error::other(e)))?;
+        transition(entry, self.route(), before, membership)
+            .map_err(|e| super::ManifestError::Io(std::io::Error::other(e)))?;
+        prepared.marker.membership_revision = entry.index;
+        prepared.marker.check()?;
+        Ok(prepared)
+    }
+}
+
 pub(crate) fn transition(
     entry: &Entry,
     route: &GroupRoute,

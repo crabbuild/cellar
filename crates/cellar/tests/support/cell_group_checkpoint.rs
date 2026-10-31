@@ -55,6 +55,19 @@ pub(super) async fn populate_images(
     let mut cluster = Cluster::new().await?;
     cluster.elect().await?;
     cluster.voters[2].paused = lagging;
+    let expected = enroll_images(&mut cluster, rooted, partition, additional, padding).await?;
+    Ok((cluster, expected))
+}
+
+/// Enroll into an existing elected group so archive tests can capture its empty
+/// checkpoint first. Existing source/snapshot fixtures call this same path.
+pub(super) async fn enroll_images(
+    cluster: &mut Cluster,
+    rooted: bool,
+    partition: bool,
+    additional: usize,
+    padding: usize,
+) -> Result<BTreeMap<String, Vec<u8>>> {
     let route = cluster.birth.route().clone();
     if rooted {
         for n in 0..3 {
@@ -121,7 +134,7 @@ pub(super) async fn populate_images(
             .await?;
         expected.insert(name.to_owned(), bytes);
     }
-    Ok((cluster, expected))
+    Ok(expected)
 }
 
 fn extent_commitment(

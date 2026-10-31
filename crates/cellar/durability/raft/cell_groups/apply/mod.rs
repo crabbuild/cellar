@@ -5,18 +5,17 @@
 pub(super) mod images;
 mod recovery;
 mod summary;
+mod transition;
 pub use images::CellGroupApplyImages;
 
 use super::*;
-use crate::application::consensus::group_protocol::{
-    CellGroupEntry, GroupCommand, GroupEntryLimits,
-};
+use crate::application::consensus::group_protocol::GroupEntryLimits;
 use crate::raft::{
     cache::GroupLog,
     completion::{entry_digest, entry_position},
     execution::{storage, ExecutionError},
 };
-use cellar_logic::cell_group::{CommitWitness, GroupHistory};
+use cellar_logic::cell_group::GroupHistory;
 use std::sync::{Arc, Mutex};
 
 pub(super) struct Storage {
@@ -174,118 +173,16 @@ impl CellGroupApplier {
                 ExecutionError::Invalid("poisoned group applier")
             }
         })?;
-        let Storage {
-            tree,
-            pages,
-            images,
-            limits,
-            max_effect_rows,
-        } = &mut *owner;
-        // Check page owner and contiguous prefix before any image allocation/I/O.
-        let mut unchanged = tree
-            .prepare_unchanged(pages, &work.base, work.ticket.position())
-            .map_err(storage)?;
-        if work.entry.get_entry_type() == ::raft::prelude::EntryType::EntryConfChangeV2 {
+        let next = if work.entry.get_entry_type() == ::raft::prelude::EntryType::EntryConfChangeV2 {
             let cache = self.group.read().map_err(storage)?;
-            super::membership::transition(
+            owner.prepare_entry(
+                &work.base,
                 &work.entry,
-                tree.route(),
-                &cache.conf_state,
-                &cache.membership,
-            )
-            .map_err(storage)?;
-            unchanged.marker.membership_revision = work.entry.index;
-            return Ok(unchanged);
-        }
-        if work.entry.data.is_empty() {
-            return Ok(unchanged);
-        }
-        let decoded = CellGroupEntry::decode(&work.entry.data, work.base.marker().route(), *limits)
-            .map_err(storage)?;
-        let witness = CommitWitness {
-            group: self.history(),
-            position: work.ticket.position(),
-            proposal: decoded.binding.proposal,
-        };
-        let next = match decoded.command {
-            GroupCommand::Enroll { cell, image, files } => {
-                let decision = decide_enrollment(
-                    tree.route(),
-                    EnrollmentPhase::Active,
-                    &work.entry.data,
-                    work.base
-                        .pin_cell(&cell.cell)
-                        .map(|(leaf, _)| &leaf.enrollment),
-                    *limits,
-                );
-                match decision {
-                    Ok(EnrollmentDecision::Existing(_)) | Err(EnrollmentError::Conflict) => {
-                        unchanged
-                    }
-                    Ok(EnrollmentDecision::Propose(record)) => {
-                        let prepared = images.prepare(images::ImageApply {
-                            cell: &cell,
-                            sequence: 1,
-                            schema: tree.route().schema_digest,
-                            base: None,
-                            image,
-                            files: &files,
-                            max_effect_rows: *max_effect_rows,
-                        })?;
-                        let leaf = CellManifestLeaf {
-                            enrollment: record,
-                            version: cellar_logic::cell_group::CellVersion {
-                                history: cell,
-                                sequence: cellar_logic::cell_group::MutationSequence::new(1)
-                                    .map_err(storage)?,
-                                image: image.into(),
-                            },
-                            geometry: prepared.geometry,
-                            last_mutation: work.ticket.position(),
-                            witness,
-                            effects: prepared.effects,
-                        };
-                        tree.prepare_update(pages, &work.base, leaf, None, prepared.pin)
-                            .map_err(storage)?
-                    }
-                    Err(error) => return Err(storage(error)),
-                }
-            }
-            GroupCommand::Mutation(mutation) => {
-                let (old, base) = work
-                    .base
-                    .pin_cell(&mutation.cell.cell)
-                    .ok_or(ExecutionError::Invalid("apply cell missing"))?;
-                mutation.check_base(&old.version).map_err(storage)?;
-                let prepared = images.prepare(images::ImageApply {
-                    cell: &mutation.cell,
-                    sequence: mutation.sequence.get(),
-                    schema: tree.route().schema_digest,
-                    base: Some(&base),
-                    image: mutation.result,
-                    files: &mutation.files,
-                    max_effect_rows: *max_effect_rows,
-                })?;
-                let leaf = CellManifestLeaf {
-                    enrollment: old.enrollment.clone(),
-                    version: cellar_logic::cell_group::CellVersion {
-                        history: mutation.cell,
-                        sequence: mutation.sequence,
-                        image: mutation.result.into(),
-                    },
-                    geometry: prepared.geometry,
-                    last_mutation: work.ticket.position(),
-                    witness,
-                    effects: prepared.effects,
-                };
-                tree.prepare_update(pages, &work.base, leaf, Some(&old.version), prepared.pin)
-                    .map_err(storage)?
-            }
-            _ => {
-                return Err(ExecutionError::Invalid(
-                    "unsupported group apply administration",
-                ))
-            }
+                Some((&cache.conf_state, &cache.membership)),
+                false,
+            )?
+        } else {
+            owner.prepare_entry(&work.base, &work.entry, None, false)?
         };
         self.check(work)?;
         Ok(next)

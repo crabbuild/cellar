@@ -73,6 +73,7 @@ impl CellGroupApplyImages {
     pub(super) fn prepare(
         &self,
         request: ImageApply<'_>,
+        verify_existing: bool,
     ) -> Result<EnrollmentImage, ExecutionError> {
         let ImageApply {
             cell,
@@ -147,13 +148,21 @@ impl CellGroupApplyImages {
                     segments,
                 };
                 let id = image_id(cell, sequence, update.result)?;
-                CellImagePin::Materialized(match images.prepare(id, base, &update) {
-                    Ok(pin) => pin,
-                    Err(cellar_ltx::generation::GenerationError::Exists) => {
-                        images.pin_prepared(id, update.result).map_err(storage)?
-                    }
-                    Err(error) => return Err(storage(error)),
-                })
+                if verify_existing {
+                    CellImagePin::Materialized(
+                        images
+                            .prepare_verified(id, base, &update)
+                            .map_err(storage)?,
+                    )
+                } else {
+                    CellImagePin::Materialized(match images.prepare(id, base, &update) {
+                        Ok(pin) => pin,
+                        Err(cellar_ltx::generation::GenerationError::Exists) => {
+                            images.pin_prepared(id, update.result).map_err(storage)?
+                        }
+                        Err(error) => return Err(storage(error)),
+                    })
+                }
             }
             (Self::Extents { images, limits, .. }, ImageCommitment::Extents(result)) => {
                 let base = match base {

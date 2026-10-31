@@ -509,6 +509,53 @@ covering local checkpoint and configured archive retention proofs, plus transfer
 pins. Shared engine purge must preserve other groups' live ranges. Readers and
 in-flight installs retain object pins until their physical owners finish.
 
+CG-06 additionally implements committed-tail capture and independent data replay.
+`upload_tail` copies the exact contiguous suffix to the engine-selected applied
+root under the cache read lock, then encodes/uploads without that lock. Entries
+have bounded canonical framing, including context and sync metadata. The complete
+tail index names the original checkpoint, every immutable entry object, and the
+final root/configuration/permanent membership. Missing ranges, unsupported types,
+invalid cuts and configured byte/entry/cell limits refuse. Upload still returns
+an untrusted locator rather than coverage authority.
+
+`extend_tail` reuses an existing archived prefix and captures only the local
+suffix after its cut. Its flattened index directly names the original checkpoint
+and all entry objects, so the previous tail index is not a recovery dependency.
+This permits continued archival after local prefix compaction. Combined limits
+are checked before new uploads; a full bounded tail requires a new checkpoint.
+Physical shared-engine file reclamation remains a separate unqualified boundary.
+
+`verify_tail` recovers every checkpoint dependency and replays all entries through
+the physical transition code shared with live apply. Live apply retains its
+original ticket/commit/owner checks before and after preparation. Canonical joint
+membership, leave and no-op entries advance group metadata without synthetic
+cells or independent cell-sequence changes. Replayed final root, configuration
+and membership must match the index; every final page/image is independently
+verified and synced. No application callback or engine installation occurs.
+
+Materialized replay uses `GenerationStore::prepare_verified`: an existing cached
+result cannot replace validation of the incoming LTX. The delta is recomputed in
+admitted anonymous scratch before the destination is independently verified and
+synced. `GenerationPin::verify_and_sync` also preserves the receiver's existing
+independent-destination checks. Extent replay applies every delta and rechecks
+the complete final image. A valid but wrong LTX delta or warm destination damage
+must refuse, even when metadata and object hashes are well formed.
+
+A node-wide `CellGroupArchiveTailPool` separately bounds copied suffixes, decoded
+entries, image work and retained base/predecessor/successor metadata. Its limits
+are explicit and do not change the ordinary archive/checkpoint pool limits. The
+returned `VerifiedCellGroupArchiveRecovery` retains this admission with physical
+pins. Cancellation stops further replay work and retains entered physical owners;
+domain shutdown joins them. Typed contention and poisoned-owner failures differ.
+
+This remains data-only recovery through an existing destination engine/applier.
+Production integration needs an isolated data-verification storage owner, which
+must not depend on a serving engine's advancing selected cut or surviving voter
+disks. Published/GC-protected archive coverage, S3 settlement/outage admission,
+archive-aware file reclamation and fenced fresh-incarnation seeding remain CG-06
+work. The task scope now explicitly includes the shared checkpoint/engine fixture
+changes and new transition/tail modules; all required cases and oracles are kept.
+
 ## Split and merge
 
 Use the same transition state machine for one parent to multiple child ranges

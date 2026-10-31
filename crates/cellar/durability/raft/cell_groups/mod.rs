@@ -18,7 +18,9 @@ mod apply;
 mod archive;
 pub use archive::{
     CellGroupArchive, CellGroupArchiveError, CellGroupArchiveLimits, CellGroupArchivePool,
-    CellGroupArchiveReference, CellGroupArchiveUsage, VerifiedCellGroupArchiveCheckpoint,
+    CellGroupArchiveReference, CellGroupArchiveTailLimits, CellGroupArchiveTailPool,
+    CellGroupArchiveTailReference, CellGroupArchiveUsage, VerifiedCellGroupArchiveCheckpoint,
+    VerifiedCellGroupArchiveRecovery,
 };
 pub(crate) mod checkpoint;
 pub use checkpoint::{

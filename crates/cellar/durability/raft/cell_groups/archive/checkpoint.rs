@@ -78,9 +78,9 @@ impl Index {
     }
 }
 
-struct Bounded {
-    bytes: Vec<u8>,
-    limit: usize,
+pub(super) struct Bounded {
+    pub(super) bytes: Vec<u8>,
+    pub(super) limit: usize,
 }
 
 impl Write for Bounded {
@@ -220,9 +220,50 @@ impl CellGroupArchive {
         &self,
         domain: &ExecutionDomain,
         reference: &CellGroupArchiveReference,
-        mut receiver: CellGroupCheckpointReceiver,
+        receiver: CellGroupCheckpointReceiver,
     ) -> Result<VerifiedCellGroupArchiveCheckpoint> {
         let permit = self.admit()?;
+        self.verify_admitted(domain, reference, receiver, permit)
+            .await
+    }
+
+    pub(super) async fn checkpoint_marker(
+        &self,
+        domain: &ExecutionDomain,
+        reference: &CellGroupArchiveReference,
+        permit: Arc<Permit>,
+    ) -> Result<GroupManifest> {
+        let bytes = self
+            .get(
+                "indexes",
+                &Object {
+                    digest: reference.digest,
+                    length: reference.length,
+                },
+                self.limits.max_index_bytes,
+            )
+            .await?;
+        let archive = self.clone();
+        domain
+            .blocking(move || {
+                let _permit = permit;
+                let index: Index = serde_json::from_slice(&bytes)
+                    .map_err(|_| CellGroupArchiveError::Invalid("checkpoint index"))?;
+                index.validate(&archive)?;
+                Ok::<_, CellGroupArchiveError>(index.marker)
+            })
+            .map_err(|_| CellGroupArchiveError::Stopped)?
+            .await
+            .map_err(CellGroupArchiveError::Worker)?
+    }
+
+    pub(super) async fn verify_admitted(
+        &self,
+        domain: &ExecutionDomain,
+        reference: &CellGroupArchiveReference,
+        mut receiver: CellGroupCheckpointReceiver,
+        permit: Arc<Permit>,
+    ) -> Result<VerifiedCellGroupArchiveCheckpoint> {
         let bytes = self
             .get(
                 "indexes",

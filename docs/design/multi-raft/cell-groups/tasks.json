@@ -1722,14 +1722,22 @@
       ],
       "scope": [
         "crates/cellar/durability/raft/",
-        "crates/cellar-ltx/src/"
+        "crates/cellar-ltx/src/",
+        "crates/cellar/tests/support/cell_group_checkpoint.rs",
+        "crates/cellar/tests/support/cell_group_engine_fixture.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/cell_groups/archive/mod.rs",
         "crates/cellar/durability/raft/cell_groups/archive/checkpoint.rs",
         "crates/cellar/durability/raft/cell_groups/archive/objects.rs",
         "crates/cellar/tests/native_cell_groups_archive.rs",
-        "crates/cellar/tests/support/cell_group_archive_store.rs"
+        "crates/cellar/tests/support/cell_group_archive_store.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/tail.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/tail_admission.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/tail_codec.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/replay.rs",
+        "crates/cellar/durability/raft/cell_groups/apply/transition.rs",
+        "crates/cellar/tests/support/cell_group_archive_tail.rs"
       ],
       "test_target": "native_cell_groups_archive",
       "steps": [

@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Complete group checkpoints in immutable object storage. Upload confirmation
+//! Complete group checkpoints and committed tails in immutable object storage. Upload confirmation
 //! and independently recovered physical state are separate capabilities. Neither
 //! authorizes S3 settlement, log truncation, membership or disaster recovery.
 
@@ -20,6 +20,13 @@ use std::{fmt, sync::Arc};
 
 mod checkpoint;
 mod objects;
+mod replay;
+mod tail;
+mod tail_admission;
+mod tail_codec;
+pub use replay::VerifiedCellGroupArchiveRecovery;
+pub use tail::CellGroupArchiveTailReference;
+pub use tail_admission::{CellGroupArchiveTailLimits, CellGroupArchiveTailPool};
 
 const DOMAIN: &str = "cellar-cell-group-archive-checkpoint-1";
 const CHUNK_BYTES: usize = 64 * 1024;
@@ -32,6 +39,7 @@ pub enum CellGroupArchiveError {
     Stopped,
     Timeout,
     Checkpoint(CellGroupCheckpointError),
+    Replay(crate::raft::execution::ExecutionError),
     Storage(object_store::Error),
     Worker(crate::asyncrt::TaskPanic),
 }
@@ -46,6 +54,7 @@ impl std::error::Error for CellGroupArchiveError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Checkpoint(e) => Some(e),
+            Self::Replay(e) => Some(e),
             Self::Storage(e) => Some(e),
             Self::Worker(e) => Some(e),
             _ => None,

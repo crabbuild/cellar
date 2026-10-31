@@ -1,10 +1,10 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! CG-06 checkpoint archival slice. No tail, settlement, log reclamation or
-//! fresh-incarnation disaster-recovery qualification is claimed by these cases.
+//! CG-06 checkpoint and committed-tail data recovery. Archive-head protection,
+//! S3 settlement, reclamation and fresh-incarnation recovery remain separate.
 #![allow(clippy::disallowed_methods)]
 // The shared engine fixture also defines fault/membership helpers selected by
-// sibling integration targets. They remain unused in this checkpoint-only gate.
+// sibling integration targets and are not all selected by this archive gate.
 #![allow(dead_code, unused_imports)]
 
 #[path = "support/cell_group_archive_store.rs"]
@@ -18,8 +18,47 @@ mod fault;
 #[path = "support/raft_ltx_fixture.rs"]
 #[allow(dead_code)]
 mod images;
+#[path = "support/cell_group_archive_tail.rs"]
+mod tail_fixture;
 
 include!("support/cell_group_engine_fixture.rs");
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_tails_cover_enrollment_and_controls() -> Result<()> {
+    for rooted in [false, true] {
+        tail_fixture::enrollment_controls(rooted).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_tail_missing_and_forged_dependencies_refuse() -> Result<()> {
+    for rooted in [false, true] {
+        tail_fixture::dependencies(rooted).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_tail_warm_ltx_is_independently_replayed() -> Result<()> {
+    for rooted in [false, true] {
+        tail_fixture::warm_replay(rooted).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_tail_cancelled_replay_retains_physical_owners() -> Result<()> {
+    tail_fixture::physical_cancellation().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_tail_extension_survives_local_prefix_compaction() -> Result<()> {
+    for rooted in [false, true] {
+        tail_fixture::extend_compacted(rooted).await?;
+    }
+    Ok(())
+}
 
 use cellar_ltx::{
     generation::ReadServices,

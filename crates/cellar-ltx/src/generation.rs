@@ -203,6 +203,20 @@ pub struct GenerationPin {
 }
 
 impl GenerationPin {
+    /// Independently inspect and sync this pinned destination, including when
+    /// its seal is already cached. Run on its joined blocking owner. This
+    /// verifies physical bytes; it supplies no publication or consensus right.
+    pub fn verify_and_sync(&self) -> Result<(), GenerationError> {
+        let mut file = self
+            .inner
+            .filesystem
+            .open(&self.inner.directory.join(final_name(self.id())))?;
+        apply::inspect(&mut file, &self.state(), None)?;
+        file.sync_all()?;
+        self.inner.filesystem.sync_all(&self.inner.directory)?;
+        Ok(())
+    }
+
     pub fn id(&self) -> ImageId {
         self.image.id
     }
@@ -651,6 +665,44 @@ impl GenerationStore {
         update: &ImageUpdate<'_>,
     ) -> Result<GenerationPin, GenerationError> {
         self.prepare_chain(id, base, std::slice::from_ref(update))
+    }
+
+    /// Apply and verify the supplied delta even if the destination already
+    /// exists. A cached result cannot substitute for replay of untrusted LTX.
+    /// Existing images use an independently admitted anonymous scratch image;
+    /// no selected image or inventory retention flag is changed.
+    pub fn prepare_verified(
+        &self,
+        id: ImageId,
+        base: Option<&GenerationPin>,
+        update: &ImageUpdate<'_>,
+    ) -> Result<GenerationPin, GenerationError> {
+        match self.prepare(id, base, update) {
+            Ok(pin) => return Ok(pin),
+            Err(GenerationError::Exists) => (),
+            Err(error) => return Err(error),
+        }
+        let pin = self.pin_prepared(id, update.result)?;
+        let updates = std::slice::from_ref(update);
+        let peak = apply::peak_chain_bytes(updates, &self.inner.limits.apply)?;
+        let _scratch = self.inner.snapshot_scratch.acquire(peak, 1)?;
+        let mut file = self
+            .inner
+            .filesystem
+            .temporary_file(Some(&self.inner.directory))?;
+        let source = base.map(|pin| self.inner.directory.join(final_name(pin.id())));
+        let actual = apply::apply_private_chain(
+            self.inner.filesystem.as_ref(),
+            source.as_deref(),
+            &mut file,
+            updates,
+            &self.inner.limits.apply,
+        )?;
+        if actual != update.result {
+            return Err(GenerationError::Identity);
+        }
+        pin.verify_and_sync()?;
+        Ok(pin)
     }
 
     /// Captured physical limits; callers can partition replay without relaxing
