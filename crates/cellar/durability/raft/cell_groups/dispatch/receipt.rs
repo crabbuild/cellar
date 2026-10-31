@@ -3,7 +3,7 @@
 //! Receipt-only dispatch never stages SQL or turns absence into non-commit.
 use super::*;
 use crate::application::consensus::command_request_digest;
-use crate::raft::execution::{CommandRequest, ExecutionLimits, StoredReceipt};
+use crate::raft::execution::{CommandRequest, StoredReceipt};
 use cellar_logic::consensus::{CommandFailure, CommandId, Durability};
 
 #[derive(Clone)]
@@ -364,7 +364,11 @@ impl CellReceiptInvocation {
             Selected::Quorum(selected) => (selected, None, None),
             Selected::S3(prepared) => {
                 let settled = prepared.response().await?;
-                settled.proof.require_current().await?;
+                self.dispatcher
+                    .domain
+                    .run(settled.proof.require_current())
+                    .await
+                    .map_err(|_| closed())??;
                 // Use a fresh read authority, whose leader fence tolerates later
                 // cell writes, rather than retaining a private writer's base.
                 let authority = runtime
