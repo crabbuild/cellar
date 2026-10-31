@@ -447,7 +447,34 @@ async fn replace(
         .group_manifest()?
         .context("source cut")?;
 
-    // Mutations after source capture must arrive through the Raft suffix.
+    let release = gate.arm(fault::HOLD_SYNC);
+    let installer = applier.clone();
+    let pending = fixture
+        .cluster
+        .domain
+        .spawn(async move { session.install(installer).await })?;
+    tokio::time::timeout(Duration::from_secs(5), gate.entered.notified()).await?;
+    assert!(
+        fixture
+            .cluster
+            .domain
+            .run(fixture.cluster.directory.bootstrap_joined_group_member(
+                &fixture.cluster.birth,
+                local.member,
+                &log
+            ))
+            .await?
+            .is_err(),
+        "receipt cannot precede the storage fence"
+    );
+    assert_eq!(
+        pool.usage().sources,
+        1,
+        "physical receiver retained through sync"
+    );
+    // While the replacement receiver is physically held at its install fence,
+    // both the surviving group and an unrelated group must keep committing.
+    // These later mutations must reach the learner through the Raft suffix.
     let later = history(&route, "after-seed-cut")?;
     let bytes = images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES(73);")?;
     let accepted = fixture.runtimes[0]
@@ -474,31 +501,6 @@ async fn replace(
         )
         .await?;
     survivors(&fixture, second, unrelated.position.index).await?;
-    let release = gate.arm(fault::HOLD_SYNC);
-    let installer = applier.clone();
-    let pending = fixture
-        .cluster
-        .domain
-        .spawn(async move { session.install(installer).await })?;
-    tokio::time::timeout(Duration::from_secs(5), gate.entered.notified()).await?;
-    assert!(
-        fixture
-            .cluster
-            .domain
-            .run(fixture.cluster.directory.bootstrap_joined_group_member(
-                &fixture.cluster.birth,
-                local.member,
-                &log
-            ))
-            .await?
-            .is_err(),
-        "receipt cannot precede the storage fence"
-    );
-    assert_eq!(
-        pool.usage().sources,
-        1,
-        "physical receiver retained through sync"
-    );
     let (permit, root) = if rooted {
         drop(release);
         pending.await??

@@ -426,6 +426,21 @@ async fn publication(rooted: bool, transfer: Transfer) -> Result<()> {
         .blocking(move || recover_source(recovering, pages, config, rooted))?
         .await??;
     assert_eq!(recovered.marker(), &source);
+    assert_eq!(recovered.pinned_images(), 4);
+    let (empty, empty_image) = recovered
+        .pin_cell(&CellId::new("empty")?)
+        .context("retained empty enrollment")?;
+    assert_eq!(empty.version.sequence.get(), 1);
+    assert_eq!(empty.version.image.txid, 0);
+    assert!(matches!(empty_image, CellImagePin::Empty));
+    for name in ["alpha", "beta", "suffix"] {
+        let (leaf, image) = recovered
+            .pin_cell(&CellId::new(name)?)
+            .context("retained populated cell")?;
+        assert_eq!(leaf.version.sequence.get(), 1);
+        assert!(!matches!(image, CellImagePin::Empty));
+    }
+
     let mut retained = pool.capture_snapshot(&group, &recovered, &snapshot)?;
     assert_eq!(retained.marker(), &cut);
     domain

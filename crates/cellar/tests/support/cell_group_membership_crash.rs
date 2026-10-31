@@ -369,7 +369,7 @@ async fn recover(root: &Path, rooted: bool, joint: bool) -> Result<()> {
         assert_eq!(selected.cell().version.sequence.get(), 1);
     }
     assert!(!nodes[2].runtime.status(route.history).await?.ready);
-    cellar::note!("membership crash rooted={rooted} joint_at_kill={joint} killed=true recovered_replicas=3 final_cells=4 final_index={}", final_index.get());
+    eprintln!("membership crash rooted={rooted} joint_at_kill={joint} killed=true recovered_replicas=3 final_cells=4 final_index={}", final_index.get());
     for node in nodes {
         node.controller.close().await?;
         node.log.close().await?;

@@ -410,7 +410,7 @@ async fn run(rooted: bool, cut: Cut) -> Result<()> {
         assert!(group.checkpoint_manifest()?.is_none());
         assert_eq!(recovered.marker().root().cells(), 0);
     }
-    cellar::note!("verified seed persistence rooted={rooted} cut={cut:?} recovered_cells={} recovered_index={}", selected.root().cells(), selected.position().index.get());
+    eprintln!("verified seed persistence rooted={rooted} cut={cut:?} recovered_cells={} recovered_index={}", selected.root().cells(), selected.position().index.get());
     drop((applier, recovered, group));
     log.close().await?;
     if let Some(source) = restarted_source {

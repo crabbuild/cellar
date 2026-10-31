@@ -341,7 +341,7 @@ async fn recover(root: &Path, rooted: bool, cut: &str) -> Result<()> {
         assert!(group.checkpoint_manifest()?.is_none());
         assert_eq!(recovered.pinned_images(), 0);
     }
-    cellar::note!(
+    eprintln!(
         "seed crash rooted={rooted} cut={cut} killed=true recovered_cells={} recovered_index={}",
         selected.root().cells(),
         selected.position().index.get()
