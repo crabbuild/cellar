@@ -15,12 +15,14 @@ mod header;
 mod local;
 mod prepared;
 mod receive;
+mod receive_archive;
 pub(crate) mod wire;
 use header::Header;
 pub use local::PreparedLocalCellGroupCheckpoint;
 pub(crate) use prepared::persisted_marker;
 pub use prepared::PreparedCellGroupCheckpoint;
 pub use receive::CellGroupCheckpointReceiver;
+pub use receive_archive::{CellGroupArchiveCheckpointReceiver, PreparedCellGroupArchiveCheckpoint};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 

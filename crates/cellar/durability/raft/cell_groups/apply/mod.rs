@@ -26,6 +26,31 @@ pub(super) struct Storage {
     max_effect_rows: u32,
 }
 
+impl Storage {
+    pub(in crate::raft::cell_groups) fn new(
+        route: cellar_logic::cell_group::GroupRoute,
+        pages: ManifestPageStore,
+        images: CellGroupApplyImages,
+        manifest_limits: ManifestLimits,
+        limits: GroupEntryLimits,
+        max_effect_rows: u32,
+    ) -> Result<Self, ExecutionError> {
+        limits.validate().map_err(storage)?;
+        images.validate()?;
+        if !(1..=1_000_000).contains(&max_effect_rows) {
+            return Err(ExecutionError::Invalid("apply effect summary limit"));
+        }
+        let tree = ManifestTree::new(route, manifest_limits).map_err(storage)?;
+        Ok(Self {
+            tree,
+            pages,
+            images,
+            limits,
+            max_effect_rows,
+        })
+    }
+}
+
 /// Owns the already opened manifest directory and shared physical image stores.
 /// Construction performs no I/O. Opening/recovering the stores belongs on the
 /// owning execution domain; transfer the same page owner used for startup.
@@ -53,16 +78,17 @@ impl CellGroupApplier {
             .group_manifest()
             .map_err(storage)?
             .ok_or(ExecutionError::Invalid("group manifest missing"))?;
-        let tree = ManifestTree::new(marker.route().clone(), manifest_limits).map_err(storage)?;
+        let state = Storage::new(
+            marker.route().clone(),
+            pages,
+            images,
+            manifest_limits,
+            limits,
+            max_effect_rows,
+        )?;
         Ok(Self {
             group,
-            storage: Arc::new(Mutex::new(Storage {
-                tree,
-                pages,
-                images,
-                limits,
-                max_effect_rows,
-            })),
+            storage: Arc::new(Mutex::new(state)),
         })
     }
 

@@ -208,7 +208,7 @@ impl CellGroupArchive {
         &self,
         domain: &ExecutionDomain,
         reference: &CellGroupArchiveReference,
-        receiver: CellGroupCheckpointReceiver,
+        receiver: CellGroupArchiveCheckpointReceiver,
     ) -> Result<VerifiedCellGroupArchiveCheckpoint> {
         domain
             .run(self.verify(domain, reference, receiver))
@@ -220,7 +220,7 @@ impl CellGroupArchive {
         &self,
         domain: &ExecutionDomain,
         reference: &CellGroupArchiveReference,
-        receiver: CellGroupCheckpointReceiver,
+        receiver: CellGroupArchiveCheckpointReceiver,
     ) -> Result<VerifiedCellGroupArchiveCheckpoint> {
         let permit = self.admit()?;
         self.verify_admitted(domain, reference, receiver, permit)
@@ -261,7 +261,7 @@ impl CellGroupArchive {
         &self,
         domain: &ExecutionDomain,
         reference: &CellGroupArchiveReference,
-        mut receiver: CellGroupCheckpointReceiver,
+        mut receiver: CellGroupArchiveCheckpointReceiver,
         permit: Arc<Permit>,
     ) -> Result<VerifiedCellGroupArchiveCheckpoint> {
         let bytes = self

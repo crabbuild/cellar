@@ -670,7 +670,8 @@ impl GenerationStore {
     /// Apply and verify the supplied delta even if the destination already
     /// exists. A cached result cannot substitute for replay of untrusted LTX.
     /// Existing images use an independently admitted anonymous scratch image;
-    /// no selected image or inventory retention flag is changed.
+    /// existing inventory retention is preserved. New private results are
+    /// reclaimable once their returned pins are released, like received images.
     pub fn prepare_verified(
         &self,
         id: ImageId,
@@ -678,7 +679,10 @@ impl GenerationStore {
         update: &ImageUpdate<'_>,
     ) -> Result<GenerationPin, GenerationError> {
         match self.prepare(id, base, update) {
-            Ok(pin) => return Ok(pin),
+            Ok(pin) => {
+                self.retire(pin.id())?;
+                return Ok(pin);
+            }
             Err(GenerationError::Exists) => (),
             Err(error) => return Err(error),
         }

@@ -18,6 +18,8 @@ mod fault;
 #[path = "support/raft_ltx_fixture.rs"]
 #[allow(dead_code)]
 mod images;
+#[path = "support/cell_group_archive_isolation.rs"]
+mod isolation_fixture;
 #[path = "support/cell_group_archive_tail.rs"]
 mod tail_fixture;
 
@@ -60,6 +62,22 @@ async fn archive_tail_extension_survives_local_prefix_compaction() -> Result<()>
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_data_recovers_after_all_voter_disks_erased() -> Result<()> {
+    for rooted in [false, true] {
+        isolation_fixture::erased_voters(rooted).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_verification_isolated_from_serving_cut() -> Result<()> {
+    for rooted in [false, true] {
+        isolation_fixture::moving_cut(rooted).await?;
+    }
+    Ok(())
+}
+
 use cellar_ltx::{
     generation::ReadServices,
     internal::{CacheLimits, EXTENT_BYTES},
@@ -69,51 +87,97 @@ use futures_util::TryStreamExt;
 use object_store::{path::Path, ObjectStore};
 use std::sync::atomic::Ordering;
 
-fn destination(cluster: &mut Cluster) -> Result<CellGroupApplier> {
-    let voter = &mut cluster.voters[2];
-    drop(voter.owner.take());
-    drop(voter.held.take());
-    let services = ReadServices {
-        now_unix_millis: Arc::new(|| 10),
-        fill_random: Arc::new(|bytes| bytes.fill(17)),
-    };
-    let images = match voter.extents.clone() {
-        Some(images) => CellGroupApplyImages::Extents {
-            images,
-            services,
-            limits: Default::default(),
-            cache_directory: cluster._root.path().join("cache"),
-            cache_pool: ScratchPool::new(ScratchLimits {
-                max_bytes: 32 * 1024 * 1024,
-                max_files: 1,
-            })?,
-            cache: CacheLimits {
-                max_cached_bytes: EXTENT_BYTES,
-                max_cached_extents: 1,
-            },
-        },
-        None => CellGroupApplyImages::Materialized {
-            images: voter.images.clone(),
-            services,
-        },
-    };
-    Ok(CellGroupApplier::new(
-        voter.log.cell_group(&cluster.birth.route().history)?,
-        voter.pages.take().context("destination pages")?,
-        images,
-        ManifestLimits::default(),
-        GroupEntryLimits::default(),
-        100,
-    )?)
+struct ArchiveDestination {
+    store: CellGroupArchiveStore,
+    images: GenerationStore,
+}
+
+async fn destination(cluster: &Cluster) -> Result<ArchiveDestination> {
+    destination_with_filesystem(cluster, Arc::new(DirectFileSystem)).await
+}
+
+async fn destination_with_filesystem(
+    cluster: &Cluster,
+    filesystem: Arc<dyn cellar_ltx::FileSystem>,
+) -> Result<ArchiveDestination> {
+    let rooted = cluster
+        .voters
+        .first()
+        .is_some_and(|voter| voter.extents.is_some());
+    destination_mode(cluster, rooted, filesystem).await
+}
+
+async fn destination_mode(
+    cluster: &Cluster,
+    rooted: bool,
+    filesystem: Arc<dyn cellar_ltx::FileSystem>,
+) -> Result<ArchiveDestination> {
+    let base = cluster._root.path().join("archive-data");
+    let route = cluster.birth.route().clone();
+    cluster
+        .domain
+        .blocking(move || {
+            let pages = ManifestPageStore::open(
+                &base.join("pages"),
+                filesystem.clone(),
+                1024,
+                16 * 1024 * 1024,
+                16,
+            )?;
+            let generations =
+                GenerationStore::open(base.join("images"), filesystem.clone(), Default::default())?;
+            let services = ReadServices {
+                now_unix_millis: Arc::new(|| 10),
+                fill_random: Arc::new(|bytes| bytes.fill(17)),
+            };
+            let images = if rooted {
+                CellGroupApplyImages::Extents {
+                    images: cellar_ltx::internal::NodeExtentStore::open(
+                        base.join("extents"),
+                        filesystem,
+                        Default::default(),
+                    )?,
+                    services,
+                    limits: Default::default(),
+                    cache_directory: base.join("cache"),
+                    cache_pool: ScratchPool::new(ScratchLimits {
+                        max_bytes: 32 * 1024 * 1024,
+                        max_files: 1,
+                    })?,
+                    cache: CacheLimits {
+                        max_cached_bytes: EXTENT_BYTES,
+                        max_cached_extents: 1,
+                    },
+                }
+            } else {
+                CellGroupApplyImages::Materialized {
+                    images: generations.clone(),
+                    services,
+                }
+            };
+            let store = CellGroupArchiveStore::new(
+                route,
+                pages,
+                images,
+                ManifestLimits::default(),
+                GroupEntryLimits::default(),
+                100,
+            )?;
+            Ok(ArchiveDestination {
+                store,
+                images: generations,
+            })
+        })?
+        .await?
 }
 
 fn receiver(
     pool: &CellGroupCheckpointPool,
-    applier: &CellGroupApplier,
+    destination: &ArchiveDestination,
     cluster: &Cluster,
-) -> Result<CellGroupCheckpointReceiver> {
-    Ok(pool.receive(
-        applier.clone(),
+) -> Result<CellGroupArchiveCheckpointReceiver> {
+    Ok(pool.receive_archive(
+        destination.store.clone(),
         ScratchPool::new(ScratchLimits {
             max_bytes: 32 * 1024 * 1024,
             max_files: 1,
@@ -235,7 +299,7 @@ async fn checkpoint_archive_roundtrip_and_reuse() -> Result<()> {
             .manifest()
             .marker()
             .clone();
-        let applier = destination(&mut cluster)?;
+        let applier = destination(&cluster).await?;
         let receive_pool = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
         // Prove the independent receiver uses remote data after its source engine
         // has closed; no borrowed source pin can satisfy this recovery.
@@ -292,7 +356,7 @@ async fn checkpoint_archive_roundtrip_and_reuse() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn checkpoint_archive_limits_and_cancelled_receiver() -> Result<()> {
     for rooted in [false, true] {
-        let (mut cluster, _) =
+        let (cluster, _) =
             checkpoint_fixture::populate_images(rooted, true, false, 1, 8192).await?;
         let store = archive_store::Store::new();
         let history = cluster.birth.route().history;
@@ -347,7 +411,7 @@ async fn checkpoint_archive_limits_and_cancelled_receiver() -> Result<()> {
             .into_iter()
             .last()
             .context("held beta")?;
-        let applier = destination(&mut cluster)?;
+        let applier = destination(&cluster).await?;
         let pool = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
         let gate = store.hold(dependency);
         let mut pending = Box::pin(archive.verify_checkpoint(
@@ -467,7 +531,7 @@ async fn checkpoint_archive_missing_or_corrupt_cell_refuses() -> Result<()> {
             .last()
             .context("beta dependency")?;
         let bytes = store.get(&dependency).await?.bytes().await?;
-        let applier = destination(&mut cluster)?;
+        let applier = destination(&cluster).await?;
         let pool = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
         store.delete(&dependency).await?;
         assert!(matches!(
@@ -543,7 +607,7 @@ async fn forged_index(
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn checkpoint_archive_untrusted_index_and_cut_binding() -> Result<()> {
     for rooted in [false, true] {
-        let (mut cluster, _) =
+        let (cluster, _) =
             checkpoint_fixture::populate_images(rooted, true, false, 1, 8192).await?;
         let store = archive_store::Store::new();
         let archive = new_archive(
@@ -561,7 +625,7 @@ async fn checkpoint_archive_untrusted_index_and_cut_binding() -> Result<()> {
             .log
             .cell_group(&cluster.birth.route().history)?;
         let base = group.group_manifest()?.context("destination base")?;
-        let applier = destination(&mut cluster)?;
+        let applier = destination(&cluster).await?;
         let pool = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
         for attack in 0..4 {
             let mut value = original.clone();

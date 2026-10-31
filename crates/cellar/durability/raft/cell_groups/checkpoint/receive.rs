@@ -19,69 +19,172 @@ use std::{collections::BTreeMap, path::PathBuf};
 // decoding, header/page encoding, scratch verification and traversal stacks.
 const RECEIVE_WORKSPACE: usize = 2 * EXTENT_BYTES as usize + 2 * 1024 * 1024;
 
+pub(super) trait Target {
+    fn storage(&self) -> &Arc<std::sync::Mutex<super::super::apply::Storage>>;
+
+    fn route(&self) -> &cellar_logic::cell_group::GroupRoute;
+
+    fn require_live(&self) -> Result<()>;
+
+    fn check_header(&self, header: &Header) -> Result<()>;
+
+    fn check_finish(&self, header: &Header) -> Result<()>;
+
+    fn prepare(
+        &self,
+        tree: &ManifestTree,
+        pages: &mut super::super::ManifestPageStore,
+        header: &Header,
+        image: &mut dyn FnMut(
+            &CellManifestLeaf,
+        )
+            -> std::result::Result<CellImagePin, super::super::ManifestError>,
+    ) -> Result<PreparedGroupManifest>;
+}
+
+struct EngineTarget {
+    applier: CellGroupApplier,
+    base: GroupManifest,
+}
+
+impl Target for EngineTarget {
+    fn storage(&self) -> &Arc<std::sync::Mutex<super::super::apply::Storage>> {
+        &self.applier.storage
+    }
+
+    fn route(&self) -> &cellar_logic::cell_group::GroupRoute {
+        self.base.route()
+    }
+
+    fn require_live(&self) -> Result<()> {
+        self.applier.group.cache_revision()?;
+        Ok(())
+    }
+
+    fn check_header(&self, header: &Header) -> Result<()> {
+        if header.root.position().index < self.base.position().index {
+            return Err(invalid("receiver history/range/cut"));
+        }
+        header
+            .membership
+            .succeeds(&self.applier.group.membership()?)?;
+        Ok(())
+    }
+
+    fn check_finish(&self, header: &Header) -> Result<()> {
+        if self.applier.group.group_manifest()?.as_ref() != Some(&self.base) {
+            return Err(invalid("incomplete closure or changed receiver base"));
+        }
+        header
+            .membership
+            .succeeds(&self.applier.group.membership()?)?;
+        Ok(())
+    }
+
+    fn prepare(
+        &self,
+        tree: &ManifestTree,
+        pages: &mut super::super::ManifestPageStore,
+        header: &Header,
+        image: &mut dyn FnMut(
+            &CellManifestLeaf,
+        )
+            -> std::result::Result<CellImagePin, super::super::ManifestError>,
+    ) -> Result<PreparedGroupManifest> {
+        let mut root = tree.prepare_complete(
+            &self.applier.group,
+            pages,
+            header.root.root(),
+            header.root.position(),
+            header.root.membership_revision(),
+            image,
+        )?;
+        root.base = Some(self.base.clone());
+        Ok(root)
+    }
+}
+
 impl CellGroupCheckpointPool {
-    /// Share this node pool across both source and receiver owners. The existing
-    /// max_sources setting bounds their combined count. The scratch pool must
-    /// likewise be shared by all receivers using this volume.
+    /// Engine-bound receiving retains the exact selected base and every
+    /// membership/installation guard. Share source/receiver and scratch pools.
     pub fn receive(
         &self,
         applier: CellGroupApplier,
         scratch: ScratchPool,
         directory: PathBuf,
     ) -> Result<CellGroupCheckpointReceiver> {
-        if !directory.is_absolute() || directory.as_os_str().len() > 4096 {
-            return Err(CellGroupCheckpointError::Invalid(
-                "receive scratch directory",
-            ));
-        }
-        let cells = self.limits.max_cells as usize;
-        let extents = usize::try_from(self.limits.max_transfer_bytes.div_ceil(EXTENT_BYTES))
-            .map_err(|_| CellGroupCheckpointError::Limit)?;
-        let bytes = super::super::ManifestPins::maximum_bytes(self.limits.max_cells)
-            .checked_mul(3)
-            .and_then(|n| n.checked_add(cells.checked_mul(4096)?))
-            .and_then(|n| n.checked_add(extents.checked_mul(2048)?))
-            .and_then(|n| n.checked_add(RECEIVE_WORKSPACE))
-            .ok_or(CellGroupCheckpointError::Limit)?;
-        let reservation = self
-            .budget
-            .acquire(bytes)
-            .ok_or(CellGroupCheckpointError::Busy)?;
         let base = applier
             .group
             .group_manifest()?
-            .ok_or(CellGroupCheckpointError::Invalid("receiver base"))?;
-        applier
-            .storage
-            .lock()
-            .map_err(|_| CellGroupCheckpointError::Invalid("receiver page owner"))?
-            .pages
-            .require_live()?;
-        Ok(CellGroupCheckpointReceiver {
-            applier,
-            base,
+            .ok_or(invalid("receiver base"))?;
+        Ok(CellGroupCheckpointReceiver(State::new(
+            self,
+            EngineTarget { applier, base },
             scratch,
             directory,
-            limits: self.limits,
-            header: None,
-            part: None,
-            cell: None,
-            images: BTreeMap::new(),
-            pages: Vec::new(),
-            last_key: None,
-            transferred: 0,
-            failed: false,
-            reservation,
-        })
+        )?))
     }
 }
 
-/// Owns all staged page/image pins and the full receive reservation. Appending
-/// and finishing belong on the same joined blocking owner. No partial state is
-/// published, and no source pin is accepted as a receiver durability proof.
-pub struct CellGroupCheckpointReceiver {
-    applier: CellGroupApplier,
-    base: GroupManifest,
+/// Engine-bound closure receiver. Finishing supplies storage preparation only;
+/// the Raft owner's exact snapshot effect still controls atomic installation.
+pub struct CellGroupCheckpointReceiver(State<EngineTarget>);
+
+pub(crate) trait WireReceiver {
+    fn wire_extent(
+        &self,
+        cell: &CellId,
+        ordinal: u32,
+        digest: [u8; 32],
+        length: u64,
+    ) -> Result<ExtentId>;
+
+    fn append_chunk(&mut self, chunk: CellGroupCheckpointChunk<'_>) -> Result<()>;
+}
+
+impl WireReceiver for CellGroupCheckpointReceiver {
+    fn wire_extent(
+        &self,
+        cell: &CellId,
+        ordinal: u32,
+        digest: [u8; 32],
+        length: u64,
+    ) -> Result<ExtentId> {
+        self.0.wire_extent(cell, ordinal, digest, length)
+    }
+
+    fn append_chunk(&mut self, chunk: CellGroupCheckpointChunk<'_>) -> Result<()> {
+        self.0.append(chunk)
+    }
+}
+
+impl CellGroupCheckpointReceiver {
+    pub fn append(&mut self, chunk: CellGroupCheckpointChunk<'_>) -> Result<()> {
+        self.0.append(chunk)
+    }
+
+    pub fn finish(self) -> Result<PreparedCellGroupCheckpoint> {
+        let received = self.0.finish()?;
+        PreparedCellGroupCheckpoint::new(
+            received.target.applier,
+            received.root,
+            received.header,
+            received.reservation,
+        )
+    }
+}
+
+pub(super) struct Received<T> {
+    pub target: T,
+    pub root: PreparedGroupManifest,
+    pub header: Header,
+    pub reservation: Permit,
+}
+
+/// Common physical decoder. Destination-specific authority checks remain in
+/// sealed typed targets, and each public wrapper has a distinct output type.
+pub(super) struct State<T> {
+    target: T,
     scratch: ScratchPool,
     directory: PathBuf,
     limits: CellGroupCheckpointLimits,
@@ -94,6 +197,56 @@ pub struct CellGroupCheckpointReceiver {
     transferred: u64,
     failed: bool,
     reservation: Permit,
+}
+
+impl<T: Target> State<T> {
+    pub(super) fn new(
+        pool: &CellGroupCheckpointPool,
+        target: T,
+        scratch: ScratchPool,
+        directory: PathBuf,
+    ) -> Result<Self> {
+        if !directory.is_absolute() || directory.as_os_str().len() > 4096 {
+            return Err(CellGroupCheckpointError::Invalid(
+                "receive scratch directory",
+            ));
+        }
+        let cells = pool.limits.max_cells as usize;
+        let extents = usize::try_from(pool.limits.max_transfer_bytes.div_ceil(EXTENT_BYTES))
+            .map_err(|_| CellGroupCheckpointError::Limit)?;
+        let bytes = super::super::ManifestPins::maximum_bytes(pool.limits.max_cells)
+            .checked_mul(3)
+            .and_then(|n| n.checked_add(cells.checked_mul(4096)?))
+            .and_then(|n| n.checked_add(extents.checked_mul(2048)?))
+            .and_then(|n| n.checked_add(RECEIVE_WORKSPACE))
+            .ok_or(CellGroupCheckpointError::Limit)?;
+        let reservation = pool
+            .budget
+            .acquire(bytes)
+            .ok_or(CellGroupCheckpointError::Busy)?;
+        target.require_live()?;
+        target
+            .storage()
+            .lock()
+            .map_err(|_| invalid("receiver page owner"))?
+            .pages
+            .require_live()?;
+        Ok(Self {
+            target,
+            scratch,
+            directory,
+            limits: pool.limits,
+            header: None,
+            part: None,
+            cell: None,
+            images: BTreeMap::new(),
+            pages: Vec::new(),
+            last_key: None,
+            transferred: 0,
+            failed: false,
+            reservation,
+        })
+    }
 }
 
 struct ReceivingCell {
@@ -141,7 +294,7 @@ fn invalid(message: &'static str) -> CellGroupCheckpointError {
     CellGroupCheckpointError::Invalid(message)
 }
 
-impl CellGroupCheckpointReceiver {
+impl<T: Target> State<T> {
     pub(super) fn wire_extent(
         &self,
         cell: &CellId,
@@ -176,7 +329,7 @@ impl CellGroupCheckpointReceiver {
     }
 
     fn append_inner(&mut self, chunk: CellGroupCheckpointChunk<'_>) -> Result<()> {
-        self.applier.group.cache_revision()?;
+        self.target.require_live()?;
         if chunk.bytes.is_empty() || chunk.bytes.len() > self.limits.max_chunk_bytes {
             return Err(CellGroupCheckpointError::Limit);
         }
@@ -259,8 +412,8 @@ impl CellGroupCheckpointReceiver {
                 )
                 .map_err(|_| invalid("received image identity"))?;
                 let storage = self
-                    .applier
-                    .storage
+                    .target
+                    .storage()
                     .lock()
                     .map_err(|_| invalid("receiver storage"))?;
                 let super::super::CellGroupApplyImages::Materialized { images, .. } =
@@ -332,15 +485,12 @@ impl CellGroupCheckpointReceiver {
         match (part.kind, part.data) {
             (Kind::Header, Data::Bytes(bytes)) => {
                 let header = Header::decode(&bytes)?;
-                if header.root.route() != self.base.route()
+                if header.root.route() != self.target.route()
                     || header.root.root().cells() > self.limits.max_cells
-                    || header.root.position().index < self.base.position().index
                 {
                     return Err(invalid("receiver history/range/cut"));
                 }
-                header
-                    .membership
-                    .succeeds(&self.applier.group.membership()?)?;
+                self.target.check_header(&header)?;
                 self.header = Some(header);
             }
             (Kind::Page(digest), Data::Bytes(bytes)) => {
@@ -365,8 +515,8 @@ impl CellGroupCheckpointReceiver {
                     return Err(invalid("checkpoint leaf order/cut"));
                 }
                 let mut storage = self
-                    .applier
-                    .storage
+                    .target
+                    .storage()
                     .lock()
                     .map_err(|_| invalid("receiver storage"))?;
                 storage.pages.put(digest, &bytes)?;
@@ -401,7 +551,7 @@ impl CellGroupCheckpointReceiver {
                         history: super::super::cell_image_history_digest(
                             &pending.leaf.version.history,
                         ),
-                        schema: self.base.route().schema_digest,
+                        schema: self.target.route().schema_digest,
                         epoch: image.epoch,
                         txid: image.txid,
                         checksum: image.checksum,
@@ -414,8 +564,8 @@ impl CellGroupCheckpointReceiver {
                     return Err(invalid("extent image binding"));
                 }
                 let storage = self
-                    .applier
-                    .storage
+                    .target
+                    .storage()
                     .lock()
                     .map_err(|_| invalid("receiver storage"))?;
                 let super::super::CellGroupApplyImages::Extents { images, .. } = &storage.images
@@ -429,8 +579,8 @@ impl CellGroupCheckpointReceiver {
                     let pending = self.cell.as_mut().ok_or(invalid("extent cell"))?;
                     let view = pending.view.as_ref().ok_or(invalid("extent view"))?;
                     let storage = self
-                        .applier
-                        .storage
+                        .target
+                        .storage()
                         .lock()
                         .map_err(|_| invalid("receiver storage"))?;
                     let super::super::CellGroupApplyImages::Extents { images, .. } =
@@ -461,9 +611,9 @@ impl CellGroupCheckpointReceiver {
 
     fn finish_cell(&mut self, pin: CellImagePin) -> Result<()> {
         let pending = self.cell.take().ok_or(invalid("missing receive cell"))?;
-        pin.check(&pending.leaf, self.base.route().schema_digest)?;
+        pin.check(&pending.leaf, self.target.route().schema_digest)?;
         let key = cell_routing_key(
-            self.base.route().history.namespace,
+            self.target.route().history.namespace,
             &pending.leaf.version.history.cell,
         );
         if self.images.insert(key, (pending.leaf, pin)).is_some() {
@@ -472,27 +622,22 @@ impl CellGroupCheckpointReceiver {
         Ok(())
     }
 
-    /// Verify the complete authenticated tree against every independently sealed
-    /// destination image and sync its page closure. This still does not install
-    /// it: only the Raft owner's exact snapshot effect may publish the result.
-    pub fn finish(self) -> Result<PreparedCellGroupCheckpoint> {
+    pub(super) fn finish(self) -> Result<Received<T>> {
         if self.failed || self.part.is_some() || self.cell.is_some() {
             return Err(invalid("incomplete checkpoint"));
         }
         let header = self.header.ok_or(invalid("missing checkpoint header"))?;
         if self.images.len() != header.root.root().cells() as usize
             || self.pages.len() != self.images.len()
-            || self.applier.group.group_manifest()?.as_ref() != Some(&self.base)
         {
             return Err(invalid("incomplete closure or changed receiver base"));
         }
-        header
-            .membership
-            .succeeds(&self.applier.group.membership()?)?;
+        self.target.require_live()?;
+        self.target.check_finish(&header)?;
         let root = {
             let mut storage = self
-                .applier
-                .storage
+                .target
+                .storage()
                 .lock()
                 .map_err(|_| invalid("receiver storage"))?;
             let tree = ManifestTree::new(
@@ -502,13 +647,8 @@ impl CellGroupCheckpointReceiver {
                     max_depth: 32,
                 },
             )?;
-            let mut root = tree.prepare_complete(
-                &self.applier.group,
-                &mut storage.pages,
-                header.root.root(),
-                header.root.position(),
-                header.root.membership_revision(),
-                |leaf| {
+            self.target
+                .prepare(&tree, &mut storage.pages, &header, &mut |leaf| {
                     let key = cell_routing_key(
                         header.root.route().history.namespace,
                         &leaf.version.history.cell,
@@ -520,11 +660,14 @@ impl CellGroupCheckpointReceiver {
                         .ok_or(super::super::ManifestError::Invalid(
                             "missing received cell image",
                         ))
-                },
-            )?;
-            root.base = Some(self.base);
-            root
+                })?
         };
-        PreparedCellGroupCheckpoint::new(self.applier, root, header, self.reservation)
+        self.target.require_live()?;
+        Ok(Received {
+            target: self.target,
+            root,
+            header,
+            reservation: self.reservation,
+        })
     }
 }

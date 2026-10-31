@@ -1737,7 +1737,10 @@
         "crates/cellar/durability/raft/cell_groups/archive/tail_codec.rs",
         "crates/cellar/durability/raft/cell_groups/archive/replay.rs",
         "crates/cellar/durability/raft/cell_groups/apply/transition.rs",
-        "crates/cellar/tests/support/cell_group_archive_tail.rs"
+        "crates/cellar/tests/support/cell_group_archive_tail.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/data_store.rs",
+        "crates/cellar/durability/raft/cell_groups/checkpoint/receive_archive.rs",
+        "crates/cellar/tests/support/cell_group_archive_isolation.rs"
       ],
       "test_target": "native_cell_groups_archive",
       "steps": [

@@ -93,6 +93,38 @@ pub struct PreparedGroupManifest {
     retention: Arc<super::retention::RootRetentions>,
 }
 
+/// Private storage identity for archive preparation, with no Raft engine,
+/// member, disk lineage or publication permission. Never accept a caller's token.
+pub(super) struct ArchiveManifestOwner {
+    identity: Arc<()>,
+    closed: std::sync::atomic::AtomicBool,
+}
+
+impl ArchiveManifestOwner {
+    pub(super) fn new() -> Self {
+        Self {
+            identity: Arc::new(()),
+            closed: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    pub(super) fn require_live(&self) -> Result<(), ManifestError> {
+        if self.closed.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(ManifestError::Invalid("closed archive store"));
+        }
+        Ok(())
+    }
+
+    pub(super) fn close(&self) {
+        self.closed
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    pub(super) fn owns(&self, root: &PreparedGroupManifest) -> bool {
+        Arc::ptr_eq(&self.identity, &root.engine_owner)
+    }
+}
+
 impl PreparedGroupManifest {
     pub fn marker(&self) -> &GroupManifest {
         &self.marker
@@ -224,9 +256,8 @@ impl ManifestTree {
         if !marker.matches_group(&group.identity().scope, group.birth_digest) {
             return Err(ManifestError::Invalid("root/engine identity"));
         }
-        self.verify(store, root, position, |_| Ok(()))?;
-        let pins = ManifestPins::complete(self, store, root, &mut image)?;
-        store.sync_directory()?;
+        let prepared =
+            self.prepare_physical(store, marker.clone(), group.owner.clone(), &mut image)?;
         // Recover physical ownership only from the engine's selected marker.
         // A prospective checkpoint or mutation remains a preparation capability.
         if group
@@ -235,7 +266,7 @@ impl ManifestTree {
             .as_ref()
             == Some(&marker)
         {
-            store.retention.recover(group, &marker, &pins)?;
+            store.retention.recover(group, &marker, &prepared.images)?;
         }
         if group
             .checkpoint_manifest()
@@ -243,12 +274,43 @@ impl ManifestTree {
             .as_ref()
             == Some(&marker)
         {
-            store.retention.recover_checkpoint(group, &marker, &pins)?;
+            store
+                .retention
+                .recover_checkpoint(group, &marker, &prepared.images)?;
         }
+        Ok(prepared)
+    }
+
+    pub(super) fn prepare_archive_complete(
+        &self,
+        owner: &ArchiveManifestOwner,
+        store: &mut ManifestPageStore,
+        marker: GroupManifest,
+        image: &mut dyn FnMut(&CellManifestLeaf) -> Result<CellImagePin, ManifestError>,
+    ) -> Result<PreparedGroupManifest, ManifestError> {
+        owner.require_live()?;
+        if marker.route() != self.route() {
+            return Err(ManifestError::Invalid("archive root route"));
+        }
+        self.prepare_physical(store, marker, owner.identity.clone(), image)
+    }
+
+    fn prepare_physical(
+        &self,
+        store: &mut ManifestPageStore,
+        marker: GroupManifest,
+        owner: Arc<()>,
+        image: &mut dyn FnMut(&CellManifestLeaf) -> Result<CellImagePin, ManifestError>,
+    ) -> Result<PreparedGroupManifest, ManifestError> {
+        marker.check()?;
+        store.require_live()?;
+        self.verify(store, marker.root(), marker.position(), |_| Ok(()))?;
+        let pins = ManifestPins::complete(self, store, marker.root(), &mut |leaf| image(leaf))?;
+        store.sync_directory()?;
         Ok(PreparedGroupManifest {
             marker,
             images: pins,
-            engine_owner: group.owner.clone(),
+            engine_owner: owner,
             base: None,
             page_owner: store.owner.clone(),
             retention: store.retention.clone(),

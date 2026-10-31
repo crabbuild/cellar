@@ -13,7 +13,7 @@ pub struct CellGroupArchiveTailLimits {
     pub max_entries: usize,
     pub max_tail_bytes: usize,
     pub max_cells: u32,
-    /// Must cover the destination applier's captured image workspace bound.
+    /// Must cover the destination store's captured image workspace bound.
     pub max_apply_bytes: usize,
 }
 

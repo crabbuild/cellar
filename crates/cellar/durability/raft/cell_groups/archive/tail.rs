@@ -413,7 +413,7 @@ impl CellGroupArchive {
         domain: &ExecutionDomain,
         pool: &CellGroupArchiveTailPool,
         reference: &CellGroupArchiveTailReference,
-        receiver: CellGroupCheckpointReceiver,
+        receiver: CellGroupArchiveCheckpointReceiver,
     ) -> Result<VerifiedCellGroupArchiveRecovery> {
         domain
             .run(async {

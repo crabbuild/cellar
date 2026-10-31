@@ -480,12 +480,19 @@ including an ambiguous PUT response. Corrupt existing objects refuse overwrite.
 
 `CellGroupArchiveReference` is an untrusted persistent locator. Only
 `verify_checkpoint` can produce `VerifiedCellGroupArchiveCheckpoint`: it downloads
-and hashes every indexed object, checks continuity and limits, runs the ordinary
-physical checkpoint receiver, and binds its complete recovered marker to the
+and hashes every indexed object, checks continuity and limits, runs the shared
+physical checkpoint decoder, and binds its complete recovered marker to the
 index. Missing/corrupt cells or a substituted cut refuse the whole preparation.
-The receiver does not change the engine-selected current/checkpoint root. Its
-ordinary installation and Raft admission contracts remain required. The source
-engine and its pins are unnecessary for this independent recovery.
+`CellGroupArchiveStore` owns private pages/images for an explicit expected route;
+open those stores on the execution domain, separately from serving storage.
+`receive_archive` needs no GroupLog, member claim, selected applied cut or surviving
+voter disk. Its checkpoint type is distinct from the engine-bound receiver output
+accepted by SnapshotChange. Archive roots carry a privately minted owner token
+that no Raft engine accepts for publication. No replacement genesis or voter
+identity is fabricated. Serving still requires fencing, fresh-incarnation seeding
+and a new quorum. Verifying older and newer archive cuts never changes an engine's
+selected root or the eligibility of a later archive verification. The engine-bound
+receiver preserves its selected-base and membership/install checks.
 
 Source/receiver pools separately charge physical closures and scratch. Archive
 admission charges bounded encoded/decoded metadata and I/O windows. Complete
@@ -495,13 +502,11 @@ bounded channels and retains permits until those workers exit. Domain shutdown
 joins entered work. The pool must be shared by node orchestration when it is wired
 in; constructing separate pools per group would defeat the node-wide bound.
 
-This checkpoint-only capability has no committed tail, conditionally published
-head or remote GC lease. It grants no group S3 settlement, archive coverage,
-reclamation or disaster-recovery authority. CG-06 still requires those owners,
-complete administrative/cell tail replay, retention admission and fenced
-fresh-incarnation seeding. Its executable scope now records the component's three
-production files and the native archive target/store instrumentation, replacing
-the originally planned leaf output without changing any required case or oracle.
+The checkpoint capability has no conditionally published head or remote GC lease.
+It grants no group S3 settlement, archive coverage, reclamation or disaster-recovery
+authority. CG-06 still requires those owners, retention admission and fenced
+fresh-incarnation seeding. Its executable scope records the production modules
+and native archive qualification without changing any required case or oracle.
 
 Quorum writes may proceed during an S3 outage within explicit disk/unarchived-byte
 budgets. S3-mode outputs wait for confirmed coverage. Log reclamation requires the
@@ -537,7 +542,10 @@ Materialized replay uses `GenerationStore::prepare_verified`: an existing cached
 result cannot replace validation of the incoming LTX. The delta is recomputed in
 admitted anonymous scratch before the destination is independently verified and
 synced. `GenerationPin::verify_and_sync` also preserves the receiver's existing
-independent-destination checks. Extent replay applies every delta and rechecks
+independent-destination checks. New private replay images become reclaimable after
+their returned pins close; verifying an existing image preserves its retention.
+Private-store quotas remain enforced and live proofs retain their physical data.
+Extent replay applies every delta and rechecks
 the complete final image. A valid but wrong LTX delta or warm destination damage
 must refuse, even when metadata and object hashes are well formed.
 
@@ -548,10 +556,8 @@ returned `VerifiedCellGroupArchiveRecovery` retains this admission with physical
 pins. Cancellation stops further replay work and retains entered physical owners;
 domain shutdown joins them. Typed contention and poisoned-owner failures differ.
 
-This remains data-only recovery through an existing destination engine/applier.
-Production integration needs an isolated data-verification storage owner, which
-must not depend on a serving engine's advancing selected cut or surviving voter
-disks. Published/GC-protected archive coverage, S3 settlement/outage admission,
+This remains data-only recovery through an independent physical storage owner.
+Published/GC-protected archive coverage, S3 settlement/outage admission,
 archive-aware file reclamation and fenced fresh-incarnation seeding remain CG-06
 work. The task scope now explicitly includes the shared checkpoint/engine fixture
 changes and new transition/tail modules; all required cases and oracles are kept.

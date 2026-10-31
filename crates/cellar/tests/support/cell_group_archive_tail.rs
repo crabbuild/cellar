@@ -3,7 +3,7 @@
 use super::*;
 use raft::prelude::{ConfChangeSingle, ConfChangeTransition, ConfChangeType, ConfChangeV2};
 
-async fn tail_index(
+pub(super) async fn tail_index(
     store: &dyn ObjectStore,
     reference: &CellGroupArchiveTailReference,
 ) -> Result<(Path, serde_json::Value)> {
@@ -63,7 +63,7 @@ async fn write_tail(
     )?)
 }
 
-async fn check_images(
+pub(super) async fn check_images(
     cluster: &Cluster,
     root: &PreparedGroupManifest,
     expected: &std::collections::BTreeMap<String, Vec<u8>>,
@@ -173,7 +173,7 @@ pub(super) async fn enrollment_controls(rooted: bool) -> Result<()> {
     let (_, encoded) = tail_index(store.as_ref(), &reference).await?;
     assert_eq!(encoded["entries"].as_array().unwrap().len(), 9);
     assert_eq!(tails.usage().operations, 0);
-    let applier = destination(&mut cluster)?;
+    let applier = destination(&cluster).await?;
     let pool = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
     let receiver_group = cluster.voters[2]
         .log
@@ -269,7 +269,7 @@ pub(super) async fn dependencies(rooted: bool) -> Result<()> {
         .last()
         .context("base beta")?;
     let dependency_bytes = store.get(&dependency).await?.bytes().await?;
-    let applier = destination(&mut cluster)?;
+    let applier = destination(&cluster).await?;
     let pool = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
     for missing in [&dependency, &entry] {
         store.inner.delete(missing).await?;
@@ -388,7 +388,7 @@ pub(super) async fn warm_replay(rooted: bool) -> Result<()> {
     let (path, original) = tail_index(store.as_ref(), &reference).await?;
     let entry_location = entry_path(&path, &original["entries"][0])?;
     let entry = store.get(&entry_location).await?.bytes().await?;
-    let applier = destination(&mut cluster)?;
+    let applier = destination(&cluster).await?;
     let pool = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
     let recovered = archive
         .verify_tail(
@@ -414,7 +414,7 @@ pub(super) async fn warm_replay(rooted: bool) -> Result<()> {
     if let (CellImagePin::Materialized(base_pin), CellImagePin::Materialized(final_pin)) =
         (&base_pin, &final_pin)
     {
-        let store = cluster.voters[2].images.clone();
+        let store = applier.images.clone();
         let base_pin = base_pin.clone();
         let final_pin = final_pin.clone();
         let wrong = wrong.bytes.clone();
@@ -492,15 +492,15 @@ pub(super) async fn warm_replay(rooted: bool) -> Result<()> {
         CellImagePin::Materialized(pin) => cluster
             ._root
             .path()
-            .join("node-3/images")
+            .join("archive-data/images")
             .join(format!("{}.sqlite", hex::encode(pin.id().bytes()))),
         CellImagePin::Extents(pin) => {
             let id = pin.manifest().extent(0).context("result extent")?;
-            cluster._root.path().join("extents-2").join(format!(
-                "e-{:08x}-{}",
-                id.length(),
-                hex::encode(id.bytes())
-            ))
+            cluster
+                ._root
+                .path()
+                .join("archive-data/extents")
+                .join(format!("e-{:08x}-{}", id.length(), hex::encode(id.bytes())))
         }
         CellImagePin::Empty => anyhow::bail!("expected populated result"),
     };
@@ -571,7 +571,11 @@ pub(super) async fn physical_cancellation() -> Result<()> {
     let reference = archive
         .upload_tail(&cluster.domain, &tails, &base, &group, &current)
         .await?;
-    let applier = destination(&mut cluster)?;
+    let applier = destination_with_filesystem(
+        &cluster,
+        Arc::new(fault::FaultFileSystem { gate: gate.clone() }),
+    )
+    .await?;
     let pool = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
     let recovered = archive
         .verify_tail(
@@ -591,7 +595,7 @@ pub(super) async fn physical_cancellation() -> Result<()> {
     let path = cluster
         ._root
         .path()
-        .join("node-3/images")
+        .join("archive-data/images")
         .join(format!("{}.sqlite", hex::encode(pin.id().bytes())));
     drop(recovered);
     // Only the replayed result is selected; checkpoint/base reads cannot enter
@@ -736,7 +740,7 @@ pub(super) async fn extend_compacted(rooted: bool) -> Result<()> {
     // The flattened extension names the original checkpoint and all immutable
     // entry objects directly; the old tail index is not a recovery dependency.
     store.inner.delete(&prefix_path).await?;
-    let applier = destination(&mut cluster)?;
+    let applier = destination(&cluster).await?;
     let pool = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
     for voter in &mut cluster.voters[..2] {
         drop(voter.owner.take());

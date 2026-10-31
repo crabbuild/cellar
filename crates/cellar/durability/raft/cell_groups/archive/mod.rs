@@ -4,10 +4,10 @@
 //! and independently recovered physical state are separate capabilities. Neither
 //! authorizes S3 settlement, log truncation, membership or disaster recovery.
 
-use super::{
-    checkpoint::wire, CellGroupCheckpoint, CellGroupCheckpointError, CellGroupCheckpointReceiver,
-    GroupManifest, PreparedCellGroupCheckpoint,
+pub use super::checkpoint::{
+    CellGroupArchiveCheckpointReceiver, PreparedCellGroupArchiveCheckpoint,
 };
+use super::{checkpoint::wire, CellGroupCheckpoint, CellGroupCheckpointError, GroupManifest};
 use crate::{
     asyncrt::ExecutionDomain,
     raft::budget::{Budget, Permit},
@@ -19,6 +19,8 @@ use sha2::{Digest, Sha256};
 use std::{fmt, sync::Arc};
 
 mod checkpoint;
+mod data_store;
+pub use data_store::CellGroupArchiveStore;
 mod objects;
 mod replay;
 mod tail;
@@ -146,7 +148,7 @@ impl CellGroupArchiveReference {
 /// is a checkpoint-only proof, without a tail, published head or remote GC lease.
 pub struct VerifiedCellGroupArchiveCheckpoint {
     reference: CellGroupArchiveReference,
-    checkpoint: PreparedCellGroupCheckpoint,
+    checkpoint: PreparedCellGroupArchiveCheckpoint,
 }
 
 impl VerifiedCellGroupArchiveCheckpoint {
@@ -154,11 +156,11 @@ impl VerifiedCellGroupArchiveCheckpoint {
         &self.reference
     }
 
-    pub fn checkpoint(&self) -> &PreparedCellGroupCheckpoint {
+    pub fn checkpoint(&self) -> &PreparedCellGroupArchiveCheckpoint {
         &self.checkpoint
     }
 
-    pub fn into_checkpoint(self) -> PreparedCellGroupCheckpoint {
+    pub fn into_checkpoint(self) -> PreparedCellGroupArchiveCheckpoint {
         self.checkpoint
     }
 }

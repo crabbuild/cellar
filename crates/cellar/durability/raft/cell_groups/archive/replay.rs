@@ -51,12 +51,14 @@ pub(super) fn replay(
     reservation: Arc<Permit>,
     cancelled: Arc<AtomicBool>,
 ) -> Result<VerifiedCellGroupArchiveRecovery> {
-    let applier = checkpoint.checkpoint().applier().clone();
-    let selected = applier
-        .group
-        .group_manifest()
-        .map_err(CellGroupCheckpointError::from)?;
+    let store = checkpoint.checkpoint().store().clone();
+    store.require_live()?;
     let mut root = checkpoint.checkpoint().manifest().clone();
+    if !store.owner.owns(&root) {
+        return Err(CellGroupArchiveError::Invalid(
+            "archive replay physical owner",
+        ));
+    }
     let mut conf = checkpoint
         .checkpoint()
         .snapshot()
@@ -64,7 +66,7 @@ pub(super) fn replay(
         .get_conf_state()
         .clone();
     let mut membership = checkpoint.checkpoint().membership().clone();
-    let mut owner = applier.storage.try_lock().map_err(|error| match error {
+    let mut owner = store.storage.try_lock().map_err(|error| match error {
         std::sync::TryLockError::WouldBlock => CellGroupArchiveError::Busy,
         std::sync::TryLockError::Poisoned(_) => {
             CellGroupArchiveError::Invalid("poisoned archive replay owner")
@@ -79,10 +81,7 @@ pub(super) fn replay(
         if cancelled.load(Ordering::Acquire) {
             return Err(CellGroupArchiveError::Stopped);
         }
-        applier
-            .group
-            .cache_revision()
-            .map_err(CellGroupCheckpointError::from)?;
+        store.require_live()?;
         // Control replay is the same canonical pure transition used by the live
         // owner; cell bytes still go through the ordinary LTX/base-chain checks.
         let change = if entry.get_entry_type() == EntryType::EntryConfChangeV2 {
@@ -126,72 +125,50 @@ pub(super) fn replay(
         ..
     } = &mut *owner;
     let verified = tree
-        .prepare_complete(
-            &applier.group,
-            pages,
-            root.marker().root(),
-            root.marker().position(),
-            root.marker().membership_revision(),
-            |leaf| {
-                if cancelled.load(Ordering::Acquire) {
-                    return Err(super::super::ManifestError::Invalid(
-                        "archive replay stopped",
-                    ));
+        .prepare_archive_complete(&store.owner, pages, root.marker().clone(), &mut |leaf| {
+            if cancelled.load(Ordering::Acquire) {
+                return Err(super::super::ManifestError::Invalid(
+                    "archive replay stopped",
+                ));
+            }
+            let (_, pin) = root
+                .pin_cell(&leaf.version.history.cell)
+                .filter(|(expected, _)| *expected == leaf)
+                .ok_or(super::super::ManifestError::Invalid(
+                    "replayed leaf missing",
+                ))?;
+            match (&*images, &pin) {
+                (_, CellImagePin::Empty) => (),
+                (CellGroupApplyImages::Materialized { .. }, CellImagePin::Materialized(pin)) => {
+                    pin.verify_and_sync()
+                        .map_err(|e| super::super::ManifestError::Io(std::io::Error::other(e)))?;
                 }
-                let (_, pin) = root
-                    .pin_cell(&leaf.version.history.cell)
-                    .filter(|(expected, _)| *expected == leaf)
-                    .ok_or(super::super::ManifestError::Invalid(
-                        "replayed leaf missing",
-                    ))?;
-                match (&*images, &pin) {
-                    (_, CellImagePin::Empty) => (),
-                    (
-                        CellGroupApplyImages::Materialized { .. },
-                        CellImagePin::Materialized(pin),
-                    ) => {
-                        pin.verify_and_sync().map_err(|e| {
-                            super::super::ManifestError::Io(std::io::Error::other(e))
-                        })?;
-                    }
-                    (CellGroupApplyImages::Extents { images, .. }, CellImagePin::Extents(pin)) => {
-                        if pin.reference().encoded_length() > 1024 * 1024 {
-                            return Err(super::super::ManifestError::Invalid(
-                                "replay extent metadata limit",
-                            ));
-                        }
-                        images
-                            .seal_image_root(
-                                pin.manifest().clone(),
-                                &mut vec![0; cellar_ltx::internal::EXTENT_BYTES as usize],
-                            )
-                            .map_err(|e| {
-                                super::super::ManifestError::Io(std::io::Error::other(e))
-                            })?;
-                    }
-                    _ => {
+                (CellGroupApplyImages::Extents { images, .. }, CellImagePin::Extents(pin)) => {
+                    if pin.reference().encoded_length() > 1024 * 1024 {
                         return Err(super::super::ManifestError::Invalid(
-                            "replay representation",
-                        ))
+                            "replay extent metadata limit",
+                        ));
                     }
+                    images
+                        .seal_image_root(
+                            pin.manifest().clone(),
+                            &mut vec![0; cellar_ltx::internal::EXTENT_BYTES as usize],
+                        )
+                        .map_err(|e| super::super::ManifestError::Io(std::io::Error::other(e)))?;
                 }
-                Ok(pin)
-            },
-        )
+                _ => {
+                    return Err(super::super::ManifestError::Invalid(
+                        "replay representation",
+                    ))
+                }
+            }
+            Ok(pin)
+        })
         .map_err(CellGroupCheckpointError::from)?;
     if cancelled.load(Ordering::Acquire) {
         return Err(CellGroupArchiveError::Stopped);
     }
-    if applier
-        .group
-        .group_manifest()
-        .map_err(CellGroupCheckpointError::from)?
-        != selected
-    {
-        return Err(CellGroupArchiveError::Invalid(
-            "replay destination selection changed",
-        ));
-    }
+    store.require_live()?;
     drop(owner);
     Ok(VerifiedCellGroupArchiveRecovery {
         reference,

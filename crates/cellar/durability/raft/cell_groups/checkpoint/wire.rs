@@ -57,7 +57,7 @@ impl Chunk {
         }
     }
 
-    pub fn append(self, receiver: &mut CellGroupCheckpointReceiver) -> Result<()> {
+    pub fn append(self, receiver: &mut impl super::receive::WireReceiver) -> Result<()> {
         let cell = match &self.part {
             Part::Materialized { cell }
             | Part::ExtentManifest { cell }
@@ -83,7 +83,7 @@ impl Chunk {
                 id: receiver.wire_extent(cell.as_ref().unwrap(), *ordinal, *digest, self.length)?,
             },
         };
-        receiver.append(CellGroupCheckpointChunk {
+        receiver.append_chunk(CellGroupCheckpointChunk {
             part,
             offset: self.offset,
             length: self.length,
