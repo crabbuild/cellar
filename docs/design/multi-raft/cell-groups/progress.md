@@ -10,6 +10,73 @@ CG-06 is IN_PROGRESS; CG-07 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-06 protected publication and remote object collection
+
+Source: `873484774c1ad5fb261257e4890291f8ad956f6e`. CG-06 remains IN_PROGRESS.
+A complete immutable checkpoint/tail can now be published with a persistent remote hold, using a sealed
+committed-source witness and independent physical replay. This is historical
+complete-cut coverage; command S3 settlement and local Raft file purge remain
+separate unfinished boundaries.
+
+Immutable keys now contain a registry ID and never-reused allocation generation.
+Marker 1 makes a hard cutover, with no legacy reader or deletion of old namespaces.
+Pending generations retain their exact selected parent, and uploads reuse only
+objects in that protected closure. Fresh creation is a one-use capability, with
+its intent durably recorded before mutation. Opening requires the owner's exact
+persisted creation identity. Missing/corrupt established state and uncertain
+identity creation without complete state refuse; neither resets counters.
+
+Tail capture retains a typed committed-source witness before upload. New source
+writes may advance while B is delayed, and the older sealed cut can still publish
+after every dependency verifies. Publication atomically consumes the reservation,
+selects a non-regressing descriptor and creates an explicit remote hold. An exact
+persisted intent reconciles a lost response/readback cancellation without another
+allocation or publication, including after the source engines close. Serialized
+locators/intents cannot create source authority. Retired/aborted intents never
+resurrect; reader holds and pending parents remain independent of newer heads.
+
+Collection fully expands and hashes every protected closure before any DELETE.
+It excludes marked keys, complete pending generations and newer generations.
+Actual remote deletions preserve current recovered data; an old-generation DELETE
+held while identical bytes are reuploaded and published cannot erase the new copy.
+Corrupt B blocks both new coverage and complete collection. A physically valid
+old checkpoint outside the new upload's protected parent refuses publication.
+Compact marks/candidates and source witnesses have explicit node admission.
+A two-owner test retains a witness through clones, refuses another capture while
+quorum writes continue, and refunds only after the final witness drops.
+
+All 30 commands pass: seventeen exact archive cases, 156 execution cases, five
+snapshot cases and four LTX generation regressions (182 distinct Rust cases across
+four executables), all-target build/Clippy for Cellar/logic/LTX, formatting/layout,
+dependency isolation, docs, preflight, plan validation and 37 Python tests.
+The partial record at
+`.cellar/cell-groups-evidence/CG-06-protected-head/qualification/checkpoint.json`
+binds 334 source hashes, four copied executables, frozen inputs, hashed outputs
+and the preceding independent-verifier record. Independent source/artifact/exact-
+selection verification passes. The first qualification build at `a5d506a6` caught one
+missed unboxing branch after the Clippy enum-layout fix; its source-bound failed
+output is retained under `build-failure/`. The correction and full gate use the
+source above. No required case/oracle or pre-existing quota was weakened.
+
+Reflection and next priorities: wire protected publication into the node controller
+and persist the expected registry identity in authoritative namespace/owner state.
+Then settle actual S3 command/enrollment/receipt outputs against exact cell versions,
+results and current routing authority; preserve captured identities/inputs and
+never rerun callbacks. Replace the Quorum-only fingerprint/guards only when those
+proofs exist. Add explicit unarchived-byte/disk admission while Quorum can continue
+without S3. Follow with local shared-engine file purge and fenced unmanaged seeding
+under fresh group/cell incarnations. Persist source birth/provenance and fence all
+possible old voting lineages, including joins after the selected archived cut.
+
+CG-08 still owns controller/cache lifetime composition and private-cache maintenance;
+retain verified result admission alongside derived raw manifest roots. Then CG-07
+cuts public SDK/fleet routing over, followed by topology, placement, hibernation,
+managed recovery, RustFS/load/domain qualification and final legacy removal.
+The native fixture uses the actual in-memory object-store adapter; no real RustFS,
+Docker fence, fresh-incarnation serving or performance claim follows. The other
+four original CG-06 cases and full task gate remain pending. Shared dispatch still
+refuses S3 durability. Transfer the ignored evidence and its predecessors for audit.
+
 ## CG-06 archive verification without voter metadata
 
 Source: `14955f2dc2b01a6f6ab6b75b0122c812e5de6765`. CG-06 remains IN_PROGRESS.

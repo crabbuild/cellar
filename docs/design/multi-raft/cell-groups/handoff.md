@@ -15,45 +15,53 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The latest partial source is `14955f2dc2b01a6f6ab6b75b0122c812e5de6765`.
-CG-06 is IN_PROGRESS. Complete checkpoints and contiguous tails now recover through
-an independent physical archive store, with no destination Raft engine, member
-claim, replacement genesis or surviving voter disk. Both image forms recover after
-all three source voter directories and extent directories are deleted. A held
-remote dependency permits source quorum progress in another execution domain;
-newer and older cuts verify independently. Private archive roots are refused by
-actual exact-cut engine publication and source capture. Closed stores refuse new
-and outstanding receives. Newly replayed private images become reclaimable after
-proof pins close; full remote replay succeeds after their physical eviction.
+The latest partial source is `873484774c1ad5fb261257e4890291f8ad956f6e`.
+CG-06 is IN_PROGRESS. Protected publication now combines a sealed committed-source
+witness with independently recovered checkpoint/tail data. One conditional registry
+update selects a non-regressing complete root and allocates an explicit remote hold.
+Exact persisted intents reconcile unknown replies without republishing or allocating
+again; retired/aborted tokens cannot resurrect. Source writes can advance while a
+delayed dependency blocks publication of the earlier sealed cut.
 
-All 24 commands pass: eleven exact archive cases, 156 execution cases, five
-snapshot cases and four generation regressions (176 distinct Rust cases),
-all-target build/Clippy, formatting/layout, dependencies/docs/preflight and 37
-validator tests. The record under
-`.cellar/cell-groups-evidence/CG-06-isolated-verifier/qualification/`
-binds 326 source hashes, four executables, frozen inputs and the previous tail
-checkpoint. Independent hashes/source/exact-selection verification passes.
+Keys include a registry ID and never-reused generation. Pending owners retain their
+exact parent closure, and arbitrary unprotected old dependencies refuse even after
+successful physical replay. Remote collection verifies every protected object before
+DELETE and retains selected roots, reader holds, pending parents/generations and
+newer generations. Native races prove late old-generation DELETE cannot erase an
+identical new copy and actual remote reclamation preserves the current cut. Missing
+counters/uncertain initial creation refuse; source-witness clones retain node quota.
+
+All 30 commands pass: seventeen exact archive cases, 156 execution cases, five
+snapshot cases and four generation regressions (182 distinct Rust cases), all-target
+build/Clippy, formatting/layout, dependencies/docs/preflight and 37 Python tests.
+The record under
+`.cellar/cell-groups-evidence/CG-06-protected-head/qualification/`
+binds 334 source hashes, four executables, frozen inputs and the previous neutral-
+verifier checkpoint. Independent hashes/source/exact-selection verification passes.
+The preceding preflight compiler failure at `a5d506a6` is retained in `build-failure/`.
 See [progress](progress.md) and the
-[archive contract](protocols.md#apply-checkpoint-and-archive).
+[archive contract](protocols.md#protected-publication-and-remote-collection).
 
-The original `archive_tails_cover_enrollment_and_controls` case and all prior
-missing/corrupt/warm-LTX, physical cancellation/join and post-compaction extension
-cases remain passing on the new neutral stores. The other four original CG-06
-cases and full task gate remain pending. No required oracle or bound was weakened.
+Next persist the exact expected registry identity in authoritative namespace/owner
+state and wire the publisher into node-owned work. Implement real S3 output settlement
+with receipt/version/current-route proofs, captured identity and no callback replay;
+add bounded unarchived-byte/disk admission independent of Quorum. Shared dispatch
+still refuses S3. Then qualify actual local shared-engine Raft file purge and fenced
+unmanaged seeding with fresh group/cell incarnations. Source birth/provenance and
+all possible old voter lineages, including joins after the recovery cut, must survive
+voter loss. Selected-cut membership alone cannot establish the complete fence.
 
-Next implement conditionally published, GC-protected complete-cut coverage,
-bounded outage admission/S3 settlement, archive-aware physical log reclamation
-and fenced unmanaged seeding under fresh group/cell incarnations. Keep source
-birth/provenance and the authoritative inventory of every possible old voting
-lineage, including joins after the chosen recovery cut. Selected-cut membership
-alone is insufficient to fence every old host. Physical data verification grants
-no serving, coverage, S3 settlement or fencing authority. Shared dispatch still
-refuses S3 durability. The native erasure drill uses the actual in-memory store;
-RustFS, Docker fencing, fresh-quorum serving, load and public hard cutover remain
-later required work. Retain the preceding committed-tail record at `7a29c2a9`.
-Before managed integration, retain the verified archive result alongside derived
-manifest roots: raw root clones do not preserve the parent archive quota. Qualify
-that ownership propagation and private-cache maintenance in CG-08.
+Fresh registry creation is a non-deserializable one-use authority. Persist its intent
+before commit; restart only opens the exact expected identity. An incomplete identity
+requires authority recovery, never automatic counter recreation. Coverage is historical
+data durability; it supplies no current quorum, serving or DR authorization. Controller
+composition must retain verified result admission alongside derived raw roots; CG-08
+still needs that propagation and private-cache maintenance before managed integration.
+
+The actual in-memory adapter supplies native evidence. Real RustFS, Docker fencing,
+fresh-quorum serving, load and public hard cutover remain later gates. The other four
+original CG-06 cases and full task gate remain pending. Preserve the preceding independent-
+verifier record at `14955f2d` and committed-tail record at `7a29c2a9`.
 
 CG-01 through CG-05 are DONE at their declared native task boundaries. CG-05
 closes at `e0550acd` with all five exact snapshot cases and eighteen passing
