@@ -15,6 +15,16 @@ mod runtime_fixture;
 mod checkpoint_fixture;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn seed_install_materialized_replaces_deleted_voter_and_resumes() -> Result<()> {
+    Box::pin(runtime_fixture::seed_install(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn seed_install_extents_replaces_deleted_voter_and_resumes() -> Result<()> {
+    Box::pin(runtime_fixture::seed_install(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn seed_group_materialized_requires_quorum_and_bound_membership() -> Result<()> {
     runtime_fixture::seed_source(false).await
 }

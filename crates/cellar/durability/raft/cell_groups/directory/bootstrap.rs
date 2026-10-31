@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Initial member admission after real genesis and a permanent physical claim.
+//! Member admission after real genesis and a permanent physical claim.
 
 use super::*;
 use crate::raft::{
@@ -10,7 +10,10 @@ use crate::raft::{
 use cellar_logic::consensus::MemberId;
 use serde::{Deserialize, Serialize};
 
-/// Initial member startup permission, not quorum or application-serving authority.
+#[path = "joined_bootstrap.rs"]
+mod joined;
+
+/// Durable member startup permission, not quorum or application-serving authority.
 /// The shared runtime must verify the complete selected image/manifest closure
 /// and revalidate this permit before attachment. It must obtain current-term
 /// quorum authority separately before accepting application work.
@@ -19,6 +22,7 @@ pub struct CellGroupBootstrapPermit {
     birth: CellGroupBirth,
     directory: RangeDirectory,
     log: ReplicaLog,
+    joined: bool,
 }
 
 impl CellGroupBootstrapPermit {
@@ -35,10 +39,17 @@ impl CellGroupBootstrapPermit {
     }
 
     pub async fn revalidate(&self) -> Result<(), CatalogError> {
-        self.directory
-            .bootstrap_group_member(&self.birth, &self.log)
-            .await
-            .map(|_| ())
+        if self.joined {
+            self.directory
+                .bootstrap_joined_group_member(&self.birth, self.group.identity().member, &self.log)
+                .await
+                .map(|_| ())
+        } else {
+            self.directory
+                .bootstrap_group_member(&self.birth, &self.log)
+                .await
+                .map(|_| ())
+        }
     }
 }
 
@@ -156,6 +167,7 @@ impl RangeDirectory {
                 birth: birth.clone(),
                 directory: self.clone(),
                 log: log.clone(),
+                joined: false,
             })
         })
         .await

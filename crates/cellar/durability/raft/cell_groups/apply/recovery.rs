@@ -31,13 +31,22 @@ impl CellGroupApplier {
             limits,
             max_effect_rows,
         )?;
-        let marker = applier
+        let prepared = applier.recover_selected()?;
+        Ok((applier, prepared))
+    }
+
+    /// Reconcile the current and retained checkpoint closures using this same
+    /// physical store owner after an unknown installation result. Run on the
+    /// owning blocking domain. Never reopen a page directory while its selected
+    /// roots still hold pins. This grants no catalog, quorum or serving authority.
+    pub fn recover_selected(&self) -> Result<PreparedGroupManifest, ExecutionError> {
+        let marker = self
             .group
             .group_manifest()
             .map_err(storage)?
             .ok_or(ExecutionError::Invalid("recovery manifest missing"))?;
         let prepared = {
-            let mut owner = applier
+            let mut owner = self
                 .storage
                 .lock()
                 .map_err(|_| ExecutionError::Invalid("poisoned recovery owner"))?;
@@ -48,7 +57,7 @@ impl CellGroupApplier {
                 ..
             } = &mut *owner;
             tree.prepare_complete(
-                &applier.group,
+                &self.group,
                 pages,
                 marker.root(),
                 marker.position(),
@@ -61,8 +70,8 @@ impl CellGroupApplier {
             )
             .map_err(storage)?
         };
-        if let Some(checkpoint) = applier.group.checkpoint_manifest().map_err(storage)? {
-            let mut owner = applier
+        if let Some(checkpoint) = self.group.checkpoint_manifest().map_err(storage)? {
+            let mut owner = self
                 .storage
                 .lock()
                 .map_err(|_| ExecutionError::Invalid("poisoned recovery owner"))?;
@@ -73,7 +82,7 @@ impl CellGroupApplier {
                 ..
             } = &mut *owner;
             tree.prepare_complete(
-                &applier.group,
+                &self.group,
                 pages,
                 checkpoint.root(),
                 checkpoint.position(),
@@ -86,10 +95,10 @@ impl CellGroupApplier {
             )
             .map_err(storage)?;
         }
-        if applier.group.group_manifest().map_err(storage)?.as_ref() != Some(&marker) {
+        if self.group.group_manifest().map_err(storage)?.as_ref() != Some(&marker) {
             return Err(ExecutionError::Invalid("recovery selection changed"));
         }
-        Ok((applier, prepared))
+        Ok(prepared)
     }
 }
 

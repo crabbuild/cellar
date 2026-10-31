@@ -22,7 +22,10 @@ use crate::asyncrt::DomainToken;
 use crate::peer_auth::PeerAuth;
 use ::raft::prelude::{Message, MessageType};
 use cellar_logic::consensus::{ClusterId, GroupScope, NamespaceId, NodeId, ReplicaIdentity};
-pub use group_snapshots::CellGroupCheckpointRegistration;
+pub(crate) use group_snapshots::seed::Grant as CellGroupSeedGrant;
+pub use group_snapshots::{
+    CellGroupCheckpointRegistration, CellGroupSeedError, CellGroupSeedSession,
+};
 use protobuf::Message as _;
 use serde::{Deserialize, Serialize};
 pub(crate) use shared::PhysicalRegistration;
@@ -1415,6 +1418,19 @@ impl State {
                     .export_keying_material([0; 32], seeds::EXPORT_LABEL, None)
                     .map_err(|error| TransportError::Tls(error.to_string()))?;
                 return self.receive_seed(&mut stream, &exporter, prefix).await;
+            }
+            if &prefix[..4] == group_snapshots::seed::REQUEST_MAGIC {
+                if lane != Lane::Data || sequence != 0 {
+                    return Err(TransportError::Protocol);
+                }
+                let exporter = stream
+                    .get_ref()
+                    .1
+                    .export_keying_material([0; 32], group_snapshots::seed::EXPORT_LABEL, None)
+                    .map_err(|error| TransportError::Tls(error.to_string()))?;
+                return self
+                    .receive_group_seed(&mut stream, &exporter, prefix)
+                    .await;
             }
             if &prefix[..4] == group_snapshots::START_MAGIC {
                 if lane != Lane::Data || sequence != 0 {

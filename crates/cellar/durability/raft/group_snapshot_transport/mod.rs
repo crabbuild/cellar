@@ -9,10 +9,12 @@ use crate::raft::cell_groups::{
 use std::sync::Weak;
 mod codec;
 mod receive;
+pub(crate) mod seed;
 mod send;
 mod workers;
 pub(super) use codec::START_MAGIC;
 use codec::*;
+pub use seed::{CellGroupSeedError, CellGroupSeedSession};
 
 pub(super) struct Endpoint {
     applier: CellGroupApplier,
@@ -161,6 +163,7 @@ impl State {
 fn checkpoint_error(error: CellGroupCheckpointError) -> TransportError {
     match error {
         CellGroupCheckpointError::Busy => TransportError::Overloaded,
+        CellGroupCheckpointError::Authority(error) => TransportError::Runtime(error),
         CellGroupCheckpointError::Limit => TransportError::Limit,
         other => TransportError::Invalid(other.to_string()),
     }

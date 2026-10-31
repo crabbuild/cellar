@@ -106,6 +106,7 @@ pub enum SnapshotChange {
 #[derive(Clone)]
 pub struct GroupWrite<S = GroupScope> {
     pub(crate) consensus_pin: Option<Arc<dyn Send + Sync>>,
+    pub(crate) seed_grant: Option<Arc<super::transport::CellGroupSeedGrant>>,
     pub group: GroupLog<S>,
     pub entries: Vec<Entry>,
     pub hard_state: Option<HardState>,
@@ -120,6 +121,7 @@ impl<S: Clone> GroupWrite<S> {
     pub fn new(group: &GroupLog<S>) -> Self {
         Self {
             consensus_pin: None,
+            seed_grant: None,
             group: group.clone(),
             entries: Vec::new(),
             hard_state: None,
@@ -449,6 +451,8 @@ pub(crate) struct CachedGroup {
     pub group_manifest: Option<GroupManifest>,
     pub manifest_pins: Option<ManifestPins>,
     pub checkpoint_manifest: Option<GroupManifest>,
+    /// Local receipt; never imported from another node's checkpoint.
+    pub group_seed: Option<u64>,
 }
 
 impl CachedGroup {
@@ -506,6 +510,11 @@ impl CachedGroup {
     }
 
     pub fn validate(&self, max_entries: usize) -> Result<(), LogError> {
+        if self.group_seed.is_some_and(|index| {
+            index <= 1 || index > self.applied.position.index.get() || self.group_manifest.is_none()
+        }) {
+            return Err(LogError::Corrupt("invalid local group seed receipt".into()));
+        }
         validate_conf(&self.conf_state)?;
         self.membership
             .validate(&self.conf_state, self.applied.position.index.get())
@@ -579,6 +588,16 @@ impl CachedGroup {
         history: GroupHistory,
     ) -> Result<Self, LogError> {
         let mut next = self.clone();
+        if let Some(grant) = &write.seed_grant {
+            grant.check(&write.group.owner, history, write.group.identity())?;
+            let Some(SnapshotChange::CellGroup(prepared)) = &write.snapshot else {
+                return Err(LogError::WrongIdentity);
+            };
+            if prepared.snapshot() != grant.snapshot() || !write.entries.is_empty() {
+                return Err(LogError::WrongIdentity);
+            }
+            next.group_seed = Some(prepared.marker().position().index.get());
+        }
         let group_install = matches!(&write.snapshot, Some(SnapshotChange::CellGroup(_)));
         let group_checkpoint = matches!(
             &write.snapshot,
@@ -938,6 +957,7 @@ pub(crate) fn genesis(conf_state: ConfState) -> CachedGroup {
         group_manifest: None,
         manifest_pins: None,
         checkpoint_manifest: None,
+        group_seed: None,
         applied: DurableApply {
             position: LogPosition {
                 index: LogIndex::new(1),

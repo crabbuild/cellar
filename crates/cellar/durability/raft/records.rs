@@ -235,7 +235,31 @@ pub(crate) enum ApplicationRecord {
     #[serde(rename = "cellar-image-apply-1")]
     Image(Option<CommittedImage>),
     #[serde(rename = "cellar-group-apply-1")]
-    Group(Box<super::cell_groups::GroupManifest>),
+    Group(Box<GroupApplication>),
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct GroupApplication {
+    manifest: super::cell_groups::GroupManifest,
+    // Required, local to this mapping/engine, and never snapshot payload.
+    seed: LocalGroupSeed,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
+enum LocalGroupSeed {
+    Absent,
+    Installed { index: u64 },
+}
+
+impl LocalGroupSeed {
+    fn index(&self) -> Option<u64> {
+        match self {
+            Self::Absent => None,
+            Self::Installed { index } => Some(*index),
+        }
+    }
 }
 
 impl GroupRecord {
@@ -251,7 +275,12 @@ impl GroupRecord {
             applied_index: cache.applied.position.index.get(),
             applied_term: cache.applied.position.term.get(),
             application: match &cache.group_manifest {
-                Some(marker) => ApplicationRecord::Group(Box::new(marker.clone())),
+                Some(marker) => ApplicationRecord::Group(Box::new(GroupApplication {
+                    manifest: marker.clone(),
+                    seed: cache.group_seed.map_or(LocalGroupSeed::Absent, |index| {
+                        LocalGroupSeed::Installed { index }
+                    }),
+                })),
                 None => ApplicationRecord::Image(cache.applied.image.clone()),
             },
         })
@@ -261,14 +290,15 @@ impl GroupRecord {
         if self.mapping.format != 1 {
             return Err(LogError::Corrupt("unsupported group marker".into()));
         }
-        let (image, group_manifest) = match &self.application {
-            ApplicationRecord::Image(image) => (image.clone(), None),
-            ApplicationRecord::Group(marker) => {
+        let (image, group_manifest, group_seed) = match &self.application {
+            ApplicationRecord::Image(image) => (image.clone(), None, None),
+            ApplicationRecord::Group(application) => {
+                let marker = &application.manifest;
                 let scope = self.mapping.history()?;
                 if !marker.matches_group(&scope, self.mapping.birth_digest) {
                     return Err(LogError::WrongIdentity);
                 }
-                (None, Some(marker.as_ref().clone()))
+                (None, Some(marker.clone()), application.seed.index())
             }
         };
         let snapshot = Snapshot::parse_from_bytes(&self.snapshot).map_err(corrupt)?;
@@ -290,6 +320,7 @@ impl GroupRecord {
             snapshot,
             entries: Default::default(),
             group_manifest,
+            group_seed,
             manifest_pins: None,
             checkpoint_manifest,
             applied: DurableApply {

@@ -1322,7 +1322,16 @@ impl CellGroupOwner {
                         let change =
                             super::membership::decode(entry, self.current.marker().route())?;
                         let conf = self.node.apply_conf_change(&change)?;
-                        if conf != self.group.initial_state()?.conf_state {
+                        // RawNode retains its historical insertion order while
+                        // pure replay restores the persisted configuration first.
+                        // Compare validated sets, including joint/auto-leave
+                        // state, rather than hash iteration order after a move.
+                        let durable = self.group.initial_state()?.conf_state;
+                        if crate::raft::manifest::encode_conf(&conf)
+                            .map_err(|e| RuntimeError::Invalid(e.to_string()))?
+                            != crate::raft::manifest::encode_conf(&durable)
+                                .map_err(|e| RuntimeError::Invalid(e.to_string()))?
+                        {
                             return Err(RuntimeError::StaleCompletion);
                         }
                         self.refresh_execution_fence();

@@ -24,6 +24,51 @@ pub use receive::CellGroupCheckpointReceiver;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
+/// Validate authenticated seed metadata before any destination mapping exists.
+pub(crate) fn seed_marker(
+    snapshot: &raft::prelude::Snapshot,
+    target: &cellar_logic::consensus::ReplicaIdentity<GroupHistory>,
+    barrier: cellar_logic::consensus::LogIndex,
+) -> Result<GroupManifest> {
+    let header = Header::decode(&snapshot.data)?;
+    let conf = header.configuration()?;
+    let id = target.member.get();
+    let joined = header.membership.joined(target.member)?;
+    if header.snapshot()? != *snapshot
+        || header.root.route().history != target.scope
+        || barrier.get() == 0
+        || header.root.position().index < barrier
+        || header.membership.revision() > barrier
+        || !conf.learners.contains(&id)
+        || conf.voters.contains(&id)
+        || conf.voters_outgoing.contains(&id)
+        || conf.learners_next.contains(&id)
+        || !header.membership.permits_group(target)
+        || joined.is_none_or(|(binding, at)| {
+            at > barrier || binding.node != target.node || binding.disk != target.disk
+        })
+    {
+        return Err(CellGroupCheckpointError::Invalid("seed descriptor/member"));
+    }
+    Ok(header.root)
+}
+
+pub(crate) fn seed_birth(
+    snapshot: &raft::prelude::Snapshot,
+    route: &cellar_logic::cell_group::GroupRoute,
+    initial: &raft::prelude::ConfState,
+) -> Result<()> {
+    let header = Header::decode(&snapshot.data)?;
+    if header.root.route() != route
+        || !header
+            .membership
+            .same_birth(&GroupMembership::initial(initial))
+    {
+        return Err(CellGroupCheckpointError::Invalid("seed birth"));
+    }
+    Ok(())
+}
+
 const HEADER_LIMIT: usize = 64 * 1024;
 
 // Covers one verified extent, page/extent metadata encoding, serialization

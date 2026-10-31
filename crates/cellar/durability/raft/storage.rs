@@ -245,7 +245,11 @@ enum Work {
         Option<Box<super::member_state::FleetGroupBinding>>,
         Reply<GroupLog>,
     ),
-    CreateCells(CellGroupBootstrap, Reply<GroupLog<GroupHistory>>),
+    CreateCells(
+        CellGroupBootstrap,
+        Option<Arc<super::transport::CellGroupSeedGrant>>,
+        Reply<GroupLog<GroupHistory>>,
+    ),
     Seeded(Box<super::snapshot::PreparedSeed>, Reply<GroupLog>),
     Persist(OperationId, Vec<GroupWrite>, Reply<SyncReceipt>),
     PersistCells(
@@ -560,8 +564,20 @@ impl ReplicaLog {
         bootstrap: CellGroupBootstrap,
     ) -> Result<GroupLog<GroupHistory>, LogError> {
         bootstrap.configuration()?;
-        self.request(16 * 1024, |reply| Work::CreateCells(bootstrap, reply))
+        self.request(16 * 1024, |reply| Work::CreateCells(bootstrap, None, reply))
             .await
+    }
+
+    pub(crate) async fn stage_cell_group(
+        &self,
+        bootstrap: CellGroupBootstrap,
+        grant: Arc<super::transport::CellGroupSeedGrant>,
+    ) -> Result<GroupLog<GroupHistory>, LogError> {
+        grant.check_log(self)?;
+        self.request(96 * 1024, |reply| {
+            Work::CreateCells(bootstrap, Some(grant), reply)
+        })
+        .await
     }
 
     /// Read occupied identities and locally durable completed membership under
@@ -1238,8 +1254,24 @@ impl Worker {
     fn create_cells(
         &mut self,
         bootstrap: CellGroupBootstrap,
+        seed: Option<&super::transport::CellGroupSeedGrant>,
     ) -> Result<GroupLog<GroupHistory>, LogError> {
-        let conf = bootstrap.configuration()?;
+        let conf = if let Some(seed) = seed {
+            seed.check(
+                &self.owner,
+                bootstrap.route.history,
+                &ReplicaIdentity {
+                    scope: bootstrap.route.history,
+                    node: self.options.node,
+                    disk: self.options.disk,
+                    process: self.options.process,
+                    member: bootstrap.member,
+                },
+            )?;
+            seed.initial_configuration(&bootstrap)?
+        } else {
+            bootstrap.configuration()?
+        };
         if let Some(group) = self
             .groups
             .read()
@@ -1419,6 +1451,15 @@ impl Worker {
                 );
             }
         }
+        for write in &writes {
+            if let Some(grant) = &write.seed_grant {
+                grant.check(
+                    &self.owner,
+                    self.mappings[&write.group.key].history()?,
+                    write.group.identity(),
+                )?;
+            }
+        }
         for publication in &mut publications {
             publication.arm();
         }
@@ -1557,8 +1598,8 @@ impl Worker {
                     let _ = reply.send(result);
                     fatal
                 }
-                Work::CreateCells(bootstrap, reply) => {
-                    let result = self.create_cells(bootstrap);
+                Work::CreateCells(bootstrap, seed, reply) => {
+                    let result = self.create_cells(bootstrap, seed.as_deref());
                     let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
                     if fatal.is_some() {
                         self.closed.store(true, Ordering::Release);

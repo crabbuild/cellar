@@ -603,3 +603,7 @@ pub(crate) use membership::{membership_lifecycle, membership_sync};
 #[path = "cell_group_seed.rs"]
 mod seed;
 pub(crate) use seed::{seed_minority, seed_source};
+
+#[path = "cell_group_seed_install.rs"]
+mod seed_install;
+pub(crate) use seed_install::seed_install;
