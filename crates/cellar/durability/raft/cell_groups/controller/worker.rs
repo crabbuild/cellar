@@ -99,9 +99,6 @@ impl Worker {
         // Rotate the bounded roster queue. A busy group cannot monopolize the
         // next available apply slot, and successors never run concurrently.
         for _ in 0..self.pending.len() {
-            if self.jobs.len() == self.limits.max_parallel_apply {
-                break;
-            }
             let Some(job) = self.pending.pop_front() else {
                 break;
             };
@@ -121,6 +118,13 @@ impl Worker {
                 Work::Publish(_) => false,
             };
             if checkpoint_started {
+                continue;
+            }
+            // Capture/publication has its own bounded capacity and requires
+            // no SQL slot. Continue scanning when apply is full so a slow
+            // physical apply cannot prevent another group's checkpoint.
+            if self.jobs.len() == self.limits.max_parallel_apply {
+                self.pending.push_back(job);
                 continue;
             }
             self.active.insert(job.group);

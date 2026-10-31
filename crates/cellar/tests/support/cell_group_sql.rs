@@ -594,7 +594,9 @@ pub(crate) use provision::{
 
 #[path = "cell_group_controller_checkpoints.rs"]
 mod controller_checkpoints;
-pub(crate) use controller_checkpoints::{automatic_checkpoints, controller_checkpoint_shutdown};
+pub(crate) use controller_checkpoints::{
+    automatic_checkpoints, checkpoint_during_apply, controller_checkpoint_shutdown,
+};
 
 #[path = "cell_group_membership.rs"]
 mod membership;

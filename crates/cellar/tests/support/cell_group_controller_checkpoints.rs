@@ -4,6 +4,165 @@
 use super::*;
 use raft::Storage;
 
+struct ReleaseApply(std::sync::mpsc::SyncSender<()>);
+
+impl Drop for ReleaseApply {
+    fn drop(&mut self) {
+        let _ = self.0.send(());
+    }
+}
+
+pub(crate) async fn checkpoint_during_apply(rooted: bool) -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let directory = if rooted {
+        root.path().join("rooted-0")
+    } else {
+        root.path().join("node-1/images")
+    };
+    let faults = apply_faults::physical::Faults::new(directory, None);
+    let filesystem = Arc::new(apply_faults::physical::FaultFileSystem {
+        faults: faults.clone(),
+    });
+    let class = RaftClass::new("Counter", 1, [81; 32])?;
+    let (mut fixture, route, _, _) =
+        Box::pin(registered::setup_in(rooted, &class, root, filesystem)).await?;
+    let second = controller::add_second(&mut fixture, route.history).await?;
+    fixture.connect_tcp().await?;
+    let pools: Vec<_> = (0..3)
+        .map(|_| CellGroupCheckpointPool::new(checkpoint_fixture::limits()))
+        .collect::<std::result::Result<_, _>>()?;
+    for (transport, pool) in fixture.transports.iter().zip(&pools) {
+        transport.enable_group_checkpoints(pool.clone())?;
+    }
+    let mut bounds = controller::limits();
+    bounds.max_parallel_apply = 1;
+    bounds.checkpoints = Some(CellGroupCheckpointPolicy {
+        interval_entries: 2,
+        max_parallel: 1,
+    });
+    let controllers = controller::start_with_limits(&mut fixture, bounds).await?;
+    fixture.runtimes[0].campaign(second).await?;
+    controller::wait_for(async || Ok(fixture.runtimes[0].status(second).await?.ready)).await?;
+    let group = fixture.cluster.voters[0].log.cell_group(&second)?;
+    let route_b = group
+        .group_manifest()?
+        .context("second birth")?
+        .route()
+        .clone();
+    let first_b = history(&route_b, "before-busy-apply")?;
+    let bytes = images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES(43);")?;
+    let accepted = fixture.runtimes[0]
+        .propose(
+            second,
+            apply::enrollment_bytes(&route_b, &first_b, &bytes, false)?,
+        )
+        .await?;
+    controller::applied(&fixture, second, accepted.position.index).await?;
+    let before_b = group.group_manifest()?.context("second durable cut")?;
+    assert!(group.checkpoint_manifest()?.is_none());
+
+    // Block actual image persistence on this node, not a consensus/log fence.
+    // The sole SQL apply slot and its retained physical owners remain occupied.
+    let (entered, started) = tokio::sync::oneshot::channel();
+    let (release, wait) = std::sync::mpsc::sync_channel(1);
+    let release = ReleaseApply(release);
+    *faults.before_directory_sync.lock().unwrap() = Some(Box::new(move || {
+        let _ = entered.send(());
+        wait.recv_timeout(Duration::from_secs(30))
+            .expect("release actual image persistence");
+    }));
+    let before_a = fixture.cluster.voters[0]
+        .log
+        .cell_group(&route.history)?
+        .group_manifest()?
+        .context("first durable cut")?;
+    let held_cell = history(&route, "held-physical-apply")?;
+    let bytes = images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES(97);")?;
+    let held = fixture.runtimes[0]
+        .propose(
+            route.history,
+            apply::enrollment_bytes(&route, &held_cell, &bytes, rooted)?,
+        )
+        .await?;
+    tokio::time::timeout(Duration::from_secs(5), started).await??;
+    assert_eq!(controllers[0].usage().active_apply, 1);
+    let sql = &fixture.appliers[&(0, route.history)].0;
+    assert_eq!(sql.usage()?.apply_retained_operations, 1);
+    assert_eq!(sql.usage()?.completion_reservations, 1);
+    assert_eq!(controllers[0].usage().active_checkpoints, 0);
+    assert_eq!(pools[0].usage().sources, 0);
+
+    let next_b = history(&route_b, "after-busy-apply")?;
+    let bytes = images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES(67);")?;
+    let successor = fixture.runtimes[0]
+        .propose(
+            second,
+            apply::enrollment_bytes(&route_b, &next_b, &bytes, false)?,
+        )
+        .await?;
+    controller::wait_for(async || {
+        for runtime in &fixture.runtimes[1..] {
+            if runtime.status(second).await?.applied.index < successor.position.index {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    })
+    .await?;
+    assert!(fixture.runtimes[0].status(second).await?.committed >= successor.position.index);
+    // The second group's committed successor makes its preceding complete cut
+    // due. Checkpoint capture/publication does not require an SQL apply slot.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while group.checkpoint_manifest()?.as_ref() != Some(&before_b) {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .with_context(|| format!(
+        "unrelated checkpoint must publish while the SQL apply slot is held: controller={:?}, checkpoint_pool={:?}, sql={:?}",
+        controllers[0].usage(), pools[0].usage(),
+        sql.usage().map(|usage| (usage.apply_retained_operations, usage.completion_reservations))
+    ))??;
+    assert_eq!(group.group_manifest()?.as_ref(), Some(&before_b));
+    assert_eq!(group.first_index()?, before_b.position().index.get() + 1);
+    assert!(group.last_index()? >= successor.position.index.get());
+    assert_eq!(
+        fixture.runtimes[0].status(second).await?.applied,
+        before_b.position()
+    );
+    assert_eq!(
+        fixture.runtimes[0].status(route.history).await?.applied,
+        before_a.position()
+    );
+    assert_eq!(controllers[0].usage().active_apply, 1);
+    assert_eq!(sql.usage()?.apply_retained_operations, 1);
+    assert_eq!(sql.usage()?.completion_reservations, 1);
+    assert_eq!(controllers[0].usage().quarantined_groups, 0);
+    drop(release);
+    controller::applied(&fixture, route.history, held.position.index).await?;
+    controller::applied(&fixture, second, successor.position.index).await?;
+    for runtime in &fixture.runtimes {
+        for (group, cell) in [
+            (route.history, &held_cell),
+            (second, &first_b),
+            (second, &next_b),
+        ] {
+            let authority = runtime
+                .reconciliation_authority(group, cell.clone())
+                .await?;
+            assert_eq!(authority.cell().version.sequence.get(), 1);
+        }
+    }
+    for (node, controller) in controllers.iter().enumerate() {
+        controller.close().await?;
+        assert_eq!(controller.usage().active_apply, 0);
+        assert_eq!(controller.usage().active_checkpoints, 0);
+        assert_eq!(pools[node].usage().sources, 0);
+    }
+    fixture.close().await
+}
+
 pub(crate) async fn automatic_checkpoints(rooted: bool, pressure: bool) -> Result<()> {
     let class = RaftClass::new("Counter", 1, [81; 32])?;
     let (mut fixture, route, _, _) = Box::pin(registered::setup(rooted, &class)).await?;
