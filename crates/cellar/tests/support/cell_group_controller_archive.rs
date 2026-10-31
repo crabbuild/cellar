@@ -80,6 +80,15 @@ pub(super) async fn registration(
     route: &GroupRoute,
     rooted: bool,
 ) -> Result<(CellGroupArchiveRegistration, Arc<archive_store::Store>)> {
+    registration_minimum(fixture, route, rooted, Durability::Quorum).await
+}
+
+pub(super) async fn registration_minimum(
+    fixture: &RuntimeCluster,
+    route: &GroupRoute,
+    rooted: bool,
+    minimum: Durability,
+) -> Result<(CellGroupArchiveRegistration, Arc<archive_store::Store>)> {
     let io = CellGroupArchivePool::new(Default::default())?;
     let binding = fixture
         .cluster
@@ -106,10 +115,17 @@ pub(super) async fn registration(
     binding.commit(&fixture.cluster.domain).await?;
     let remote = archive_store::Store::around(fixture.cluster.store.clone());
     let catalog = Catalog::new(remote.clone(), Default::default())?;
+    let mut config = NamespaceConfig::new(
+        route.history.cluster,
+        route.history.namespace,
+        cellar_logic::NamespaceMode::Raft,
+        route.schema_digest,
+    );
+    config.minimum_durability = minimum;
     let namespace = fixture
         .cluster
         .domain
-        .run(catalog.existing_namespace(fixture.cluster.directory.namespace_config().clone()))
+        .run(catalog.existing_namespace(config))
         .await??;
     let directory = RangeDirectory::new(namespace, Default::default())?;
     let birth = fixture

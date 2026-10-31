@@ -49,7 +49,7 @@ impl Harness {
             rooted, &class, store, minimum,
         ))
         .await?;
-        let (archive, remote) = archive_controller::registration(&fixture, &route, rooted).await?;
+        let (archive, remote) = archive_controller::registration_minimum(&fixture, &route, rooted, minimum).await?;
         let controllers = controller::start_with_limits(
             &mut fixture,
             CellGroupControllerLimits {
