@@ -10,6 +10,70 @@ CG-06 is IN_PROGRESS; CG-07 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-06 committed-tail replay and extension after compaction
+
+Partial source checkpoint: `7a29c2a9bff5c2daddf37f53c50bc5d575e0b069`.
+CG-06 remains IN_PROGRESS. A complete immutable tail now binds its original group
+checkpoint, every contiguous entry and the final root/configuration/permanent
+membership. Capture copies only the exact committed/applied suffix under the
+engine read lock; encoding and object-store work happen afterward. Independent
+verification recovers the checkpoint and replays actual cell-addressed LTX,
+enrollment, no-op, joint-membership and leave entries without business callbacks,
+synthetic cells or engine installation. Final roots, images and membership must
+verify against the advertised complete cut.
+
+`extend_tail` reuses existing entry objects and captures only the newer local
+suffix. Both image forms publish a real local checkpoint and assert the old
+prefix is compacted before extension. Starting again from the original local
+cut refuses; extension succeeds with exactly two PUTs for the new entry and
+replacement index. The old tail index is deleted before independent recovery,
+proving that the flattened replacement directly names its complete closure.
+This is logical prefix compaction, not qualification of physical log-file purge.
+
+Live apply retains its original ticket/commit/owner checks around shared physical
+transition code. The new membership-root preparation API also lets the lower-level
+fixture handle real configuration entries. Materialized archive replay recomputes
+incoming LTX in admitted scratch when its destination is cached, then independently
+verifies/syncs that destination. A warm seal cannot substitute for the supplied
+delta. Extent replay and every final closure retain their independent checks.
+Replay admission and pins stay charged with the result and through cancelled
+physical work. A materialized case holds the exact warm result-image read, drops
+the caller, commits another cell on the healthy quorum, and proves domain shutdown
+waits for release before every admission charge refunds.
+
+All 22 commands pass at the committed source: nine archive cases selected
+individually, 156 execution cases, five snapshot cases and four generation
+regressions, plus all-target build/Clippy, formatting/layout, dependency isolation,
+docs, source preflight, plan validation and 37 Python tests. The 174 distinct Rust
+cases run across four executables. The retained record
+`.cellar/cell-groups-evidence/CG-06-committed-tail/qualification/checkpoint.json`
+binds 323 source hashes, four binaries, frozen plan inputs, hashed outputs, both
+failed fixture stages and the preceding checkpoint. Independent source/artifact/
+exact-selection verification passes. The original
+`archive_tails_cover_enrollment_and_controls` requirement passes with four real
+enrollments, later independent mutations, explicit joint demotion/leave and a
+real transferred-leader term no-op. The other four original CG-06 cases remain
+pending; no oracle, resource limit, readiness assertion, exact entry count or
+timeout was relaxed.
+
+The retained failures first show a fixture decoding configuration bytes as cell
+commands, then a direct campaign refused by a healthy leader lease. The fixture
+now shares canonical membership-root preparation and uses production leadership
+transfer. Seven other cases already passed before that final setup correction.
+Warm wrong-LTX tests positively observe the ordinary cached `Exists` shortcut,
+then require archive replay to reject a correctly hashed but wrong SQLite delta.
+Missing/corrupt base or entry bytes, omitted/noncontiguous ranges, forged final roots
+and damaged warm destinations also refuse without changing selected engine roots.
+
+**Reflection and next step:** verification still takes an existing destination
+engine/applier. Build an isolated data-verification store independent of a serving
+engine's advancing cut and surviving voter disks, then implement published,
+GC-protected coverage and S3 settlement with bounded outage admission. Continue
+archive-aware physical log reclamation and fenced fresh-incarnation seeding.
+Shared dispatch still refuses S3 durability. Real RustFS/load and zero-quorum
+host/disk-loss qualification, managed recovery, public SDK/fleet cutover and final
+legacy removal remain open; this native data-recovery gate does not qualify them.
+
 ## CG-06 independently recovered object-store checkpoints
 
 Partial source checkpoint: `650fc63892eab59e6fd5023fa90d5f361a8c7302`.

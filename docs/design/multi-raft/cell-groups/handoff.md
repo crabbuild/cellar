@@ -15,25 +15,42 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The latest partial source is `650fc63892eab59e6fd5023fa90d5f361a8c7302`.
-CG-06 is IN_PROGRESS: `raft/cell_groups/archive/` implements complete group
-checkpoint objects, node-shared item/byte admission, immutable reuse/conditional
-creation and independent physical recovery. Four exact archive cases and all
-five snapshot regressions pass. All fifteen commands pass, including all-target
-build/Clippy, formatting/layout, dependency/docs/preflight and 37 validator tests.
-Its retained record under
-`.cellar/cell-groups-evidence/CG-06-checkpoint-archive/qualification/`
-binds 317 source hashes and two executables; independent verification passes.
-See the current [progress](progress.md) and [archive contract](protocols.md#apply-checkpoint-and-archive).
+The latest partial source is `7a29c2a9bff5c2daddf37f53c50bc5d575e0b069`.
+CG-06 is IN_PROGRESS: complete immutable checkpoints plus contiguous committed
+tails now recover every cell and configuration through independent LTX/data
+replay. `extend_tail` reuses archived entry references after actual local prefix
+compaction, with only a new suffix entry/index PUT in the tested two-entry case.
+The obsolete tail index is deleted before recovery; actual physical shared-engine
+file purge is not qualified. No callback, synthetic cell or engine install occurs.
 
-The checkpoint locator is untrusted; the verified receiver capability grants
-neither group coverage nor S3 settlement, log deletion or fresh-incarnation
-recovery. All five original CG-06 required cases and its complete task gate remain
-pending. Next implement contiguous cell/control tails and a published,
-GC-protected coverage owner, then bounded outage admission/S3 settlement,
-archive-aware log reclamation and fenced unmanaged seeding. Shared dispatch still
-refuses S3 durability. Current object framing follows bounded source chunks;
-qualify coalescing and large-group bounds before performance/cost claims.
+All 22 commands pass: nine exact archive cases, 156 execution cases, five snapshot
+cases and four generation regressions (174 distinct Rust cases), all-target
+build/Clippy, formatting/layout, dependencies/docs/preflight and 37 validator tests.
+The record under
+`.cellar/cell-groups-evidence/CG-06-committed-tail/qualification/`
+binds 323 source hashes, four executables, frozen inputs, both fixture failures and
+the preceding checkpoint. Independent hashes/source/exact-selection verification
+passes. See [progress](progress.md) and the
+[archive contract](protocols.md#apply-checkpoint-and-archive).
+
+The original `archive_tails_cover_enrollment_and_controls` case passes with an
+empty checkpoint, four real enrollments, later mutations, explicit joint demotion/
+leave and production leadership-transfer no-op. The other four original CG-06
+cases and its complete task gate remain pending. A cached result cannot replace
+incoming LTX replay; wrong but correctly hashed deltas and warm image corruption
+refuse. Physical-read cancellation retains admission while another cell commits;
+domain shutdown joins the held worker before refunding. Source/receiver/archive
+limits, readiness assertions and the exact nine-entry control trace are unchanged.
+
+Uploaded locators and verified physical state grant no archive coverage, serving
+right, S3 settlement or disaster-recovery authorization. Next isolate the data
+verifier from a serving engine's advancing cut and surviving voter disks. Then
+build published/GC-protected coverage, bounded outage admission/S3 settlement,
+archive-aware file reclamation and fenced unmanaged seeding under fresh group/cell
+incarnations. Shared dispatch still refuses S3 durability. Qualify framing/
+coalescing and large-group limits before cost/throughput claims. Actual RustFS,
+zero-quorum erasure/fencing, managed recovery and the public hard cutover remain
+later required work. The previous checkpoint-only record at `650fc638` is retained.
 
 CG-01 through CG-05 are DONE at their declared native task boundaries. CG-05
 closes at `e0550acd` with all five exact snapshot cases and eighteen passing
