@@ -9,7 +9,11 @@ use raft::{
     Storage,
 };
 
-fn change(member: u64, kind: ConfChangeType, transition: ConfChangeTransition) -> ConfChangeV2 {
+pub(super) fn change(
+    member: u64,
+    kind: ConfChangeType,
+    transition: ConfChangeTransition,
+) -> ConfChangeV2 {
     ConfChangeV2 {
         changes: vec![ConfChangeSingle {
             node_id: member,
@@ -22,7 +26,7 @@ fn change(member: u64, kind: ConfChangeType, transition: ConfChangeTransition) -
     }
 }
 
-async fn configure_at(
+pub(super) async fn configure_at(
     fixture: &RuntimeCluster,
     leader: usize,
     route: &GroupRoute,
@@ -55,7 +59,7 @@ async fn configure_at(
     Ok(accepted)
 }
 
-async fn configure(
+pub(super) async fn configure(
     fixture: &RuntimeCluster,
     route: &GroupRoute,
     command: ConfChangeV2,

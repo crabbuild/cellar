@@ -19,7 +19,7 @@ use crate::raft::{
 use ::raft::{prelude::*, Config, LightReady, RawNode, Ready, StateRole, Storage};
 use cellar_logic::{
     cell_group::*,
-    consensus::{LogIndex, LogPosition, OperationId, Term},
+    consensus::{LogIndex, LogPosition, OperationId, ReplicaIdentity, Term},
 };
 use protobuf::Message as _;
 use std::{
@@ -379,6 +379,45 @@ impl CellGroupOwner {
                 .zip(barrier)
                 .map(|(term, index)| LogPosition { term, index }),
             leader,
+        })
+    }
+
+    pub(super) fn check_seed_target(
+        &self,
+        target: &ReplicaIdentity<GroupHistory>,
+    ) -> Result<(), RuntimeError> {
+        self.live()?;
+        super::seed_authority::check_target(&self.group, target).map(|_| ())
+    }
+
+    pub(super) fn select_seed(
+        &self,
+        target: &ReplicaIdentity<GroupHistory>,
+        term: Option<Term>,
+        barrier: Option<LogIndex>,
+    ) -> Result<super::seed_authority::SeedSelection, RuntimeError> {
+        self.live()?;
+        let status = self.status()?;
+        if self.node.raft.state != raft::StateRole::Leader || Some(status.term) != term {
+            return Err(RuntimeError::NotLeader);
+        }
+        let index = barrier.ok_or(RuntimeError::NotReady)?;
+        if !status.ready
+            || status.applied.index < index
+            || self.current.marker().membership_revision() > index.get()
+            || super::seed_authority::check_target(&self.group, target)? > index
+        {
+            return Err(RuntimeError::NotReady);
+        }
+        Ok(super::seed_authority::SeedSelection {
+            group: self.group.clone(),
+            root: self.current.clone(),
+            target: target.clone(),
+            barrier: LogPosition {
+                term: status.term,
+                index,
+            },
+            leader: self.leader_term.clone(),
         })
     }
 

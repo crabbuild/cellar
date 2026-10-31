@@ -599,3 +599,7 @@ pub(crate) use controller_checkpoints::automatic_checkpoints;
 #[path = "cell_group_membership.rs"]
 mod membership;
 pub(crate) use membership::{membership_lifecycle, membership_sync};
+
+#[path = "cell_group_seed.rs"]
+mod seed;
+pub(crate) use seed::{seed_minority, seed_source};

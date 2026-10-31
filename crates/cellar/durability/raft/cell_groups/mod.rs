@@ -59,6 +59,8 @@ mod pins;
 mod proposal_admission;
 mod read_authority;
 pub use read_authority::{CellReadAuthority, CellReadConsistency};
+mod seed_authority;
+pub use seed_authority::{CellGroupSeedAuthority, CellGroupSeedSource};
 mod retention;
 mod root;
 mod runtime;

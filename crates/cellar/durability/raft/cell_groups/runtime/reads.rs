@@ -3,6 +3,7 @@
 //! Bounded invocation-owned reads. No pending read retains peer/apply capacity.
 
 use super::super::read_authority::ReadSelection;
+use super::super::seed_authority::{CellGroupSeedAuthority, SeedSelection};
 use super::*;
 use cellar_logic::{
     cell_group::CellHistory,
@@ -17,10 +18,28 @@ pub(in crate::raft::cell_groups) fn reserved_context(context: &[u8]) -> bool {
 }
 
 pub(super) struct ReadRequest {
-    pub cell: CellHistory,
-    pub consistency: CellReadConsistency,
+    pub kind: ReadKind,
     pub deadline: u64,
     pub reservation: Permit,
+}
+
+pub(super) enum ReadKind {
+    Cell(CellHistory, CellReadConsistency),
+    Seed(cellar_logic::consensus::ReplicaIdentity<GroupHistory>),
+}
+
+impl ReadKind {
+    pub fn linearizable(&self) -> bool {
+        matches!(
+            self,
+            Self::Seed(_) | Self::Cell(_, CellReadConsistency::Linearizable)
+        )
+    }
+}
+
+pub(super) enum Selection {
+    Cell(ReadSelection),
+    Seed(SeedSelection),
 }
 
 struct Pending {
@@ -71,13 +90,18 @@ impl Reads {
             if now >= request.deadline {
                 return Err(RuntimeError::DeadlineExceeded);
             }
-            if !history.same_namespace(&request.cell) {
-                return Err(RuntimeError::Invalid("cell read namespace".into()));
-            }
-            if let CellReadConsistency::AtLeast(minimum) = &request.consistency {
-                if minimum.history != request.cell {
-                    return Err(RuntimeError::Invalid("cell read version history".into()));
+            match &request.kind {
+                ReadKind::Cell(cell, consistency) => {
+                    if !history.same_namespace(cell) {
+                        return Err(RuntimeError::Invalid("cell read namespace".into()));
+                    }
+                    if let CellReadConsistency::AtLeast(minimum) = consistency {
+                        if &minimum.history != cell {
+                            return Err(RuntimeError::Invalid("cell read version history".into()));
+                        }
+                    }
                 }
+                ReadKind::Seed(target) => owner.check_seed_target(target)?,
             }
             self.groups.retain(|_, budget| budget.strong_count() != 0);
             let budget = self
@@ -94,7 +118,7 @@ impl Reads {
             let mut context = PREFIX.to_vec();
             context.extend_from_slice(&self.nonce);
             context.extend_from_slice(&self.sequence.to_be_bytes());
-            let term = if matches!(request.consistency, CellReadConsistency::Linearizable) {
+            let term = if request.kind.linearizable() {
                 let status = owner.status()?;
                 if !status.ready {
                     return Err(RuntimeError::NotReady);
@@ -141,12 +165,13 @@ impl Reads {
     pub fn progress(
         &mut self,
         now: u64,
+        domain: &crate::asyncrt::DomainToken,
         mut select: impl FnMut(
             GroupHistory,
             &ReadRequest,
             Option<Term>,
             Option<LogIndex>,
-        ) -> Result<ReadSelection, RuntimeError>,
+        ) -> Result<Selection, RuntimeError>,
     ) -> bool {
         let mut made = false;
         self.pending.retain(|_, pending| {
@@ -179,16 +204,23 @@ impl Reads {
                 .pending
                 .remove(&context)
                 .expect("selected pending read");
-            let result = result
-                .and_then(|selection| {
-                    CellReadAuthority::new(
-                        selection,
-                        pending.request.deadline,
-                        pending.request.reservation,
-                        pending.group,
-                    )
-                })
-                .map(|authority| Response::Read(Box::new(authority)));
+            let result = result.and_then(|selection| match selection {
+                Selection::Cell(selection) => CellReadAuthority::new(
+                    selection,
+                    pending.request.deadline,
+                    pending.request.reservation,
+                    pending.group,
+                )
+                .map(|authority| Response::Read(Box::new(authority))),
+                Selection::Seed(selection) => CellGroupSeedAuthority::new(
+                    selection,
+                    pending.request.deadline,
+                    domain.clone(),
+                    pending.request.reservation,
+                    pending.group,
+                )
+                .map(|authority| Response::Seed(Box::new(authority))),
+            });
             let _ = pending.reply.send(result);
             made = true;
         }

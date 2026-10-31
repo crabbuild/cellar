@@ -373,7 +373,7 @@ impl Worker {
                         } = request;
                         let mut answer = Some(answer);
                         let new_read = matches!(command, Command::ReadIndex(_))
-                            || matches!(&command, Command::Read(request) if matches!(request.consistency, CellReadConsistency::Linearizable))
+                            || matches!(&command, Command::Read(request) if request.kind.linearizable())
                             || matches!(&command, Command::Step(m) if m.get_msg_type()==::raft::prelude::MessageType::MsgReadIndex);
                         let result = if new_read && self.reads >= self.options.max_pending_reads {
                             Err(RuntimeError::Overloaded)
@@ -695,17 +695,24 @@ impl Worker {
             }
             let mut made = self.progress()? | self.start_batch()? | self.flush();
             let now = self.domain.mono_ms().map_err(|_| RuntimeError::Closed)?;
-            made |= self
-                .cell_reads
-                .progress(now, |history, request, term, barrier| {
-                    let group = self.groups.get(&history).ok_or(RuntimeError::NotFound)?;
-                    if let Some(error) = &group.failed {
-                        return Err(error.clone());
-                    }
-                    group
-                        .owner
-                        .select_read(&request.cell, &request.consistency, term, barrier)
-                });
+            made |=
+                self.cell_reads
+                    .progress(now, &self.domain, |history, request, term, barrier| {
+                        let group = self.groups.get(&history).ok_or(RuntimeError::NotFound)?;
+                        if let Some(error) = &group.failed {
+                            return Err(error.clone());
+                        }
+                        match &request.kind {
+                            reads::ReadKind::Cell(cell, consistency) => group
+                                .owner
+                                .select_read(cell, consistency, term, barrier)
+                                .map(reads::Selection::Cell),
+                            reads::ReadKind::Seed(target) => group
+                                .owner
+                                .select_seed(target, term, barrier)
+                                .map(reads::Selection::Seed),
+                        }
+                    });
             let deadline = if self.retry_at > now {
                 tick_at.min(self.retry_at)
             } else {

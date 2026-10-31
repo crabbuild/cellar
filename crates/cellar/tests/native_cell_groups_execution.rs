@@ -15,6 +15,21 @@ mod runtime_fixture;
 mod checkpoint_fixture;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn seed_group_materialized_requires_quorum_and_bound_membership() -> Result<()> {
+    runtime_fixture::seed_source(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn seed_group_extents_require_quorum_and_bound_membership() -> Result<()> {
+    runtime_fixture::seed_source(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn seed_group_refuses_isolated_leader_and_expired_stream() -> Result<()> {
+    runtime_fixture::seed_minority().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn membership_group_materialized_joint_changes_preserve_cells() -> Result<()> {
     runtime_fixture::membership_lifecycle(false).await
 }

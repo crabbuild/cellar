@@ -32,6 +32,7 @@ const STREAM_WORKSPACE: usize = EXTENT_BYTES as usize + 1024 * 1024;
 
 #[derive(Debug)]
 pub enum CellGroupCheckpointError {
+    Authority(crate::raft::completion::RuntimeError),
     Invalid(&'static str),
     Limit,
     Busy,
@@ -51,6 +52,7 @@ impl std::fmt::Display for CellGroupCheckpointError {
 impl std::error::Error for CellGroupCheckpointError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            Self::Authority(error) => Some(error),
             Self::Manifest(error) => Some(error),
             Self::Log(error) => Some(error),
             Self::Image(error) => Some(error),

@@ -237,8 +237,26 @@ or demoted leaders lose producer and leader-bound read authority at synced cache
 publication, even before the owner consumes its completion. Membership alone never
 allows a learner to produce writes.
 
-Fresh learner seeding, initial-member replacement, lost-disk rebuild and managed
-fleet orchestration remain required CG-05 work. Existing bootstrap permits still
+`CellGroupRuntime::seed_authority` selects a complete applied root only after a
+fresh correlated group ReadIndex. It works without an enrolled cell. The target
+must be a committed new learner with the exact node/disk binding, outside both
+voter sets. The selected cut covers the barrier and its membership revision.
+Pending requests and retained roots share the bounded node/group read budgets.
+
+The non-cloneable authority captures the exact selected root through the node's
+checkpoint pool on a blocking owner. If apply advances before capture, the caller
+must obtain a fresh authority. After capture, ordinary cell writes may continue
+while the source streams its immutable cut. Membership changes, term changes,
+leadership transfer, shutdown and deadline expiry revoke the source. Every sink
+call has checks before and after it; the final completion also checks authority.
+An incomplete or revoked stream cannot produce a successful End. The source binds
+the requested process identity but does not authenticate it; the future seed RPC
+must bind that identity to its authenticated connection and process revocation.
+
+This is a source boundary, not a destination bootstrap permit. Authenticated seed
+exchange, permanent destination claims, new-member installation/attachment,
+initial-member replacement, lost-disk rebuild and managed fleet orchestration
+remain required CG-05 work. Existing bootstrap permits still
 admit only initial birth members. A metadata reopen is not a fresh-member seed,
 quorum proof, verified physical recovery or serving permission.
 

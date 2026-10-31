@@ -1587,7 +1587,8 @@
         "crates/cellar/tests/support/cell_group_network_probes.rs",
         "crates/cellar/tests/support/cell_group_controller.rs",
         "crates/cellar/tests/support/cell_group_controller_checkpoints.rs",
-        "crates/cellar/tests/support/cell_group_membership.rs"
+        "crates/cellar/tests/support/cell_group_membership.rs",
+        "crates/cellar/tests/support/cell_group_seed.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/cell_groups/checkpoint/mod.rs",

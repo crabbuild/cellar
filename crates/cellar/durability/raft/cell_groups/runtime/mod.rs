@@ -132,6 +132,7 @@ enum Response {
     Reconciliation(Box<CellReconciliationAuthority>),
     Status(CellGroupStatus),
     Read(Box<CellReadAuthority>),
+    Seed(Box<CellGroupSeedAuthority>),
 }
 
 struct Request {
@@ -426,6 +427,49 @@ impl CellGroupRuntime {
         consistency: CellReadConsistency,
         deadline: u64,
     ) -> Result<CellReadAuthority, RuntimeError> {
+        match self
+            .select_authority(history, reads::ReadKind::Cell(cell, consistency), deadline)
+            .await?
+        {
+            Response::Read(authority) => {
+                authority.check(
+                    self.inner
+                        .domain
+                        .mono_ms()
+                        .map_err(|_| RuntimeError::Closed)?,
+                )?;
+                Ok(*authority)
+            }
+            _ => Err(RuntimeError::Protocol("cell read authority reply".into())),
+        }
+    }
+
+    /// Authorize one complete-group seed from a fresh quorum ReadIndex. Only a
+    /// committed, node/disk-bound new learner is eligible. This source authority
+    /// does not admit the destination, authenticate a peer, or grant a vote.
+    pub async fn seed_authority(
+        &self,
+        target: cellar_logic::consensus::ReplicaIdentity<GroupHistory>,
+        deadline: u64,
+    ) -> Result<CellGroupSeedAuthority, RuntimeError> {
+        match self
+            .select_authority(target.scope, reads::ReadKind::Seed(target), deadline)
+            .await?
+        {
+            Response::Seed(authority) => {
+                authority.check()?;
+                Ok(*authority)
+            }
+            _ => Err(RuntimeError::Protocol("group seed authority reply".into())),
+        }
+    }
+
+    async fn select_authority(
+        &self,
+        history: GroupHistory,
+        kind: reads::ReadKind,
+        deadline: u64,
+    ) -> Result<Response, RuntimeError> {
         self.admit()?;
         if self
             .inner
@@ -442,8 +486,7 @@ impl CellGroupRuntime {
             .acquire(4096)
             .ok_or(RuntimeError::Overloaded)?;
         let request = reads::ReadRequest {
-            cell,
-            consistency,
+            kind,
             deadline,
             reservation,
         };
@@ -454,13 +497,7 @@ impl CellGroupRuntime {
             .map_err(|_| RuntimeError::Closed)?;
         crate::asyncrt::select! {
             result = self.call(Some(history), Command::Read(Box::new(request)), 4096) => {
-                match result? {
-                    Response::Read(authority) => {
-                        authority.check(self.inner.domain.mono_ms().map_err(|_| RuntimeError::Closed)?)?;
-                        Ok(*authority)
-                    }
-                    _ => Err(RuntimeError::Protocol("cell read authority reply".into())),
-                }
+                result
             }
             _ = timer => Err(RuntimeError::DeadlineExceeded),
         }
