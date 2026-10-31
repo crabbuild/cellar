@@ -49,7 +49,7 @@ pub(crate) async fn s3_enrollment(rooted: bool, store: Arc<dyn ObjectStore>) -> 
             }),
         ));
         let mut h = Harness::with_minimum(rooted, backend, 2, minimum).await?;
-        h.cell.cell = CellId::new("new-s3-enrollment".to_owned())?;
+        h.cell.cell = CellId::new("new-s3-enrollment")?;
         let requested = if minimum == Durability::S3 {
             Durability::Quorum
         } else {
@@ -154,7 +154,7 @@ pub(crate) async fn s3_enrollment_deadline(
     cancel: bool,
 ) -> Result<()> {
     let mut h = Harness::new(rooted, store, 1).await?;
-    h.cell.cell = CellId::new("expired-s3-enrollment".to_owned())?;
+    h.cell.cell = CellId::new("expired-s3-enrollment")?;
     h.remote.outage.store(true, Ordering::Release);
     let call = h
         .enroll(
