@@ -153,6 +153,7 @@ enum Command {
     SnapshotStatus(u64, bool),
     Read(Box<reads::ReadRequest>),
     Apply(CellGroupTicket, Box<PreparedGroupManifest>),
+    CaptureCheckpoint(CellGroupCheckpointPool),
     Status,
     Tick,
 }
@@ -169,6 +170,7 @@ enum Response {
     Status(CellGroupStatus),
     Read(Box<CellReadAuthority>),
     Seed(Box<CellGroupSeedAuthority>),
+    CheckpointSource(Box<Result<CellGroupCheckpoint, CellGroupCheckpointError>>),
 }
 
 struct Request {
@@ -845,6 +847,31 @@ impl CellGroupRuntime {
         match self.call(Some(history), Command::Status, 4096).await? {
             Response::Status(status) => Ok(status),
             _ => Err(RuntimeError::Protocol("status reply".into())),
+        }
+    }
+
+    /// Capture the owner's exact durable applied cut on the existing worker.
+    /// This performs bounded metadata work only; streaming and archive I/O run
+    /// outside the worker. Concurrent persistence may transiently invalidate a
+    /// cut, which the archive producer can retry after the next apply event.
+    pub async fn capture_checkpoint(
+        &self,
+        history: GroupHistory,
+        pool: &CellGroupCheckpointPool,
+    ) -> Result<CellGroupCheckpoint, CellGroupCheckpointError> {
+        match self
+            .call(
+                Some(history),
+                Command::CaptureCheckpoint(pool.clone()),
+                4096,
+            )
+            .await
+            .map_err(CellGroupCheckpointError::Authority)?
+        {
+            Response::CheckpointSource(source) => *source,
+            _ => Err(CellGroupCheckpointError::Authority(RuntimeError::Protocol(
+                "checkpoint source reply".into(),
+            ))),
         }
     }
 

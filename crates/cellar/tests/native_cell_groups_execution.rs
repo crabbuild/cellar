@@ -15,6 +15,11 @@ mod runtime_fixture;
 mod checkpoint_fixture;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn runtime_archive_capture_retains_cut_without_blocking_quorum() -> Result<()> {
+    Box::pin(runtime_fixture::capture_archive_cut()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn seed_retry_materialized_reclaims_interrupted_disk() -> Result<()> {
     Box::pin(runtime_fixture::seed_retry(false)).await
 }

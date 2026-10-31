@@ -26,10 +26,11 @@ pub use births::BirthDisposition;
 mod range_directory;
 pub(crate) use range_directory::RouteCache;
 pub use range_directory::{
-    CellGroupBirth, CellGroupBirthRequest, CellGroupBirthSpec, CellGroupBootstrapPermit,
-    CellRouteAttempt, CellRouteCacheUsage, CellRouteOperation, CellRouteRequest, CellRoutingError,
-    CellRoutingFailure, CellRoutingLimits, CellRoutingSession, DirectoryLimits, DirectoryMutation,
-    DirectoryPublication, DirectoryView, RangeDirectory, ResolvedCellRoute,
+    CellGroupArchiveBindingError, CellGroupBirth, CellGroupBirthRequest, CellGroupBirthSpec,
+    CellGroupBootstrapPermit, CellRouteAttempt, CellRouteCacheUsage, CellRouteOperation,
+    CellRouteRequest, CellRoutingError, CellRoutingFailure, CellRoutingLimits, CellRoutingSession,
+    DirectoryLimits, DirectoryMutation, DirectoryPublication, DirectoryView,
+    PreparedCellGroupArchiveBinding, RangeDirectory, ResolvedCellRoute,
 };
 
 #[path = "catalog_inventory/mod.rs"]

@@ -1748,7 +1748,9 @@
         "crates/cellar/durability/raft/cell_groups/archive/ownership/mod.rs",
         "crates/cellar/durability/raft/cell_groups/archive/ownership/state.rs",
         "crates/cellar/durability/raft/cell_groups/archive/ownership/wire.rs",
-        "crates/cellar/tests/support/cell_group_archive_publication.rs"
+        "crates/cellar/tests/support/cell_group_archive_publication.rs",
+        "crates/cellar/durability/raft/cell_groups/directory/archive.rs",
+        "crates/cellar/tests/support/cell_group_archive_binding.rs"
       ],
       "test_target": "native_cell_groups_archive",
       "steps": [

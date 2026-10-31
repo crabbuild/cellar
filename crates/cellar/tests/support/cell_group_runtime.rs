@@ -343,6 +343,79 @@ pub(super) async fn replicated_cells() -> Result<()> {
     fixture.close().await
 }
 
+pub(super) async fn capture_archive_cut() -> Result<()> {
+    let (cluster, expected) =
+        checkpoint_fixture::populate_images(false, false, false, 0, 8192).await?;
+    let mut fixture = RuntimeCluster::from_cluster(cluster, 256, 256, 64).await?;
+    let route = fixture.cluster.birth.route().clone();
+    fixture.runtimes[0].campaign(route.history).await?;
+    fixture.drive(None).await?;
+    let pool = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
+    let mut source = fixture.runtimes[0]
+        .capture_checkpoint(route.history, &pool)
+        .await?;
+    let cut = source.marker().clone();
+    assert!(matches!(
+        fixture.runtimes[0]
+            .capture_checkpoint(route.history, &pool)
+            .await,
+        Err(CellGroupCheckpointError::Busy)
+    ));
+    let image = images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES(4)")?;
+    let delta = images::Cut::new(&[], &image, 0, true, false);
+    let accepted = fixture.runtimes[0]
+        .propose(
+            route.history,
+            request(&route, history(&route, "later")?, 1, &delta)?,
+        )
+        .await?;
+    fixture.drive(Some(accepted.position.index)).await?;
+    assert!(
+        fixture.runtimes[0]
+            .status(route.history)
+            .await?
+            .applied
+            .index
+            > cut.position().index
+    );
+    let restored = fixture
+        .cluster
+        .domain
+        .blocking(move || -> Result<_> {
+            let mut restored = BTreeMap::<String, Vec<u8>>::new();
+            source.stream(|chunk| {
+                if let CellGroupCheckpointPart::Materialized(cell) = chunk.part {
+                    restored
+                        .entry(cell.as_str().into())
+                        .or_default()
+                        .extend_from_slice(chunk.bytes);
+                }
+                Ok(())
+            })?;
+            Ok(restored)
+        })?
+        .await??;
+    for (cell, bytes) in expected {
+        if !bytes.is_empty() {
+            assert_eq!(restored[&cell], bytes);
+        }
+    }
+    assert!(!restored.contains_key("later"));
+    assert_eq!(pool.usage().sources, 0);
+    let next = fixture.runtimes[0]
+        .capture_checkpoint(route.history, &pool)
+        .await?;
+    assert!(next.marker().position().index > cut.position().index);
+    drop(next);
+    let runtime = fixture.runtimes[0].clone();
+    fixture.close().await?;
+    assert!(matches!(
+        runtime.capture_checkpoint(route.history, &pool).await,
+        Err(CellGroupCheckpointError::Authority(RuntimeError::Closed))
+    ));
+    Ok(())
+}
+
 pub(super) async fn cancelled_close_joins_sync() -> Result<()> {
     let mut fixture = RuntimeCluster::new().await?;
     let route = fixture.cluster.birth.route().clone();

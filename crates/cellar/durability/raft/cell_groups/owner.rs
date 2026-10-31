@@ -332,6 +332,15 @@ impl CellGroupOwner {
         &self.current
     }
 
+    pub(super) fn capture_checkpoint(
+        &self,
+        pool: &super::CellGroupCheckpointPool,
+    ) -> Result<super::CellGroupCheckpoint, super::CellGroupCheckpointError> {
+        self.live()
+            .map_err(super::CellGroupCheckpointError::Authority)?;
+        pool.capture(&self.group, &self.current)
+    }
+
     pub(super) fn select_read(
         &self,
         cell: &CellHistory,

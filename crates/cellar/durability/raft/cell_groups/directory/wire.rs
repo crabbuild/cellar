@@ -12,6 +12,7 @@ pub(super) const REQUEST: u8 = 85;
 // Fleet maintenance already uses 86 in the shared catalog envelope.
 pub(super) const GROUP_BIRTH: u8 = 186;
 pub(super) const GROUP_CLAIM: u8 = 187;
+pub(super) const GROUP_ARCHIVE: u8 = 188;
 pub(super) const LIMIT: usize = 64 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

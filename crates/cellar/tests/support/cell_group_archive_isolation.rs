@@ -7,14 +7,22 @@ use cellar_logic::consensus::OperationId;
 pub(super) async fn erased_voters(rooted: bool) -> Result<()> {
     let (mut cluster, mut expected) =
         checkpoint_fixture::populate_images(rooted, true, false, 1, 8192).await?;
-    let remote = archive_store::Store::new();
-    let archive = new_archive(
-        &cluster,
-        remote,
-        Path::from("erased-voters"),
-        Default::default(),
-    )
-    .await?;
+    let archive_pool = CellGroupArchivePool::new(Default::default())?;
+    let binding = cluster
+        .directory
+        .prepare_group_archive_binding(&cluster.domain, &archive_pool, &cluster.birth)
+        .await?;
+    let saved = persist_archive_intent(&cluster, &binding.encode().to_vec()).await?;
+    assert_eq!(saved, binding.encode());
+    let registry = binding.commit(&cluster.domain).await?;
+    let owners = CellGroupArchiveUploadPool::new(Default::default())?;
+    let tails = CellGroupArchiveTailPool::new(Default::default())?;
+    let intent = registry.prepare_upload(&cluster.domain).await?;
+    let saved = persist_archive_intent(&cluster, &intent).await?;
+    let ticket = registry.reserve(&cluster.domain, &saved).await?;
+    let archive = registry
+        .open_upload(&cluster.domain, &owners, &ticket, &tails)
+        .await?;
     let sources = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
     let base = archive
         .upload_checkpoint(&cluster.domain, source(&sources, &cluster)?)
@@ -37,7 +45,6 @@ pub(super) async fn erased_voters(rooted: bool) -> Result<()> {
     let current = cluster.voters[0].owner.as_ref().unwrap().manifest().clone();
     let marker = current.marker().clone();
     let membership = group.membership()?;
-    let tails = CellGroupArchiveTailPool::new(Default::default())?;
     let reference = archive
         .upload_tail(&cluster.domain, &tails, &base, &group, &current)
         .await?
@@ -45,6 +52,9 @@ pub(super) async fn erased_voters(rooted: bool) -> Result<()> {
     // No source physical pin, open GroupLog or voter survives the disk erasure.
     drop(current);
     drop(group);
+    drop(archive);
+    drop(registry);
+    drop(owners);
     for voter in &mut cluster.voters {
         drop(voter.owner.take());
         drop(voter.held.take());
@@ -70,9 +80,17 @@ pub(super) async fn erased_voters(rooted: bool) -> Result<()> {
                 }
             }
             assert!(!directory.join("archive-data").exists());
+            std::fs::remove_dir_all(directory.join("archive-intents"))?;
             Ok(())
         })?
         .await??;
+    // Reconstruct the expected registry identity with a fresh catalog owner,
+    // using only remote metadata after all local intent journals were erased.
+    let (directory, birth) = binding_fixture::reopen_directory(&cluster).await?;
+    let registry = directory
+        .open_group_archive(&cluster.domain, &archive_pool, &birth)
+        .await?;
+    let archive = registry.archive();
     // Open only physical data stores, after erasure. No bootstrap permit, local
     // member/disk identity, Raft metadata or replacement genesis is fabricated.
     let destination = destination_mode(&cluster, rooted, Arc::new(DirectFileSystem)).await?;

@@ -25,15 +25,57 @@ impl SourceCut {
         root: PreparedGroupManifest,
         configuration: ConfState,
         membership: GroupMembership,
-        reservation: Arc<Permit>,
-    ) -> Self {
-        Self {
+        source_budget: Arc<Budget>,
+    ) -> Result<Self> {
+        root.images.visit(&mut |_, _, pin, _, _| -> Result<()> {
+        if matches!(pin, super::super::CellImagePin::Extents(pin) if pin.reference().encoded_length() > 1024 * 1024) {
+            return Err(CellGroupArchiveError::Limit);
+        }
+        Ok(())
+    })?;
+        let mut source_bytes = root
+            .reserved_bytes()
+            .checked_add(
+                crate::raft::manifest::encode_conf(&configuration)
+                    .map_err(|_| CellGroupArchiveError::Invalid("tail configuration encoding"))?
+                    .len()
+                    .checked_mul(4)
+                    .ok_or(CellGroupArchiveError::Limit)?,
+            )
+            .and_then(|n| n.checked_add(64 * 1024))
+            .ok_or(CellGroupArchiveError::Limit)?;
+        source_bytes = source_bytes
+            .checked_add(
+                serde_json::to_vec(&membership)
+                    .map_err(|_| CellGroupArchiveError::Limit)?
+                    .len()
+                    .checked_mul(4)
+                    .ok_or(CellGroupArchiveError::Limit)?,
+            )
+            .ok_or(CellGroupArchiveError::Limit)?;
+        root.images.visit(&mut |_, _, pin, _, _| -> Result<()> {
+            if let super::super::CellImagePin::Extents(pin) = pin {
+                source_bytes = source_bytes
+                    .checked_add(
+                        (pin.reference().encoded_length() as usize)
+                            .checked_mul(2)
+                            .ok_or(CellGroupArchiveError::Limit)?,
+                    )
+                    .ok_or(CellGroupArchiveError::Limit)?;
+            }
+            Ok(())
+        })?;
+        let source_reservation = source_budget
+            .acquire(source_bytes)
+            .map(Arc::new)
+            .ok_or(CellGroupArchiveError::Busy)?;
+        Ok(Self {
             group,
             root,
             configuration,
             membership,
-            _reservation: reservation,
-        }
+            _reservation: source_reservation,
+        })
     }
 
     fn check(&self) -> Result<()> {

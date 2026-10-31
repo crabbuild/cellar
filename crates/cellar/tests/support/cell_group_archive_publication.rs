@@ -5,6 +5,73 @@
 use super::*;
 use std::collections::BTreeMap;
 
+pub(super) async fn moving_upload_cut(rooted: bool) -> Result<()> {
+    let mut s = Scenario::new(rooted).await?;
+    let checkpoint = s.checkpoint(&s.upload).await?;
+    let (path, index) = index(s.remote.as_ref(), &checkpoint).await?;
+    let sources = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
+    let captured = source(&sources, &s.cluster)?;
+    let original = captured.marker().clone();
+    let gate = s
+        .remote
+        .hold(cell_objects(&path, &index, "beta")[0].clone());
+    let mut pending = Box::pin(s.upload.upload_cut(&s.archive_domain, &s.tails, captured));
+    let entered = Box::pin(tokio::time::timeout(
+        Duration::from_secs(5),
+        gate.entered.notified(),
+    ));
+    match futures_util::future::select(entered, pending.as_mut()).await {
+        futures_util::future::Either::Left((result, _)) => result?,
+        futures_util::future::Either::Right(_) => anyhow::bail!("cut upload skipped held B"),
+    }
+    assert_eq!(sources.usage().sources, 1);
+    checkpoint_fixture::advance_partition(
+        &mut s.cluster,
+        "alpha",
+        &s.expected["alpha"],
+        rooted,
+        Some(2),
+    )
+    .await?;
+    assert!(
+        s.cluster.voters[0]
+            .owner
+            .as_ref()
+            .unwrap()
+            .manifest()
+            .marker()
+            .position()
+            .index
+            > original.position().index
+    );
+    s.remote.clear();
+    gate.release.notify_one();
+    let uploaded = pending.await?;
+    assert_eq!(sources.usage().sources, 0);
+    // The same single-source pool must admit the independent receiver. Upload
+    // cannot retain its source slot while waiting for physical verification.
+    let prepared = s
+        .upload
+        .prepare_publication(
+            &s.archive_domain,
+            &s.tails,
+            &uploaded,
+            receiver(&sources, &s.destination, &s.cluster)?,
+        )
+        .await?;
+    let intent = persist_archive_intent(&s.cluster, prepared.intent()).await?;
+    assert_eq!(&intent, prepared.intent());
+    let coverage = prepared.commit(&s.archive_domain).await?;
+    assert_eq!(coverage.marker(), &original);
+    tail_fixture::check_images(&s.cluster, coverage.recovery().manifest(), &s.expected).await?;
+    let hold = coverage.hold().clone();
+    drop(coverage);
+    drop(uploaded);
+    assert_eq!(sources.usage().sources, 0);
+    s.registry.release(&s.cluster.domain, &hold).await?;
+    s.finish().await
+}
+
 struct Scenario {
     cluster: Cluster,
     expected: BTreeMap<String, Vec<u8>>,

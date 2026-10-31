@@ -235,47 +235,6 @@ fn capture(
     let membership = cache.membership.clone();
     drop(cache); // No engine/cache lock across encoding or physical/S3 work.
     cut.validate(group.identity().scope, limits)?;
-    current.images.visit(&mut |_, _, pin, _, _| -> Result<()> {
-        if matches!(pin, super::super::CellImagePin::Extents(pin) if pin.reference().encoded_length() > 1024 * 1024) {
-            return Err(CellGroupArchiveError::Limit);
-        }
-        Ok(())
-    })?;
-    let mut source_bytes = current
-        .reserved_bytes()
-        .checked_add(
-            cut.conf
-                .len()
-                .checked_mul(4)
-                .ok_or(CellGroupArchiveError::Limit)?,
-        )
-        .and_then(|n| n.checked_add(64 * 1024))
-        .ok_or(CellGroupArchiveError::Limit)?;
-    source_bytes = source_bytes
-        .checked_add(
-            serde_json::to_vec(&cut.membership)
-                .map_err(|_| CellGroupArchiveError::Limit)?
-                .len()
-                .checked_mul(4)
-                .ok_or(CellGroupArchiveError::Limit)?,
-        )
-        .ok_or(CellGroupArchiveError::Limit)?;
-    current.images.visit(&mut |_, _, pin, _, _| -> Result<()> {
-        if let super::super::CellImagePin::Extents(pin) = pin {
-            source_bytes = source_bytes
-                .checked_add(
-                    (pin.reference().encoded_length() as usize)
-                        .checked_mul(2)
-                        .ok_or(CellGroupArchiveError::Limit)?,
-                )
-                .ok_or(CellGroupArchiveError::Limit)?;
-        }
-        Ok(())
-    })?;
-    let source_reservation = source_budget
-        .acquire(source_bytes)
-        .map(Arc::new)
-        .ok_or(CellGroupArchiveError::Busy)?;
     let entries = entries
         .iter()
         .map(|entry| {
@@ -294,8 +253,8 @@ fn capture(
             current,
             configuration,
             membership,
-            source_reservation,
-        )),
+            source_budget,
+        )?),
     })
 }
 
@@ -313,6 +272,71 @@ impl Drop for Stop {
 }
 
 impl CellGroupArchiveUpload {
+    /// Upload one complete captured cut without recapturing the live engine
+    /// after object-store I/O. Quorum may continue applying throughout upload.
+    /// The checkpoint pool must admit the source before this call; its slot is
+    /// released before the caller starts independent recovery verification.
+    pub async fn upload_cut(
+        &self,
+        domain: &ExecutionDomain,
+        pool: &CellGroupArchiveTailPool,
+        checkpoint: CellGroupCheckpoint,
+    ) -> Result<CellGroupArchiveUploadedTail> {
+        domain
+            .run(async {
+                let _retained = pool.admit()?;
+                let (group, root, configuration, membership) = checkpoint.archive_source()?;
+                let cut = Cut {
+                    marker: root.marker().clone(),
+                    conf: crate::raft::manifest::encode_conf(&configuration).map_err(|_| {
+                        CellGroupArchiveError::Invalid("tail configuration encoding")
+                    })?,
+                    membership: membership.clone(),
+                };
+                cut.validate(self.history, pool.limits)?;
+                let source = Arc::new(super::publication::SourceCut::from_capture(
+                    group,
+                    root,
+                    configuration,
+                    membership,
+                    self.source_budget(),
+                )?);
+                let reference = self.upload_checkpoint(domain, checkpoint).await?;
+                let io = self.admit()?;
+                self.registry().pending(&self.ticket()).await?;
+                let tail = Tail {
+                    domain: TAIL_DOMAIN.into(),
+                    checkpoint: reference,
+                    base: cut.marker.clone(),
+                    cut,
+                    bytes: 0,
+                    entries: Vec::new(),
+                };
+                tail.validate(self, pool.limits)?;
+                let mut output = checkpoint::Bounded {
+                    bytes: Vec::new(),
+                    limit: self.limits.max_index_bytes,
+                };
+                serde_json::to_writer(&mut output, &tail)
+                    .map_err(|_| CellGroupArchiveError::Limit)?;
+                let object = self
+                    .put("tails", output.bytes, self.limits.max_index_bytes)
+                    .await?;
+                drop(io);
+                Ok(CellGroupArchiveUploadedTail {
+                    reference: CellGroupArchiveTailReference {
+                        registry: object.registry,
+                        generation: object.generation,
+                        digest: object.digest,
+                        length: object.length,
+                    },
+                    source,
+                })
+            })
+            .await
+            .map_err(|_| CellGroupArchiveError::Stopped)?
+    }
+
     /// Copy an exact contiguous committed suffix under the engine cache lock,
     /// then upload immutable entry objects without holding that lock. This
     /// returns an untrusted locator; all base bytes and replay must still verify.

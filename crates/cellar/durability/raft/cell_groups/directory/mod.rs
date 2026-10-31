@@ -17,6 +17,8 @@ use std::{
     time::Duration,
 };
 
+mod archive;
+pub use archive::{CellGroupArchiveBindingError, PreparedCellGroupArchiveBinding};
 mod birth;
 mod bootstrap;
 mod route_cache;

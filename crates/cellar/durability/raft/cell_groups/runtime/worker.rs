@@ -232,6 +232,11 @@ impl Worker {
             reply(request, group.owner.status().map(Response::Status));
             return;
         }
+        if let Command::CaptureCheckpoint(pool) = &request.command {
+            let source = group.owner.capture_checkpoint(pool);
+            reply(request, Ok(Response::CheckpointSource(Box::new(source))));
+            return;
+        }
         if let Command::SnapshotStatus(member, delivered) = request.command {
             if let Err(error) = group.owner.validate_snapshot_member(member) {
                 reply(request, Err(error));

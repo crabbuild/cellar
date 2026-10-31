@@ -9,6 +9,8 @@
 
 #[path = "support/cell_group_archive_store.rs"]
 mod archive_store;
+#[path = "support/cell_group_archive_binding.rs"]
+mod binding_fixture;
 #[path = "support/cell_group_checkpoint.rs"]
 #[allow(dead_code)]
 mod checkpoint_fixture;
@@ -26,6 +28,19 @@ mod publication_fixture;
 mod tail_fixture;
 
 include!("support/cell_group_engine_fixture.rs");
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_cut_upload_survives_quorum_progress() -> Result<()> {
+    for rooted in [false, true] {
+        publication_fixture::moving_upload_cut(rooted).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_catalog_binding_refuses_replacement_and_reset() -> Result<()> {
+    binding_fixture::identity().await
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn archive_tails_cover_enrollment_and_controls() -> Result<()> {

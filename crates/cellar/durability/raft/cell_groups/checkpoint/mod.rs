@@ -354,6 +354,28 @@ pub struct CellGroupCheckpoint {
 }
 
 impl CellGroupCheckpoint {
+    /// Only a locally captured, unstreamed source can retain committed-source
+    /// authority. Received checkpoints use a different type and cannot mint it.
+    pub(super) fn archive_source(
+        &self,
+    ) -> Result<(
+        GroupLog<GroupHistory>,
+        PreparedGroupManifest,
+        raft::prelude::ConfState,
+        GroupMembership,
+    )> {
+        if self.started {
+            return Err(CellGroupCheckpointError::Invalid("source already streamed"));
+        }
+        let header = Header::decode(&self.header)?;
+        Ok((
+            self.group.clone(),
+            self.root.clone(),
+            header.configuration()?,
+            header.membership,
+        ))
+    }
+
     /// Metadata for this immutable source cut; it does not establish publication.
     pub fn snapshot(&self) -> Result<raft::prelude::Snapshot> {
         Header::decode(&self.header)?.snapshot()

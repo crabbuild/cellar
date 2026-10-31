@@ -46,6 +46,10 @@ impl PreparedCellGroupArchiveCreation {
 }
 
 impl CellGroupArchiveCreation {
+    pub fn route(&self) -> &GroupRoute {
+        &self.route
+    }
+
     fn check(&self, history: GroupHistory) -> Result<()> {
         if self.domain != IDENTITY_DOMAIN || self.id == [0; 32] || self.route.history != history {
             return Err(CellGroupArchiveError::Invalid("archive registry identity"));

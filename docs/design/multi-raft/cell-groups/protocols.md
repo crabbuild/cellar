@@ -581,9 +581,19 @@ authoritative owner before commit. Opening requires that exact expected creation
 identity; never discover and adopt a replacement mutable identity on restart.
 Established identity/state loss refuses admission. A lost identity-create reply
 with no complete state requires authority recovery; it cannot reset counters.
-Controller/catalog integration must durably bind this expected identity before
-archive use and make it recoverable without the voter disks. That integration is
-still required before production activation or disaster recovery.
+`RangeDirectory::prepare_group_archive_binding` supplies that immutable namespace
+binding. Persist its canonical `encode()` bytes before committing the one-use
+initializer. It checks the selected birth before binding, before initialization
+and before return. The marker-1 catalog record binds the namespace root and exact
+creation route/identity; its key is specific to group/incarnation. The namespace
+chooses the object store and group-archive data prefix. A competing initializer
+cannot replace the binding or initialize a different registry beneath it.
+`open_group_archive` requires a freshly verified birth observation belonging to
+the same catalog owner, reads the immutable binding, checks its namespace/route,
+and opens only that expected registry. Missing binding/identity/counters refuse
+without repair. An incomplete initialization requires authority recovery; replaying
+serialized bytes does not restore initialization authority. These APIs do not
+make controller ownership durable or grant serving/disaster-recovery authority.
 
 Persist each allocation intent before CAS and retry only that exact intent after
 an uncertain outcome. Its registry, next revision, nonce and complete operation
@@ -609,6 +619,17 @@ rechecks that sealed prefix against the live source, independently recovers the
 entire immutable checkpoint/tail and matches its complete cut to the witness.
 Neither a raw locator, a private archive root nor a serialized publication intent
 can replace the source witness for a new publication.
+
+`CellGroupRuntime::capture_checkpoint` asks the existing worker to capture its
+owner's exact durable applied root. It performs bounded metadata capture only;
+physical streaming and remote I/O remain outside the worker. Owner/cache mismatch
+during concurrent persistence may refuse transiently, to retry after apply.
+`upload_cut` consumes that sealed checkpoint, retains its original configuration
+and permanent membership under the upload-owner budget, uploads the checkpoint,
+and writes a zero-entry tail for that same cut. It never recaptures a live root
+after object-store I/O. Healthy quorum can advance while a dependency is held.
+The source checkpoint slot is released before independent recovery starts, so a
+single-source checkpoint pool can serve upload and verification sequentially.
 
 `prepare_publication` writes an immutable root descriptor in the pending generation
 and prepares one exact publication intent. Persist it before `commit`. One CAS
