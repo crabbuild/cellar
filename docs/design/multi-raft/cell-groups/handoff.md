@@ -42,7 +42,24 @@ effects/cache lifecycle belong to CG-08, and final legacy removal to CG-16. Trac
 these remaining capabilities in their owning tasks.
 Shared RustFS, independent voter failure domains, power loss and load remain unqualified.
 
-The latest seed-process checkpoint at `b997a48b` passes 11 selected seed tests
+The latest joint-restart checkpoint at `5f30cc6b` passes 16 selected
+seed/membership tests and nine scoped commands. Its record under
+`.cellar/cell-groups-evidence/CG-05-joint-process-restart/` binds 326 source
+hashes and one executable. Four owned SIGKILL scenarios cover replicated explicit
+joint entry and exit in both image forms. Three retained replica disks reopen
+with new process identities; complete roots, membership revisions and incoming/
+outgoing voter and learner sets match before admission. Production TLS/controllers
+regain quorum, commit a cell, finish the pending transition, commit another cell
+and satisfy linearizable reads for all four cells at unchanged logical sequences.
+
+Production runtime code is unchanged. Shared crash/catalog fixture helpers keep
+the seed regressions passing. These are replicated-boundary cuts with all original
+replicas in one killed child; every in-flight/automatic-transition crash boundary,
+independent domains, power loss, RustFS/load and zero-quorum remain unqualified.
+Next address large-group transfer/pin pressure and consolidate all five exact
+CG-05 acceptance cases, retaining the remaining mid-stream and lifecycle faults.
+
+The earlier seed-process checkpoint at `b997a48b` passes 11 selected seed tests
 and eight scoped commands. The record under
 `.cellar/cell-groups-evidence/CG-05-seed-process-crash/` binds 324 source hashes
 and one executable. Two parent tests perform eight owned SIGKILL runs across both
@@ -55,8 +72,8 @@ The frozen synthetic catalog preserves pre-fault external claims only for the
 fixture. It is not S3 durability or a recovery API. All source voters and the
 learner share the killed child; independent voter failure domains, power loss,
 mid-stream cuts, joint restart, RustFS/load and zero-quorum recovery remain open.
-The next critical work is retained-disk joint-consensus restart and completion,
-then the remaining bounded-pressure and exact CG-05 acceptance cases.
+The newer joint-restart checkpoint above covers retained-disk explicit transition
+restart/completion. Bounded pressure and the exact CG-05 gate remain open.
 
 The earlier persistence checkpoint at `3ea90fb5` passes 9 selected seed tests
 and eight scoped commands. Its record under
@@ -775,23 +792,18 @@ boundary. At the end of each turn, record the completed behavior, evidence and
 limits, then identify the most critical remaining gap and the concrete next step.
 Do not let plan maintenance replace implementation.
 
-1. Finish the full CG-05 acceptance gate around the implemented fresh-learner
-   replacement path. Extend `group_snapshot_transport/seed/` and its production
-   controller fixture with retained-disk joint-consensus restart/completion and
-   process-generation revocation during transfer. Reply/chunk faults, pre-install
-   and queued/entered revocation, sync-error recovery and staged/engine-boundary
-   process kills now pass in both image forms. Qualify
-   minority signed receipt refusal and joint-transition restart. Native retained
-   peer reconnection and minority commit/read refusal now pass in both image forms.
-   Preserve permanent claims, local install receipts and complete physical recovery.
-2. Complete CG-05 qualification around the delivered membership features.
-   Preserve all five exact acceptance cases. Add joint-transition crash cuts,
-   mid-stream receiver process-kill cuts, continuous checkpoint saturation fairness,
-   exhausted apply/completion budgets,
-   held sync/cancelled close, quarantine capacity and retained-root pressure.
-   Keep unrelated-group progress and bounded physical ownership observable.
-   Idle/time/byte checkpoint triggers require an explicit cut-reservation contract;
-   keep the exact five-case task gate ahead of the archive feature dependency.
+1. Finish the full CG-05 acceptance gate around the implemented checkpoint,
+   learner and membership paths. Add bounded large-group transfer and retained
+   reader/checkpoint-pin pressure, then consolidate the existing proof into all
+   five exact cases. Preserve permanent claims, local install receipts, complete
+   physical recovery and unrelated-group progress.
+2. Complete remaining CG-05 fault/lifecycle requirements: mid-stream process
+   revocation and crash, minority signed receipt refusal, continuous capture
+   fairness, exhausted apply/completion budgets, held sync/cancelled close,
+   quarantine capacity and retained-root pressure. Explicit joint restart after
+   replicated entry/exit now passes; this does not qualify every in-flight or
+   automatic-transition crash cut. Idle/time/byte checkpoint triggers require an
+   explicit cut-reservation contract. Keep the full task gate ahead of CG-06.
 3. Deliver CG-06 archive/reclamation with verified complete checkpoints and
    contiguous tails. Upload completion alone cannot authorize reclaiming local
    recovery dependencies or an S3 durability acknowledgement.

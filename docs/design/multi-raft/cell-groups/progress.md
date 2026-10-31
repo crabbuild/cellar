@@ -10,6 +10,51 @@ CG-05 is IN_PROGRESS; CG-06 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-05 explicit joint-consensus restart and completion
+
+Qualified source: `5f30cc6b28ae01c2e6411507ea11716ef94e6456`. All 16 selected seed/membership
+tests pass. Two new parent cases cover four owned process kills: after all replicas
+apply explicit joint entry and after all apply joint exit, in both image forms.
+Two ignored child fixtures are invoked by their parents and are not standalone
+passes. Nine scoped commands pass: Clippy for the execution target, seed tests,
+membership tests, formatting, layout, dependency isolation, docs, source preflight
+and 37 plan-validator tests. The record
+`.cellar/cell-groups-evidence/CG-05-joint-process-restart/checkpoint.json` binds
+326 source hashes, one executable, frozen plan inputs and intermediate logs.
+Independent hash verification passes; broader predecessor suites remain historical.
+
+The original group has three voters and two independent SQLite cells. Explicit
+joint entry demotes member 3: incoming voters are 1/2, outgoing voters remain
+1/2/3 and learner-next is 3. The child is killed with SIGKILL after the selected
+replicated boundary. Every original replica disk is reopened with a new process
+identity, preserving its permanent claims. Before runtime admission, recovery
+checks the exact complete root, membership revision and both configuration sets.
+After joint exit, the recovered configuration instead contains voters 1/2 and
+learner 3, with no outgoing voters or learner-next entries.
+
+Production controllers and TLS transport establish a fresh leader. The recovered
+group commits a new cell under its restored configuration, explicitly completes
+any pending joint transition, and commits another cell after completion. All three
+replicas apply the four-cell state. Fresh linearizable reads verify both original
+and both new cell histories with per-cell sequence 1; group log progress does not
+change those logical sequences. The demoted member remains non-serving.
+
+The seed and membership suites share owned-child SIGKILL/join and bounded frozen
+synthetic-catalog helpers. Seed crash regression cases remain green. Production
+runtime behavior was unchanged. All original replicas share the killed child and
+all recovered replicas share the parent; the frozen catalog is test input, not a
+production recovery backend. These cuts occur after replicated entry/exit, not
+at every in-flight configuration fence or automatic-transition crash boundary.
+Independent failure domains, device power loss, RustFS/load and zero-quorum
+recovery remain unqualified.
+
+**Reflection and next step:** explicit joint membership now survives process loss
+and completes with fresh quorum authority. The next critical gap is bounded
+large-group transfer and retained-pin pressure, followed by consolidating the
+existing evidence into all five exact CG-05 acceptance cases. Mid-stream fault,
+minority receipt and controller-pressure requirements remain open. Complete CG-05
+before CG-06 verified S3 archive/reclamation; the full hard cutover remains pending.
+
 ## CG-05 seed installation across process kills
 
 Qualified source: `b997a48ba686fceb2531cd96ae2734c9bed84fc9`. All 11 selected seed tests pass,
