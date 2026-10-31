@@ -31,8 +31,9 @@ partial gate, including cold recovery of the current and older checkpoint roots.
 Exact Raft snapshot acceptance and persistence now pass their owner/runtime gate.
 Local checkpoint publication and native Raft-generated catch-up now pass their
 partial gate. Authenticated checkpoint streams now pass their partial transport gate.
-Continue with automatic controller-owned checkpoint publication and the remaining
-fault/pressure boundaries, then whole-group membership and lost-disk recovery.
+Automatic entry-count checkpointing at controller apply boundaries now passes its
+partial gate. Continue with scheduler/persistence pressure qualification, then
+whole-group membership and lost-disk recovery.
 CG-06 follows with archival reclamation. Automatic
 production request/voter startup and public SDK/fleet binding belong to CG-07;
 effects/cache lifecycle belong to CG-08, and final legacy removal to CG-16. Track
@@ -84,14 +85,25 @@ ordinary request pressure; transport ownership lasts through feedback admission
 or shutdown. The wire acknowledgement remains admission only. See
 [progress](progress.md) for exact limits and retained intermediate diagnostics.
 
-The most critical gap is automatic controller-owned checkpoint selection and
-publication. Coalesce work and coordinate with advancing apply; a continuously hot
-group must not invalidate every captured cut. Bound retries and keep healthy groups
-progressing. Then qualify receiver crash/sync-error/cancellation, stalled physical
-work, hint saturation and retained-root slot pressure, whole-group learners/joint
-membership and lost-disk replacement. Ordinary peer frames still refuse snapshots;
-only the dedicated verified stream enters `step_checkpoint`. Snapshots grant no new
-voter or serving authority. All five declared CG-05 acceptance cases remain required.
+The latest controller checkpoint at `c27dfb41` passes 230 selected Rust
+cases, 8 gate commands and 37 validator tests. Its record under
+`.cellar/cell-groups-evidence/CG-05-controller-checkpoints/` binds 308 source
+hashes and 5 copied executables. The controller holds a successor apply ticket,
+captures its preceding durable root on a blocking owner, and publishes through
+reserved completion capacity. Exact ticket/root validation prevents capture from
+racing current apply. The matching persistence event releases successor work;
+the runtime admission reply alone cannot. One slot spans this lifecycle. The
+transport's shared checkpoint pool and initial endpoint registrations are reused.
+Busy admission backs off until a later apply boundary, allowing writes to continue.
+
+The three new cases prove repeated compaction across two groups in both image
+forms and progress/recovery while the checkpoint pool is saturated. The policy
+retains the final idle tail. Continuous-saturation fairness, exhausted apply and
+completion budgets, held sync/cancelled close, checkpoint failure/quarantine capacity
+and retained-root pressure are the critical next qualification gaps. Follow with
+receiver crash/sync-error cuts, whole-group learners/joint membership and lost-disk
+replacement. All five declared CG-05 acceptance cases remain required. See
+[progress](progress.md) for limits and intermediate failures.
 
 The source checkpoint at `b15da415` passes 138 Rust cases, eight gate commands
 and 37 validator tests. Transfer
@@ -651,13 +663,13 @@ boundary. At the end of each turn, record the completed behavior, evidence and
 limits, then identify the most critical remaining gap and the concrete next step.
 Do not let plan maintenance replace implementation.
 
-1. Complete CG-05 automatic checkpoint policy and remaining transport pressure cuts.
-   Configure the node-wide checkpoint pool explicitly. Coalesce source capture and
-   publication, coordinate with apply so hot groups cannot starve checkpointing,
-   and bound retries/backoff. Retain the local suffix and exact immutable cut.
-   Qualify stalled physical I/O, cancellation/close, reserved hint saturation and
-   root-slot pressure while unrelated groups progress. Keep the stream admission
-   acknowledgement separate from Raft's post-persistence acknowledgement.
+1. Qualify CG-05 checkpoint scheduling and remaining transport pressure cuts.
+   Automatic entry-count selection now holds the successor ticket until exact
+   publication. Exercise continuous saturation fairness, exhausted apply/completion
+   budgets, held sync, cancelled close, quarantine capacity and retained-root
+   pressure. Keep unrelated-group progress and bounded ownership observable.
+   Add idle/time/byte triggers only with an explicit cut-reservation contract.
+   Keep stream admission separate from Raft's post-persistence acknowledgement.
 2. Finish CG-05 membership and recovery. Qualify the outstanding receiver fault
    cuts and root-slot pressure, then whole-group learner catch-up, joint membership
    and lost-disk replacement. Run every exact acceptance case before DONE.
@@ -675,14 +687,13 @@ Do not let plan maintenance replace implementation.
    paths must not become permanent modes. Never derive cell sequence or witness
    from a group log position. Final qualification reruns all gates at one revision.
 
-Start automatic policy in the shared controller and `checkpoint/mod.rs`, using
-`publish_checkpoint` and its exact persistence completion. Current publication
-requires the captured cut to remain the current applied root; explicitly resolve
-that coordination before enabling thresholds for hot groups. The authenticated
-path in `group_snapshot_transport/` already owns bounded source/receiver streaming,
-route checks, cancellation and snapshot feedback. Extend its pressure tests rather
-than adding a second transport. Never reuse receiver installation to publish a local
-leader checkpoint. Missing network responses remain ambiguous.
+Continue in `controller/checkpoints.rs` and the private `checkpoint_before_apply`
+completion path. The policy currently selects the predecessor at an apply boundary;
+manual `publish_checkpoint` still requires the exact idle current root. Preserve
+both contracts, independent engine validation, and the local suffix. Extend the
+existing controller and authenticated transport fixtures for pressure/failure cuts.
+Do not reuse receiver installation to publish a local leader checkpoint. Missing
+network responses remain ambiguous.
 
 The opportunity is to reuse the existing shared consensus, SQL, read, apply and
 provisioning paths. Avoid adding per-cell workers or another serving mode while

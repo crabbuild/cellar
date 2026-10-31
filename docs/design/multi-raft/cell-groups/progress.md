@@ -10,6 +10,51 @@ CG-05 is IN_PROGRESS; CG-06 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-05 automatic checkpoints at controller apply boundaries
+
+Qualified source: `c27dfb416784804b30a38b1a90812c607ed3b00f`. All 230 selected Rust cases and 8
+gate commands pass, including all-target Clippy for Cellar/core/LTX, the five
+native suites, format/layout, dependency isolation, docs, preflight and 37 validator
+tests. `.cellar/cell-groups-evidence/CG-05-controller-checkpoints/checkpoint.json`
+binds 308 source hashes, 5 copied executables, frozen plan inputs and logs.
+Transfer this ignored evidence with its predecessors. CG-05 remains IN_PROGRESS.
+
+An explicit controller policy selects an applied cut before its successor starts
+physical apply. One node slot spans blocking capture, reserved publication admission
+and persistence. The controller holds the exact successor ticket, so a hot group's
+current root cannot advance during capture. A private completion-lane operation
+checks that ticket, engine and exact current root while preserving any later log
+suffix. Only the matching persisted `CheckpointPublished` event releases successor
+apply; admission/event ordering is handled either way. The existing public manual
+publication checks remain unchanged.
+
+The policy uses the transport's configured node pool and owns initial checkpoint
+endpoint registrations. Busy pool/admission retries back off until a later apply
+boundary, letting apply proceed. Capture joins precede engine-claim release;
+accepted publications remain runtime-owned through shutdown. Hard failures retain
+tickets and quarantine the group; shared log uncertainty closes the node. Usage
+reports pending checkpoints, actual publications and transient retries.
+
+Three new cases use production controllers and real TCP Raft traffic after startup,
+with no fixture event pumping. Repeated interleaved writes to two groups compact
+successive prefixes in both image formats. A held receiver saturates the leader's
+checkpoint pool while both groups continue applying; releasing it permits later
+checkpoint publication. Every voter retains the applied suffix and advances its
+checkpoint; joined close releases all pool admission. Initial polling borrow-conflict
+and duplicate-TCP fixture failures are retained; the same assertions passed after
+repair. No assertion was weakened.
+
+**Reflection and next step:** this entry-count policy retains the idle final tail.
+The critical next gap is scheduler/persistence pressure qualification: continuous
+saturation fairness, exhausted apply/completion budgets, held sync and cancelled
+close, checkpoint failure/quarantine capacity, and retained-root slot pressure.
+Add deterministic coverage at those boundaries before time/byte-trigger expansion.
+Then complete receiver crash/sync-error cuts, whole-group learner/joint membership
+and lost-disk replacement, and run all five declared CG-05 acceptance cases. CG-06
+archive/reclamation follows; upload completion alone cannot authorize reclaim.
+No new shared-group RustFS, load, power-loss or zero-quorum DR qualification is
+claimed. Public cutover and legacy removal remain open.
+
 ## CG-05 authenticated checkpoint transport
 
 Qualified source: `ceb7ed3149202660855d32df1ec5feed7775e068`. All 227 selected Rust cases pass across shared
@@ -61,8 +106,8 @@ the snapshot-feedback admission gap; only the final committed-source gate counts
 No assertion was weakened. Existing native held-sync/owner tests remain regression
 coverage, rather than an independent TLS receiver crash or power-loss qualification.
 
-The most critical implementation gap is automatic controller-owned checkpoint
-selection/publication: coalesce work, coordinate with advancing apply, and bound
+The next gap recorded at this transport checkpoint was automatic controller-owned
+checkpoint selection/publication: coalesce work, coordinate with advancing apply, and bound
 capture/publication retries so hot groups can checkpoint without starving unrelated
 ones. Then qualify source/receiver pressure, stalled physical I/O and hint saturation,
 receiver process-kill/sync-error cuts, and retained-root slot exhaustion. Complete
