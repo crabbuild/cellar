@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-"""Qualify shared-group archive setup and local command responses against local RustFS.
+"""Qualify shared-group archive setup and local command/enrollment responses against local RustFS.
 
 Uses only the recorded owned backend. Each invocation owns a new evidence
 directory and remote prefix. Credentials are passed through the child environment,
-never arguments or evidence. Positive command acknowledgements require the explicit controller binding.
+never arguments or evidence. Positive acknowledgements require the explicit controller binding.
 """
 
 import argparse
@@ -32,6 +32,8 @@ CASES = (
     "rustfs_s3_command_deadlines_do_not_quarantine_committed_sql",
     "rustfs_s3_command_requires_the_sibling_archive_dependencies",
     "rustfs_s3_namespace_minimum_cannot_be_downgraded",
+    "rustfs_s3_enrollment_requires_the_original_archived_creation",
+    "rustfs_s3_enrollment_deadlines_preserve_resolved_ownership",
 )
 
 
@@ -106,11 +108,11 @@ def main():
     out.mkdir(mode=0o700, parents=True, exist_ok=False)
     prefix = "cell-groups/" + secrets.token_hex(16)
     record = {
-        "format": 1, "status": "RUNNING", "scope": "shared-group RustFS archive/setup and local command S3 settlement",
+        "format": 1, "status": "RUNNING", "scope": "shared-group RustFS archive/setup and local command/enrollment S3 settlement",
         "source_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "source_inputs": sources(), "backend": remote, "prefix": prefix, "commands": [],
         "limitations": "Host-native three-voter TLS fixture, both image forms; RustFS runs in one local VM. "
-                        "No S3 receipt-lookup/enrollment or remote command acknowledgements, byte/disk outage bound, "
+                        "No S3 receipt-lookup or remote acknowledgements, byte/disk outage bound, "
                         "Raft log file purge, process-kill restart, fencing/DR, performance or independent hosts.",
     }
 

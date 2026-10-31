@@ -227,7 +227,7 @@ impl Cells {
                         Bytes::shrink(&mut bytes, retained)?;
                         Ok(CellSqlOutcome::Receipt(Box::new(CellSqlReceipt {
                             receipt: *receipt,
-                            _retention: ReceiptRetention::Sql { _bytes: bytes },
+                            _retention: OutputRetention::Sql { _bytes: bytes },
                         })))
                     }
                     Err(error) => {
@@ -263,7 +263,8 @@ impl Cells {
                     }
                     return Ok(CellSqlOutcome::Enrollment(Box::new(CellSqlEnrollment {
                         record: record.clone(),
-                        _bytes: bytes,
+                        _retention: OutputRetention::Sql { _bytes: bytes },
+                        s3: None,
                     })));
                 }
                 let mut executor = options.open_enrollment(authority)?;
@@ -313,7 +314,10 @@ impl Cells {
                     CellEnrollmentResolution::Committed(record) => {
                         CellSqlEnrollmentResolution::Committed(Box::new(CellSqlEnrollment {
                             record: *record,
-                            _bytes: pending.prepared._bytes,
+                            _retention: OutputRetention::Sql {
+                                _bytes: pending.prepared._bytes,
+                            },
+                            s3: None,
                         }))
                     }
                     CellEnrollmentResolution::NotCommitted => {
@@ -375,7 +379,7 @@ impl Cells {
                 pending.producer.close()?;
                 Ok(CellSqlOutcome::Receipt(Box::new(CellSqlReceipt {
                     receipt,
-                    _retention: ReceiptRetention::Sql {
+                    _retention: OutputRetention::Sql {
                         _bytes: pending.prepared._bytes,
                     },
                 })))
@@ -398,7 +402,7 @@ impl Cells {
                     CellReconciliation::Committed(receipt) => {
                         CellSqlReconciliation::Committed(Box::new(CellSqlReceipt {
                             receipt: *receipt,
-                            _retention: ReceiptRetention::Sql {
+                            _retention: OutputRetention::Sql {
                                 _bytes: pending.prepared._bytes,
                             },
                         }))

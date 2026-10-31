@@ -180,3 +180,66 @@ async fn rustfs_unproved_s3_responses_refuse() -> Result<()> {
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn s3_enrollment_requires_the_original_archived_creation() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_enrollment(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn s3_enrollment_deadlines_preserve_resolved_ownership() -> Result<()> {
+    for rooted in [false, true] {
+        for cancel in [false, true] {
+            Box::pin(runtime_fixture::s3_enrollment_deadline(
+                rooted,
+                Arc::new(object_store::memory::InMemory::new()),
+                cancel,
+            ))
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
+async fn rustfs_s3_enrollment_requires_the_original_archived_creation() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::s3_enrollment(
+            rooted,
+            rustfs::store("s3-enrollment", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
+async fn rustfs_s3_enrollment_deadlines_preserve_resolved_ownership() -> Result<()> {
+    for rooted in [false, true] {
+        for cancel in [false, true] {
+            Box::pin(runtime_fixture::s3_enrollment_deadline(
+                rooted,
+                rustfs::store(
+                    if cancel {
+                        "s3-enrollment-cancel"
+                    } else {
+                        "s3-enrollment-deadline"
+                    },
+                    rooted,
+                )?,
+                cancel,
+            ))
+            .await?;
+        }
+    }
+    Ok(())
+}

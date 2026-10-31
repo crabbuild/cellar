@@ -49,6 +49,7 @@ pub struct CellEnrollmentInvocation {
     dispatcher: CellGroupDispatcher,
     cell: CellHistory,
     creation: ProposalId,
+    durability: Durability,
     preview: ImageId,
     inputs: CommandInputs,
     session: CellRoutingSession,
@@ -76,7 +77,7 @@ impl CellGroupDispatcher {
     pub(crate) async fn enroll_with_inputs(
         &self,
         cell: CellHistory,
-        request: CellEnrollmentRequest,
+        mut request: CellEnrollmentRequest,
         limits: CellRoutingLimits,
         cached: Option<ResolvedCellRoute>,
         captured: Option<(CommandInputs, ImageId)>,
@@ -87,9 +88,10 @@ impl CellGroupDispatcher {
             cause: Box::new(cause),
         };
         let started = self.domain.mono_ms().map_err(|_| error(closed()))?;
-        if request.durability != Durability::Quorum
-            || self.directory.namespace_config().minimum_durability != Durability::Quorum
-        {
+        request.durability = request
+            .durability
+            .max(self.directory.namespace_config().minimum_durability);
+        if request.durability == Durability::S3 && self.s3.is_none() {
             return Err(error(CellDispatchError::Execution(
                 ExecutionError::Refused(CommandFailure::UnsupportedCapability),
             )));
@@ -135,7 +137,13 @@ impl CellGroupDispatcher {
         hash.update(inputs.now_unix_millis.to_be_bytes());
         hash.update(inputs.random);
         hash.update(limits.timeout.as_nanos().to_be_bytes());
-        hash.update([limits.max_attempts, 1]);
+        hash.update([
+            limits.max_attempts,
+            match request.durability {
+                Durability::Quorum => 1,
+                Durability::S3 => 2,
+            },
+        ]);
         let session = self
             .directory
             .routing_session_in(
@@ -155,6 +163,7 @@ impl CellGroupDispatcher {
             dispatcher: self.clone(),
             cell,
             creation: request.creation,
+            durability: request.durability,
             preview,
             inputs,
             session,
@@ -255,6 +264,15 @@ impl CellEnrollmentInvocation {
         if authority.state().route() != attempt.route() {
             return Err(CellDispatchError::Invalid("enrollment destination route"));
         }
+        if self.durability == Durability::S3 {
+            let owner = self
+                .dispatcher
+                .s3
+                .as_ref()
+                .ok_or(CellDispatchError::Invalid("S3 enrollment owner"))?;
+            owner.require_runtime(runtime)?;
+            owner.require_group(attempt.route())?;
+        }
         self.session
             .mark_submitted(&attempt)
             .map_err(CellDispatchError::Routing)?;
@@ -280,7 +298,7 @@ impl CellEnrollmentInvocation {
             )
             .await;
         match staged {
-            Ok(CellSqlOutcome::Enrollment(enrolled)) => return self.committed(*enrolled),
+            Ok(CellSqlOutcome::Enrollment(enrolled)) => return self.committed(*enrolled).await,
             Ok(CellSqlOutcome::Prepared(prepared)) => self.origin_mut()?.prepared = Some(prepared),
             Ok(_) => {
                 return Err(CellDispatchError::Invalid(
@@ -372,7 +390,7 @@ impl CellEnrollmentInvocation {
             .await;
             match resolved {
                 Ok(CellSqlEnrollmentResolution::Committed(enrolled)) => {
-                    return self.committed(*enrolled)
+                    return self.committed(*enrolled).await
                 }
                 Ok(result) => {
                     self.origin = None;
@@ -416,7 +434,7 @@ impl CellEnrollmentInvocation {
             .ok_or(CellDispatchError::Invalid("missing enrollment preparation"))
     }
 
-    fn committed(
+    async fn committed(
         &mut self,
         enrolled: CellSqlEnrollment,
     ) -> Result<CellSqlEnrollment, CellDispatchError> {
@@ -427,8 +445,47 @@ impl CellEnrollmentInvocation {
         {
             return Err(CellDispatchError::Invalid("enrollment receipt binding"));
         }
-        self.origin = None;
-        Ok(enrolled)
+        // SQL is resolved. Archive failures and deadlines must not quarantine
+        // this group or keep the initializer's producer/preparation admitted.
+        let mut origin = self
+            .origin
+            .take()
+            .ok_or(CellDispatchError::Invalid("resolved enrollment origin"))?;
+        if self.durability == Durability::Quorum {
+            return Ok(enrolled);
+        }
+        origin.prepared = None;
+        let owner = self
+            .dispatcher
+            .s3
+            .as_ref()
+            .ok_or(CellDispatchError::Invalid("S3 enrollment owner"))?;
+        let settled = owner
+            .enrollment(
+                &origin.runtime,
+                origin.route.clone(),
+                Box::new(enrolled),
+                self.session.deadline_ms(),
+            )
+            .await?;
+        let authority = origin
+            .runtime
+            .enrollment_authority(origin.route.history, self.cell.clone())
+            .await
+            .map_err(CellDispatchError::Runtime)?;
+        if authority.state().route() != &origin.route
+            || authority.state().record() != Some(settled.enrollment.record())
+        {
+            return Err(CellDispatchError::Invalid(
+                "S3 enrollment current creation/route",
+            ));
+        }
+        settled.proof.require_current().await?;
+        if self.dispatcher.domain.mono_ms().map_err(|_| closed())? >= self.session.deadline_ms() {
+            return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
+        }
+        authority.check().map_err(CellDispatchError::Runtime)?;
+        Ok((*settled.enrollment).with_archive_proof(settled.proof))
     }
 
     async fn reject(

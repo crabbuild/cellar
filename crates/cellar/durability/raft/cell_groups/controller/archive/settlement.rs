@@ -3,7 +3,7 @@
 //! Operation proofs share the archive lane; waiting never owns a SQL producer.
 use super::*;
 use crate::raft::budget::Permit;
-use crate::raft::cell_groups::{CellDispatchError, CellSqlReceipt};
+use crate::raft::cell_groups::{CellDispatchError, CellSqlEnrollment, CellSqlReceipt};
 use crate::raft::execution::ExecutionLimits;
 use cellar_logic::cell_group::GroupRoute;
 use std::sync::{atomic::AtomicBool, Weak};
@@ -11,7 +11,7 @@ use std::sync::{atomic::AtomicBool, Weak};
 #[derive(Clone)]
 pub(crate) struct Client(Weak<Shared>);
 
-pub(crate) struct CommandProof {
+pub(crate) struct OutputProof {
     _coverage: CellGroupArchiveCoverage,
     // The exclusive journal lock survives response buffering and node close.
     // A replacement owner cannot retire this hold while a consumer still uses it.
@@ -20,7 +20,7 @@ pub(crate) struct CommandProof {
     authority: Arc<job::Authority>,
 }
 
-impl CommandProof {
+impl OutputProof {
     pub(crate) async fn require_current(&self) -> std::result::Result<(), CellDispatchError> {
         self.authority
             .require_current()
@@ -29,15 +29,51 @@ impl CommandProof {
     }
 }
 
-pub(crate) struct Settled {
+pub(crate) struct CommandSettled {
     pub receipt: Box<CellSqlReceipt>,
-    pub proof: Box<CommandProof>,
+    pub proof: Box<OutputProof>,
+}
+
+pub(crate) struct EnrollmentSettled {
+    pub enrollment: Box<CellSqlEnrollment>,
+    pub proof: Box<OutputProof>,
+}
+
+enum Output {
+    Command(Box<CellSqlReceipt>),
+    Enrollment(Box<CellSqlEnrollment>),
+}
+
+impl Output {
+    fn retained_bytes(&self) -> std::result::Result<usize, CellDispatchError> {
+        match self {
+            Self::Command(receipt) => receipt.receipt().receipt.result().len(),
+            // Creation records are bounded by the protocol to 4096 bytes. Their
+            // variable identity bytes and the archive comparison stay admitted.
+            Self::Enrollment(_) => 4096,
+        }
+        .checked_mul(2)
+        .and_then(|n| n.checked_add(8192))
+        .ok_or(CellDispatchError::Runtime(RuntimeError::Overloaded))
+    }
+
+    fn retain(self, permit: Arc<Permit>) -> Self {
+        match self {
+            Self::Command(receipt) => Self::Command(receipt.retain_for_archive(permit)),
+            Self::Enrollment(enrollment) => Self::Enrollment(enrollment.retain_for_archive(permit)),
+        }
+    }
+}
+
+struct Settled {
+    output: Output,
+    proof: Box<OutputProof>,
 }
 
 pub(in crate::raft::cell_groups::controller) struct Request {
     pub route: GroupRoute,
-    receipt: Box<CellSqlReceipt>,
-    limits: ExecutionLimits,
+    output: Output,
+    limits: Option<ExecutionLimits>,
     deadline: u64,
     cancelled: Arc<AtomicBool>,
     reply: oneshot::Sender<std::result::Result<Settled, CellDispatchError>>,
@@ -115,6 +151,57 @@ impl Client {
         receipt: Box<CellSqlReceipt>,
         limits: ExecutionLimits,
         deadline: u64,
+    ) -> std::result::Result<CommandSettled, CellDispatchError> {
+        let settled = self
+            .settle(
+                runtime,
+                route,
+                Output::Command(receipt),
+                Some(limits),
+                deadline,
+            )
+            .await?;
+        let Output::Command(receipt) = settled.output else {
+            return Err(CellDispatchError::Invalid("S3 command output"));
+        };
+        Ok(CommandSettled {
+            receipt,
+            proof: settled.proof,
+        })
+    }
+
+    pub(crate) async fn enrollment(
+        &self,
+        runtime: &CellGroupRuntime,
+        route: GroupRoute,
+        enrollment: Box<CellSqlEnrollment>,
+        deadline: u64,
+    ) -> std::result::Result<EnrollmentSettled, CellDispatchError> {
+        let settled = self
+            .settle(
+                runtime,
+                route,
+                Output::Enrollment(enrollment),
+                None,
+                deadline,
+            )
+            .await?;
+        let Output::Enrollment(enrollment) = settled.output else {
+            return Err(CellDispatchError::Invalid("S3 enrollment output"));
+        };
+        Ok(EnrollmentSettled {
+            enrollment,
+            proof: settled.proof,
+        })
+    }
+
+    async fn settle(
+        &self,
+        runtime: &CellGroupRuntime,
+        route: GroupRoute,
+        output: Output,
+        limits: Option<ExecutionLimits>,
+        deadline: u64,
     ) -> std::result::Result<Settled, CellDispatchError> {
         self.require_runtime(runtime)?;
         self.require_group(&route)?;
@@ -122,20 +209,12 @@ impl Client {
             .0
             .upgrade()
             .ok_or(CellDispatchError::Runtime(RuntimeError::Closed))?;
-        let size = receipt
-            .receipt()
-            .receipt
-            .result()
-            .len()
-            .checked_mul(2)
-            .and_then(|n| n.checked_add(8192))
-            .ok_or(CellDispatchError::Runtime(RuntimeError::Overloaded))?;
         let permit = shared
             .s3
-            .acquire(size)
+            .acquire(output.retained_bytes()?)
             .map(Arc::new)
             .ok_or(CellDispatchError::Runtime(RuntimeError::Overloaded))?;
-        let receipt = receipt.retain_for_archive(permit.clone());
+        let output = output.retain(permit.clone());
         let (reply, receiver) = oneshot::channel();
         let cancelled = Arc::new(AtomicBool::new(false));
         let _cancel = Cancel(cancelled.clone());
@@ -150,7 +229,7 @@ impl Client {
             .requests
             .try_send(requests::Request::S3(Box::new(Request {
                 route,
-                receipt,
+                output,
                 limits,
                 deadline,
                 cancelled,
@@ -232,21 +311,32 @@ pub(super) async fn prove(
             continue;
         }
         if request.route != *coverage.marker().route() {
-            request.fail(Arc::new(Error::Invalid("S3 command route")));
+            request.fail(Arc::new(Error::Invalid("S3 output route")));
             continue;
         }
         let store = registration.store.clone();
         let physical = coverage.clone();
         let read = execution.blocking(move || {
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                crate::raft::cell_groups::archive::receipt::command(
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match &request
+                .output
+            {
+                Output::Command(receipt) => crate::raft::cell_groups::archive::receipt::command(
                     &physical,
                     &store,
-                    request.receipt.receipt(),
-                    request.limits,
+                    receipt.receipt(),
+                    request
+                        .limits
+                        .ok_or(CellGroupArchiveError::Invalid("S3 command limits"))?,
                     request.deadline,
                     request.cancelled.clone(),
-                )
+                ),
+                Output::Enrollment(enrollment) => {
+                    crate::raft::cell_groups::archive::enrollment::verify(
+                        &physical,
+                        &store,
+                        enrollment.record(),
+                    )
+                }
             }))
             .unwrap_or_else(|panic| {
                 Err(CellGroupArchiveError::Replay(
@@ -279,14 +369,14 @@ pub(super) async fn prove(
                     continue;
                 }
                 let Request {
-                    receipt,
+                    output,
                     reply,
                     permit,
                     ..
                 } = request;
                 let _ = reply.send(Ok(Settled {
-                    receipt,
-                    proof: Box::new(CommandProof {
+                    output,
+                    proof: Box::new(OutputProof {
                         _coverage: coverage.clone(),
                         _journal: context.journal.clone(),
                         _permit: permit,

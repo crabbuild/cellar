@@ -147,9 +147,9 @@ impl CellGroupDispatcher {
         })
     }
 
-    /// Bind local command S3 settlement to this node's bounded archive owner.
+    /// Bind local command/enrollment S3 settlement to this node's bounded archive owner.
     /// The destination group must already have an archive registration. Receipt
-    /// lookup, enrollment and remote response settlement have separate gates.
+    /// lookup and remote response settlement have separate gates.
     pub fn with_s3(mut self, controller: &CellGroupController) -> Result<Self, CellDispatchError> {
         self.s3 = Some(
             controller

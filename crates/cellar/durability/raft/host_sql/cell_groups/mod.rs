@@ -151,12 +151,38 @@ impl CellSqlRootOptions {
 
 pub struct CellSqlEnrollment {
     record: EnrollmentRecord,
-    _bytes: Arc<Bytes>,
+    _retention: OutputRetention,
+    s3: Option<Box<crate::raft::cell_groups::S3OutputProof>>,
 }
 
 impl CellSqlEnrollment {
     pub fn record(&self) -> &EnrollmentRecord {
         &self.record
+    }
+
+    /// Achieved output durability, never inferred from creation metadata alone.
+    pub fn durability(&self) -> cellar_logic::consensus::Durability {
+        if self.s3.is_some() {
+            cellar_logic::consensus::Durability::S3
+        } else {
+            cellar_logic::consensus::Durability::Quorum
+        }
+    }
+
+    pub(crate) fn retain_for_archive(
+        mut self: Box<Self>,
+        permit: Arc<crate::raft::budget::Permit>,
+    ) -> Box<Self> {
+        self._retention = OutputRetention::Archive { _permit: permit };
+        self
+    }
+
+    pub(crate) fn with_archive_proof(
+        mut self,
+        proof: Box<crate::raft::cell_groups::S3OutputProof>,
+    ) -> Self {
+        self.s3 = Some(proof);
+        self
     }
 }
 
@@ -238,10 +264,10 @@ pub struct CellSqlRejection {
 
 pub struct CellSqlReceipt {
     receipt: CellCommittedReceipt,
-    _retention: ReceiptRetention,
+    _retention: OutputRetention,
 }
 
-enum ReceiptRetention {
+enum OutputRetention {
     Sql {
         _bytes: Arc<Bytes>,
     },
@@ -257,7 +283,7 @@ impl CellSqlReceipt {
         mut self: Box<Self>,
         permit: Arc<crate::raft::budget::Permit>,
     ) -> Box<Self> {
-        self._retention = ReceiptRetention::Archive { _permit: permit };
+        self._retention = OutputRetention::Archive { _permit: permit };
         self
     }
 

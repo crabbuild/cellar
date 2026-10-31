@@ -38,6 +38,7 @@ pub use ownership::{
     CellGroupArchiveCreation, CellGroupArchiveHold, CellGroupArchiveIntent,
     CellGroupArchiveRegistry, CellGroupArchiveUploadTicket, PreparedCellGroupArchiveCreation,
 };
+pub(in crate::raft::cell_groups) mod enrollment;
 pub(in crate::raft::cell_groups) mod receipt;
 mod replay;
 mod tail;

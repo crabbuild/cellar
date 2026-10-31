@@ -1,7 +1,10 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Positive command output proofs on the actual controller and archive lane.
+//! SQL output proofs on the actual controller and archive lane.
+#[path = "cell_group_s3_enrollment.rs"]
+mod enrollment;
 use super::*;
+pub(crate) use enrollment::{s3_enrollment, s3_enrollment_deadline};
 use futures_util::TryStreamExt;
 use object_store::{path::Path as ObjectPath, ObjectStore};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -16,6 +19,7 @@ struct Harness {
     archive: CellGroupArchiveRegistration,
     remote: Arc<archive_controller::archive_store::Store>,
     calls: Arc<AtomicUsize>,
+    initializations: Arc<AtomicUsize>,
     retry_until: u64,
 }
 
@@ -36,15 +40,22 @@ impl Harness {
     ) -> Result<Self> {
         let calls = Arc::new(AtomicUsize::new(0));
         let count = calls.clone();
-        let class = Arc::new(RaftClass::new("Counter", 1, [81; 32])?.command(
-            "Add",
-            [82; 32],
-            move |context, input| {
-                count.fetch_add(1, Ordering::SeqCst);
-                context.sql().execute("UPDATE value SET n=n+1", [])?;
-                Ok(input.to_vec())
-            },
-        )?);
+        let initializations = Arc::new(AtomicUsize::new(0));
+        let init_count = initializations.clone();
+        let class = Arc::new(
+            RaftClass::new("Counter", 1, [81; 32])?
+                .initializer([83; 32], move |_, transaction| {
+                    init_count.fetch_add(1, Ordering::SeqCst);
+                    transaction
+                        .execute_batch("CREATE TABLE value(n); INSERT INTO value VALUES(7);")?;
+                    Ok(())
+                })?
+                .command("Add", [82; 32], move |context, input| {
+                    count.fetch_add(1, Ordering::SeqCst);
+                    context.sql().execute("UPDATE value SET n=n+1", [])?;
+                    Ok(input.to_vec())
+                })?,
+        );
         let (mut fixture, route, cell, _) = Box::pin(registered::setup_store_minimum(
             rooted, &class, store, minimum,
         ))
@@ -103,6 +114,7 @@ impl Harness {
             archive,
             remote,
             calls,
+            initializations,
             retry_until,
         })
     }

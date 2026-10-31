@@ -720,8 +720,8 @@ through this archive-specific drain.
 the same execution domain. Execution also requires its exact runtime owner and
 an active archive registration for the selected group/route. Effective durability
 is the maximum of the request, namespace minimum and existing receipt minimum.
-Receipt lookup, enrollment and remote S3 response paths retain their refusal gates
-until their own output proofs are integrated.
+Receipt lookup and remote S3 response paths retain their refusal gates until
+their own output proofs are integrated.
 
 A committed SQL receipt resolves its producer before any archive wait. The owner
 acquires independent S3 byte/item admission before transferring output retention
@@ -756,10 +756,34 @@ Idle registrations do not retain replay workspaces. Active consumers can occupy
 those shared workspaces and backpressure subsequent archival until consumption;
 this is explicit pool admission, without an unaccounted metadata-only proof cache.
 
-S3 receipt-lookup/enrollment/remote responses, explicit unarchived-byte/disk
+S3 receipt-lookup/remote responses, explicit unarchived-byte/disk
 admission, physical shared-engine Raft file purge, fenced fresh-incarnation serving,
 load and process-kill qualification remain required gates. This local command
 boundary is not the complete CG-06 or public SDK/fleet cutover gate.
+
+### Local enrollment S3 response gate
+
+The same explicit dispatcher binding and bounded archive lane also settle local
+enrollments. Required durability is the maximum of the request and immutable
+namespace minimum, captured in the invocation fingerprint. The exact runtime
+owner and active archive registration are checked before entering initialization.
+Remote enrollment refuses S3 before transmission until its wire proof contract
+is integrated; it cannot silently send a Quorum request.
+
+SQL resolves and closes the initializer before archival. A separately admitted
+S3 output takes retention of the bounded original creation record before SQL
+releases its bytes and operation slot. The complete independently recovered root
+must contain that exact history, creation ID, schema and initial image commitment.
+A cut preceding creation waits; a different creation refuses. Later mutations do
+not replace the original record or require retaining superseded initial bytes.
+No initializer runs during proof or exact retry.
+
+Before returning, recheck the current catalog birth, actual leader authority and
+its exact committed creation record under the original deadline. The returned
+`CellSqlEnrollment::durability` derives S3 only from its private retained proof.
+That output retains the same physical coverage, pool admission and journal lock
+as a command response. A deadline or dropped reply keeps commitment ambiguous,
+without retaining an unresolved SQL producer or quarantining its healthy group.
 
 ## Split and merge
 

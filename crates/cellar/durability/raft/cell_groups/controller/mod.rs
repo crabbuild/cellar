@@ -4,7 +4,7 @@
 //! Admitted command ownership survives response cancellation and expiry.
 
 mod archive;
-pub(crate) use archive::settlement::{Client as S3Client, CommandProof as S3CommandProof};
+pub(crate) use archive::settlement::{Client as S3Client, OutputProof as S3OutputProof};
 mod calls;
 pub use archive::{
     CellGroupArchiveCall, CellGroupArchiveControlError, CellGroupArchiveRegistration,

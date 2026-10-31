@@ -1764,7 +1764,9 @@
         "tools/multi-raft/cell_groups.py",
         "crates/cellar/durability/raft/cell_groups/archive/receipt.rs",
         "crates/cellar/durability/raft/cell_groups/controller/archive/settlement.rs",
-        "crates/cellar/tests/support/cell_group_s3_commands.rs"
+        "crates/cellar/tests/support/cell_group_s3_commands.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/enrollment.rs",
+        "crates/cellar/tests/support/cell_group_s3_enrollment.rs"
       ],
       "test_target": "native_cell_groups_archive",
       "steps": [
