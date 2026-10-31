@@ -708,7 +708,10 @@ impl CellCommandInvocation {
             if authority.route() != &origin.route {
                 return Err(CellDispatchError::Invalid("S3 response current route"));
             }
-            settled.proof.require_current().await?;
+            settled
+                .proof
+                .require_current(&self.dispatcher.domain, self.session.deadline_ms())
+                .await?;
             authority.check().map_err(CellDispatchError::Runtime)?;
             (settled.receipt, Some(settled.proof), Some(authority))
         } else {

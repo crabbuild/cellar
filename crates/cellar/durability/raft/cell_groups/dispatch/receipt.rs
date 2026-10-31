@@ -364,11 +364,10 @@ impl CellReceiptInvocation {
             Selected::Quorum(selected) => (selected, None, None),
             Selected::S3(prepared) => {
                 let settled = prepared.response().await?;
-                self.dispatcher
-                    .domain
-                    .run(settled.proof.require_current())
-                    .await
-                    .map_err(|_| closed())??;
+                settled
+                    .proof
+                    .require_current(&self.dispatcher.domain, attempt.deadline_ms())
+                    .await?;
                 // Use a fresh read authority, whose leader fence tolerates later
                 // cell writes, rather than retaining a private writer's base.
                 let authority = runtime

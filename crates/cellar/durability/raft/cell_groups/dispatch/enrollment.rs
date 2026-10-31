@@ -485,7 +485,10 @@ impl CellEnrollmentInvocation {
                 "S3 enrollment current creation/route",
             ));
         }
-        settled.proof.require_current().await?;
+        settled
+            .proof
+            .require_current(&self.dispatcher.domain, self.session.deadline_ms())
+            .await?;
         if self.dispatcher.domain.mono_ms().map_err(|_| closed())? >= self.session.deadline_ms() {
             return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
         }

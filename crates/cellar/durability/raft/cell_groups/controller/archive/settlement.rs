@@ -23,11 +23,32 @@ pub(crate) struct OutputProof {
 }
 
 impl OutputProof {
-    pub(crate) async fn require_current(&self) -> std::result::Result<(), CellDispatchError> {
-        self.authority
-            .require_current()
-            .await
-            .map_err(|error| CellDispatchError::Archive(Arc::new(error)))
+    pub(crate) async fn require_current(
+        &self,
+        domain: &crate::asyncrt::DomainToken,
+        deadline: u64,
+    ) -> std::result::Result<(), CellDispatchError> {
+        let now = domain
+            .mono_ms()
+            .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?;
+        if now >= deadline {
+            return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
+        }
+        let timer = domain
+            .sleep_until(deadline)
+            .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?;
+        let result = crate::asyncrt::select! {
+            result = domain.run(self.authority.require_current()) => result.map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?,
+            _ = timer => return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
+        };
+        if domain
+            .mono_ms()
+            .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?
+            >= deadline
+        {
+            return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
+        }
+        result.map_err(|error| CellDispatchError::Archive(Arc::new(error)))
     }
 }
 
