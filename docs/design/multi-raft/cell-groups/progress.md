@@ -10,6 +10,67 @@ CG-05 is IN_PROGRESS; CG-06 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-05 authenticated checkpoint transport
+
+Qualified source: `ceb7ed3149202660855d32df1ec5feed7775e068`. All 227 selected Rust cases pass across shared
+execution/catalog/storage and the existing single-cell storage/snapshot suites.
+All 8 gate commands pass, including all-target Clippy for Cellar/core/LTX,
+formatting/layout, dependency isolation, docs, source preflight and 37
+plan-validator tests. The partial record at
+`.cellar/cell-groups-evidence/CG-05-snapshot-transport/checkpoint.json` binds
+306 source hashes, 5 copied executables, frozen plan inputs and command logs.
+Transfer this ignored directory with its predecessors. CG-05 remains IN_PROGRESS.
+
+Dedicated TLS data streams now carry complete checkpoints between physical group
+peers. Start and chunk purposes bind the exact history/incarnation, node/disk/process,
+member, schema, snapshot envelope, ordered part identity and byte digest to the
+TLS exporter and start tag. Bounded headers and <=64 KiB chunks precede allocation;
+an authenticated End is mandatory. Extent identities resolve from the receiver's
+verified manifest. The exact retained source cut streams on a blocking owner;
+receiver verification and sealing run on another. Wire, physical workspace and
+scratch reservations stay with their owners through cancellation and shutdown.
+
+Controller registrations retain the applier/route endpoint. Removing/replacing a
+route or dropping its registration revokes stream admission. The independently
+verified closure enters `step_checkpoint`; the wire reply is admission only.
+The existing exact Ready/persistence completion still controls Raft's acknowledgement.
+A node explicitly enables the shared checkpoint pool; automatic checkpoint
+selection/publication is not yet wired into the controller.
+
+Snapshot status feedback now has a separate 256-slot/1-MiB node budget and reserved
+queue space. It coalesces by known peer while retaining admission, then mutates
+Raft progress after the current Ready settles. Transport ownership lasts through
+feedback admission or shutdown, so ordinary queue contention or an I/O reply timeout
+cannot silently discard required snapshot failure feedback. Immediate controller
+snapshot refusals also retain feedback; ordinary unreachable hints remain advisory.
+
+Five new real-TLS cases cover actual RawNode-generated catch-up in both image
+representations, suffix replay/cold source reopen, a dropped delivery waiter, and a
+refused first transfer followed by Raft's own successful retry. The harness does
+not replay that failed message. Independent wire probes refuse invalid exporter,
+process, body digest, transfer binding, sequence, chunk size and premature End;
+revocation during an admitted receive leaves the old root selected. Replacing the
+old registration guard preserves its replacement. Disconnect releases receive
+admission; a different group commits and applies a real cell write while that
+admission is occupied. Materialized source cold recovery still uses the fixture's
+generation-ID resolver; extent recovery and destination replay use production adapters.
+
+The initial visibility and fixture trait-import compile diagnostics are retained.
+The first all-target Clippy run was deliberately interrupted when review identified
+the snapshot-feedback admission gap; only the final committed-source gate counts.
+No assertion was weakened. Existing native held-sync/owner tests remain regression
+coverage, rather than an independent TLS receiver crash or power-loss qualification.
+
+The most critical implementation gap is automatic controller-owned checkpoint
+selection/publication: coalesce work, coordinate with advancing apply, and bound
+capture/publication retries so hot groups can checkpoint without starving unrelated
+ones. Then qualify source/receiver pressure, stalled physical I/O and hint saturation,
+receiver process-kill/sync-error cuts, and retained-root slot exhaustion. Complete
+whole-group learner/joint configuration and lost-disk replacement before the full
+CG-05 gate. All five declared acceptance cases remain required. CG-06 archive/reclaim
+and later public cutover/legacy removal remain open. No new shared-group RustFS,
+load, performance-parity or zero-quorum DR qualification is claimed.
+
 ## CG-05 local publication and native Raft snapshot catch-up
 
 Qualified source: `742b1e6d4e7155e16fb1b4eba0cce3b9056944ae`. All 222 selected Rust cases pass across shared
@@ -46,7 +107,7 @@ materialized cold-recovery failure from using the wrong resolver is retained wit
 the compile diagnostics. No assertion was weakened. Joined runtime shutdown during
 accepted local publication is covered in both representations.
 
-The critical gap is bounded authenticated snapshot RPC and its controller-owned
+The gap recorded at this local-publication checkpoint was authenticated RPC and its controller-owned
 source/publication lifecycle. These cases use native streaming callbacks; they do
 not qualify network framing/authentication, transfer cancellation/retries, failed
 snapshot reporting, automated checkpoint policy, learners/joint membership or disk

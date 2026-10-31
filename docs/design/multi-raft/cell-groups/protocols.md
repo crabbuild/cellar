@@ -255,9 +255,10 @@ Each chunk has a separate authenticated purpose, binds the start tag, and carrie
 a monotonic sequence, part identity, offset, length and body digest. Header and
 payload limits are checked before allocation; chunks are at most 64 KiB. Extent
 identities resolve against the receiver's already verified manifest. An explicit
-authenticated End is required; EOF, cancellation, mixed cuts and incomplete
-closures cannot finish a receive. Source capture pins the exact engine-retained
-snapshot even when the current applied root has advanced.
+authenticated End is required. EOF or cancellation before End cannot finish a
+receive; mixed cuts and incomplete closures refuse. After verified admission,
+connection loss does not establish whether installation completed. Source capture
+pins the exact engine-retained snapshot even when the current applied root advances.
 
 Two bounded channel windows connect the network to blocking physical owners.
 Node/peer data budgets and source/receive slots remain owned through actual I/O,

@@ -30,8 +30,10 @@ limits. Receiver verification and atomic storage installation now pass their
 partial gate, including cold recovery of the current and older checkpoint roots.
 Exact Raft snapshot acceptance and persistence now pass their owner/runtime gate.
 Local checkpoint publication and native Raft-generated catch-up now pass their
-partial gate. Continue with bounded authenticated snapshot transport and its
-controller lifecycle, then whole-group membership and lost-disk recovery. CG-06 follows with archival reclamation. Automatic
+partial gate. Authenticated checkpoint streams now pass their partial transport gate.
+Continue with automatic controller-owned checkpoint publication and the remaining
+fault/pressure boundaries, then whole-group membership and lost-disk recovery.
+CG-06 follows with archival reclamation. Automatic
 production request/voter startup and public SDK/fleet binding belong to CG-07;
 effects/cache lifecycle belong to CG-08, and final legacy removal to CG-16. Track
 these remaining capabilities in their owning tasks.
@@ -70,14 +72,26 @@ leader engine/root recovery and re-stream, plus held publication shutdown in bot
 image formats. Materialized source recovery uses its fixture filename resolver;
 extent recovery and destination replay use production adapters.
 
-The most critical gap is bounded authenticated snapshot RPC and controller-owned
-source/publication lifecycle. Native streaming callbacks do not qualify network
-framing/authentication, retries/cancellation, failed snapshot reporting or automatic
-checkpoint policy. Ordinary peer snapshot ingress remains closed. Preserve the
-post-persistence receiver acknowledgement boundary and exact retained cut. Then
-qualify receiver crash/sync-error/cancellation and root-slot pressure, learner
-catch-up, joint membership and lost-disk replacement. Snapshots grant no new voter
-or serving authority. All five declared CG-05 acceptance cases remain required.
+The latest transport checkpoint at `ceb7ed31` passes 227 selected Rust cases,
+8 gate commands and 37 validator tests. Its record under
+`.cellar/cell-groups-evidence/CG-05-snapshot-transport/` binds 306 source hashes
+and 5 copied executables. Five TLS cases qualify both physical image forms,
+real Raft-generated catch-up and retry after refusal, suffix/cold recovery,
+dropped delivery ownership, negative authenticated framing, revocation/replacement
+and unrelated-group progress during an admitted receive. Controller registrations
+retain exact appliers/routes. Reserved coalesced snapshot feedback survives
+ordinary request pressure; transport ownership lasts through feedback admission
+or shutdown. The wire acknowledgement remains admission only. See
+[progress](progress.md) for exact limits and retained intermediate diagnostics.
+
+The most critical gap is automatic controller-owned checkpoint selection and
+publication. Coalesce work and coordinate with advancing apply; a continuously hot
+group must not invalidate every captured cut. Bound retries and keep healthy groups
+progressing. Then qualify receiver crash/sync-error/cancellation, stalled physical
+work, hint saturation and retained-root slot pressure, whole-group learners/joint
+membership and lost-disk replacement. Ordinary peer frames still refuse snapshots;
+only the dedicated verified stream enters `step_checkpoint`. Snapshots grant no new
+voter or serving authority. All five declared CG-05 acceptance cases remain required.
 
 The source checkpoint at `b15da415` passes 138 Rust cases, eight gate commands
 and 37 validator tests. Transfer
@@ -87,8 +101,8 @@ cases cover concurrent real quorum writes while streaming a held cut, both image
 representations, empty enrollment, obsolete-page retention/release, bounds,
 cancelled physical ownership, stale/foreign/unpublished roots, corruption and
 closed engines. Those are the preceding embedded source tests; the receiver slice above extends
-storage coverage. Snapshot RPC, membership recovery and new process/RustFS/load
-qualification remain open.
+storage coverage. At that source checkpoint, snapshot RPC, membership recovery
+and new process/RustFS/load qualification were still open.
 
 The following records describe the preceding incremental checkpoints.
 
@@ -637,14 +651,13 @@ boundary. At the end of each turn, record the completed behavior, evidence and
 limits, then identify the most critical remaining gap and the concrete next step.
 Do not let plan maintenance replace implementation.
 
-1. Complete CG-05 bounded authenticated snapshot transport. Connect exact retained
-   checkpoint capture, source leasing, framing and destination verification to the
-   controller/peer transport. Carry route/member authentication, byte/item budgets,
-   cancellation, retries and joined physical ownership through the full transfer.
-   Add the source publication policy and report actual snapshot failures to Raft.
-   Admit the destination through `step_checkpoint`; use its post-persistence Raft
-   acknowledgement, never the admission return value, as completion. Exercise real
-   physical TLS catch-up while unrelated groups continue making progress.
+1. Complete CG-05 automatic checkpoint policy and remaining transport pressure cuts.
+   Configure the node-wide checkpoint pool explicitly. Coalesce source capture and
+   publication, coordinate with apply so hot groups cannot starve checkpointing,
+   and bound retries/backoff. Retain the local suffix and exact immutable cut.
+   Qualify stalled physical I/O, cancellation/close, reserved hint saturation and
+   root-slot pressure while unrelated groups progress. Keep the stream admission
+   acknowledgement separate from Raft's post-persistence acknowledgement.
 2. Finish CG-05 membership and recovery. Qualify the outstanding receiver fault
    cuts and root-slot pressure, then whole-group learner catch-up, joint membership
    and lost-disk replacement. Run every exact acceptance case before DONE.
@@ -662,14 +675,14 @@ Do not let plan maintenance replace implementation.
    paths must not become permanent modes. Never derive cell sequence or witness
    from a group log position. Final qualification reruns all gates at one revision.
 
-Start transport integration in `transport_frame.rs`, `transport_runtime.rs`,
-`snapshot_transport.rs` and the shared controller. Existing snapshot pulls use
-cell-scoped identities; preserve physical group-history, permanent member and
-incarnation checks for shared groups. Use `checkpoint/mod.rs::capture_snapshot`
-for the exact retained cut. Local publication already has its own owner persistence
-phase and `SnapshotChange::CellGroupCheckpoint`; never reuse receiver installation
-to publish a local leader checkpoint. Capture/publication refusal is retryable only
-under an explicit bounded policy; a missing receiver response remains ambiguous.
+Start automatic policy in the shared controller and `checkpoint/mod.rs`, using
+`publish_checkpoint` and its exact persistence completion. Current publication
+requires the captured cut to remain the current applied root; explicitly resolve
+that coordination before enabling thresholds for hot groups. The authenticated
+path in `group_snapshot_transport/` already owns bounded source/receiver streaming,
+route checks, cancellation and snapshot feedback. Extend its pressure tests rather
+than adding a second transport. Never reuse receiver installation to publish a local
+leader checkpoint. Missing network responses remain ambiguous.
 
 The opportunity is to reuse the existing shared consensus, SQL, read, apply and
 provisioning paths. Avoid adding per-cell workers or another serving mode while
