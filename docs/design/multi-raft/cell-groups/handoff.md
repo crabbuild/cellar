@@ -42,7 +42,24 @@ effects/cache lifecycle belong to CG-08, and final legacy removal to CG-16. Trac
 these remaining capabilities in their owning tasks.
 Shared RustFS, independent voter failure domains, power loss and load remain unqualified.
 
-The latest joint-restart checkpoint at `5f30cc6b` passes 16 selected
+The latest pressure checkpoint at `a2036e50` passes all 142 native
+shared-execution tests and eight scoped commands. Its record under
+`.cellar/cell-groups-evidence/CG-05-checkpoint-pressure/` binds
+327 source hashes and one executable. Two new cases transfer 32 cells with
+bounded chunks and scratch in both image forms. A held receiver does not prevent
+two original voters from advancing other cell versions. Separate item/byte limits
+and materialized scratch contention refuse without refunding live owners. Complete
+received digests remain at the captured cut and do not publish before installation.
+
+The old source tree becomes reclaimable after transfer release. A unique old cell
+image stays readable through its independent physical pin, then is actually deleted
+after that reader releases. Production runtime is unchanged. The pressure fixture
+uses direct physical streaming in one process; it is not a measured RSS/TLS/load or
+RustFS qualification. The complete execution run also retains the earlier seed and
+explicit joint-consensus crash coverage. Next finish missing mid-stream and
+controller-lifecycle faults and all five exact CG-05 acceptance cases.
+
+The earlier joint-restart checkpoint at `5f30cc6b` passes 16 selected
 seed/membership tests and nine scoped commands. Its record under
 `.cellar/cell-groups-evidence/CG-05-joint-process-restart/` binds 326 source
 hashes and one executable. Four owned SIGKILL scenarios cover replicated explicit
@@ -793,9 +810,9 @@ limits, then identify the most critical remaining gap and the concrete next step
 Do not let plan maintenance replace implementation.
 
 1. Finish the full CG-05 acceptance gate around the implemented checkpoint,
-   learner and membership paths. Add bounded large-group transfer and retained
-   reader/checkpoint-pin pressure, then consolidate the existing proof into all
-   five exact cases. Preserve permanent claims, local install receipts, complete
+   learner and membership paths. Bounded 32-cell transfer and physical reader
+   retention/release now pass. Finish the remaining fault/lifecycle requirements
+   below, then consolidate the proof into all five exact cases. Preserve permanent claims, local install receipts, complete
    physical recovery and unrelated-group progress.
 2. Complete remaining CG-05 fault/lifecycle requirements: mid-stream process
    revocation and crash, minority signed receipt refusal, continuous capture

@@ -10,6 +10,55 @@ CG-05 is IN_PROGRESS; CG-06 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-05 bounded checkpoint transfer and reader retention
+
+Qualified source: `a2036e5074066eb7585ea82a2eb62331368ccca5`. All 142 native shared-execution tests
+pass, including two new pressure cases; two ignored child fixtures are invoked by
+their process-crash parents and are not standalone passes. Eight scoped commands
+pass: execution-target Clippy, the complete execution suite, formatting, layout,
+dependency isolation, docs, source preflight and 37 plan-validator tests. The
+record `.cellar/cell-groups-evidence/CG-05-checkpoint-pressure/checkpoint.json`
+binds 327 source hashes, one executable, frozen plan inputs and intermediate
+logs. Independent hash verification passes. Other integration suites were not
+rerun at this source.
+
+Both image forms transfer 32 cells, including empty enrollment, through the
+production source and independent receiver. The aggregate payload exceeds the
+source reservation; emitted chunks stay within 4093 bytes. Materialized reception
+uses one image-sized scratch file across the entire group. A second valid stream
+refuses with `ScratchFull` without refunding the first receiver's reservation or
+publishing partial state. Extent reception uses no materialized scratch file.
+Independent receiver item and byte saturation refuse without leaking admission.
+
+While the transfer is held inside its first image, two original voters commit
+changes to two cells and attempt physical reclamation. The captured tree remains
+present until the source releases it. The receiver verifies every original cell's
+digest and sequence at the captured cut; it never substitutes the newer images.
+A completed but unpublished receiver still leaves the prior durable root selected
+and retains its admission. Source, receiver and scratch usage return to zero only
+after their physical owners finish.
+
+An independent old physical reader remains valid after the source and its tree
+pin are gone. The pressure cohort has unique cell contents, so other cells cannot
+accidentally preserve that obsolete image. Reclamation keeps it while the reader
+exists, and deletes it after the reader releases. This proves actual retention
+and release in both materialized and extent stores.
+
+Production runtime behavior is unchanged. This is a direct physical-stream test
+with three real engines in one process, not a TLS pressure benchmark or measured
+RSS ceiling. The independent read pin is a physical view, not new quorum authority.
+It does not qualify continuous-write capture fairness, all controller saturation
+paths, independent failure domains, RustFS or zero-quorum recovery. Earlier seed
+and explicit joint-consensus process-crash cases also pass in the full suite.
+
+**Reflection and next step:** bounded 32-cell transfer and reader-image retention
+now have native evidence. The critical remaining CG-05 work is the missing
+mid-stream revocation/crash and controller-lifecycle pressure coverage, followed by
+all five exact acceptance cases at one source. Keep minority signed-receipt refusal,
+continuous capture fairness and retained-checkpoint lifecycle pressure explicit.
+Complete that task gate before CG-06 verified S3 archive/reclamation; production
+SDK/fleet cutover and final legacy removal remain pending.
+
 ## CG-05 explicit joint-consensus restart and completion
 
 Qualified source: `5f30cc6b28ae01c2e6411507ea11716ef94e6456`. All 16 selected seed/membership
