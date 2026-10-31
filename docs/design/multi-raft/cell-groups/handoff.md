@@ -15,62 +15,61 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The latest partial source is `df0ba1f67c0253a57127a215540f08bb13135279`.
-CG-06 is IN_PROGRESS. Namespace-owned immutable binding now fixes the expected
-archive registry, complete birth route and namespace data location. Persist the
-one-use initializer's canonical bytes before commit. Fresh catalog owners reopen
-only that expected identity; competing initialization and missing binding/counters
-refuse. Interrupted initialization requires authority recovery, never repair/reset.
+The latest partial source is `7914177d6f17e3f6d647a39dc496122157283591`.
+CG-06 is IN_PROGRESS. One fair archive lane now runs on the existing node controller,
+using a deduplicated dirty-group queue, existing timer and shared admission pools.
+Registration requires the initialized namespace binding and a private verifier store.
+An engine/creation-bound locked journal fsyncs exact intents before remote mutations.
+Missing established metadata refuses. Uncertain publication reconciles its exact
+hold, or abort-fences the ticket and reconciles again before allocating anything new.
+New head plus predecessor retirement are journaled before release. Physical coverage
+stays job-scoped; archive status is historical metadata without S3 settlement rights.
 
-The existing runtime worker can capture its exact durable applied root with the
-node checkpoint pool. Physical reads and remote I/O run outside the worker.
-`upload_cut` seals that checkpoint's root/configuration/permanent membership before
-upload and creates a zero-entry tail without recapturing the moving live source.
-Both image modes qualify held B upload plus advancing A quorum, physical verification
-and publication of the exact earlier cut. A single-source pool admits upload and
-later verification sequentially. Runtime capture respects quotas and joined close.
+Completion compares covered position with runtime applied state and consumed apply
+events. This fixes the reproduced idle-tail gap after recovery of an older publication.
+Both image forms pass held publication/quorum progress, lost CAS reply/readback outage,
+exact-intent recovery, cancelled registration response, joined close, single current
+hold and independent recovery of every cell. Journal reopen/missing-state and orphaned
+physical waiter tests pass. A sealed scheduling capability uses captured domain tokens
+without shutdown rights; archive-specific physical joins precede private-store,
+journal-lock and runtime/SQL teardown. New verifier stores are required on restart.
 
-All-three-voter disk erasure now removes local archive intent journals and drops
-uploader/registry owners, then reconstructs expected identity from remote namespace
-metadata through a fresh catalog owner before physical data recovery. Untrusted
-checkpoint/tail locators remain externally retained. This is not fenced fresh serving.
+All 40 gate commands pass: nineteen exact archive, two exact controller and two exact
+lifecycle/journal unit cases, 157 execution, five snapshot and four LTX regressions
+(189 distinct Rust cases across six copied executables), all-target build/Clippy,
+formatting/layout, dependencies/docs/preflight and all 37 Python tests. The record at
+`.cellar/cell-groups-evidence/CG-06-controller-archive/qualification/checkpoint.json`
+binds 344 source hashes, frozen inputs, hashed logs and its catalog-cut predecessor.
+Independent source/artifact/exact-selection audit passes. Initial compile, native
+idle-progress, strict source-refusal and Clippy failures are source-bound and retained. See [progress](progress.md)
+and the [controller archive contract](protocols.md#controller-owned-archive-publication).
 
-All 32 gate commands pass: nineteen exact archive cases, 157 execution cases, five
-snapshot cases and four LTX generation regressions (185 distinct Rust cases), all-target
-build/Clippy, formatting/layout, dependencies/docs/preflight and 37 Python tests.
-The partial record under
-`.cellar/cell-groups-evidence/CG-06-catalog-cut/qualification/`
-binds 336 source hashes, four copied executables, frozen inputs, hashed outputs
-and its protected-publication predecessor. Independent hashes/source/exact-selection
-verification passes. See [progress](progress.md) and the
-[archive contract](protocols.md#protected-publication-and-remote-collection).
+Next implement actual S3 command/enrollment/receipt output settlement using retained
+independently verified coverage with exact cell version/result/current-route checks.
+Preserve captured identities/inputs and deadlines; never rerun callbacks. Shared
+dispatch still refuses S3. Add explicit unarchived-byte/disk admission for bounded
+Quorum availability without S3. Then qualify physical local Raft Engine file purge,
+fenced unmanaged recovery into fresh group/cell incarnations and complete old-voter
+lineage inventory, including joins after the recovery cut. Fencing-authority API plus
+Docker qualification remains the accepted direction. Automatic remote/private-cache
+maintenance and process-kill controller restart are still unqualified. This initial
+controller coalesces complete cuts; measured incremental scheduling remains future work.
 
-Next compose controller-owned archive work with durable operation journals, bounded
-retry, joined cancellation/shutdown and retained verification admission. Settle
-actual S3 command/enrollment/receipt outputs using their exact cell version/result
-and current routing authority, preserving captured inputs and never rerunning callbacks.
-Shared dispatch still refuses S3. Add explicit unarchived-byte/disk admission so
-Quorum can progress independently of S3 within its bound. Qualify physical local
-shared-engine Raft file purge and fenced unmanaged recovery with fresh group/cell
-incarnations. Source birth/provenance and every possible old voter lineage, including
-joins after the recovery cut, must survive voter loss; selected-cut membership is
-not the complete fence. The fencing-authority API plus Docker qualification remains
-the accepted direction.
+Namespace binding fixes expected registry identity and canonical storage location.
+Runtime source capture/upload_cut keeps root/configuration/permanent membership
+stable across I/O. All-voter disk/journal erasure still recovers data via a fresh catalog
+owner and externally retained untrusted locators, without fencing/replacement voters.
+Protected publication/collection retains exact-intent, never-reused generation,
+pending-parent/reader hold and delayed-DELETE guarantees. Persist every intent before
+mutation; unknown outcomes never justify another identity or counter reset.
 
-Protected publication/remote collection retains the earlier source-witness,
-independent replay, explicit reader/pending-parent holds, never-reused generation
-and delayed-DELETE guarantees. Persist every exact intent before mutation. Unknown
-outcomes reconcile only the original intent; retired/aborted tokens cannot resurrect.
-Coverage is historical data durability, without current serving/quorum/DR authority.
-CG-08 still owns cache/effect/result lifetime composition and private-cache maintenance,
-then CG-07 cuts the public SDK/fleet over. Topology, placement, hibernation, managed
-recovery, RustFS/load/fault qualification and final legacy removal remain.
-
-The actual in-memory adapter supplies native evidence. Real RustFS, Docker fencing,
-fresh-quorum serving, measured load and public hard cutover remain unqualified. The
-other four original CG-06 cases and full task gate are pending. Preserve the protected-
-publication source `87348477`, isolated-verifier source `14955f2d`, committed-tail
-source `7a29c2a9` and their ignored evidence for audit.
+CG-08 effect/cache/result lifetime and maintenance precede CG-07 public SDK/fleet
+cutover. Topology, placement, hibernation, managed recovery, RustFS/load/fault gates
+and final legacy removal remain. Actual in-memory adapters supply the current native
+evidence. Real RustFS, Docker fencing, fresh-quorum serving, measured load and full
+hard cutover remain unqualified. Four original CG-06 cases and its full task gate are
+pending. Preserve catalog-cut source `df0ba1f6`, protected publication `87348477`,
+isolated verifier `14955f2d`, committed tail `7a29c2a9` and their ignored evidence.
 
 CG-01 through CG-05 are DONE at their declared native task boundaries. CG-05
 closes at `e0550acd` with all five exact snapshot cases and eighteen passing

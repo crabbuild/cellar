@@ -10,6 +10,76 @@ CG-06 is IN_PROGRESS; CG-07 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-06 controller-owned archive publication
+
+Source: `7914177d6f17e3f6d647a39dc496122157283591`. CG-06 remains IN_PROGRESS.
+The existing node controller now owns one fair archive lane, using a deduplicated
+dirty-group queue and its existing timer. Clean groups need no roster scan. Apply
+and checkpoint-install progress coalesce while object-store work runs outside the
+SQL lane. Registration opens only the namespace-bound expected registry, with a
+private verifier store and node-shared source/I/O/upload/replay admission.
+
+An exclusively locked journal binds the node engine creation and archive identity.
+It fsyncs canonical reservation/publication intents before remote mutation, using
+an atomic file replacement plus directory sync/readback. Missing established
+identity/state refuses rather than recreating metadata. Attempts reload selected
+state after uncertain local writes. Restart/retry reconciles an exact publication;
+if absent, it abort-fences the ticket and reconciles again before reallocation.
+A new head and predecessor retirement are journaled before the old hold is released.
+Published markers remain advisory metadata; physical root/replay admission does
+not escape the job or remain reserved for every registered group.
+
+The sealed archive execution capability accepts the controller's captured domain
+token without ownership of domain shutdown. Scoped blocking-work accounting spans
+abandoned async waiters; close joins logical jobs and their physical closures,
+then closes private stores and releases journal locks before runtime/SQL teardown.
+Typed checkpoint `NotReady` and admission overload retry after progress; corrupt
+metadata and journal loss stop archival. They do not become S3 acknowledgements.
+
+Both image modes qualify held publication while the real quorum continues, lost
+publication response plus failed readback, persisted exact-intent reconciliation,
+cancelled registration response, joined close, a single current remote hold and
+independent recovery of every cell afterward. The first uncertain-publication
+scenario found a lost idle-tail wake: recovery of M could clear dirty progress for
+already-applied N. Completion now observes both runtime applied state and consumed
+apply events, and the unchanged regression proves N archives without another request.
+Unit cases qualify actual journal reopen/missing-state refusal and physical drain
+after dropping a blocking waiter. This does not qualify a process-kill controller
+restart or a bounded S3 outage ledger.
+
+All 40 gate commands pass: nineteen exact archive cases, two exact controller cases,
+two exact lifecycle/journal unit cases, 157 execution cases, five snapshot cases and
+four LTX generation cases (189 distinct Rust cases across six copied executables).
+Locked all-target build/Clippy for Cellar/logic/LTX, formatting/layout, dependencies,
+docs, preflight, plan validation and all 37 Python tests pass. The partial record at
+`.cellar/cell-groups-evidence/CG-06-controller-archive/qualification/checkpoint.json`
+binds 344 source hashes, frozen plan inputs, hashed logs/binaries and the preceding
+catalog-cut checkpoint. Independent source/artifact/exact-selection verification
+passes. Source snapshots retain the initial error-wrapper compile failure, native
+idle-tail regression, prospective-root refusal regression and Clippy reply-type
+and duplicate-module failures. Prospective/stale public roots still refuse as
+invalid; only trusted owner-current capture can return typed retryable NotReady. No acceptance case, assertion,
+oracle or existing quota was weakened. This is not full CG-06 task evidence.
+
+Reflection and next priorities: connect pending S3 outputs to retained independent
+coverage proofs, verifying exact command/enrollment/receipt identity, cell version,
+result and current routing authority. Preserve captured inputs and original deadlines;
+never rerun callbacks. Add explicit unarchived-byte/disk admission before claiming
+bounded Quorum progress through S3 outages. Then qualify local shared-engine Raft
+file purge and fenced recovery under fresh group/cell incarnations. The source fence
+inventory must cover every possible old voter lineage, including later joins.
+Automatic remote/private-cache maintenance and controller process-kill restart still
+need qualification. The controller currently uploads complete coalesced cuts;
+incremental tail scheduling and performance require the measured-load gates.
+
+CG-08 effects/cache lifetime work precedes CG-07 public SDK/fleet cutover, followed
+by topology, placement, hibernation, managed recovery, RustFS/load/fault qualification
+and final legacy removal. Shared dispatch still refuses S3 durability. The other
+four original CG-06 cases and its full task gate remain pending. These scenarios
+use the actual in-memory object-store adapter; no real RustFS, Docker fence,
+fresh-quorum serving, load or full hard cutover is claimed. Transfer ignored evidence
+and its predecessors for audit.
+
 ## CG-06 namespace archive identity and stable cut capture
 
 Source: `df0ba1f67c0253a57127a215540f08bb13135279`. CG-06 remains IN_PROGRESS.
