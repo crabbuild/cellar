@@ -391,14 +391,14 @@ fn required_root<'de, D: serde::Deserializer<'de>>(
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "bound", content = "cell", deny_unknown_fields)]
-enum Bound {
+pub(super) enum Bound {
     NegativeInfinity,
     Key(String),
     PositiveInfinity,
 }
 
 impl Bound {
-    fn encode(value: &CellBound) -> Self {
+    pub(super) fn encode(value: &CellBound) -> Self {
         match value {
             CellBound::NegativeInfinity => Self::NegativeInfinity,
             CellBound::Key(k) => Self::Key(k.cell().as_str().into()),
@@ -406,7 +406,7 @@ impl Bound {
         }
     }
 
-    fn decode(self, namespace: NamespaceId) -> Result<CellBound, ManifestError> {
+    pub(super) fn decode(self, namespace: NamespaceId) -> Result<CellBound, ManifestError> {
         Ok(match self {
             Self::NegativeInfinity => CellBound::NegativeInfinity,
             Self::PositiveInfinity => CellBound::PositiveInfinity,

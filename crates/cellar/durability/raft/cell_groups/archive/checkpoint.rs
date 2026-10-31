@@ -5,20 +5,20 @@ use std::io::Write;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Index {
+pub(super) struct Index {
     domain: String,
-    marker: GroupManifest,
+    pub marker: GroupManifest,
     bytes: u64,
-    chunks: Vec<Chunk>,
+    pub chunks: Vec<Chunk>,
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Chunk {
+pub(super) struct Chunk {
     part: wire::Part,
     offset: u64,
     length: u64,
-    object: Object,
+    pub object: Object,
 }
 
 impl Index {
@@ -102,7 +102,7 @@ impl Write for Bounded {
     }
 }
 
-impl CellGroupArchive {
+impl CellGroupArchiveUpload {
     /// Capture is supplied by the caller's node checkpoint pool. The bounded
     /// producer keeps the full source pinned through physical reads. Losing the
     /// async caller closes its channel; domain shutdown joins the physical owner.
@@ -127,6 +127,7 @@ impl CellGroupArchive {
             return Err(CellGroupArchiveError::Invalid("source history"));
         }
         let permit = self.admit()?;
+        self.registry().pending(&self.ticket()).await?;
         let retained = permit.clone();
         let mut index = Index {
             domain: DOMAIN.into(),
@@ -195,11 +196,15 @@ impl CellGroupArchive {
             .await?;
         drop(permit);
         Ok(CellGroupArchiveReference {
+            registry: object.registry,
+            generation: object.generation,
             digest: object.digest,
             length: object.length,
         })
     }
+}
 
+impl CellGroupArchive {
     /// Independently GET every object into the ordinary physical receiver. No
     /// source pin or upload receipt substitutes for dependency verification.
     /// A missing/corrupt cell refuses the whole cut. Ordinary errors join the
@@ -233,10 +238,24 @@ impl CellGroupArchive {
         reference: &CellGroupArchiveReference,
         permit: Arc<Permit>,
     ) -> Result<GroupManifest> {
+        Ok(self
+            .checkpoint_index(domain, reference, permit)
+            .await?
+            .marker)
+    }
+
+    pub(super) async fn checkpoint_index(
+        &self,
+        domain: &ExecutionDomain,
+        reference: &CellGroupArchiveReference,
+        permit: Arc<Permit>,
+    ) -> Result<Index> {
         let bytes = self
             .get(
                 "indexes",
                 &Object {
+                    registry: reference.registry,
+                    generation: reference.generation,
                     digest: reference.digest,
                     length: reference.length,
                 },
@@ -250,7 +269,7 @@ impl CellGroupArchive {
                 let index: Index = serde_json::from_slice(&bytes)
                     .map_err(|_| CellGroupArchiveError::Invalid("checkpoint index"))?;
                 index.validate(&archive)?;
-                Ok::<_, CellGroupArchiveError>(index.marker)
+                Ok::<_, CellGroupArchiveError>(index)
             })
             .map_err(|_| CellGroupArchiveError::Stopped)?
             .await
@@ -264,29 +283,9 @@ impl CellGroupArchive {
         mut receiver: CellGroupArchiveCheckpointReceiver,
         permit: Arc<Permit>,
     ) -> Result<VerifiedCellGroupArchiveCheckpoint> {
-        let bytes = self
-            .get(
-                "indexes",
-                &Object {
-                    digest: reference.digest,
-                    length: reference.length,
-                },
-                self.limits.max_index_bytes,
-            )
+        let index = self
+            .checkpoint_index(domain, reference, permit.clone())
             .await?;
-        let archive = self.clone();
-        let retained = permit.clone();
-        let index: Index = domain
-            .blocking(move || {
-                let _retained = retained;
-                let index: Index = serde_json::from_slice(&bytes)
-                    .map_err(|_| CellGroupArchiveError::Invalid("checkpoint index"))?;
-                index.validate(&archive)?;
-                Ok::<_, CellGroupArchiveError>(index)
-            })
-            .map_err(|_| CellGroupArchiveError::Stopped)?
-            .await
-            .map_err(CellGroupArchiveError::Worker)??;
         let marker = index.marker;
         let (sender, mut incoming) = tokio::sync::mpsc::channel::<wire::Chunk>(1);
         let retained = permit.clone();

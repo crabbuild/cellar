@@ -15,7 +15,12 @@ pub(super) async fn tail_index(
     let objects: Vec<_> = store.list(None).try_collect().await?;
     let path = objects
         .into_iter()
-        .find(|m| m.location.as_ref().ends_with(&suffix))
+        .find(|m| {
+            m.location.as_ref().ends_with(&suffix)
+                && generation_prefix(&m.location)
+                    .is_ok_and(|(_, generation)| generation == reference.generation())
+                && registry_id(&m.location).is_ok_and(|id| id == reference.registry())
+        })
         .context("tail index")?
         .location;
     let body = store.get(&path).await?.bytes().await?;
@@ -24,13 +29,10 @@ pub(super) async fn tail_index(
 
 fn entry_path(path: &Path, entry: &serde_json::Value) -> Result<Path> {
     let digest: Vec<u8> = serde_json::from_value(entry["object"]["digest"].clone())?;
-    let prefix = path
-        .as_ref()
-        .split("/tails/")
-        .next()
-        .context("tail prefix")?;
+    let (prefix, _) = generation_prefix(path)?;
     Ok(Path::from(format!(
-        "{prefix}/entries/{}-{}",
+        "{prefix}/generations/{}/entries/{}-{}",
+        entry["object"]["generation"],
         entry["object"]["length"],
         hex::encode(digest)
     )))
@@ -59,7 +61,7 @@ async fn write_tail(
         )
         .await?;
     Ok(serde_json::from_value(
-        serde_json::json!({"digest": digest, "length": bytes.len()}),
+        serde_json::json!({"registry": registry_id(original)?, "generation": generation_prefix(original)?.1, "digest": digest, "length": bytes.len()}),
     )?)
 }
 
@@ -105,11 +107,12 @@ pub(super) async fn enrollment_controls(rooted: bool) -> Result<()> {
     cluster.voters[2].paused = true;
     let store = archive_store::Store::new();
     let archive = new_archive(
+        &cluster,
         store.clone(),
         Path::from("tail-qualification"),
-        cluster.birth.route().history,
         Default::default(),
-    )?;
+    )
+    .await?;
     let sources = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
     let base = archive
         .upload_checkpoint(&cluster.domain, source(&sources, &cluster)?)
@@ -192,7 +195,7 @@ pub(super) async fn enrollment_controls(rooted: bool) -> Result<()> {
         )
         .await?;
     assert_eq!(recovered.manifest().marker(), current.marker());
-    assert_eq!(recovered.reference(), &reference);
+    assert_eq!(recovered.reference(), reference.reference());
     assert!(recovered.configuration().voters_outgoing.is_empty());
     assert_eq!(recovered.configuration().learners, vec![3]);
     assert_eq!(recovered.membership(), &expected_membership);
@@ -231,11 +234,12 @@ pub(super) async fn dependencies(rooted: bool) -> Result<()> {
         checkpoint_fixture::populate_images(rooted, true, false, 1, 8192).await?;
     let store = archive_store::Store::new();
     let archive = new_archive(
+        &cluster,
         store.clone(),
         Path::from("tail-qualification"),
-        cluster.birth.route().history,
         Default::default(),
-    )?;
+    )
+    .await?;
     let sources = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
     let base = archive
         .upload_checkpoint(&cluster.domain, source(&sources, &cluster)?)
@@ -366,11 +370,12 @@ pub(super) async fn warm_replay(rooted: bool) -> Result<()> {
         checkpoint_fixture::populate_images(rooted, true, false, 1, 8192).await?;
     let store = archive_store::Store::new();
     let archive = new_archive(
+        &cluster,
         store.clone(),
         Path::from("tail-warm"),
-        cluster.birth.route().history,
         Default::default(),
-    )?;
+    )
+    .await?;
     let sources = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
     let base = archive
         .upload_checkpoint(&cluster.domain, source(&sources, &cluster)?)
@@ -469,7 +474,7 @@ pub(super) async fn warm_replay(rooted: bool) -> Result<()> {
     body.extend(command);
     let digest: [u8; 32] = Sha256::digest(&body).into();
     let mut forged = original.clone();
-    forged["entries"][0]["object"] = serde_json::json!({"digest": digest, "length": body.len()});
+    forged["entries"][0]["object"] = serde_json::json!({"registry": original["entries"][0]["object"]["registry"], "generation": original["entries"][0]["object"]["generation"], "digest": digest, "length": body.len()});
     forged["bytes"] = serde_json::json!(body.len());
     let object = entry_path(&path, &forged["entries"][0])?;
     store.inner.put(&object, body.into()).await?;
@@ -546,11 +551,12 @@ pub(super) async fn physical_cancellation() -> Result<()> {
     let expected = checkpoint_fixture::enroll_images(&mut cluster, false, false, 1, 8192).await?;
     let store = archive_store::Store::new();
     let archive = new_archive(
+        &cluster,
         store,
         Path::from("tail-cancellation"),
-        cluster.birth.route().history,
         Default::default(),
-    )?;
+    )
+    .await?;
     let sources = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
     let base = archive
         .upload_checkpoint(&cluster.domain, source(&sources, &cluster)?)
@@ -666,11 +672,12 @@ pub(super) async fn extend_compacted(rooted: bool) -> Result<()> {
         checkpoint_fixture::populate_images(rooted, true, false, 1, 8192).await?;
     let store = archive_store::Store::new();
     let archive = new_archive(
+        &cluster,
         store.clone(),
         Path::from("tail-extension"),
-        cluster.birth.route().history,
         Default::default(),
-    )?;
+    )
+    .await?;
     let sources = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
     let base = archive
         .upload_checkpoint(&cluster.domain, source(&sources, &cluster)?)

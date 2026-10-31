@@ -21,13 +21,27 @@ use std::{fmt, sync::Arc};
 mod checkpoint;
 mod data_store;
 pub use data_store::CellGroupArchiveStore;
+mod collection;
+mod graph;
 mod objects;
+mod publication;
+pub use collection::{CellGroupArchiveCollectionLimits, CellGroupArchiveCollectionReport};
+pub use publication::{CellGroupArchiveCoverage, PreparedCellGroupArchivePublication};
+mod upload;
+pub use upload::{
+    CellGroupArchiveUpload, CellGroupArchiveUploadLimits, CellGroupArchiveUploadPool,
+};
+mod ownership;
+pub use ownership::{
+    CellGroupArchiveCreation, CellGroupArchiveHold, CellGroupArchiveIntent,
+    CellGroupArchiveRegistry, CellGroupArchiveUploadTicket, PreparedCellGroupArchiveCreation,
+};
 mod replay;
 mod tail;
 mod tail_admission;
 mod tail_codec;
 pub use replay::VerifiedCellGroupArchiveRecovery;
-pub use tail::CellGroupArchiveTailReference;
+pub use tail::{CellGroupArchiveTailReference, CellGroupArchiveUploadedTail};
 pub use tail_admission::{CellGroupArchiveTailLimits, CellGroupArchiveTailPool};
 
 const DOMAIN: &str = "cellar-cell-group-archive-checkpoint-1";
@@ -40,6 +54,10 @@ pub enum CellGroupArchiveError {
     Busy,
     Stopped,
     Timeout,
+    Conflict,
+    Expired,
+    Unconfirmed,
+    MissingRegistry,
     Checkpoint(CellGroupCheckpointError),
     Replay(crate::raft::execution::ExecutionError),
     Storage(object_store::Error),
@@ -129,11 +147,30 @@ pub struct CellGroupArchiveUsage {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CellGroupArchiveReference {
+    registry: [u8; 32],
+    generation: u64,
     digest: [u8; 32],
     length: u64,
 }
 
 impl CellGroupArchiveReference {
+    pub fn registry(&self) -> [u8; 32] {
+        self.registry
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    fn object(&self) -> objects::Object {
+        objects::Object {
+            registry: self.registry,
+            generation: self.generation,
+            digest: self.digest,
+            length: self.length,
+        }
+    }
+
     pub fn digest(&self) -> [u8; 32] {
         self.digest
     }

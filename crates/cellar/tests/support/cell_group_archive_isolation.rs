@@ -9,11 +9,12 @@ pub(super) async fn erased_voters(rooted: bool) -> Result<()> {
         checkpoint_fixture::populate_images(rooted, true, false, 1, 8192).await?;
     let remote = archive_store::Store::new();
     let archive = new_archive(
+        &cluster,
         remote,
         Path::from("erased-voters"),
-        cluster.birth.route().history,
         Default::default(),
-    )?;
+    )
+    .await?;
     let sources = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
     let base = archive
         .upload_checkpoint(&cluster.domain, source(&sources, &cluster)?)
@@ -39,7 +40,8 @@ pub(super) async fn erased_voters(rooted: bool) -> Result<()> {
     let tails = CellGroupArchiveTailPool::new(Default::default())?;
     let reference = archive
         .upload_tail(&cluster.domain, &tails, &base, &group, &current)
-        .await?;
+        .await?
+        .into_reference();
     // No source physical pin, open GroupLog or voter survives the disk erasure.
     drop(current);
     drop(group);
@@ -141,11 +143,12 @@ pub(super) async fn moving_cut(rooted: bool) -> Result<()> {
         checkpoint_fixture::populate_images(rooted, true, false, 1, 8192).await?;
     let remote = archive_store::Store::new();
     let archive = new_archive(
+        &cluster,
         remote.clone(),
         Path::from("moving-cut"),
-        cluster.birth.route().history,
         Default::default(),
-    )?;
+    )
+    .await?;
     let sources = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
     let original = source(&sources, &cluster)?;
     let marker = original.marker().clone();

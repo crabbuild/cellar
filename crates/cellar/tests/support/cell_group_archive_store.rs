@@ -21,7 +21,10 @@ pub struct Store {
     pub inner: Arc<memory::InMemory>,
     pub puts: AtomicUsize,
     pub lose_put_response: AtomicBool,
-    held: Mutex<Option<(Path, Arc<Gate>)>>,
+    pub deletes: AtomicUsize,
+    pub lose_delete_response: AtomicBool,
+    held: Mutex<Option<(Path, usize, Arc<Gate>)>>,
+    held_delete: Mutex<Option<(Path, Arc<Gate>)>>,
 }
 
 impl Store {
@@ -30,13 +33,26 @@ impl Store {
             inner: Arc::new(memory::InMemory::new()),
             puts: AtomicUsize::new(0),
             lose_put_response: AtomicBool::new(false),
+            deletes: AtomicUsize::new(0),
+            lose_delete_response: AtomicBool::new(false),
             held: Mutex::new(None),
+            held_delete: Mutex::new(None),
         })
     }
 
     pub fn hold(&self, path: Path) -> Arc<Gate> {
+        self.hold_after(path, 0)
+    }
+
+    pub fn hold_after(&self, path: Path, puts: usize) -> Arc<Gate> {
         let gate = Arc::new(Gate::default());
-        *self.held.lock().unwrap() = Some((path, gate.clone()));
+        *self.held.lock().unwrap() = Some((path, puts, gate.clone()));
+        gate
+    }
+
+    pub fn hold_delete(&self, path: Path) -> Arc<Gate> {
+        let gate = Arc::new(Gate::default());
+        *self.held_delete.lock().unwrap() = Some((path, gate.clone()));
         gate
     }
 
@@ -84,8 +100,8 @@ impl ObjectStore for Store {
             .lock()
             .unwrap()
             .as_ref()
-            .filter(|(held, _)| held == path)
-            .map(|(_, gate)| gate.clone());
+            .filter(|(held, puts, _)| held == path && self.puts.load(Ordering::Acquire) >= *puts)
+            .map(|(_, _, gate)| gate.clone());
         if let Some(gate) = gate {
             gate.entered.notify_one();
             gate.release.notified().await;
@@ -94,7 +110,26 @@ impl ObjectStore for Store {
     }
 
     async fn delete(&self, path: &Path) -> Result<()> {
-        self.inner.delete(path).await
+        self.deletes.fetch_add(1, Ordering::AcqRel);
+        let gate = self
+            .held_delete
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|(held, _)| held == path)
+            .map(|(_, gate)| gate.clone());
+        if let Some(gate) = gate {
+            gate.entered.notify_one();
+            gate.release.notified().await;
+        }
+        self.inner.delete(path).await?;
+        if self.lose_delete_response.swap(false, Ordering::AcqRel) {
+            return Err(Error::Generic {
+                store: "lost DELETE response",
+                source: "injected".into(),
+            });
+        }
+        Ok(())
     }
 
     fn list(&self, prefix: Option<&Path>) -> BoxStream<'static, Result<ObjectMeta>> {

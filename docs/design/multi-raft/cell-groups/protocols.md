@@ -520,8 +520,10 @@ root under the cache read lock, then encodes/uploads without that lock. Entries
 have bounded canonical framing, including context and sync metadata. The complete
 tail index names the original checkpoint, every immutable entry object, and the
 final root/configuration/permanent membership. Missing ranges, unsupported types,
-invalid cuts and configured byte/entry/cell limits refuse. Upload still returns
-an untrusted locator rather than coverage authority.
+invalid cuts and configured byte/entry/cell limits refuse. Upload returns a typed
+`CellGroupArchiveUploadedTail` retaining the exact committed-source observation.
+Its persistent reference remains an untrusted locator. `into_reference` discards
+the local source witness; deserializing a locator cannot recreate that witness.
 
 `extend_tail` reuses an existing archived prefix and captures only the local
 suffix after its cut. Its flattened index directly names the original checkpoint
@@ -560,11 +562,93 @@ manifest roots: cloning `PreparedGroupManifest` does not clone its parent archiv
 admission. Controller ownership propagation and private-cache maintenance require
 CG-08 qualification before managed integration.
 
-This remains data-only recovery through an independent physical storage owner.
-Published/GC-protected archive coverage, S3 settlement/outage admission,
-archive-aware file reclamation and fenced fresh-incarnation seeding remain CG-06
-work. The task scope now explicitly includes the shared checkpoint/engine fixture
-changes and new transition/tail modules; all required cases and oracles are kept.
+The physical verifier remains data-only. CG-06's separate publication owner now
+combines that proof with the exact committed source and persistent remote ownership.
+S3 command settlement/outage admission, local Raft file reclamation and fenced
+fresh-incarnation seeding remain unfinished; no required task oracle is changed.
+
+### Protected publication and remote collection
+
+A node shares one `CellGroupArchiveUploadPool` for upload maps, source witnesses
+and collector marks, alongside the existing I/O, checkpoint and tail pools. Its
+explicit byte/object/owner bounds include inherited-key lookup maps and compact
+collection candidates. Clones retain their admission. Source-witness admission is
+held until its final clone closes, independently of the asynchronous upload job.
+
+Fresh registry initialization uses a one-use, non-deserializable
+`PreparedCellGroupArchiveCreation`. Persist its entire `intent()` in the durable
+authoritative owner before commit. Opening requires that exact expected creation
+identity; never discover and adopt a replacement mutable identity on restart.
+Established identity/state loss refuses admission. A lost identity-create reply
+with no complete state requires authority recovery; it cannot reset counters.
+Controller/catalog integration must durably bind this expected identity before
+archive use and make it recoverable without the voter disks. That integration is
+still required before production activation or disaster recovery.
+
+Persist each allocation intent before CAS and retry only that exact intent after
+an uncertain outcome. Its registry, next revision, nonce and complete operation
+form its identity. Definite conflicts can expire it. Live exact results reconcile
+a lost reply even after unrelated registry changes; retired/aborted results never
+reappear. Revision exhaustion refuses. Registry records are bounded to 64 KiB,
+eight pending generations and 64 explicit holds. These are simultaneous bounds;
+retirement permits continued lifetime churn without growing tombstone lists.
+
+A reservation protects its never-reused upload generation and its exact selected
+parent, atomically at allocation. New object keys include both the registry ID
+and generation. Reuse is restricted to exact objects in that protected parent
+closure, with GET verification; an arbitrary old content address cannot be
+resurrected. Binding checks every inherited key even after successful physical
+replay. Dropping a local handle never releases a remote reservation or hold. No
+unknown owner expires by wall time. A replaced process must be fenced before its
+persisted allocation can be shared or retired.
+
+Tail capture seals a local committed-source witness with the real engine owner,
+root, configuration and permanent membership before asynchronous upload. Source
+writes and local checkpoint compaction may advance afterward. Publication
+rechecks that sealed prefix against the live source, independently recovers the
+entire immutable checkpoint/tail and matches its complete cut to the witness.
+Neither a raw locator, a private archive root nor a serialized publication intent
+can replace the source witness for a new publication.
+
+`prepare_publication` writes an immutable root descriptor in the pending generation
+and prepares one exact publication intent. Persist it before `commit`. One CAS
+consumes the reservation, selects the non-regressing complete root and allocates
+an explicit remote hold; independent readback confirms the exact result. Equal
+indices require the same complete marker, and terms cannot regress. A later peer
+mutation does not invalidate a still-live exact result. Lost readback/cancellation
+leaves its intent for explicit reconciliation; it never allocates another hold
+or silently substitutes a newer mutable head. Reconciliation only finds an
+already-published hold and independently recovers that exact immutable root.
+
+Readers acquire and persist their own independent hold before downloading a
+selected root. `verify_hold` reads that exact closure and rechecks its hold before
+returning `CellGroupArchiveCoverage`. Clones keep local pins/admission; remote
+retirement is explicit, after the durable owner retires/fences all uses and joins
+entered work. A predecessor's late release cannot revoke a replacement's distinct
+hold. Coverage is historical data durability, without current quorum, serving,
+membership or disaster-recovery authorization. S3 command output settlement
+still needs its operation-specific receipt/version and current routing checks.
+
+Remote collection snapshots one conditional registry revision, selected roots,
+explicit holds, pending parents and pending generations. It expands every root's
+exact dependency keys and downloads/hashes every marked object before issuing
+any DELETE. Missing/corrupt protected data or metadata refuses the entire mark.
+Collection excludes marked keys, complete pending generations and generations
+newer than its watermark. New reservations can inherit only already-protected
+parents; retired generations cannot be rebound. Thus concurrent publication
+cannot resurrect an unmarked object, and a delayed DELETE cannot erase a new
+copy of identical content under another generation. Unknown DELETE outcomes may
+be retried against the same permanently obsolete key. Control identities,
+registries, other groups and legacy namespaces are never collection candidates.
+Scans/deletions and compact candidate inventories have explicit limits.
+
+This remote object collection does not authorize local shared-engine Raft file
+purge. Controller ownership reconciliation, private-cache maintenance, S3
+settlement with bounded unarchived bytes, immutable source birth/fence inventory,
+fresh group/cell incarnations and fresh-quorum serving remain required. The
+fencing inventory must cover every possible old voting lineage, including joins
+after the selected archived cut. Real RustFS, Docker fencing and measured-load
+qualification remain later gates.
 
 ## Split and merge
 

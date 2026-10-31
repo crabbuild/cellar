@@ -17,10 +17,15 @@ pub use crate::raft::transport::{
 mod apply;
 mod archive;
 pub use archive::{
-    CellGroupArchive, CellGroupArchiveCheckpointReceiver, CellGroupArchiveError,
-    CellGroupArchiveLimits, CellGroupArchivePool, CellGroupArchiveReference, CellGroupArchiveStore,
-    CellGroupArchiveTailLimits, CellGroupArchiveTailPool, CellGroupArchiveTailReference,
-    CellGroupArchiveUsage, PreparedCellGroupArchiveCheckpoint, VerifiedCellGroupArchiveCheckpoint,
+    CellGroupArchive, CellGroupArchiveCheckpointReceiver, CellGroupArchiveCollectionLimits,
+    CellGroupArchiveCollectionReport, CellGroupArchiveCoverage, CellGroupArchiveCreation,
+    CellGroupArchiveError, CellGroupArchiveHold, CellGroupArchiveIntent, CellGroupArchiveLimits,
+    CellGroupArchivePool, CellGroupArchiveReference, CellGroupArchiveRegistry,
+    CellGroupArchiveStore, CellGroupArchiveTailLimits, CellGroupArchiveTailPool,
+    CellGroupArchiveTailReference, CellGroupArchiveUpload, CellGroupArchiveUploadLimits,
+    CellGroupArchiveUploadPool, CellGroupArchiveUploadTicket, CellGroupArchiveUploadedTail,
+    CellGroupArchiveUsage, PreparedCellGroupArchiveCheckpoint, PreparedCellGroupArchiveCreation,
+    PreparedCellGroupArchivePublication, VerifiedCellGroupArchiveCheckpoint,
     VerifiedCellGroupArchiveRecovery,
 };
 pub(crate) mod checkpoint;

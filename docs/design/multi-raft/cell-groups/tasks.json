@@ -1740,7 +1740,15 @@
         "crates/cellar/tests/support/cell_group_archive_tail.rs",
         "crates/cellar/durability/raft/cell_groups/archive/data_store.rs",
         "crates/cellar/durability/raft/cell_groups/checkpoint/receive_archive.rs",
-        "crates/cellar/tests/support/cell_group_archive_isolation.rs"
+        "crates/cellar/tests/support/cell_group_archive_isolation.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/collection.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/graph.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/publication.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/upload.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/ownership/mod.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/ownership/state.rs",
+        "crates/cellar/durability/raft/cell_groups/archive/ownership/wire.rs",
+        "crates/cellar/tests/support/cell_group_archive_publication.rs"
       ],
       "test_target": "native_cell_groups_archive",
       "steps": [

@@ -20,6 +20,8 @@ mod fault;
 mod images;
 #[path = "support/cell_group_archive_isolation.rs"]
 mod isolation_fixture;
+#[path = "support/cell_group_archive_publication.rs"]
+mod publication_fixture;
 #[path = "support/cell_group_archive_tail.rs"]
 mod tail_fixture;
 
@@ -74,6 +76,54 @@ async fn archive_data_recovers_after_all_voter_disks_erased() -> Result<()> {
 async fn archive_verification_isolated_from_serving_cut() -> Result<()> {
     for rooted in [false, true] {
         isolation_fixture::moving_cut(rooted).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_head_requires_complete_committed_source() -> Result<()> {
+    for rooted in [false, true] {
+        publication_fixture::complete_source_cut(rooted).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_gc_retains_holds_and_pending_parents() -> Result<()> {
+    for rooted in [false, true] {
+        publication_fixture::holds_and_pending_parents(rooted).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_publication_reconciles_exact_uncertain_intent() -> Result<()> {
+    for rooted in [false, true] {
+        publication_fixture::uncertain_publication(rooted).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_delayed_delete_cannot_erase_new_generation() -> Result<()> {
+    for rooted in [false, true] {
+        publication_fixture::delayed_delete(rooted).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_registry_refuses_reset_and_expired_intents() -> Result<()> {
+    for rooted in [false, true] {
+        publication_fixture::registry_identity_and_intents(rooted).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_upload_owners_bound_source_witness_lifetimes() -> Result<()> {
+    for rooted in [false, true] {
+        publication_fixture::source_owner_lifetimes(rooted).await?;
     }
     Ok(())
 }
@@ -195,13 +245,123 @@ fn source(pool: &CellGroupCheckpointPool, cluster: &Cluster) -> Result<CellGroup
     )?)
 }
 
-fn new_archive(
+async fn new_archive(
+    cluster: &Cluster,
     store: Arc<dyn ObjectStore>,
     prefix: Path,
-    history: GroupHistory,
     limits: CellGroupArchiveLimits,
-) -> Result<CellGroupArchive> {
-    Ok(CellGroupArchivePool::new(limits)?.for_group(store, prefix, history)?)
+) -> Result<CellGroupArchiveUpload> {
+    let label = prefix.as_ref().to_owned();
+    let archive = CellGroupArchivePool::new(limits)?.for_group(
+        store,
+        prefix,
+        cluster.birth.route().history,
+    )?;
+    start_upload(cluster, &archive, &label).await
+}
+
+async fn persist_archive_intent<T: serde::Serialize + serde::de::DeserializeOwned>(
+    cluster: &Cluster,
+    intent: &T,
+) -> Result<T> {
+    let bytes = serde_json::to_vec(intent)?;
+    let name = hex::encode(Sha256::digest(&bytes));
+    let directory = cluster._root.path().join("archive-intents");
+    let loaded = cluster
+        .domain
+        .blocking(move || -> Result<Vec<u8>> {
+            use std::io::Write;
+            std::fs::create_dir_all(&directory)?;
+            let path = directory.join(name);
+            let mut file = std::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&path)?;
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+            std::fs::File::open(&directory)?.sync_all()?;
+            Ok(std::fs::read(path)?)
+        })?
+        .await??;
+    Ok(serde_json::from_slice(&loaded)?)
+}
+
+async fn start_upload(
+    cluster: &Cluster,
+    archive: &CellGroupArchive,
+    label: &str,
+) -> Result<CellGroupArchiveUpload> {
+    let binding = cluster._root.path().join(format!(
+        "archive-binding-{}.json",
+        hex::encode(Sha256::digest(label.as_bytes()))
+    ));
+    let existing = cluster
+        .domain
+        .blocking({
+            let binding = binding.clone();
+            move || std::fs::read(binding)
+        })?
+        .await?;
+    let registry = match existing {
+        Ok(bytes) => {
+            let creation: CellGroupArchiveCreation = serde_json::from_slice(&bytes)?;
+            archive.open_registry(&cluster.domain, &creation).await?
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let prepared = archive
+                .prepare_registry_creation(&cluster.domain, cluster.birth.route().clone())
+                .await?;
+            let creation = persist_archive_intent(cluster, prepared.intent()).await?;
+            assert_eq!(prepared.intent(), &creation);
+            let bytes = serde_json::to_vec(&creation)?;
+            cluster
+                .domain
+                .blocking(move || -> Result<()> {
+                    use std::io::Write;
+                    let mut file = std::fs::OpenOptions::new()
+                        .create_new(true)
+                        .write(true)
+                        .open(&binding)?;
+                    file.write_all(&bytes)?;
+                    file.sync_all()?;
+                    std::fs::File::open(binding.parent().context("binding directory")?)?
+                        .sync_all()?;
+                    Ok(())
+                })?
+                .await??;
+            prepared.commit(&cluster.domain).await?
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let intent = registry.prepare_upload(&cluster.domain).await?;
+    let intent = persist_archive_intent(cluster, &intent).await?;
+    let ticket = registry.reserve(&cluster.domain, &intent).await?;
+    let owners = CellGroupArchiveUploadPool::new(Default::default())?;
+    let tails = CellGroupArchiveTailPool::new(Default::default())?;
+    Ok(registry
+        .open_upload(&cluster.domain, &owners, &ticket, &tails)
+        .await?)
+}
+
+fn registry_id(path: &Path) -> Result<[u8; 32]> {
+    let relative = path
+        .as_ref()
+        .split_once("/registries/")
+        .context("registry path")?
+        .1;
+    let id = relative.split('/').next().context("registry ID")?;
+    let mut registry = [0; 32];
+    hex::decode_to_slice(id, &mut registry)?;
+    Ok(registry)
+}
+
+fn generation_prefix(path: &Path) -> Result<(&str, u64)> {
+    let (prefix, relative) = path
+        .as_ref()
+        .split_once("/generations/")
+        .context("generation prefix")?;
+    let generation = relative.split('/').next().context("generation")?.parse()?;
+    Ok((prefix, generation))
 }
 
 async fn index(
@@ -216,7 +376,12 @@ async fn index(
     let objects: Vec<_> = store.list(None).try_collect().await?;
     let path = objects
         .into_iter()
-        .find(|m| m.location.as_ref().ends_with(&suffix))
+        .find(|m| {
+            m.location.as_ref().ends_with(&suffix)
+                && generation_prefix(&m.location)
+                    .is_ok_and(|(_, generation)| generation == reference.generation())
+                && registry_id(&m.location).is_ok_and(|id| id == reference.registry())
+        })
         .context("checkpoint index object")?
         .location;
     let bytes = store.get(&path).await?.bytes().await?;
@@ -224,7 +389,7 @@ async fn index(
 }
 
 fn cell_objects(index_path: &Path, index: &serde_json::Value, cell: &str) -> Vec<Path> {
-    let prefix = index_path.as_ref().split("/indexes/").next().unwrap();
+    let (prefix, _) = generation_prefix(index_path).unwrap();
     index["chunks"]
         .as_array()
         .unwrap()
@@ -234,7 +399,8 @@ fn cell_objects(index_path: &Path, index: &serde_json::Value, cell: &str) -> Vec
             let digest: Vec<u8> =
                 serde_json::from_value(chunk["object"]["digest"].clone()).unwrap();
             Path::from(format!(
-                "{prefix}/chunks/{}-{}",
+                "{prefix}/generations/{}/chunks/{}-{}",
+                chunk["object"]["generation"],
                 chunk["object"]["length"],
                 hex::encode(digest)
             ))
@@ -249,11 +415,12 @@ async fn checkpoint_archive_roundtrip_and_reuse() -> Result<()> {
             checkpoint_fixture::populate_images(rooted, true, false, 1, 8192).await?;
         let store = archive_store::Store::new();
         let archive = new_archive(
+            &cluster,
             store.clone(),
             Path::from("qualification"),
-            cluster.birth.route().history,
             Default::default(),
-        )?;
+        )
+        .await?;
         let sources = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
         store.lose_put_response.store(true, Ordering::Release);
         let original = archive
@@ -373,7 +540,8 @@ async fn checkpoint_archive_limits_and_cancelled_receiver() -> Result<()> {
                 ..Default::default()
             },
         ] {
-            let limited = new_archive(store.clone(), Path::from("limited"), history, limits)?;
+            let limited =
+                new_archive(&cluster, store.clone(), Path::from("limited"), limits).await?;
             assert!(matches!(
                 limited
                     .upload_checkpoint(&cluster.domain, source(&sources, &cluster)?)
@@ -403,6 +571,7 @@ async fn checkpoint_archive_limits_and_cancelled_receiver() -> Result<()> {
                 ..history
             },
         )?;
+        let archive = start_upload(&cluster, &archive, "qualification").await?;
         let reference = archive
             .upload_checkpoint(&cluster.domain, source(&sources, &cluster)?)
             .await?;
@@ -474,14 +643,15 @@ async fn checkpoint_archive_limits_and_cancelled_receiver() -> Result<()> {
         // A blocked GET is bounded by the configured complete-object deadline.
         let gate = store.hold(path);
         let timed = new_archive(
+            &cluster,
             store.clone(),
             Path::from("qualification"),
-            history,
             CellGroupArchiveLimits {
                 io_timeout_ms: 20,
                 ..Default::default()
             },
-        )?;
+        )
+        .await?;
         assert!(matches!(
             timed
                 .verify_checkpoint(
@@ -516,11 +686,12 @@ async fn checkpoint_archive_missing_or_corrupt_cell_refuses() -> Result<()> {
         .await?;
         let store = archive_store::Store::new();
         let archive = new_archive(
+            &cluster,
             store.clone(),
             Path::from("qualification"),
-            cluster.birth.route().history,
             Default::default(),
-        )?;
+        )
+        .await?;
         let sources = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
         let reference = archive
             .upload_checkpoint(&cluster.domain, source(&sources, &cluster)?)
@@ -588,7 +759,7 @@ async fn forged_index(
     let bytes = serde_json::to_vec(value)?;
     let digest: [u8; 32] = Sha256::digest(&bytes).into();
     let reference = serde_json::from_value(serde_json::json!({
-        "digest": digest, "length": bytes.len(),
+        "registry": registry_id(original_path)?, "generation": generation_prefix(original_path)?.1, "digest": digest, "length": bytes.len(),
     }))?;
     let prefix = original_path
         .as_ref()
@@ -611,11 +782,12 @@ async fn checkpoint_archive_untrusted_index_and_cut_binding() -> Result<()> {
             checkpoint_fixture::populate_images(rooted, true, false, 1, 8192).await?;
         let store = archive_store::Store::new();
         let archive = new_archive(
+            &cluster,
             store.clone(),
             Path::from("qualification"),
-            cluster.birth.route().history,
             Default::default(),
-        )?;
+        )
+        .await?;
         let sources = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
         let reference = archive
             .upload_checkpoint(&cluster.domain, source(&sources, &cluster)?)
@@ -676,7 +848,7 @@ async fn checkpoint_archive_untrusted_index_and_cut_binding() -> Result<()> {
         }
         for length in [0, u64::MAX] {
             let invalid = serde_json::from_value(
-                serde_json::json!({"digest": reference.digest(), "length": length}),
+                serde_json::json!({"registry": reference.registry(), "generation": reference.generation(), "digest": reference.digest(), "length": length}),
             )?;
             assert!(matches!(
                 archive

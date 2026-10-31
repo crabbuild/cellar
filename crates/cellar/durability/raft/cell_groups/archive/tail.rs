@@ -12,17 +12,63 @@ const TAIL_DOMAIN: &str = "cellar-cell-group-archive-tail-1";
 #[serde(deny_unknown_fields)]
 /// An untrusted immutable-tail locator; recovery must verify its entire closure.
 pub struct CellGroupArchiveTailReference {
+    registry: [u8; 32],
+    generation: u64,
     digest: [u8; 32],
     length: u64,
 }
 
 impl CellGroupArchiveTailReference {
+    pub fn registry(&self) -> [u8; 32] {
+        self.registry
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    pub(super) fn object(&self) -> Object {
+        Object {
+            registry: self.registry,
+            generation: self.generation,
+            digest: self.digest,
+            length: self.length,
+        }
+    }
+
     pub fn digest(&self) -> [u8; 32] {
         self.digest
     }
 
     pub fn length(&self) -> u64 {
         self.length
+    }
+}
+
+/// An upload's exact committed-source witness, captured before asynchronous I/O.
+/// This value cannot be deserialized. Persist its untrusted reference separately;
+/// publication needs this witness or reconciliation of an existing publication.
+#[derive(Clone)]
+pub struct CellGroupArchiveUploadedTail {
+    reference: CellGroupArchiveTailReference,
+    pub(super) source: Arc<super::publication::SourceCut>,
+}
+
+impl CellGroupArchiveUploadedTail {
+    pub fn reference(&self) -> &CellGroupArchiveTailReference {
+        &self.reference
+    }
+
+    pub fn into_reference(self) -> CellGroupArchiveTailReference {
+        self.reference
+    }
+}
+
+impl std::ops::Deref for CellGroupArchiveUploadedTail {
+    type Target = CellGroupArchiveTailReference;
+
+    fn deref(&self) -> &Self::Target {
+        &self.reference
     }
 }
 
@@ -60,21 +106,21 @@ impl Cut {
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Tail {
+pub(super) struct Tail {
     domain: String,
-    checkpoint: CellGroupArchiveReference,
-    base: GroupManifest,
-    cut: Cut,
+    pub checkpoint: CellGroupArchiveReference,
+    pub base: GroupManifest,
+    pub cut: Cut,
     bytes: u64,
-    entries: Vec<EntryObject>,
+    pub entries: Vec<EntryObject>,
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct EntryObject {
+pub(super) struct EntryObject {
     index: u64,
     term: u64,
-    object: Object,
+    pub object: Object,
 }
 
 impl Tail {
@@ -127,9 +173,9 @@ impl Tail {
 }
 
 struct Capture {
-    cut: Cut,
+    pub cut: Cut,
     entries: Vec<(u64, u64, Vec<u8>)>,
-    _root: PreparedGroupManifest,
+    authority: Arc<super::publication::SourceCut>,
 }
 
 fn capture(
@@ -137,6 +183,7 @@ fn capture(
     base: &GroupManifest,
     current: PreparedGroupManifest,
     limits: CellGroupArchiveTailLimits,
+    source_budget: Arc<Budget>,
 ) -> Result<Capture> {
     if !Arc::ptr_eq(&group.owner, &current.engine_owner)
         || base.route() != current.marker().route()
@@ -184,6 +231,8 @@ fn capture(
             .map_err(|_| CellGroupArchiveError::Invalid("tail configuration encoding"))?,
         membership: cache.membership.clone(),
     };
+    let configuration = cache.conf_state.clone();
+    let membership = cache.membership.clone();
     drop(cache); // No engine/cache lock across encoding or physical/S3 work.
     cut.validate(group.identity().scope, limits)?;
     current.images.visit(&mut |_, _, pin, _, _| -> Result<()> {
@@ -192,6 +241,41 @@ fn capture(
         }
         Ok(())
     })?;
+    let mut source_bytes = current
+        .reserved_bytes()
+        .checked_add(
+            cut.conf
+                .len()
+                .checked_mul(4)
+                .ok_or(CellGroupArchiveError::Limit)?,
+        )
+        .and_then(|n| n.checked_add(64 * 1024))
+        .ok_or(CellGroupArchiveError::Limit)?;
+    source_bytes = source_bytes
+        .checked_add(
+            serde_json::to_vec(&cut.membership)
+                .map_err(|_| CellGroupArchiveError::Limit)?
+                .len()
+                .checked_mul(4)
+                .ok_or(CellGroupArchiveError::Limit)?,
+        )
+        .ok_or(CellGroupArchiveError::Limit)?;
+    current.images.visit(&mut |_, _, pin, _, _| -> Result<()> {
+        if let super::super::CellImagePin::Extents(pin) = pin {
+            source_bytes = source_bytes
+                .checked_add(
+                    (pin.reference().encoded_length() as usize)
+                        .checked_mul(2)
+                        .ok_or(CellGroupArchiveError::Limit)?,
+                )
+                .ok_or(CellGroupArchiveError::Limit)?;
+        }
+        Ok(())
+    })?;
+    let source_reservation = source_budget
+        .acquire(source_bytes)
+        .map(Arc::new)
+        .ok_or(CellGroupArchiveError::Busy)?;
     let entries = entries
         .iter()
         .map(|entry| {
@@ -205,7 +289,13 @@ fn capture(
     Ok(Capture {
         cut,
         entries,
-        _root: current,
+        authority: Arc::new(super::publication::SourceCut::from_capture(
+            group,
+            current,
+            configuration,
+            membership,
+            source_reservation,
+        )),
     })
 }
 
@@ -222,7 +312,7 @@ impl Drop for Stop {
     }
 }
 
-impl CellGroupArchive {
+impl CellGroupArchiveUpload {
     /// Copy an exact contiguous committed suffix under the engine cache lock,
     /// then upload immutable entry objects without holding that lock. This
     /// returns an untrusted locator; all base bytes and replay must still verify.
@@ -233,7 +323,7 @@ impl CellGroupArchive {
         checkpoint: &CellGroupArchiveReference,
         group: &GroupLog<GroupHistory>,
         current: &PreparedGroupManifest,
-    ) -> Result<CellGroupArchiveTailReference> {
+    ) -> Result<CellGroupArchiveUploadedTail> {
         self.upload_from(domain, pool, Origin::Checkpoint(checkpoint), group, current)
             .await
     }
@@ -249,7 +339,7 @@ impl CellGroupArchive {
         previous: &CellGroupArchiveTailReference,
         group: &GroupLog<GroupHistory>,
         current: &PreparedGroupManifest,
-    ) -> Result<CellGroupArchiveTailReference> {
+    ) -> Result<CellGroupArchiveUploadedTail> {
         self.upload_from(domain, pool, Origin::Tail(previous), group, current)
             .await
     }
@@ -261,10 +351,11 @@ impl CellGroupArchive {
         origin: Origin<'_>,
         group: &GroupLog<GroupHistory>,
         current: &PreparedGroupManifest,
-    ) -> Result<CellGroupArchiveTailReference> {
+    ) -> Result<CellGroupArchiveUploadedTail> {
         domain
             .run(async {
                 let io = self.admit()?;
+                self.registry().pending(&self.ticket()).await?;
                 let retention = pool.admit()?;
                 let limits = pool.limits;
                 let (checkpoint, base, worker_base, prefix, prefix_bytes) = match origin {
@@ -297,10 +388,11 @@ impl CellGroupArchive {
                 let root = current.clone();
                 let retained = retention.clone();
                 let retained_io = io.clone();
+                let source_budget = self.source_budget();
                 let captured = domain
                     .blocking(move || {
                         let (_retained, _io) = (retained, retained_io);
-                        capture(group, &worker_base, root, limits)
+                        capture(group, &worker_base, root, limits, source_budget)
                     })
                     .map_err(|_| CellGroupArchiveError::Stopped)?
                     .await
@@ -362,16 +454,23 @@ impl CellGroupArchive {
                 let object = self
                     .put("tails", encoded, self.limits.max_index_bytes)
                     .await?;
-                Ok(CellGroupArchiveTailReference {
-                    digest: object.digest,
-                    length: object.length,
+                Ok(CellGroupArchiveUploadedTail {
+                    reference: CellGroupArchiveTailReference {
+                        registry: object.registry,
+                        generation: object.generation,
+                        digest: object.digest,
+                        length: object.length,
+                    },
+                    source: captured.authority,
                 })
             })
             .await
             .map_err(|_| CellGroupArchiveError::Stopped)?
     }
+}
 
-    async fn read_tail_index(
+impl CellGroupArchive {
+    pub(super) async fn read_tail_index(
         &self,
         domain: &ExecutionDomain,
         reference: &CellGroupArchiveTailReference,
@@ -383,6 +482,8 @@ impl CellGroupArchive {
             .get(
                 "tails",
                 &Object {
+                    registry: reference.registry,
+                    generation: reference.generation,
                     digest: reference.digest,
                     length: reference.length,
                 },
