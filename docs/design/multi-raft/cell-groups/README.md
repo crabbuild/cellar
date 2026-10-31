@@ -7,8 +7,10 @@ CG-01 contracts, CG-02 storage, CG-03 routing/admission preparation and
 CG-04 shared execution have passed their scoped local evidence gates.
 CG-05 is in progress: checkpoint capture, receiver verification, atomic storage
 installation, exact Raft Ready acceptance, local publication and native Raft-generated
-catch-up pass their scoped regression gates. Authenticated snapshot RPC, automated
-controller lifecycle and membership recovery remain open. The production host has not yet cut over to shared groups.
+catch-up, authenticated snapshot RPC and automatic controller checkpoint policy
+pass their scoped regression gates. Durable joint membership and leadership handoff
+also pass a partial gate. Fresh learner bootstrap and lost-disk replacement are the
+next feature priorities. The production host has not yet cut over to shared groups.
 See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.
 
@@ -55,7 +57,10 @@ CG-05's partial source checkpoint is retained in
 `.cellar/cell-groups-evidence/CG-05-checkpoint-receiver/`, followed by owner/runtime
 acceptance in `.cellar/cell-groups-evidence/CG-05-snapshot-owner/`. These partial
 checkpoints and local publication in
-`.cellar/cell-groups-evidence/CG-05-local-checkpoint/` do not complete CG-05.
+`.cellar/cell-groups-evidence/CG-05-local-checkpoint/`, authenticated transport in
+`.cellar/cell-groups-evidence/CG-05-snapshot-transport/`, automatic policy in
+`.cellar/cell-groups-evidence/CG-05-controller-checkpoints/` and membership in
+`.cellar/cell-groups-evidence/CG-05-group-membership/` do not complete CG-05.
 The design, task briefs and validator unit tests are committed in this package.
 
 ```sh

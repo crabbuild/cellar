@@ -32,8 +32,9 @@ Exact Raft snapshot acceptance and persistence now pass their owner/runtime gate
 Local checkpoint publication and native Raft-generated catch-up now pass their
 partial gate. Authenticated checkpoint streams now pass their partial transport gate.
 Automatic entry-count checkpointing at controller apply boundaries now passes its
-partial gate. Continue with scheduler/persistence pressure qualification, then
-whole-group membership and lost-disk recovery.
+partial gate. Durable whole-group membership and leadership handoff now pass
+an additional partial gate. Continue with fresh learner bootstrap and lost-disk
+replacement; retain the remaining pressure/fault checks in the full CG-05 gate.
 CG-06 follows with archival reclamation. Automatic
 production request/voter startup and public SDK/fleet binding belong to CG-07;
 effects/cache lifecycle belong to CG-08, and final legacy removal to CG-16. Track
@@ -85,6 +86,24 @@ ordinary request pressure; transport ownership lasts through feedback admission
 or shutdown. The wire acknowledgement remains admission only. See
 [progress](progress.md) for exact limits and retained intermediate diagnostics.
 
+The latest membership checkpoint at `1814b278` passes 233 selected Rust
+cases, 8 gate commands and 37 validator tests. Its record under
+`.cellar/cell-groups-evidence/CG-05-group-membership/` binds 310 source hashes
+and 5 copied executables. Route/revision-bound configuration entries atomically
+sync membership/configuration and the unchanged complete cell root before live
+Raft changes. Learner bindings, promotion checks, explicit/automatic joint changes,
+leader handoff, demotion fencing and retryable discovery lag are implemented.
+Two real-TCP controller cases cover both image forms; a third holds configuration
+sync through continued operation and cancelled/joined shutdown. Automatic joint
+leave now replicates immediately without another write or tick.
+
+Fresh learner 4 is intentionally not started: seed admission and lost-disk rebuild
+remain the next feature-critical work. Metadata reopen is not complete physical
+recovery or serving permission. Existing bootstrap permits still require birth
+membership. Preserve all five CG-05 cases, outstanding crash/pressure cuts and
+shared RustFS/load qualification. See [progress](progress.md) for exact evidence
+and the retained intermediate failures.
+
 The latest controller checkpoint at `c27dfb41` passes 230 selected Rust
 cases, 8 gate commands and 37 validator tests. Its record under
 `.cellar/cell-groups-evidence/CG-05-controller-checkpoints/` binds 308 source
@@ -100,9 +119,9 @@ The three new cases prove repeated compaction across two groups in both image
 forms and progress/recovery while the checkpoint pool is saturated. The policy
 retains the final idle tail. Continuous-saturation fairness, exhausted apply and
 completion budgets, held sync/cancelled close, checkpoint failure/quarantine capacity
-and retained-root pressure are the critical next qualification gaps. Follow with
-receiver crash/sync-error cuts, whole-group learners/joint membership and lost-disk
-replacement. All five declared CG-05 acceptance cases remain required. See
+and retained-root pressure remain qualification gaps. Fresh learner bootstrap and
+lost-disk replacement are the next feature priorities; receiver crash/sync-error
+cuts also remain required. All five declared CG-05 acceptance cases remain required. See
 [progress](progress.md) for limits and intermediate failures.
 
 The source checkpoint at `b15da415` passes 138 Rust cases, eight gate commands
@@ -671,8 +690,9 @@ Do not let plan maintenance replace implementation.
    promote through joint consensus and retire the old member. Prove replacement
    after deleting that voter's disk, minority refusal and one-voter-loss tolerance.
 2. Complete CG-05 qualification while delivering those membership features.
-   Preserve all five exact acceptance cases. Add receiver crash/sync-error cuts,
-   continuous checkpoint saturation fairness, exhausted apply/completion budgets,
+   Preserve all five exact acceptance cases. Add joint-transition crash cuts,
+   receiver crash/sync-error cuts, continuous checkpoint saturation fairness,
+   exhausted apply/completion budgets,
    held sync/cancelled close, quarantine capacity and retained-root pressure.
    Keep unrelated-group progress and bounded physical ownership observable.
    Idle/time/byte checkpoint triggers require an explicit cut-reservation contract;

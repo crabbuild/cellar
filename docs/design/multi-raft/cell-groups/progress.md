@@ -10,6 +10,64 @@ CG-05 is IN_PROGRESS; CG-06 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-05 durable membership and leadership handoff
+
+Qualified source: `1814b27896c3c21166186fe8fbd1a1a6bdbb721a`. All 233 selected Rust cases and 8
+gate commands pass, including all-target Clippy for Cellar/core/LTX, five native
+suites, format/layout, dependency isolation, docs, source preflight and 37 validator
+tests. `.cellar/cell-groups-evidence/CG-05-group-membership/checkpoint.json` binds
+310 source hashes, 5 copied executables, frozen plan inputs and logs.
+Transfer this ignored evidence with its predecessors. CG-05 remains IN_PROGRESS.
+
+The owner/runtime now accepts canonical, bounded V2 membership intents bound to
+one complete route and observed membership revision. Pure replay computes the
+configuration without changing the live RawNode. Ordered apply preserves every
+cell leaf while advancing the group position and membership revision. The engine
+independently verifies the committed entry and atomically syncs configuration,
+permanent member bindings and the complete root. Only its matching completion
+changes live Raft progress and advances apply. Explicit and implicit joint changes
+use this same boundary. Raft-generated automatic leave starts replication immediately;
+it does not wait for a later write or tick.
+
+Fresh IDs first enter as learners with node/disk bindings. The permanent high-water
+mark prevents retired-ID reuse. Promotion requires leader-observed replication
+through its durable committed cut. Handoff targets another caught-up incoming voter
+and revokes captured producer authority while it proceeds. Synced voter checks
+also fence demoted/removed leaders before the owner consumes cache publication.
+New learner routes may lag committed membership: ordinary and checkpoint sends
+return retryable stale-peer failures without closing the node.
+
+Three new tests cover production controllers and real TCP Raft in both physical
+image forms, plus held configuration sync and cancelled/joined runtime close.
+Lifecycle cases preserve cell identity/version, exercise explicit and automatic
+joint changes, stale/foreign/malformed refusal, learner binding, unsafe-promotion
+refusal, retired-ID refusal, real leadership transfer, new-leader writes,
+self-demotion fencing, unrelated-group writes and automatic checkpoints. Joined
+engine metadata reopen retains the exact final configuration and revision. No
+fixture event pumping follows controller startup in these two lifecycle cases.
+The separate held-sync case proves old root/configuration/applied state remain
+selected until sync and that shutdown joins the accepted write.
+
+Initial private Raft accessor and missing-import compile failures are retained.
+The lifecycle timeout reproduced delayed automatic joint-leave replication; the
+owner now broadcasts the Raft-generated entry through normal Ready persistence.
+The same lifecycle assertions pass. Diagnostic logs, including the timeout
+backtrace, remain alongside the final committed-source gate. Preflight also caught
+the changed storage-engine anchor; review pinned its new validation to the tested
+revision. Its initial refusal and passing rerun are retained; no gate was weakened.
+
+**Reflection and next step:** fresh learner 4 is deliberately not started in this
+slice. The feature-critical gap is a seed/bootstrap capability tied to committed
+learner membership, its permanent node/disk claim and a complete verified root.
+Implement actual new-host installation/catch-up/promotion, then replace a voter
+after deleting its disk. Metadata reopen alone is not physical recovery or serving
+permission. Prove one-voter-loss tolerance and minority refusal and complete all
+five declared CG-05 cases. Remaining receiver crash/sync-error and controller
+pressure/fairness cuts stay required; they do not replace fresh-member recovery
+as the next feature priority. Then deliver CG-06 verified archive/reclamation,
+CG-08 effects/caches and CG-07 public SDK/fleet cutover. No shared-group RustFS,
+load, power-loss or zero-quorum recovery qualification is claimed by this gate.
+
 ## CG-05 automatic checkpoints at controller apply boundaries
 
 Qualified source: `c27dfb416784804b30a38b1a90812c607ed3b00f`. All 230 selected Rust cases and 8
