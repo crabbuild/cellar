@@ -1595,7 +1595,8 @@
       ],
       "creates": [
         "crates/cellar/durability/raft/cell_groups/checkpoint/mod.rs",
-        "crates/cellar/tests/native_cell_groups_snapshot.rs"
+        "crates/cellar/tests/native_cell_groups_snapshot.rs",
+        "crates/cellar/tests/support/cell_group_seed_persistence.rs"
       ],
       "test_target": "native_cell_groups_snapshot",
       "steps": [

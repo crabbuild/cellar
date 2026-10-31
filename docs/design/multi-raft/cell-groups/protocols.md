@@ -273,6 +273,14 @@ snapshot installation cannot mint it. No old-format reader or user-data deletion
 is introduced. Live grant and exact engine/process checks run before entering the
 fence. Once physical persistence begins, cancellation and close retain the grant,
 image owners, task reservation and consensus lease until actual completion.
+A queued install rechecks the grant on the engine worker before its fence and
+refuses a newly revoked source without publishing the prepared root or seed receipt.
+Revocation after entering the fence cannot roll back already issued writes. A
+successful fence may retain the complete authenticated seed despite that late
+revocation; the local receipt still grants neither voting promotion nor current
+quorum authority. A sync error leaves the live cache unpublished and closes the
+engine to further mutation. Cold recovery must reconcile the selected complete
+root and local receipt together; an error response alone does not prove rollback.
 
 `CellGroupApplier::recover_selected` reconciles an unknown install outcome using
 the existing physical store owner; selected pins prevent reopening that directory

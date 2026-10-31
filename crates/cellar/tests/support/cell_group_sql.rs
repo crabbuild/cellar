@@ -611,3 +611,7 @@ pub(crate) use seed_install::seed_install;
 #[path = "cell_group_seed_receiver.rs"]
 mod seed_receiver;
 pub(crate) use seed_receiver::seed_receiver_faults;
+
+#[path = "cell_group_seed_persistence.rs"]
+mod seed_persistence;
+pub(crate) use seed_persistence::seed_persistence;

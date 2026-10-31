@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use tokio::net::TcpListener;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Fault {
+pub(super) enum Fault {
     Exporter,
     Correlation,
     Nonce,
@@ -90,13 +90,16 @@ struct Part {
     bytes: Vec<u8>,
 }
 
-struct Capture {
+pub(super) struct Capture {
     body: Vec<u8>,
     barrier: u64,
     parts: Vec<Part>,
 }
 
-async fn capture(fixture: &RuntimeCluster, history: GroupHistory) -> Result<Arc<Capture>> {
+pub(super) async fn capture(
+    fixture: &RuntimeCluster,
+    history: GroupHistory,
+) -> Result<Arc<Capture>> {
     let authority = fixture.runtimes[0]
         .seed_authority(
             seed_install::target(history)?,
@@ -149,7 +152,11 @@ fn acceptor() -> Result<tokio_rustls::TlsAcceptor> {
     Ok(tokio_rustls::TlsAcceptor::from(Arc::new(config)))
 }
 
-async fn serve(listener: Arc<TcpListener>, cut: Arc<Capture>, fault: Fault) -> Result<()> {
+pub(super) async fn serve(
+    listener: Arc<TcpListener>,
+    cut: Arc<Capture>,
+    fault: Fault,
+) -> Result<()> {
     tokio::time::timeout(Duration::from_secs(10), async {
         let (tcp, _) = listener.accept().await?;
         let stream = acceptor()?.accept(tcp).await?;
@@ -487,50 +494,7 @@ async fn run(mut fixture: RuntimeCluster, route: GroupRoute, rooted: bool) -> Re
         reads::deadline(&fixture, 5000).await?,
     ))
     .await?;
-    controllers.remove(0).close().await?;
-    let new_process = ProcessGeneration::new([99; 16])?;
-    let options = ReplicaLogOptions::new(
-        fixture.cluster._root.path().join("node-1/log"),
-        peer.replica.node,
-        peer.replica.disk,
-        new_process,
-        LogOpenMode::Resume,
-    );
-    fixture.cluster.voters[0].log.close().await?;
-    let restarted = fixture
-        .cluster
-        .domain
-        .run(ReplicaLog::open(options, Arc::new(DirectFileSystem)))
-        .await??;
-    let trusted = RaftPeerNode::from(&peer);
-    let mut latest = trusted.clone();
-    latest.process = new_process;
-    let view = fixture
-        .cluster
-        .domain
-        .run(async {
-            let catalog = Catalog::new(fixture.cluster.store.clone(), CatalogOptions::default())?;
-            let namespace = catalog
-                .open_namespace(NamespaceConfig::new(
-                    route.history.cluster,
-                    route.history.namespace,
-                    cellar_logic::NamespaceMode::Raft,
-                    route.schema_digest,
-                ))
-                .await?;
-            let registration = namespace
-                .register_node_storage(&restarted, Duration::from_secs(5))
-                .await?;
-            Ok::<_, anyhow::Error>(
-                registration
-                    .publication(latest, Duration::from_secs(5))
-                    .await?
-                    .publish(Duration::from_secs(5))
-                    .await?,
-            )
-        })
-        .await??;
-    transport.accept_node_view(view, &trusted)?;
+    let restarted = revoke_source(&fixture, &mut controllers, &transport, &peer, &route).await?;
     let error = session
         .install(applier.clone().unwrap())
         .await
@@ -570,4 +534,58 @@ async fn run(mut fixture: RuntimeCluster, route: GroupRoute, rooted: bool) -> Re
         controller.close().await?;
     }
     fixture.close().await
+}
+
+pub(super) async fn revoke_source(
+    fixture: &RuntimeCluster,
+    controllers: &mut Vec<CellGroupController>,
+    transport: &RaftTransport,
+    peer: &RaftPeer<GroupHistory>,
+    route: &GroupRoute,
+) -> Result<ReplicaLog> {
+    controllers.remove(0).close().await?;
+    let new_process = ProcessGeneration::new([99; 16])?;
+    let options = ReplicaLogOptions::new(
+        fixture.cluster._root.path().join("node-1/log"),
+        peer.replica.node,
+        peer.replica.disk,
+        new_process,
+        LogOpenMode::Resume,
+    );
+    fixture.cluster.voters[0].log.close().await?;
+    let restarted = fixture
+        .cluster
+        .domain
+        .run(ReplicaLog::open(options, Arc::new(DirectFileSystem)))
+        .await??;
+    let trusted = RaftPeerNode::from(peer);
+    let mut latest = trusted.clone();
+    latest.process = new_process;
+    let view = fixture
+        .cluster
+        .domain
+        .run(async {
+            let catalog = Catalog::new(fixture.cluster.store.clone(), CatalogOptions::default())?;
+            let namespace = catalog
+                .open_namespace(NamespaceConfig::new(
+                    route.history.cluster,
+                    route.history.namespace,
+                    cellar_logic::NamespaceMode::Raft,
+                    route.schema_digest,
+                ))
+                .await?;
+            let registration = namespace
+                .register_node_storage(&restarted, Duration::from_secs(5))
+                .await?;
+            Ok::<_, anyhow::Error>(
+                registration
+                    .publication(latest, Duration::from_secs(5))
+                    .await?
+                    .publish(Duration::from_secs(5))
+                    .await?,
+            )
+        })
+        .await??;
+    transport.accept_node_view(view, &trusted)?;
+    Ok(restarted)
 }
