@@ -9,6 +9,8 @@ use std::collections::BTreeMap;
 mod checkpoint_local;
 #[path = "cell_group_network_probes.rs"]
 mod network_probes;
+#[path = "cell_group_seed_probes.rs"]
+mod seed_probes;
 pub(super) use checkpoint_local::{
     local_publication, local_shutdown, tcp_cancelled_delivery, tcp_protocol, tcp_publication,
     tcp_retry,

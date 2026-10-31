@@ -130,11 +130,15 @@ async fn replace(
 ) -> Result<()> {
     let second = controller::add_second(&mut fixture, route.history).await?;
     fixture.connect_tcp().await?;
-    for transport in &fixture.transports {
-        transport.enable_group_checkpoints(CellGroupCheckpointPool::new(
-            checkpoint_fixture::limits(),
-        )?)?;
-    }
+    let source_pools = fixture
+        .transports
+        .iter()
+        .map(|transport| -> Result<_> {
+            let pool = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
+            transport.enable_group_checkpoints(pool.clone())?;
+            Ok(pool)
+        })
+        .collect::<Result<Vec<_>>>()?;
     let mut controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
     fixture.runtimes[0].campaign(second).await?;
     controller::wait_for(async || Ok(fixture.runtimes[0].status(second).await?.ready)).await?;
@@ -240,6 +244,14 @@ async fn replace(
                 .register_group_checkpoint(fixture.appliers[&(node, route.history)].1.clone())?,
         );
     }
+    super::super::seed_probes::source_protocol(
+        &fixture,
+        &physical,
+        &source_pools[0],
+        &mut registrations[0],
+    )
+    .await
+    .context("seed protocol probes")?;
     // A stale ready flag cannot replace a fresh source quorum. Keep the seed
     // connection discoverable while disconnecting the remaining voting peer.
     let mut isolated = physical.clone();
@@ -324,6 +336,53 @@ async fn replace(
     controller::wait_for(async || Ok(transport.usage().tasks == baseline_tasks))
         .await
         .context("cancel staged exchange")?;
+    let staged = group.group_manifest()?;
+    let revoked = Box::pin(prepare(&fixture, &transport, source.clone())).await?;
+    fixture.transports[0].remove_physical_group(&route.history)?;
+    assert!(
+        revoked.install(applier.clone()).await.is_err(),
+        "revoked source cannot install its previously signed cut"
+    );
+    controller::wait_for(async || {
+        Ok(transport.usage().tasks == baseline_tasks && source_pools[0].usage().sources == 0)
+    })
+    .await?;
+    assert_eq!(group.group_manifest()?, staged);
+    assert_eq!(group.checkpoint_manifest()?, None);
+    assert_eq!(pool.usage().sources, 0);
+    fixture.transports[0].install_physical_group(physical.clone())?;
+    registrations[0] = fixture.transports[0]
+        .register_group_checkpoint(fixture.appliers[&(0, route.history)].1.clone())?;
+    let expired = Box::pin(transport.prepare_group_seed(
+        local.clone(),
+        source.clone(),
+        fixture.cluster.directory.clone(),
+        fixture.cluster.birth.clone(),
+        reads::deadline(&fixture, 500).await?,
+    ))
+    .await?;
+    // Wait for the bounded exchange to expire while holding the user session.
+    // No sleep or fabricated process clock establishes the refusal.
+    controller::wait_for(async || {
+        Ok(transport.usage().tasks == baseline_tasks && source_pools[0].usage().sources == 0)
+    })
+    .await?;
+    assert!(
+        expired.install(applier.clone()).await.is_err(),
+        "expired session cannot acquire a fresh install deadline"
+    );
+    assert_eq!(group.group_manifest()?, staged);
+    assert_eq!(group.checkpoint_manifest()?, None);
+    assert!(fixture
+        .cluster
+        .domain
+        .run(fixture.cluster.directory.bootstrap_joined_group_member(
+            &fixture.cluster.birth,
+            local.member,
+            &log
+        ))
+        .await?
+        .is_err());
     // Even a fully verified generic snapshot install cannot mint the local
     // authenticated seed receipt. Metadata and physical bytes alone are insufficient.
     let authority = fixture.runtimes[0]
@@ -465,7 +524,7 @@ async fn replace(
     assert!(root.pin_cell(&b.cell).is_some());
     assert!(root.pin_cell(&later.cell).is_none());
     assert_eq!(group.initial_state()?.conf_state.learners, vec![4]);
-    transport.install_physical_group(physical)?;
+    transport.install_physical_group(physical.clone())?;
     runtime.attach(permit, root).await?;
     assert!(
         !runtime.status(route.history).await?.ready,
@@ -617,26 +676,176 @@ async fn replace(
     for cell in [&a, &b, &later, &final_cell] {
         assert!(root.pin_cell(&cell.cell).is_some());
     }
-    let owner = fixture
-        .cluster
-        .domain
-        .run(CellGroupOwner::start(
-            permit,
-            root,
-            RaftRuntimeOptions::default(),
-            [95; 32],
-        ))
-        .await??;
-    assert!(
-        !owner.status()?.ready,
-        "durable receipt cannot renew quorum authority"
-    );
-    drop((owner, applier));
-    resumed.close().await?;
+    Box::pin(reconnect(
+        &fixture, physical, resumed, permit, root, applier, rooted,
+    ))
+    .await
+    .context("replacement process reconnect")?;
     for controller in controllers {
         controller.close().await?;
     }
     drop(registrations);
     assert_eq!(pool.usage().sources, 0);
     fixture.close().await
+}
+
+/// Start a new process from the installed disk and use only production transport
+/// and controllers to reacquire quorum, then prove a minority cannot commit.
+async fn reconnect(
+    fixture: &RuntimeCluster,
+    mut physical: cellar::application::consensus::verification::GroupRoute<GroupHistory>,
+    log: ReplicaLog,
+    permit: CellGroupBootstrapPermit,
+    root: PreparedGroupManifest,
+    applier: CellGroupApplier,
+    rooted: bool,
+) -> Result<()> {
+    let route = root.marker().route().clone();
+    let group = log.cell_group(&route.history)?;
+    let (runtime, events) = CellGroupRuntime::start(
+        log.clone(),
+        RaftRuntimeOptions {
+            tick_interval_ms: None,
+            ..Default::default()
+        },
+    )
+    .await?;
+    runtime.attach(permit, root).await?;
+    assert!(
+        !runtime.status(route.history).await?.ready,
+        "disk receipt cannot renew quorum"
+    );
+    let transport = tcp::start(&runtime, 3).await?;
+    transport
+        .enable_group_checkpoints(CellGroupCheckpointPool::new(checkpoint_fixture::limits())?)?;
+    physical.revision += 1;
+    physical.peers.retain(|peer| peer.replica.member.get() != 3);
+    let peer = physical
+        .peers
+        .iter_mut()
+        .find(|peer| peer.replica.member.get() == 4)
+        .context("replacement route")?;
+    peer.replica = group.identity().clone();
+    peer.control_address = transport.control_address();
+    peer.data_address = transport.data_address();
+    peer.query_address = transport.query_address();
+    for source in &fixture.transports[..2] {
+        source
+            .install_physical_group(physical.clone())
+            .context("refresh survivor route after process restart")?;
+    }
+    transport
+        .install_physical_group(physical)
+        .context("install restarted voter route")?;
+    let sql = CellGroupSqlPool::start(
+        &log,
+        CellSqlLimits {
+            workers: 1,
+            queue_per_worker: 1,
+            max_pending_cells: 1,
+            group_pending_cells: 1,
+            node_bytes: 1024 * 1024 * 1024,
+            group_bytes: 512 * 1024 * 1024,
+        },
+    )?;
+    let controller = CellGroupController::start(
+        runtime.clone(),
+        events,
+        transport.clone(),
+        sql,
+        vec![applier],
+        controller::limits(),
+    )
+    .await?;
+    runtime.campaign(route.history).await?;
+    controller::wait_for(async || {
+        // Every fixture voter has automatic ticking disabled. Survivors must
+        // also advance past the old process's leader lease before campaigning
+        // can succeed. If one wins first, use the real caught-up handoff path.
+        for survivor in &fixture.runtimes[..2] {
+            survivor.tick().await?;
+            if survivor.status(route.history).await?.ready {
+                match survivor.transfer_leader(route.history, 4).await {
+                    Ok(()) | Err(RuntimeError::NotReady) => (),
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        }
+        runtime.tick().await?;
+        Ok(runtime.status(route.history).await?.ready)
+    })
+    .await
+    .context("restarted voter regains quorum")?;
+    let cell = history(&route, "after-process-restart")?;
+    let bytes = images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES(91);")?;
+    let accepted = runtime
+        .propose(
+            route.history,
+            apply::enrollment_bytes(&route, &cell, &bytes, rooted)?,
+        )
+        .await?;
+    survivors(fixture, route.history, accepted.position.index).await?;
+    controller::wait_for(async || {
+        Ok(runtime.status(route.history).await?.applied.index >= accepted.position.index)
+    })
+    .await?;
+    drop(
+        runtime
+            .read_authority(
+                route.history,
+                cell.clone(),
+                CellReadConsistency::Linearizable,
+                reads::deadline(fixture, 5000).await?,
+            )
+            .await?,
+    );
+    let before = group.group_manifest()?.context("quorum root")?;
+    for source in &fixture.transports[..2] {
+        source.remove_physical_group(&route.history)?;
+    }
+    transport.remove_physical_group(&route.history)?;
+    assert!(
+        runtime.status(route.history).await?.ready,
+        "exercise stale ready status"
+    );
+    let pending_cell = history(&route, "isolated-cannot-commit")?;
+    let pending = runtime
+        .propose(
+            route.history,
+            apply::enrollment_bytes(&route, &pending_cell, &bytes, rooted)?,
+        )
+        .await?;
+    // Admission is not a commit. A fresh correlated quorum read must fail even
+    // though the old leader can still enqueue a proposal during check-quorum lag.
+    assert!(matches!(
+        runtime
+            .read_authority(
+                route.history,
+                cell,
+                CellReadConsistency::Linearizable,
+                reads::deadline(fixture, 150).await?
+            )
+            .await,
+        Err(RuntimeError::DeadlineExceeded)
+    ));
+    assert!(runtime.status(route.history).await?.applied.index < pending.position.index);
+    assert_eq!(group.group_manifest()?.as_ref(), Some(&before));
+    controller::wait_for(async || {
+        runtime.tick().await?;
+        Ok(!runtime.status(route.history).await?.ready)
+    })
+    .await?;
+    assert!(matches!(
+        runtime
+            .propose(
+                route.history,
+                apply::enrollment_bytes(&route, &pending_cell, &bytes, rooted)?
+            )
+            .await,
+        Err(RuntimeError::NotLeader | RuntimeError::NotReady)
+    ));
+    assert_eq!(group.group_manifest()?.as_ref(), Some(&before));
+    controller.close().await?;
+    log.close().await?;
+    Ok(())
 }

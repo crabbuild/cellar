@@ -9,13 +9,20 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio_rustls::client::TlsStream;
 
-struct Connection {
+pub(super) struct Connection {
     stream: TlsStream<TcpStream>,
-    exporter: [u8; 32],
+    pub(super) exporter: [u8; 32],
 }
 
 impl Connection {
     async fn open(address: std::net::SocketAddr) -> Result<Self> {
+        Self::open_with_exporter(address, b"EXPORTER-cellar-raft-1").await
+    }
+
+    pub(super) async fn open_with_exporter(
+        address: std::net::SocketAddr,
+        label: &[u8],
+    ) -> Result<Self> {
         let mut roots = rustls::RootCertStore::empty();
         roots.add(
             include_bytes!("../../transport/tcp/fixtures/ca.der")
@@ -35,15 +42,14 @@ impl Connection {
                 TcpStream::connect(address).await?,
             )
             .await?;
-        let exporter =
-            stream
-                .get_ref()
-                .1
-                .export_keying_material([0; 32], b"EXPORTER-cellar-raft-1", None)?;
+        let exporter = stream
+            .get_ref()
+            .1
+            .export_keying_material([0; 32], label, None)?;
         Ok(Self { stream, exporter })
     }
 
-    async fn frame(
+    pub(super) async fn frame(
         &mut self,
         magic: &[u8; 4],
         purpose: &[u8],
@@ -71,7 +77,40 @@ impl Connection {
         Ok(tag)
     }
 
-    async fn refused(mut self) -> Result<()> {
+    /// Independently check the server's framing and exporter-bound MAC before
+    /// using a reply in a later probe. Bounds apply before allocating either body.
+    pub(super) async fn receive(
+        &mut self,
+        magic: &[u8; 4],
+        purpose: &[u8],
+        binding: &[u8],
+    ) -> Result<(Value, Vec<u8>, [u8; 32])> {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let mut prefix = [0; 20];
+            self.stream.read_exact(&mut prefix).await?;
+            assert_eq!(&prefix[..4], magic);
+            assert_eq!(&prefix[4..8], &1u32.to_be_bytes());
+            let header_len = u32::from_be_bytes(prefix[8..12].try_into()?) as usize;
+            let body_len = u64::from_be_bytes(prefix[12..].try_into()?);
+            assert!(header_len <= 64 * 1024 && body_len <= 64 * 1024);
+            let mut header = vec![0; header_len];
+            self.stream.read_exact(&mut header).await?;
+            let mut tag = [0; 32];
+            self.stream.read_exact(&mut tag).await?;
+            let mut mac = Hmac::<Sha256>::new_from_slice(&[17; 32])?;
+            for part in [purpose, &self.exporter, binding, &prefix, &header] {
+                mac.update(&(part.len() as u64).to_be_bytes());
+                mac.update(part);
+            }
+            mac.verify_slice(&tag)?;
+            let mut body = vec![0; body_len as usize];
+            self.stream.read_exact(&mut body).await?;
+            Ok((serde_json::from_slice(&header)?, body, tag))
+        })
+        .await?
+    }
+
+    pub(super) async fn refused(mut self) -> Result<()> {
         let mut byte = [0];
         let result =
             tokio::time::timeout(Duration::from_secs(5), self.stream.read(&mut byte)).await?;
@@ -83,7 +122,7 @@ impl Connection {
     }
 }
 
-fn peer(peer: &RaftPeer<GroupHistory>) -> Value {
+pub(super) fn peer(peer: &RaftPeer<GroupHistory>) -> Value {
     json!({"node":peer.replica.node.bytes(), "disk":peer.replica.disk.bytes(), "process":peer.replica.process.bytes(), "member":peer.replica.member.get().to_string(), "label":peer.label})
 }
 
