@@ -9,8 +9,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio_rustls::client::TlsStream;
 
-pub(super) struct Connection {
-    stream: TlsStream<TcpStream>,
+pub(super) struct Connection<S = TlsStream<TcpStream>> {
+    stream: S,
     pub(super) exporter: [u8; 32],
 }
 
@@ -47,6 +47,18 @@ impl Connection {
             .1
             .export_keying_material([0; 32], label, None)?;
         Ok(Self { stream, exporter })
+    }
+}
+
+impl<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin> Connection<S> {
+    pub(super) fn from_stream(stream: S, exporter: [u8; 32]) -> Self {
+        Self { stream, exporter }
+    }
+
+    pub(super) async fn raw(&mut self, bytes: &[u8]) -> Result<()> {
+        self.stream.write_all(bytes).await?;
+        self.stream.flush().await?;
+        Ok(())
     }
 
     pub(super) async fn frame(
@@ -151,7 +163,7 @@ pub(super) async fn probe(
         "schema":route.schema_digest, "source":peer(&route.peers[0]), "target":peer(&route.peers[2])
     }, "digest": <[u8; 32]>::from(Sha256::digest(&body))});
     let address = fixture.transports[2].data_address();
-    for case in 0..7 {
+    for case in 0..8 {
         let mut connection = Connection::open(address).await?;
         let mut header = start.clone();
         match case {
@@ -184,10 +196,18 @@ pub(super) async fn probe(
             } else {
                 json!({"kind":"Header"})
             };
+            // A nonempty Header with an invalid offset reaches the physical
+            // verifier. Keep the socket open without End: worker failure must
+            // close admission without waiting for another network packet.
+            let bytes: &[u8] = if case == 7 { &[0] } else { &[] };
+            let offset = usize::from(case == 7);
             connection.frame(b"CLGD", b"cellar-group-snapshot-data-1", &binding,
-                json!({"sequence":sequence, "part":part, "offset":0, "length":0, "digest":<[u8; 32]>::from(Sha256::digest([]))}), &[]).await?;
+                json!({"sequence":sequence, "part":part, "offset":offset, "length":bytes.len(), "digest":<[u8; 32]>::from(Sha256::digest(bytes))}), bytes).await?;
         }
-        connection.refused().await?;
+        connection
+            .refused()
+            .await
+            .with_context(|| format!("checkpoint fault {case}"))?;
         tokio::time::timeout(Duration::from_secs(5), async {
             while pool.usage().sources != 0 || fixture.transports[2].usage().data_items != 0 {
                 tokio::task::yield_now().await;

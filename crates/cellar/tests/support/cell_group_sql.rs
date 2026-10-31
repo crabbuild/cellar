@@ -607,3 +607,7 @@ pub(crate) use seed::{seed_minority, seed_source};
 #[path = "cell_group_seed_install.rs"]
 mod seed_install;
 pub(crate) use seed_install::seed_install;
+
+#[path = "cell_group_seed_receiver.rs"]
+mod seed_receiver;
+pub(crate) use seed_receiver::seed_receiver_faults;

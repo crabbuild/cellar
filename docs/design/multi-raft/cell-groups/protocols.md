@@ -347,6 +347,13 @@ receive; mixed cuts and incomplete closures refuse. After verified admission,
 connection loss does not establish whether installation completed. Source capture
 pins the exact engine-retained snapshot even when the current applied root advances.
 
+Both seed and checkpoint receivers observe the physical verifier while reading
+network headers/bodies and feeding its bounded input channel. A rejected part
+closes the exchange even if the peer sends no more bytes; it must not retain
+network admission until the peer deadline. Successful verification still requires
+the authenticated End and the matching closure. This does not cancel engine
+persistence after it has been admitted or replace its actual durability fence.
+
 Two bounded channel windows connect the network to blocking physical owners.
 Node/peer data budgets and source/receive slots remain owned through actual I/O,
 even after a connection or delivery waiter disappears. The checkpoint pool

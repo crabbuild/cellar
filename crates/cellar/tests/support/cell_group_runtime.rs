@@ -817,3 +817,5 @@ pub(super) use sql::{membership_lifecycle, membership_sync};
 pub(super) use sql::{seed_minority, seed_source};
 
 pub(super) use sql::seed_install;
+
+pub(super) use sql::seed_receiver_faults;

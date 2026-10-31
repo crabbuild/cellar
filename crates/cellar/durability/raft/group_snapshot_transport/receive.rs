@@ -75,72 +75,85 @@ impl State {
         self.checkpoint_current(&endpoint, &start.route)?;
         let receiver = workers::receiver(self, endpoint.clone(), checkpoints, admission.clone())?;
         let mut sequence = 0_u64;
-        loop {
-            self.checkpoint_current(&endpoint, &start.route)?;
-            let head = self
-                .snapshot_io(
-                    &pool,
-                    deadline,
-                    snapshots::read_bulk_head(
-                        stream,
-                        None,
-                        DATA_MAGIC,
-                        CHUNK_BYTES.min(self.options.snapshot_chunk_bytes),
-                        &self.options,
-                    ),
-                )
+        let mut result = receiver.result;
+        let receiving = async {
+            loop {
+                self.checkpoint_current(&endpoint, &start.route)?;
+                let head = self
+                    .snapshot_io(
+                        &pool,
+                        deadline,
+                        snapshots::read_bulk_head(
+                            stream,
+                            None,
+                            DATA_MAGIC,
+                            CHUNK_BYTES.min(self.options.snapshot_chunk_bytes),
+                            &self.options,
+                        ),
+                    )
+                    .await?;
+                let packet: Packet = wire.decode(DATA_MAGIC, DATA, &head, Some(&binding))?;
+                if packet.sequence != sequence {
+                    return Err(TransportError::Replay);
+                }
+                let mut bytes = vec![0; head.payload_len];
+                self.snapshot_io(&pool, deadline, async {
+                    stream.read_exact(&mut bytes).await?;
+                    Ok(())
+                })
                 .await?;
-            let packet: Packet = wire.decode(DATA_MAGIC, DATA, &head, Some(&binding))?;
-            if packet.sequence != sequence {
-                return Err(TransportError::Replay);
-            }
-            let mut bytes = vec![0; head.payload_len];
-            self.snapshot_io(&pool, deadline, async {
-                stream.read_exact(&mut bytes).await?;
-                Ok(())
-            })
-            .await?;
-            if digest(&bytes) != packet.digest {
-                return Err(TransportError::Authentication);
-            }
-            self.checkpoint_current(&endpoint, &start.route)?;
-            let input = match packet.part {
-                Some(part) => {
-                    if bytes.is_empty() {
-                        return Err(TransportError::Protocol);
-                    }
-                    workers::Input::Chunk(Chunk {
-                        part,
-                        offset: packet.offset,
-                        length: packet.length,
-                        bytes,
-                    })
+                if digest(&bytes) != packet.digest {
+                    return Err(TransportError::Authentication);
                 }
-                None => {
-                    if !bytes.is_empty() || packet.offset != 0 || packet.length != 0 {
-                        return Err(TransportError::Protocol);
+                self.checkpoint_current(&endpoint, &start.route)?;
+                let input = match packet.part {
+                    Some(part) => {
+                        if bytes.is_empty() {
+                            return Err(TransportError::Protocol);
+                        }
+                        workers::Input::Chunk(Chunk {
+                            part,
+                            offset: packet.offset,
+                            length: packet.length,
+                            bytes,
+                        })
                     }
-                    workers::Input::End
+                    None => {
+                        if !bytes.is_empty() || packet.offset != 0 || packet.length != 0 {
+                            return Err(TransportError::Protocol);
+                        }
+                        workers::Input::End
+                    }
+                };
+                let ending = matches!(input, workers::Input::End);
+                self.snapshot_io(&pool, deadline, async {
+                    receiver
+                        .input
+                        .send(input)
+                        .await
+                        .map_err(|_| TransportError::Closed)
+                })
+                .await?;
+                if ending {
+                    break;
                 }
-            };
-            let ending = matches!(input, workers::Input::End);
-            self.snapshot_io(&pool, deadline, async {
-                receiver
-                    .input
-                    .send(input)
-                    .await
-                    .map_err(|_| TransportError::Closed)
-            })
-            .await?;
-            if ending {
-                break;
+                sequence = sequence.checked_add(1).ok_or(TransportError::Limit)?;
             }
-            sequence = sequence.checked_add(1).ok_or(TransportError::Limit)?;
+            Ok::<(), TransportError>(())
+        };
+        // Verification runs on a physical worker. Its failure must also end a
+        // peer that keeps the next header or body open without an explicit End.
+        crate::asyncrt::select_biased! { "physical checkpoint verification failure precedes more network input";
+            outcome = &mut result => {
+                outcome.map_err(|_| TransportError::Closed)??;
+                return Err(TransportError::Protocol);
+            },
+            outcome = receiving => outcome?,
         }
         drop(receiver.input);
         let prepared = self
             .snapshot_io(&pool, deadline, async {
-                receiver.result.await.map_err(|_| TransportError::Closed)?
+                result.await.map_err(|_| TransportError::Closed)?
             })
             .await?;
         self.checkpoint_current(&endpoint, &start.route)?;

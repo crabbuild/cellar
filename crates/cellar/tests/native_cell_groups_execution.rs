@@ -15,6 +15,16 @@ mod runtime_fixture;
 mod checkpoint_fixture;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn seed_receiver_materialized_refuses_forged_transfers_and_revoked_process() -> Result<()> {
+    Box::pin(runtime_fixture::seed_receiver_faults(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn seed_receiver_extents_refuse_forged_transfers_and_revoked_process() -> Result<()> {
+    Box::pin(runtime_fixture::seed_receiver_faults(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn seed_install_materialized_replaces_deleted_voter_and_resumes() -> Result<()> {
     Box::pin(runtime_fixture::seed_install(false)).await
 }

@@ -11,7 +11,7 @@ use raft::{
 };
 use std::path::Path;
 
-fn target(history: GroupHistory) -> Result<ReplicaIdentity<GroupHistory>> {
+pub(super) fn target(history: GroupHistory) -> Result<ReplicaIdentity<GroupHistory>> {
     Ok(ReplicaIdentity {
         scope: history,
         node: NodeId::new([4; 16])?,
@@ -21,7 +21,10 @@ fn target(history: GroupHistory) -> Result<ReplicaIdentity<GroupHistory>> {
     })
 }
 
-fn stores(base: &Path, rooted: bool) -> Result<(ManifestPageStore, CellGroupApplyImages)> {
+pub(super) fn stores(
+    base: &Path,
+    rooted: bool,
+) -> Result<(ManifestPageStore, CellGroupApplyImages)> {
     let filesystem = Arc::new(DirectFileSystem);
     let pages = ManifestPageStore::open(
         &base.join("pages"),

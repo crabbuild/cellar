@@ -28,83 +28,99 @@ impl Exchange {
             options: &state.options,
             max_body: CHUNK_BYTES,
         };
-        let head = wire.encode(READY_MAGIC, READY, &self.binding, &Ack { sequence: 0 }, &[])?;
-        state
-            .seed_process_io(&self.grant.process, self.grant.deadline, async {
-                write_head(&mut self.stream, &head).await?;
-                self.stream.flush().await?;
-                Ok(())
-            })
-            .await?;
-        let mut sequence = 0_u64;
-        loop {
-            self.grant.check_log(log)?;
-            let head = state
-                .seed_process_io(
-                    &self.grant.process,
-                    self.grant.deadline,
-                    snapshots::read_bulk_head(
-                        &mut self.stream,
-                        None,
-                        CHUNK_MAGIC,
-                        CHUNK_BYTES.min(state.options.snapshot_chunk_bytes),
-                        &state.options,
-                    ),
-                )
-                .await?;
-            let packet: Packet = wire.decode(CHUNK_MAGIC, CHUNK, &head, Some(&self.binding))?;
-            if packet.sequence != sequence {
-                return Err(TransportError::Replay.into());
-            }
-            let mut bytes = vec![0; head.payload_len];
+        let mut result = receiver.result;
+        let receiving = async {
+            let head = wire.encode(READY_MAGIC, READY, &self.binding, &Ack { sequence: 0 }, &[])?;
             state
                 .seed_process_io(&self.grant.process, self.grant.deadline, async {
-                    self.stream.read_exact(&mut bytes).await?;
+                    write_head(&mut self.stream, &head).await?;
+                    self.stream.flush().await?;
                     Ok(())
                 })
                 .await?;
-            if digest(&bytes) != packet.digest {
-                return Err(TransportError::Authentication.into());
-            }
-            let input = match packet.part {
-                Some(part) => {
-                    if bytes.is_empty() {
-                        return Err(TransportError::Protocol.into());
-                    }
-                    workers::Input::Chunk(Chunk {
-                        part,
-                        offset: packet.offset,
-                        length: packet.length,
-                        bytes,
+            let mut sequence = 0_u64;
+            loop {
+                self.grant.check_log(log)?;
+                let head = state
+                    .seed_process_io(
+                        &self.grant.process,
+                        self.grant.deadline,
+                        snapshots::read_bulk_head(
+                            &mut self.stream,
+                            None,
+                            CHUNK_MAGIC,
+                            CHUNK_BYTES.min(state.options.snapshot_chunk_bytes),
+                            &state.options,
+                        ),
+                    )
+                    .await?;
+                let packet: Packet = wire.decode(CHUNK_MAGIC, CHUNK, &head, Some(&self.binding))?;
+                if packet.sequence != sequence {
+                    return Err(TransportError::Replay.into());
+                }
+                let mut bytes = vec![0; head.payload_len];
+                state
+                    .seed_process_io(&self.grant.process, self.grant.deadline, async {
+                        self.stream.read_exact(&mut bytes).await?;
+                        Ok(())
                     })
+                    .await?;
+                if digest(&bytes) != packet.digest {
+                    return Err(TransportError::Authentication.into());
                 }
-                None => {
-                    if !bytes.is_empty() || packet.offset != 0 || packet.length != 0 {
-                        return Err(TransportError::Protocol.into());
+                let input = match packet.part {
+                    Some(part) => {
+                        if bytes.is_empty() {
+                            return Err(TransportError::Protocol.into());
+                        }
+                        workers::Input::Chunk(Chunk {
+                            part,
+                            offset: packet.offset,
+                            length: packet.length,
+                            bytes,
+                        })
                     }
-                    workers::Input::End
+                    None => {
+                        if !bytes.is_empty() || packet.offset != 0 || packet.length != 0 {
+                            return Err(TransportError::Protocol.into());
+                        }
+                        workers::Input::End
+                    }
+                };
+                let ending = matches!(input, workers::Input::End);
+                self.grant.check_log(log)?;
+                state
+                    .seed_process_until(&self.grant.process, self.grant.deadline, async {
+                        receiver
+                            .input
+                            .send(input)
+                            .await
+                            .map_err(|_| TransportError::Closed)
+                    })
+                    .await?;
+                if ending {
+                    break;
                 }
-            };
-            let ending = matches!(input, workers::Input::End);
-            self.grant.check_log(log)?;
-            state
-                .seed_process_until(&self.grant.process, self.grant.deadline, async {
-                    receiver
-                        .input
-                        .send(input)
-                        .await
-                        .map_err(|_| TransportError::Closed)
-                })
-                .await?;
-            if ending {
-                break;
+                sequence = sequence.checked_add(1).ok_or(TransportError::Limit)?;
             }
-            sequence = sequence.checked_add(1).ok_or(TransportError::Limit)?;
+            Ok::<(), CellGroupSeedError>(())
+        };
+        // A physical verifier can reject a part while the peer keeps the next
+        // header/body open. Observe it throughout network work rather than
+        // retaining the connection and admission until the peer deadline.
+        crate::asyncrt::select_biased! { "physical seed verification failure precedes more network input";
+            outcome = &mut result => {
+                outcome.map_err(|_| TransportError::Closed)??;
+                // Successful physical completion requires the explicit End
+                // sent by the receiving branch, which completes in that poll.
+                return Err(TransportError::Protocol.into());
+            },
+            outcome = receiving => outcome?,
         }
         drop(receiver.input);
         let prepared = state
             .seed_process_until(&self.grant.process, self.grant.deadline, async {
-                receiver.result.await.map_err(|_| TransportError::Closed)?
+                result.await.map_err(|_| TransportError::Closed)?
             })
             .await?;
         self.grant.check_log(log)?;
