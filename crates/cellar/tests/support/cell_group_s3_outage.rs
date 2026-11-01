@@ -104,6 +104,48 @@ async fn initialize_at_capacity(h: &Harness) -> Result<()> {
     Ok(())
 }
 
+async fn restored_probe(
+    h: &Harness,
+    store: &Arc<archive_controller::archive_store::Store>,
+    path: &ObjectPath,
+    expected: &[u8],
+    deadline: u64,
+) -> Result<()> {
+    let mut last_transient = None;
+    let result = h
+        .fixture
+        .cluster
+        .domain
+        .run(async {
+            cellar::asyncrt::timeout_at(deadline, async {
+                loop {
+                    let read = async { store.get(path).await?.bytes().await }.await;
+                    match read {
+                        Ok(bytes) => return Ok(bytes),
+                        // Container health can precede S3 data readiness. Retry only
+                        // the idempotent read; absent/authentication failures remain
+                        // failures and no operation receives a new deadline.
+                        Err(error @ object_store::Error::Generic { .. }) => {
+                            last_transient = Some(error)
+                        }
+                        Err(error) => return Err(error),
+                    }
+                    cellar::asyncrt::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await
+        })
+        .await?;
+    let bytes = match result {
+        Ok(read) => read?,
+        Err(_) => anyhow::bail!(
+            "S3 data readiness exhausted the original invocation deadline: {last_transient:?}"
+        ),
+    };
+    assert_eq!(bytes.as_ref(), expected);
+    Ok(())
+}
+
 async fn run(
     rooted: bool,
     store: Arc<dyn ObjectStore>,
@@ -354,10 +396,17 @@ async fn run(
     assert_eq!(group.log_retention_usage()?.retained_entries, ENTRY_LIMIT);
 
     control.set_running(&h.fixture.cluster.domain, true).await?;
-    assert_eq!(
-        global.get(&probe).await?.bytes().await?.as_ref(),
-        probe_bytes
-    );
+    restored_probe(
+        &h,
+        &global,
+        &probe,
+        &probe_bytes,
+        remote_invocation
+            .attempt()
+            .context("retained remote attempt")?
+            .deadline_ms(),
+    )
+    .await?;
     archive_controller::published(&h.controllers[0], h.route.history, latest).await?;
     let coverage =
         archive_controller::verified_current(&h.fixture, &h.archive, rooted, "outage-recovery")
