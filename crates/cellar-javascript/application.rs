@@ -705,6 +705,8 @@ impl JavaScriptApplication {
                         // The reservation is retained by the native future even
                         // if the awaiting JavaScript task has already been cancelled.
                         let _bytes = _bytes;
+                        let diagnostic_started = std::time::Instant::now();
+                        eprintln!("[DEBUG-ci163] native operation started invocation={invocation} id={id} name={name}");
                         let result =
                             match operations::decode_metadata_with(&name, &payload, |bytes| {
                                 Ok(runtime
@@ -918,6 +920,7 @@ impl JavaScriptApplication {
                                 }
                                 Err(error) => Err(error),
                             };
+                        eprintln!("[DEBUG-ci163] native operation completed invocation={invocation} id={id} name={name} elapsed_us={}", diagnostic_started.elapsed().as_micros());
                         let (result, response_owner) = match result {
                             Ok((value, body, owner)) => (Ok((value, body)), owner),
                             Err(error) => (Err(error), None),
