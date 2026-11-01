@@ -6,6 +6,18 @@ use cellar::application::consensus::verification::{
     FleetRestartGateRequest, FleetRestartHistoryProgress, FleetRestartRequest,
 };
 
+#[test]
+fn retained_restart_walk_future_stays_bounded() {
+    fn bytes<F: std::future::Future>(_: fn(bool, bool) -> F) -> usize {
+        std::mem::size_of::<F>()
+    }
+    let bytes = bytes(verified);
+    assert!(
+        bytes <= 64 * 1024,
+        "retained restart walk embeds {bytes} bytes of async state"
+    );
+}
+
 async fn verified(dynamic: bool, owned: bool) -> Result<()> {
     let s = Box::pin(Setup::with_histories(true, 2, 1)).await?;
     let r = replace(&s, true)
@@ -18,11 +30,13 @@ async fn verified(dynamic: bool, owned: bool) -> Result<()> {
     s.f.domain
         .run(cellar::asyncrt::timeout(TIMEOUT, async {
             loop {
-                match s
-                    .f
-                    .catalog
-                    .complete_movement(&cut, &completion, &s.nodes[r.source].host, TIMEOUT)
-                    .await
+                match Box::pin(s.f.catalog.complete_movement(
+                    &cut,
+                    &completion,
+                    &s.nodes[r.source].host,
+                    TIMEOUT,
+                ))
+                .await
                 {
                     Ok(receipt) => return Ok::<_, anyhow::Error>(receipt),
                     Err(FleetCatalogError::Unconfirmed | FleetCatalogError::Overloaded)
@@ -141,16 +155,14 @@ async fn verified(dynamic: bool, owned: bool) -> Result<()> {
         .history(&r.request.resources.group)?
         .context("physical history")?;
     ensure!(slot.in_configuration() == dynamic);
-    let mut walk =
-        s.f.catalog
-            .prepare_restart_verification(
-                &cut,
-                ProposalId::new(preparing.identity.operation)?,
-                std::slice::from_ref(&s.namespace),
-                &s.nodes[r.source].host,
-                TIMEOUT,
-            )
-            .await?;
+    let mut walk = Box::pin(s.f.catalog.prepare_restart_verification(
+        &cut,
+        ProposalId::new(preparing.identity.operation)?,
+        std::slice::from_ref(&s.namespace),
+        &s.nodes[r.source].host,
+        TIMEOUT,
+    ))
+    .await?;
     let progress = if owned {
         s.f.domain.run(cellar::asyncrt::timeout(TIMEOUT, async {
             loop {

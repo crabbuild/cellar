@@ -30,17 +30,14 @@ async fn prepare(
         s.f.domain
             .run(cellar::asyncrt::timeout(TIMEOUT, async {
                 loop {
-                    match s
-                        .f
-                        .catalog
-                        .prepare_restart_verification(
-                            &root,
-                            ProposalId::new(gate.identity.operation)?,
-                            std::slice::from_ref(&s.namespace),
-                            &s.spare,
-                            TIMEOUT,
-                        )
-                        .await
+                    match Box::pin(s.f.catalog.prepare_restart_verification(
+                        &root,
+                        ProposalId::new(gate.identity.operation)?,
+                        std::slice::from_ref(&s.namespace),
+                        &s.spare,
+                        TIMEOUT,
+                    ))
+                    .await
                     {
                         Ok(walk) => return Ok::<_, anyhow::Error>(walk),
                         // Quiescence prevents new work. Captures already owned before
