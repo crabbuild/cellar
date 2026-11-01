@@ -513,8 +513,8 @@ impl CellGroupOwner {
             .log_admission
             .election(&self.group, &self.node, Default::default())?;
         let result = self.node.campaign();
-        self.finish_log_admission(admission)?;
         self.refresh_execution_fence();
+        self.finish_log_admission(admission)?;
         result?;
         Ok(())
     }
@@ -568,8 +568,8 @@ impl CellGroupOwner {
                 .election(&self.group, &self.node, Default::default())?
         };
         self.node.tick();
-        self.finish_log_admission(admission)?;
         self.refresh_execution_fence();
+        self.finish_log_admission(admission)?;
         Ok(())
     }
 
@@ -725,8 +725,8 @@ impl CellGroupOwner {
             return Err(RuntimeError::Overloaded);
         }
         let result = self.node.step(message);
-        self.finish_log_admission(Default::default())?;
         self.refresh_execution_fence();
+        self.finish_log_admission(Default::default())?;
         result?;
         if let Some(snapshot) = self.node.snap() {
             if snapshot != checkpoint.snapshot() {
@@ -769,8 +769,8 @@ impl CellGroupOwner {
                 .election(&self.group, &self.node, admission)?;
         }
         let result = self.node.step(message);
-        self.finish_log_admission(admission)?;
         self.refresh_execution_fence();
+        self.finish_log_admission(admission)?;
         result?;
         Ok(())
     }
