@@ -1,6 +1,6 @@
 {
   "cargo_manifest": "../../Cargo.toml",
-  "package": "cellar",
+  "package": "cellar-main",
   "binary": "cellar-native-counter",
   "profile": "dev",
   "primary": {
