@@ -641,6 +641,9 @@ impl CellGroupOwner {
         {
             return Err(RuntimeError::Overloaded);
         }
+        if !self.group.archive_compaction.permits(root.marker())? {
+            return Err(RuntimeError::Overloaded);
+        }
         self.phase = Some(Phase::Checkpoint(checkpoint, false));
         Ok(())
     }

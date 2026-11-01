@@ -999,3 +999,31 @@ checking the ledger and archive cut. It verifies every cell, old-token rejection
 receipt retries, new writes and retained-disk restart. Repeat during split/merge
 crash cuts and after physical log reclamation. This remains group/component
 recovery, not a globally consistent snapshot of unrelated groups or external effects.
+
+## Archive-aware local checkpoint compaction
+
+An archive registration first makes the local group's retention requirement
+irreversible through an engine-synced metadata write. The required marker-1
+`archive_required` field belongs to the local group application record; a peer
+snapshot neither grants a frontier nor clears this policy. Missing-field records
+refuse; no legacy decoder, migration or marker increment is introduced.
+
+After opening a retained disk, that requirement blocks local checkpoint
+compaction until the journaled remote hold has been independently verified again.
+The controller advances a private engine-local frontier only from complete archive
+coverage. Public `archive_status` remains advisory. Equal-index coverage must
+match the exact local root and term; newer coverage cannot be replaced with older
+or conflicting evidence. An intent reconciled behind the retained checkpoint
+keeps compaction closed until the next verified cut reaches local history.
+
+The automatic checkpoint scheduler checks the frontier before capture, letting
+quorum apply and another group's checkpoint lane progress during archive delay.
+The actual owner checks the exact captured cut again; the storage worker repeats
+the check before any snapshot compaction batch. An already prepared local
+checkpoint cannot bypass the configured requirement through direct persistence.
+The frontier retains only bounded marker metadata; the durable archive journal
+owns the current remote hold, and no idle per-group replay workspace is kept.
+
+This gate covers local checkpoint publication. Full-backend outage retention
+admission, Raft file purge, peer-install integration of deployment archive policy,
+fresh-quorum recovery and the public hard cutover remain separate requirements.

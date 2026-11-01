@@ -32,6 +32,11 @@ pub(super) async fn open(
     runtime: &CellGroupRuntime,
     execution: &ControllerExecution,
 ) -> Result<Context> {
+    runtime
+        .log()
+        .require_cell_group_archive(&registration.birth.route().history)
+        .await
+        .map_err(|error| Error::Runtime(error.into()))?;
     let registry = registration
         .directory
         .open_group_archive(execution, &registration.io, &registration.birth)

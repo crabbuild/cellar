@@ -21,6 +21,31 @@ mod rustfs;
 include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archive_coverage_gates_local_compaction() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::archive_checkpoint_frontier(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
+async fn rustfs_archive_coverage_gates_local_compaction() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::archive_checkpoint_frontier(
+            rooted,
+            rustfs::store("archive-compaction", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn s3_remote_outputs_preserve_durability_and_creation() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(runtime_fixture::s3_remote_outputs(

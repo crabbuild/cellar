@@ -221,3 +221,52 @@ async fn cell_group_genesis_stays_invisible_until_actual_sync() -> anyhow::Resul
     domain.shutdown().await;
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_requirement_is_local_irreversible_and_recovered() -> anyhow::Result<()> {
+    let root = tempfile::tempdir()?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let mut opts = options(root.path());
+    let initial = bootstrap(5);
+    let log = domain
+        .run(ReplicaLog::open(
+            opts.clone(),
+            Arc::new(cellar_ltx::DirectFileSystem),
+        ))
+        .await??;
+    let group = log.create_cell_group(initial.clone()).await?;
+    let marker = group.group_manifest()?.unwrap();
+    assert!(group.archive_compaction.permits(&marker)?);
+    log.require_cell_group_archive(&initial.route.history)
+        .await?;
+    assert!(group.read()?.archive_required);
+    assert!(!group.clone().archive_compaction.permits(&marker)?);
+    let cache = group.read()?;
+    let mapping = MappingRecord::new_cells(group.numeric_key(), &initial, &cache.conf_state)?;
+    let record = GroupRecord::from_cache(mapping, &cache)?;
+    drop(cache);
+    let mut encoded = serde_json::to_value(record)?;
+    encoded["application"]["state"]
+        .as_object_mut()
+        .unwrap()
+        .remove("archive_required");
+    assert!(records::decode::<GroupRecord>(&serde_json::to_vec(&encoded)?).is_err());
+    log.persist_cells(OperationId::new(17), vec![GroupWrite::new(&group)])
+        .await?;
+    assert!(group.read()?.archive_required);
+    log.close().await?;
+    opts.mode = LogOpenMode::Resume;
+    opts.process = ProcessGeneration::new([6; 16])?;
+    let resumed = domain
+        .run(ReplicaLog::open(
+            opts,
+            Arc::new(cellar_ltx::DirectFileSystem),
+        ))
+        .await??;
+    let restored = resumed.cell_group(&initial.route.history)?;
+    assert!(restored.read()?.archive_required);
+    assert!(!restored.archive_compaction.permits(&marker)?);
+    resumed.close().await?;
+    domain.shutdown().await;
+    Ok(())
+}

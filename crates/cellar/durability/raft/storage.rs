@@ -729,6 +729,24 @@ impl ReplicaLog {
             .await
     }
 
+    /// Enable a local irreversible retention requirement before archive I/O.
+    /// Operation zero correlates this private idempotent metadata write only;
+    /// it is never a business proposal or a durability response.
+    pub(crate) async fn require_cell_group_archive(
+        &self,
+        history: &GroupHistory,
+    ) -> Result<(), LogError> {
+        let group = self.cell_group(history)?;
+        group.archive_compaction.require()?;
+        let required = group.read()?.archive_required;
+        if !required {
+            let mut write = GroupWrite::new(&group);
+            write.require_archive = true;
+            self.persist_cells(OperationId::new(0), vec![write]).await?;
+        }
+        Ok(())
+    }
+
     pub async fn persist(
         &self,
         operation: OperationId,
@@ -1160,6 +1178,11 @@ impl Worker {
         scope: S,
     ) -> Result<GroupLog<S>, LogError> {
         Ok(GroupLog {
+            archive_compaction: Arc::new(
+                super::cell_groups::archive_compaction::ArchiveCompaction::new(
+                    cache.archive_required,
+                ),
+            ),
             consensus_claimed: Arc::new(AtomicBool::new(false)),
             scratch_directory: self.options.directory.clone(),
             snapshot_scratch: self.snapshot_scratch.clone(),
@@ -1451,6 +1474,14 @@ impl Worker {
                 .get(&write.group.key)
                 .ok_or(LogError::WrongIdentity)?;
             let old = write.group.read()?;
+            if write.require_archive {
+                write.group.archive_compaction.require()?;
+            }
+            if let Some(SnapshotChange::CellGroupCheckpoint(prepared)) = &write.snapshot {
+                if !write.group.archive_compaction.permits(prepared.marker())? {
+                    return Err(LogError::Overloaded);
+                }
+            }
             let next = old.changed(
                 write,
                 self.options.max_entries_per_group,

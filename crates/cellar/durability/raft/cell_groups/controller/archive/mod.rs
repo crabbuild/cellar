@@ -343,6 +343,14 @@ impl Manager {
                         &execution,
                     )
                     .await?;
+                    let local = runtime
+                        .log()
+                        .cell_group(&group)
+                        .map_err(|error| Error::Runtime(error.into()))?;
+                    local
+                        .archive_compaction
+                        .confirm(&local, &coverage)
+                        .map_err(|error| Error::Runtime(error.into()))?;
                     waiters = settlement::prove(
                         std::mem::take(&mut waiters),
                         context.as_ref().expect("opened archive context"),

@@ -242,6 +242,8 @@ pub(crate) enum ApplicationRecord {
 #[serde(deny_unknown_fields)]
 pub(crate) struct GroupApplication {
     manifest: super::cell_groups::GroupManifest,
+    // Required and local. A peer snapshot never changes this retention policy.
+    archive_required: bool,
     // Required, local to this mapping/engine, and never snapshot payload.
     seed: LocalGroupSeed,
 }
@@ -277,6 +279,7 @@ impl GroupRecord {
             application: match &cache.group_manifest {
                 Some(marker) => ApplicationRecord::Group(Box::new(GroupApplication {
                     manifest: marker.clone(),
+                    archive_required: cache.archive_required,
                     seed: cache.group_seed.map_or(LocalGroupSeed::Absent, |index| {
                         LocalGroupSeed::Installed { index }
                     }),
@@ -314,6 +317,10 @@ impl GroupRecord {
             .transpose()?
             .flatten();
         let cache = CachedGroup {
+            archive_required: match &self.application {
+                ApplicationRecord::Group(application) => application.archive_required,
+                ApplicationRecord::Image(_) => false,
+            },
             hard_state: HardState::parse_from_bytes(&self.hard_state).map_err(corrupt)?,
             conf_state: ConfState::parse_from_bytes(&self.conf_state).map_err(corrupt)?,
             membership: self.membership.clone(),

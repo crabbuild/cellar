@@ -288,6 +288,7 @@ impl PreparedSeed {
             ..Default::default()
         };
         Ok(crate::raft::cache::CachedGroup {
+            archive_required: false,
             hard_state,
             conf_state: snapshot.get_metadata().get_conf_state().clone(),
             membership: self.descriptor.membership.clone(),

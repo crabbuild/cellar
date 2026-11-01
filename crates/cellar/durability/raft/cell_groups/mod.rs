@@ -16,6 +16,7 @@ pub use crate::raft::transport::{
 
 mod apply;
 mod archive;
+pub(crate) mod archive_compaction;
 pub use archive::{
     CellGroupArchive, CellGroupArchiveCheckpointReceiver, CellGroupArchiveCollectionLimits,
     CellGroupArchiveCollectionReport, CellGroupArchiveCoverage, CellGroupArchiveCreation,

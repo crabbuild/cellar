@@ -105,6 +105,7 @@ pub enum SnapshotChange {
 
 #[derive(Clone)]
 pub struct GroupWrite<S = GroupScope> {
+    pub(crate) require_archive: bool,
     pub(crate) consensus_pin: Option<Arc<dyn Send + Sync>>,
     pub(crate) seed_grant: Option<Arc<super::transport::CellGroupSeedGrant>>,
     pub group: GroupLog<S>,
@@ -120,6 +121,7 @@ pub struct GroupWrite<S = GroupScope> {
 impl<S: Clone> GroupWrite<S> {
     pub fn new(group: &GroupLog<S>) -> Self {
         Self {
+            require_archive: false,
             consensus_pin: None,
             seed_grant: None,
             group: group.clone(),
@@ -190,6 +192,7 @@ impl<S: Clone> GroupWrite<S> {
 /// The engine rejects mixed application domains and never casts between them.
 #[derive(Clone)]
 pub struct GroupLog<S = GroupScope> {
+    pub(crate) archive_compaction: Arc<super::cell_groups::archive_compaction::ArchiveCompaction>,
     pub(crate) consensus_claimed: Arc<AtomicBool>,
     pub(crate) scratch_directory: std::path::PathBuf,
     pub(crate) snapshot_scratch: cellar_ltx::stream_snapshot::ScratchPool,
@@ -442,6 +445,7 @@ impl Storage for ConsensusStorage {
 
 #[derive(Clone)]
 pub(crate) struct CachedGroup {
+    pub archive_required: bool,
     pub hard_state: HardState,
     pub conf_state: ConfState,
     pub membership: GroupMembership,
@@ -510,6 +514,11 @@ impl CachedGroup {
     }
 
     pub fn validate(&self, max_entries: usize) -> Result<(), LogError> {
+        if self.archive_required && self.group_manifest.is_none() {
+            return Err(LogError::Corrupt(
+                "archive requirement without cell group".into(),
+            ));
+        }
         if self.group_seed.is_some_and(|index| {
             index <= 1 || index > self.applied.position.index.get() || self.group_manifest.is_none()
         }) {
@@ -588,6 +597,12 @@ impl CachedGroup {
         history: GroupHistory,
     ) -> Result<Self, LogError> {
         let mut next = self.clone();
+        if write.require_archive {
+            if self.group_manifest.is_none() {
+                return Err(LogError::WrongIdentity);
+            }
+            next.archive_required = true;
+        }
         if let Some(grant) = &write.seed_grant {
             grant.check(&write.group.owner, history, write.group.identity())?;
             let Some(SnapshotChange::CellGroup(prepared)) = &write.snapshot else {
@@ -949,6 +964,7 @@ pub(crate) fn genesis(conf_state: ConfState) -> CachedGroup {
         ..Default::default()
     };
     CachedGroup {
+        archive_required: false,
         hard_state,
         membership: GroupMembership::initial(&conf_state),
         conf_state,

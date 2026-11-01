@@ -547,7 +547,9 @@ pub(crate) use s3_response::unproved_s3_responses;
 #[path = "cell_group_controller.rs"]
 mod controller;
 #[allow(unused_imports)]
-pub(crate) use archive_controller::{archive_controller_publish, archive_controller_reconcile};
+pub(crate) use archive_controller::{
+    archive_checkpoint_frontier, archive_controller_publish, archive_controller_reconcile,
+};
 #[allow(unused_imports)]
 pub(crate) use archive_controller::{
     archive_controller_publish_store, archive_controller_reconcile_store,

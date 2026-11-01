@@ -176,6 +176,19 @@ compacts only the prefix represented by the complete checkpoint. Mixed writes
 and stale cuts refuse. `CheckpointPublished` is emitted after the matching engine
 completion. Source admission and pins survive accepted publication and shutdown.
 
+Archive registration now fsyncs a required local retention bit before object-store
+I/O. That bit is part of the required marker-1 group application record, remains
+set through ordinary writes and snapshot installation, and is recovered on open.
+The in-memory verified archive frontier is deliberately absent after restart.
+Local checkpoint publication and the storage preflight refuse a cut beyond that
+frontier. Only the controller's independently verified complete archive coverage
+advances it; the public archive status cannot authorize compaction. Its journal
+continues to own the current remote hold. The frontier retains bounded marker
+metadata, without keeping a replay workspace per idle group. A behind-archive
+checkpoint is skipped before capture so quorum apply and sibling checkpoint work
+continue. This is a prerequisite for retained-log admission, not its byte/disk
+bound or the physical Raft file reclamation gate.
+
 `capture_snapshot` pins the retained checkpoint named by the exact Raft snapshot,
 including its original membership/configuration, after ordinary apply has advanced
 the current root. A concurrent checkpoint replacement may refuse capture; a

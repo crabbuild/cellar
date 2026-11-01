@@ -112,6 +112,15 @@ impl Manager {
             .checkpoint_manifest()
             .map_err(RuntimeError::from)?
             .map_or(1, |root| root.position().index.get());
+        // An archive outage must not turn a due checkpoint into an apply stall.
+        // Recheck the exact captured cut again at owner and storage admission.
+        if !group
+            .archive_compaction
+            .permits(work.base.marker())
+            .map_err(RuntimeError::from)?
+        {
+            return Ok(false);
+        }
         let index = work.base.marker().position().index.get();
         if index.saturating_sub(previous) < config.policy.interval_entries {
             return Ok(false);

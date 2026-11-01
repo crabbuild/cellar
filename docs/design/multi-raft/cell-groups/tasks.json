@@ -1770,7 +1770,8 @@
         "crates/cellar/tests/support/cell_group_s3_receipts.rs",
         "crates/cellar/durability/raft/query_reply.rs",
         "crates/cellar/tests/support/cell_group_s3_remote.rs",
-        "crates/cellar/tests/support/cell_group_s3_remote_wire.rs"
+        "crates/cellar/tests/support/cell_group_s3_remote_wire.rs",
+        "crates/cellar/durability/raft/cell_groups/archive_compaction.rs"
       ],
       "test_target": "native_cell_groups_archive",
       "steps": [

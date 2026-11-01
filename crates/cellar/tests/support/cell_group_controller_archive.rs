@@ -429,3 +429,121 @@ async fn reconcile(fixture: &mut RuntimeCluster, route: &GroupRoute, rooted: boo
     drop(config);
     Ok(())
 }
+
+/// A configured archive blocks local compaction, not quorum apply or a sibling's
+/// checkpoint lane. Only actual complete coverage can reopen that boundary.
+pub(crate) async fn archive_checkpoint_frontier(
+    rooted: bool,
+    store: Arc<dyn ObjectStore>,
+) -> Result<()> {
+    use raft::Storage as _;
+    let (mut fixture, route) = setup_store(rooted, store).await?;
+    let second = controller::add_second(&mut fixture, route.history).await?;
+    fixture.connect_tcp().await?;
+    let pools: Vec<_> = (0..3)
+        .map(|_| CellGroupCheckpointPool::new(checkpoint_fixture::limits()))
+        .collect::<std::result::Result<_, _>>()?;
+    for (transport, pool) in fixture.transports.iter().zip(&pools) {
+        transport.enable_group_checkpoints(pool.clone())?;
+    }
+    let (config, remote) = registration(&fixture, &route, rooted).await?;
+    let publication = remote.hold_publication();
+    let mut limits = controller::limits();
+    limits.checkpoints = Some(CellGroupCheckpointPolicy {
+        interval_entries: 1,
+        max_parallel: 1,
+    });
+    let controllers = controller::start_with_limits(&mut fixture, limits).await?;
+    fixture.runtimes[0].campaign(second).await?;
+    controller::wait_for(async || Ok(fixture.runtimes[0].status(second).await?.ready)).await?;
+    let group = fixture.cluster.voters[0].log.cell_group(&route.history)?;
+    let before = group.checkpoint_manifest()?;
+    let first = group.first_index()?;
+    let call = controllers[0].archive(config.clone())?;
+    tokio::time::timeout(Duration::from_secs(10), publication.entered.notified()).await?;
+    let later = add(&fixture, &route, rooted, 1).await?;
+    assert_eq!(group.checkpoint_manifest()?, before);
+    assert_eq!(group.first_index()?, first);
+    assert!(controllers[0]
+        .archive_status(route.history)?
+        .unwrap()
+        .published
+        .is_none());
+    let marker = group.group_manifest()?.context("held archive cut")?;
+    let captured_group = group.clone();
+    let captured_marker = marker.clone();
+    let pool = pools[0].clone();
+    let prepared = fixture
+        .cluster
+        .domain
+        .blocking(move || {
+            pool.capture(&captured_group, &captured_marker)?
+                .prepare_publication()
+        })?
+        .await??;
+    controller::wait_for(async || {
+        match fixture.runtimes[0]
+            .publish_checkpoint(route.history, prepared.clone())
+            .await
+        {
+            Err(RuntimeError::Overloaded) => Ok(true),
+            Err(RuntimeError::NotReady) => Ok(false),
+            other => anyhow::bail!("unverified checkpoint admitted: {other:?}"),
+        }
+    })
+    .await?;
+    let mut write = GroupWrite::new(&group);
+    write.snapshot = Some(SnapshotChange::CellGroupCheckpoint(prepared.clone()));
+    assert!(matches!(
+        fixture.cluster.voters[0]
+            .log
+            .persist_cells(OperationId::new(911), vec![write])
+            .await,
+        Err(LogError::Overloaded)
+    ));
+    assert_eq!(group.checkpoint_manifest()?, before);
+    assert_eq!(group.first_index()?, first);
+
+    let sibling = fixture.cluster.voters[0].log.cell_group(&second)?;
+    let sibling_route = sibling
+        .group_manifest()?
+        .context("sibling")?
+        .route()
+        .clone();
+    add(&fixture, &sibling_route, false, 1).await?;
+    let sibling_base = sibling.group_manifest()?.context("sibling base")?;
+    add(&fixture, &sibling_route, false, 2).await?;
+    controller::wait_for(async || {
+        Ok(sibling
+            .checkpoint_manifest()?
+            .as_ref()
+            .is_some_and(|cut| cut.position().index >= sibling_base.position().index))
+    })
+    .await?;
+    assert_eq!(group.checkpoint_manifest()?, before);
+    assert_eq!(controllers[0].usage().quarantined_groups, 0);
+    publication.release.notify_one();
+    call.response().await?;
+    published(&controllers[0], route.history, later).await?;
+    fixture.runtimes[0]
+        .publish_checkpoint(route.history, prepared)
+        .await?;
+    controller::wait_for(async || Ok(group.checkpoint_manifest()?.as_ref() == Some(&marker)))
+        .await?;
+    assert_eq!(group.first_index()?, later.get() + 1);
+    remote.outage.store(true, Ordering::Release);
+    add(&fixture, &route, rooted, 2).await?;
+    let last = add(&fixture, &route, rooted, 3).await?;
+    assert_eq!(group.checkpoint_manifest()?.as_ref(), Some(&marker));
+    assert_eq!(group.first_index()?, later.get() + 1);
+    assert!(group.last_index()? >= last.get());
+    assert_eq!(controllers[0].usage().quarantined_groups, 0);
+    remote.outage.store(false, Ordering::Release);
+    published(&controllers[0], route.history, last).await?;
+    audit(&fixture, &config, rooted, 3).await?;
+    for controller in &controllers {
+        controller.close().await?;
+    }
+    assert_eq!(config.tails.usage().operations, 0);
+    fixture.close().await
+}

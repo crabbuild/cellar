@@ -806,7 +806,9 @@ mod sql;
 #[allow(unused_imports)]
 pub(super) use sql::unproved_s3_responses;
 #[allow(unused_imports)]
-pub(super) use sql::{archive_controller_publish, archive_controller_reconcile};
+pub(super) use sql::{
+    archive_checkpoint_frontier, archive_controller_publish, archive_controller_reconcile,
+};
 #[allow(unused_imports)]
 pub(super) use sql::{archive_controller_publish_store, archive_controller_reconcile_store};
 pub(super) use sql::{
