@@ -1000,8 +1000,6 @@ receipt retries, new writes and retained-disk restart. Repeat during split/merge
 crash cuts and after physical log reclamation. This remains group/component
 recovery, not a globally consistent snapshot of unrelated groups or external effects.
 
-## Archive-aware local checkpoint compaction
-
 The unmanaged recovery fence barrier is implemented separately from replacement
 installation. `RangeDirectory::prepare_group_recovery` binds the exact source
 birth, dedicated archive hold, replacement birth and expected topology mutation
@@ -1026,6 +1024,8 @@ topology lock or publish a replacement. Fresh-history image/receipt rebinding,
 fresh-genesis installation, activation and fresh-quorum admission must complete
 the recovery protocol above. The contract fixture and real RustFS CAS tests do
 not qualify Docker host fencing or the deleted-voter serving drill.
+
+## Archive-aware local checkpoint compaction
 
 An archive registration first makes the local group's retention requirement
 irreversible through an engine-synced metadata write. The required marker-1

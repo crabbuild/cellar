@@ -10,6 +10,63 @@ CG-06 is IN_PROGRESS; CG-07 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-06 exact whole-group recovery intents and fencing barrier
+
+Source: 65c5176975907fb52a53deca58e1ae1f5ba7adec. CG-06 remains IN_PROGRESS. The new
+`RangeDirectory::fence_group_recovery` boundary independently verifies an exact
+held complete-group archive before claiming the namespace or asking infrastructure
+to fence it. Canonical operator bytes bind the source birth, archive hold,
+replacement identities and original topology mutation. Unknown outcomes retain
+that exact request; no latest-head substitution, abort or unfence is supplied.
+
+The recovery lock shares the directory-head CAS with topology publication and
+the namespace lifecycle CAS with fleet import. Old source bootstrap and competing
+topology mutations refuse once selected. The existing fencing-authority contract
+accepts a typed whole-group request, requires permanent external inventory/launch
+fencing and independently verifies the winning bounded receipt, including after
+reopening the catalog. Archive corruption prevents any fencing call. The current
+static unmanaged boundary refuses joint, repair and fleet membership records.
+
+Both image forms pass exact resume and topology-race scenarios against memory
+and real RustFS. The actual S3 case covers four scenarios and seven signed probes,
+including lost CAS/fence responses, failed independent verification, immutable
+intent resume, all-cell image checks and startup/import/publication refusals.
+All five native shared-group suites pass (211 cases), as do eleven legacy
+disaster cases, locked all-target Cellar/logic Clippy, formatting/layout over 1966
+Rust files, native dependency/docs/preflight/plan checks, 37 plan tests and five
+backend-controller tests. Independent audit verifies 2583
+source hashes, copied executables, exact selection and credential exclusion.
+Owned RustFS backends/profiles are stopped with data retained.
+
+Two stack failures are retained with copied executables and diagnosis. The new
+fixture's recovery adapter is boxed; the existing extent helper uses its actual
+schema contract. A deterministic learner-replacement regression from by-value
+recovery-lock metadata is corrected by boxing that rare metadata in the common
+directory head. The exact default-stack test passes; canonical record bytes,
+stack limits and test assertions are unchanged by the layout correction.
+
+Initial controller-suite socket-address/command-deadline failures and a checkpoint
+fixture-driver deadline remain retained, not claimed fixed. Eight controller and
+four checkpoint comparisons pass on both copied source revisions. A contemporaneous
+extreme host-load snapshot is context, not proof of causation. The full unchanged
+source repeat passes; the earlier 8dfe9ff3 slow-reader timing limitation remains.
+This is not sustained-load, independent-domain, Docker voter-fence or deleted-voter
+replacement-serving qualification.
+
+Evidence: `.cellar/cell-groups-evidence/CG-06-recovery-fence/`. Qualification record
+SHA256: `0c94cfd5071d49e59bdefd0d1fae78aff15237602eebcfc4ade48283d50b254c`. Independent audit SHA256: `f2b13f7590220b06a7c23368563b176ce2abcf5d9506869b21538dde20db2c12`.
+Prior outage/dependency/reclamation evidence remains unchanged.
+
+The critical next feature is fresh-history image/receipt/client-floor restoration,
+fresh engine genesis, one fenced replacement publication, committed activation and
+fresh-quorum admission. The returned `FencedCellGroupRecovery` still contains
+original-history data and grants no engine, voting or serving permission. Qualify
+Docker permanent restart/launch revocation including later/removed voters, delete
+all owned voter disks, restore from real RustFS, reject old tokens, prove no
+callback replay, perform new writes and restart the retained replacement quorum.
+Only then run the full original CG-06 gate. CG-08 effects/cache/result lifetimes
+precede CG-07 SDK/fleet cutover; CG-09–16 remain mandatory.
+
 ## CG-06 bounded Quorum progress during a full S3 backend outage
 
 Source: 1159e9358c106fe1260c3479759e909e413257a4. CG-06 remains IN_PROGRESS. The

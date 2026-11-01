@@ -15,7 +15,27 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The latest runtime/qualification source is
+The latest runtime source is
+65c5176975907fb52a53deca58e1ae1f5ba7adec. The exact whole-group
+recovery-intent/fencing barrier passes memory and real RustFS scenarios in both
+image forms, 211 native shared-group cases, eleven legacy disaster cases and
+all scoped static checks. Source/artifact/selection/credential audit passes under
+`.cellar/cell-groups-evidence/CG-06-recovery-fence/`. Qualification SHA256:
+`0c94cfd5071d49e59bdefd0d1fae78aff15237602eebcfc4ade48283d50b254c`.
+The retained stack diagnoses and unresolved socket/deadline timing
+limits are recorded in [progress](progress.md).
+
+Consume the fenced data proof to restore fresh histories, images, receipts and
+client floors without callbacks; install fresh genesis, publish once under the
+same topology lock, commit activation and require fresh quorum before serving.
+The proof currently grants no bootstrap, voting or serving permission. Complete
+the accepted Docker fencing-authority qualification including later/removed
+voters and permanent launch revocation, erase every owned voter disk and verify
+real RustFS restore, old-token refusal, exact receipt retries, new writes and
+replacement restart. Preserve the original full CG-06 gate and all later tasks.
+The full hard-cutover goal remains active and incomplete.
+
+The prior bounded-outage qualification source is
 1159e9358c106fe1260c3479759e909e413257a4. CG-06 remains IN_PROGRESS. Its
 original bounded full-S3-backend outage case now passes in both image forms. The
 normal case faults the adapter shared by catalog and archive. The real RustFS
