@@ -612,11 +612,20 @@ async fn retained_log_lease_survives_waiter_loss_and_transfers_once() -> anyhow:
         term: 2,
         ..entry.clone()
     });
+    // Keep the proposed cache state valid so the negative reaches the exact
+    // lease binding check, rather than failing the independent term invariant.
+    let mut hard = group.initial_state()?.hard_state;
+    hard.term = 2;
+    changed.hard_state = Some(hard);
     changed.log_reservations.insert(2, lease.clone());
-    assert!(matches!(
-        log.persist_cells(OperationId::new(61), vec![changed]).await,
-        Err(LogError::WrongIdentity)
-    ));
+    let changed_result = log.persist_cells(OperationId::new(61), vec![changed]).await;
+    assert!(
+        matches!(&changed_result, Err(LogError::WrongIdentity)),
+        "wrong-term lease refusal: {changed_result:?}"
+    );
+    assert_eq!(group.initial_state()?.hard_state.term, 1);
+    assert_eq!(group.last_index()?, 1);
+    assert_eq!(group.log_retention_usage()?, reserved);
     let release = gate.arm(fault::HOLD_SYNC);
     let mut write = GroupWrite::new(&group);
     write.entries.push(entry.clone());
@@ -678,6 +687,115 @@ async fn retained_log_lease_survives_waiter_loss_and_transfers_once() -> anyhow:
     ));
     drop(lease);
     assert_eq!(group.log_retention_usage()?, complete);
+    log.close().await?;
+    domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn retained_log_byte_limits_and_selected_suffix_replacement() -> anyhow::Result<()> {
+    use crate::raft::cell_groups::{CellGroupLogCapacity, CellGroupLogRetentionLimits};
+    let root = tempfile::tempdir()?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let mut settings = options(root.path());
+    settings.cell_group_retention = CellGroupLogRetentionLimits {
+        node: CellGroupLogCapacity {
+            bytes: 8192,
+            entries: 100,
+        },
+        group: CellGroupLogCapacity {
+            bytes: 4096,
+            entries: 20,
+        },
+        progress_node: CellGroupLogCapacity {
+            bytes: 2048,
+            entries: 20,
+        },
+        progress_group: CellGroupLogCapacity {
+            bytes: 1024,
+            entries: 2,
+        },
+    };
+    let log = domain
+        .run(ReplicaLog::open(
+            settings,
+            Arc::new(cellar_ltx::DirectFileSystem),
+        ))
+        .await??;
+    let a = log.create_cell_group(bootstrap(5)).await?;
+    let b = log.create_cell_group(bootstrap(7)).await?;
+    let c = log.create_cell_group(bootstrap(9)).await?;
+    let large = Entry {
+        index: 2,
+        term: 1,
+        data: vec![1; 1800].into(),
+        ..Default::default()
+    };
+    let mut write = GroupWrite::new(&a);
+    write.entries.push(large.clone());
+    log.persist_cells(OperationId::new(70), vec![write]).await?;
+    let original = a.log_retention_usage()?;
+    assert_eq!(
+        (original.retained_entries, original.reserved_entries),
+        (1, 0)
+    );
+    let mut write = GroupWrite::new(&a);
+    write.entries.push(Entry {
+        index: 3,
+        ..large.clone()
+    });
+    assert!(
+        matches!(
+            log.persist_cells(OperationId::new(71), vec![write]).await,
+            Err(LogError::Overloaded)
+        ),
+        "group bytes refuse while entry counts have capacity"
+    );
+    assert_eq!(a.last_index()?, 2);
+    assert_eq!(a.log_retention_usage()?, original);
+    let mut write = GroupWrite::new(&b);
+    write.entries.push(large.clone());
+    log.persist_cells(OperationId::new(72), vec![write]).await?;
+    let before = log.cell_group_log_retention_usage()?;
+    assert_eq!((before.retained_entries, before.reserved_entries), (2, 0));
+    let mut write = GroupWrite::new(&c);
+    write.entries.push(large.clone());
+    assert!(
+        matches!(
+            log.persist_cells(OperationId::new(73), vec![write]).await,
+            Err(LogError::Overloaded)
+        ),
+        "node bytes refuse a fitting group while entry counts have capacity"
+    );
+    assert_eq!(c.last_index()?, 1);
+    assert_eq!(log.cell_group_log_retention_usage()?, before);
+    // A smaller replacement of an uncommitted suffix releases debt only after
+    // its new entry and term are actually selected by storage. Both versions
+    // fit the admitted overlap; no archive observation provides the refund.
+    let mut write = GroupWrite::new(&a);
+    write.entries.push(Entry {
+        index: 2,
+        term: 2,
+        data: vec![2; 64].into(),
+        ..Default::default()
+    });
+    let mut hard = a.initial_state()?.hard_state;
+    hard.term = 2;
+    write.hard_state = Some(hard);
+    log.persist_cells(OperationId::new(74), vec![write]).await?;
+    let smaller = a.log_retention_usage()?;
+    assert_eq!((smaller.retained_entries, smaller.reserved_entries), (1, 0));
+    assert!(smaller.retained_bytes < original.retained_bytes);
+    let mut write = GroupWrite::new(&c);
+    write.entries.push(large);
+    log.persist_cells(OperationId::new(75), vec![write]).await?;
+    let complete = log.cell_group_log_retention_usage()?;
+    assert_eq!(
+        (complete.retained_entries, complete.reserved_entries),
+        (3, 0)
+    );
+    assert_eq!(a.last_index()?, 2);
+    assert_eq!(a.term(2)?, 2);
     log.close().await?;
     domain.shutdown().await;
     Ok(())
