@@ -10,6 +10,94 @@ CG-06 is IN_PROGRESS; CG-07 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-06 remote S3 output ownership through physical delivery
+
+Runtime source: `25938fd86d13a2755066660797b07aff955ec1ad`. Validation-only
+metric inventory correction: `debdc30c8327aad35757c6b849e029c1bbdab691`. CG-06
+remains IN_PROGRESS. Commands, enrollment and receipt lookups now transmit their
+effective S3 requirement and return authenticated achieved durability. Unknown
+durability codes and replies below the original requirement refuse before result
+use. Existing exporter-bound MACs bind the body digest to the exact request,
+purpose, peer process and complete group/cell history. Command/receipt tokens
+retain their signed observation checks; enrollment returns the original creation
+record, including after later mutations. Marker-1 hard cutover adds no legacy
+reader or runtime mode flag.
+
+The receiver still needs an explicit provider binding to its exact runtime and
+active archive group. It uses the independently recovered complete-cut proofs,
+namespace/stored minima, current catalog/leader checks and original deadlines
+already required locally. An unbound receiver refuses before mutation when S3 is
+required. A stored-minimum duplicate resolves SQL before refusing an unbound
+owner. Possible transmission keeps mutation failures ambiguous. No transport
+retry replays application callbacks, and receipt absence remains ambiguous.
+
+A bounded owned reply now retains the native S3 output with its encoded bytes.
+That output owns physical coverage, S3 admission and journal/remote-hold
+lifetime. The existing transport reservation accounts for encoded bytes. Quorum
+outputs release resolved SQL as before. During writing, an aggregate owns both
+the TLS stream and reply: stream destruction precedes proof release, even if the
+entire serving future is destroyed. Successful flush precedes consumption.
+Cancellation, revocation and timeout cannot leave an acknowledged proof-free
+response in the writer. No per-cell task, timer or metadata-only proof cache is
+introduced.
+
+All sixteen exact RustFS cases pass in both image forms, plus seven signed S3
+protocol probes. Three new cases cover all remote output kinds and namespace/
+stored minima, original creation retries, unbound receiver refusal, archive-wait
+deadlines/cancellation and actual slow command/receipt TLS delivery. Independent
+wire clients use a bounded sequence of exact retries to fill small real kernel
+buffers without reading replies, holding a 28 KiB body within the unchanged 64
+KiB S3 envelope. TLS header reads prefetch and a single reply fits the buffers.
+The new fixed physical-write observation identifies the held phase without
+client reads. Proof/coverage and byte admission remain retained while SQL is
+free and a same-cell Quorum successor commits. Another S3 operation overloads
+within the original one-slot limit. Drain succeeds; disconnect, grant revocation
+and timeout join physical release. Truncated bodies cannot become successful
+replies; exact retries return the original result without callback replay. The
+earlier thirteen archive/local-output scenarios also pass.
+
+Twenty regression/check commands pass with 232 distinct Rust cases across seven
+copied executables, including all eighteen wire codec/authentication cases,
+receipt/ budget primitives, fixed performance outcomes/cardinality, the four
+native shared-group suites and LTX clones. Runtime all-target Clippy,
+format/layout, dependency/docs/preflight/plan checks, 37 Python tests and
+system-Python hashing pass. Runtime Clippy and 231 passing regressions retain
+their original source and hashes. The validation successor fixes the two
+archive-readiness gauge names/count already added on main, plus the matching API
+comment. Its exact metrics fixture, focused Clippy, format and repository checks
+pass. An independently checked two-file delta excludes runtime behavior or quota
+changes. Records under `.cellar/cell-groups-evidence/CG-06-s3-remote/` bind 2570
+source hashes, exact selections, logs/executables, frozen plan inputs and
+predecessors. Independent source/artifact/selection and credential-exclusion
+audit passes. The initial import-path failures retain their exact sources and
+outputs. The failed raw probe and copied-executable reproductions also remain
+retained: its operation length needed u16, and reading a TLS header prefetched
+the full body, while a single undrained reply still fit the socket buffers. The
+final probe fills a bounded retry window and observes the physical write phase.
+The initial native metrics inventory failure and copied-executable reproduction
+remain retained. PR #159 added two fixed readiness gauges while its inventory
+expected 111. The correction requires both names and exactly 113 resource
+samples, preserving duplicate/type/size checks and one-versus-32-group identity
+equality. An explicit released-command admission barrier identifies the
+successor phase. No original case or existing node quota was weakened. Four
+original CG-06 cases and its full gate remain open.
+
+Reflection: next implement explicit unarchived-byte/disk admission and qualify
+bounded operation during a full S3 outage; the archive-wrapper faults above are
+not that gate. Fresh destination catalog binding can still depend on S3 until
+replicated transfer seals are integrated; resolve that dependency without
+weakening ownership admission. Add safe physical shared-engine Raft file purge
+with complete checkpoint/archive/reader/transfer constraints, then fenced
+fresh-incarnation serving with every possible old-voter lineage, including joins
+after the cut. Fencing-authority API plus Docker qualification remains accepted.
+Multi-head hold retention, process-kill restart and physical-read shutdown cuts
+still need broader qualification. Incremental committed tails and smaller sealed
+attestations backed by actual remote holds remain performance opportunities.
+CG-08 lifetimes precede CG-07 SDK/fleet cutover; topology, placement,
+hibernation, managed recovery, load and final legacy removal remain. Voters
+share one host and RustFS one local VM; independent hosts, measured load and
+fenced replacement serving remain unqualified.
+
 ## CG-06 local receipt S3 observations and bounded result reads
 
 Source: `cde0eea2f516486578fdee7a4cc0b8be9ba8f72a`. CG-06 remains IN_PROGRESS. Local command,
