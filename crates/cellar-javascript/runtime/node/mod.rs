@@ -350,9 +350,7 @@ fn run(
             .map(|(&id, _)| id)
             .collect();
         for id in cancelled {
-            if let Some(state) = invocations.remove(&id) {
-                eprintln!("[DEBUG-ci163] Node observer cancelled invocation={id} operations={} pending={:?} mutation={} response={:?} observer_gap_us={} heartbeat_gap_us={}", state.operations, state.pending.keys().collect::<Vec<_>>(), state.mutation, state.response, loop_gap.as_micros(), heartbeat_gap.as_micros());
-            }
+            invocations.remove(&id);
             budgets.retire(id);
             transport.send(json!({"type":"cancel","id":id}))?;
         }
