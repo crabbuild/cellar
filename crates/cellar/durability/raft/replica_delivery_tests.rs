@@ -9,6 +9,15 @@ use cellar_logic::consensus::*;
 
 #[tokio::test]
 async fn membership_apply_waits_for_prior_message_delivery() -> anyhow::Result<()> {
+    membership_case(false).await
+}
+
+#[tokio::test]
+async fn membership_delivery_fence_is_not_extended_by_later_protocol_ready() -> anyhow::Result<()> {
+    membership_case(true).await
+}
+
+async fn membership_case(later_ready: bool) -> anyhow::Result<()> {
     let root = tempfile::tempdir()?;
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
     let log = domain
@@ -78,6 +87,18 @@ async fn membership_apply_waits_for_prior_message_delivery() -> anyhow::Result<(
             let event = outbox.events.pop_front().unwrap();
             let transport_owner = event._permit.clone();
             drop(event);
+            if later_ready {
+                let mut heartbeat = Message {
+                    from: 1,
+                    to: 3,
+                    term: 1,
+                    commit: 2,
+                    ..Default::default()
+                };
+                heartbeat.set_msg_type(MessageType::MsgHeartbeat);
+                replica.node.raft.msgs.push(heartbeat);
+                assert!(replica.node.has_ready());
+            }
             for _ in 0..8 {
                 assert!(!replica.drive(&mut operations, &mut outbox, &options, true)?);
                 assert!(

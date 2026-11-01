@@ -964,7 +964,24 @@ impl Replica {
                     self.ready_bytes = 0;
                     return Ok(true);
                 }
-                if self.node.has_ready()
+                // Drain the finite set of already-emitted sends before applying
+                // a committed configuration. Collecting another ordinary Ready
+                // here lets later heartbeats extend that fence indefinitely.
+                // An uninstalled snapshot retains its existing priority.
+                let configuration_pending = self
+                    .apply
+                    .front()
+                    .is_some_and(|entry| entry.get_entry_type() != EntryType::EntryNormal)
+                    && self.node.raft.raft_log.unstable_snapshot().is_none();
+                if configuration_pending {
+                    self.deliveries
+                        .retain(|delivery| delivery.strong_count() != 0);
+                    if !self.deliveries.is_empty() {
+                        return Ok(false);
+                    }
+                }
+                if !configuration_pending
+                    && self.node.has_ready()
                     && ((can_collect && self.apply_bytes < options.max_group_apply_bytes)
                         || self.node.raft.raft_log.unstable_snapshot().is_some())
                 {
