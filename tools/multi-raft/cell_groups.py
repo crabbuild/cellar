@@ -46,6 +46,18 @@ CASES = (
 )
 
 
+def exact_case_passed(output, case):
+    """Keep exact selection strict when validated observations interrupt libtest."""
+    pattern = r"cell_group_log_reclamation_observations (\{[^\n]+\})\n"
+    observations = [json.loads(value) for value in re.findall(pattern, output)]
+    if observations:
+        if [value.get("mode") for value in observations] != ["materialized", "extents"]:
+            raise ValueError("incomplete or duplicated reclamation observations")
+        output = re.sub(pattern, "", output)
+    return bool(re.search(rf"^test {re.escape(case)} \.\.\. ok$", output, re.M)
+                and "test result: ok. 1 passed; 0 failed; 0 ignored;" in output)
+
+
 def sha(path):
     digest = hashlib.sha256()
     with path.open("rb") as source:
@@ -171,8 +183,7 @@ def main():
                 for case in CASES:
                     if not re.search(rf"^{re.escape(case)}: test$", output, re.M):
                         raise RuntimeError("missing exact RustFS test in executable inventory")
-            elif not (re.search(rf"^test {re.escape(selection)} \.\.\. ok$", output, re.M)
-                      and "test result: ok. 1 passed; 0 failed; 0 ignored;" in output):
+            elif not exact_case_passed(output, selection):
                 raise RuntimeError("exact RustFS test was not executed successfully")
             match = re.search(r"Running [^\n]*\(([^\n)]+/native_cell_groups_archive_controller-[a-f0-9]+)\)", output)
             if not match:
