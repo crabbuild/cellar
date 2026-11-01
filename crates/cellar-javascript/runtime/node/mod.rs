@@ -316,6 +316,9 @@ fn run(
     let mut receive_remaining = RECEIVE_PASS_FRAMES;
     loop {
         if runtime.closed.load(Ordering::Acquire) {
+            for (id, state) in &invocations {
+                eprintln!("[DEBUG-ci163] Node closed invocation={id} operations={} pending={:?} mutation={} response={:?}", state.operations, state.pending.keys().collect::<Vec<_>>(), state.mutation, state.response);
+            }
             return Ok(());
         }
         #[cfg(test)]
@@ -350,7 +353,9 @@ fn run(
             .map(|(&id, _)| id)
             .collect();
         for id in cancelled {
-            invocations.remove(&id);
+            if let Some(state) = invocations.remove(&id) {
+                eprintln!("[DEBUG-ci163] Node cancelled invocation={id} active={} owner={} operations={} pending={:?} mutation={} response={:?} observer_gap_us={} heartbeat_gap_us={}", state.start.active.load(Ordering::Acquire), state.start.owner.load(Ordering::Acquire), state.operations, state.pending.keys().collect::<Vec<_>>(), state.mutation, state.response, loop_gap.as_micros(), heartbeat_gap.as_micros());
+            }
             budgets.retire(id);
             transport.send(json!({"type":"cancel","id":id}))?;
         }
