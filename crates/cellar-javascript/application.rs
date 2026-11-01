@@ -20,12 +20,46 @@ use cellar_guest::{
 use futures_util::{stream::FuturesUnordered, Future, StreamExt};
 use serde_json::{json, Value};
 use std::{
-    collections::HashSet,
+    collections::{HashSet, VecDeque},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
+
+// Temporary failure-only timeline for the unchanged CI deadline campaign.
+struct OperationDiagnostic {
+    invocation: u64,
+    started: std::time::Instant,
+    completed: AtomicBool,
+    operations: Mutex<VecDeque<String>>,
+}
+
+impl OperationDiagnostic {
+    fn record(&self, id: u64, name: &str, phase: &str) {
+        let mut rows = self.operations.lock().unwrap();
+        if rows.len() == 32 {
+            rows.pop_front();
+        }
+        rows.push_back(format!(
+            "id={id} name={name} phase={phase} at_us={}",
+            self.started.elapsed().as_micros()
+        ));
+    }
+}
+
+impl Drop for OperationDiagnostic {
+    fn drop(&mut self) {
+        if !self.completed.load(Ordering::Relaxed) {
+            eprintln!(
+                "[DEBUG-ci163] invocation={} retired before completion elapsed_us={} timeline={:?}",
+                self.invocation,
+                self.started.elapsed().as_micros(),
+                self.operations.get_mut().unwrap()
+            );
+        }
+    }
+}
 
 /// Handler registrations validated before the Rust host admits any work.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize)]
@@ -580,6 +614,12 @@ impl JavaScriptApplication {
             owner: owner.clone(),
         })?;
 
+        let diagnostic = Arc::new(OperationDiagnostic {
+            invocation,
+            started: std::time::Instant::now(),
+            completed: AtomicBool::new(false),
+            operations: Mutex::new(VecDeque::new()),
+        });
         let mut stopped = self.runtime.stopped.subscribe();
         let mut pending = FuturesUnordered::new();
         let mut published = false;
@@ -701,12 +741,12 @@ impl JavaScriptApplication {
                     let catalog = self.source.rpc.clone();
                     let rpc_session = rpc_session.clone();
                     let rpc_enabled = self.source.workers_lifetimes;
+                    let diagnostic = diagnostic.clone();
                     let mut operation = Box::pin(async move {
                         // The reservation is retained by the native future even
                         // if the awaiting JavaScript task has already been cancelled.
                         let _bytes = _bytes;
-                        let diagnostic_started = std::time::Instant::now();
-                        eprintln!("[DEBUG-ci163] native operation started invocation={invocation} id={id} name={name}");
+                        diagnostic.record(id, &name, "started");
                         let result =
                             match operations::decode_metadata_with(&name, &payload, |bytes| {
                                 Ok(runtime
@@ -920,7 +960,7 @@ impl JavaScriptApplication {
                                 }
                                 Err(error) => Err(error),
                             };
-                        eprintln!("[DEBUG-ci163] native operation completed invocation={invocation} id={id} name={name} elapsed_us={}", diagnostic_started.elapsed().as_micros());
+                        diagnostic.record(id, &name, "completed");
                         let (result, response_owner) = match result {
                             Ok((value, body, owner)) => (Ok((value, body)), owner),
                             Err(error) => (Err(error), None),
@@ -955,6 +995,7 @@ impl JavaScriptApplication {
                     _bytes,
                 } => {
                     let _bytes = _bytes;
+                    diagnostic.completed.store(!failed, Ordering::Relaxed);
                     if let Some(prepared) = rpc_prepared.take() {
                         let result = if failed {
                             Err(cellar_guest::rpc_failure::failure(&payload))
