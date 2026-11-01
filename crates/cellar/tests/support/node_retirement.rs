@@ -11,6 +11,77 @@ use object_store::{
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use tokio::sync::Notify;
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn local_retirement_storage_is_ready_before_ingress_admission() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let core = Executor::new("retirement-readiness")?;
+    let node = start(
+        "retirement-readiness",
+        "local",
+        directory.path(),
+        &core,
+        None,
+        None,
+        0,
+    )
+    .await?;
+    // No application request has run. Opening read-only must find the complete
+    // durable schema rather than creating it inside the first handler's budget.
+    let metadata = rusqlite::Connection::open_with_flags(
+        directory.path().join("cell-retirement.sqlite"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    );
+    let ready = metadata.and_then(|connection| {
+        connection.query_row(
+            "SELECT next_etag FROM __sys_local_sequence WHERE singleton = 1",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+    });
+    let stopped = node.shutdown(ShutdownMode::Preserve).await?;
+    ensure!(matches!(stopped, NodeOutcome::Stopped(_)));
+    ensure!(ready? == 1);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn invalid_local_retirement_storage_refuses_startup_and_releases_directory() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let core = Executor::new("retirement-refusal")?;
+    let metadata = directory.path().join("cell-retirement.sqlite");
+    std::fs::write(&metadata, b"invalid sqlite metadata")?;
+    let first = start(
+        "retirement-refusal",
+        "local",
+        directory.path(),
+        &core,
+        None,
+        None,
+        0,
+    )
+    .await;
+    if let Ok(node) = first {
+        node.shutdown(ShutdownMode::Preserve).await?;
+        anyhow::bail!("invalid retirement backend admitted a node");
+    }
+    std::fs::remove_file(metadata)?;
+    let node = start(
+        "retirement-refusal",
+        "local",
+        directory.path(),
+        &core,
+        None,
+        None,
+        0,
+    )
+    .await?;
+    ensure!(matches!(
+        node.shutdown(ShutdownMode::Preserve).await?,
+        NodeOutcome::Stopped(_)
+    ));
+    Ok(())
+}
+
 #[derive(Debug, Default)]
 struct Reads {
     count: AtomicUsize,
