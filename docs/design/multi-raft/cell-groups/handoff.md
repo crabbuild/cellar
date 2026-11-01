@@ -15,79 +15,89 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The latest partial runtime source is `25938fd86d13a2755066660797b07aff955ec1ad`;
-validation-only metric inventory correction is
-`debdc30c8327aad35757c6b849e029c1bbdab691`. CG-06 remains IN_PROGRESS. Local and
-remote command/enrollment/receipt S3 outputs use the exact receiver
-controller/runtime archive owner and complete independently recovered cuts. All
-request, namespace and stored receipt minima, original deadlines and current
-catalog/leader checks remain enforced.
+The latest runtime/qualification source is
+`8dfe9ff3a316d0579b656af4818dc57d839a6765`. CG-06 remains IN_PROGRESS. Local
+checkpoint compaction for an archive-configured group now requires independently
+verified complete coverage, with a durable local requirement and a fresh
+frontier after reopen. Owner and storage admission guard the exact cut.
+Scheduler prechecks skip blocked capture while quorum apply and sibling
+checkpoints progress. Activation drains earlier owner/storage checkpoint
+admissions before syncing policy, preserving the original one-source quota
+without a source-slot cycle. Public archive status grants no compaction or
+response authority. The frontier retains bounded metadata; the journal owns the
+current remote hold.
 
-Remote requests preserve effective durability. Successful replies authenticate
-achieved durability against the original requirement and exact request/purpose/
-peer/group/cell history. Enrollment retains original creation provenance, not a
-current-version token. Receipt absence stays ambiguous. Possible transmission
-never grants non-commit evidence, and retries do not rerun callbacks.
+The required marker-1 `archive_required` field belongs to local group
+application metadata. Missing-field records refuse without migration or a legacy
+reader. Ordinary writes and peer snapshot installation cannot clear the local
+policy or manufacture a frontier. Peer-install integration of deployment archive
+policy still needs its separate qualification.
 
-`query_reply.rs` retains a native S3 output alongside encoded bytes. Its writer
-owns the real TLS stream before the reply, ordering socket destruction before
-proof/coverage/admission/journal release on cancellation or task destruction.
-Normal flush precedes consumption. Quorum output release and existing node/peer
-transport admission are unchanged. Unbound receivers still refuse; configuring
-S3 cannot bypass exact runtime/group ownership or complete dependency
-verification.
+Local and remote command/enrollment/receipt S3 outputs retain their exact
+receiver controller/runtime archive owner, complete independently recovered
+cuts, original request/namespace/stored minima and deadlines, fresh
+catalog/leader checks and authenticated achieved durability. A native output
+owns its physical proof through TLS flush or ordered stream destruction. Quorum
+output releases SQL independently. No retry replays application callbacks;
+missing receipts remain ambiguous. Enrollment retains original creation
+provenance. These contracts remain required at the public cutover.
 
-Sixteen exact RustFS cases pass in both image forms, plus seven signed probes.
-The new cases cover all remote output kinds, unbound receivers, minima, creation
-retries, archive-wait cancellation/deadlines and actual stalled command/receipt
-TLS writes through drain, disconnect, timeout and grant revocation. Bounded
-exact retries fill small kernel buffers until the fixed physical-write
-observation identifies a held 28 KiB body inside the original 64 KiB S3
-envelope. SQL releases and a same-cell Quorum successor commits while the wire
-proof remains held; another S3 operation overloads. Exact retries preserve
-results without callback replay.
+Seventeen exact RustFS cases pass in both image forms plus seven signed probes.
+The new scenario holds real conditional publication while quorum appends and a
+sibling checkpoints, refuses direct owner/raw-storage compaction, then accepts
+the same prepared checkpoint after complete coverage. Another archive outage
+preserves later entries; independent recovery verifies every cell. The storage
+case proves guarded activation, missing-field refusal, irreversible policy and
+closed compaction after retained-disk reopen.
 
-Twenty regression/check commands pass with 232 distinct Rust cases across seven
-copied executables, eighteen wire codec/authentication cases, runtime all-target Clippy, focused inventory-fixture Clippy, format/layout,
-dependency/docs/preflight/plan checks, 37 Python tests and system Python hashing.
-The runtime and 231 passing cases retain their original source and output hashes;
-the metrics repair and remaining source checks run at the validation successor.
-Independent byte checks limit the successor to stricter inventory assertions for
-the two readiness gauges already added on main and the matching API comment.
-Independent source/hash/selection and credential-exclusion audits pass. Records,
-frozen inputs, executables and initial import failures are under
-`.cellar/cell-groups-evidence/CG-06-s3-remote/`. See [progress](progress.md), the
-[remote response contract](protocols.md#remote-s3-response-delivery-gate) and
-[RustFS runner](../../../../tools/multi-raft/cell_groups.py).
+Twenty-two regression/check commands pass with 260 Rust cases across seven
+copied executables: four native shared-group suites,
+storage/snapshot/cache/receipt/budget/journal/physical-join units, eighteen wire
+codec cases and fixed performance cardinality. Locked all-target Clippy,
+format/layout, dependency/docs/preflight/plan checks, 37 Python tests and
+system-Python hashing pass.
 
-Next add explicit unarchived-byte/disk admission, including a full-backend S3
-outage gate; the archive-wrapper faults above do not qualify that bound. Fresh
-destination catalog binding still depends on S3 until replicated transfer seals
-are integrated. Resolve that dependency without weakening ownership admission.
-Then physical shared-engine Raft file purge must respect every checkpoint,
-archive, protected reader, transfer and sibling-group constraint. Fenced
-new-incarnation serving must inventory every possible old-voter lineage,
-including joins after the selected recovery cut. Fencing-authority API plus
-Docker qualification remains accepted. Qualify multi-head leases, process-kill
-restart and physical-read shutdown cuts. Incremental tail scheduling and smaller
-attestations require real retained remote holds and load evidence.
+Independent source/hash/selection and credential-exclusion audit passes.
+Records, frozen plan inputs, failed compile/lint/native outputs, copied
+reproductions and executables are under
+`.cellar/cell-groups-evidence/CG-06-archive-compaction/`.
 
-CG-08 effect/cache/result lifetimes and maintenance precede CG-07 public
-SDK/fleet cutover, followed by topology, placement, hibernation, managed
-recovery, measured load and final legacy removal. Four original CG-06 cases/full
-gate remain pending. Voters are host-native tasks with one RustFS VM;
-independent hosts, container node limits, measured load, fenced replacement
-serving and the hard cutover remain unqualified. The end-to-end goal remains
-active and incomplete.
+The earlier broad slow-reader timeout remains retained; unchanged isolated and
+ordered-controller reproductions pass, and its timing cause is unresolved.
 
-Preserve receipt source `cde0eea2`, enrollment source `c2801b65`, command source
-`3d564f3d`, RustFS source `d739bf79`, controller source `7914177d`, catalog-cut
+See [progress](progress.md) and the [local compaction contract](protocols.md#archive-aware-local-checkpoint-compaction).
+
+Next implement explicit unarchived-byte/entry admission across node/group
+storage, including inherited peer/control work, pre-callback reservations and
+reserved physical/checkpoint progress capacity. Qualify archive activation
+fairness under sustained checkpoint traffic before enabling managed capture and
+public admission. Qualify a full-backend S3 outage and resolve fresh catalog
+admission without weakening ownership or epoch fencing. Archive-wrapper faults
+and the compaction prerequisite do not establish that bound. Add safe physical
+shared-engine Raft file purge constrained by every local checkpoint, archive,
+reader, transfer and sibling group. Fenced fresh-incarnation serving must
+inventory every possible old voter, including joins after the selected archive
+cut. Fencing-authority API plus Docker qualification remains accepted.
+Peer-install policy, controller process-kill restart and
+multi-head/physical-read shutdown cuts remain. Incremental tails and smaller
+sealed attestations require actual remote holds and load evidence.
+
+CG-08 effect/cache/result lifetimes precede CG-07 public SDK/fleet cutover, then
+topology, placement, hibernation, managed recovery, measured load and final
+legacy removal. Four original CG-06 cases/full gate remain pending. Voters are
+host-native tasks and RustFS one VM; independent domains, container node limits,
+measured load, fresh-quorum disaster serving and the hard cutover remain
+unqualified. The full end-to-end goal remains active.
+
+Preserve the remote response source `25938fd8` and validation-only inventory
+correction `debdc30c`, receipt source `cde0eea2`, enrollment `c2801b65`, command
+`3d564f3d`, prior RustFS `d739bf79`, controller `7914177d`, catalog cut
 `df0ba1f6`, protected publication `87348477`, isolated verifier `14955f2d`,
 committed tail `7a29c2a9` and their source-bound evidence/failures. Exact
-intents precede remote mutation; unknown outcomes never allocate a new identity
-or reset counters. Namespace binding, stable cut capture, protected publication
-and complete source-independent recovery retain their contracts. The controller
-initially coalesces complete cuts.
+intents precede remote mutation; uncertain outcomes cannot allocate new
+identities or reset counters. Namespace binding, stable cuts, protected
+publication and independent complete recovery preserve their contracts. The
+archive controller still coalesces complete cuts.
 
 CG-01 through CG-05 are DONE at their declared native task boundaries. CG-05
 closes at `e0550acd` with all five exact snapshot cases and eighteen passing

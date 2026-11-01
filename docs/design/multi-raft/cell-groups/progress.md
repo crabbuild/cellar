@@ -10,6 +10,88 @@ CG-06 is IN_PROGRESS; CG-07 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-06 archive-aware local checkpoint compaction
+
+Source: `8dfe9ff3a316d0579b656af4818dc57d839a6765`. CG-06 remains IN_PROGRESS.
+Archive registration now syncs an irreversible local `archive_required` bit
+before object-store I/O. The marker-1 group application record requires this
+field, without a legacy decoder or migration. Ordinary writes and peer snapshot
+installation preserve the local requirement. Reopen reconstructs the requirement
+with no trusted in-memory frontier; the journaled current remote hold must be
+independently verified again before local compaction.
+
+Each engine-local group shares one bounded frontier across its handles. Only
+independently verified complete archive coverage advances it. The route/history
+and local retained term must match; equal-index coverage must match the exact
+root. Older conflicting evidence cannot replace a newer cut. A reconciled intent
+behind the retained checkpoint grants no frontier and waits for a newer complete
+cut. Archive status remains advisory. The frontier grants neither S3 output nor
+serving authority, and retains no replay workspace per idle group. The durable
+journal continues to own the current remote hold.
+
+The automatic scheduler checks the frontier before capture, allowing quorum
+apply and a sibling group's checkpoint to continue while archival is held. The
+actual Raft owner checks its exact captured cut, and the storage worker repeats
+admission before any local checkpoint compaction batch. A prepared source
+remains a data capability and cannot bypass either boundary. Already admitted
+checkpoints retain owner and physical-storage guards until completion; archive
+activation retries their drain before syncing policy. This avoids retracting a
+checkpoint while retaining its sole source slot. No mutex spans an await or
+physical I/O. Registration also checks the actual local birth before policy
+changes.
+
+The new native and real RustFS scenario holds actual registry publication in
+both image forms. Quorum adds another cell while the configured group's
+checkpoint and log prefix stay intact. A sibling publishes through the original
+one-source pool and one controller checkpoint slot. Direct owner admission and
+raw persistence of the prepared local checkpoint both refuse. After actual
+complete coverage, the same preparation publishes; another archive outage
+preserves later committed log entries without quarantine. Independent recovery
+checks every selected cell. The storage regression checks activation refusal
+while an earlier admission is held, durable activation after drain,
+missing-field codec refusal, inability of ordinary writes to clear policy and
+recovered admission remaining closed without fresh coverage.
+
+All seventeen exact RustFS cases pass in both image forms, with seven signed S3
+probes. All twenty-two regression/check commands pass with 260 distinct Rust
+cases across seven copied executables. These include the four native
+shared-group suites, all seventeen storage tests, nine snapshot unit cases,
+cache/receipt/budget/journal/physical-join primitives, eighteen wire cases and
+fixed metric cardinality. Locked all-target Cellar/logic/LTX Clippy,
+format/layout, dependency/docs/preflight/plan checks, 37 Python tests and
+system-Python hashing pass. Records under
+`.cellar/cell-groups-evidence/CG-06-archive-compaction/` bind 2571 source
+hashes, exact selections, frozen plan inputs and executable/output hashes.
+Independent source/artifact/selection and credential-exclusion audit passes. The
+initial capture/import compile refusal, recovery-test lock-scope lint and native
+zero-operation refusal remain source-bound. A copied executable reproduced the
+native failure; typed status identified the invalid private metadata correlation
+ID. The correction uses a valid nonzero ID while preserving public zero-ID
+rejection and the independent physical sync sequence. The fixture uses runtime
+capture and orders sibling work before retaining its original source slot.
+Original cases, oracles and quotas remain unchanged. The first broad regression
+attempt timed out in the existing native slow-reader case; unchanged
+copied-executable isolated and full ordered-controller reruns passed. The
+passing complete rerun retains that failure and its unresolved timing limitation
+without changing code, timeouts, quotas or assertions. Four original CG-06
+cases/full gate remain pending.
+
+Reflection: add explicit node-wide unarchived-byte/entry admission, including
+inherited peer and control work, pre-callback reservations and capacity for
+checkpoint/physical completion progress. Qualify a full S3 backend outage,
+including the catalog-binding dependency without weakening ownership checks.
+This compaction gate alone does not establish that disk bound. Follow with
+physical shared-engine Raft file purge under every
+checkpoint/archive/reader/transfer/sibling constraint, and fenced
+fresh-incarnation serving with complete old-voter lineage inventory.
+Peer-install integration of deployment archive policy, controller process-kill
+and multi-head/physical-read shutdown cuts still need qualification. Archive
+activation fairness under sustained checkpoint traffic also needs an adversarial
+gate. CG-08 lifetimes precede CG-07 SDK/fleet cutover. Topology, placement,
+hibernation, managed recovery, measured load and legacy removal remain. Voters
+are host-native and RustFS is one local VM; independent failure domains and the
+production hard cutover remain unqualified.
+
 ## CG-06 remote S3 output ownership through physical delivery
 
 Runtime source: `25938fd86d13a2755066660797b07aff955ec1ad`. Validation-only
