@@ -113,6 +113,44 @@ fn request(h: &Harness, kind: &str) -> Result<Vec<u8>> {
     Ok(body)
 }
 
+fn written(h: &Harness) -> Result<u64> {
+    let snapshot = h.fixture.cluster.voters[0].log.performance_snapshot();
+    anyhow::ensure!(
+        snapshot.available && !snapshot.saturated,
+        "socket counter available"
+    );
+    snapshot
+        .counters
+        .iter()
+        .find(|c| c.name == "transport_query_write_bytes")
+        .map(|c| c.value)
+        .context("query socket byte counter")
+}
+
+async fn complete(connection: &mut Connection, binding: &[u8; 32], kind: &str) -> Result<()> {
+    let (reply, length, _) = connection
+        .receive_head(b"CLQA", b"cellar-raft-query-response-1", binding)
+        .await?;
+    assert_eq!(reply["request"], serde_json::json!(binding));
+    assert_eq!(reply["sequence"], "1");
+    assert!(length > 28 * 1024);
+    let bytes = connection.receive_body(length).await?;
+    assert_eq!(
+        &bytes[..8],
+        if kind == "command" {
+            b"CLGCCS01"
+        } else {
+            b"CLGCRS01"
+        }
+    );
+    assert_eq!(&bytes[8..10], &[0, 2]);
+    assert_eq!(
+        reply["digest"],
+        serde_json::json!(<[u8; 32]>::from(Sha256::digest(&bytes)))
+    );
+    Ok(())
+}
+
 pub(crate) async fn s3_remote_slow_delivery(
     rooted: bool,
     store: Arc<dyn ObjectStore>,
@@ -151,6 +189,7 @@ pub(crate) async fn s3_remote_slow_delivery(
             .await?;
             let body = request(&h, kind)?;
             let request_header = header(&h, &remote, kind, &body)?;
+            let before = written(&h)?;
             let binding = connection
                 .frame_bytes(
                     b"CLQP",
@@ -160,20 +199,19 @@ pub(crate) async fn s3_remote_slow_delivery(
                     &body,
                 )
                 .await?;
-            let (reply, length, _) = connection
-                .receive_head(b"CLQA", b"cellar-raft-query-response-1", &binding)
-                .await?;
-            assert_eq!(reply["request"], serde_json::json!(binding));
-            assert_eq!(reply["sequence"], "1");
-            assert!(length > 28 * 1024);
-            if h.controllers[0].usage().retained_s3 == 0 {
-                let usage = h.fixture.transports[0].usage();
-                let started = std::time::Instant::now();
-                let bytes = connection.receive_body(length).await;
-                eprintln!("[DEBUG-remote-write] before_body={usage:?}; body={:?}; elapsed={:?}", bytes.as_ref().map(|b| (b.len(), b.get(9).copied(), reply["digest"] == serde_json::json!(<[u8;32]>::from(Sha256::digest(b))))), started.elapsed());
-            }
-            // The header has physically arrived, but the result body is blocked.
-            // The native output must still own one proof, full coverage and bytes.
+            // Reading even the header lets TLS prefetch the whole body and
+            // releases backpressure. Observe successful socket writes below TLS
+            // before any client read. Fewer than 28 KiB cannot carry this result.
+            controller::wait_for(async || {
+                let bytes = written(&h)?
+                    .checked_sub(before)
+                    .context("socket counter monotonic")?;
+                Ok(bytes >= 4096
+                    && bytes < 28 * 1024
+                    && h.controllers[0].usage().retained_s3 == 1
+                    && h.fixture.transports[0].usage().query_items == 1)
+            })
+            .await?;
             assert_eq!(h.controllers[0].usage().retained_s3, 1, "{kind}-{fault}");
             assert_eq!(h.controllers[0].usage().s3_bytes, 64 * 1024);
             assert_eq!(h.archive.tails.usage().operations, 1);
@@ -217,22 +255,15 @@ pub(crate) async fn s3_remote_slow_delivery(
                     ))
             ));
             drop(overloaded);
+            assert!(
+                written(&h)?
+                    .checked_sub(before)
+                    .context("socket counter monotonic")?
+                    < 28 * 1024
+            );
             match fault {
                 "drain" => {
-                    let bytes = connection.receive_body(length).await?;
-                    assert_eq!(
-                        &bytes[..8],
-                        if kind == "command" {
-                            b"CLGCCS01"
-                        } else {
-                            b"CLGCRS01"
-                        }
-                    );
-                    assert_eq!(&bytes[8..10], &[0, 2]);
-                    assert_eq!(
-                        reply["digest"],
-                        serde_json::json!(<[u8; 32]>::from(Sha256::digest(&bytes)))
-                    );
+                    complete(&mut connection, &binding, kind).await?;
                     drop(connection);
                 }
                 "disconnect" => drop(connection),
@@ -244,7 +275,7 @@ pub(crate) async fn s3_remote_slow_delivery(
                         2,
                     )?;
                     refunded(&h).await?;
-                    assert!(connection.receive_body(length).await.is_err());
+                    assert!(complete(&mut connection, &binding, kind).await.is_err());
                     drop(connection);
                     h.fixture.transports[0].grant_command_origin(
                         cellar::application::consensus::NamespaceCommandOrigin {
@@ -257,7 +288,7 @@ pub(crate) async fn s3_remote_slow_delivery(
                 }
                 "timeout" => {
                     refunded(&h).await?;
-                    assert!(connection.receive_body(length).await.is_err());
+                    assert!(complete(&mut connection, &binding, kind).await.is_err());
                     drop(connection);
                 }
                 _ => unreachable!(),
