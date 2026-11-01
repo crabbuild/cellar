@@ -161,6 +161,12 @@ impl Store {
             .await
     }
 
+    /// Prepare the durable backend before admitting application requests. This
+    /// opens local metadata only; each cold activation still reads its marker.
+    pub(crate) async fn prepare(&self) -> Result<()> {
+        self.backend().await.map(|_| ())
+    }
+
     pub(crate) async fn get(&self, scope: &str) -> Result<Option<Record>> {
         read(self.backend().await?.as_ref(), &self.prefix, scope).await
     }

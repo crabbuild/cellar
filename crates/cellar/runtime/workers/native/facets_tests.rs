@@ -629,5 +629,70 @@ pub(crate) async fn check_native_facet_lifecycles() -> Result<()> {
         .keys()
         .any(|(scope, _)| scope == root));
     assert!(installed_context().is_none());
+    check_erasure_cannot_reopen_source().await?;
+    Ok(())
+}
+
+async fn check_erasure_cannot_reopen_source() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let root_file = directory.path().join("root.sqlite");
+    let root = "Root:permanent-erasure";
+    let observed = Arc::new(Observed::default());
+    let slot = Slot::loaded_worker(Worker::load_config(config(observed.clone())?)?);
+    slot.turn(|worker| {
+        worker.own_cell(
+            root,
+            Some(CellStorage {
+                path: root_file.to_str().unwrap(),
+                epoch: 1,
+                replicated_wake: false,
+                vfs: None,
+            }),
+        )
+    })
+    .await?;
+    let parent = identity(&slot, root).await?;
+    let activation = slot
+        .turn(|worker| {
+            worker
+                .backend_mut::<NativeWorker>()
+                .unwrap()
+                .activations
+                .get(root)
+                .unwrap()
+                .clone()
+        })
+        .await;
+    activation.close_for_erasure();
+    // Match the current generation deliberately: refusal must come from
+    // permanent erasure, not from an old context's generation mismatch.
+    activation.source_admission(0, false);
+    let opening = crate::host_facets::prepare_native_facet(
+        FacetHost::Own(slot.clone()),
+        FacetStart {
+            source_generation: 0,
+            class_name: "Facet".into(),
+            parent_scope: root.into(),
+            owner: "blocked".into(),
+            name: "blocked".into(),
+            id_sc: encode(&StructuredValue::from_json(serde_json::json!("blocked"))?)?,
+            props_sc: encode(&StructuredValue::from_json(serde_json::json!({}))?)?,
+            parent,
+        },
+        activation,
+    )
+    .await;
+    assert!(opening
+        .err()
+        .unwrap()
+        .contains("source incarnation has retired"));
+    assert!(
+        observed.contexts.lock().unwrap().is_empty(),
+        "erased root created a fresh facet"
+    );
+    slot.turn(|worker| worker.own_cell(root, None)).await?;
+    crate::host_facets::release_root_facets(root, 1, crate::host_facets::RootRelease::Stop)
+        .await
+        .map_err(anyhow::Error::msg)?;
     Ok(())
 }

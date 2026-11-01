@@ -566,6 +566,18 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/cloudflare-counter-latency.md",
+      "title": "Cloudflare counter latency qualification",
+      "summary": "Record resident retirement admission correctness, measured counter latency gains, proxy-path comparisons, and qualification limits.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/dense-durability-2026-10-28.md",
       "title": "Dense cell state durability experiment — 2026-10-28–29",
       "summary": "Record the three-node RustFS durability experiment with ten one-GiB cells and its qualification limits.",

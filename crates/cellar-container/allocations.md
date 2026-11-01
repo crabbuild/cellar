@@ -274,10 +274,26 @@ Child retirement automatically queues its SQLite and replica erasure. Parent
 business data is retained until an explicit `request_erasure(ctx).await?` (Rust)
 or the guest equivalent above. Erasure refuses live children, active provider
 bindings, retained facets, unfinished event-source retirement and consensus cells.
-The request holds its cell input gate through intent persistence, so cleanup
-cannot close business admission while the requesting continuation awaits its
-durability proof. Return the acknowledgement after awaiting the request;
-collection and its permanent admission barrier remain asynchronous.
+The requesting event holds its cell input gate until its reply is dispatched
+through the existing proof path. Cleanup cannot revoke the request while it is
+awaiting the intent's durability proof; new cell turns wait behind that gate.
+Failure, cancellation and timeout release the hold through normal event teardown.
+
+Warm requests reuse the retirement check attached to a published local activation.
+Erasure cleanup irreversibly closes that activation's business admission, proves
+the SQLite intent, then submits an activation-bound request to publish the external
+marker. Suspended turns, retained contexts/storage and facet opens also observe
+closure. Event-source recreation cannot reopen an erasing cell. Owned erasure
+cleanup and authenticated, exact-identity child-destroy continuations remain
+admitted so terminal acknowledgements, publication and collection can finish.
+Other framework controls cannot bypass permanent erasure.
+
+This is residency-bound admission, not a time-based cache of a missing marker.
+Cold requests, activation and snapshot restore retain fresh storage checks. After
+eviction, generation replacement or takeover, the new activation must check again;
+restoring an erasure intent keeps business admission closed even before a pending
+external publication is repaired. Ownership, epoch and output-proof checks remain
+on every response.
 
 ```mermaid
 flowchart LR

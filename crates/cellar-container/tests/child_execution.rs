@@ -191,6 +191,11 @@ impl Cell for Root {
                     })
                     .await?;
                     ensure!(resume_after.is_some(), "erasure proof did not suspend");
+                    // Cleanup is runnable now. The intent's requesting event
+                    // must still finish its proven reply before cleanup closes
+                    // business admission. Keep the original handler budget.
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    context.storage()?.get_json("erasure_reply_probe")?;
                     json!(parent.scope)
                 }
                 "retired" => {

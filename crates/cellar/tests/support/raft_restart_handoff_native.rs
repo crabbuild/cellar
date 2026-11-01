@@ -39,7 +39,11 @@ async fn consume(
                         ensure!(group == *expected);
                         return Ok::<_, anyhow::Error>(requests);
                     }
-                    Err(FleetCatalogError::Unconfirmed | FleetCatalogError::Overloaded)
+                    Err(
+                        FleetCatalogError::InventoryIncomplete
+                        | FleetCatalogError::Unconfirmed
+                        | FleetCatalogError::Overloaded,
+                    )
                     | Err(FleetCatalogError::Observation(
                         InspectionError::Unavailable | InspectionError::Overloaded,
                     )) => {
@@ -118,6 +122,88 @@ async fn fleet_restart_handoff_observes_primary_and_preserves_sql() -> Result<()
     ensure!(walk.next_history(TIMEOUT).await?.is_none());
     finish(&s, walk, p).await?;
     s.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_restart_quiescence_defers_new_periodic_checkpoints() -> Result<()> {
+    Box::pin(quiescent_checkpoint_case()).await
+}
+
+async fn quiescent_checkpoint_case() -> Result<()> {
+    let s = Box::pin(Setup::new()).await?;
+    let p = primary(&s.f, &s.cells).await?;
+    s.f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+            loop {
+                let status = s.cells[p].status().await?;
+                if status.checkpoint.index >= status.committed {
+                    break;
+                }
+                cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+            }
+            Ok::<_, anyhow::Error>(())
+        }))
+        .await???;
+    s.f.store.archive_hang.store(true, Ordering::Release);
+    let paused = async {
+        let mut options = public_node::options(1)?;
+        options.id = CommandId::new(cellar_logic::consensus::ClientId::new([192; 16])?, 1)?;
+        options.durability = Durability::Quorum;
+        s.cells[p]
+            .command(
+                s.f.definition.increment.clone(),
+                0_i64.to_be_bytes().to_vec(),
+                options,
+            )
+            .await?;
+        let committed = s.cells[p].status().await?.committed;
+        let (_, walk) = prepare(&s, p).await?;
+        ensure!(
+            s.nodes[p]
+                .host
+                .observe_node(TIMEOUT)
+                .await?
+                .node
+                .profile
+                .draining
+        );
+        let checkpoint = s.cells[p].status().await?.checkpoint;
+        ensure!(
+            checkpoint.index < committed,
+            "held archive did not retain an uncompacted cut"
+        );
+        Ok::<_, anyhow::Error>((walk, committed, checkpoint))
+    }
+    .await;
+    s.f.store.archive_hang.store(false, Ordering::Release);
+    s.f.store.archive_resume.notify_waiters();
+    let outcome = async {
+        let (mut walk, committed, checkpoint) = paused?;
+        s.f.domain
+            .run(cellar::asyncrt::timeout(TIMEOUT, async {
+                while s.cells[p].status().await?.archived < committed {
+                    cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                }
+                // Cover the configured one-second periodic trigger while driving
+                // real control turns; a paused host must not start a new capture.
+                let end = cellar::asyncrt::mono_ms() + 1_500;
+                while cellar::asyncrt::mono_ms() < end {
+                    ensure!(
+                        s.cells[p].status().await?.checkpoint == checkpoint,
+                        "periodic checkpoint advanced after maintenance quiescence"
+                    );
+                    cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                }
+                Ok::<_, anyhow::Error>(())
+            }))
+            .await???;
+        consume(&s, &mut walk, &s.proposal.scope).await?;
+        finish(&s, walk, p).await
+    }
+    .await;
+    let closed = s.close().await;
+    outcome?;
+    closed
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

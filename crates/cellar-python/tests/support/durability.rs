@@ -9,20 +9,21 @@ async fn recovered_state(client: &reqwest::Client, url: &str) -> Result<Value> {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let response = client.get(format!("{url}/proof/state")).send().await?;
-            if response.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE {
-                // A read admitted during asynchronous activation reset is
-                // refused. Retry only this fixed, read-only route; a failed
-                // proof never authorizes replay of /failure or another write.
-                tokio::time::sleep(Duration::from_millis(10)).await;
-                continue;
-            }
             let status = response.status();
             let body = response.text().await?;
+            if status.is_success() {
+                return Ok::<_, anyhow::Error>(serde_json::from_str(&body)?);
+            }
+            // Activation reset can refuse admission or retain the failed proof
+            // until reset finishes. Retry only this fixed read-only route.
             ensure!(
-                status.is_success(),
-                "recovered proof read failed: {status}: {body}"
+                status == reqwest::StatusCode::SERVICE_UNAVAILABLE
+                    || (status.is_server_error()
+                        && body.contains("cellar output-gate durability proof failed for ")
+                        && body.contains("ltx durability timed out for ")),
+                "recovered proof read failed outside pending reset: {status}: {body}"
             );
-            return Ok::<_, anyhow::Error>(serde_json::from_str(&body)?);
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
     .await

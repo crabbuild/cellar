@@ -98,12 +98,16 @@ pub(super) async fn step(
 
 pub(super) async fn discover(f: &Fixture, hosts: &[&RaftCells]) -> Result<()> {
     let revision = f.catalog.read(TIMEOUT).await?.revision();
-    for origin in hosts {
-        let own = origin.observe_node(TIMEOUT).await?.node.identity.node;
-        for target in hosts {
-            let node = target.observe_node(TIMEOUT).await?.node.identity.node;
+    let mut identities = Vec::with_capacity(hosts.len());
+    for host in hosts {
+        identities.push(host.observe_node(TIMEOUT).await?.node.identity.node);
+    }
+    // Node IDs are immutable for these live handles. Refresh each identity
+    // once per round; every peer still supplies its fresh authenticated view.
+    for (origin, own) in hosts.iter().zip(&identities) {
+        for node in &identities {
             if node != own {
-                f.remote(origin, node, revision).await?;
+                f.remote(origin, *node, revision).await?;
             }
         }
     }

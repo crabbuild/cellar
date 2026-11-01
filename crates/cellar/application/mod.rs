@@ -526,6 +526,8 @@ impl Application for Registry {
 pub(crate) struct EventState {
     pub background: Mutex<Vec<HandlerFuture<()>>>,
     pub(crate) blocks: concurrency::Blocks,
+    // Keep framework cleanup behind the requesting event and its reply proof.
+    pub(crate) erasure_gate: Mutex<Option<Arc<crate::native_worker::InputGate>>>,
     pub(crate) retired: std::sync::atomic::AtomicBool,
     pub(crate) incoming_abort: Mutex<Option<cellar_native::web::WeakAbortSignal>>,
     pub(crate) unrefed: Mutex<Vec<HandlerFuture<()>>>,
@@ -680,19 +682,14 @@ impl Context {
         }
         if let Some(activation) = &self.io.native_activation {
             anyhow::ensure!(
-                cellar_logic::event_stream::source_admitted(
+                activation.resources.source_admitted(
                     self.io.source_generation,
-                    activation
-                        .resources
-                        .source_generation
-                        .load(std::sync::atomic::Ordering::Acquire),
-                    activation
-                        .resources
-                        .source_closed
-                        .load(std::sync::atomic::Ordering::Acquire),
                     self.io
                         .framework_source
-                        .load(std::sync::atomic::Ordering::Acquire)
+                        .load(std::sync::atomic::Ordering::Acquire),
+                    self.io
+                        .erasure_cleanup
+                        .load(std::sync::atomic::Ordering::Acquire),
                 ),
                 "source business admission is closed or its incarnation has changed"
             );

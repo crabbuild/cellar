@@ -256,7 +256,10 @@ pub enum RuntimeEventKind {
     },
 }
 
-/// Admission remains charged while this event is in either runtime queue.
+/// Admission remains charged while this event is queued or owned by delivery.
+/// Retain ordinary message events until their transport attempt completes:
+/// configuration apply waits for prior owners before revoking membership.
+/// Snapshot events transfer ownership to the separate snapshot protocol.
 pub struct RuntimeEvent {
     pub kind: RuntimeEventKind,
     pub(crate) _permit: std::sync::Arc<Permit>,

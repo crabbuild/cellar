@@ -692,19 +692,47 @@ impl RaftRuntime {
 }
 
 pub(crate) struct Outbox {
-    events: VecDeque<RuntimeEvent>,
+    pub(super) events: VecDeque<RuntimeEvent>,
     budget: Arc<Budget>,
 }
 
 impl Outbox {
+    pub(crate) fn new(max_bytes: usize, max_events: usize) -> Self {
+        Self {
+            events: VecDeque::new(),
+            budget: Budget::new(max_bytes, max_events),
+        }
+    }
+
     /// Return the unsent event when admission is exhausted.
     pub fn push(&mut self, kind: RuntimeEventKind) -> Option<RuntimeEventKind> {
+        self.push_owned(kind, None)
+    }
+
+    pub(crate) fn push_tracked(
+        &mut self,
+        kind: RuntimeEventKind,
+        deliveries: &mut Vec<std::sync::Weak<Permit>>,
+    ) -> Option<RuntimeEventKind> {
+        self.push_owned(kind, Some(deliveries))
+    }
+
+    fn push_owned(
+        &mut self,
+        kind: RuntimeEventKind,
+        deliveries: Option<&mut Vec<std::sync::Weak<Permit>>>,
+    ) -> Option<RuntimeEventKind> {
         let Some(permit) = self.budget.acquire(kind.bytes()) else {
             return Some(kind);
         };
+        let permit = Arc::new(permit);
+        if let Some(deliveries) = deliveries {
+            deliveries.retain(|prior| prior.strong_count() != 0);
+            deliveries.push(Arc::downgrade(&permit));
+        }
         self.events.push_back(RuntimeEvent {
             kind,
-            _permit: std::sync::Arc::new(permit),
+            _permit: permit,
         });
         None
     }
@@ -799,10 +827,7 @@ impl Worker {
             Some(value) => seed = value,
             None => crate::asyncrt::rng("raft-elections").fill_bytes(&mut seed),
         }
-        let outbox = Outbox {
-            events: VecDeque::new(),
-            budget: Budget::new(options.max_event_bytes, options.max_events),
-        };
+        let outbox = Outbox::new(options.max_event_bytes, options.max_events);
         let mut worker = Self {
             log,
             domain,

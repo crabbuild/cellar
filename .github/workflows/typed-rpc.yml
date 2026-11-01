@@ -25,15 +25,16 @@ concurrency:
   cancel-in-progress: true
 jobs:
   lifecycle:
-    name: Typed RPC (${{ matrix.python }})
+    name: ${{ matrix.campaign == 'focused' && format('Typed RPC ({0})', matrix.python) || format('Typed RPC full ({0})', matrix.python) }}
     runs-on: ubuntu-22.04
-    # Cold fixture checks, dedicated lifecycle suites and the full combined
-    # matrix exceed an hour on shared runners. Only the CI job ceiling changes;
-    # individual RPC, proof, lease and shutdown budgets remain enforced.
-    timeout-minutes: 90
+    # Focused checks and the complete generated matrix each keep the existing
+    # 60-minute ceiling. Run them independently; neither drops any case or proof.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
+        python: ['3.14', '3.14t']
+        campaign: [focused, full]
         include:
           - python: '3.14'
             mode: gil
@@ -76,6 +77,7 @@ jobs:
           .cellar/rpc/python/bin/python tools/rpc/test_profile_vectors.py
           .cellar/rpc/python/bin/python tools/rpc/test_python_rpc.py
       - name: Qualifier checks
+        if: matrix.campaign == 'focused'
         run: |
           cargo test --locked -p cellar-guest
           cargo test --locked -p cellar --lib local_store:: -- --test-threads=1
@@ -87,6 +89,7 @@ jobs:
           cargo clippy --locked -p cellar-rpc-qualification --all-targets --features full -- -D warnings
           cargo test --locked -p cellar-rpc-qualification --features full -- --test-threads=1
       - name: Live portable Protobuf profile
+        if: matrix.campaign == 'focused'
         run: |
           mkdir -p .cellar/rpc
           if ! cargo run --locked -p cellar-rpc-qualification --features full -- \
@@ -98,6 +101,7 @@ jobs:
           python3 tools/rpc/check_profile.py .cellar/rpc/profile.json
           python3 tools/rpc/check_python_mode.py --expected "$CELLAR_RPC_PYTHON_MODE" .cellar/rpc/profile.json
       - name: Owned Node, V8 and Python lifecycle matrices
+        if: matrix.campaign == 'focused'
         run: |
           if ! cargo run --locked -p cellar-rpc-qualification --features full -- \
             --suite lifecycle --python-mode "$CELLAR_RPC_PYTHON_MODE" --report .cellar/rpc/lifecycle.json \
@@ -120,6 +124,7 @@ jobs:
           python3 tools/rpc/check_guest_control.py .cellar/rpc/guest-control.json
           python3 tools/rpc/check_provider_limits.py .cellar/rpc/provider-limits.json
       - name: Full generated RPC and failure matrix
+        if: matrix.campaign == 'full'
         run: |
           if ! cargo run --locked -p cellar-rpc-qualification --features full -- \
             --suite all --python-mode "$CELLAR_RPC_PYTHON_MODE" --report .cellar/rpc/all.json \
@@ -134,7 +139,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: typed-rpc-${{ matrix.python }}
+          name: typed-rpc-${{ matrix.python }}${{ matrix.campaign == 'full' && '-full' || '' }}
           path: |
             .cellar/rpc/lifecycle.json
             .cellar/rpc/profile.json

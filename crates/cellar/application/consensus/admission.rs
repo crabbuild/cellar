@@ -61,11 +61,15 @@ impl Admission {
     }
 
     pub(crate) fn application_paused(&self) -> bool {
-        self.is_draining()
-            || self
-                .maintenance
-                .get()
-                .is_some_and(|gate| gate.public_closed())
+        self.is_draining() || self.maintenance_paused()
+    }
+
+    /// Reversible maintenance stops new background captures as well as public
+    /// work. Permanent shutdown still needs its normal retention cleanup.
+    pub(crate) fn maintenance_paused(&self) -> bool {
+        self.maintenance
+            .get()
+            .is_some_and(|gate| gate.public_closed())
     }
 
     pub(crate) fn seal(&self) -> Result<(), CommandFailure> {

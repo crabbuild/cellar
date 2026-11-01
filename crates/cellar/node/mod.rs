@@ -734,6 +734,7 @@ async fn dispatch_facet(app: AppHandle, req: crate::host_channels::FacetReq) {
     match req {
         FacetReq::Erase { request, reply } => {
             let result = async {
+                (request.validate_admission)(request.record.evidence.scope(), request.epoch)?;
                 anyhow::ensure!(
                     runtime.published_epoch(request.record.evidence.scope()) == Some(request.epoch),
                     "erasure activation changed"
