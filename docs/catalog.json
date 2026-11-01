@@ -556,7 +556,7 @@
     {
       "path": "design/cloudflare-counter-latency.md",
       "title": "Cloudflare counter latency qualification",
-      "summary": "Record resident retirement admission correctness, measured counter latency gains, and the remaining proxy-path qualification gap.",
+      "summary": "Record resident retirement admission correctness, measured counter latency gains, proxy-path comparisons, and qualification limits.",
       "roles": [
         "builder",
         "platform",

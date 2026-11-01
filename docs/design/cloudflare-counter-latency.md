@@ -2,7 +2,7 @@
 
 # Cloudflare counter latency qualification
 
-Purpose: Record resident retirement admission correctness, measured counter latency gains, and the remaining proxy-path qualification gap.
+Purpose: Record resident retirement admission correctness, measured counter latency gains, proxy-path comparisons, and qualification limits.
 
 The [counter example](../../examples/cloudflare-counter/README.md) runs native
 Cellar with SQLite state, R2 bucket durability and a browser latency workbench.
@@ -39,9 +39,9 @@ and cloud resource limits. Durations are milliseconds.
 | Native handler | 0.123 | 0.067 | 0.288 | 0.087 | 0.096 |
 | HTTP end to end | 245.684 | 80.511 | 345.979 | 106.022 | 491.779 |
 
-All 60 native dispatches meet the 10 ms target. The 100 ms end-to-end target
-remains unmet: five requests exceeded the budget. The browser's separate
-ten-read sample also kept native dispatch below 1 ms, but one request included
+All 60 native dispatches meet the 10 ms target. In this initial run the 100 ms
+end-to-end p95 target remained unmet: five requests exceeded the budget. The browser's
+separate ten-read sample also kept native dispatch below 1 ms, but one request included
 a 76 ms readiness stage and took 287.7 ms overall. A warm container does not
 establish that its Durable Object activation has completed readiness.
 
@@ -71,3 +71,99 @@ The admission optimization is retained for its measured gain. Further proxy
 experiments must preserve these contracts, report complete latency samples and
 be reverted unless they demonstrate a gain. End-to-end qualification requires
 measuring the full HTTP path, rather than extrapolating from native dispatch.
+
+## Proxy-path experiments
+
+A follow-up on 2026-10-31 used the same Mac, native image and resource limits.
+A fresh 300-read control measured HTTP p50 78.645 ms and p95 94.609 ms before
+any proxy changes. The original path can meet the warm p95 target in a favorable
+network window; that observation does not demonstrate a new optimization.
+
+Experiments retained the same named Durable Object, native SQLite/R2 state,
+health and inactivity gates, response bounds, ownership checks and output
+proofs. No business-response cache or mutation replay was introduced.
+
+- Reusing the container port binding did not produce a repeatable HTTP p95 gain.
+- Pinning the gateway to `aws:us-west-1` or `aws:us-west-2` measured p95
+  109.790 ms and 107.363 ms respectively (200 warm reads each). Default placement
+  was restored. A shorter gateway-to-object interval did not imply a shorter
+  client round trip.
+- Overlapping the required health and inactivity checks measured p95 88.820 ms
+  over 300 version-verified warm reads, but did not establish an improvement
+  over the control. The sequential readiness checks were restored.
+- Read-only RPC initially appeared faster in separate runs. An alternating
+  comparison through the same receiving object did not reproduce the gain.
+  RPC and its experimental route selector were removed; all requests again use
+  the original HTTP forwarding path.
+
+Deployment verification checked both the gateway and the receiving object's
+revision, in addition to the native image. An active object initially continued
+serving its previous code after a Worker-only deployment. Initial code-change
+comparisons that did not verify the receiving revision cannot establish a code
+optimization gain. The qualified comparison below used the same object code for
+both transports and a response header confirming the selected gateway branch.
+
+Each of 500 pairs contained one HTTP and one RPC read in fixed-seed randomized
+order over one persistent HTTPS connection, after ten warm-up pairs. All 1,000
+measured reads succeeded, matched the expected revisions, reused readiness and
+were container-warm; no measured failures or invalid samples were excluded.
+Durations are milliseconds.
+
+| Same-object transport | Reads | HTTP p50 | HTTP p95 | HTTP p99 | HTTP max | Native p95 | Reads >=100 ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Original HTTP | 500 | 77.003 | 84.404 | 141.160 | 201.561 | 0.954 | 12 |
+| Read-only RPC | 500 | 76.977 | 84.746 | 150.308 | 201.208 | 0.934 | 12 |
+
+RPC won 50.6% of pairs. The 95% paired block-bootstrap interval for its p95
+change was -2.164 to +3.689 ms (20-pair blocks, 2,000 resamples). There is no
+measured transport gain to retain. At the median both paths spent 23 ms in the
+object-to-container interval and 56 ms in the complete edge interval; native
+dispatch was approximately 0.8 ms. These are nested elapsed intervals, not
+independent network-hop measurements.
+
+All proxy experiment code and placement overrides were reverted. The resident
+retirement optimization remains because its native and HTTP gains were measured
+against the original storage lookup. Warm read p95 below 100 ms is an observed
+result from this client and workload, not a global latency guarantee. Both
+transports still had p99 above 100 ms. First reads after object recreation were
+also observed above 300 ms despite the container remaining warm; cold starts,
+short idle-separated bursts, concurrent load and other client regions need
+separate qualification.
+
+
+## Restored-path verification
+
+After reverting every proxy experiment, the uploaded Worker module was checked
+for the original HTTP path and sequential readiness checks; placement was back
+to its default. A separate idle-window run used one readiness probe, ten warm-up
+reads and 1,000 sequential measured reads over one persistent HTTPS connection.
+All measured requests succeeded, matched the native revision, were
+container-warm, contained all required timing stages and had nondecreasing
+counter versions. No measured errors or invalid samples were discarded.
+
+| Restored original proxy | p50 ms | p95 ms | p99 ms | Max ms |
+| --- | ---: | ---: | ---: | ---: |
+| HTTP end to end | 78.216 | 90.194 | 143.375 | 266.281 |
+| Native dispatch | 0.809 | 0.951 | 1.136 | 2.330 |
+
+The warmed p95 targets were met in this run. Thirty-two of 1,000 HTTP requests
+exceeded 100 ms; none of the measured native dispatches reached 10 ms. These
+results verify the restored path under this workload and network condition;
+they are not a gain attributable to the reverted proxy experiments.
+
+The initial readiness probe after the idle interval took 1,094.810 ms, with
+native dispatch 706.656 ms and object readiness 86 ms, despite the container
+reporting warm. It remains in the recorded probe data and is excluded from the
+warmed percentiles by the predefined protocol. This also limits any claim that
+all warm-container requests meet the native or end-to-end budgets.
+
+Live HTTP verification after restoration passed actual writes/readback, four
+concurrent duplicate retries, conflicting and stale identity refusal, durability
+timing and compensating writes. Three additional native dispatches measured
+0.689, 0.835 and 0.749 ms.
+
+The unchanged Python `bridge --runtime-durability` case passed twice locally
+with Rust 1.98.1 and Python 3.14.6. Broader CI reported failures in Python
+durability, typed-RPC lifecycle and the JavaScript handler-budget check; the
+local result does not resolve those CI failures or establish production
+qualification. No assertions or budgets were weakened.
