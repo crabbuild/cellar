@@ -28,6 +28,20 @@ fn verify(
     reads::verify_observation(output, schema)
 }
 
+async fn query_released(pool: &CellGroupSqlPool) -> Result<()> {
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let usage = pool.usage()?;
+            if usage.queued_or_running == 0 && usage.retained_operations == 0 {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .context("query physical ownership did not settle")?
+}
+
 pub(crate) async fn queries(rooted: bool) -> Result<()> {
     let calls = Arc::new(AtomicUsize::new(0));
     let observed = calls.clone();
@@ -206,6 +220,7 @@ pub(crate) async fn queries(rooted: bool) -> Result<()> {
         .await,
         Err(ExecutionError::Storage(_))
     ));
+    query_released(&pool).await?;
     let deadline = reads::deadline(&fixture, 100).await?;
     let authority = fixture.runtimes[0]
         .read_authority(
@@ -227,6 +242,10 @@ pub(crate) async fn queries(rooted: bool) -> Result<()> {
     )
     .await?
     .is_err());
+    // Deadline delivery cancels the waiter. Entered SQL and its sole queue
+    // slot remain owned until the worker observes cancellation and closes the
+    // image; verify that physical completion before expecting new admission.
+    query_released(&pool).await?;
     let authority = reads::selected(&mut fixture, 0, &a, CellReadConsistency::Stale).await?;
     let output = pool
         .query_registered(

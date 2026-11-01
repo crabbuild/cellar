@@ -175,10 +175,13 @@ pub(super) async fn reconcile(rooted: bool) -> Result<()> {
         stale_b.check().is_err(),
         "an old cell pin cannot prove absence after commit"
     );
-    assert!(pool
-        .reconcile(prepared[1].proposal(), stale_b)
-        .await
-        .is_err());
+    let stale = pool.reconcile(prepared[1].proposal(), stale_b).await;
+    assert!(
+        matches!(&stale, Err(ExecutionError::Uncertain)),
+        "stale observation must remain retryable: {:?}",
+        stale.as_ref().err()
+    );
+    assert_eq!(pool.usage()?.active_cells, 2);
 
     // B committed; deliberately lose its exact-entry completion. Transfer real
     // leadership so node 0 must reconcile while it is a follower.

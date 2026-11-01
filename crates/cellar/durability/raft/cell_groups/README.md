@@ -464,6 +464,11 @@ apply and ambiguous command owners remain charged through physical shutdown.
 Quarantine cannot be cleared by registration. Recovery requires joined restart;
 a late persistence completion cannot restore the revoked serving fence.
 
+Concurrent apply can invalidate a reconciliation observation before SQL inspects
+it. This returns `ExecutionError::Uncertain` with the original producer retained.
+The owned controller obtains a fresh observation and retries receipt inspection
+without executing the callback again. Identity validation precedes this check.
+
 Shared log-engine I/O/corruption/closure and lost shared SQL worker replies still
 close the node. Unknown events and controller ownership violations fail closed.
 Request-driven group provisioning, configuration lifecycle and public SDK

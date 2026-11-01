@@ -334,6 +334,8 @@ impl CellPrivateExecutor {
     /// Resolve the original request without requiring the original log entry.
     /// Missing receipts cannot retire an ambiguous same-term proposal. The
     /// caller must close this disposable producer after successful resolution.
+    /// A selected image that advances during inspection leaves the original
+    /// producer uncertain; retry with a fresh reconciliation observation.
     pub fn reconcile(
         &mut self,
         proposal: ProposalId,
@@ -345,7 +347,13 @@ impl CellPrivateExecutor {
         {
             return Err(ExecutionError::Invalid("cell reconciliation identity"));
         }
-        authority.check().map_err(authority_failure)?;
+        let check = || {
+            authority.check().map_err(|error| match error {
+                RuntimeError::NotReady => ExecutionError::Uncertain,
+                error => authority_failure(error),
+            })
+        };
+        check()?;
         // Staging already established absence in this exact immutable base.
         // In particular an enrollment image need not yet have receipt tables.
         let receipt = if authority.cell().version == self.authority.cell().version {
@@ -378,7 +386,7 @@ impl CellPrivateExecutor {
             Err(error) => return Err(error),
             Ok(None) => return Err(ExecutionError::Uncertain),
         };
-        authority.check().map_err(authority_failure)?;
+        check()?;
         pending
             .prepared
             .release_log_reservation()
