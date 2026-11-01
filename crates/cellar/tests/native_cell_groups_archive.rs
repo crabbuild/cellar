@@ -14,6 +14,8 @@ mod binding_fixture;
 #[path = "support/cell_group_checkpoint.rs"]
 #[allow(dead_code)]
 mod checkpoint_fixture;
+#[path = "support/cell_group_disaster_fence.rs"]
+mod disaster_fixture;
 #[path = "support/raft_storage_fault.rs"]
 #[allow(dead_code)]
 mod fault;
@@ -24,6 +26,8 @@ mod images;
 mod isolation_fixture;
 #[path = "support/cell_group_archive_publication.rs"]
 mod publication_fixture;
+#[path = "support/cell_group_rustfs.rs"]
+mod rustfs;
 #[path = "support/cell_group_archive_tail.rs"]
 mod tail_fixture;
 
@@ -32,6 +36,48 @@ mod tail_fixture;
 mod runtime_fixture;
 
 include!("support/cell_group_engine_fixture.rs");
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn group_recovery_fence_resumes_exact_intent() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(disaster_fixture::resume(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn group_recovery_topology_race_refuses_stale_cut() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(disaster_fixture::topology_wins(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_group_recovery_fence_intent_and_topology() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(disaster_fixture::resume(
+            rooted,
+            rustfs::store("recovery-fence-resume", rooted)?,
+        ))
+        .await?;
+        Box::pin(disaster_fixture::topology_wins(
+            rooted,
+            rustfs::store("recovery-fence-race", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn quorum_continues_bounded_s3_outage() -> Result<()> {

@@ -48,15 +48,12 @@ impl DisasterFenceRequest {
 /// controller and bound to `request.digest()`. Fail closed on partial/unknown
 /// outcomes. Fences are permanent; retries must be idempotent and cancellation
 /// must never undo a fence. Cellar supplies no permissive default implementation.
-pub trait DisasterFenceAuthority: Send + Sync {
-    fn fence<'a>(
-        &'a self,
-        request: &'a DisasterFenceRequest,
-    ) -> BoxFuture<'a, anyhow::Result<Vec<u8>>>;
+pub trait DisasterFenceAuthority<Request = DisasterFenceRequest>: Send + Sync {
+    fn fence<'a>(&'a self, request: &'a Request) -> BoxFuture<'a, anyhow::Result<Vec<u8>>>;
 
     fn verify<'a>(
         &'a self,
-        request: &'a DisasterFenceRequest,
+        request: &'a Request,
         evidence: &'a [u8],
     ) -> BoxFuture<'a, anyhow::Result<()>>;
 }

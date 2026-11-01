@@ -179,33 +179,41 @@ impl RangeDirectory {
         domain
             .run(async {
                 self.require_current_group_birth(birth).await?;
-                let bytes = self
-                    .bounded(async {
-                        self.namespace
-                            .inner
-                            .read_versioned_bounded(
-                                &self.archive_binding_key(birth.route()),
-                                wire::LIMIT,
-                            )
-                            .await?
-                            .map(|(bytes, _)| bytes)
-                            .ok_or(CatalogError::Corrupt("missing group archive binding"))
-                    })
-                    .await?;
-                let binding: Binding = record::decode(wire::GROUP_ARCHIVE, &bytes, wire::LIMIT)?;
-                if binding.namespace != self.namespace.root_digest()
-                    || binding.creation.route() != birth.route()
-                {
-                    return Err(CatalogError::Corrupt("group archive binding identity").into());
-                }
-                let registry = self
-                    .group_archive(pool, birth.route())?
-                    .open_registry(domain, &binding.creation)
-                    .await?;
+                let registry = self.open_recovery_archive(domain, pool, birth).await?;
                 self.require_current_group_birth(birth).await?;
                 Ok(registry)
             })
             .await
             .map_err(|_| CellGroupArchiveError::Stopped)?
+    }
+
+    // The recovery owner checks the exact intent, selected source, immutable
+    // birth and topology lock. Ordinary archive admission remains fenced.
+    pub(super) async fn open_recovery_archive(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        pool: &CellGroupArchivePool,
+        birth: &CellGroupBirth,
+    ) -> Result<CellGroupArchiveRegistry> {
+        let bytes = self
+            .bounded(async {
+                self.namespace
+                    .inner
+                    .read_versioned_bounded(&self.archive_binding_key(birth.route()), wire::LIMIT)
+                    .await?
+                    .map(|(bytes, _)| bytes)
+                    .ok_or(CatalogError::Corrupt("missing group archive binding"))
+            })
+            .await?;
+        let binding: Binding = record::decode(wire::GROUP_ARCHIVE, &bytes, wire::LIMIT)?;
+        if binding.namespace != self.namespace.root_digest()
+            || binding.creation.route() != birth.route()
+        {
+            return Err(CatalogError::Corrupt("group archive binding identity").into());
+        }
+        Ok(self
+            .group_archive(pool, birth.route())?
+            .open_registry(domain, &binding.creation)
+            .await?)
     }
 }

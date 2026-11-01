@@ -13,6 +13,8 @@ pub(super) const REQUEST: u8 = 85;
 pub(super) const GROUP_BIRTH: u8 = 186;
 pub(super) const GROUP_CLAIM: u8 = 187;
 pub(super) const GROUP_ARCHIVE: u8 = 188;
+pub(super) const GROUP_RECOVERY: u8 = 189;
+pub(super) const GROUP_FENCE: u8 = 190;
 pub(super) const LIMIT: usize = 64 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -205,6 +207,15 @@ pub(super) struct Head {
     pub operations: Option<[u8; 32]>,
     pub groups: Option<[u8; 32]>,
     pub journal: [u8; 32],
+    #[serde(deserialize_with = "required_recovery")]
+    pub recovery: Option<super::recovery::RecoveryLock>,
+}
+
+// Marker 1 has one record shape. Missing fields are not an older-reader mode.
+fn required_recovery<'de, D: serde::Deserializer<'de>>(
+    decoder: D,
+) -> Result<Option<super::recovery::RecoveryLock>, D::Error> {
+    Option::deserialize(decoder)
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq)]

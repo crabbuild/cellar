@@ -40,6 +40,45 @@ impl VerifiedCellGroupArchiveRecovery {
     pub fn membership(&self) -> &GroupMembership {
         &self.membership
     }
+
+    /// Static unmanaged recovery only. A fence controller must independently
+    /// exclude later joins and retired hosts from its deployment inventory.
+    pub(crate) fn check_disaster_target(
+        &self,
+        target: &crate::raft::catalog::CellGroupBirthRequest,
+    ) -> Result<()> {
+        if !self.configuration.voters_outgoing.is_empty()
+            || !self.configuration.learners_next.is_empty()
+            || self.configuration.auto_leave
+            || self
+                .membership
+                .repair_status()
+                .map_err(CellGroupCheckpointError::from)?
+                .is_some()
+            || self.membership.fleet_status().is_some()
+        {
+            return Err(CellGroupArchiveError::Invalid(
+                "recovery requires static unmanaged membership",
+            ));
+        }
+        for member in target.voters().iter().chain(target.learners()) {
+            if member.member.get() <= self.membership.high_water()
+                || self.membership.has_node_binding(member.node)
+            {
+                return Err(CellGroupArchiveError::Invalid(
+                    "reused recovery member or node",
+                ));
+            }
+        }
+        self.root.images.visit(&mut |_, leaf, _, _, _| {
+            if leaf.version.history.incarnation == target.route().history.incarnation {
+                return Err(CellGroupArchiveError::Invalid(
+                    "reused recovery cell incarnation",
+                ));
+            }
+            Ok(())
+        })
+    }
 }
 
 pub(super) fn replay(

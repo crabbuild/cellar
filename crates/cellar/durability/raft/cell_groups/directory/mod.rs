@@ -21,6 +21,11 @@ mod archive;
 pub use archive::{CellGroupArchiveBindingError, PreparedCellGroupArchiveBinding};
 mod birth;
 mod bootstrap;
+mod recovery;
+pub use recovery::{
+    CellGroupDisasterFenceRequest, CellGroupRecoveryError, CellGroupRecoveryRequest,
+    FencedCellGroupRecovery,
+};
 mod route_cache;
 mod routing;
 pub use route_cache::CellRouteCacheUsage;
@@ -295,6 +300,9 @@ impl RangeDirectory {
         {
             return Err(CatalogError::Corrupt("directory head"));
         }
+        if let Some(recovery) = &head.recovery {
+            recovery.check(self)?;
+        }
         head.tree.require_complete(self)
     }
 
@@ -479,6 +487,9 @@ impl RangeDirectory {
                 }
                 // An interrupted genesis resumes only its identical first head.
             }
+            if view.head.recovery.is_some() {
+                return Err(CatalogError::Fenced);
+            }
             if request
                 .expected
                 .is_some_and(|expected| expected != view.digest)
@@ -546,6 +557,7 @@ impl RangeDirectory {
             operations,
             groups,
             journal: id,
+            recovery: None,
         };
         self.check_head(&head)?;
         let bytes = record::encode(wire::HEAD, &head, wire::LIMIT)?;

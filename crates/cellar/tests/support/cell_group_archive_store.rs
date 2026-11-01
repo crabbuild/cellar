@@ -25,6 +25,7 @@ pub struct Store {
     pub deletes: AtomicUsize,
     pub lose_delete_response: AtomicBool,
     held: Mutex<Option<(Path, usize, Arc<Gate>)>>,
+    held_put: Mutex<Option<(Path, Arc<Gate>)>>,
     held_delete: Mutex<Option<(Path, Arc<Gate>)>>,
     publication: Mutex<Option<Arc<Gate>>>,
     pub publication_cuts: Mutex<Vec<u64>>,
@@ -46,6 +47,7 @@ impl Store {
             deletes: AtomicUsize::new(0),
             lose_delete_response: AtomicBool::new(false),
             held: Mutex::new(None),
+            held_put: Mutex::new(None),
             held_delete: Mutex::new(None),
             publication: Mutex::new(None),
             publication_cuts: Mutex::new(Vec::new()),
@@ -86,6 +88,16 @@ impl Store {
         gate
     }
 
+    pub fn hold_put(&self, path: Path) -> Arc<Gate> {
+        let gate = Arc::new(Gate::default());
+        *self.held_put.lock().unwrap() = Some((path, gate.clone()));
+        gate
+    }
+
+    pub fn clear_put(&self) {
+        self.held_put.lock().unwrap().take();
+    }
+
     pub fn clear(&self) {
         self.held.lock().unwrap().take();
     }
@@ -107,6 +119,17 @@ impl ObjectStore for Store {
     ) -> Result<PutResult> {
         self.available()?;
         self.puts.fetch_add(1, Ordering::AcqRel);
+        let gate = self
+            .held_put
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|(held, _)| held == path)
+            .map(|(_, gate)| gate.clone());
+        if let Some(gate) = gate {
+            gate.entered.notify_one();
+            gate.release.notified().await;
+        }
         let publication = if path.as_ref().ends_with("/ownership/registry") {
             let bytes: Vec<u8> = payload
                 .iter()

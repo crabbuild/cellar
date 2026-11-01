@@ -1002,6 +1002,31 @@ recovery, not a globally consistent snapshot of unrelated groups or external eff
 
 ## Archive-aware local checkpoint compaction
 
+The unmanaged recovery fence barrier is implemented separately from replacement
+installation. `RangeDirectory::prepare_group_recovery` binds the exact source
+birth, dedicated archive hold, replacement birth and expected topology mutation
+in canonical marker-1 bytes. Persist those bytes and retain the hold before
+`fence_group_recovery`; resume the identical bytes after an unknown outcome.
+The barrier independently verifies every held archive dependency before claiming
+the namespace or asking infrastructure to fence it. It refuses joint, repair
+and fleet membership records at this static unmanaged boundary.
+
+A recovery claim shares the directory-head CAS with ordinary topology publication
+and the namespace lifecycle CAS with fleet import. Once selected, its source
+cannot bootstrap again and competing topology operations refuse. The existing
+`DisasterFenceAuthority` contract accepts a typed `CellGroupDisasterFenceRequest`:
+the deployment controller must permanently stop/revoke all possible old writers,
+including later joins and removed hosts, and independently verify evidence bound
+to the complete request digest. Cellar stores the winning bounded receipt and
+independently verifies it again on resume. No permissive controller is supplied.
+
+`FencedCellGroupRecovery` retains verified data under the original histories.
+It grants no engine, voting or serving permission and does not release the
+topology lock or publish a replacement. Fresh-history image/receipt rebinding,
+fresh-genesis installation, activation and fresh-quorum admission must complete
+the recovery protocol above. The contract fixture and real RustFS CAS tests do
+not qualify Docker host fencing or the deleted-voter serving drill.
+
 An archive registration first makes the local group's retention requirement
 irreversible through an engine-synced metadata write. The required marker-1
 `archive_required` field belongs to the local group application record; a peer

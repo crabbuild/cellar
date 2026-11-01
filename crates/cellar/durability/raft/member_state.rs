@@ -125,6 +125,12 @@ impl GroupMembership {
         self.high_water
     }
 
+    pub(crate) fn has_node_binding(&self, node: NodeId) -> bool {
+        self.bindings
+            .iter()
+            .any(|binding| binding.node == node.bytes())
+    }
+
     pub(crate) fn permits(&self, replica: &cellar_logic::consensus::ReplicaIdentity) -> bool {
         if self.validate_scope(&replica.scope).is_err() {
             return false;

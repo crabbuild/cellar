@@ -52,8 +52,8 @@ impl CellGroupBirthRequest {
 /// This grants neither membership nor permission to initialize a blank disk.
 #[derive(Clone)]
 pub struct CellGroupBirth {
-    request: CellGroupBirthRequest,
-    owner: Arc<()>,
+    pub(super) request: CellGroupBirthRequest,
+    pub(super) owner: Arc<()>,
 }
 
 impl CellGroupBirth {
@@ -191,7 +191,7 @@ impl RangeDirectory {
         ))
     }
 
-    fn group_birth_key(&self, route: &GroupRoute) -> Path {
+    pub(super) fn group_birth_key(&self, route: &GroupRoute) -> Path {
         self.key(&format!(
             "births/{}/{}",
             hex::encode(route.history.group.bytes()),
@@ -244,7 +244,20 @@ impl RangeDirectory {
 
     async fn selected_birth_route(&self, route: &GroupRoute) -> Result<(), CatalogError> {
         let (view, _) = self.current().await?;
-        let mut next = Some(view.head.tree);
+        if let Some(lock) = &view.head.recovery {
+            if lock.source_route(self)? == *route {
+                return Err(CatalogError::Fenced);
+            }
+        }
+        self.selected_route_in(&view, route).await
+    }
+
+    pub(super) async fn selected_route_in(
+        &self,
+        view: &DirectoryView,
+        route: &GroupRoute,
+    ) -> Result<(), CatalogError> {
+        let mut next = Some(view.head.tree.clone());
         for _ in 0..32 {
             let reference = next.take().ok_or(CatalogError::Fenced)?;
             let page = self.page(&reference).await?;
