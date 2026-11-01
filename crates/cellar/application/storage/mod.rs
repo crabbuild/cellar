@@ -25,6 +25,8 @@ pub(crate) struct Resources {
     pub(crate) retired: AtomicBool,
     pub(crate) source_generation: AtomicU64,
     pub(crate) source_closed: AtomicBool,
+    /// Permanent erasure cannot be undone by recreating an event source.
+    pub(crate) erasure_closed: AtomicBool,
     pub(crate) failure: Mutex<Option<String>>,
     pub(crate) input_gates: Mutex<Vec<std::sync::Weak<crate::native_worker::InputGate>>>,
     turns: Mutex<Vec<std::sync::Weak<crate::native_worker::WakeTurn>>>,
@@ -43,6 +45,27 @@ enum Cleanup {
     Kv(u64),
 }
 
+impl Resources {
+    pub(crate) fn business_closed(&self) -> bool {
+        self.erasure_closed.load(Ordering::Acquire) || self.source_closed.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn source_admitted(
+        &self,
+        generation: u64,
+        framework: bool,
+        erasure_cleanup: bool,
+    ) -> bool {
+        (!self.erasure_closed.load(Ordering::Acquire) || (framework && erasure_cleanup))
+            && cellar_logic::event_stream::source_admitted(
+                generation,
+                self.source_generation.load(Ordering::Acquire),
+                self.source_closed.load(Ordering::Acquire),
+                framework,
+            )
+    }
+}
+
 impl Cleanup {
     fn close(self) {
         match self {
@@ -53,6 +76,14 @@ impl Cleanup {
 }
 
 impl Activation {
+    pub(crate) fn close_for_erasure(&self) {
+        self.resources.erasure_closed.store(true, Ordering::Release);
+        self.source_admission(
+            self.resources.source_generation.load(Ordering::Acquire),
+            true,
+        );
+    }
+
     pub(crate) fn fail(&self, reason: String) {
         self.resources
             .failure
@@ -287,11 +318,10 @@ impl Storage {
             "native storage belongs to another cell or a retired activation"
         );
         anyhow::ensure!(
-            cellar_logic::event_stream::source_admitted(
+            self.0.resources.source_admitted(
                 self.2,
-                self.0.resources.source_generation.load(Ordering::Acquire),
-                self.0.resources.source_closed.load(Ordering::Acquire),
-                io.framework_source.load(Ordering::Acquire)
+                io.framework_source.load(Ordering::Acquire),
+                io.erasure_cleanup.load(Ordering::Acquire),
             ),
             "source business admission is closed or its incarnation has changed"
         );

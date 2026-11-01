@@ -58,15 +58,10 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
         .scope
         .clone();
     if let Some(record) = crate::storage::sandbox_erasure::load(&scope)? {
-        let resources = &storage.0.resources;
-        storage.0.source_admission(
-            resources
-                .source_generation
-                .load(std::sync::atomic::Ordering::Acquire),
-            true,
-        );
+        storage.0.close_for_erasure();
         storage.sync().await?;
         let (reply, receive) = tokio::sync::oneshot::channel();
+        let activation = std::sync::Arc::downgrade(&storage.0);
         crate::host_channels::FACET_TX
             .get()
             .ok_or_else(|| anyhow::anyhow!("erasure requires a node host"))?
@@ -74,6 +69,25 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
                 request: crate::host_channels::CellErasureRequest {
                     record,
                     epoch: storage.0.epoch,
+                    validate_admission: Box::new(move |scope, epoch| {
+                        let activation = activation
+                            .upgrade()
+                            .ok_or_else(|| anyhow::anyhow!("erasure activation has retired"))?;
+                        anyhow::ensure!(
+                            activation.scope == scope
+                                && activation.epoch == epoch
+                                && activation
+                                    .resources
+                                    .erasure_closed
+                                    .load(std::sync::atomic::Ordering::Acquire)
+                                && !activation
+                                    .resources
+                                    .retired
+                                    .load(std::sync::atomic::Ordering::Acquire),
+                            "erasure requires the original activation's closed business admission"
+                        );
+                        Ok(())
+                    }),
                 },
                 reply,
             })

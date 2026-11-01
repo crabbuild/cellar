@@ -51,3 +51,6 @@ console-audit.sqlite*
 /examples/bindings/app.bundle.js*
 /examples/bindings/dist/
 !/examples/bindings/package-lock.json
+
+!/examples/cloudflare-counter/package-lock.json
+.wrangler/

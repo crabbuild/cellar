@@ -487,6 +487,12 @@ pub(crate) fn recreate(context: &Context, operator: &str, request: &Recreate) ->
         "source recreation names another cell"
     );
     let db = context.storage()?;
+    if crate::storage::sandbox_erasure::load(&request.source)?.is_some() {
+        return Err(error(
+            ErrorCode::ConfigConflict,
+            "permanent cell erasure cannot recreate its event source",
+        ));
+    }
     let digest = hash(request)?;
     let generation=db.tx(|tx| {
         crate::storage::outbox_control::ensure_schema(&request.source)?;

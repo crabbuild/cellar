@@ -357,7 +357,7 @@ impl NativeWorker {
             }
             let (source_generation, source_closed) =
                 storage::outbox_control::source_admission(scope)?;
-            let source_closed = source_closed || storage::sandbox_erasure::load(scope)?.is_some();
+            let erasure_closed = storage::sandbox_erasure::load(scope)?.is_some();
             let resources = crate::application::storage::Resources::default();
             resources
                 .source_generation
@@ -365,6 +365,9 @@ impl NativeWorker {
             resources
                 .source_closed
                 .store(source_closed, Ordering::Release);
+            resources
+                .erasure_closed
+                .store(erasure_closed, Ordering::Release);
             self.activations.insert(
                 scope.to_string(),
                 Arc::new(Activation {
@@ -644,12 +647,13 @@ impl NativeWorker {
                 self.instances.remove(scope);
                 old.drain_resources();
                 storage::reset_native_resources(scope);
-                let (source_generation, source_closed) =
+                let (source_generation, source_closed, erasure_closed) =
                     match storage::outbox_control::source_admission(scope).and_then(
                         |(generation, closed)| {
                             Ok((
                                 generation,
-                                closed || storage::sandbox_erasure::load(scope)?.is_some(),
+                                closed,
+                                storage::sandbox_erasure::load(scope)?.is_some(),
                             ))
                         },
                     ) {
@@ -667,6 +671,9 @@ impl NativeWorker {
                 resources
                     .source_closed
                     .store(source_closed, Ordering::Release);
+                resources
+                    .erasure_closed
+                    .store(erasure_closed, Ordering::Release);
                 self.activations.insert(
                     scope.clone(),
                     Arc::new(Activation {
@@ -759,10 +766,23 @@ impl NativeWorker {
                 }),
             Ordering::Release,
         );
+        context.io.erasure_cleanup.store(
+            work.as_ref()
+                .is_some_and(|work| work.reason == cellar_logic::work::Reason::SandboxCleanup)
+                // An erasure intent requires a deleted child. Its authenticated
+                // destroy continuation still validates the exact saved identity
+                // and proves its terminal reply; closing admission must not
+                // strand the parent's acknowledgement. No other sandbox action
+                // can use this cleanup privilege.
+                || sandbox_authority.as_ref().is_some_and(|authority| {
+                    matches!(authority.action(), crate::runtime::sandbox_execution::Action::Destroy)
+                }),
+            Ordering::Release,
+        );
         if scope
             .as_ref()
             .and_then(|scope| self.activations.get(scope))
-            .is_some_and(|activation| activation.resources.source_closed.load(Ordering::Acquire))
+            .is_some_and(|activation| activation.resources.business_closed())
         {
             if let Some(scope) = &scope {
                 self.retire_facet_descendants(scope);
@@ -1231,14 +1251,10 @@ impl NativeWorker {
             .native_activation
             .as_ref()
             .is_some_and(|activation| {
-                !cellar_logic::event_stream::source_admitted(
+                !activation.resources.source_admitted(
                     entry.context.source_generation,
-                    activation
-                        .resources
-                        .source_generation
-                        .load(Ordering::Acquire),
-                    activation.resources.source_closed.load(Ordering::Acquire),
                     entry.context.framework_source.load(Ordering::Acquire),
+                    entry.context.erasure_cleanup.load(Ordering::Acquire),
                 )
             })
         {

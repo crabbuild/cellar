@@ -275,6 +275,22 @@ business data is retained until an explicit `request_erasure(ctx).await?` (Rust)
 or the guest equivalent above. Erasure refuses live children, active provider
 bindings, retained facets, unfinished event-source retirement and consensus cells.
 
+Warm requests reuse the retirement check attached to a published local activation.
+Erasure cleanup irreversibly closes that activation's business admission, proves
+the SQLite intent, then submits an activation-bound request to publish the external
+marker. Suspended turns, retained contexts/storage and facet opens also observe
+closure. Event-source recreation cannot reopen an erasing cell. Owned erasure
+cleanup and authenticated, exact-identity child-destroy continuations remain
+admitted so terminal acknowledgements, publication and collection can finish.
+Other framework controls cannot bypass permanent erasure.
+
+This is residency-bound admission, not a time-based cache of a missing marker.
+Cold requests, activation and snapshot restore retain fresh storage checks. After
+eviction, generation replacement or takeover, the new activation must check again;
+restoring an erasure intent keeps business admission closed even before a pending
+external publication is repaired. Ownership, epoch and output-proof checks remain
+on every response.
+
 ```mermaid
 flowchart LR
     Intent[Durable SQLite erasure intent] --> Barrier[Permanent external identity barrier]

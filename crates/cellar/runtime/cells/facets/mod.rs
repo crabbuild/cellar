@@ -639,7 +639,7 @@ async fn prepare_facet_in(
                             .resources
                             .source_generation
                             .load(Ordering::Acquire),
-                        activation.resources.source_closed.load(Ordering::Acquire),
+                        activation.resources.business_closed(),
                         false
                     ),
                     "facet parent source incarnation has retired"

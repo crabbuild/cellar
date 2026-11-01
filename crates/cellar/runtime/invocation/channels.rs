@@ -215,11 +215,14 @@ impl FacetOpenAuthority {
     }
 }
 
+pub(crate) type ErasureAdmission = Box<dyn Fn(&str, u64) -> Result<()> + Send + Sync>;
+
 /// Sealed, durable erasure intent submitted by framework cleanup.
 #[doc(hidden)]
 pub struct CellErasureRequest {
     pub(crate) record: crate::cell_runtime::retirement::Record,
     pub(crate) epoch: u64,
+    pub(crate) validate_admission: ErasureAdmission,
 }
 
 pub enum FacetReq {
