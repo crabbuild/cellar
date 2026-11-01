@@ -166,6 +166,12 @@ pub(crate) async fn s3_remote_slow_delivery(
             assert_eq!(reply["request"], serde_json::json!(binding));
             assert_eq!(reply["sequence"], "1");
             assert!(length > 28 * 1024);
+            if h.controllers[0].usage().retained_s3 == 0 {
+                let usage = h.fixture.transports[0].usage();
+                let started = std::time::Instant::now();
+                let bytes = connection.receive_body(length).await;
+                eprintln!("[DEBUG-remote-write] before_body={usage:?}; body={:?}; elapsed={:?}", bytes.as_ref().map(|b| (b.len(), b.get(9).copied(), reply["digest"] == serde_json::json!(<[u8;32]>::from(Sha256::digest(b))))), started.elapsed());
+            }
             // The header has physically arrived, but the result body is blocked.
             // The native output must still own one proof, full coverage and bytes.
             assert_eq!(h.controllers[0].usage().retained_s3, 1, "{kind}-{fault}");
