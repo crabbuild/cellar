@@ -98,7 +98,7 @@ fn request(h: &Harness, kind: &str) -> Result<Vec<u8>> {
     body.extend_from_slice(&request.id.sequence().to_be_bytes());
     body.extend_from_slice(&h.route.epoch.get().to_be_bytes());
     body.extend_from_slice(&h.route.birth_digest);
-    body.extend_from_slice(&(request.contract.operation.len() as u32).to_be_bytes());
+    body.extend_from_slice(&(request.contract.operation.len() as u16).to_be_bytes());
     body.extend_from_slice(request.contract.operation.as_bytes());
     body.extend_from_slice(&request.contract.digest);
     body.push(2);
