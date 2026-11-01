@@ -39,8 +39,22 @@ async fn shared_node_records_progress_with_a_held_data_writer_and_survive_reopen
             let outcome = cellar::asyncrt::timeout(Duration::from_secs(1), async {
                 for node in ["owner", "source"] {
                     let key = Path::from(format!("nodes/{node}.json"));
+                    let logical = format!("nodes/{node}.json");
+                    let first = leases.put_cas(&logical, b"initial".to_vec(), None).await?;
+                    ensure!(first.is_some());
+                    ensure!(ordinary.get(&logical).await?.is_some());
+                    let renewed = leases
+                        .put_cas(&logical, b"renewed".to_vec(), first.as_deref())
+                        .await?;
+                    ensure!(renewed.is_some() && renewed != first);
+                    ensure!(ordinary.get(&logical).await?.unwrap().0.as_ref() == b"renewed");
+                    ensure!(leases
+                        .put_cas(&logical, b"wrong".to_vec(), Some("wrong"))
+                        .await?
+                        .is_none());
+                    leases.store.delete(&key).await?;
                     let receipt = leases
-                        .store
+                        .cas_store
                         .put_opts(
                             &key,
                             node.as_bytes().to_vec().into(),
@@ -55,7 +69,7 @@ async fn shared_node_records_progress_with_a_held_data_writer_and_survive_reopen
                     ensure!(read.bytes().await?.as_ref() == node.as_bytes());
                     ensure!(matches!(
                         ordinary
-                            .store
+                            .cas_store
                             .put_opts(
                                 &key,
                                 b"forged".to_vec().into(),
@@ -144,6 +158,8 @@ async fn missing_canonical_node_record_never_falls_back_to_a_stale_data_copy() -
                     .len()
                     == 1
             );
+            let page = ordinary.common_prefixes_page("", None, None, 1).await?;
+            ensure!(page.prefixes == vec!["nodes".to_string()]);
             ordinary.store.delete(&key).await?;
             ensure!(matches!(
                 ordinary.store.get(&key).await,
@@ -155,6 +171,8 @@ async fn missing_canonical_node_record_never_falls_back_to_a_stale_data_copy() -
                 .try_collect::<Vec<_>>()
                 .await?
                 .is_empty());
+            let page = ordinary.common_prefixes_page("", None, None, 1).await?;
+            ensure!(page.prefixes.is_empty() && page.page_token.is_none());
             let listing = ordinary.store.list_with_delimiter(None).await?;
             ensure!(listing.objects.is_empty() && listing.common_prefixes.is_empty());
             drop(ordinary);

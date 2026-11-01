@@ -3,14 +3,18 @@
 //! Independent durable object keys behind one coherent qualification namespace.
 use cellar::bucket::Bucket;
 use futures_util::{future, stream, stream::BoxStream, StreamExt as _, TryStreamExt as _};
-use object_store::{path::Path, *};
+use object_store::{
+    list::{PaginatedListOptions, PaginatedListResult, PaginatedListStore},
+    path::Path,
+    *,
+};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
 
 pub(super) fn open(root: &std::path::Path, names: &[&str]) -> anyhow::Result<Bucket> {
-    let mut bucket = Bucket::open_dev(&root.join("fleet.sqlite"))?;
+    let bucket = Bucket::open_dev(&root.join("fleet.sqlite"))?;
     let mut nodes = BTreeMap::new();
     for name in names {
         let key = Path::from(format!("nodes/{name}.json"));
@@ -25,11 +29,18 @@ pub(super) fn open(root: &std::path::Path, names: &[&str]) -> anyhow::Result<Buc
     // Ordinary readers and the lease client share this exact logical store.
     // Every shard is the same FULL-synchronous SQLite backend. Independent
     // node-key CAS writes do not queue behind application-data transactions.
-    bucket.store = Arc::new(Store {
+    let store = Arc::new(Store {
         data: bucket.store,
         nodes,
     });
-    Ok(bucket)
+    Bucket::from_clients(
+        store.clone(),
+        store.clone(),
+        store,
+        bucket.backend,
+        bucket.name,
+        bucket.prefix,
+    )
 }
 
 #[derive(Debug)]
@@ -162,5 +173,66 @@ impl ObjectStore for Store {
 
     async fn copy_if_not_exists(&self, from: &Path, to: &Path) -> Result<()> {
         self.copy_between(from, to, true).await
+    }
+}
+
+// This small qualification namespace uses the same snapshot-style pagination
+// as LocalStore. Every interface observes canonical node records.
+#[async_trait::async_trait]
+impl PaginatedListStore for Store {
+    async fn list_paginated(
+        &self,
+        prefix: Option<&str>,
+        options: PaginatedListOptions,
+    ) -> Result<PaginatedListResult> {
+        let prefix = prefix.unwrap_or_default();
+        let after = options.page_token.as_deref().or(options.offset.as_deref());
+        let mut rows = self.list(None).try_collect::<Vec<_>>().await?;
+        rows.sort_by(|a, b| a.location.cmp(&b.location));
+        let mut entries: Vec<(String, Option<Path>, Option<ObjectMeta>)> = Vec::new();
+        for meta in rows {
+            let key = meta.location.to_string();
+            let Some(remainder) = key.strip_prefix(prefix) else {
+                continue;
+            };
+            if after.is_some_and(|after| key.as_str() <= after) {
+                continue;
+            }
+            let common = options.delimiter.as_deref().and_then(|delimiter| {
+                remainder.find(delimiter).map(|index| {
+                    Path::from(format!("{prefix}{}{}", &remainder[..index], delimiter))
+                })
+            });
+            if let Some(common) = common {
+                if let Some((last, Some(previous), _)) = entries.last_mut() {
+                    if *previous == common {
+                        *last = key;
+                        continue;
+                    }
+                }
+                entries.push((key, Some(common), None));
+            } else {
+                entries.push((key, None, Some(meta)));
+            }
+        }
+        let limit = options.max_keys.unwrap_or(usize::MAX);
+        let truncated = entries.len() > limit;
+        entries.truncate(limit);
+        let page_token = truncated
+            .then(|| entries.last().map(|entry| entry.0.clone()))
+            .flatten();
+        let mut result = ListResult {
+            common_prefixes: Vec::new(),
+            objects: Vec::new(),
+        };
+        for (_, common, object) in entries {
+            if let Some(common) = common {
+                result.common_prefixes.push(common);
+            }
+            if let Some(object) = object {
+                result.objects.push(object);
+            }
+        }
+        Ok(PaginatedListResult { result, page_token })
     }
 }
