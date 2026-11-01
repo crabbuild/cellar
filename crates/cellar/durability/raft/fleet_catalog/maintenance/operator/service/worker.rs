@@ -107,7 +107,6 @@ impl RestartServiceWork {
             let result = crate::asyncrt::timeout(self.options.turn_timeout, self.round())
                 .await
                 .unwrap_or(Err(FleetCatalogError::Unconfirmed));
-            tracing::debug!(target: "cellar_ci", ?result, status=?self.status.borrow().clone(), "[DEBUG-ci163] restart round");
             let delay = match result {
                 Ok(active) => {
                     self.status.send_modify(|s| {

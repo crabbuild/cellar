@@ -163,7 +163,8 @@ timing and compensating writes. Three additional native dispatches measured
 0.689, 0.835 and 0.749 ms.
 
 The unchanged Python `bridge --runtime-durability` case passed twice locally
-with Rust 1.98.1 and Python 3.14.6. Broader CI reported failures in Python
-durability, typed-RPC lifecycle and the JavaScript handler-budget check; the
-local result does not resolve those CI failures or establish production
-qualification. No assertions or budgets were weakened.
+with Rust 1.98.1 and Python 3.14.6. Initial CI runs reported failures in Python
+durability, typed-RPC lifecycle and the JavaScript handler-budget check. Those
+local runs alone did not resolve the CI failures or establish production
+qualification. [PR #163](https://github.com/crabbuild/cellar/pull/163) tracks the
+CI repairs and current check results. No assertions or budgets were weakened.

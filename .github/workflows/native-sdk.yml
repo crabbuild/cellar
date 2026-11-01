@@ -71,27 +71,6 @@ env:
   CARGO_PROFILE_TEST_DEBUG: "0"
 
 jobs:
-  fleet_diagnostic:
-    if: github.event_name == 'pull_request'
-    name: Fleet maintenance regression diagnostics
-    runs-on: ubuntu-22.04
-    timeout-minutes: 30
-    env:
-      CARGO_INCREMENTAL: '0'
-      CELLAR_CI_TRACE: '1'
-      RUST_LOG: cellar_ci=debug
-    steps:
-      - uses: actions/checkout@v6
-      - name: Install Rust
-        run: |
-          rustup toolchain install "$RUST_VERSION" --profile minimal
-          rustup default "$RUST_VERSION"
-      - name: Replay unchanged fleet assertions
-        run: |
-          cargo test --locked -p cellar --all-features --test native_raft_fleet_enrollment fleet_restart_handoff_observes_primary_and_preserves_sql -- --nocapture --test-threads=1
-          cargo test --locked -p cellar --all-features --test native_raft_fleet_enrollment restart_runtime:: -- --nocapture --test-threads=1
-          cargo test --locked -p cellar --all-features --test native_raft_fleet_enrollment fleet_operator_extent_maintenance_full_restart_preserves_data_and_terminal_capacity -- --nocapture --test-threads=1
-          cargo test --locked -p cellar --all-features --test native_raft_fleet_enrollment fleet_operator_maintenance_full_restart_preserves_data_and_releases_only_terminal_capacity -- --nocapture --test-threads=1
   filesystem_release:
     if: github.event_name != 'workflow_dispatch' || inputs.mode == 'qualification'
     name: Filesystem release application (${{ matrix.target }})
