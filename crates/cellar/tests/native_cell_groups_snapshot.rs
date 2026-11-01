@@ -76,8 +76,8 @@ async fn snapshot_empty_cell_and_extent_restart() -> Result<()> {
         // Raft generates the snapshot over TLS after prefix compaction. The
         // selected/retained closures include empty enrollment and later writes,
         // and cold reopen verifies the exact checkpoint plus surviving suffix.
-        runtime_fixture::tcp_publication(rooted).await?;
-        runtime_fixture::install_checkpoint(rooted).await?;
+        fixture(|| runtime_fixture::tcp_publication(rooted)).await?;
+        fixture(|| runtime_fixture::install_checkpoint(rooted)).await?;
     }
     Ok(())
 }
