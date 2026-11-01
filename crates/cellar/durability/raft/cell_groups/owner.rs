@@ -1436,7 +1436,7 @@ impl CellGroupOwner {
                     }
                     let last = self.node.raft.raft_log.last_index();
                     let automatic = self.node.raft.state == StateRole::Leader
-                        && self.node.raft.prs().conf().auto_leave
+                        && self.node.raft.prs().conf().auto_leave()
                         && self.node.raft.raft_log.applied <= self.node.raft.pending_conf_index
                         && ticket.position.index.get() >= self.node.raft.pending_conf_index;
                     let admission = self.log_admission.applying(automatic)?;
