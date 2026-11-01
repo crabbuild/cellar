@@ -71,7 +71,8 @@ python3 tools/multi-raft/cell_groups.py \
 
 The runner verifies the backend's ownership label, image, running state, endpoint
 and actual resource limits, then makes seven signed S3 probes in a new bucket.
-It runs sixteen exact ignored RustFS cases, each in materialized and extent modes:
+It runs seventeen exact ignored RustFS cases, each in materialized and extent modes:
+archive-gated local compaction with independent sibling checkpoint progress,
 stable publication with continuing quorum, uncertain-publication reconciliation
 with joined close, refusal of unproved S3 responses, positive local command S3
 settlement, deadline/cancellation isolation, refusal when a sibling dependency

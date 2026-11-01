@@ -2,6 +2,7 @@
 
 //! Real three-voter controllers, conditional object-store I/O and private replay.
 use super::*;
+use cellar_logic::consensus::OperationId;
 use futures_util::TryStreamExt;
 use object_store::ObjectStore;
 use std::sync::atomic::Ordering;
@@ -469,18 +470,35 @@ pub(crate) async fn archive_checkpoint_frontier(
         .unwrap()
         .published
         .is_none());
+    let sibling = fixture.cluster.voters[0].log.cell_group(&second)?;
+    let sibling_route = sibling
+        .group_manifest()?
+        .context("sibling")?
+        .route()
+        .clone();
+    add(&fixture, &sibling_route, false, 1).await?;
+    let sibling_base = sibling.group_manifest()?.context("sibling base")?;
+    add(&fixture, &sibling_route, false, 2).await?;
+    controller::wait_for(async || {
+        Ok(sibling
+            .checkpoint_manifest()?
+            .as_ref()
+            .is_some_and(|cut| cut.position().index >= sibling_base.position().index))
+    })
+    .await?;
+    assert_eq!(group.checkpoint_manifest()?, before);
+    assert_eq!(controllers[0].usage().quarantined_groups, 0);
+    assert_eq!(pools[0].usage().sources, 0);
     let marker = group.group_manifest()?.context("held archive cut")?;
-    let captured_group = group.clone();
-    let captured_marker = marker.clone();
-    let pool = pools[0].clone();
+    let source = fixture.runtimes[0]
+        .capture_checkpoint(route.history, &pools[0])
+        .await?;
     let prepared = fixture
         .cluster
         .domain
-        .blocking(move || {
-            pool.capture(&captured_group, &captured_marker)?
-                .prepare_publication()
-        })?
+        .blocking(move || source.prepare_publication())?
         .await??;
+    assert_eq!(prepared.marker(), &marker);
     controller::wait_for(async || {
         match fixture.runtimes[0]
             .publish_checkpoint(route.history, prepared.clone())
@@ -504,24 +522,6 @@ pub(crate) async fn archive_checkpoint_frontier(
     assert_eq!(group.checkpoint_manifest()?, before);
     assert_eq!(group.first_index()?, first);
 
-    let sibling = fixture.cluster.voters[0].log.cell_group(&second)?;
-    let sibling_route = sibling
-        .group_manifest()?
-        .context("sibling")?
-        .route()
-        .clone();
-    add(&fixture, &sibling_route, false, 1).await?;
-    let sibling_base = sibling.group_manifest()?.context("sibling base")?;
-    add(&fixture, &sibling_route, false, 2).await?;
-    controller::wait_for(async || {
-        Ok(sibling
-            .checkpoint_manifest()?
-            .as_ref()
-            .is_some_and(|cut| cut.position().index >= sibling_base.position().index))
-    })
-    .await?;
-    assert_eq!(group.checkpoint_manifest()?, before);
-    assert_eq!(controllers[0].usage().quarantined_groups, 0);
     publication.release.notify_one();
     call.response().await?;
     published(&controllers[0], route.history, later).await?;

@@ -141,6 +141,19 @@ impl CellGroupController {
         if !shared.groups.contains(&group).map_err(Error::Runtime)? {
             return Err(Error::Runtime(RuntimeError::NotFound));
         }
+        let local = shared
+            .runtime
+            .log()
+            .cell_group(&group)
+            .map_err(|error| Error::Runtime(error.into()))?;
+        if local
+            .group_manifest()
+            .map_err(|error| Error::Runtime(error.into()))?
+            .as_ref()
+            .is_none_or(|marker| marker.route() != registration.birth.route())
+        {
+            return Err(Error::Invalid("archive registration local group birth"));
+        }
         if registration.store.route() != registration.birth.route()
             || !registration.scratch_directory.is_absolute()
             || registration.scratch_directory.as_os_str().len() > 4096
