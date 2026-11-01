@@ -557,13 +557,24 @@ pub(in super::super) async fn physical_log_reclamation(
         .await??;
     assert_eq!(pool.usage().sources, 0);
     assert_eq!(receiver_pool.usage().sources, 0);
+    // Independent verification owns the archive pool's sole receiver slot.
+    // Its checks and post-purge use are complete; the journal still owns the
+    // remote hold. Release this physical result before waiting for a new cut.
+    assert_eq!(archive.checkpoints.usage().sources, 1);
+    drop(coverage);
     remote.outage.store(false, Ordering::Release);
     archive_controller::published(
         &controllers[0],
         route.history,
         saved[0][0].marker.position().index,
     )
-    .await?;
+    .await
+    .with_context(|| {
+        format!(
+            "post-purge archive catch-up (checkpoint slots {})",
+            archive.checkpoints.usage().sources
+        )
+    })?;
     for controller in controllers {
         controller.close().await?;
     }
@@ -608,7 +619,6 @@ pub(in super::super) async fn physical_log_reclamation(
     let disk = std::mem::replace(&mut fixture.cluster._root, tempfile::tempdir()?);
     drop(reader);
     drop(group);
-    drop(coverage);
     drop(archive);
     drop(inventory);
     fixture.close().await?;
