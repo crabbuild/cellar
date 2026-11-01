@@ -119,12 +119,13 @@ impl CellGroupSeedAuthority {
         let marker = s.root.marker();
         let local = s.group.identity();
         let term = s.barrier.term.get();
-        if s.leader.load(Ordering::Acquire) != term
+        if !marker.is_active()
+            || s.leader.load(Ordering::Acquire) != term
             || cache.hard_state.term != term
             || cache
                 .group_manifest
                 .as_ref()
-                .is_none_or(|m| m.route() != marker.route())
+                .is_none_or(|m| m.route() != marker.route() || !m.is_active())
             || cache.membership.revision().get() != marker.membership_revision()
             || !cache.membership.permits_group(local)
             || !cache

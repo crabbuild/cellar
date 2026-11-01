@@ -101,7 +101,7 @@ impl CellReadAuthority {
         if cache
             .group_manifest
             .as_ref()
-            .is_none_or(|m| m.route() != &s.route)
+            .is_none_or(|m| m.route() != &s.route || !m.is_active())
             || !cache.membership.permits_group(s.group.identity())
             || s.leader.as_ref().is_some_and(|(term, leader)| {
                 cache.hard_state.term != term.get()

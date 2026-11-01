@@ -682,6 +682,17 @@ impl CachedGroup {
                     {
                         return Err(LogError::Invalid("cell-group snapshot binding/base".into()));
                     }
+                    let previous = self.group_manifest.as_ref().unwrap();
+                    if !marker.preserves_recovery(previous)
+                        && !(previous.recovery_request().is_none()
+                            && previous.root().cells() == 0
+                            && previous.position().index.get() == 1
+                            && write.seed_grant.is_some())
+                    {
+                        return Err(LogError::Invalid(
+                            "snapshot recovery lineage changed".into(),
+                        ));
+                    }
                     prepared.membership().succeeds(&self.membership)?;
                     next.entries.clear();
                     next.applied = DurableApply {
@@ -835,6 +846,9 @@ impl CachedGroup {
                 ));
             }
             if let Some(previous) = &self.group_manifest {
+                if !marker.preserves_recovery(previous) {
+                    return Err(LogError::Invalid("applied recovery lineage changed".into()));
+                }
                 if marker.route() != previous.route() {
                     return Err(LogError::Invalid(
                         "group route changed outside topology protocol".into(),

@@ -91,14 +91,8 @@ impl Target for EngineTarget {
         )
             -> std::result::Result<CellImagePin, super::super::ManifestError>,
     ) -> Result<PreparedGroupManifest> {
-        let mut root = tree.prepare_complete(
-            &self.applier.group,
-            pages,
-            header.root.root(),
-            header.root.position(),
-            header.root.membership_revision(),
-            image,
-        )?;
+        let mut root =
+            tree.prepare_bound_complete(&self.applier.group, pages, header.root.clone(), image)?;
         root.base = Some(self.base.clone());
         Ok(root)
     }

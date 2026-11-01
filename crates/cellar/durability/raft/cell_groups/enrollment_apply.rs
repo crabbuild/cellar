@@ -80,6 +80,9 @@ impl ManifestTree {
         apply: EnrollmentApply<'_>,
         image: impl FnOnce(&EnrollmentRecord) -> Result<EnrollmentImage, ManifestError>,
     ) -> Result<(PreparedGroupManifest, EnrollmentDecision), EnrollmentApplyError> {
+        if !previous.marker().is_active() {
+            return Err(ManifestError::Invalid("recovery is not activated").into());
+        }
         // Validate route, store ownership and contiguous position before image
         // I/O. The unchanged candidate also supplies the idempotent apply path.
         let unchanged = self.prepare_unchanged(store, previous, apply.position)?;

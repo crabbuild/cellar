@@ -19,6 +19,7 @@ pub struct GroupManifest {
     pub(super) position: LogPosition,
     pub(super) membership_revision: u64,
     pub(super) root: ManifestRoot,
+    pub(super) recovery: Option<Box<super::recovery::RecoveryState>>,
 }
 
 impl GroupManifest {
@@ -38,6 +39,28 @@ impl GroupManifest {
         self.root
     }
 
+    /// Data imported into a fresh history remains unavailable to application
+    /// reads/writes until its replicated activation decision is selected.
+    pub fn is_active(&self) -> bool {
+        self.recovery.as_ref().is_none_or(|state| state.active())
+    }
+
+    /// Commitment to the immutable recovery intent and retained source archive.
+    /// This is provenance, never a fence, membership or serving permission.
+    pub fn recovery_request(&self) -> Option<[u8; 32]> {
+        self.recovery.as_ref().map(|state| state.request())
+    }
+
+    /// A retained history cannot forget or replace its recovery lineage. Only
+    /// an authenticated empty learner may acquire that lineage via a snapshot.
+    pub(crate) fn preserves_recovery(&self, previous: &Self) -> bool {
+        match (&previous.recovery, &self.recovery) {
+            (None, None) => true,
+            (Some(previous), Some(next)) => next.succeeds(previous),
+            _ => false,
+        }
+    }
+
     pub(crate) fn check(&self) -> Result<(), ManifestError> {
         self.position
             .validate()
@@ -49,6 +72,14 @@ impl GroupManifest {
             return Err(ManifestError::Invalid("root membership"));
         }
         ManifestTree::new(self.route.clone(), ManifestLimits::default())?;
+        if let Some(recovery) = &self.recovery {
+            recovery.validate(self.position)?;
+            if !recovery.active() && self.membership_revision != 1 {
+                return Err(ManifestError::Invalid(
+                    "pending recovery membership changed",
+                ));
+            }
+        }
         if let Some(root) = self.root.0 {
             if root.cells == 0 || root.cells > 1_000_000 || root.height == 0 || root.height > 32 {
                 return Err(ManifestError::Invalid("root bounds"));
@@ -73,6 +104,24 @@ impl GroupManifest {
             },
             membership_revision: 1,
             root: ManifestRoot::default(),
+            recovery: None,
+        };
+        marker.check()?;
+        Ok(marker)
+    }
+
+    pub(crate) fn recovery_genesis(
+        route: GroupRoute,
+        root: ManifestRoot,
+        request: [u8; 32],
+        operation: ProposalId,
+    ) -> Result<Self, ManifestError> {
+        let marker = Self {
+            root,
+            recovery: Some(Box::new(super::recovery::RecoveryState::pending(
+                request, operation,
+            )?)),
+            ..Self::genesis(route)?
         };
         marker.check()?;
         Ok(marker)
@@ -89,6 +138,8 @@ pub struct PreparedGroupManifest {
     pub(crate) images: ManifestPins,
     pub(crate) engine_owner: Arc<()>,
     pub(crate) base: Option<GroupManifest>,
+    /// Import admission follows every clone of this private physical closure.
+    pub(super) recovery_admission: Option<Arc<crate::raft::budget::Permit>>,
     pub(super) page_owner: Arc<super::page_store::PageOwner>,
     retention: Arc<super::retention::RootRetentions>,
 }
@@ -183,6 +234,7 @@ impl PreparedGroupManifest {
             images,
             engine_owner: group.owner.clone(),
             base: None,
+            recovery_admission: None,
             page_owner: store.owner.clone(),
             retention: store.retention.clone(),
         })
@@ -243,12 +295,50 @@ impl ManifestTree {
     where
         for<'a> GroupHistory: From<&'a S>,
     {
-        let marker = GroupManifest {
+        let mut marker = GroupManifest {
             route: self.route.clone(),
             position,
             membership_revision,
             root,
+            recovery: None,
         };
+        // Reopening must retain the selected recovery lifecycle, rather than
+        // silently turning a pending imported root into an ordinary active one.
+        let mut recovery_selected = false;
+        let mut matched = false;
+        for selected in [group.group_manifest(), group.checkpoint_manifest()] {
+            if let Some(selected) = selected.map_err(|_| ManifestError::Invalid("closed engine"))? {
+                recovery_selected |= selected.recovery.is_some();
+                if selected.route == marker.route
+                    && selected.position == marker.position
+                    && selected.membership_revision == marker.membership_revision
+                    && selected.root == marker.root
+                {
+                    marker = selected;
+                    matched = true;
+                    break;
+                }
+            }
+        }
+        if recovery_selected && !matched {
+            return Err(ManifestError::Invalid("complete recovery marker required"));
+        }
+        self.prepare_bound_complete(group, store, marker, &mut image)
+    }
+
+    pub(super) fn prepare_bound_complete<S>(
+        &self,
+        group: &crate::raft::cache::GroupLog<S>,
+        store: &mut ManifestPageStore,
+        marker: GroupManifest,
+        image: &mut dyn FnMut(&CellManifestLeaf) -> Result<CellImagePin, ManifestError>,
+    ) -> Result<PreparedGroupManifest, ManifestError>
+    where
+        for<'a> GroupHistory: From<&'a S>,
+    {
+        if marker.route != self.route {
+            return Err(ManifestError::Conflict);
+        }
         marker.check()?;
         group
             .cache_revision()
@@ -256,8 +346,7 @@ impl ManifestTree {
         if !marker.matches_group(&group.identity().scope, group.birth_digest) {
             return Err(ManifestError::Invalid("root/engine identity"));
         }
-        let prepared =
-            self.prepare_physical(store, marker.clone(), group.owner.clone(), &mut image)?;
+        let prepared = self.prepare_physical(store, marker.clone(), group.owner.clone(), image)?;
         // Recover physical ownership only from the engine's selected marker.
         // A prospective checkpoint or mutation remains a preparation capability.
         if group
@@ -312,6 +401,7 @@ impl ManifestTree {
             images: pins,
             engine_owner: owner,
             base: None,
+            recovery_admission: None,
             page_owner: store.owner.clone(),
             retention: store.retention.clone(),
         })
@@ -332,6 +422,9 @@ impl ManifestTree {
         if previous.marker.route != self.route || !Arc::ptr_eq(&previous.page_owner, &store.owner) {
             return Err(ManifestError::Invalid("root/page owner"));
         }
+        if !previous.marker.is_active() {
+            return Err(ManifestError::Invalid("recovery is not activated"));
+        }
         if previous.marker.position.index.get().checked_add(1)
             != Some(leaf.last_mutation.index.get())
             || leaf.last_mutation.term < previous.marker.position.term
@@ -350,6 +443,7 @@ impl ManifestTree {
             position: leaf.last_mutation,
             membership_revision: previous.marker.membership_revision,
             root,
+            recovery: previous.marker.recovery.clone(),
         };
         marker.check()?;
         Ok(PreparedGroupManifest {
@@ -357,6 +451,7 @@ impl ManifestTree {
             images: pins,
             engine_owner: previous.engine_owner.clone(),
             base: Some(previous.marker.clone()),
+            recovery_admission: previous.recovery_admission.clone(),
             page_owner: store.owner.clone(),
             retention: store.retention.clone(),
         })
@@ -381,6 +476,14 @@ struct WireRoot {
     membership_revision: u64,
     #[serde(deserialize_with = "required_root")]
     root: Option<super::page_wire::PageRef>,
+    #[serde(deserialize_with = "required_recovery")]
+    recovery: Option<Box<super::recovery::RecoveryState>>,
+}
+
+fn required_recovery<'de, D: serde::Deserializer<'de>>(
+    decoder: D,
+) -> Result<Option<Box<super::recovery::RecoveryState>>, D::Error> {
+    Option::deserialize(decoder)
 }
 
 fn required_root<'de, D: serde::Deserializer<'de>>(
@@ -435,6 +538,7 @@ impl From<GroupManifest> for WireRoot {
             term: m.position.term.get(),
             membership_revision: m.membership_revision,
             root: m.root.0,
+            recovery: m.recovery,
         }
     }
 }
@@ -468,6 +572,7 @@ impl TryFrom<WireRoot> for GroupManifest {
             },
             membership_revision: w.membership_revision,
             root: ManifestRoot(w.root),
+            recovery: w.recovery,
         };
         result.check()?;
         Ok(result)

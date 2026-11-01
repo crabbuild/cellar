@@ -93,8 +93,10 @@ struct Complete {
 /// A complete selected archive and independently verified permanent fence.
 /// Retain its dedicated remote hold until recovery and entered work finish.
 /// This deliberately cannot be supplied to ordinary bootstrap or live apply.
+/// Clones share the same admitted cut when preparing multiple destinations.
+#[derive(Clone)]
 pub struct FencedCellGroupRecovery {
-    request: CellGroupRecoveryRequest,
+    request: Arc<CellGroupRecoveryRequest>,
     coverage: CellGroupArchiveCoverage,
 }
 
@@ -319,7 +321,7 @@ impl RangeDirectory {
                     .map_err(|e| CatalogError::Fence(e.to_string()))?;
                 self.bounded(self.recovery_source(fence.recovery())).await?;
                 Ok(FencedCellGroupRecovery {
-                    request: fence.into_recovery(),
+                    request: Arc::new(fence.into_recovery()),
                     coverage,
                 })
             })

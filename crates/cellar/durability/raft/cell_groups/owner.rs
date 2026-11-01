@@ -368,6 +368,9 @@ impl CellGroupOwner {
     ) -> Result<super::read_authority::ReadSelection, RuntimeError> {
         self.live()?;
         let status = self.status()?;
+        if !self.current.marker().is_active() {
+            return Err(RuntimeError::NotReady);
+        }
         let leader = if matches!(consistency, super::CellReadConsistency::Linearizable) {
             if self.node.raft.state != StateRole::Leader || Some(status.term) != term {
                 return Err(RuntimeError::NotLeader);
@@ -486,7 +489,8 @@ impl CellGroupOwner {
             leader: (self.node.raft.leader_id != 0).then_some(self.node.raft.leader_id),
             applied: self.current.marker().position(),
             committed: LogIndex::new(cache.hard_state.commit),
-            ready: self.node.raft.state == StateRole::Leader
+            ready: self.current.marker().is_active()
+                && self.node.raft.state == StateRole::Leader
                 && self.node.raft.lead_transferee.is_none()
                 && self
                     .node

@@ -122,7 +122,8 @@ impl CellExecutionAuthority {
             self.route.history.namespace,
             &self.leaf.version.history.cell,
         );
-        if cache.hard_state.term != self.term.get()
+        if !current.is_active()
+            || cache.hard_state.term != self.term.get()
             || !cache
                 .conf_state
                 .voters
@@ -206,7 +207,8 @@ impl CellReconciliationAuthority {
             self.route.history.namespace,
             &self.leaf.version.history.cell,
         );
-        if self.term.get() == 0
+        if !current.is_active()
+            || self.term.get() == 0
             || cache.hard_state.term != self.term.get()
             || current.position().term != self.term
             || current.position().index.get() > cache.hard_state.commit

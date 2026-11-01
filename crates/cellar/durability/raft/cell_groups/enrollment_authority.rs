@@ -99,7 +99,8 @@ impl CellEnrollmentState {
             .as_ref()
             .ok_or(RuntimeError::NotReady)?;
         let key = cell_routing_key(self.cell.namespace, &self.cell.cell);
-        if self.term.get() == 0
+        if !current.is_active()
+            || self.term.get() == 0
             || cache.hard_state.term != self.term.get()
             || current.position().term != self.term
             || current.position().index.get() > cache.hard_state.commit

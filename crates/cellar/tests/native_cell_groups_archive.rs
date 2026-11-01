@@ -38,6 +38,39 @@ mod runtime_fixture;
 include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn group_recovery_import_rebinds_complete_cut() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(disaster_fixture::import(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn group_recovery_cancelled_import_retains_physical_admission() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(disaster_fixture::cancel_import(rooted)).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_group_recovery_import_rebinds_complete_cut() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(disaster_fixture::import(
+            rooted,
+            rustfs::store("recovery-import", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn group_recovery_fence_resumes_exact_intent() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(disaster_fixture::resume(
@@ -266,6 +299,16 @@ async fn destination_mode(
 ) -> Result<ArchiveDestination> {
     let base = cluster._root.path().join("archive-data");
     let route = cluster.birth.route().clone();
+    destination_at(cluster, rooted, filesystem, base, route).await
+}
+
+async fn destination_at(
+    cluster: &Cluster,
+    rooted: bool,
+    filesystem: Arc<dyn cellar_ltx::FileSystem>,
+    base: std::path::PathBuf,
+    route: GroupRoute,
+) -> Result<ArchiveDestination> {
     cluster
         .domain
         .blocking(move || {

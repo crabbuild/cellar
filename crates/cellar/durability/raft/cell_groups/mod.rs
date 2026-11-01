@@ -80,6 +80,8 @@ pub use log_retention::{
     CellGroupLogCapacity, CellGroupLogRetentionLimits, CellGroupLogRetentionUsage,
 };
 mod read_authority;
+mod recovery;
+pub use recovery::{CellGroupRecoveryLimits, CellGroupRecoveryPool, PreparedCellGroupRecovery};
 pub(crate) mod reclaim;
 pub use read_authority::{CellReadAuthority, CellReadConsistency};
 pub use reclaim::{CellGroupReclaimError, CellGroupReclaimLimits, CellGroupReclaimReport};

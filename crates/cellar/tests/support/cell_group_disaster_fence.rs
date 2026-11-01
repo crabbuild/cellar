@@ -310,6 +310,222 @@ impl Scenario {
     }
 }
 
+pub(super) async fn cancel_import(rooted: bool) -> Result<()> {
+    let s = Box::new(Scenario::new(rooted, Arc::new(object_store::memory::InMemory::new())).await?);
+    let gate = fault::Gate::new(None);
+    let target = destination_at(
+        &s.cluster,
+        rooted,
+        Arc::new(fault::FaultFileSystem { gate: gate.clone() }),
+        s.cluster._root.path().join("recovery-cancel"),
+        s.request.replacement().route().clone(),
+    )
+    .await?;
+    let pool = CellGroupRecoveryPool::new(Default::default())?;
+    let scratch = ScratchPool::new(ScratchLimits {
+        max_bytes: 32 * 1024 * 1024,
+        max_files: 1,
+    })?;
+    let proof = s.fence(&s.cluster.directory, &s.request).await?;
+    let release = gate.arm(fault::HOLD_DEPENDENCY_SYNC);
+    let mut work = Box::pin(pool.prepare(
+        &s.cluster.domain,
+        proof,
+        target.store,
+        scratch.clone(),
+        s.cluster._root.path().into(),
+    ));
+    let entered = Box::pin(tokio::time::timeout(
+        Duration::from_secs(15),
+        gate.entered.notified(),
+    ));
+    match futures_util::future::select(entered, work.as_mut()).await {
+        futures_util::future::Either::Left((result, _)) => result?,
+        futures_util::future::Either::Right(_) => {
+            anyhow::bail!("import skipped physical dependency sync")
+        }
+    }
+    drop(work);
+    assert_eq!(pool.usage().operations, 1);
+    assert_eq!(s.receivers.usage().sources, 1);
+    drop(release);
+    let s = *s;
+    let receivers = s.receivers.clone();
+    s.cluster.close().await?;
+    assert_eq!(pool.usage().operations, 0);
+    assert_eq!(receivers.usage().sources, 0);
+    assert_eq!(scratch.usage()?.reserved_bytes, 0);
+    Ok(())
+}
+
+pub(super) async fn import(rooted: bool, store: Arc<dyn object_store::ObjectStore>) -> Result<()> {
+    let s = Box::new(Scenario::new(rooted, store).await?);
+    let route = s.request.replacement().route().clone();
+    let target = destination_at(
+        &s.cluster,
+        rooted,
+        Arc::new(DirectFileSystem),
+        s.cluster._root.path().join("recovery-import"),
+        route.clone(),
+    )
+    .await?;
+    let pool = CellGroupRecoveryPool::new(Default::default())?;
+    let scratch = ScratchPool::new(ScratchLimits {
+        max_bytes: 32 * 1024 * 1024,
+        max_files: 1,
+    })?;
+    let proof = s.fence(&s.cluster.directory, &s.request).await?;
+    let retained_proof = proof.clone();
+    let bounded = CellGroupRecoveryPool::new(CellGroupRecoveryLimits {
+        max_image_bytes: 512,
+        max_restore_bytes: 512,
+        ..Default::default()
+    })?;
+    assert!(matches!(
+        bounded
+            .prepare(
+                &s.cluster.domain,
+                proof.clone(),
+                target.store.clone(),
+                scratch.clone(),
+                s.cluster._root.path().into()
+            )
+            .await,
+        Err(CellGroupArchiveError::Limit)
+    ));
+    assert_eq!(bounded.usage().operations, 0);
+    let source = proof.coverage().recovery().manifest().clone();
+    let preparation = pool
+        .prepare(
+            &s.cluster.domain,
+            proof,
+            target.store.clone(),
+            scratch.clone(),
+            s.cluster._root.path().into(),
+        )
+        .await?;
+    let marker = preparation.manifest().marker();
+    let expected_marker = marker.clone();
+    let expected_commitment = preparation.commitment();
+    assert_eq!(marker.route(), &route);
+    assert_eq!(
+        marker.position(),
+        LogPosition {
+            index: LogIndex::new(1),
+            term: Term::new(1)
+        }
+    );
+    assert_eq!(marker.membership_revision(), 1);
+    assert_eq!(marker.recovery_request(), Some(s.request.digest()));
+    assert!(!marker.is_active());
+    assert_ne!(preparation.commitment(), [0; 32]);
+    assert_eq!(preparation.request().encode(), s.request.encode());
+    assert_eq!(pool.usage().operations, 1);
+    assert_eq!(scratch.usage()?.reserved_bytes, 0);
+    tail_fixture::check_images(&s.cluster, preparation.manifest(), &s.expected).await?;
+    let keys = VersionKeys::new(
+        VersionSigningKey::new([91; 32], 100_000)?,
+        vec![],
+        Duration::from_secs(10),
+    )?;
+    for name in s.expected.keys() {
+        let cell = CellId::new(name)?;
+        let (old, old_pin) = source.pin_cell(&cell).context("old leaf")?;
+        let (new, new_pin) = preparation.manifest().pin_cell(&cell).context("new leaf")?;
+        assert_eq!(new.version.history.incarnation, route.history.incarnation);
+        assert_ne!(new.version.history, old.version.history);
+        assert_eq!(new.version.sequence.get(), 1);
+        assert_eq!(new.enrollment.cell(), &new.version.history);
+        assert_eq!(new.enrollment.creation(), s.request.operation());
+        assert_eq!(new.enrollment.initial(), new.version.image);
+        assert_eq!(new.effects, old.effects);
+        assert_eq!(new.geometry, old.geometry);
+        assert_eq!(new.witness.group, route.history);
+        assert_eq!(new.witness.position, marker.position());
+        assert_eq!(new.witness.proposal, s.request.operation());
+        assert_eq!(new.last_mutation, marker.position());
+        match (old_pin, new_pin) {
+            (CellImagePin::Materialized(old), CellImagePin::Materialized(new)) => {
+                assert_ne!(old.id(), new.id());
+                assert_eq!(old.state(), new.state());
+            }
+            (CellImagePin::Extents(old), CellImagePin::Extents(new)) => {
+                assert_ne!(old.reference(), new.reference());
+                assert_ne!(
+                    old.manifest().binding().history,
+                    new.manifest().binding().history
+                );
+                for n in 0..old.manifest().geometry().extent_count() {
+                    assert_eq!(old.manifest().extent(n), new.manifest().extent(n));
+                }
+            }
+            (CellImagePin::Empty, CellImagePin::Empty) => {}
+            _ => anyhow::bail!("recovery changed image representation"),
+        }
+        let old_token = keys.issue_cell(&old.observation(), route.schema_digest, 10)?;
+        assert_eq!(
+            keys.verify_cell(&old_token, &new.version.history, route.schema_digest, 11),
+            Err(VersionError::WrongHistory)
+        );
+    }
+    // Holding the result owns its admission. Refusal precedes physical work;
+    // the replacement still has no local Raft mapping or startup permission.
+    assert!(matches!(
+        pool.prepare(
+            &s.cluster.domain,
+            retained_proof,
+            target.store.clone(),
+            scratch.clone(),
+            s.cluster._root.path().into()
+        )
+        .await,
+        Err(CellGroupArchiveError::Busy)
+    ));
+    for voter in &s.cluster.voters {
+        assert!(voter.log.cell_group(&route.history).is_err());
+    }
+    let retained = preparation.manifest().clone();
+    drop(preparation);
+    assert_eq!(pool.usage().operations, 1);
+    drop(retained);
+    assert_eq!(pool.usage().operations, 0);
+    // Exact retry produces the same imported genesis/commitment. A wrong route
+    // cannot turn the fenced old data owner into a replacement data owner.
+    let proof = s.fence(&s.cluster.directory, &s.request).await?;
+    assert!(pool
+        .prepare(
+            &s.cluster.domain,
+            proof,
+            s.destination.store.clone(),
+            scratch.clone(),
+            s.cluster._root.path().into()
+        )
+        .await
+        .is_err());
+    assert_eq!(pool.usage().operations, 0);
+    let proof = s.fence(&s.cluster.directory, &s.request).await?;
+    let retried = pool
+        .prepare(
+            &s.cluster.domain,
+            proof,
+            target.store,
+            scratch,
+            s.cluster._root.path().into(),
+        )
+        .await?;
+    tail_fixture::check_images(&s.cluster, retried.manifest(), &s.expected).await?;
+    assert!(!retried.manifest().marker().is_active());
+    assert_eq!(retried.manifest().marker(), &expected_marker);
+    assert_eq!(retried.commitment(), expected_commitment);
+    drop(retried);
+    drop(source);
+    s.assert_closed().await?;
+    assert_eq!(pool.usage().operations, 0);
+    assert_eq!(s.receivers.usage().sources, 0);
+    let s = *s;
+    s.cluster.close().await
+}
+
 pub(super) async fn resume(rooted: bool, store: Arc<dyn object_store::ObjectStore>) -> Result<()> {
     let s = Box::pin(Scenario::new(rooted, store)).await?;
     let (path, index) = index(s.remote.as_ref(), &s.checkpoint).await?;

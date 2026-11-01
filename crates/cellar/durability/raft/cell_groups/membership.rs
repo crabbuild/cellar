@@ -193,6 +193,9 @@ impl super::ManifestTree {
         before: &ConfState,
         membership: &GroupMembership,
     ) -> Result<super::PreparedGroupManifest, super::ManifestError> {
+        if !previous.marker().is_active() {
+            return Err(super::ManifestError::Invalid("recovery is not activated"));
+        }
         let mut prepared = self.prepare_unchanged(
             pages,
             previous,

@@ -64,18 +64,11 @@ impl CellGroupApplier {
             ..
         } = owner;
         let mut prepare = |marker: &GroupManifest| {
-            tree.prepare_complete(
-                &self.group,
-                pages,
-                marker.root(),
-                marker.position(),
-                marker.membership_revision(),
-                |leaf| {
-                    images
-                        .recover_image(leaf, marker.route().schema_digest)
-                        .map_err(|error| ManifestError::Io(std::io::Error::other(error)))
-                },
-            )
+            tree.prepare_bound_complete(&self.group, pages, marker.clone(), &mut |leaf| {
+                images
+                    .recover_image(leaf, marker.route().schema_digest)
+                    .map_err(|error| ManifestError::Io(std::io::Error::other(error)))
+            })
             .map_err(storage)
         };
         let current = prepare(&marker)?;

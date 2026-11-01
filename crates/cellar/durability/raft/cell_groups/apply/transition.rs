@@ -40,6 +40,42 @@ impl Storage {
         }
         let decoded =
             CellGroupEntry::decode(&entry.data, base.marker().route(), *limits).map_err(storage)?;
+        if let GroupCommand::Activate {
+            transition,
+            publication,
+            manifest,
+        } = decoded.command
+        {
+            if decoded.binding.proposal.bytes() != transition.bytes() {
+                return Err(ExecutionError::Invalid("activation proposal binding"));
+            }
+            let state = base
+                .marker()
+                .recovery
+                .as_deref()
+                .ok_or(ExecutionError::Invalid("activation without recovery"))?;
+            let expected = match state.activation_manifest() {
+                Some(manifest) => manifest,
+                None => state.seed_commitment(base.marker()).map_err(storage)?,
+            };
+            let mut next = unchanged;
+            next.marker
+                .recovery
+                .as_deref_mut()
+                .ok_or(ExecutionError::Invalid("activation without recovery"))?
+                .activate(
+                    transition,
+                    publication,
+                    manifest,
+                    expected,
+                    entry_position(entry),
+                )
+                .map_err(storage)?;
+            return Ok(next);
+        }
+        if !base.marker().is_active() {
+            return Err(ExecutionError::Invalid("recovery is not activated"));
+        }
         let witness = CommitWitness {
             group: base.marker().route().history,
             position: entry_position(entry),

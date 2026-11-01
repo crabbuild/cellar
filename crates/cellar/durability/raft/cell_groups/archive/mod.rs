@@ -64,6 +64,7 @@ pub enum CellGroupArchiveError {
     MissingRegistry,
     Checkpoint(CellGroupCheckpointError),
     Replay(crate::raft::execution::ExecutionError),
+    Enrollment(super::EnrollmentError),
     Storage(object_store::Error),
     Worker(crate::asyncrt::TaskPanic),
 }
@@ -79,6 +80,7 @@ impl std::error::Error for CellGroupArchiveError {
         match self {
             Self::Checkpoint(e) => Some(e),
             Self::Replay(e) => Some(e),
+            Self::Enrollment(e) => Some(e),
             Self::Storage(e) => Some(e),
             Self::Worker(e) => Some(e),
             _ => None,
