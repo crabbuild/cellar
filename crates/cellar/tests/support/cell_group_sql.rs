@@ -673,4 +673,4 @@ mod log_retention;
 pub(super) use log_retention::retained_log_admission;
 
 #[allow(unused_imports)]
-pub(super) use archive_controller::physical_log_reclamation;
+pub(crate) use archive_controller::physical_log_reclamation;
