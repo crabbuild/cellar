@@ -202,16 +202,25 @@ pub(crate) async fn s3_remote_slow_delivery(
             // Reading even the header lets TLS prefetch the whole body and
             // releases backpressure. Observe successful socket writes below TLS
             // before any client read. Fewer than 28 KiB cannot carry this result.
-            controller::wait_for(async || {
+            let mut observed = (0u64, u64::MAX, 0u64, 0usize, 0usize);
+            let reached = controller::wait_for(async || {
                 let bytes = written(&h)?
                     .checked_sub(before)
                     .context("socket counter monotonic")?;
+                let s3 = h.controllers[0].usage().retained_s3;
+                let query = h.fixture.transports[0].usage().query_items;
+                observed.0 = observed.0.max(bytes);
+                if s3 > 0 { observed.1 = observed.1.min(bytes); observed.2 = observed.2.max(bytes); }
+                observed.3 = observed.3.max(s3);
+                observed.4 = observed.4.max(query);
                 Ok(bytes >= 4096
                     && bytes < 28 * 1024
-                    && h.controllers[0].usage().retained_s3 == 1
-                    && h.fixture.transports[0].usage().query_items == 1)
+                    && s3 == 1
+                    && query == 1)
             })
-            .await?;
+            .await;
+            eprintln!("[DEBUG-remote-write] {kind}-{fault} overall/active_min/active_max/s3/query={observed:?}; now_s3={}; now_query={}", h.controllers[0].usage().retained_s3, h.fixture.transports[0].usage().query_items);
+            reached?;
             assert_eq!(h.controllers[0].usage().retained_s3, 1, "{kind}-{fault}");
             assert_eq!(h.controllers[0].usage().s3_bytes, 64 * 1024);
             assert_eq!(h.archive.tails.usage().operations, 1);
