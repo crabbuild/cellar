@@ -12,7 +12,7 @@ pub(crate) use wire::s3_remote_slow_delivery;
 
 struct Remote {
     gateway: CellCommandGateway,
-    router: super::super::super::query_origins::Router,
+    router: super::super::query_origins::Router,
 }
 
 impl Remote {
@@ -22,7 +22,7 @@ impl Remote {
             h.controllers[0].clone(),
             h.fixture.cell_options(&h.cell).await?,
         )?;
-        let router = super::super::super::query_origins::Router::start(&h.fixture).await?;
+        let router = super::super::query_origins::Router::start(&h.fixture).await?;
         router
             .transport
             .install_cell_query_group(h.fixture.tcp_route(h.route.history)?)?;
