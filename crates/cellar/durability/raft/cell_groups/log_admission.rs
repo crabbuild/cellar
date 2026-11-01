@@ -191,7 +191,7 @@ fn needs_automatic_leave(
     group: &GroupLog<GroupHistory>,
     node: &RawNode<ConsensusStorage>,
 ) -> Result<bool, RuntimeError> {
-    if node.raft.prs().conf().auto_leave() {
+    if *node.raft.prs().conf().auto_leave() {
         return Ok(true);
     }
     let cache = group.read()?;
