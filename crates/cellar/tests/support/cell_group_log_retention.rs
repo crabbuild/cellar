@@ -180,18 +180,20 @@ pub(crate) async fn retained_log_admission(rooted: bool) -> Result<()> {
             .domain
             .blocking(move || source.prepare_publication())?
             .await??;
+        let cut = prepared.marker().clone();
         fixture.runtimes[node]
             .publish_checkpoint(route.history, prepared)
             .await?;
         tokio::time::timeout(Duration::from_secs(20), async {
             loop {
                 fixture.pump(&[], &mut BTreeMap::new()).await?;
-                let usage = fixture.cluster.voters[node]
+                let group = fixture.cluster.voters[node]
                     .log
-                    .cell_group(&route.history)?
-                    .log_retention_usage()?;
+                    .cell_group(&route.history)?;
+                let usage = group.log_retention_usage()?;
                 if usage.retained_entries == 0
-                    && fixture.runtimes[node].status(route.history).await?.ready
+                    && group.checkpoint_manifest()?.as_ref() == Some(&cut)
+                    && checkpoints.usage().sources == 0
                 {
                     break;
                 }
@@ -199,7 +201,8 @@ pub(crate) async fn retained_log_admission(rooted: bool) -> Result<()> {
             }
             Ok::<_, anyhow::Error>(())
         })
-        .await??;
+        .await
+        .with_context(|| format!("voter {node} selects checkpoint and releases its source"))??;
     }
     assert_eq!(checkpoints.usage().sources, 0);
     let mut executor = fixture.private_cell(&b).await?;
