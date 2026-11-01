@@ -15,15 +15,33 @@ fn transient(status: reqwest::StatusCode, body: &str) -> bool {
             .any(|message| body.contains(message))
 }
 
+fn transient_transport(error: &reqwest::Error) -> bool {
+    error.is_connect() || error.is_timeout() || error.is_request() || error.is_body()
+}
+
 pub(crate) async fn read(client: &reqwest::Client, url: &str, target: &str) -> Result<Value> {
     tokio::time::timeout(Duration::from_secs(20), async {
         loop {
-            let response = client
-                .get(format!("{url}/rust/read?target={target}"))
-                .send()
-                .await?;
-            let status = response.status();
-            let text = response.text().await?;
+            // This is a new read observation, never a command retry. A fenced
+            // route can close transport before its typed refusal arrives.
+            // Keep builder, decoding and arbitrary application errors fatal.
+            let response = async {
+                let response = client
+                    .get(format!("{url}/rust/read?target={target}"))
+                    .send()
+                    .await?;
+                let status = response.status();
+                Ok::<_, reqwest::Error>((status, response.text().await?))
+            }
+            .await;
+            let (status, text) = match response {
+                Ok(observation) => observation,
+                Err(error) if transient_transport(&error) => {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                    continue;
+                }
+                Err(error) => return Err(error.into()),
+            };
             if status.is_success() {
                 return Ok::<_, anyhow::Error>(serde_json::from_str(&text)?);
             }
@@ -41,6 +59,13 @@ pub(crate) async fn read(client: &reqwest::Client, url: &str, target: &str) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_requests_are_not_transient_transport() {
+        let error = reqwest::Client::new().get("http://[").build().unwrap_err();
+        assert!(error.is_builder());
+        assert!(!transient_transport(&error));
+    }
 
     #[test]
     fn only_named_rpc_admission_failures_can_be_polled() {
