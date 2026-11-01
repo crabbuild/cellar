@@ -699,7 +699,7 @@ pub(in super::super) async fn physical_log_reclamation(
     for controller in controllers {
         controller.close().await?;
     }
-    println!(
+    cellar::note!(
         "cell_group_log_reclamation_observations {}",
         serde_json::json!({
             "mode": if rooted { "extents" } else { "materialized" },
