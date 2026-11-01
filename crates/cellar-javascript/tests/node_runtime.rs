@@ -54,12 +54,31 @@ fn node_npm_native_addon_components_routing_and_restart() -> Result<()> {
                         let result = check(&address, expected).await;
                         let elapsed = requests_started.elapsed();
                         let before = application.bridge_usage();
+                        let failed_sql = result.is_err().then(|| (|| -> Result<Vec<_>> {
+                            let mut rows = Vec::new();
+                            for entry in std::fs::read_dir(directory.path())? {
+                                let entry = entry?;
+                                if !entry.file_name().to_string_lossy().starts_with("Counter:") { continue; }
+                                let path = entry.path().join("ltx/e1/db.sqlite");
+                                let observed = (|| -> Result<Vec<String>> {
+                                    let db = rusqlite::Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+                                    db.busy_timeout(Duration::ZERO)?;
+                                    let mut query = db.prepare("SELECT v FROM __sys_cell_kv WHERE k = 'count'")?;
+                                    let values = query.query_map([], |row| row.get::<_, String>(0))?.collect::<std::result::Result<Vec<_>, _>>()?;
+                                    Ok(values)
+                                })();
+                                rows.push(format!("{}: {observed:?}", entry.file_name().to_string_lossy()));
+                            }
+                            Ok(rows)
+                        })());
                         // A failed request must join the same host/process ownership
                         // path and retain evidence without replacing its error.
+                        let shutdown_started = Instant::now();
                         let outcome = node.shutdown(ShutdownMode::Preserve).await;
+                        let shutdown_elapsed = shutdown_started.elapsed();
                         let after = application.bridge_usage();
                         result.with_context(|| format!(
-                            "Node compatibility/restart expected={expected}, startup={startup:?}, requests={elapsed:?}, bridge_before={before:?}, bridge_after={after:?}, shutdown={outcome:?}"
+                            "Node compatibility/restart expected={expected}, startup={startup:?}, requests={elapsed:?}, bridge_before={before:?}, bridge_after={after:?}, failed_sql={failed_sql:?}, shutdown_elapsed={shutdown_elapsed:?}, shutdown={outcome:?}"
                         ))?;
                         let outcome = outcome?;
                         let NodeOutcome::Stopped(report) = outcome else {
