@@ -256,6 +256,7 @@ async fn probe(
                 || observed.view.seed_workers != 0
                 || observed.view.pending_history_registrations != 0
             {
+                tracing::warn!(target: "cellar_ci", seeds=observed.view.seed_workers, registrations=observed.view.pending_history_registrations, initializing=?inventory.initializing(), "[DEBUG-ci163] physical inventory busy");
                 return Err(FleetCatalogError::InventoryIncomplete);
             }
             verification.book.basis.check_current(catalog).await

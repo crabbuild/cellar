@@ -197,6 +197,7 @@ async fn physical_inner(
                 || observed.view.pending_history_registrations != 0
                 || inventory.initializing().is_some()
             {
+                tracing::warn!(target: "cellar_ci", seeds=observed.view.seed_workers, registrations=observed.view.pending_history_registrations, initializing=?inventory.initializing(), "[DEBUG-ci163] physical inventory busy");
                 return Err(FleetCatalogError::InventoryIncomplete);
             }
             inventory

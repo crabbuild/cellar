@@ -774,6 +774,13 @@ impl Fixture {
         separation: FleetReplicaSeparation,
         image_storage: RaftImageStorage,
     ) -> Result<Self> {
+        if std::env::var_os("CELLAR_CI_TRACE").is_some() {
+            static TRACE: std::sync::OnceLock<std::result::Result<(), String>> = std::sync::OnceLock::new();
+            TRACE.get_or_init(|| tracing_subscriber::fmt()
+                .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+                .with_ansi(false).with_test_writer().try_init().map_err(|e| e.to_string()))
+                .as_ref().map_err(|e| anyhow::anyhow!("CI tracing: {e}"))?;
+        }
         let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         let store = Arc::new(fault::Store::default());
         let catalog = Self::open_catalog(&domain, store.clone())?;
