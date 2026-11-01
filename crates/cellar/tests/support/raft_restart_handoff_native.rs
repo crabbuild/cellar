@@ -39,7 +39,11 @@ async fn consume(
                         ensure!(group == *expected);
                         return Ok::<_, anyhow::Error>(requests);
                     }
-                    Err(FleetCatalogError::Unconfirmed | FleetCatalogError::Overloaded)
+                    Err(
+                        FleetCatalogError::InventoryIncomplete
+                        | FleetCatalogError::Unconfirmed
+                        | FleetCatalogError::Overloaded,
+                    )
                     | Err(FleetCatalogError::Observation(
                         InspectionError::Unavailable | InspectionError::Overloaded,
                     )) => {

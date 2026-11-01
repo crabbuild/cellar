@@ -28,12 +28,14 @@ async fn phase(
                     &s.nodes[2].host,
                     &s.spare,
                 ];
-                for origin in hosts {
-                    let own = origin.observe_node(TIMEOUT).await?.node.identity.node;
-                    for target in hosts {
-                        let node = target.observe_node(TIMEOUT).await?.node.identity.node;
+                let mut identities = Vec::with_capacity(hosts.len());
+                for host in hosts {
+                    identities.push(host.observe_node(TIMEOUT).await?.node.identity.node);
+                }
+                for (origin, own) in hosts.iter().zip(&identities) {
+                    for node in &identities {
                         if node != own {
-                            s.f.remote(origin, node, revision).await?;
+                            s.f.remote(origin, *node, revision).await?;
                         }
                     }
                 }
