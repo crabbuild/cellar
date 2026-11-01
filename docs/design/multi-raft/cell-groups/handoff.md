@@ -16,56 +16,60 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
 The latest runtime/qualification source is
-`ad73f03f278f5845b311fe929d184cc947382b2d`. CG-06 remains IN_PROGRESS. Logical
-retained-log bytes/entries and reservations now share explicit node/group
-ceilings. Restart reconstructs selected debt; smaller ceilings preserve history
-while refusing new work. New callback/initializer envelopes reserve before
-execution, known receipts still resolve at capacity, and exact leases survive
-uncertain submission and entered physical work. Durable selection transfers the
-charge atomically into retained debt. Checkpoints and suffix replacement release
-only actually retired entries. These limits do not bound physical engine files.
+`7741e4049704f3e1c6519b736e62deaf263c39a2`. CG-06 remains IN_PROGRESS. Its
+original physical-reclamation case now proves actual Raft-file removal and
+file-length reduction across two shared histories, with an archive-covered
+checkpoint, retained suffix, uncheckpointed sibling, old physical reader and
+post-purge checkpoint streaming. Bounded complete-inventory image/page
+maintenance runs after service quiescence. All three retained voter disks
+reopen, verify cells/effects/checkpoints/tails and establish fresh quorum. Every
+old receipt resolves without callback replay; two new commands commit over TLS.
+Reopen restores archive policy without trusting the lost coverage frontier. The
+new scenario alone uses 4 KiB files/8KiB purge threshold/manual purge. Existing
+defaults, quotas, production code and marker-1 records are unchanged.
 
-All shared Raft append paths use the ledger, including inherited entries and
-election/configuration controls. Joint changes reserve their future automatic
-leave before append; the native scenario fills ordinary admission and verifies
-that leave uses the single progress slot. Role revocation precedes bookkeeping.
-Selected checkpoint identity and released physical source quota, rather than
-leader-only readiness, gate recapture on each voter.
+The preceding logical retained-log admission, owned archive activation, exact physical lease transfer and S3-output lifetime contracts remain required. Node/group capacity is reserved before new callbacks; known receipts remain available. Unknown outcomes and entered physical work retain capacity until authoritative resolution or durable selection. Election/configuration controls retain separately bounded progress. S3 outputs still own complete independent coverage through physical delivery; missing receipts remain ambiguous. See [progress](progress.md) and [protocols](protocols.md) for retained contracts and precise qualification scope.
 
-The prior archive activation and checkpoint-drain contract remains required:
-pending activation closes later checkpoint admission, earlier exact cut-bound
-owner/storage leases drain, entered metadata work owns activation through waiter
-loss, and sync/cache publication makes policy irreversible. Archive-configured
-local compaction requires independently verified complete coverage and fresh
-verification after reopen. Public archive status grants no compaction, output or
-serving authority. Marker-1 serialization and original task oracles remain
-unchanged.
+Eighteen exact real RustFS controller cases pass in both image forms with seven
+signed probes. Twenty-two regression/check commands pass with 268 Rust cases
+across seven copied executables, including all 22 storage cases. Locked
+final-source all-target Clippy, format/layout, dependency/docs/preflight/plan
+checks, 37 Python tests, system-Python hashing and independent
+source/artifact/selection/credential audit pass across 2575 sources. Evidence is
+under `.cellar/cell-groups-evidence/CG-06-physical-log-reclaim/`. Original
+helper-visibility and bounded-reader failures and copied-binary reproduction
+remain retained. The earlier 8dfe9ff3 slow-reader timing cause remains
+unresolved. Voters are host-native tasks and RustFS one VM.
 
-Local/remote command, enrollment and receipt S3 responses retain their exact
-archive owners and independently verified cuts through physical output. Original
-durability minima/deadlines, fresh catalog/leader checks, authenticated achieved
-durability and creation provenance remain required. Unknown outcomes never
-replay callbacks. Public SDK/fleet cutover still has to integrate these
-contracts.
+Two original CG-06 cases pass: archive tails and physical reclaim/restart. Three
+original cases/full task gate remain pending: archive dependencies, full-backend
+S3 outage and fenced fresh group/cell incarnations serving from a replacement
+quorum. This retained-disk case does not erase all voters, qualify process-kill
+recovery, establish a global physical disk bound or measure throughput. Fenced
+recovery must inventory every possible old voter, including joins after the
+selected cut, using the accepted fencing-authority API plus Docker
+qualification.
 
-Three exact storage cases and both native image scenarios pass. Seventeen real RustFS controller cases pass in both image forms with seven signed probes. Twenty-two regression/check commands pass with 267 distinct Rust cases across seven copied executables, including all 22 storage cases. Final-source all-target Clippy, format/layout, dependency/docs/preflight/plan checks, 37 Python tests and independent source/hash/selection/credential audit pass. Evidence binds 2574 sources under `.cellar/cell-groups-evidence/CG-06-log-retention/`; see [progress](progress.md) for precise scope and retained failures. The earlier `8dfe9ff3` slow-reader timeout remains unexplained. This matrix does not establish sustained load or delete all voter disks.
+Next complete the original archive-dependency acknowledgement case, then qualify
+both local cached and remote fresh-discovery paths against a fully stopped
+backend. Preserve catalog and epoch fencing; source sealing and activation must
+be implemented before any new cache-based authority shortcut.
+Seal/Install/Activate codecs exist, but live apply rejects those controls and
+manifests lack persistent sealed/active lifecycle. Remote command routing
+requests fresh catalog confirmation; local known-route cache paths differ and
+must be exercised independently against an actually stopped backend. Durable
+cancellation and seal authorization must compete on one CAS decision, sources
+must close admission in committed order, and children must stay non-serving
+until committed install/publication-bound activation. See private
+`outage-authority-investigation.md` in this evidence directory for inspected
+seams; no source-seal implementation is claimed.
 
-Next resolve full S3-outage catalog/epoch authority without weakening fencing,
-then physical shared-engine file reclamation across every
-checkpoint/archive/reader/transfer/sibling hold. Logical debt admission and
-wrapper-fault tests are insufficient for a physical disk bound. Fenced
-fresh-incarnation serving must inventory every possible old voter, including
-joins after the archived cut. The accepted fencing-authority API plus Docker
-qualification remains the target. Peer-install deployment policy, process-kill
-and physical-read/output shutdown cuts still need qualification.
-
-CG-08 effect/cache/result lifetimes precede CG-07 public SDK/fleet cutover.
-Topology, placement, hibernation, managed recovery, measured load and final
-legacy removal follow. Four original CG-06 cases/full gate remain pending.
-Voters are host-native tasks and RustFS one VM; independent failure domains and
-the full hard cutover remain unqualified. The full end-to-end goal remains
-active. Preserve predecessor runtime `ab0abf26`, archive-compaction runtime
-`8dfe9ff3`, all source-bound failures and earlier evidence.
+CG-08 effect/cache/result lifetimes precede CG-07 public SDK/fleet cutover,
+followed by transitions, topology, placement, hibernation, managed recovery,
+measured load and final legacy removal. Independent failure domains and the full
+hard cutover remain unqualified. Preserve predecessor runtime ad73f03f, all
+prior failure records/qualifications and the original task oracles. The full
+end-to-end goal remains active.
 
 CG-01 through CG-05 are DONE at their declared native task boundaries. CG-05
 closes at `e0550acd` with all five exact snapshot cases and eighteen passing

@@ -10,6 +10,100 @@ CG-06 is IN_PROGRESS; CG-07 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-06 physical log reclamation and retained-disk recovery
+
+Source: `7741e4049704f3e1c6519b736e62deaf263c39a2`. CG-06 remains IN_PROGRESS.
+The original `group_reclaim_restart_keeps_history` case now runs in both image
+forms, together with an exact real RustFS counterpart. It uses the production
+purge, checkpoint, image/page maintenance, SQL and recovery APIs. Production
+behavior and marker-1 records are unchanged. The new scenario explicitly selects
+4 KiB target log files, an 8 KiB purge threshold and manual purge so filesystem
+observations cannot race automatic maintenance; all prior fixture defaults and
+quotas remain unchanged.
+
+Two real groups share each engine. The primary commits 24 registered commands
+across two SQLite cells, retaining exact results and alarm state. Independently
+verified complete S3 coverage permits its exact checkpoint. Eight subsequent
+entries remain in the local suffix during archive lag. The sibling retains its
+entire uncheckpointed history. Purge must remove actual original Raft files and
+reduce their aggregate file length, while both histories remain byte-for-byte
+intact and an old image reader remains readable. A retained checkpoint streams
+into an independent private receiver after purge; an ahead live voter still
+rejects rollback. Quiesced node services then perform bounded image/page
+maintenance over the complete two-group inventory, preserving reader, current
+and checkpoint closures.
+
+All three voter disks close and reopen under new process generations, preserving
+their group/cell identities. Recovery verifies every selected image, effect
+summary, checkpoint and log suffix, including the sibling. Fresh quorum resolves
+all 24 exact receipts without callback replay, refuses local compaction without
+a newly verified archive frontier and commits two new commands over TLS. This is
+retained-disk restart, not deletion of all voter disks or fresh-incarnation
+disaster recovery. No cached status grants archive or serving authority.
+
+Real RustFS observations from this controlled test geometry:
+
+| Image mode | Raft file bytes before → after purge | Original files removed | Retained suffix entries |
+| --- | ---: | ---: | ---: |
+| materialized | 474445 → 256891 | 42 | 8 |
+| extents | 474469 → 256817 | 42 | 8 |
+
+These measure actual file lengths at the purge boundary, not allocated
+filesystem blocks, a global disk bound, throughput or production sizing.
+Reader/transition holds and sustained workloads need their broader gates.
+
+Eighteen exact RustFS controller cases pass in both image forms with seven
+signed S3 protocol probes. Twenty-two regression/check commands pass with 268
+distinct Rust cases across seven copied executables, including all four native
+shared-group suites and 22 storage cases. Final-source locked all-target
+Cellar/logic/LTX Clippy, format/layout, dependency/docs/preflight/plan checks,
+37 Python tests and system-Python hashing pass. Source/artifact/selection and
+credential-exclusion audit binds 2575 source inputs, copied
+outputs/binaries/orchestration and frozen plan inputs under
+`.cellar/cell-groups-evidence/CG-06-physical-log-reclaim/`.
+
+Source-bound failures remain retained. The initial helper visibility failure did
+not run a case. A copied binary reproduces the subsequent oracle-reader failure:
+`GenerationReader` refuses reads above 64 KiB. The helper now reads every byte
+in bounded chunks without raising the reader limit, shrinking payloads or
+dropping retained owners. A second copied-binary reproduction confirms that an
+ahead live voter must reject the older retained cut. Positive data verification
+now uses the existing private archive receiver, while an explicit negative
+transfer preserves the live rollback guard and one-slot pool limits. A further
+copied-binary timeout exposes the test retaining the archive pool's sole
+verification slot past its completed checks; it now drops that result before
+awaiting a new cut, while the durable journal retains the remote hold. The quota
+and deadline remain unchanged. The first successful Rust run emitted
+observations inside the libtest progress line; its wrapper incorrectly refused
+selection. Raw output and the original record stay unchanged. Validated
+observation normalization now preserves exact matching and the zero-failure
+summary; five checks reject wrong, failed, empty and incomplete selections.
+Final-source Clippy also requires the project diagnostic macro instead of std
+println; the structured observations use that existing API without suppressing
+the lint. The archive-store fixture is declared once per integration target, and
+the archive-only scenario lives under the owning archive harness with its
+existing target-specific exports. Source-bound duplicate-module, unused-helper
+and reexport-visibility compile/lint failures remain retained; no production
+lint setting or test assertion changed. Original assertions, task cases and
+acceptance oracles remain intact. Earlier qualifications and the unexplained
+`8dfe9ff3` slow-reader timing limitation remain retained.
+
+Reflection: two original CG-06 cases now pass: archive tails and physical
+reclaim/restart. Complete archive-dependency acknowledgement, full S3-backend
+outage authority and fenced fresh-incarnation serving remain required, together
+with the full task gate. Investigation confirms that Seal/Install/Activate wire
+entries exist but live apply still rejects them and manifests lack the durable
+transition lifecycle. Before introducing a cache-based outage shortcut,
+cancellation/authorization must share one durable decision, sources must seal,
+and children must install and activate under an exact publication. Existing
+local cached and remote fresh-discovery paths must first be qualified separately
+against a stopped backend; the next independent deliverable is the original
+complete-group dependency acknowledgement gate. The independent reclamation case
+does not waive this dependency. Finish CG-08 effect/cache/result lifetimes
+before CG-07 public SDK/fleet cutover, then source transitions, topology,
+placement, hibernation, managed recovery, measured load and final legacy
+removal. The full goal remains active and incomplete.
+
 ## CG-06 retained-log admission and progress capacity
 
 Source: `ad73f03f278f5845b311fe929d184cc947382b2d`. CG-06 remains IN_PROGRESS.
