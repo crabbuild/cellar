@@ -25,6 +25,20 @@ include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 #[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
+async fn rustfs_quorum_continues_bounded_s3_outage() -> Result<()> {
+    for rooted in [false, true] {
+        runtime_fixture::full_backend_outage(
+            rooted,
+            rustfs::outage_store("full-backend-outage", rooted)?,
+            Some(rustfs::control_directory()?),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
 async fn rustfs_group_archive_requires_all_dependencies() -> Result<()> {
     for rooted in [false, true] {
         runtime_fixture::archive_dependencies(

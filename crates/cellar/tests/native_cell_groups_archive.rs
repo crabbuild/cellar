@@ -34,6 +34,19 @@ mod runtime_fixture;
 include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn quorum_continues_bounded_s3_outage() -> Result<()> {
+    for rooted in [false, true] {
+        runtime_fixture::full_backend_outage(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+            None,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn group_archive_requires_all_dependencies() -> Result<()> {
     for rooted in [false, true] {
         runtime_fixture::archive_dependencies(

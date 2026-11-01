@@ -20,6 +20,7 @@ pub struct Gate {
 pub struct Store {
     pub inner: Arc<dyn ObjectStore>,
     pub puts: AtomicUsize,
+    pub gets: AtomicUsize,
     pub lose_put_response: AtomicBool,
     pub deletes: AtomicUsize,
     pub lose_delete_response: AtomicBool,
@@ -40,6 +41,7 @@ impl Store {
         Arc::new(Self {
             inner,
             puts: AtomicUsize::new(0),
+            gets: AtomicUsize::new(0),
             lose_put_response: AtomicBool::new(false),
             deletes: AtomicUsize::new(0),
             lose_delete_response: AtomicBool::new(false),
@@ -155,6 +157,7 @@ impl ObjectStore for Store {
     }
 
     async fn get_opts(&self, path: &Path, opts: GetOptions) -> Result<GetResult> {
+        self.gets.fetch_add(1, Ordering::AcqRel);
         self.available()?;
         let gate = self
             .held

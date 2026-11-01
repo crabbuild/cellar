@@ -21,10 +21,12 @@ import time
 
 from local import command
 from store_probe import probe
+from backend_control import BackendControl
 
 ROOT = Path(__file__).resolve().parents[2]
 TARGET = "native_cell_groups_archive_controller"
 CASES = (
+    "rustfs_quorum_continues_bounded_s3_outage",
     "rustfs_group_archive_requires_all_dependencies",
     "rustfs_group_reclaim_restart_keeps_history",
     "rustfs_archive_coverage_gates_local_compaction",
@@ -134,8 +136,10 @@ def main():
         "source_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "source_inputs": sources(), "backend": remote, "prefix": prefix, "commands": [],
         "limitations": "Host-native three-voter TLS fixture, both image forms; RustFS runs in one local VM. "
-                        "No byte/disk outage bound, "
-                        "Raft log file purge, process-kill restart, fencing/DR, performance or independent hosts.",
+                        "The bounded full-backend outage case controls only this owned container. "
+                        "Logical retained-entry admission and controlled-geometry Raft file purge are tested; "
+                        "global physical disk bounds, process-kill restart, fencing/DR, sustained performance "
+                        "and independent hosts remain separate gates.",
     }
 
     def save():
@@ -167,8 +171,17 @@ def main():
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
             print(f"START {number + 1}/{len(CASES) + 1}: {selection}", flush=True)
             started = time.monotonic()
-            result = subprocess.run(argv, cwd=ROOT, env=env, text=True,
-                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            if selection == "rustfs_quorum_continues_bounded_s3_outage":
+                control = BackendControl(remote, out / "backend-control")
+                result = control.run(argv, ROOT, env)
+                control_record = control.directory / "record.json"
+                record["backend_controls"] = [{
+                    "case": selection, "path": str(control_record.relative_to(out)),
+                    "sha256": sha(control_record),
+                }]
+            else:
+                result = subprocess.run(argv, cwd=ROOT, env=env, text=True,
+                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             output = result.stdout
             for secret in credentials.values():
                 output = output.replace(secret, "[REDACTED]")
@@ -177,6 +190,15 @@ def main():
             record["commands"].append({"argv": argv, "exit_code": result.returncode,
                                        "elapsed_seconds": round(time.monotonic() - started, 3),
                                        "output": log.name, "sha256": sha(log)})
+            match = re.search(r"Running [^\n]*\(([^\n)]+/native_cell_groups_archive_controller-[a-f0-9]+)\)", output)
+            if match:
+                executable = Path(match[1])
+                selected_hash = sha(executable)
+                if "executable" in record and record["executable"]["sha256"] != selected_hash:
+                    raise RuntimeError("executable changed during qualification")
+                destination = out / executable.name
+                shutil.copy2(executable, destination)
+                record["executable"] = {"path": destination.name, "sha256": selected_hash}
             save()
             if result.returncode:
                 raise RuntimeError(f"{selection} failed; see {log}")
@@ -186,16 +208,8 @@ def main():
                         raise RuntimeError("missing exact RustFS test in executable inventory")
             elif not exact_case_passed(output, selection):
                 raise RuntimeError("exact RustFS test was not executed successfully")
-            match = re.search(r"Running [^\n]*\(([^\n)]+/native_cell_groups_archive_controller-[a-f0-9]+)\)", output)
             if not match:
                 raise RuntimeError("missing executable provenance")
-            executable = Path(match[1])
-            selected_hash = sha(executable)
-            if "executable" in record and record["executable"]["sha256"] != selected_hash:
-                raise RuntimeError("executable changed during qualification")
-            destination = out / executable.name
-            shutil.copy2(executable, destination)
-            record["executable"] = {"path": destination.name, "sha256": selected_hash}
             print(f"PASS {selection}", flush=True)
         if sources() != record["source_inputs"]:
             raise RuntimeError("source changed during qualification")

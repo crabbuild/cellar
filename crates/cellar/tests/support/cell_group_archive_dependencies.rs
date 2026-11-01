@@ -11,7 +11,7 @@ struct Base {
     bytes: Vec<u8>,
 }
 
-fn image_value(pin: CellImagePin, expected: u64) -> Result<()> {
+pub(super) fn image_value(pin: CellImagePin, expected: u64) -> Result<()> {
     let bytes = match pin {
         CellImagePin::Empty => anyhow::bail!("expected a physical SQLite image"),
         CellImagePin::Materialized(pin) => {

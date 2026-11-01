@@ -5,6 +5,10 @@
 mod dependencies;
 pub(crate) use dependencies::archive_dependencies;
 
+#[path = "cell_group_s3_outage.rs"]
+mod outage;
+pub(crate) use outage::full_backend_outage;
+
 #[path = "cell_group_s3_enrollment.rs"]
 mod enrollment;
 #[path = "cell_group_s3_receipts.rs"]
@@ -71,6 +75,27 @@ impl Harness {
         result_size: Option<usize>,
         send_buffer: Option<u32>,
     ) -> Result<Self> {
+        Box::pin(Self::configured_retention(
+            rooted,
+            store,
+            max_commands,
+            minimum,
+            result_size,
+            send_buffer,
+            None,
+        ))
+        .await
+    }
+
+    async fn configured_retention(
+        rooted: bool,
+        store: Arc<dyn object_store::ObjectStore>,
+        max_commands: usize,
+        minimum: Durability,
+        result_size: Option<usize>,
+        send_buffer: Option<u32>,
+        retention: Option<CellGroupLogRetentionLimits>,
+    ) -> Result<Self> {
         let calls = Arc::new(AtomicUsize::new(0));
         let count = calls.clone();
         let initializations = Arc::new(AtomicUsize::new(0));
@@ -97,10 +122,25 @@ impl Harness {
                     },
                 )?,
         );
-        let (mut fixture, route, cell, _) = Box::pin(registered::setup_store_minimum(
-            rooted, &class, store, minimum,
-        ))
-        .await?;
+        let (mut fixture, route, cell, _) = if let Some(retention) = retention {
+            let filesystem = Arc::new(DirectFileSystem);
+            let cluster = Box::pin(Cluster::with_store_retention(
+                RaftRuntimeOptions::default(),
+                tempfile::tempdir()?,
+                filesystem.clone(),
+                class.schema_digest(),
+                store,
+                minimum,
+                retention,
+            ))
+            .await?;
+            Box::pin(registered::setup_cluster(rooted, cluster, filesystem)).await?
+        } else {
+            Box::pin(registered::setup_store_minimum(
+                rooted, &class, store, minimum,
+            ))
+            .await?
+        };
         let (archive, remote) =
             archive_controller::registration_minimum(&fixture, &route, rooted, minimum).await?;
         if send_buffer.is_some() {

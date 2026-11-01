@@ -10,13 +10,17 @@ use cellar::application::consensus::verification::cell_groups::{
 mod wire;
 pub(crate) use wire::s3_remote_slow_delivery;
 
-struct Remote {
+pub(super) struct Remote {
     gateway: CellCommandGateway,
     router: super::super::query_origins::Router,
 }
 
 impl Remote {
-    async fn start(h: &Harness, dispatcher: CellGroupDispatcher) -> Result<Self> {
+    pub(super) fn transport(&self) -> &RaftTransport {
+        &self.router.transport
+    }
+
+    pub(super) async fn start(h: &Harness, dispatcher: CellGroupDispatcher) -> Result<Self> {
         let gateway = h.fixture.transports[0].install_cell_command_gateway(
             dispatcher,
             h.controllers[0].clone(),
@@ -38,13 +42,13 @@ impl Remote {
         Ok(Self { gateway, router })
     }
 
-    async fn close(self) -> Result<()> {
+    pub(super) async fn close(self) -> Result<()> {
         drop(self.gateway);
         self.router.close().await
     }
 }
 
-fn command_request(
+pub(super) fn command_request(
     h: &Harness,
     sequence: u64,
     input: &[u8],
@@ -66,14 +70,24 @@ async fn command(
     input: &[u8],
     durability: Durability,
 ) -> Result<CellRemoteCommandResponse> {
+    command_using(
+        h,
+        remote,
+        command_request(h, sequence, input, durability)?,
+        bounds(),
+    )
+    .await
+}
+
+pub(super) async fn command_using(
+    h: &Harness,
+    remote: &Remote,
+    request: CellCommandRequest,
+    limits: CellRoutingLimits,
+) -> Result<CellRemoteCommandResponse> {
     let mut invocation = h
         .dispatcher
-        .command(
-            h.cell.clone(),
-            command_request(h, sequence, input, durability)?,
-            bounds(),
-            None,
-        )
+        .command(h.cell.clone(), request, limits, None)
         .await?;
     invocation.begin().await?;
     Ok(invocation
