@@ -358,7 +358,7 @@ fn sql_limits() -> CellSqlLimits {
     }
 }
 
-pub(super) async fn physical_log_reclamation(
+pub(in super::super) async fn physical_log_reclamation(
     rooted: bool,
     store: Arc<dyn object_store::ObjectStore>,
 ) -> Result<()> {
@@ -637,6 +637,21 @@ pub(super) async fn physical_log_reclamation(
         "reopen must not trust the lost archive frontier"
     );
     drop(group);
+    let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
+    for (ordinal, cell) in [&a, &b].into_iter().enumerate() {
+        command(&fixture, class.clone(), cell, ordinal, TOTAL + 1).await?;
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), (TOTAL + 1) as usize * 2);
+    for node in 0..3 {
+        let root = fixture.appliers[&(node, route.history)]
+            .1
+            .recover_selected()?;
+        assert_image(&root, &a.cell, TOTAL + 1)?;
+        assert_image(&root, &b.cell, TOTAL + 1)?;
+    }
+    for controller in controllers {
+        controller.close().await?;
+    }
     println!(
         "cell_group_log_reclamation_observations {}",
         serde_json::json!({
@@ -644,8 +659,9 @@ pub(super) async fn physical_log_reclamation(
             "files_before": before.len(), "files_after": after.len(), "removed": removed,
             "bytes_before": before.values().sum::<u64>(), "bytes_after": after.values().sum::<u64>(),
             "checkpoint": cut.position().index.get(), "retained_suffix_entries": saved[0][0].entries.len(),
-        "receipts_retried_without_callback": TOTAL * 2, "voters_reopened": 3, "groups_per_engine": 2,
-        "obsolete_image_files_removed": image_files, "obsolete_page_files_removed": page_files
+            "receipts_retried_without_callback": TOTAL * 2, "voters_reopened": 3, "groups_per_engine": 2,
+            "obsolete_image_files_removed": image_files, "obsolete_page_files_removed": page_files,
+            "new_commands_after_restart": 2
         })
     );
     fixture.close().await
