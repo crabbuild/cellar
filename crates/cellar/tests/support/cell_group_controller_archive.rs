@@ -11,7 +11,7 @@ use std::sync::atomic::Ordering;
 #[allow(dead_code)]
 pub(super) mod archive_store;
 
-async fn verifier(
+pub(super) async fn verifier(
     fixture: &RuntimeCluster,
     route: &GroupRoute,
     rooted: bool,

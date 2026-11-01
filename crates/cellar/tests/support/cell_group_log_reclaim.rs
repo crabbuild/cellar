@@ -507,8 +507,10 @@ pub(in super::super) async fn physical_log_reclamation(
         "actual log-file length must decrease"
     );
     let receiver_pool = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
-    let mut receiver = receiver_pool.receive(
-        fixture.appliers[&(2, route.history)].1.clone(),
+    let destination =
+        archive_controller::verifier(&fixture, &route, rooted, "post-purge-snapshot").await?;
+    let mut receiver = receiver_pool.receive_archive(
+        destination,
         checkpoint_receive::scratch()?,
         fixture.cluster._root.path().into(),
     )?;
@@ -523,9 +525,38 @@ pub(in super::super) async fn physical_log_reclamation(
     assert_eq!(received.marker(), &cut);
     assert_eq!(pool.usage().sources, 0);
     assert_eq!(receiver_pool.usage().sources, 1);
+    assert_image(received.manifest(), &a.cell, PREFIX)?;
+    assert_image(received.manifest(), &b.cell, PREFIX)?;
     drop(received);
     assert_eq!(receiver_pool.usage().sources, 0);
     assert_eq!(pool.usage().sources, 0);
+    // A retained checkpoint is data for lagging/recovering destinations, never
+    // permission to roll back an already-ahead live voter. Exercise its original
+    // cut guard with a separate one-shot source, without enlarging either pool.
+    assert!(saved[2][0].marker.position().index > cut.position().index);
+    let current = fixture.appliers[&(0, route.history)].1.recover_selected()?;
+    let mut source = pool.capture_snapshot(&group, &current, &group.snapshot(0, 3)?)?;
+    drop(current);
+    let mut live = receiver_pool.receive(
+        fixture.appliers[&(2, route.history)].1.clone(),
+        checkpoint_receive::scratch()?,
+        fixture.cluster._root.path().into(),
+    )?;
+    fixture
+        .cluster
+        .domain
+        .blocking(move || -> Result<()> {
+            assert!(matches!(
+                source.stream(|chunk| live.append(chunk)),
+                Err(CellGroupCheckpointError::Invalid(
+                    "receiver history/range/cut"
+                ))
+            ));
+            Ok(())
+        })?
+        .await??;
+    assert_eq!(pool.usage().sources, 0);
+    assert_eq!(receiver_pool.usage().sources, 0);
     remote.outage.store(false, Ordering::Release);
     archive_controller::published(
         &controllers[0],
