@@ -12,10 +12,32 @@ async fn verified(dynamic: bool, owned: bool) -> Result<()> {
         .await
         .context("replace before restart handoff")?;
     let (cut, completion) = completion(&s, &r.request, 230).await?;
-    s.f.catalog
-        .complete_movement(&cut, &completion, &s.nodes[r.source].host, TIMEOUT)
-        .await
-        .context("settle replacement before restart handoff")?;
+    // Physical worker-exit probes may overlap a periodic capture. Retry the
+    // exact idempotent request within the original operation deadline; only a
+    // receipt from the complete quorum + physical proof admits maintenance.
+    s.f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+            loop {
+                match s
+                    .f
+                    .catalog
+                    .complete_movement(&cut, &completion, &s.nodes[r.source].host, TIMEOUT)
+                    .await
+                {
+                    Ok(receipt) => return Ok::<_, anyhow::Error>(receipt),
+                    Err(FleetCatalogError::Unconfirmed | FleetCatalogError::Overloaded)
+                    | Err(FleetCatalogError::Observation(
+                        cellar::application::consensus::InspectionError::Unavailable
+                        | cellar::application::consensus::InspectionError::Overloaded,
+                    )) => {
+                        cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        }))
+        .await?
+        .context("settle replacement before restart handoff timed out")??;
     if owned && dynamic {
         let cells = [
             r.cells[r.source].clone(),
@@ -27,7 +49,8 @@ async fn verified(dynamic: bool, owned: bool) -> Result<()> {
             .context("find replacement transfer source")?;
         let state = cells[leader]
             .inspect()
-            .await?
+            .await
+            .context("inspect replacement transfer source")?
             .member
             .context("replacement leader state")?;
         cells[leader]
@@ -43,13 +66,14 @@ async fn verified(dynamic: bool, owned: bool) -> Result<()> {
             .context("make dynamic replacement the leader before maintenance")?;
         s.f.domain
             .run(cellar::asyncrt::timeout(TIMEOUT, async {
-                while !r
-                    .target
-                    .inspect()
-                    .await?
-                    .member
-                    .is_some_and(|m| m.is_leader)
-                {
+                loop {
+                    match r.target.inspect().await {
+                        Ok(observed) if observed.member.as_ref().is_some_and(|m| m.is_leader) => {
+                            break
+                        }
+                        Ok(_) | Err(CommandFailure::Overloaded) => (),
+                        Err(error) => return Err(error.into()),
+                    }
                     cellar::asyncrt::sleep(Duration::from_millis(10)).await;
                 }
                 Ok::<_, anyhow::Error>(())
