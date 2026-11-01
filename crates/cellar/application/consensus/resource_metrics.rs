@@ -55,7 +55,7 @@ fn budget(text: &mut Text, prefix: &str, labels: &str, usage: RaftBudgetUsage) {
 }
 
 impl RaftResourceUsage {
-    /// Bounded label vocabularies, with 111 samples when SQL, image, group and
+    /// Bounded label vocabularies, with 113 samples when SQL, image, group and
     /// transport sources are live, plus 13 for a configured controller.
     /// A live extent inventory adds 13 samples.
     /// Unavailable sources expose only their availability gauge,
