@@ -212,15 +212,15 @@ async fn cases(
                         "explicit same-ID retry lost its stored result"
                     );
                 }
+                let changed = request(
+                    client,
+                    base,
+                    &format!("/{caller}/increment?target={target}&delta=2&id={id}"),
+                )
+                .await?;
                 ensure!(
-                    request(
-                        client,
-                        base,
-                        &format!("/{caller}/increment?target={target}&delta=2&id={id}")
-                    )
-                    .await?
-                        == json!({"error":"operation_conflict"}),
-                    "same-ID changed-command retry was accepted"
+                    changed == json!({"error":"operation_conflict"}),
+                    "same-ID changed-command retry {caller}->{target} returned {changed}"
                 );
                 ensure!(
                     request(client, base, &format!("/{caller}/read?target={target}")).await?
