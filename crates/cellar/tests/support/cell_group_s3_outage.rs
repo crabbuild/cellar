@@ -9,6 +9,8 @@ use std::path::PathBuf;
 mod backend_control;
 
 const ENTRY_LIMIT: usize = 9;
+const OFFLINE_COMMANDS: u64 = 6;
+const REFUSED_COMMAND: u64 = OFFLINE_COMMANDS + 1;
 
 async fn gateway(
     h: &Harness,
@@ -127,7 +129,28 @@ async fn run(
     let group = h.fixture.cluster.voters[0]
         .log
         .cell_group(&h.route.history)?;
-    assert_eq!(group.log_retention_usage()?.retained_entries, 4);
+    // This registered fixture enrolls two cells. Genesis is snapshot index one;
+    // the retained inventory is one election no-op and two enrollments.
+    for voter in &h.fixture.cluster.voters {
+        let selected = voter.log.cell_group(&h.route.history)?;
+        assert_eq!(selected.first_index()?, 2);
+        let entries = selected.entries(
+            selected.first_index()?,
+            selected.last_index()? + 1,
+            None,
+            raft::GetEntriesContext::empty(false),
+        )?;
+        assert_eq!(
+            entries.iter().map(|entry| entry.index).collect::<Vec<_>>(),
+            vec![2, 3, 4]
+        );
+        assert!(entries[0].data.is_empty());
+        assert!(entries[1..].iter().all(|entry| !entry.data.is_empty()));
+        assert_eq!(
+            selected.log_retention_usage()?.retained_entries,
+            entries.len()
+        );
+    }
     let warm = h
         .command(1, b"warm", Durability::Quorum, Duration::from_secs(15))
         .await?
@@ -215,7 +238,7 @@ async fn run(
             .is_err()
     );
     let mut latest = warm_index;
-    for sequence in 3..=5 {
+    for sequence in 3..=OFFLINE_COMMANDS {
         let response = h
             .command(
                 sequence,
@@ -231,7 +254,7 @@ async fn run(
         latest = response.receipt().position.index;
         drop(response);
     }
-    state(&h, latest, 5).await?;
+    state(&h, latest, OFFLINE_COMMANDS).await?;
     let usage = group.log_retention_usage()?;
     assert_eq!(
         (usage.retained_entries, usage.reserved_entries),
@@ -239,7 +262,7 @@ async fn run(
     );
     let refused = h
         .command(
-            6,
+            REFUSED_COMMAND,
             b"after-ceiling",
             Durability::Quorum,
             Duration::from_secs(15),
@@ -253,7 +276,7 @@ async fn run(
         refused.cause.as_ref(),
         CellDispatchError::Execution(ExecutionError::Refused(CommandFailure::Overloaded))
     ));
-    assert_eq!(h.calls.load(Ordering::SeqCst), 5);
+    assert_eq!(h.calls.load(Ordering::SeqCst) as u64, OFFLINE_COMMANDS);
     initialize_at_capacity(&h).await?;
     let known = h
         .command(1, b"warm", Durability::Quorum, Duration::from_secs(15))
@@ -272,7 +295,7 @@ async fn run(
         error.cause.as_ref(),
         CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)
     ));
-    assert_eq!(h.calls.load(Ordering::SeqCst), 5);
+    assert_eq!(h.calls.load(Ordering::SeqCst) as u64, OFFLINE_COMMANDS);
     assert!(
         !h.controllers[0]
             .archive_status(h.route.history)?
@@ -301,7 +324,7 @@ async fn run(
         downgraded.cause.as_ref(),
         CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)
     ));
-    assert_eq!(h.calls.load(Ordering::SeqCst), 5);
+    assert_eq!(h.calls.load(Ordering::SeqCst) as u64, OFFLINE_COMMANDS);
 
     let checkpoints = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
     let source = h.fixture.runtimes[0]
@@ -349,7 +372,7 @@ async fn run(
     h.fixture
         .cluster
         .domain
-        .blocking(move || dependencies::image_value(image, 5))?
+        .blocking(move || dependencies::image_value(image, OFFLINE_COMMANDS))?
         .await??;
     let image = coverage
         .recovery()
@@ -378,7 +401,7 @@ async fn run(
     assert_eq!(recovered.durability(), Durability::S3);
     assert_eq!(recovered.receipt().receipt.result(), b"archive-wait");
     drop(recovered);
-    assert_eq!(h.calls.load(Ordering::SeqCst), 5);
+    assert_eq!(h.calls.load(Ordering::SeqCst) as u64, OFFLINE_COMMANDS);
 
     h.fixture.runtimes[0]
         .publish_checkpoint(h.route.history, prepared)
@@ -412,7 +435,7 @@ async fn run(
     }
     let resumed = h
         .command(
-            6,
+            REFUSED_COMMAND,
             b"after-ceiling",
             Durability::Quorum,
             Duration::from_secs(15),
@@ -437,7 +460,7 @@ async fn run(
         .await?
         .applied
         .index;
-    state(&h, latest, 7).await?;
+    state(&h, latest, OFFLINE_COMMANDS + 2).await?;
     archive_controller::published(&h.controllers[0], h.route.history, latest).await?;
     remote.close().await?;
     drop(group);
