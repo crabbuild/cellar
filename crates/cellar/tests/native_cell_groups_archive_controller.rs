@@ -25,6 +25,19 @@ include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 #[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
+async fn rustfs_group_archive_requires_all_dependencies() -> Result<()> {
+    for rooted in [false, true] {
+        runtime_fixture::archive_dependencies(
+            rooted,
+            rustfs::store("archive-dependencies", rooted)?,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
 async fn rustfs_group_reclaim_restart_keeps_history() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(runtime_fixture::physical_log_reclamation(

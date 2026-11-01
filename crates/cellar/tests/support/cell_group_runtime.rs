@@ -811,16 +811,17 @@ pub(super) use sql::{
 };
 #[allow(unused_imports)]
 pub(super) use sql::{archive_controller_publish_store, archive_controller_reconcile_store};
+#[allow(unused_imports)]
+pub(super) use sql::{
+    archive_dependencies, s3_commands, s3_deadline, s3_enrollment, s3_enrollment_deadline,
+    s3_missing_sibling, s3_namespace_minimum, s3_receipt_deadline, s3_receipt_failures,
+    s3_receipt_minimums, s3_receipt_observations, s3_remote_deadlines, s3_remote_outputs,
+    s3_remote_slow_delivery,
+};
 pub(super) use sql::{
     controller_apply_faults, controller_close, controller_owners, controller_replication,
 };
 pub(super) use sql::{owned_command_failure, owned_commands};
-#[allow(unused_imports)]
-pub(super) use sql::{
-    s3_commands, s3_deadline, s3_enrollment, s3_enrollment_deadline, s3_missing_sibling,
-    s3_namespace_minimum, s3_receipt_deadline, s3_receipt_failures, s3_receipt_minimums,
-    s3_receipt_observations, s3_remote_deadlines, s3_remote_outputs, s3_remote_slow_delivery,
-};
 
 pub(super) async fn cell_receipts(rooted: bool) -> Result<()> {
     sql::cell_receipts(rooted).await

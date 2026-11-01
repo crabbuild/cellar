@@ -25,6 +25,7 @@ from store_probe import probe
 ROOT = Path(__file__).resolve().parents[2]
 TARGET = "native_cell_groups_archive_controller"
 CASES = (
+    "rustfs_group_archive_requires_all_dependencies",
     "rustfs_group_reclaim_restart_keeps_history",
     "rustfs_archive_coverage_gates_local_compaction",
     "rustfs_s3_remote_outputs_preserve_durability_and_creation",

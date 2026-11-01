@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! CG-06 checkpoint and committed-tail data recovery. Archive-head protection,
-//! S3 settlement, reclamation and fresh-incarnation recovery remain separate.
+//! CG-06 complete recovery, S3 dependencies and physical log reclamation.
+//! Fresh-incarnation disaster serving remains a separate required gate.
 #![allow(clippy::disallowed_methods)]
 // The shared engine fixture also defines fault/membership helpers selected by
 // sibling integration targets and are not all selected by this archive gate.
@@ -32,6 +32,18 @@ mod tail_fixture;
 mod runtime_fixture;
 
 include!("support/cell_group_engine_fixture.rs");
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn group_archive_requires_all_dependencies() -> Result<()> {
+    for rooted in [false, true] {
+        runtime_fixture::archive_dependencies(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        )
+        .await?;
+    }
+    Ok(())
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn group_reclaim_restart_keeps_history() -> Result<()> {

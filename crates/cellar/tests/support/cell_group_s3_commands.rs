@@ -1,6 +1,10 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! SQL output proofs on the actual controller and archive lane.
+#[path = "cell_group_archive_dependencies.rs"]
+mod dependencies;
+pub(crate) use dependencies::archive_dependencies;
+
 #[path = "cell_group_s3_enrollment.rs"]
 mod enrollment;
 #[path = "cell_group_s3_receipts.rs"]
