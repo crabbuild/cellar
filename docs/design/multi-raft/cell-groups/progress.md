@@ -10,6 +10,66 @@ CG-06 is IN_PROGRESS; CG-07 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-06 owned archive activation and checkpoint drain
+
+Source: `ab0abf26dea4df436b5ced926f28a9ede4f360fd`. CG-06 remains IN_PROGRESS. A
+deterministic regression at `79323600` reproduced a checkpoint overtaking
+pending archive activation. Registration now owns an activation intent that
+closes later checkpoint admission across retries. Rejected or unentered work
+releases its intent. An already admitted checkpoint shares one exact
+group/cut-bound lease between its owner and physical storage, so that work can
+drain while new admission is closed. Storage rejects foreign-group, wrong-cut
+and non-checkpoint lease use. The existing 4 KiB metadata charge bounds the
+lease; quotas and serialized marker-1 records are unchanged.
+
+Once metadata persistence enters, physical work retains the activation even
+after the waiter disappears. The irreversible local requirement becomes
+effective only after sync and cache/root publication. Failed or uncertain writes
+cannot publish the intent. Frontier reset happens once before I/O, so a delayed
+duplicate completion cannot clear newer verified coverage. No mutex spans I/O or
+an await. Cancellation before entry releases the temporary barrier; it never
+clears an existing durable policy.
+
+Three exact storage cases pass. The original recovery case now checks refusal of
+later admission and ownership across cloned physical leases. The new checkpoint
+case uses actual persisted entries and a prepared checkpoint, tests invalid
+lease bindings, then drains an earlier checkpoint into the real engine while
+activation waits. The new held-sync case drops the waiter and client activation,
+proves physical work still owns the closed barrier, releases the actual
+filesystem gate and joins the storage queue before checking durable policy.
+These establish the owning boundaries; sustained load fairness is still pending.
+
+All seventeen exact RustFS cases pass in both image forms with seven signed
+protocol probes. Twenty-two regression/check commands pass with 262 distinct
+Rust cases across seven copied executables, including all nineteen storage cases
+and the four native shared-group suites. Locked all-target Cellar/logic/LTX
+Clippy, format/layout, dependency/docs/preflight/plan checks, 37 Python tests
+and system-Python hashing pass. Records under
+`.cellar/cell-groups-evidence/CG-06-retention-admission/` bind 2571 source
+hashes, selections, copied binaries/outputs, orchestration and frozen plan
+inputs. Independent source/artifact/selection and credential-exclusion audit
+passes. The original failing regression is retained with its source and
+executable. Original CG-06 cases, oracles and quotas remain unchanged; four
+original cases/full gate remain pending. The earlier `8dfe9ff3` native
+slow-reader timeout remains retained and unexplained despite unchanged
+successful reruns; this ownership change is not claimed to fix it. The RustFS
+controller matrix does not delete voter disks.
+
+Reflection: implement explicit retained-log byte/entry admission across node and
+group before new callbacks, preserving known receipt reconciliation. Include
+inherited follower entries, control entries, suffix replacement, restart and
+uncertain physical outcomes, with reserved progress capacity so collected Ready,
+apply and checkpoint work can drain. Then qualify a full S3 backend outage,
+including fresh catalog authority without weakening ownership checks. Physical
+shared-engine file purge must honor every checkpoint, archive, reader, transfer
+and sibling constraint. Fenced fresh-incarnation serving needs complete
+possible-old-voter lineage and the accepted fencing-authority API plus Docker
+qualification. CG-08 effect/cache/result lifetimes precede CG-07 public
+SDK/fleet cutover. Topology, placement, hibernation, managed recovery, measured
+load and legacy removal follow. Voters remain host-native tasks and RustFS one
+local VM; independent failure domains and the full hard cutover remain
+unqualified.
+
 ## CG-06 archive-aware local checkpoint compaction
 
 Source: `8dfe9ff3a316d0579b656af4818dc57d839a6765`. CG-06 remains IN_PROGRESS.

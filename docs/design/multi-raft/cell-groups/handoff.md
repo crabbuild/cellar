@@ -16,85 +16,66 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
 The latest runtime/qualification source is
-`8dfe9ff3a316d0579b656af4818dc57d839a6765`. CG-06 remains IN_PROGRESS. Local
-checkpoint compaction for an archive-configured group now requires independently
-verified complete coverage, with a durable local requirement and a fresh
-frontier after reopen. Owner and storage admission guard the exact cut.
-Scheduler prechecks skip blocked capture while quorum apply and sibling
-checkpoints progress. Activation drains earlier owner/storage checkpoint
-admissions before syncing policy, preserving the original one-source quota
-without a source-slot cycle. Public archive status grants no compaction or
-response authority. The frontier retains bounded metadata; the journal owns the
-current remote hold.
+`ab0abf26dea4df436b5ced926f28a9ede4f360fd`. CG-06 remains IN_PROGRESS. Archive
+registration owns a pending activation that closes later checkpoint admission.
+Earlier owner/storage work shares an exact cut-bound lease and drains before
+durable policy publication. Entered metadata persistence owns activation after
+waiter loss. An unentered intent releases its temporary barrier on
+rejection/shutdown; only sync and cache/root publication make the archive
+requirement irreversible. A once-only pre-I/O frontier reset avoids discarding
+newer coverage on duplicate completion. Wrong-group, wrong-cut and
+non-checkpoint lease use refuse. Marker-1 records and original quotas are
+unchanged; the cut lease fits the existing 4 KiB charge.
 
-The required marker-1 `archive_required` field belongs to local group
-application metadata. Missing-field records refuse without migration or a legacy
-reader. Ordinary writes and peer snapshot installation cannot clear the local
-policy or manufacture a frontier. Peer-install integration of deployment archive
-policy still needs its separate qualification.
+Archive-configured local checkpoint compaction still requires independently
+verified complete coverage and a fresh frontier after retained-disk reopen.
+Missing-field records refuse without migration or a legacy reader. Ordinary
+writes and peer snapshot installation cannot clear policy or manufacture
+coverage. Scheduler prechecks allow apply and sibling checkpoints to progress.
+Public archive status grants no compaction or response authority. The frontier
+retains bounded metadata; the journal owns the remote hold. Deployment policy on
+peer install remains separately unqualified.
 
-Local and remote command/enrollment/receipt S3 outputs retain their exact
-receiver controller/runtime archive owner, complete independently recovered
-cuts, original request/namespace/stored minima and deadlines, fresh
-catalog/leader checks and authenticated achieved durability. A native output
-owns its physical proof through TLS flush or ordered stream destruction. Quorum
-output releases SQL independently. No retry replays application callbacks;
-missing receipts remain ambiguous. Enrollment retains original creation
-provenance. These contracts remain required at the public cutover.
+Local and remote command/enrollment/receipt S3 outputs retain the exact receiver
+controller/runtime archive owner, complete independently recovered cuts,
+original request/namespace/stored minima and deadlines, fresh catalog/leader
+checks and authenticated achieved durability. Native outputs own physical proof
+through TLS flush or ordered stream destruction. Quorum outputs release SQL
+independently. No retry replays callbacks; missing receipts remain ambiguous.
+Enrollment preserves original creation provenance. These contracts remain
+required at public cutover.
 
-Seventeen exact RustFS cases pass in both image forms plus seven signed probes.
-The new scenario holds real conditional publication while quorum appends and a
-sibling checkpoints, refuses direct owner/raw-storage compaction, then accepts
-the same prepared checkpoint after complete coverage. Another archive outage
-preserves later entries; independent recovery verifies every cell. The storage
-case proves guarded activation, missing-field refusal, irreversible policy and
-closed compaction after retained-disk reopen.
+All three exact storage ownership cases pass, including the unchanged overtaking regression, real checkpoint drain and a held-sync cancelled waiter. Seventeen exact RustFS cases pass in both image forms with seven signed probes. Twenty-two regression/check commands pass with 262 Rust cases across seven copied executables, including nineteen storage cases. Locked all-target Clippy, format/layout, dependency/docs/preflight/plan checks, 37 Python tests and system-Python hashing pass. Independent source/hash/selection and credential-exclusion audit passes. Source-bound records, frozen plans, orchestration, original red regression and copied executables are under `.cellar/cell-groups-evidence/CG-06-retention-admission/`. Earlier evidence stays retained. The `8dfe9ff3` slow-reader timeout remains unexplained despite unchanged passing reruns. Sustained activation/load fairness and zero-voter-disk-loss recovery are not established by this matrix. See [progress](progress.md) and the [local compaction contract](protocols.md#archive-aware-local-checkpoint-compaction).
 
-Twenty-two regression/check commands pass with 260 Rust cases across seven
-copied executables: four native shared-group suites,
-storage/snapshot/cache/receipt/budget/journal/physical-join units, eighteen wire
-codec cases and fixed performance cardinality. Locked all-target Clippy,
-format/layout, dependency/docs/preflight/plan checks, 37 Python tests and
-system-Python hashing pass.
-
-Independent source/hash/selection and credential-exclusion audit passes.
-Records, frozen plan inputs, failed compile/lint/native outputs, copied
-reproductions and executables are under
-`.cellar/cell-groups-evidence/CG-06-archive-compaction/`.
-
-The earlier broad slow-reader timeout remains retained; unchanged isolated and
-ordered-controller reproductions pass, and its timing cause is unresolved.
-
-See [progress](progress.md) and the [local compaction contract](protocols.md#archive-aware-local-checkpoint-compaction).
-
-Next implement explicit unarchived-byte/entry admission across node/group
-storage, including inherited peer/control work, pre-callback reservations and
-reserved physical/checkpoint progress capacity. Qualify archive activation
-fairness under sustained checkpoint traffic before enabling managed capture and
-public admission. Qualify a full-backend S3 outage and resolve fresh catalog
-admission without weakening ownership or epoch fencing. Archive-wrapper faults
-and the compaction prerequisite do not establish that bound. Add safe physical
-shared-engine Raft file purge constrained by every local checkpoint, archive,
-reader, transfer and sibling group. Fenced fresh-incarnation serving must
-inventory every possible old voter, including joins after the selected archive
-cut. Fencing-authority API plus Docker qualification remains accepted.
-Peer-install policy, controller process-kill restart and
-multi-head/physical-read shutdown cuts remain. Incremental tails and smaller
-sealed attestations require actual remote holds and load evidence.
+Next implement explicit retained-log byte/entry admission before new callbacks,
+preserving known receipt reconciliation. Account for follower/control work,
+suffix replacement, restart and uncertain physical outcomes; transfer
+reservations into durable debt without release gaps or double charges. Preserve
+reserved completion/apply/checkpoint capacity so a full budget cannot strand
+collected Ready. Qualify a full-backend S3 outage, resolving fresh catalog
+authority without weakening ownership or epoch fencing. Wrapper faults and local
+compaction checks alone do not establish a disk bound. Add physical
+shared-engine file purge constrained by every checkpoint, archive, reader,
+transfer and sibling group. Fenced fresh-incarnation serving must inventory
+every possible old voter, including joins after the selected archive cut.
+Fencing-authority API plus Docker qualification remains accepted. Peer-install
+policy, process-kill and multi-head/physical-read shutdown cuts still need
+qualification.
 
 CG-08 effect/cache/result lifetimes precede CG-07 public SDK/fleet cutover, then
-topology, placement, hibernation, managed recovery, measured load and final
-legacy removal. Four original CG-06 cases/full gate remain pending. Voters are
+topology, placement, hibernation, managed recovery, measured load and legacy
+removal. Four original CG-06 cases/full gate remain pending. Voters are
 host-native tasks and RustFS one VM; independent domains, container node limits,
 measured load, fresh-quorum disaster serving and the hard cutover remain
 unqualified. The full end-to-end goal remains active.
 
-Preserve the remote response source `25938fd8` and validation-only inventory
-correction `debdc30c`, receipt source `cde0eea2`, enrollment `c2801b65`, command
-`3d564f3d`, prior RustFS `d739bf79`, controller `7914177d`, catalog cut
-`df0ba1f6`, protected publication `87348477`, isolated verifier `14955f2d`,
-committed tail `7a29c2a9` and their source-bound evidence/failures. Exact
-intents precede remote mutation; uncertain outcomes cannot allocate new
+Preserve archive-compaction runtime `8dfe9ff3`, its source-bound failures and
+the unresolved slow-reader timing limitation. Preserve remote response source
+`25938fd8` with validation-only inventory correction `debdc30c`, receipt
+`cde0eea2`, enrollment `c2801b65`, command `3d564f3d`, prior RustFS `d739bf79`,
+controller `7914177d`, catalog cut `df0ba1f6`, protected publication `87348477`,
+isolated verifier `14955f2d`, committed tail `7a29c2a9` and their evidence.
+Exact intents precede remote mutation; uncertain outcomes cannot allocate new
 identities or reset counters. Namespace binding, stable cuts, protected
 publication and independent complete recovery preserve their contracts. The
 archive controller still coalesces complete cuts.
