@@ -209,12 +209,12 @@ async fn setup_store(
     Ok((fixture, route))
 }
 
-async fn audit(
+pub(super) async fn verified_current(
     fixture: &RuntimeCluster,
     config: &CellGroupArchiveRegistration,
     rooted: bool,
-    last: u8,
-) -> Result<()> {
+    name: &str,
+) -> Result<CellGroupArchiveCoverage> {
     let route = config.birth.route();
     let registry = config
         .directory
@@ -240,7 +240,7 @@ async fn audit(
     let hold: CellGroupArchiveHold = serde_json::from_value(envelope["record"]["head"].clone())?;
     assert!(envelope["record"]["retire"].is_null());
     assert_eq!(envelope["record"]["pending"], "None");
-    let destination = verifier(fixture, route, rooted, "controller-archive-audit").await?;
+    let destination = verifier(fixture, route, rooted, name).await?;
     let coverage = registry
         .verify_hold(
             &fixture.cluster.domain,
@@ -253,6 +253,16 @@ async fn audit(
             )?,
         )
         .await?;
+    Ok(coverage)
+}
+
+async fn audit(
+    fixture: &RuntimeCluster,
+    config: &CellGroupArchiveRegistration,
+    rooted: bool,
+    last: u8,
+) -> Result<()> {
+    let coverage = verified_current(fixture, config, rooted, "controller-archive-audit").await?;
     let root = coverage.recovery().manifest();
     assert_eq!(root.pinned_images(), usize::from(last) + 2);
     let names = ["registered-a".to_owned(), "registered-b".to_owned()]

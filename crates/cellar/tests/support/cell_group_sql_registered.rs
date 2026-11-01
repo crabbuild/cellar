@@ -207,7 +207,7 @@ pub(super) async fn setup_store_minimum(
     setup_cluster(rooted, cluster, filesystem).await
 }
 
-async fn setup_cluster(
+pub(super) async fn setup_cluster(
     rooted: bool,
     cluster: Cluster,
     filesystem: Arc<dyn cellar_ltx::FileSystem>,

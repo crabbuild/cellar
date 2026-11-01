@@ -21,6 +21,19 @@ mod rustfs;
 include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
+async fn rustfs_group_reclaim_restart_keeps_history() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::physical_log_reclamation(
+            rooted,
+            rustfs::store("physical-log-reclaim", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn archive_coverage_gates_local_compaction() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(runtime_fixture::archive_checkpoint_frontier(

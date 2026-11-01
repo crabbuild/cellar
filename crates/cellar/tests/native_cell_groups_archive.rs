@@ -27,7 +27,23 @@ mod publication_fixture;
 #[path = "support/cell_group_archive_tail.rs"]
 mod tail_fixture;
 
+#[path = "support/cell_group_runtime.rs"]
+#[allow(dead_code, unused_imports)]
+mod runtime_fixture;
+
 include!("support/cell_group_engine_fixture.rs");
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn group_reclaim_restart_keeps_history() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::physical_log_reclamation(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn archive_cut_upload_survives_quorum_progress() -> Result<()> {

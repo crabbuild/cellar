@@ -41,6 +41,25 @@ struct Cluster {
     options: RaftRuntimeOptions,
 }
 
+#[derive(Clone, Copy)]
+struct ClusterLogLimits {
+    retention: CellGroupLogRetentionLimits,
+    target_file_bytes: u64,
+    purge_threshold_bytes: u64,
+    purge_interval_ms: Option<u64>,
+}
+
+impl Default for ClusterLogLimits {
+    fn default() -> Self {
+        Self {
+            retention: Default::default(),
+            target_file_bytes: 16 * 1024 * 1024,
+            purge_threshold_bytes: 64 * 1024 * 1024,
+            purge_interval_ms: Some(1000),
+        }
+    }
+}
+
 impl Cluster {
     async fn new() -> Result<Self> {
         Self::with_options(RaftRuntimeOptions::default()).await
@@ -121,6 +140,30 @@ impl Cluster {
         minimum: Durability,
         retention: CellGroupLogRetentionLimits,
     ) -> Result<Self> {
+        Box::pin(Self::with_store_log_limits(
+            options,
+            root,
+            filesystem,
+            schema,
+            store,
+            minimum,
+            ClusterLogLimits {
+                retention,
+                ..Default::default()
+            },
+        ))
+        .await
+    }
+
+    async fn with_store_log_limits(
+        options: RaftRuntimeOptions,
+        root: tempfile::TempDir,
+        filesystem: Arc<dyn cellar_ltx::FileSystem>,
+        schema: [u8; 32],
+        store: Arc<dyn object_store::ObjectStore>,
+        minimum: Durability,
+        log_limits: ClusterLogLimits,
+    ) -> Result<Self> {
         let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         let history = GroupHistory {
             cluster: ClusterId::new([1; 16])?,
@@ -174,7 +217,10 @@ impl Cluster {
                             ProcessGeneration::new([20; 16])?,
                             LogOpenMode::Create,
                         );
-                        log.cell_group_retention = retention;
+                        log.cell_group_retention = log_limits.retention;
+                        log.target_file_bytes = log_limits.target_file_bytes;
+                        log.purge_threshold_bytes = log_limits.purge_threshold_bytes;
+                        log.purge_interval_ms = log_limits.purge_interval_ms;
                         log
                     },
                     Arc::new(fault::FaultFileSystem { gate: gate.clone() }),
