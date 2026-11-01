@@ -184,11 +184,11 @@ impl RangeDirectory {
             }
             self.selected_route_in(&view, request.source().route())
                 .await?;
-            view.head.recovery = Some(RecoveryLock {
+            view.head.recovery = Some(Box::new(RecoveryLock {
                 request: request.digest(),
                 base: view.digest,
                 source: wire::Route::encode(request.source().route(), self)?,
-            });
+            }));
             let bytes = record::encode(wire::HEAD, &view.head, wire::LIMIT)?;
             // A lost response can follow a committed CAS. Observe the exact
             // lock; never issue another request or rebase onto a newer head.

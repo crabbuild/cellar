@@ -208,13 +208,13 @@ pub(super) struct Head {
     pub groups: Option<[u8; 32]>,
     pub journal: [u8; 32],
     #[serde(deserialize_with = "required_recovery")]
-    pub recovery: Option<super::recovery::RecoveryLock>,
+    pub recovery: Option<Box<super::recovery::RecoveryLock>>,
 }
 
 // Marker 1 has one record shape. Missing fields are not an older-reader mode.
 fn required_recovery<'de, D: serde::Deserializer<'de>>(
     decoder: D,
-) -> Result<Option<super::recovery::RecoveryLock>, D::Error> {
+) -> Result<Option<Box<super::recovery::RecoveryLock>>, D::Error> {
     Option::deserialize(decoder)
 }
 
