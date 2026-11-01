@@ -243,6 +243,10 @@ async fn archive_requirement_is_local_irreversible_and_recovered() -> anyhow::Re
         Err(LogError::Overloaded)
     ));
     assert!(!group.read()?.archive_required);
+    assert!(
+        group.archive_compaction.admit(&marker)?.is_none(),
+        "a pending archive activation must stop later checkpoint admissions"
+    );
     drop(admitted);
     log.require_cell_group_archive(&initial.route.history)
         .await?;
