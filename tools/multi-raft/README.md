@@ -94,8 +94,9 @@ creation after later mutations, honor namespace minimums, retain output proofs a
 retry without rerunning initialization. Receipt lookup preserves ambiguous absence,
 returns the actual later archived observation, reserves result bytes before fetch,
 and tests stored-minimum S3 delivery with a provider-configured TLS gateway.
-Reduced real socket buffers hold 28 KiB replies inside the original 64 KiB S3
-envelope while a Quorum successor progresses. The runner does not qualify local log file purge,
+A bounded sequence of exact retries fills reduced real socket buffers without
+reading replies. The fixed physical-write observation identifies a held 28 KiB
+reply inside the original 64 KiB S3 envelope while a Quorum successor progresses. The runner does not qualify local log file purge,
 fenced recovery or performance.
 The voters run as native host tasks, so this is not the container resource gate.
 

@@ -58,6 +58,7 @@ pub(crate) enum Operation {
     DataQueue,
     ControlExchange,
     DataExchange,
+    QueryReplyWrite,
     ControlAdmit,
     DataAdmit,
     ArchiveAdmissionCheck,
@@ -83,7 +84,7 @@ pub(crate) enum Operation {
     EnginePurge,
 }
 
-const OPERATIONS: [Operation; 44] = [
+const OPERATIONS: [Operation; 45] = [
     Operation::EngineQueue,
     Operation::EngineFileSync,
     Operation::EngineDirectorySync,
@@ -105,6 +106,7 @@ const OPERATIONS: [Operation; 44] = [
     Operation::DataQueue,
     Operation::ControlExchange,
     Operation::DataExchange,
+    Operation::QueryReplyWrite,
     Operation::ControlAdmit,
     Operation::DataAdmit,
     Operation::ArchiveAdmissionCheck,
@@ -154,6 +156,7 @@ impl Operation {
             Self::DataQueue => "transport_data_queue",
             Self::ControlExchange => "transport_control_exchange",
             Self::DataExchange => "transport_data_exchange",
+            Self::QueryReplyWrite => "transport_query_reply_write",
             Self::ControlAdmit => "transport_control_admit",
             Self::DataAdmit => "transport_data_admit",
             Self::ArchiveAdmissionCheck => "archive_admission_check",

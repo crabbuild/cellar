@@ -40,7 +40,7 @@ struct Header<'a> {
     digest: [u8; 32],
 }
 
-fn header(h: &Harness, remote: &Remote, kind: &str, body: &[u8]) -> Result<Vec<u8>> {
+fn header(h: &Harness, remote: &Remote, kind: &str, body: &[u8], sequence: u64) -> Result<Vec<u8>> {
     let g = h.route.history;
     let target = h.fixture.cluster.voters[0]
         .log
@@ -82,7 +82,7 @@ fn header(h: &Harness, remote: &Remote, kind: &str, body: &[u8]) -> Result<Vec<u
     };
     Ok(serde_json::to_vec(&Header {
         route,
-        sequence: "1",
+        sequence: &sequence.to_string(),
         digest: Sha256::digest(body).into(),
     })?)
 }
@@ -127,12 +127,97 @@ fn written(h: &Harness) -> Result<u64> {
         .context("query socket byte counter")
 }
 
-async fn complete(connection: &mut Connection, binding: &[u8; 32], kind: &str) -> Result<()> {
+fn writes(h: &Harness) -> Result<[u64; 4]> {
+    let snapshot = h.fixture.cluster.voters[0].log.performance_snapshot();
+    anyhow::ensure!(
+        snapshot.available && !snapshot.saturated,
+        "write observations available"
+    );
+    let sample = snapshot
+        .operations
+        .iter()
+        .find(|sample| sample.name == "transport_query_reply_write")
+        .context("physical reply write observation")?;
+    Ok([
+        sample.started,
+        sample.succeeded,
+        sample.failed,
+        sample.abandoned,
+    ])
+}
+
+async fn fill(
+    h: &Harness,
+    remote: &Remote,
+    connection: &mut Connection,
+    kind: &str,
+) -> Result<Vec<[u8; 32]>> {
+    let body = request(h, kind)?;
+    let mut bindings = Vec::new();
+    // One exact retry at a time: the next request is sent only after the
+    // preceding physical flush and resource refund. No callbacks are replayed.
+    // Bound the undrained window independently of all original node quotas.
+    for sequence in 1..=128 {
+        let before = writes(h)?;
+        let request_header = header(h, remote, kind, &body, sequence)?;
+        bindings.push(
+            connection
+                .frame_bytes(
+                    b"CLQP",
+                    b"cellar-raft-query-request-1",
+                    None,
+                    &request_header,
+                    &body,
+                )
+                .await?,
+        );
+        controller::wait_for(async || {
+            let state = writes(h)?;
+            anyhow::ensure!(
+                state[2..] == before[2..],
+                "physical write failed before pressure"
+            );
+            Ok(state[0] == before[0] + 1)
+        })
+        .await?;
+        // A TLS reader would prefetch and empty the kernel window. Observe
+        // only the server's fixed physical-write phase without client reads.
+        for _ in 0..3 {
+            if writes(h)?[1] != before[1] {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        let state = writes(h)?;
+        anyhow::ensure!(
+            state[2..] == before[2..],
+            "physical write failed while filling window"
+        );
+        if state[1] == before[1] {
+            anyhow::ensure!(
+                h.controllers[0].usage().retained_s3 == 1
+                    && h.fixture.transports[0].usage().query_items == 1,
+                "incomplete physical write retains its owners"
+            );
+            return Ok(bindings);
+        }
+        assert_eq!(state[1], before[1] + 1);
+        refunded(h).await?;
+    }
+    anyhow::bail!("bounded undrained window did not create physical backpressure")
+}
+
+async fn complete(
+    connection: &mut Connection,
+    binding: &[u8; 32],
+    kind: &str,
+    sequence: usize,
+) -> Result<()> {
     let (reply, length, _) = connection
         .receive_head(b"CLQA", b"cellar-raft-query-response-1", binding)
         .await?;
     assert_eq!(reply["request"], serde_json::json!(binding));
-    assert_eq!(reply["sequence"], "1");
+    assert_eq!(reply["sequence"], sequence.to_string());
     assert!(length > 28 * 1024);
     let bytes = connection.receive_body(length).await?;
     assert_eq!(
@@ -148,6 +233,18 @@ async fn complete(connection: &mut Connection, binding: &[u8; 32], kind: &str) -
         reply["digest"],
         serde_json::json!(<[u8; 32]>::from(Sha256::digest(&bytes)))
     );
+    assert_eq!(&bytes[bytes.len() - 28 * 1024..], vec![7; 28 * 1024]);
+    Ok(())
+}
+
+async fn completed_prefix(
+    connection: &mut Connection,
+    bindings: &[[u8; 32]],
+    kind: &str,
+) -> Result<()> {
+    for (i, binding) in bindings.iter().enumerate().take(bindings.len() - 1) {
+        complete(connection, binding, kind, i + 1).await?;
+    }
     Ok(())
 }
 
@@ -187,40 +284,9 @@ pub(crate) async fn s3_remote_slow_delivery(
                 Some(1024),
             )
             .await?;
-            let body = request(&h, kind)?;
-            let request_header = header(&h, &remote, kind, &body)?;
             let before = written(&h)?;
-            let binding = connection
-                .frame_bytes(
-                    b"CLQP",
-                    b"cellar-raft-query-request-1",
-                    None,
-                    &request_header,
-                    &body,
-                )
-                .await?;
-            // Reading even the header lets TLS prefetch the whole body and
-            // releases backpressure. Observe successful socket writes below TLS
-            // before any client read. Fewer than 28 KiB cannot carry this result.
-            let mut observed = (0u64, u64::MAX, 0u64, 0usize, 0usize);
-            let reached = controller::wait_for(async || {
-                let bytes = written(&h)?
-                    .checked_sub(before)
-                    .context("socket counter monotonic")?;
-                let s3 = h.controllers[0].usage().retained_s3;
-                let query = h.fixture.transports[0].usage().query_items;
-                observed.0 = observed.0.max(bytes);
-                if s3 > 0 { observed.1 = observed.1.min(bytes); observed.2 = observed.2.max(bytes); }
-                observed.3 = observed.3.max(s3);
-                observed.4 = observed.4.max(query);
-                Ok(bytes >= 4096
-                    && bytes < 28 * 1024
-                    && s3 == 1
-                    && query == 1)
-            })
-            .await;
-            eprintln!("[DEBUG-remote-write] {kind}-{fault} overall/active_min/active_max/s3/query={observed:?}; now_s3={}; now_query={}", h.controllers[0].usage().retained_s3, h.fixture.transports[0].usage().query_items);
-            reached?;
+            let bindings = fill(&h, &remote, &mut connection, kind).await?;
+            let binding = bindings.last().context("held reply")?;
             assert_eq!(h.controllers[0].usage().retained_s3, 1, "{kind}-{fault}");
             assert_eq!(h.controllers[0].usage().s3_bytes, 64 * 1024);
             assert_eq!(h.archive.tails.usage().operations, 1);
@@ -264,15 +330,11 @@ pub(crate) async fn s3_remote_slow_delivery(
                     ))
             ));
             drop(overloaded);
-            assert!(
-                written(&h)?
-                    .checked_sub(before)
-                    .context("socket counter monotonic")?
-                    < 28 * 1024
-            );
+            assert!(written(&h)? > before, "real socket output entered");
             match fault {
                 "drain" => {
-                    complete(&mut connection, &binding, kind).await?;
+                    completed_prefix(&mut connection, &bindings, kind).await?;
+                    complete(&mut connection, binding, kind, bindings.len()).await?;
                     drop(connection);
                 }
                 "disconnect" => drop(connection),
@@ -284,7 +346,10 @@ pub(crate) async fn s3_remote_slow_delivery(
                         2,
                     )?;
                     refunded(&h).await?;
-                    assert!(complete(&mut connection, &binding, kind).await.is_err());
+                    completed_prefix(&mut connection, &bindings, kind).await?;
+                    assert!(complete(&mut connection, binding, kind, bindings.len())
+                        .await
+                        .is_err());
                     drop(connection);
                     h.fixture.transports[0].grant_command_origin(
                         cellar::application::consensus::NamespaceCommandOrigin {
@@ -297,7 +362,10 @@ pub(crate) async fn s3_remote_slow_delivery(
                 }
                 "timeout" => {
                     refunded(&h).await?;
-                    assert!(complete(&mut connection, &binding, kind).await.is_err());
+                    completed_prefix(&mut connection, &bindings, kind).await?;
+                    assert!(complete(&mut connection, binding, kind, bindings.len())
+                        .await
+                        .is_err());
                     drop(connection);
                 }
                 _ => unreachable!(),

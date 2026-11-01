@@ -846,7 +846,13 @@ deadline or task destruction closes the stream before refunding its proof. No ne
 per-cell task, timer or proof cache is introduced. Client outputs retain their
 existing node/peer byte admission through consumption.
 
-Qualification must observe an actual blocked TLS body, retained S3/coverage slots,
+The fixed `transport_query_reply_write` observation measures only response
+header/body/flush, independently of archive settlement. Its bounded host-lifetime
+histogram is advisory and grants no durability authority. Qualification fills a
+bounded socket window with exact retries, sending each only after the preceding
+physical flush/refund, without reading replies or changing node quotas.
+
+Qualification must observe an actual blocked TLS write, retained S3/coverage slots,
 SQL release, bounded overload, a same-cell Quorum successor and physical refund on
 drain, disconnect, timeout and grant revocation. Exact retries must return the
 original result or creation record without callback replay. This delivery gate

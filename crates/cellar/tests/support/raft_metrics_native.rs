@@ -240,11 +240,12 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
         let observed = service.performance();
         ensure!(observed.available && !observed.saturated && observed.source.len() == 32);
         ensure!(
-            observed.operations.len() == 44 && observed.counters.len() == 42,
+            observed.operations.len() == 45 && observed.counters.len() == 42,
             "performance inventory changed: {} operations, {} counters",
             observed.operations.len(), observed.counters.len()
         );
         ensure!(observed.operations.iter().any(|operation| operation.name == "engine_purge"));
+        ensure!(observed.operations.iter().any(|operation| operation.name == "transport_query_reply_write"));
         let snapshot_operations = observed.operations.iter().map(|operation| operation.name)
             .filter(|name| name.starts_with("snapshot_")).collect::<BTreeSet<_>>();
         ensure!(snapshot_operations == BTreeSet::from(["snapshot_encode", "snapshot_encode_queue", "snapshot_seed_encode", "snapshot_checkpoint_encode", "snapshot_transfer_encode"]));
@@ -296,7 +297,7 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
         // Two gauges, 42 counters, and 29 samples per operation (five outcome
         // counters, 22 buckets, a sum and a count). This remains independent
         // of the observed inventory and of the group population.
-        ensure!(perf_ids.len() == 1320);
+        ensure!(perf_ids.len() == 1349);
         let expected = observed.prometheus().lines().filter(|line| !line.starts_with('#') && !line.is_empty()).map(|line| line.split_whitespace().next().unwrap().to_owned()).collect::<BTreeSet<_>>();
         ensure!(perf_ids == expected && perf_ids.is_disjoint(&identities));
         identities.extend(perf_ids);

@@ -684,19 +684,29 @@ impl State {
                 stream,
                 reply: body,
             };
-            self.query_until(&pool, until, cancel, permission, async {
-                write_head(&mut writing.stream, &response).await?;
-                writing.stream.write_all(writing.reply.bytes()).await?;
-                writing.stream.flush().await?;
-                Ok(())
-            })
-            .await?;
+            let observation = self
+                .performance
+                .timer(crate::raft::performance::Operation::QueryReplyWrite);
+            let result = self
+                .query_until(&pool, until, cancel, permission, async {
+                    write_head(&mut writing.stream, &response).await?;
+                    writing.stream.write_all(writing.reply.bytes()).await?;
+                    writing.stream.flush().await?;
+                    Ok(())
+                })
+                .await;
+            if let Err(error) = result {
+                drop(writing);
+                observation.finish(false);
+                return Err(error);
+            }
             let super::query_replies::Write {
                 stream: resumed,
                 reply,
             } = writing;
             stream = resumed;
             drop(reply);
+            observation.finish(true);
             self.accepted.fetch_add(1, Ordering::Relaxed);
         }
     }
