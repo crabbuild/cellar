@@ -16,60 +16,57 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
 The latest runtime/qualification source is
-`7741e4049704f3e1c6519b736e62deaf263c39a2`. CG-06 remains IN_PROGRESS. Its
-original physical-reclamation case now proves actual Raft-file removal and
-file-length reduction across two shared histories, with an archive-covered
-checkpoint, retained suffix, uncheckpointed sibling, old physical reader and
-post-purge checkpoint streaming. Bounded complete-inventory image/page
-maintenance runs after service quiescence. All three retained voter disks
-reopen, verify cells/effects/checkpoints/tails and establish fresh quorum. Every
-old receipt resolves without callback replay; two new commands commit over TLS.
-Reopen restores archive policy without trusting the lost coverage frontier. The
-new scenario alone uses 4 KiB files/8KiB purge threshold/manual purge. Existing
-defaults, quotas, production code and marker-1 records are unchanged.
+`dc0ad3c245a2f9e3dd4f261003c868e9a43f19b8`. CG-06 remains IN_PROGRESS. The
+original complete-group dependency case now holds or corrupts an actual B image
+chunk/extent outside A's entire image closure, after a real B mutation. Later A
+S3 settlement cannot complete; independent recovery is pending or fails with the
+exact digest error and the registry selection stays at the preceding cut. Quorum
+successors and all three voter data remain healthy. Delay release returns the
+exact S3 result; repairing injected bytes permits fresh independent data
+recovery but does not silently restart the failed archive owner. Original
+receipts resolve without callbacks and retain their S3 minimum.
 
-The preceding logical retained-log admission, owned archive activation, exact physical lease transfer and S3-output lifetime contracts remain required. Node/group capacity is reserved before new callbacks; known receipts remain available. Unknown outcomes and entered physical work retain capacity until authoritative resolution or durable selection. Election/configuration controls retain separately bounded progress. S3 outputs still own complete independent coverage through physical delivery; missing receipts remain ambiguous. See [progress](progress.md) and [protocols](protocols.md) for retained contracts and precise qualification scope.
+The fixture persists and fsyncs the independent recovery client's acquire intent
+before CAS, retains its durable hold across controller head retirement, and
+releases physical receiver/tail ownership before later work. Existing controller
+quotas, timeouts, production behavior and marker-1 records are unchanged. The
+reviewed scope extension adds the owning test helper and its common exports;
+original acceptance cases and invariants remain intact.
 
-Eighteen exact real RustFS controller cases pass in both image forms with seven
-signed probes. Twenty-two regression/check commands pass with 268 Rust cases
-across seven copied executables, including all 22 storage cases. Locked
-final-source all-target Clippy, format/layout, dependency/docs/preflight/plan
-checks, 37 Python tests, system-Python hashing and independent
-source/artifact/selection/credential audit pass across 2575 sources. Evidence is
-under `.cellar/cell-groups-evidence/CG-06-physical-log-reclaim/`. Original
-helper-visibility and bounded-reader failures and copied-binary reproduction
-remain retained. The earlier 8dfe9ff3 slow-reader timing cause remains
-unresolved. Voters are host-native tasks and RustFS one VM.
+Nineteen exact real RustFS controller cases pass in both image forms with seven
+signed probes. Twenty-two regression/check commands pass with 269 Rust cases,
+seven copied executables and 2576 source hashes. All four shared-group native
+suites, all 22 storage cases, locked all-target Clippy, format/layout,
+dependency/docs/preflight/plan validation, 37 Python tests, system-Python
+hashing and independent source/artifact/selection/credential audit pass. Current
+evidence is under `.cellar/cell-groups-evidence/CG-06-archive-dependencies/`.
+Preceding physical-reclamation source 7741e404 and its evidence remain retained,
+including actual old-file removal, reader/checkpoint/sibling preservation,
+all-three retained-disk reopen, exact receipts and new TLS writes. The physical
+case also passes at the new source. Earlier source-bound failures and the
+unresolved 8dfe9ff3 slow-reader timing limitation remain retained.
 
-Two original CG-06 cases pass: archive tails and physical reclaim/restart. Three
-original cases/full task gate remain pending: archive dependencies, full-backend
-S3 outage and fenced fresh group/cell incarnations serving from a replacement
-quorum. This retained-disk case does not erase all voters, qualify process-kill
-recovery, establish a global physical disk bound or measure throughput. Fenced
-recovery must inventory every possible old voter, including joins after the
-selected cut, using the accepted fencing-authority API plus Docker
-qualification.
+Three original CG-06 cases pass: whole-group dependencies, archive tails and
+physical reclaim/restart. Two original cases and the full task gate remain
+pending: bounded Quorum progress against a fully stopped S3 backend, and fenced
+fresh-incarnation serving from a replacement quorum. The next step is to test
+existing local cached and remote fresh-discovery paths separately, then
+implement the missing bounded-outage behavior without weakening catalog/epoch
+authority. Seal/Install/Activate codecs exist, but live apply still rejects
+them; source sealing and exact publication-bound activation must precede any new
+cached-authority shortcut. The preceding private physical-reclaim evidence
+retains the source-bound outage-authority investigation.
 
-Next complete the original archive-dependency acknowledgement case, then qualify
-both local cached and remote fresh-discovery paths against a fully stopped
-backend. Preserve catalog and epoch fencing; source sealing and activation must
-be implemented before any new cache-based authority shortcut.
-Seal/Install/Activate codecs exist, but live apply rejects those controls and
-manifests lack persistent sealed/active lifecycle. Remote command routing
-requests fresh catalog confirmation; local known-route cache paths differ and
-must be exercised independently against an actually stopped backend. Durable
-cancellation and seal authorization must compete on one CAS decision, sources
-must close admission in committed order, and children must stay non-serving
-until committed install/publication-bound activation. See private
-`outage-authority-investigation.md` in this evidence directory for inspected
-seams; no source-seal implementation is claimed.
-
-CG-08 effect/cache/result lifetimes precede CG-07 public SDK/fleet cutover,
-followed by transitions, topology, placement, hibernation, managed recovery,
-measured load and final legacy removal. Independent failure domains and the full
-hard cutover remain unqualified. Preserve predecessor runtime ad73f03f, all
-prior failure records/qualifications and the original task oracles. The full
-end-to-end goal remains active.
+Fenced recovery must inventory every possible old voter, including joins after
+the selected archive cut, through the accepted fencing-authority API plus Docker
+qualification. CG-08 effect/cache/result lifetimes precede CG-07 public
+SDK/fleet cutover, followed by transitions, split/merge, placement, hibernation,
+managed recovery, measured load and final legacy removal. The local RustFS
+matrix uses host-native voters and one VM. It does not qualify full-backend
+outage bounds, independent failure domains, deleted-voter fresh-incarnation
+serving, sustained throughput, global physical disk bounds or the final hard
+cutover. Preserve all earlier evidence and the user's untracked diagram. The
+full end-to-end goal remains active and incomplete.
 
 CG-01 through CG-05 are DONE at their declared native task boundaries. CG-05
 closes at `e0550acd` with all five exact snapshot cases and eighteen passing

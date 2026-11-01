@@ -10,6 +10,75 @@ CG-06 is IN_PROGRESS; CG-07 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-06 complete-group dependency acknowledgement
+
+Source: `dc0ad3c245a2f9e3dd4f261003c868e9a43f19b8`. CG-06 remains IN_PROGRESS.
+The original `group_archive_requires_all_dependencies` case and an exact real
+RustFS counterpart now run delay and corruption phases in both image forms. This
+qualifies the existing protected-object reuse, complete recovery and S3
+settlement paths; production behavior, markers, deadlines and existing resource
+limits are unchanged. The recorded scope extension adds the owning
+archive-dependency fixture and its shared test exports without changing any
+original case or acceptance oracle.
+
+Each phase commits a real registered B mutation before selecting the complete
+group archive. B now has different SQLite data from A. The fixture finds an
+actual materialized image chunk or extent unique to B, outside A's entire image
+closure, and checks its content digest. A separate recovery client persists and
+fsyncs its exact acquire intent before obtaining a durable hold. It owns a
+bounded two-operation I/O pool, one checkpoint receiver and one tail-operation
+pool; the controller's original pools remain unchanged.
+
+The delay phase holds GETs for that exact B image object. A later registered A
+command commits to the local quorum but its S3 output stays pending. Another A
+command receives a Quorum acknowledgement, and all three voters expose the exact
+A/B data and versions. The actual remote registry selection stays at the
+preceding cut. Independent whole-group recovery is also pending with its one
+receiver occupied. Releasing the GET permits complete historical recovery and
+A's exact S3 result. Receivers and tail reservations return to zero before
+subsequent work, and the known command resolves locally without callback replay
+while preserving its stored S3 minimum.
+
+The corruption phase overwrites that actual stored B image object with
+same-length, different-digest bytes and reads them back. Independent recovery
+refuses with the exact object-digest failure. A later A entry still commits, but
+its S3 output fails ambiguously through the typed archive error; the archive
+owner stops and its selected head cannot advance. Another A Quorum command
+succeeds, all voter data remains correct and the group is healthy. Repairing
+only the injected bytes permits complete recovery through a fresh physical
+receiver. It does not silently restart the stopped archive owner or lower the
+original command's S3 minimum. Internal exact receipt lookup observes the
+original result without callback replay and supplies no external S3
+acknowledgement.
+
+Nineteen exact real RustFS controller cases pass in both image forms, with seven
+signed protocol probes. Twenty-two regression/check commands pass with 269
+distinct Rust cases across seven copied executables and 2576 source inputs. All
+four native shared-group suites, all 22 storage cases, locked all-target
+Cellar/logic/LTX Clippy, format/layout, dependency/docs/preflight/plan
+validation, 37 Python tests and system-Python hashing pass. Independent
+source/artifact/selection and credential-exclusion audit passes. Evidence under
+`.cellar/cell-groups-evidence/CG-06-archive-dependencies/` binds raw outputs,
+copied executables, orchestration, reviewed plan inputs and the preceding
+physical-reclamation qualification. The physical purge/restart case also passes
+at this source. Earlier retained failures and the unresolved `8dfe9ff3`
+slow-reader timing limitation remain recorded at their original source
+boundaries.
+
+Reflection: three of the five original CG-06 cases now pass: complete-group
+dependencies, archive tails and physical reclaim/restart. The next critical work
+is the original full-backend S3 outage case: exercise local cached and remote
+fresh-discovery paths separately, establish the exact bounded Quorum admission
+boundary, and refuse S3 outputs until complete coverage recovers. Preserve
+catalog/epoch fencing; durable source sealing and activation are required before
+introducing any new cached-authority shortcut. Fenced fresh-incarnation serving
+from a replacement quorum remains the other original case. The accepted
+fencing-authority API plus Docker qualification must inventory every possible
+old voter, including later joins. CG-08 lifetimes precede CG-07 public SDK/fleet
+cutover, followed by transitions, split/merge, placement, hibernation, managed
+recovery, real load and final legacy removal. No full task, production cutover,
+independent-domain qualification or zero-quorum disaster-serving claim is made.
+
 ## CG-06 physical log reclamation and retained-disk recovery
 
 Source: `7741e4049704f3e1c6519b736e62deaf263c39a2`. CG-06 remains IN_PROGRESS.
