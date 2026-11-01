@@ -594,11 +594,7 @@ async fn retained_log_lease_survives_waiter_loss_and_transfers_once() -> anyhow:
         data: vec![1; 256].into(),
         ..Default::default()
     };
-    let lease = group
-        .log_retention
-        .as_ref()
-        .unwrap()
-        .reserve_entry(&entry)?;
+    let lease = group.log_retention().unwrap().reserve_entry(&entry)?;
     let reserved = group.log_retention_usage()?;
     assert_eq!(
         (reserved.retained_entries, reserved.reserved_entries),
@@ -652,7 +648,7 @@ async fn retained_log_lease_survives_waiter_loss_and_transfers_once() -> anyhow:
     // Keeping the original lease does not double-charge selected debt. It also
     // cannot authorize another write after its exact reservation was consumed.
     assert!(matches!(
-        lease.validate(group.log_retention.as_ref().unwrap(), &entry),
+        lease.validate(group.log_retention().unwrap(), &entry),
         Err(LogError::WrongIdentity)
     ));
     drop(lease);

@@ -1209,10 +1209,10 @@ impl Worker {
             None
         };
         Ok(GroupLog {
-            log_retention,
             archive_compaction: Arc::new(
                 super::cell_groups::archive_compaction::ArchiveCompaction::new(
                     cache.archive_required,
+                    log_retention,
                 ),
             ),
             consensus_claimed: Arc::new(AtomicBool::new(false)),
@@ -1540,7 +1540,7 @@ impl Worker {
                 mapping.history()?,
             )?;
             let mut leases = Vec::new();
-            if let Some(retention) = &write.group.log_retention {
+            if let Some(retention) = write.group.log_retention() {
                 let indices: BTreeSet<_> = write.entries.iter().map(|e| e.index).collect();
                 if !write
                     .log_reservations
@@ -1661,7 +1661,7 @@ impl Worker {
                 .map_err(|e| LogError::Corrupt(e.to_string()))?;
         }
         for (write, leases) in writes.iter().zip(&log_admissions) {
-            if let Some(retention) = &write.group.log_retention {
+            if let Some(retention) = write.group.log_retention() {
                 let cache = write.group.read()?;
                 retention
                     .publish(cache.entries.values(), leases)

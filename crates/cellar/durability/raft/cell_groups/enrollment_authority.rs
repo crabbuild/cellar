@@ -27,8 +27,7 @@ impl CellEnrollmentState {
         envelope: crate::application::consensus::EnvelopeLimits,
     ) -> Result<Arc<super::log_retention::LogReservation>, RuntimeError> {
         self.group
-            .log_retention
-            .as_ref()
+            .log_retention()
             .ok_or_else(|| RuntimeError::Protocol("missing cell-group log retention".into()))?
             .reserve_execution(envelope)
             .map_err(|error| match error {

@@ -145,12 +145,17 @@ impl Drop for ArchiveActivation {
 /// restart in the group record; the frontier never survives without rechecking
 /// the actual remote hold. No replay workspace or per-cell state is retained.
 pub(crate) struct ArchiveCompaction {
+    pub(crate) log_retention: Option<Arc<super::log_retention::GroupLogRetention>>,
     state: Mutex<State>,
 }
 
 impl ArchiveCompaction {
-    pub(crate) fn new(required: bool) -> Self {
+    pub(crate) fn new(
+        required: bool,
+        log_retention: Option<Arc<super::log_retention::GroupLogRetention>>,
+    ) -> Self {
         Self {
+            log_retention,
             state: Mutex::new(State {
                 required,
                 covered: None,

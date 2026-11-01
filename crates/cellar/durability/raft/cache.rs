@@ -199,7 +199,6 @@ impl<S: Clone> GroupWrite<S> {
 /// The engine rejects mixed application domains and never casts between them.
 #[derive(Clone)]
 pub struct GroupLog<S = GroupScope> {
-    pub(crate) log_retention: Option<Arc<super::cell_groups::log_retention::GroupLogRetention>>,
     pub(crate) archive_compaction: Arc<super::cell_groups::archive_compaction::ArchiveCompaction>,
     pub(crate) consensus_claimed: Arc<AtomicBool>,
     pub(crate) scratch_directory: std::path::PathBuf,
@@ -225,6 +224,12 @@ impl<S: std::fmt::Debug> std::fmt::Debug for GroupLog<S> {
 }
 
 impl<S> GroupLog<S> {
+    pub(crate) fn log_retention(
+        &self,
+    ) -> Option<&Arc<super::cell_groups::log_retention::GroupLogRetention>> {
+        self.archive_compaction.log_retention.as_ref()
+    }
+
     pub fn identity(&self) -> &ReplicaIdentity<S> {
         &self.identity
     }
@@ -998,9 +1003,6 @@ impl GroupLog<GroupHistory> {
     pub fn log_retention_usage(
         &self,
     ) -> Result<super::cell_groups::CellGroupLogRetentionUsage, LogError> {
-        self.log_retention
-            .as_ref()
-            .ok_or(LogError::WrongIdentity)?
-            .usage()
+        self.log_retention().ok_or(LogError::WrongIdentity)?.usage()
     }
 }

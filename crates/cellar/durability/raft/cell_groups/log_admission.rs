@@ -28,8 +28,7 @@ fn retention(
     group: &GroupLog<GroupHistory>,
 ) -> Result<&Arc<super::log_retention::GroupLogRetention>, RuntimeError> {
     group
-        .log_retention
-        .as_ref()
+        .log_retention()
         .ok_or_else(|| RuntimeError::Protocol("missing group log admission".into()))
 }
 
