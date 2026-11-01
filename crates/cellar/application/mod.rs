@@ -526,6 +526,8 @@ impl Application for Registry {
 pub(crate) struct EventState {
     pub background: Mutex<Vec<HandlerFuture<()>>>,
     pub(crate) blocks: concurrency::Blocks,
+    // Keep framework cleanup behind the requesting event and its reply proof.
+    pub(crate) erasure_gate: Mutex<Option<Arc<crate::native_worker::InputGate>>>,
     pub(crate) retired: std::sync::atomic::AtomicBool,
     pub(crate) incoming_abort: Mutex<Option<cellar_native::web::WeakAbortSignal>>,
     pub(crate) unrefed: Mutex<Vec<HandlerFuture<()>>>,

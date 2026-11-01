@@ -107,6 +107,7 @@ impl NativeFlight {
 impl Drop for NativeFlight {
     fn drop(&mut self) {
         self.state.retired.store(true, Ordering::Release);
+        self.state.erasure_gate.lock().unwrap().take();
         self.state.discard_websocket_capture();
     }
 }
@@ -1763,6 +1764,9 @@ fn settle(entry: &mut InFlight, state: &EventState, result: Result<Output>) {
         }
         _ => unreachable!("output shape was checked before consuming the reply"),
     };
+    if entry.gated_reply.is_none() {
+        entry.context.release_erasure_gate();
+    }
 }
 
 pub(crate) fn take_body(context: &Context, stream: u64) -> Result<HttpChunkStream> {

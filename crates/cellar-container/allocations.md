@@ -274,6 +274,10 @@ Child retirement automatically queues its SQLite and replica erasure. Parent
 business data is retained until an explicit `request_erasure(ctx).await?` (Rust)
 or the guest equivalent above. Erasure refuses live children, active provider
 bindings, retained facets, unfinished event-source retirement and consensus cells.
+The requesting event holds its cell input gate until its reply is dispatched
+through the existing proof path. Cleanup cannot revoke the request while it is
+awaiting the intent's durability proof; new cell turns wait behind that gate.
+Failure, cancellation and timeout release the hold through normal event teardown.
 
 Warm requests reuse the retirement check attached to a published local activation.
 Erasure cleanup irreversibly closes that activation's business admission, proves

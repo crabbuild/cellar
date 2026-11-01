@@ -815,6 +815,13 @@ impl IoContext {
         held
     }
 
+    pub(crate) fn release_erasure_gate(&self) {
+        if let Some(state) = self.native_event.get().and_then(Weak::upgrade) {
+            let gate = state.erasure_gate.lock().unwrap().take();
+            drop(gate);
+        }
+    }
+
     pub(crate) fn end_event_registrations(&self) -> Option<Vec<BackgroundRegistration>> {
         let ended = self.events.lock().unwrap().end()?;
         drop(ended.discarded_gates);
