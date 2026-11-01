@@ -20,7 +20,9 @@ use super::records::{
 };
 use ::raft::prelude::{ConfState, Entry};
 use cellar_logic::cell_group::{GroupHistory, GroupRoute};
-use cellar_logic::consensus::{GroupScope, MemberId, OperationId, ReplicaIdentity};
+use cellar_logic::consensus::{
+    EngineInstanceId, GroupScope, MemberId, OperationId, ReplicaIdentity,
+};
 use cellar_ltx::{FileSystem, HostFileLock};
 use protobuf::Message;
 use raft_engine::{Command, Engine, LogBatch, MessageExt, ReadableSize, RecoveryMode};
@@ -254,6 +256,10 @@ enum Work {
     CreateCells(
         CellGroupBootstrap,
         Option<Arc<super::transport::CellGroupSeedGrant>>,
+        Reply<GroupLog<GroupHistory>>,
+    ),
+    RecoverCells(
+        Box<super::cell_groups::RecoverySeed>,
         Reply<GroupLog<GroupHistory>>,
     ),
     Seeded(Box<super::snapshot::PreparedSeed>, Reply<GroupLog>),
@@ -663,6 +669,22 @@ impl ReplicaLog {
             Work::CreateCells(bootstrap, Some(grant), reply)
         })
         .await
+    }
+
+    pub(crate) async fn install_recovery_seed(
+        &self,
+        seed: super::cell_groups::RecoverySeed,
+    ) -> Result<GroupLog<GroupHistory>, LogError> {
+        let identity = ReplicaIdentity {
+            scope: seed.bootstrap().route.history,
+            member: seed.bootstrap().member,
+            node: self.limits().node,
+            disk: self.limits().disk,
+            process: self.limits().process,
+        };
+        seed.check(&self.owner(), &identity, self.storage_instance()?)?;
+        self.request(96 * 1024, |reply| Work::RecoverCells(Box::new(seed), reply))
+            .await
     }
 
     /// Read occupied identities and locally durable completed membership under
@@ -1197,9 +1219,10 @@ impl Worker {
     fn scoped_handle<S>(
         &self,
         mapping: &MappingRecord,
-        cache: CachedGroup,
+        mut cache: CachedGroup,
         scope: S,
     ) -> Result<GroupLog<S>, LogError> {
+        cache.recovery_genesis = mapping.recovery_genesis().cloned().map(Arc::new);
         let log_retention = if mapping.is_cells() {
             Some(
                 self.log_retention
@@ -1369,7 +1392,7 @@ impl Worker {
         seed: Option<&super::snapshot::PreparedSeed>,
     ) -> Result<GroupLog, LogError> {
         let mapping = MappingRecord::new(self.root.next_key, &bootstrap, &conf)?;
-        self.insert_mapping(mapping, cache, seed)?
+        self.insert_mapping(mapping, cache, seed, None)?
             .as_cell()
             .cloned()
     }
@@ -1414,7 +1437,54 @@ impl Worker {
             super::cell_groups::GroupManifest::genesis(bootstrap.route)
                 .map_err(|error| LogError::Invalid(error.to_string()))?,
         );
-        self.insert_mapping(mapping, cache, None)?
+        self.insert_mapping(mapping, cache, None, None)?
+            .as_cells()
+            .cloned()
+    }
+
+    fn recover_cells(
+        &mut self,
+        seed: &super::cell_groups::RecoverySeed,
+    ) -> Result<GroupLog<GroupHistory>, LogError> {
+        let bootstrap = seed.bootstrap();
+        seed.check(
+            &self.owner,
+            &ReplicaIdentity {
+                scope: bootstrap.route.history,
+                member: bootstrap.member,
+                node: self.options.node,
+                disk: self.options.disk,
+                process: self.options.process,
+            },
+            EngineInstanceId::new(self.root.identity.storage_instance).map_err(records::corrupt)?,
+        )?;
+        let conf = bootstrap.configuration()?;
+        if let Some(group) = self
+            .groups
+            .read()
+            .map_err(|_| LogError::Closed)?
+            .get(&bootstrap.route.history)
+        {
+            let group = group.as_cells()?;
+            let expected =
+                MappingRecord::new_recovered_cells(group.key, bootstrap, &conf, seed.genesis())?;
+            if self.mappings.get(&group.key) != Some(&expected)
+                || group.group_manifest()?.as_ref() != Some(seed.genesis())
+            {
+                return Err(LogError::WrongIdentity);
+            }
+            return Ok(group.clone());
+        }
+        let mapping = MappingRecord::new_recovered_cells(
+            self.root.next_key,
+            bootstrap,
+            &conf,
+            seed.genesis(),
+        )?;
+        let mut cache = genesis(conf);
+        cache.group_manifest = Some(seed.genesis().clone());
+        cache.recovery_genesis = Some(Arc::new(seed.genesis().clone()));
+        self.insert_mapping(mapping, cache, None, Some(seed))?
             .as_cells()
             .cloned()
     }
@@ -1422,8 +1492,9 @@ impl Worker {
     fn insert_mapping(
         &mut self,
         mapping: MappingRecord,
-        cache: CachedGroup,
+        mut cache: CachedGroup,
         seed: Option<&super::snapshot::PreparedSeed>,
+        recovery: Option<&super::cell_groups::RecoverySeed>,
     ) -> Result<StoredGroup, LogError> {
         if self.mappings.len() >= self.options.max_groups {
             return Err(LogError::Overloaded);
@@ -1453,6 +1524,16 @@ impl Worker {
         {
             return Err(LogError::Overloaded);
         }
+        if seed.is_some() && recovery.is_some() {
+            return Err(LogError::WrongIdentity);
+        }
+        let mut publication = if let Some(recovery) = recovery {
+            let (root, publication) = recovery.prepare(&self.closed)?;
+            cache.manifest_pins = Some(root.images.clone());
+            Some(publication)
+        } else {
+            None
+        };
         let mut batch = LogBatch::default();
         batch
             .put(0, mapping.catalog_key()?, records::encode(&mapping)?)
@@ -1470,12 +1551,20 @@ impl Worker {
         }
         let previous_key = self.root.next_key;
         self.root.next_key = next_key;
+        if let Some(publication) = &mut publication {
+            publication.arm();
+        }
         if let Err(error) = self.fence(&mut batch) {
             self.root.next_key = previous_key;
             return Err(error);
         }
         if let Some(seed) = seed {
             seed.retain().map_err(|e| LogError::Io(e.to_string()))?;
+        }
+        if let Some(publication) = publication {
+            publication
+                .commit()
+                .map_err(|error| LogError::Io(error.to_string()))?;
         }
         let handle = self.handle(&mapping, cache)?;
         self.groups
@@ -1792,6 +1881,15 @@ impl Worker {
                 }
                 Work::CreateCells(bootstrap, seed, reply) => {
                     let result = self.create_cells(bootstrap, seed.as_deref());
+                    let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
+                    if fatal.is_some() {
+                        self.closed.store(true, Ordering::Release);
+                    }
+                    let _ = reply.send(result);
+                    fatal
+                }
+                Work::RecoverCells(seed, reply) => {
+                    let result = self.recover_cells(&seed);
                     let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
                     if fatal.is_some() {
                         self.closed.store(true, Ordering::Release);

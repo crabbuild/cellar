@@ -175,7 +175,33 @@ impl RootRetentions {
         previous: Option<&GroupManifest>,
         checkpoint: bool,
     ) -> Result<PublicationPin, ManifestError> {
-        if group.closed.load(Ordering::Acquire) {
+        self.begin_owned(&group.owner, &group.closed, prepared, previous, checkpoint)
+    }
+
+    pub(super) fn begin_genesis(
+        self: &Arc<Self>,
+        permit: &crate::raft::catalog::RecoverySeedPermit,
+        closed: &Arc<AtomicBool>,
+        prepared: &PreparedGroupManifest,
+    ) -> Result<PublicationPin, ManifestError> {
+        if prepared.marker() != permit.genesis()
+            || !Arc::ptr_eq(&prepared.engine_owner, permit.owner())
+            || !prepared.marker().is_recovery_genesis()
+        {
+            return Err(ManifestError::Invalid("genesis retention grant"));
+        }
+        self.begin_owned(permit.owner(), closed, prepared, None, false)
+    }
+
+    fn begin_owned(
+        self: &Arc<Self>,
+        engine: &Arc<()>,
+        closed: &Arc<AtomicBool>,
+        prepared: &PreparedGroupManifest,
+        previous: Option<&GroupManifest>,
+        checkpoint: bool,
+    ) -> Result<PublicationPin, ManifestError> {
+        if closed.load(Ordering::Acquire) {
             return Err(ManifestError::Quarantined);
         }
         let mut state = self.state()?;
@@ -197,15 +223,15 @@ impl RootRetentions {
             return Err(ManifestError::Limit);
         }
         let selected = state.groups.entry(key).or_insert_with(|| Group {
-            engine: group.owner.clone(),
-            closed: group.closed.clone(),
+            engine: engine.clone(),
+            closed: closed.clone(),
             current: None,
             pending: None,
             checkpoint: None,
             expected_checkpoint: None,
             pending_checkpoint: false,
         });
-        if !Arc::ptr_eq(&selected.engine, &group.owner)
+        if !Arc::ptr_eq(&selected.engine, engine)
             || selected.pending.is_some()
             || selected.current.as_ref().map(|r| &r.marker) != previous
         {

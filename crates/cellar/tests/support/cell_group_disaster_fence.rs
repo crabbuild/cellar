@@ -5,6 +5,13 @@
 use super::*;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+#[path = "cell_group_disaster_activation.rs"]
+mod activation;
+#[path = "cell_group_disaster_seed.rs"]
+mod seed;
+pub(super) use activation::activate_quorum;
+pub(super) use seed::seed_engine;
+
 #[derive(Default)]
 struct Authority {
     fences: AtomicUsize,
@@ -157,15 +164,27 @@ impl Scenario {
             &target,
             hold,
         )?;
+        let competing_birth = cluster.directory.prepare_group_birth(CellGroupBirthSpec {
+            history: GroupHistory {
+                group: GroupId::new([80; 16])?,
+                incarnation: IncarnationId::new([81; 16])?,
+                ..route.history
+            },
+            range: route.range.clone(),
+            epoch: RouteEpoch::new(2)?,
+            creation: ProposalId::new([82; 16])?,
+            voters: target.voters().to_vec(),
+            learners: vec![],
+        })?;
         let competing = cluster.directory.prepare_replacement(
             &view,
             ProposalId::new([75; 16])?,
             std::slice::from_ref(route),
-            std::slice::from_ref(target.route()),
+            std::slice::from_ref(competing_birth.route()),
         )?;
         cluster
             .domain
-            .run(cluster.directory.reserve_group_birth(&target))
+            .run(cluster.directory.reserve_group_birth(&competing_birth))
             .await??;
         let saved: Vec<u8> = persist_archive_intent(&cluster, &request.encode().to_vec()).await?;
         assert_eq!(saved, request.encode());

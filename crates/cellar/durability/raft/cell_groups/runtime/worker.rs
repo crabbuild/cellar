@@ -416,6 +416,10 @@ impl Worker {
                                     .owner
                                     .reconciliation_authority(&cell)
                                     .map(|authority| Response::Reconciliation(Box::new(authority))),
+                                Command::ActivateRecovery(permit) => group
+                                    .owner
+                                    .activate_recovery(*permit)
+                                    .map(|result| Response::RecoveryActivation(Box::new(result))),
                                 Command::Configure(change) => {
                                     group.owner.configure(change).map(Response::Proposal)
                                 }

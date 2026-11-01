@@ -133,6 +133,7 @@ enum Command {
     Campaign,
     TransferLeader(u64),
     Configure(CellGroupMembershipChange),
+    ActivateRecovery(Box<CellGroupRecoveryActivationPermit>),
     Execution(cellar_logic::cell_group::CellHistory),
     Enrollment(cellar_logic::cell_group::CellHistory),
     EnrollmentState(cellar_logic::cell_group::CellHistory),
@@ -162,6 +163,7 @@ enum Response {
     Unit,
     Checkpoint(CellGroupSnapshotAdmission),
     Proposal(CellGroupProposal),
+    RecoveryActivation(Box<CellGroupRecoveryActivation>),
     Submission(crate::raft::execution::CellSubmissionOutcome),
     Execution(Box<CellExecutionAuthority>),
     Enrollment(Box<CellEnrollmentAuthority>),
@@ -630,6 +632,27 @@ impl CellGroupRuntime {
     }
 
     /// Admit whole-group leadership handoff; observe status for completion.
+    /// Admit the catalog-bound activation on the multiplexed physical owner.
+    pub async fn activate_recovery(
+        &self,
+        permit: CellGroupRecoveryActivationPermit,
+    ) -> Result<CellGroupRecoveryActivation, RuntimeError> {
+        let history = permit.history();
+        match self
+            .call(
+                Some(history),
+                Command::ActivateRecovery(Box::new(permit)),
+                4096,
+            )
+            .await?
+        {
+            Response::RecoveryActivation(result) => Ok(*result),
+            _ => Err(RuntimeError::Protocol(
+                "recovery activation response".into(),
+            )),
+        }
+    }
+
     pub async fn transfer_leader(
         &self,
         history: GroupHistory,

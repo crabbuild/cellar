@@ -103,6 +103,9 @@ impl Reads {
                 }
                 ReadKind::Seed(target) => owner.check_seed_target(target)?,
             }
+            // A pending recovery is an admission refusal, not a read barrier
+            // that may occupy the ordinary wait queue until its deadline.
+            owner.require_application_active()?;
             self.groups.retain(|_, budget| budget.strong_count() != 0);
             let budget = self
                 .groups

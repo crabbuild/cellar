@@ -144,7 +144,7 @@ impl RangeDirectory {
                 birth: birth.clone(),
                 directory: self.clone(),
                 log: log.clone(),
-                joined: true,
+                origin: BootstrapOrigin::Joined,
             })
         })
         .await

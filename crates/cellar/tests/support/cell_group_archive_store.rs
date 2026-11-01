@@ -22,6 +22,7 @@ pub struct Store {
     pub puts: AtomicUsize,
     pub gets: AtomicUsize,
     pub lose_put_response: AtomicBool,
+    pub lose_directory_head_and_reads: AtomicBool,
     pub deletes: AtomicUsize,
     pub lose_delete_response: AtomicBool,
     held: Mutex<Option<(Path, usize, Arc<Gate>)>>,
@@ -44,6 +45,7 @@ impl Store {
             puts: AtomicUsize::new(0),
             gets: AtomicUsize::new(0),
             lose_put_response: AtomicBool::new(false),
+            lose_directory_head_and_reads: AtomicBool::new(false),
             deletes: AtomicUsize::new(0),
             lose_delete_response: AtomicBool::new(false),
             held: Mutex::new(None),
@@ -160,6 +162,17 @@ impl ObjectStore for Store {
             return Err(Error::Generic {
                 store: "lost archive publication",
                 source: "injected".into(),
+            });
+        }
+        if path.as_ref().ends_with("/cell-groups/head")
+            && self
+                .lose_directory_head_and_reads
+                .swap(false, Ordering::AcqRel)
+        {
+            self.outage.store(true, Ordering::Release);
+            return Err(Error::Generic {
+                store: "lost directory head response",
+                source: "injected after real CAS".into(),
             });
         }
         if self.lose_put_response.swap(false, Ordering::AcqRel) {

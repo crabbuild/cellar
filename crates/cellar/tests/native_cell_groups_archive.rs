@@ -38,6 +38,56 @@ mod runtime_fixture;
 include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn group_recovery_publication_requires_seeded_quorum_activation() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(disaster_fixture::activate_quorum(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_group_recovery_publication_requires_seeded_quorum_activation() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(disaster_fixture::activate_quorum(
+            rooted,
+            rustfs::store("recovery-activation", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn group_recovery_genesis_survives_lost_reply_and_restart() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(disaster_fixture::seed_engine(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_group_recovery_genesis_survives_lost_reply_and_restart() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(disaster_fixture::seed_engine(
+            rooted,
+            rustfs::store("recovery-genesis", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn group_recovery_import_rebinds_complete_cut() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(disaster_fixture::import(

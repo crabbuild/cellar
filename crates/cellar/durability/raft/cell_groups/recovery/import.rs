@@ -18,6 +18,10 @@ use std::{
 
 type Result<T> = std::result::Result<T, CellGroupArchiveError>;
 
+/// Complete imported data under fresh histories. Clones retain the same
+/// physical owners and admission. This grants no engine or serving authority;
+/// only a catalog-authorized genesis installation may select it in a Raft log.
+#[derive(Clone)]
 pub struct PreparedCellGroupRecovery {
     fence: FencedCellGroupRecovery,
     store: CellGroupArchiveStore,

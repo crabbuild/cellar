@@ -1787,7 +1787,14 @@
         "crates/cellar/durability/raft/cell_groups/recovery/state.rs",
         "crates/cellar/durability/raft/cell_groups/recovery/admission.rs",
         "crates/cellar/durability/raft/cell_groups/recovery/import.rs",
-        "crates/cellar/durability/raft/cell_groups/recovery/tests.rs"
+        "crates/cellar/durability/raft/cell_groups/recovery/tests.rs",
+        "crates/cellar/durability/raft/cell_groups/recovery/genesis.rs",
+        "crates/cellar/durability/raft/cell_groups/directory/recovery/seed.rs",
+        "crates/cellar/tests/support/cell_group_disaster_seed.rs",
+        "crates/cellar/durability/raft/cell_groups/directory/recovery/publication.rs",
+        "crates/cellar/durability/raft/cell_groups/directory/recovery/bootstrap.rs",
+        "crates/cellar/durability/raft/cell_groups/directory/recovery/activation.rs",
+        "crates/cellar/tests/support/cell_group_disaster_activation.rs"
       ],
       "test_target": "native_cell_groups_archive",
       "steps": [

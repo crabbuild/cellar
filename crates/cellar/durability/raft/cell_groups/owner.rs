@@ -160,6 +160,12 @@ pub struct CellGroupStatus {
     pub ready: bool,
 }
 
+/// Admission is distinct from activation committed and selected by this owner.
+pub enum CellGroupRecoveryActivation {
+    Accepted(CellGroupProposal),
+    Applied(Box<super::CellGroupRecoveryActivationAck>),
+}
+
 enum Phase {
     Ready(Box<Ready>, Term),
     Light(LightReady),
@@ -193,10 +199,11 @@ pub struct CellGroupOwner {
     proposals: super::proposal_admission::ProposalAdmission,
     pub(super) proposal_budget: Arc<crate::raft::budget::Budget>,
     prepared_only: bool,
+    recovery_activation: Option<Box<(Term, CellGroupProposal)>>,
 }
 
 impl CellGroupOwner {
-    /// Attach only a claimed initial voter with a completely verified selected
+    /// Attach a durably claimed member with a completely verified selected
     /// root. The catalog permit is revalidated; serving additionally waits for
     /// the current term's committed/applied Raft barrier. Managed members and
     /// ordinary snapshot messages remain closed; step_checkpoint requires the
@@ -284,6 +291,7 @@ impl CellGroupOwner {
             failed: None,
             proposals: Default::default(),
             prepared_only: false,
+            recovery_activation: None,
         })
     }
 
@@ -302,6 +310,7 @@ impl CellGroupOwner {
     pub(super) fn revoke_execution(&mut self) {
         self.leader_term.store(0, Ordering::Release);
         self.proposals.clear();
+        self.recovery_activation = None;
     }
 
     fn refresh_execution_fence(&mut self) {
@@ -321,6 +330,7 @@ impl CellGroupOwner {
         };
         if self.leader_term.swap(term, Ordering::AcqRel) != term {
             self.proposals.clear();
+            self.recovery_activation = None;
         }
     }
 
@@ -350,6 +360,14 @@ impl CellGroupOwner {
         &self.current
     }
 
+    pub(super) fn require_application_active(&self) -> Result<(), RuntimeError> {
+        self.live()?;
+        if !self.current.marker().is_active() {
+            return Err(RuntimeError::NotReady);
+        }
+        Ok(())
+    }
+
     pub(super) fn capture_checkpoint(
         &self,
         pool: &super::CellGroupCheckpointPool,
@@ -366,11 +384,8 @@ impl CellGroupOwner {
         term: Option<Term>,
         barrier: Option<LogIndex>,
     ) -> Result<super::read_authority::ReadSelection, RuntimeError> {
-        self.live()?;
+        self.require_application_active()?;
         let status = self.status()?;
-        if !self.current.marker().is_active() {
-            return Err(RuntimeError::NotReady);
-        }
         let leader = if matches!(consistency, super::CellReadConsistency::Linearizable) {
             if self.node.raft.state != StateRole::Leader || Some(status.term) != term {
                 return Err(RuntimeError::NotLeader);
@@ -489,23 +504,112 @@ impl CellGroupOwner {
             leader: (self.node.raft.leader_id != 0).then_some(self.node.raft.leader_id),
             applied: self.current.marker().position(),
             committed: LogIndex::new(cache.hard_state.commit),
-            ready: self.current.marker().is_active()
-                && self.node.raft.state == StateRole::Leader
-                && self.node.raft.lead_transferee.is_none()
-                && self
-                    .node
-                    .raft
-                    .prs()
-                    .conf()
-                    .voters()
-                    .contains(self.node.raft.id)
-                && self.phase.is_none()
-                && self.checkpoint.is_none()
-                && self.apply_bytes < self.options.max_group_apply_bytes
-                && self.current.marker().position().term.get() == self.node.raft.term
-                && cache.hard_state.term == self.node.raft.term
-                && cache.group_manifest.as_ref() == Some(self.current.marker()),
+            ready: self.current.marker().is_active() && self.protocol_ready(&cache),
         })
+    }
+
+    fn protocol_ready(&self, cache: &crate::raft::cache::CachedGroup) -> bool {
+        self.node.raft.state == StateRole::Leader
+            && self.node.raft.lead_transferee.is_none()
+            && self
+                .node
+                .raft
+                .prs()
+                .conf()
+                .voters()
+                .contains(self.node.raft.id)
+            && self.phase.is_none()
+            && self.checkpoint.is_none()
+            && self.apply_bytes < self.options.max_group_apply_bytes
+            && self.current.marker().position().term.get() == self.node.raft.term
+            && cache.hard_state.term == self.node.raft.term
+            && cache.group_manifest.as_ref() == Some(self.current.marker())
+    }
+
+    /// Admit only the selected recovery's exact activation. Retries in the same
+    /// term share one bounded proposal; a new leader must apply its fresh-term
+    /// barrier before it can decide whether an inherited activation survived.
+    pub fn activate_recovery(
+        &mut self,
+        permit: super::CellGroupRecoveryActivationPermit,
+    ) -> Result<CellGroupRecoveryActivation, RuntimeError> {
+        self.live()?;
+        permit.check(&self.log, &self.group)?;
+        if permit.matches(self.current.marker())? {
+            self.recovery_activation = None;
+            return Ok(CellGroupRecoveryActivation::Applied(Box::new(
+                permit.acknowledgement(&self.group, self.current.marker())?,
+            )));
+        }
+        if self.node.raft.state != StateRole::Leader {
+            return Err(RuntimeError::NotLeader);
+        }
+        if let Some(pending) = &self.recovery_activation {
+            if pending.0.get() == self.node.raft.term {
+                return Ok(CellGroupRecoveryActivation::Accepted(pending.1.clone()));
+            }
+        }
+        let cache = self.group.read()?;
+        if !self.protocol_ready(&cache)
+            || self.current.marker().position().index.get() != cache.hard_state.commit
+            || !self.apply.is_empty()
+            || self.applying.is_some()
+        {
+            return Err(RuntimeError::NotReady);
+        }
+        drop(cache);
+        let data = permit.entry()?;
+        if data.len() > self.options.max_proposal_bytes {
+            return Err(RuntimeError::Overloaded);
+        }
+        let before = self.node.raft.raft_log.last_index();
+        let expected = Entry {
+            index: before + 1,
+            term: self.node.raft.term,
+            data: data.clone().into(),
+            ..Default::default()
+        };
+        let admission =
+            self.log_admission
+                .prepare(&self.group, std::slice::from_ref(&expected), None)?;
+        let result = self.node.propose(Vec::new(), data);
+        self.finish_log_admission(admission)?;
+        if let Err(error) = result {
+            let error = RuntimeError::from(error);
+            if self.node.raft.raft_log.last_index() != before {
+                self.failed = Some(error.clone());
+                self.revoke_execution();
+            }
+            return Err(error);
+        }
+        let observed = (|| {
+            let entry = self
+                .node
+                .raft
+                .raft_log
+                .unstable_entries()
+                .last()
+                .ok_or_else(|| RuntimeError::Protocol("missing recovery activation".into()))?;
+            if entry != &expected {
+                return Err(RuntimeError::Protocol("changed recovery activation".into()));
+            }
+            Ok(CellGroupProposal {
+                group: self.group.identity().scope,
+                position: entry_position(entry),
+                digest: entry_digest(entry)?,
+            })
+        })();
+        let proposal = match observed {
+            Ok(proposal) => proposal,
+            Err(error) => {
+                self.failed = Some(error.clone());
+                self.revoke_execution();
+                return Err(error);
+            }
+        };
+        self.recovery_activation =
+            Some(Box::new((Term::new(self.node.raft.term), proposal.clone())));
+        Ok(CellGroupRecoveryActivation::Accepted(proposal))
     }
 
     pub fn campaign(&mut self) -> Result<(), RuntimeError> {
@@ -1566,7 +1670,11 @@ impl CellGroupOwner {
         next: &PreparedGroupManifest,
     ) -> Result<(), RuntimeError> {
         let invalid = || RuntimeError::Invalid("group apply does not match committed entry".into());
+        let same_recovery = next.marker().recovery == self.current.marker().recovery;
         if entry.get_entry_type() == EntryType::EntryConfChangeV2 {
+            if !self.current.marker().is_active() || !same_recovery {
+                return Err(invalid());
+            }
             let cache = self.group.read()?;
             super::membership::transition(
                 entry,
@@ -1588,7 +1696,7 @@ impl CellGroupOwner {
             return Err(invalid());
         }
         if entry.data.is_empty() {
-            return if next.marker().root() == self.current.marker().root() {
+            return if next.marker().root() == self.current.marker().root() && same_recovery {
                 Ok(())
             } else {
                 Err(invalid())
@@ -1600,12 +1708,47 @@ impl CellGroupOwner {
             GroupEntryLimits::default(),
         )
         .map_err(|_| invalid())?;
+        if !matches!(&decoded.command, GroupCommand::Activate { .. })
+            && (!self.current.marker().is_active() || !same_recovery)
+        {
+            return Err(invalid());
+        }
         let witness = cellar_logic::cell_group::CommitWitness {
             group: self.current.marker().route().history,
             position: entry_position(entry),
             proposal: decoded.binding.proposal,
         };
         match decoded.command {
+            GroupCommand::Activate {
+                transition,
+                publication,
+                manifest,
+            } => {
+                if decoded.binding.proposal.bytes() != transition.bytes() {
+                    return Err(invalid());
+                }
+                let mut expected = self.current.marker().clone();
+                let commitment = expected
+                    .recovery_commitment()
+                    .map_err(|_| invalid())?
+                    .ok_or_else(invalid)?;
+                expected.position = entry_position(entry);
+                expected
+                    .recovery
+                    .as_deref_mut()
+                    .ok_or_else(invalid)?
+                    .activate(
+                        transition,
+                        publication,
+                        manifest,
+                        commitment,
+                        entry_position(entry),
+                    )
+                    .map_err(|_| invalid())?;
+                if next.marker() != &expected {
+                    return Err(invalid());
+                }
+            }
             GroupCommand::Enroll { ref cell, .. } => {
                 let old = self.current.pin_cell(&cell.cell);
                 let decision = super::decide_enrollment(

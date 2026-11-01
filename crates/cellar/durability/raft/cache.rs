@@ -248,6 +248,12 @@ impl<S> GroupLog<S> {
         Ok(cache.applied.clone())
     }
 
+    /// Immutable mapping metadata, shared by the engine cache. This observation
+    /// grants neither complete physical recovery nor startup authority.
+    pub(crate) fn recovery_genesis(&self) -> Result<Option<Arc<GroupManifest>>, LogError> {
+        Ok(self.read()?.recovery_genesis.clone())
+    }
+
     /// Engine-selected metadata only. Reverify every page/image before admission.
     pub fn group_manifest(&self) -> Result<Option<GroupManifest>, LogError> {
         Ok(self.read()?.group_manifest.clone())
@@ -466,6 +472,8 @@ pub(crate) struct CachedGroup {
     pub entries: BTreeMap<u64, Entry>,
     pub applied: DurableApply,
     pub group_manifest: Option<GroupManifest>,
+    /// Derived from the immutable mapping; never supplied by a write/snapshot.
+    pub recovery_genesis: Option<Arc<GroupManifest>>,
     pub manifest_pins: Option<ManifestPins>,
     pub checkpoint_manifest: Option<GroupManifest>,
     /// Local receipt; never imported from another node's checkpoint.
@@ -998,6 +1006,7 @@ pub(crate) fn genesis(conf_state: ConfState) -> CachedGroup {
         snapshot,
         entries: BTreeMap::new(),
         group_manifest: None,
+        recovery_genesis: None,
         manifest_pins: None,
         checkpoint_manifest: None,
         group_seed: None,

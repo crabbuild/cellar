@@ -15,7 +15,26 @@ pub(super) const GROUP_CLAIM: u8 = 187;
 pub(super) const GROUP_ARCHIVE: u8 = 188;
 pub(super) const GROUP_RECOVERY: u8 = 189;
 pub(super) const GROUP_FENCE: u8 = 190;
+pub(super) const GROUP_RECOVERY_BINDING: u8 = 191;
+pub(super) const GROUP_RECOVERY_SEED_INTENT: u8 = 192;
+pub(super) const GROUP_RECOVERY_SEED_COMPLETE: u8 = 193;
+pub(super) const GROUP_BIRTH_RESERVATION: u8 = 194;
+pub(super) const GROUP_RECOVERY_ACTIVATED: u8 = 195;
 pub(super) const LIMIT: usize = 64 * 1024;
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct BirthReservation {
+    pub birth: Vec<u8>,
+    #[serde(deserialize_with = "required_origin")]
+    pub recovery: Option<[u8; 32]>,
+}
+
+fn required_origin<'de, D: serde::Deserializer<'de>>(
+    decoder: D,
+) -> Result<Option<[u8; 32]>, D::Error> {
+    Option::deserialize(decoder)
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "bound", content = "cell", deny_unknown_fields)]

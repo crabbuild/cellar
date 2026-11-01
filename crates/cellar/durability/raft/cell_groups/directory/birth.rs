@@ -205,18 +205,48 @@ impl RangeDirectory {
         &self,
         request: &CellGroupBirthRequest,
     ) -> Result<(), CatalogError> {
+        self.reserve_birth_record(
+            request,
+            &wire::BirthReservation {
+                birth: request.encode().to_vec(),
+                recovery: None,
+            },
+        )
+        .await
+    }
+
+    pub(super) async fn reserve_recovery_birth(
+        &self,
+        request: &super::CellGroupRecoveryRequest,
+    ) -> Result<(), CatalogError> {
+        self.reserve_birth_record(
+            request.replacement(),
+            &wire::BirthReservation {
+                birth: request.replacement().encode().to_vec(),
+                recovery: Some(request.digest()),
+            },
+        )
+        .await
+    }
+
+    async fn reserve_birth_record(
+        &self,
+        request: &CellGroupBirthRequest,
+        reservation: &wire::BirthReservation,
+    ) -> Result<(), CatalogError> {
         self.decode_group_birth(request.encode())?;
+        let bytes = record::encode(wire::GROUP_BIRTH_RESERVATION, reservation, wire::LIMIT)?;
         self.bounded(async {
             let observed = self
                 .namespace
                 .inner
                 .create_and_observe_bounded(
                     &self.reservation_key(request.route()),
-                    request.encode(),
+                    &bytes,
                     wire::LIMIT,
                 )
                 .await?;
-            if observed != request.encode() {
+            if observed != bytes {
                 return Err(CatalogError::Conflict("group birth identity reserved"));
             }
             Ok(())
@@ -228,6 +258,24 @@ impl RangeDirectory {
         &self,
         route: &GroupRoute,
     ) -> Result<CellGroupBirthRequest, CatalogError> {
+        self.birth_reservation(route).await.map(|record| record.0)
+    }
+
+    pub(super) async fn require_ordinary_birth_reservation(
+        &self,
+        route: &GroupRoute,
+    ) -> Result<CellGroupBirthRequest, CatalogError> {
+        let (request, recovery) = self.birth_reservation(route).await?;
+        if recovery.is_some() {
+            return Err(CatalogError::Fenced);
+        }
+        Ok(request)
+    }
+
+    pub(super) async fn birth_reservation(
+        &self,
+        route: &GroupRoute,
+    ) -> Result<(CellGroupBirthRequest, Option<[u8; 32]>), CatalogError> {
         let bytes = self
             .namespace
             .inner
@@ -235,11 +283,16 @@ impl RangeDirectory {
             .await?
             .ok_or(CatalogError::Corrupt("missing group birth reservation"))?
             .0;
-        let request = self.decode_group_birth(&bytes)?;
+        let reservation: wire::BirthReservation =
+            record::decode(wire::GROUP_BIRTH_RESERVATION, &bytes, wire::LIMIT)?;
+        if reservation.recovery == Some([0; 32]) {
+            return Err(CatalogError::Corrupt("recovery reservation identity"));
+        }
+        let request = self.decode_group_birth(&reservation.birth)?;
         if request.route() != route {
             return Err(CatalogError::Conflict("group birth reservation binding"));
         }
-        Ok(request)
+        Ok((request, reservation.recovery))
     }
 
     async fn selected_birth_route(&self, route: &GroupRoute) -> Result<(), CatalogError> {

@@ -22,10 +22,32 @@ pub struct CellGroupBootstrapPermit {
     birth: CellGroupBirth,
     directory: RangeDirectory,
     log: ReplicaLog,
-    joined: bool,
+    origin: BootstrapOrigin,
+}
+
+enum BootstrapOrigin {
+    Initial,
+    Joined,
+    Recovery(Box<recovery::RecoveryStartup>),
 }
 
 impl CellGroupBootstrapPermit {
+    pub(in crate::raft::catalog::range_directory) fn recovered(
+        group: GroupLog<GroupHistory>,
+        birth: CellGroupBirth,
+        directory: RangeDirectory,
+        log: ReplicaLog,
+        startup: recovery::RecoveryStartup,
+    ) -> Self {
+        Self {
+            group,
+            birth,
+            directory,
+            log,
+            origin: BootstrapOrigin::Recovery(Box::new(startup)),
+        }
+    }
+
     pub(crate) fn log(&self) -> &ReplicaLog {
         &self.log
     }
@@ -39,16 +61,26 @@ impl CellGroupBootstrapPermit {
     }
 
     pub async fn revalidate(&self) -> Result<(), CatalogError> {
-        if self.joined {
-            self.directory
-                .bootstrap_joined_group_member(&self.birth, self.group.identity().member, &self.log)
-                .await
-                .map(|_| ())
-        } else {
-            self.directory
+        match &self.origin {
+            BootstrapOrigin::Initial => self
+                .directory
                 .bootstrap_group_member(&self.birth, &self.log)
                 .await
-                .map(|_| ())
+                .map(|_| ()),
+            BootstrapOrigin::Joined => self
+                .directory
+                .bootstrap_joined_group_member(&self.birth, self.group.identity().member, &self.log)
+                .await
+                .map(|_| ()),
+            BootstrapOrigin::Recovery(startup) => self
+                .directory
+                .bootstrap_recovered_group_member(
+                    &startup.request,
+                    &self.log,
+                    startup.authority.clone(),
+                )
+                .await
+                .map(|_| ()),
         }
     }
 }
@@ -66,7 +98,7 @@ struct Claim {
     engine: [u8; 16],
 }
 
-fn check_member(group: &GroupLog<GroupHistory>) -> Result<(), CatalogError> {
+pub(super) fn check_member(group: &GroupLog<GroupHistory>) -> Result<(), CatalogError> {
     let cache = group.read().map_err(CatalogError::Log)?;
     if !crate::raft::member_state::members(&cache.conf_state)
         .contains(&group.identity().member.get())
@@ -98,6 +130,8 @@ impl RangeDirectory {
         self.unmanaged_birth()?;
         self.bounded(async {
             self.require_current_group_birth(birth).await?;
+            self.require_ordinary_birth_reservation(birth.route())
+                .await?;
             let selected = birth
                 .voters()
                 .iter()
@@ -167,7 +201,7 @@ impl RangeDirectory {
                 birth: birth.clone(),
                 directory: self.clone(),
                 log: log.clone(),
-                joined: false,
+                origin: BootstrapOrigin::Initial,
             })
         })
         .await

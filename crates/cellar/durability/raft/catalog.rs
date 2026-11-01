@@ -24,14 +24,16 @@ pub use births::BirthDisposition;
 
 #[path = "cell_groups/directory/mod.rs"]
 mod range_directory;
+pub(crate) use range_directory::RecoverySeedPermit;
 pub(crate) use range_directory::RouteCache;
 pub use range_directory::{
     CellGroupArchiveBindingError, CellGroupBirth, CellGroupBirthRequest, CellGroupBirthSpec,
-    CellGroupBootstrapPermit, CellGroupDisasterFenceRequest, CellGroupRecoveryError,
-    CellGroupRecoveryRequest, CellRouteAttempt, CellRouteCacheUsage, CellRouteOperation,
-    CellRouteRequest, CellRoutingError, CellRoutingFailure, CellRoutingLimits, CellRoutingSession,
-    DirectoryLimits, DirectoryMutation, DirectoryPublication, DirectoryView,
-    FencedCellGroupRecovery, PreparedCellGroupArchiveBinding, RangeDirectory, ResolvedCellRoute,
+    CellGroupBootstrapPermit, CellGroupDisasterFenceRequest, CellGroupRecoveryActivationAck,
+    CellGroupRecoveryActivationPermit, CellGroupRecoveryError, CellGroupRecoveryRequest,
+    CellRouteAttempt, CellRouteCacheUsage, CellRouteOperation, CellRouteRequest, CellRoutingError,
+    CellRoutingFailure, CellRoutingLimits, CellRoutingSession, DirectoryLimits, DirectoryMutation,
+    DirectoryPublication, DirectoryView, FencedCellGroupRecovery, PreparedCellGroupArchiveBinding,
+    RangeDirectory, ResolvedCellRoute,
 };
 
 #[path = "catalog_inventory/mod.rs"]

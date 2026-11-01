@@ -131,6 +131,12 @@ impl GroupMembership {
             .any(|binding| binding.node == node.bytes())
     }
 
+    pub(crate) fn has_disk_binding(&self, disk: cellar_logic::consensus::DiskLineage) -> bool {
+        self.bindings
+            .iter()
+            .any(|binding| binding.disk == disk.bytes())
+    }
+
     pub(crate) fn permits(&self, replica: &cellar_logic::consensus::ReplicaIdentity) -> bool {
         if self.validate_scope(&replica.scope).is_err() {
             return false;

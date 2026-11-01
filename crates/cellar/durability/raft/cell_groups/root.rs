@@ -51,6 +51,28 @@ impl GroupManifest {
         self.recovery.as_ref().map(|state| state.request())
     }
 
+    pub(crate) fn is_recovery_genesis(&self) -> bool {
+        self.recovery.is_some()
+            && !self.is_active()
+            && self.position.index.get() == 1
+            && self.position.term.get() == 1
+            && self.membership_revision == 1
+    }
+
+    pub(crate) fn recovery_commitment(&self) -> Result<Option<[u8; 32]>, ManifestError> {
+        self.recovery
+            .as_deref()
+            .map(|state| match state.activation_manifest() {
+                Some(commitment) => Ok(commitment),
+                None => state.seed_commitment(self),
+            })
+            .transpose()
+    }
+
+    pub(crate) fn recovery_activation(&self) -> Option<([u8; 32], [u8; 32], LogPosition)> {
+        self.recovery.as_ref().and_then(|state| state.activation())
+    }
+
     /// A retained history cannot forget or replace its recovery lineage. Only
     /// an authenticated empty learner may acquire that lineage via a snapshot.
     pub(crate) fn preserves_recovery(&self, previous: &Self) -> bool {
@@ -252,6 +274,14 @@ impl PreparedGroupManifest {
     ) -> Result<super::retention::PublicationPin, ManifestError> {
         self.retention.begin(group, self, previous, checkpoint)
     }
+
+    pub(super) fn begin_genesis(
+        &self,
+        permit: &crate::raft::catalog::RecoverySeedPermit,
+        closed: &Arc<std::sync::atomic::AtomicBool>,
+    ) -> Result<super::retention::PublicationPin, ManifestError> {
+        self.retention.begin_genesis(permit, closed, self)
+    }
 }
 
 impl ManifestTree {
@@ -382,6 +412,35 @@ impl ManifestTree {
             return Err(ManifestError::Invalid("archive root route"));
         }
         self.prepare_physical(store, marker, owner.identity.clone(), image)
+    }
+
+    /// Called only with the catalog's process-local engine grant. No engine
+    /// selection/retention is recovered before sync.
+    pub(super) fn prepare_recovery_genesis(
+        &self,
+        permit: &crate::raft::catalog::RecoverySeedPermit,
+        store: &mut ManifestPageStore,
+        source: &PreparedGroupManifest,
+    ) -> Result<PreparedGroupManifest, ManifestError> {
+        if !source.marker.is_recovery_genesis()
+            || source.marker.route != self.route
+            || !Arc::ptr_eq(&source.page_owner, &store.owner)
+            || source.marker != *permit.genesis()
+        {
+            return Err(ManifestError::Invalid("recovery genesis physical binding"));
+        }
+        self.prepare_physical(
+            store,
+            source.marker.clone(),
+            permit.owner().clone(),
+            &mut |leaf| {
+                source
+                    .pin_cell(&leaf.version.history.cell)
+                    .filter(|(selected, _)| *selected == leaf)
+                    .map(|(_, pin)| pin)
+                    .ok_or(ManifestError::Invalid("recovery genesis closure"))
+            },
+        )
     }
 
     fn prepare_physical(

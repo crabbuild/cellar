@@ -321,6 +321,42 @@ namespaces refuse these unmanaged APIs until their rooted fleet authorization is
 connected. This staged boundary does not permit blank-disk recovery or replace
 current quorum membership.
 
+## Fresh-history disaster recovery
+
+Unmanaged recovery preserves one canonical `CellGroupRecoveryRequest` through
+all unknown outcomes. `fence_group_recovery` verifies its exact held archive cut
+and an independently verified permanent infrastructure fence. The authority must
+stop every possible old writer and revoke restart; unreachable hosts and S3
+markers cannot supply that proof. Retain the source hold while its provenance is
+referenced.
+
+`CellGroupRecoveryPool::prepare` restores complete data under fresh cell histories.
+It grants no vote. `seed_group_recovery` binds the imported genesis to the actual
+node, member, disk and engine, atomically syncs its mapping/root and then confirms
+a permanent seed receipt. A lost waiter cannot release entered physical work.
+`publish_group_recovery` requires every initial member to have the same complete
+seed commitment and retains the topology lock after selecting the replacement.
+
+Ordinary bootstrap refuses recovery births. `bootstrap_recovered_group_member`
+requires the existing seed, immutable engine genesis, storage pin and selected
+publication, and rechecks the external fence. Physical reopen must verify the
+complete selected and checkpoint closures before attachment. Startup alone grants
+no serving authority: pending roots reject application work, including reads.
+
+`prepare_group_recovery_activation` issues an engine/process-bound permit for
+`CellGroupRuntime::activate_recovery`. The owner requires a fresh-term quorum
+barrier and admits one bounded activation proposal. Only committed, persisted
+and applied activation opens application admission. An applied acknowledgement
+allows `complete_group_recovery` to confirm the activation receipt and release
+the topology lock. Repeated attempts preserve the first activation position.
+Rare catalog operations own boxed futures to bound composed control polling
+frames; they do not start per-cell tasks.
+
+Recovery origin, seed and activation records use the internal marker-1 hard
+cutover, with no reader for older intermediate shapes. These low-level contracts
+do not complete the public SDK/fleet cutover; implementation and qualification
+status remains in the [design progress](../../../../../docs/design/multi-raft/cell-groups/progress.md).
+
 ## Physical log identity cutover
 
 The engine registry uses `GroupHistory` (cluster, namespace, group and incarnation),

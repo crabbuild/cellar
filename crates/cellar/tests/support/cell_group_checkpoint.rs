@@ -137,7 +137,7 @@ pub(super) async fn enroll_images(
     Ok(expected)
 }
 
-fn extent_commitment(
+pub(super) fn extent_commitment(
     route: &GroupRoute,
     cell: &CellHistory,
     state: ImageState,

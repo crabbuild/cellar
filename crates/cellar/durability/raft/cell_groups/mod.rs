@@ -81,7 +81,11 @@ pub use log_retention::{
 };
 mod read_authority;
 mod recovery;
-pub use recovery::{CellGroupRecoveryLimits, CellGroupRecoveryPool, PreparedCellGroupRecovery};
+pub(crate) use recovery::RecoverySeed;
+pub use recovery::{
+    CellGroupRecoveryLimits, CellGroupRecoveryPool, PreparedCellGroupRecovery,
+    SeededCellGroupRecovery,
+};
 pub(crate) mod reclaim;
 pub use read_authority::{CellReadAuthority, CellReadConsistency};
 pub use reclaim::{CellGroupReclaimError, CellGroupReclaimLimits, CellGroupReclaimReport};
@@ -104,11 +108,12 @@ pub use page_store::{ManifestPageStore, ManifestReclaimReport, ManifestStoreUsag
 
 pub use crate::raft::catalog::{
     CellGroupArchiveBindingError, CellGroupBirth, CellGroupBirthRequest, CellGroupBirthSpec,
-    CellGroupBootstrapPermit, CellGroupDisasterFenceRequest, CellGroupRecoveryError,
-    CellGroupRecoveryRequest, CellRouteAttempt, CellRouteCacheUsage, CellRouteOperation,
-    CellRouteRequest, CellRoutingError, CellRoutingFailure, CellRoutingLimits, CellRoutingSession,
-    DirectoryLimits, DirectoryMutation, DirectoryPublication, DirectoryView,
-    FencedCellGroupRecovery, PreparedCellGroupArchiveBinding, RangeDirectory, ResolvedCellRoute,
+    CellGroupBootstrapPermit, CellGroupDisasterFenceRequest, CellGroupRecoveryActivationAck,
+    CellGroupRecoveryActivationPermit, CellGroupRecoveryError, CellGroupRecoveryRequest,
+    CellRouteAttempt, CellRouteCacheUsage, CellRouteOperation, CellRouteRequest, CellRoutingError,
+    CellRoutingFailure, CellRoutingLimits, CellRoutingSession, DirectoryLimits, DirectoryMutation,
+    DirectoryPublication, DirectoryView, FencedCellGroupRecovery, PreparedCellGroupArchiveBinding,
+    RangeDirectory, ResolvedCellRoute,
 };
 pub use enrollment::{
     decide_enrollment, EnrollmentDecision, EnrollmentError, EnrollmentPhase, EnrollmentRecord,
@@ -120,7 +125,8 @@ pub use root::{GroupManifest, PreparedGroupManifest};
 
 pub use owner::{
     CellGroupApply, CellGroupEffect, CellGroupOwner, CellGroupPersist, CellGroupPersisted,
-    CellGroupProposal, CellGroupSnapshotAdmission, CellGroupStatus, CellGroupTicket,
+    CellGroupProposal, CellGroupRecoveryActivation, CellGroupSnapshotAdmission, CellGroupStatus,
+    CellGroupTicket,
 };
 
 pub(crate) use dispatch::RemoteMutationRoute;

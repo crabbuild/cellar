@@ -295,6 +295,7 @@ impl PreparedSeed {
             snapshot,
             entries: std::collections::BTreeMap::new(),
             group_manifest: None,
+            recovery_genesis: None,
             manifest_pins: None,
             checkpoint_manifest: None,
             group_seed: None,

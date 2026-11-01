@@ -22,8 +22,10 @@ pub use archive::{CellGroupArchiveBindingError, PreparedCellGroupArchiveBinding}
 mod birth;
 mod bootstrap;
 mod recovery;
+pub(crate) use recovery::RecoverySeedPermit;
 pub use recovery::{
-    CellGroupDisasterFenceRequest, CellGroupRecoveryError, CellGroupRecoveryRequest,
+    CellGroupDisasterFenceRequest, CellGroupRecoveryActivationAck,
+    CellGroupRecoveryActivationPermit, CellGroupRecoveryError, CellGroupRecoveryRequest,
     FencedCellGroupRecovery,
 };
 mod route_cache;
@@ -455,12 +457,13 @@ impl RangeDirectory {
         mutation: &DirectoryMutation,
     ) -> Result<DirectoryPublication, CatalogError> {
         self.check_request(&mutation.request)?;
-        self.bounded(self.publish_inner(mutation)).await
+        self.bounded(self.publish_inner(mutation, None)).await
     }
 
     async fn publish_inner(
         &self,
         mutation: &DirectoryMutation,
+        recovery: Option<&recovery::RecoveryPublication>,
     ) -> Result<DirectoryPublication, CatalogError> {
         let request = &mutation.request;
         let current = if request.expected.is_some() {
@@ -487,14 +490,18 @@ impl RangeDirectory {
                 }
                 // An interrupted genesis resumes only its identical first head.
             }
-            if view.head.recovery.is_some() {
-                return Err(CatalogError::Fenced);
-            }
-            if request
-                .expected
-                .is_some_and(|expected| expected != view.digest)
-            {
-                return Err(CatalogError::Conflict("stale directory root"));
+            if let Some(recovery) = recovery {
+                recovery.check(self, view, mutation)?;
+            } else {
+                if view.head.recovery.is_some() {
+                    return Err(CatalogError::Fenced);
+                }
+                if request
+                    .expected
+                    .is_some_and(|expected| expected != view.digest)
+                {
+                    return Err(CatalogError::Conflict("stale directory root"));
+                }
             }
         }
         let base = if request.expected.is_some() {
@@ -512,7 +519,12 @@ impl RangeDirectory {
         // A route can be lazy, but its exact cell-independent birth and global
         // group identity must be reserved before it can enter the directory.
         for child in &request.children {
-            self.verify_birth_reservation(&child.decode(self)?).await?;
+            let route = child.decode(self)?;
+            if let Some(recovery) = recovery {
+                recovery.check_child(&route)?;
+            } else {
+                self.require_ordinary_birth_reservation(&route).await?;
+            }
         }
         for parent in &request.parents {
             tree = self.remove(tree, parent.clone(), 0).await?;
@@ -557,7 +569,7 @@ impl RangeDirectory {
             operations,
             groups,
             journal: id,
-            recovery: None,
+            recovery: recovery.map(|grant| grant.published_lock(id)).transpose()?,
         };
         self.check_head(&head)?;
         let bytes = record::encode(wire::HEAD, &head, wire::LIMIT)?;

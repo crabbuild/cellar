@@ -122,6 +122,32 @@ impl MappingRecord {
         self.history.decode()
     }
 
+    /// Recovery persists the actual fresh genesis, including its complete root
+    /// commitment. Ordinary creation cannot later substitute an empty genesis.
+    pub(crate) fn new_recovered_cells(
+        key: u64,
+        bootstrap: &CellGroupBootstrap,
+        conf: &ConfState,
+        genesis: &GroupManifest,
+    ) -> Result<Self, LogError> {
+        genesis.check().map_err(corrupt)?;
+        if !genesis.is_recovery_genesis() || genesis.route() != &bootstrap.route {
+            return Err(LogError::WrongIdentity);
+        }
+        let mut mapping = Self::new_cells(key, bootstrap, conf)?;
+        mapping.application = MappingApplication::CellGroup(Box::new(genesis.clone()));
+        Ok(mapping)
+    }
+
+    pub(crate) fn recovery_genesis(&self) -> Option<&GroupManifest> {
+        match &self.application {
+            MappingApplication::CellGroup(marker) if marker.recovery_request().is_some() => {
+                Some(marker)
+            }
+            _ => None,
+        }
+    }
+
     pub fn is_cells(&self) -> bool {
         matches!(&self.application, MappingApplication::CellGroup(_))
     }
@@ -131,6 +157,9 @@ impl MappingRecord {
             return Err(corrupt("unsupported group marker"));
         }
         let history = self.history()?;
+        if cache.recovery_genesis.as_deref() != self.recovery_genesis() {
+            return Err(LogError::WrongIdentity);
+        }
         if let Some(marker) = &cache.group_manifest {
             if !marker.matches_group(&history, self.birth_digest) {
                 return Err(LogError::WrongIdentity);
@@ -142,8 +171,7 @@ impl MappingRecord {
             }
             MappingApplication::CellGroup(genesis) => {
                 let expected = GroupManifest::genesis(genesis.route().clone()).map_err(corrupt)?;
-                if genesis.as_ref() != &expected
-                    || !genesis.matches_group(&history, self.birth_digest)
+                if !genesis.matches_group(&history, self.birth_digest)
                     || cache
                         .group_manifest
                         .as_ref()
@@ -151,6 +179,22 @@ impl MappingRecord {
                     || cache.applied.image.is_some()
                     || cache.membership.fleet_status().is_some()
                 {
+                    return Err(LogError::WrongIdentity);
+                }
+                if genesis.recovery_request().is_some() {
+                    let current = cache
+                        .group_manifest
+                        .as_ref()
+                        .ok_or(LogError::WrongIdentity)?;
+                    if !genesis.is_recovery_genesis()
+                        || !current.preserves_recovery(genesis)
+                        || current.recovery_commitment().map_err(corrupt)?
+                            != genesis.recovery_commitment().map_err(corrupt)?
+                        || (!current.is_active() && current.root() != genesis.root())
+                    {
+                        return Err(LogError::WrongIdentity);
+                    }
+                } else if genesis.as_ref() != &expected {
                     return Err(LogError::WrongIdentity);
                 }
                 Ok(())
@@ -327,6 +371,11 @@ impl GroupRecord {
             snapshot,
             entries: Default::default(),
             group_manifest,
+            recovery_genesis: self
+                .mapping
+                .recovery_genesis()
+                .cloned()
+                .map(std::sync::Arc::new),
             group_seed,
             manifest_pins: None,
             checkpoint_manifest,

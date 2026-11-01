@@ -62,6 +62,21 @@ impl RecoveryState {
             .map(|activation| activation.manifest)
     }
 
+    pub(in crate::raft::cell_groups) fn activation(
+        &self,
+    ) -> Option<([u8; 32], [u8; 32], LogPosition)> {
+        self.activation.as_ref().map(|a| {
+            (
+                a.publication,
+                a.manifest,
+                LogPosition {
+                    index: LogIndex::new(a.index),
+                    term: Term::new(a.term),
+                },
+            )
+        })
+    }
+
     pub(in crate::raft::cell_groups) fn succeeds(&self, previous: &Self) -> bool {
         self.request == previous.request
             && self.operation == previous.operation

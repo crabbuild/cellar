@@ -1,8 +1,14 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Exact, irreversible disaster fencing before fresh-genesis installation.
-//! The returned data proof grants no bootstrap, voting or serving permission.
+//! Irreversible fencing, complete fresh genesis, publication and activation.
+//! Archive data and catalog observations never grant quorum or serving authority.
+//! Rare catalog operations own boxed futures so composing them cannot inflate
+//! a controller polling frame with multiple complete recovery state machines.
+mod activation;
+mod bootstrap;
+mod publication;
 mod request;
+mod seed;
 use super::*;
 use crate::raft::{
     catalog::DisasterFenceAuthority,
@@ -12,7 +18,11 @@ use crate::raft::{
         CellGroupArchiveTailPool,
     },
 };
+pub use activation::{CellGroupRecoveryActivationAck, CellGroupRecoveryActivationPermit};
+pub(in crate::raft::catalog::range_directory) use bootstrap::RecoveryStartup;
+pub(in crate::raft::catalog::range_directory) use publication::RecoveryPublication;
 pub use request::{CellGroupDisasterFenceRequest, CellGroupRecoveryRequest};
+pub(crate) use seed::RecoverySeedPermit;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug)]
@@ -65,12 +75,32 @@ pub(in crate::raft::catalog::range_directory) struct RecoveryLock {
     request: [u8; 32],
     base: [u8; 32],
     source: wire::Route,
+    phase: RecoveryPhase,
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+enum RecoveryPhase {
+    Source,
+    Published {
+        publication: [u8; 32],
+        manifest: [u8; 32],
+    },
 }
 
 impl RecoveryLock {
     pub(super) fn check(&self, directory: &RangeDirectory) -> Result<(), CatalogError> {
         if self.request == [0; 32] || self.base == [0; 32] {
             return Err(CatalogError::Corrupt("group recovery lock"));
+        }
+        if let RecoveryPhase::Published {
+            publication,
+            manifest,
+        } = self.phase
+        {
+            if publication == [0; 32] || manifest == [0; 32] {
+                return Err(CatalogError::Corrupt("published recovery lock"));
+            }
         }
         self.source_route(directory).map(|_| ())
     }
@@ -163,7 +193,8 @@ impl RangeDirectory {
     ) -> Result<(), CatalogError> {
         match &view.head.recovery {
             Some(lock)
-                if lock.request == request.digest()
+                if lock.phase == RecoveryPhase::Source
+                    && lock.request == request.digest()
                     && Some(lock.base) == request.mutation().request.expected
                     && lock.source_route(self)? == *request.source().route() =>
             {
@@ -190,6 +221,7 @@ impl RangeDirectory {
                 request: request.digest(),
                 base: view.digest,
                 source: wire::Route::encode(request.source().route(), self)?,
+                phase: RecoveryPhase::Source,
             }));
             let bytes = record::encode(wire::HEAD, &view.head, wire::LIMIT)?;
             // A lost response can follow a committed CAS. Observe the exact
@@ -251,7 +283,7 @@ impl RangeDirectory {
                     .recovery()
                     .check_disaster_target(request.replacement())?;
                 self.namespace.claim_disaster_namespace().await?;
-                self.reserve_group_birth(request.replacement()).await?;
+                self.reserve_recovery_birth(&request).await?;
                 self.bounded(async {
                     let observed = self
                         .namespace
