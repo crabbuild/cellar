@@ -20,6 +20,10 @@ use std::sync::Arc;
 #[path = "replica_leadership.rs"]
 mod leadership;
 
+#[cfg(test)]
+#[path = "replica_delivery_tests.rs"]
+mod delivery_tests;
+
 pub(crate) struct Operations {
     owner: Arc<()>,
     next: u64,
@@ -103,6 +107,7 @@ pub(crate) struct Replica {
     phase: Phase,
     pub write: Option<(WriteTicket, GroupWrite)>,
     outbound: VecDeque<RuntimeEventKind>,
+    deliveries: Vec<std::sync::Weak<super::budget::Permit>>,
     apply: VecDeque<Entry>,
     apply_ticket: Option<ApplyTicket>,
     finished_apply: Option<ApplyCompletion>,
@@ -167,6 +172,7 @@ impl Replica {
             phase: Phase::Idle,
             write: None,
             outbound: VecDeque::new(),
+            deliveries: Vec::new(),
             apply: VecDeque::new(),
             apply_ticket: None,
             finished_apply: None,
@@ -693,10 +699,16 @@ impl Replica {
         options: &RaftRuntimeOptions,
         can_collect: bool,
     ) -> Result<bool, RuntimeError> {
-        // Transferring messages into the bounded outbox is the send boundary.
-        // Never advance the Ready until every dependent message is transferred.
+        // The bounded event permit follows a message through transport. A
+        // configuration apply must not revoke its current membership before
+        // that send boundary has completed (successfully or unsuccessfully).
         if let Some(event) = self.outbound.pop_front() {
-            return match outbox.push(event) {
+            let unsent = if matches!(event, RuntimeEventKind::Message { .. }) {
+                outbox.push_tracked(event, &mut self.deliveries)
+            } else {
+                outbox.push(event)
+            };
+            return match unsent {
                 None => Ok(true),
                 Some(event) => {
                     self.outbound.push_front(event);
@@ -988,6 +1000,13 @@ impl Replica {
                 let Some(entry) = self.apply.front() else {
                     return Ok(false);
                 };
+                if entry.get_entry_type() != EntryType::EntryNormal {
+                    self.deliveries
+                        .retain(|delivery| delivery.strong_count() != 0);
+                    if !self.deliveries.is_empty() {
+                        return Ok(false);
+                    }
+                }
                 let position = entry_position(entry);
                 if entry.get_entry_type() == EntryType::EntryNormal && !entry.data.is_empty() {
                     if let Some(completed) = self.finished_apply.take() {
