@@ -16,57 +16,58 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
 The latest runtime/qualification source is
-`dc0ad3c245a2f9e3dd4f261003c868e9a43f19b8`. CG-06 remains IN_PROGRESS. The
-original complete-group dependency case now holds or corrupts an actual B image
-chunk/extent outside A's entire image closure, after a real B mutation. Later A
-S3 settlement cannot complete; independent recovery is pending or fails with the
-exact digest error and the registry selection stays at the preceding cut. Quorum
-successors and all three voter data remain healthy. Delay release returns the
-exact S3 result; repairing injected bytes permits fresh independent data
-recovery but does not silently restart the failed archive owner. Original
-receipts resolve without callbacks and retain their S3 minimum.
+1159e9358c106fe1260c3479759e909e413257a4. CG-06 remains IN_PROGRESS. Its
+original bounded full-S3-backend outage case now passes in both image forms. The
+normal case faults the adapter shared by catalog and archive. The real RustFS
+case stops and restarts the owning runner's actual backend container, preserving
+its pinned identity, owner, image, volume, resource limits and endpoint. Actual
+S3 probe I/O fails during stop and recovers after start; no real-mode wrapper
+fault substitutes for that outage.
 
-The fixture persists and fsyncs the independent recovery client's acquire intent
-before CAS, retains its durable hold across controller head retirement, and
-releases physical receiver/tail ownership before later work. Existing controller
-quotas, timeouts, production behavior and marker-1 records are unchanged. The
-reviewed scope extension adds the owning test helper and its common exports;
-original acceptance cases and invariants remain intact.
+Warm local Quorum commands progress to the explicit nine-entry retention ceiling
+while fresh remote discovery refuses without executing a callback. S3 commands
+may commit locally but cannot return S3, and stored minima survive downgrade
+attempts. At capacity, callbacks/initialization refuse before execution and
+known receipts remain available. Independent complete archive recovery precedes
+publication of the held exact checkpoint. Every voter then selects its complete
+cut and retires actual debt, allowing new work. A failed remote invocation
+retries with unchanged captured inputs, identity, deadline and budget. All three
+voter images and logical versions remain exact; eight callbacks occur once.
 
-Nineteen exact real RustFS controller cases pass in both image forms with seven
-signed probes. Twenty-two regression/check commands pass with 269 Rust cases,
-seven copied executables and 2576 source hashes. All four shared-group native
-suites, all 22 storage cases, locked all-target Clippy, format/layout,
-dependency/docs/preflight/plan validation, 37 Python tests, system-Python
-hashing and independent source/artifact/selection/credential audit pass. Current
-evidence is under `.cellar/cell-groups-evidence/CG-06-archive-dependencies/`.
-Preceding physical-reclamation source 7741e404 and its evidence remain retained,
-including actual old-file removal, reader/checkpoint/sibling preservation,
-all-three retained-disk reopen, exact receipts and new TLS writes. The physical
-case also passes at the new source. Earlier source-bound failures and the
-unresolved 8dfe9ff3 slow-reader timing limitation remain retained.
+Twenty exact real RustFS cases pass in both image forms, with seven signed
+probes and four owner-checked backend stop/start transitions. Twenty-three
+checks pass with 270 Rust cases, seven copied executables and 2580 source
+hashes. All four native shared-group suites, all 22 storage cases, locked
+all-target Clippy, format/layout, dependency/docs/preflight/plan validation, 37
+plan tests, five controller tests, system-Python hashing and independent
+source/artifact/selection/credential/backend-transition audit pass. Evidence is
+under .cellar/cell-groups-evidence/CG-06-full-backend-outage/. The first-source
+inventory mismatch and copied executable reproduction remain retained; the
+correction verifies actual indexes 2, 3 and 4 on all voters and fills the
+unchanged entry ceiling with one additional real command. Earlier dependency and
+physical-reclamation qualifications and the unresolved 8dfe9ff3 slow-reader
+timing limitation remain retained.
 
-Three original CG-06 cases pass: whole-group dependencies, archive tails and
-physical reclaim/restart. Two original cases and the full task gate remain
-pending: bounded Quorum progress against a fully stopped S3 backend, and fenced
-fresh-incarnation serving from a replacement quorum. The next step is to test
-existing local cached and remote fresh-discovery paths separately, then
-implement the missing bounded-outage behavior without weakening catalog/epoch
-authority. Seal/Install/Activate codecs exist, but live apply still rejects
-them; source sealing and exact publication-bound activation must precede any new
-cached-authority shortcut. The preceding private physical-reclaim evidence
-retains the source-bound outage-authority investigation.
+Four original CG-06 cases pass: whole-group dependencies, bounded S3 outage,
+archive tails and physical reclaim/restart. The remaining original case and full
+task gate require fenced unmanaged recovery into fresh group/cell incarnations
+and a serving replacement quorum. Inventory every possible old voter, including
+joins after the selected cut. Use the accepted fencing-authority API plus Docker
+qualification, permanently prevent old-host restart, preserve selected-cut
+results/receipts, reject old tokens, initialize new histories and require fresh
+quorum before serving.
 
-Fenced recovery must inventory every possible old voter, including joins after
-the selected archive cut, through the accepted fencing-authority API plus Docker
-qualification. CG-08 effect/cache/result lifetimes precede CG-07 public
-SDK/fleet cutover, followed by transitions, split/merge, placement, hibernation,
-managed recovery, measured load and final legacy removal. The local RustFS
-matrix uses host-native voters and one VM. It does not qualify full-backend
-outage bounds, independent failure domains, deleted-voter fresh-incarnation
-serving, sustained throughput, global physical disk bounds or the final hard
-cutover. Preserve all earlier evidence and the user's untracked diagram. The
-full end-to-end goal remains active and incomplete.
+CG-08 effect/cache/result lifetimes precede CG-07 public SDK/fleet cutover.
+Irreversible source sealing and activation, split/merge, placement, hibernation,
+managed recovery, real load/crash qualification and final legacy removal follow.
+Do not add a new cached-authority shortcut: live Seal/Install/Activate controls
+still need their durable transition lifecycle and exact publication proofs.
+Current outage evidence covers existing static groups, warm local routes and
+fresh remote refusals. Host-native voters share one machine and RustFS one VM;
+global physical disk bounds, sustained throughput, independent domains and
+deleted-voter fresh-incarnation disaster serving remain unqualified. Preserve
+all predecessor evidence, excluded MR-13/MR-14 progress basenames and the user's
+untracked diagram. The full sixteen-task goal remains active and incomplete.
 
 CG-01 through CG-05 are DONE at their declared native task boundaries. CG-05
 closes at `e0550acd` with all five exact snapshot cases and eighteen passing

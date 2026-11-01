@@ -10,6 +10,97 @@ CG-06 is IN_PROGRESS; CG-07 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-06 bounded Quorum progress during a full S3 backend outage
+
+Source: 1159e9358c106fe1260c3479759e909e413257a4. CG-06 remains IN_PROGRESS. The
+original quorum_continues_bounded_s3_outage case now runs in both image forms,
+alongside an exact real RustFS counterpart. It exercises existing static-group
+local-quorum durability, routing, owned SQL, archive settlement and reclamation
+without changing production behavior or introducing a cached-authority shortcut.
+
+Each scenario explicitly selects a nine-entry group ceiling with one progress
+slot. All three voters first verify the actual retained indexes 2, 3 and 4: one
+election no-op and two enrollments after genesis snapshot index 1. A warm local
+command and remote receipt retry establish current routes and archived state.
+The fixture then disables the adapter shared by catalog and archive; the RustFS
+counterpart instead requests actual Docker stop/start from its owning runner,
+never toggling that adapter's outage flag. Actual S3 probe I/O fails while the
+backend is stopped and returns the same probe bytes after restart.
+
+Warm local commands continue through the actual quorum. A later S3 command
+commits locally but cannot settle; four subsequent Quorum mutations reach the
+exact retained-entry ceiling, preserving every A/B value and logical version on
+all three voters. The next command and initialization refuse before their
+callbacks. A known Quorum receipt remains available at capacity. S3 output
+expires with its original deadline, and a retry asking for Quorum still obeys
+the stored S3 minimum. The healthy group is not quarantined.
+
+A separate, already-warmed remote receiver still performs fresh catalog GETs
+during the outage and refuses before its callback. The same originating
+invocation survives that error and later retries with its exact captured inputs,
+identity, original deadline and attempt budget. No failed response becomes a
+new-command or non-commit proof.
+
+An exact prepared checkpoint cannot publish beyond verified coverage while S3 is
+stopped; the selected checkpoint, retained prefix and debt remain unchanged.
+Restart uses the same RustFS container, image, volume, endpoint and resource
+limits. The durable journal catches up, independent complete recovery verifies
+both A and B, and the original failed S3 command returns its exact result
+without callback replay. The completed verifier releases its one-source pool
+before subsequent settlement. The same prepared checkpoint then selects
+successfully; every voter selects its exact complete cut, retires actual debt to
+zero and releases physical source quota before reuse. New local work and the
+retained remote invocation commit, with eight total callbacks and the expected
+voter state.
+
+The narrow Python controller accepts only four ordered stop/start transitions
+for the two image modes. It checks the captured container ID, owner label,
+pinned image, CPU/memory, port bindings and mounts before and after every
+operation, uses explicit Docker context, and retains actual state observations.
+Requests/replies are bounded, atomic local files. The native fixture performs no
+Docker process calls. Failed children are joined and preserve output; cleanup
+restores only the same verified owned backend. Five protocol/ownership tests
+reject foreign or substituted containers and unexpected actions, verify the
+fixed transitions, and retain failed-child output.
+
+Twenty exact real RustFS cases pass in both image forms with seven signed
+protocol probes and four recorded actual backend transitions. Twenty-three
+regression/check commands pass with 270 Rust cases, seven copied executables and
+2580 source hashes. All four shared-group native suites, all 22 storage cases,
+locked all-target Cellar/logic/LTX Clippy, format/layout,
+dependency/docs/preflight/plan checks, 37 plan tests, five controller tests and
+system-Python hashing pass. Source/artifact/selection/credential and
+backend-transition audit passes under
+.cellar/cell-groups-evidence/CG-06-full-backend-outage/.
+
+The original first-source failure and copied-binary reproduction remain
+retained: an expected count of four came from the older three-cell fixture,
+whereas registered setup enrolls two cells. The successor asserts the physical
+log inventory on every voter and adds one real mutation to reach the unchanged
+nine-entry ceiling. No original oracle, quota, deadline, payload or production
+behavior was weakened. The first real stop/start run and a copied-binary run on
+a fresh backend both return503 for the first probe GET after health200. The
+successor retries only idempotent Generic read failures within the retained
+remote invocation original deadline; missing/authentication failures still
+refuse and exact data must match before proceeding. The outage adapter remains
+noRetry and no mutation retry or production behavior changes. Both failed real
+traces, container observations, copied executable and stopped backend data
+remain retained. Earlier qualifications and the unresolved 8dfe9ff3 slow-reader
+timing limitation remain retained.
+
+Reflection: four original CG-06 cases now pass: complete-group dependencies,
+bounded S3 outage, archive tails and physical reclaim/restart. The remaining
+original case is fenced_group_seed_new_incarnations: permanent old-host fencing,
+complete old-voter inventory including later joins, fresh group/cell histories,
+exact selected-cut results, old-token rejection and a serving replacement
+quorum. Use the accepted fencing-authority API plus Docker qualification. The
+full CG-06 gate is still pending. CG-08 lifetimes precede CG-07 production
+SDK/fleet cutover, followed by irreversible transitions, split/merge, placement,
+hibernation, managed recovery, measured load and final legacy removal. This is
+bounded static-group outage qualification, not a throughput benchmark,
+independent-domain proof, global physical disk bound, voter-disk erasure or
+completed hard cutover.
+
 ## CG-06 complete-group dependency acknowledgement
 
 Source: `dc0ad3c245a2f9e3dd4f261003c868e9a43f19b8`. CG-06 remains IN_PROGRESS.

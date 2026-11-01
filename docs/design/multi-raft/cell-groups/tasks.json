@@ -1775,7 +1775,11 @@
         "crates/cellar/tests/support/cell_group_s3_remote.rs",
         "crates/cellar/tests/support/cell_group_s3_remote_wire.rs",
         "crates/cellar/durability/raft/cell_groups/archive_compaction.rs",
-        "crates/cellar/tests/support/cell_group_archive_dependencies.rs"
+        "crates/cellar/tests/support/cell_group_archive_dependencies.rs",
+        "crates/cellar/tests/support/cell_group_s3_outage.rs",
+        "crates/cellar/tests/support/cell_group_backend_control.rs",
+        "tools/multi-raft/backend_control.py",
+        "tools/multi-raft/test_backend_control.py"
       ],
       "test_target": "native_cell_groups_archive",
       "steps": [
