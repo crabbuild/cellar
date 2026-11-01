@@ -43,9 +43,15 @@ fn attempt(sequence: u64, cell: usize, input: &[u8]) -> Result<CommandAttempt> {
 fn read_image(pin: &CellImagePin) -> Result<Vec<u8>> {
     Ok(match pin {
         CellImagePin::Empty => Vec::new(),
-        CellImagePin::Materialized(pin) => pin
-            .open_reader()?
-            .read_exact_at(0, pin.state().length as usize)?,
+        CellImagePin::Materialized(pin) => {
+            let mut reader = pin.open_reader()?;
+            let mut bytes = Vec::new();
+            while (bytes.len() as u64) < reader.length() {
+                let count = (reader.length() - bytes.len() as u64).min(64 * 1024) as usize;
+                bytes.extend(reader.read_exact_at(bytes.len() as u64, count)?);
+            }
+            bytes
+        }
         CellImagePin::Extents(pin) => {
             let mut bytes = Vec::new();
             for n in 0..pin.manifest().geometry().extent_count() {
