@@ -179,6 +179,10 @@ impl CellPrivateExecutor {
             }
             command::Admission::New(maintenance) => maintenance,
         };
+        let log_reservation = self
+            .authority
+            .reserve_log(self.options.limits.envelope)
+            .map_err(authority_failure)?;
         let sequence = self
             .authority
             .cell()
@@ -255,13 +259,17 @@ impl CellPrivateExecutor {
             )
             .map_err(storage)?;
         self.authority.check().map_err(authority_failure)?;
+        log_reservation
+            .encoded(bytes.len())
+            .map_err(|error| authority_failure(error.into()))?;
         let prepared = CellPreparedCommand::new(
             bytes,
             attempt.proposal,
             self.authority.term(),
             route.history,
             self.authority.engine_owner().clone(),
-        );
+        )
+        .with_log_reservation(log_reservation);
         self.pending = Some(PendingCell {
             prepared: prepared.clone(),
             request: attempt.request,
@@ -314,6 +322,10 @@ impl CellPrivateExecutor {
             .check_committed_entry(pending.prepared.bytes())
             .map_err(authority_failure)?;
         let receipt = self.read_receipt(&committed, &pending.request)?;
+        pending
+            .prepared
+            .release_log_reservation()
+            .map_err(authority_failure)?;
         self.pending = None;
         self.poisoned = true;
         Ok(receipt)
@@ -367,6 +379,10 @@ impl CellPrivateExecutor {
             Ok(None) => return Err(ExecutionError::Uncertain),
         };
         authority.check().map_err(authority_failure)?;
+        pending
+            .prepared
+            .release_log_reservation()
+            .map_err(authority_failure)?;
         self.pending = None;
         self.poisoned = true;
         Ok(resolution)
@@ -414,6 +430,7 @@ impl CellPrivateExecutor {
 
 pub(crate) fn authority_failure(error: RuntimeError) -> ExecutionError {
     match error {
+        RuntimeError::Overloaded => ExecutionError::Refused(CommandFailure::Overloaded),
         RuntimeError::NotReady | RuntimeError::NotLeader | RuntimeError::Closed => {
             ExecutionError::Refused(CommandFailure::Unavailable)
         }

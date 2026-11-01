@@ -366,6 +366,10 @@ impl Worker {
                                 made = true;
                             }
                             Err(RuntimeError::NotReady) => (),
+                            Err(RuntimeError::Overloaded) => {
+                                group.tick = false;
+                                made = true;
+                            }
                             Err(error) => group.fail(error),
                         }
                     } else if let Some(request) = group.deferred.pop_front() {

@@ -432,3 +432,34 @@ Shared log-engine I/O/corruption/closure and lost shared SQL worker replies stil
 close the node. Unknown events and controller ownership violations fail closed.
 Request-driven group provisioning, configuration lifecycle and public SDK
 integration remain unfinished. See the delivery package for qualification status.
+
+
+### Retained entry admission
+
+`ReplicaLogOptions.cell_group_retention` bounds node/group logical retained log
+entries plus owned reservations. Its progress sublimits reserve room for empty
+Raft election and automatic joint-leave entries; ordinary payloads cannot consume
+that space. The charge includes 512 bytes of fixed bookkeeping per entry. These
+are logical entry and admission ceilings, not physical engine file byte limits.
+`log_retention_usage` reports debt and reservations without granting admission.
+
+New SQL commands reserve their bounded encoded envelope after duplicate lookup
+and before application callbacks. Enrollment reserves before initialization.
+Prepared commands retain that lease through submission and shrink it to actual
+encoded bytes. Raft owners reserve inbound appends and local proposals before
+mutation, including prospective election and automatic configuration entries.
+Existing completion and read-index work does not consume ordinary entry admission.
+Sealed pre-append rejection or authoritative receipt reconciliation retires an
+unused preparation independently of client clones.
+
+Entered storage retains exact engine/group/entry-bound leases after waiter loss.
+After sync and cache/root publication, one ledger operation transfers them into
+actual selected entry debt without a release gap or double charge. Suffix
+replacement and selected checkpoints update debt from actual retained entries;
+archive observations cannot refund it. Reopen reconstructs debt from the selected
+log, retaining entries even under a newly lowered admission limit. Mutations
+refuse until a reservation fits. No serialized field or per-cell worker is added.
+
+The admission implementation and new boundary cases are under qualification.
+Full-backend S3 outage authority, physical file amplification/reclamation,
+sustained-load fairness and the original CG-06 task gates remain pending.

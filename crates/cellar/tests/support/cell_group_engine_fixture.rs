@@ -100,6 +100,27 @@ impl Cluster {
         store: Arc<dyn object_store::ObjectStore>,
         minimum: Durability,
     ) -> Result<Self> {
+        Self::with_store_retention(
+            options,
+            root,
+            filesystem,
+            schema,
+            store,
+            minimum,
+            Default::default(),
+        )
+        .await
+    }
+
+    async fn with_store_retention(
+        options: RaftRuntimeOptions,
+        root: tempfile::TempDir,
+        filesystem: Arc<dyn cellar_ltx::FileSystem>,
+        schema: [u8; 32],
+        store: Arc<dyn object_store::ObjectStore>,
+        minimum: Durability,
+        retention: CellGroupLogRetentionLimits,
+    ) -> Result<Self> {
         let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         let history = GroupHistory {
             cluster: ClusterId::new([1; 16])?,
@@ -145,13 +166,17 @@ impl Cluster {
             let gate = fault::Gate::new(None);
             let log = domain
                 .run(ReplicaLog::open(
-                    ReplicaLogOptions::new(
-                        base.join("log"),
-                        NodeId::new([n; 16])?,
-                        DiskLineage::new([n + 10; 16])?,
-                        ProcessGeneration::new([20; 16])?,
-                        LogOpenMode::Create,
-                    ),
+                    {
+                        let mut log = ReplicaLogOptions::new(
+                            base.join("log"),
+                            NodeId::new([n; 16])?,
+                            DiskLineage::new([n + 10; 16])?,
+                            ProcessGeneration::new([20; 16])?,
+                            LogOpenMode::Create,
+                        );
+                        log.cell_group_retention = retention;
+                        log
+                    },
                     Arc::new(fault::FaultFileSystem { gate: gate.clone() }),
                 ))
                 .await??;

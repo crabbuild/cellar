@@ -25,6 +25,7 @@ pub struct ReplicaLogOptions {
     pub max_batch_bytes: usize,
     pub max_cache_bytes: usize,
     pub max_entries_per_group: usize,
+    pub cell_group_retention: super::cell_groups::CellGroupLogRetentionLimits,
     pub target_file_bytes: u64,
     pub purge_threshold_bytes: u64,
     /// Minimum interval between dirty-engine purge passes on the storage worker.
@@ -56,6 +57,7 @@ impl ReplicaLogOptions {
             max_batch_bytes: 32 * 1024 * 1024,
             max_cache_bytes: 256 * 1024 * 1024,
             max_entries_per_group: 16_384,
+            cell_group_retention: Default::default(),
             target_file_bytes: 16 * 1024 * 1024,
             purge_threshold_bytes: 64 * 1024 * 1024,
             purge_interval_ms: Some(1000),
@@ -64,6 +66,7 @@ impl ReplicaLogOptions {
     }
 
     pub(crate) fn validate(&self) -> Result<(), LogError> {
+        self.cell_group_retention.validate()?;
         self.snapshot_scratch
             .validate()
             .map_err(|e| LogError::Invalid(e.to_string()))?;

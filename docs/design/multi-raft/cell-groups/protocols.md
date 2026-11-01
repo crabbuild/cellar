@@ -1044,3 +1044,37 @@ owns the current remote hold, and no idle per-group replay workspace is kept.
 This gate covers local checkpoint publication. Full-backend outage retention
 admission, Raft file purge, peer-install integration of deployment archive policy,
 fresh-quorum recovery and the public hard cutover remain separate requirements.
+
+
+### Engine-local retained entry ledger
+
+The shared-group storage engine owns one node ledger and one small group record
+per physical history. `ReplicaLogOptions.cell_group_retention` supplies explicit
+node/group byte and entry ceilings and bounded progress sublimits. Ordinary data
+cannot consume the progress allowance for Raft's empty election/automatic leave
+entries. Per-entry charges include fixed bookkeeping. Advisory debt observations
+are not physical file measurements, durability proofs or admission capabilities.
+
+Duplicate receipts resolve before new callback admission. A new command or
+initializer must obtain an owned worst-envelope reservation before executing user
+code. Encoded preparation shrinks that reservation; delayed submission, ambiguous
+outcomes and entered physical work retain it. Definitively sealed pre-append
+rejection and authoritative receipt reconciliation may release unused leases.
+
+Before RawNode mutation, the owner admits local proposals, inherited peer entries
+and possible election no-ops. Automatic joint leave receives promised capacity
+before the configuration can require it; apply must not seek new admission after
+its durable configuration is selected. Read-index envelopes are not log appends.
+Heartbeat/read/completion work preserves its independent lanes at saturation.
+
+Persistence validates exact engine, group and entry bindings. Its selected cache
+and root state precede an atomic reservation-to-debt transfer. Failed preflight
+cannot change durable debt. Unknown physical outcomes close the engine; reopen
+reconstructs actual retained debt without trusting old in-memory reservations.
+Conflicting suffixes and local checkpoints retire only actual selected entries.
+Archive coverage/status alone never releases ledger debt. A smaller restart limit
+preserves selected entries and closes new admission until a reservation fits.
+
+This contract is being implemented and qualified. It does not by itself prove
+physical disk bounds, full-backend S3 outage authority, fenced fresh-quorum serving
+or the complete CG-06 gate. Those original requirements remain unchanged.

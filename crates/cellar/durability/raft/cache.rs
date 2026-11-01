@@ -105,6 +105,8 @@ pub enum SnapshotChange {
 
 #[derive(Clone)]
 pub struct GroupWrite<S = GroupScope> {
+    pub(crate) log_reservations:
+        BTreeMap<u64, Arc<super::cell_groups::log_retention::LogReservation>>,
     pub(crate) require_archive:
         Option<Arc<super::cell_groups::archive_compaction::ArchiveActivation>>,
     pub(crate) checkpoint_admission:
@@ -124,6 +126,7 @@ pub struct GroupWrite<S = GroupScope> {
 impl<S: Clone> GroupWrite<S> {
     pub fn new(group: &GroupLog<S>) -> Self {
         Self {
+            log_reservations: BTreeMap::new(),
             require_archive: None,
             checkpoint_admission: None,
             consensus_pin: None,
@@ -196,6 +199,7 @@ impl<S: Clone> GroupWrite<S> {
 /// The engine rejects mixed application domains and never casts between them.
 #[derive(Clone)]
 pub struct GroupLog<S = GroupScope> {
+    pub(crate) log_retention: Option<Arc<super::cell_groups::log_retention::GroupLogRetention>>,
     pub(crate) archive_compaction: Arc<super::cell_groups::archive_compaction::ArchiveCompaction>,
     pub(crate) consensus_claimed: Arc<AtomicBool>,
     pub(crate) scratch_directory: std::path::PathBuf,
@@ -985,5 +989,18 @@ pub(crate) fn genesis(conf_state: ConfState) -> CachedGroup {
             },
             image: None,
         },
+    }
+}
+
+impl GroupLog<GroupHistory> {
+    /// Advisory logical entry debt and owned reservations; not physical file
+    /// usage, archive coverage or permission to admit a mutation.
+    pub fn log_retention_usage(
+        &self,
+    ) -> Result<super::cell_groups::CellGroupLogRetentionUsage, LogError> {
+        self.log_retention
+            .as_ref()
+            .ok_or(LogError::WrongIdentity)?
+            .usage()
     }
 }

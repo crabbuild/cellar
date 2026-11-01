@@ -172,6 +172,7 @@ enum Phase {
 }
 
 pub struct CellGroupOwner {
+    log_admission: super::log_admission::LogAdmission,
     leader_term: Arc<AtomicU64>,
     lease: Arc<Lease>,
     log: ReplicaLog,
@@ -259,6 +260,7 @@ impl CellGroupOwner {
             Some(seed),
         )?;
         Ok(Self {
+            log_admission: Default::default(),
             leader_term: Arc::new(AtomicU64::new(0)),
             lease,
             log: permit.log().clone(),
@@ -283,6 +285,18 @@ impl CellGroupOwner {
             proposals: Default::default(),
             prepared_only: false,
         })
+    }
+
+    fn finish_log_admission(
+        &mut self,
+        next: super::log_admission::Prospective,
+    ) -> Result<(), RuntimeError> {
+        if let Err(error) = self.log_admission.finish(&self.group, &self.node, next) {
+            self.failed = Some(error.clone());
+            self.revoke_execution();
+            return Err(error);
+        }
+        Ok(())
     }
 
     pub(super) fn revoke_execution(&mut self) {
@@ -495,7 +509,11 @@ impl CellGroupOwner {
         if self.phase.is_some() || self.checkpoint.is_some() {
             return Err(RuntimeError::NotReady);
         }
+        let admission = self
+            .log_admission
+            .election(&self.group, &self.node, Default::default())?;
         let result = self.node.campaign();
+        self.finish_log_admission(admission)?;
         self.refresh_execution_fence();
         result?;
         Ok(())
@@ -543,7 +561,14 @@ impl CellGroupOwner {
         if self.phase.is_some() || self.node.has_ready() {
             return Err(RuntimeError::NotReady);
         }
+        let admission = if self.node.raft.state == StateRole::Leader {
+            Default::default()
+        } else {
+            self.log_admission
+                .election(&self.group, &self.node, Default::default())?
+        };
         self.node.tick();
+        self.finish_log_admission(admission)?;
         self.refresh_execution_fence();
         Ok(())
     }
@@ -700,6 +725,7 @@ impl CellGroupOwner {
             return Err(RuntimeError::Overloaded);
         }
         let result = self.node.step(message);
+        self.finish_log_admission(Default::default())?;
         self.refresh_execution_fence();
         result?;
         if let Some(snapshot) = self.node.snap() {
@@ -724,7 +750,26 @@ impl CellGroupOwner {
             return Err(RuntimeError::NotReady);
         }
         self.validate_message(&message)?;
+        let entries = if message.get_msg_type() == MessageType::MsgAppend {
+            message.entries.as_slice()
+        } else {
+            &[]
+        };
+        let mut admission = self.log_admission.prepare(&self.group, entries, None)?;
+        if self.node.raft.state != StateRole::Leader
+            && matches!(
+                message.get_msg_type(),
+                MessageType::MsgRequestVoteResponse
+                    | MessageType::MsgRequestPreVoteResponse
+                    | MessageType::MsgTimeoutNow
+            )
+        {
+            admission = self
+                .log_admission
+                .election(&self.group, &self.node, admission)?;
+        }
         let result = self.node.step(message);
+        self.finish_log_admission(admission)?;
         self.refresh_execution_fence();
         result?;
         Ok(())
@@ -788,7 +833,17 @@ impl CellGroupOwner {
         }
         drop(cache);
         let expected = entry.data.clone();
-        if let Err(error) = self.node.propose_conf_change(Vec::new(), change.change) {
+        let admission =
+            self.log_admission
+                .prepare(&self.group, std::slice::from_ref(&entry), None)?;
+        let admission = self.log_admission.configuration(
+            &self.group,
+            admission,
+            change.change.enter_joint() == Some(true),
+        )?;
+        let result = self.node.propose_conf_change(Vec::new(), change.change);
+        self.finish_log_admission(admission)?;
+        if let Err(error) = result {
             let error = RuntimeError::from(error);
             if self.node.raft.raft_log.last_index() != before {
                 self.failed = Some(error.clone());
@@ -833,7 +888,8 @@ impl CellGroupOwner {
         if self.prepared_only {
             return Err(RuntimeError::Invalid("prepared submission required".into()));
         }
-        self.try_propose(data)?.ok_or(RuntimeError::Overloaded)
+        self.try_propose(data, None)?
+            .ok_or(RuntimeError::Overloaded)
     }
 
     /// Seals a definitively refused preparation against every delayed clone.
@@ -853,11 +909,15 @@ impl CellGroupOwner {
             if prepared.term().get() != self.node.raft.term {
                 return Err(RuntimeError::StaleCompletion);
             }
-            self.try_propose(prepared.bytes().to_vec())
+            self.try_propose(prepared.bytes().to_vec(), Some(prepared.log_reservation()?))
         })
     }
 
-    fn try_propose(&mut self, data: Vec<u8>) -> Result<Option<CellGroupProposal>, RuntimeError> {
+    fn try_propose(
+        &mut self,
+        data: Vec<u8>,
+        reservation: Option<&Arc<super::log_retention::LogReservation>>,
+    ) -> Result<Option<CellGroupProposal>, RuntimeError> {
         if !self.status()?.ready {
             return Err(RuntimeError::NotReady);
         }
@@ -887,7 +947,24 @@ impl CellGroupOwner {
             super::proposal_admission::Admission::New(candidate, permit) => (candidate, permit),
         };
         let before = self.node.raft.raft_log.last_index();
-        if let Err(error) = self.node.propose(Vec::new(), data) {
+        let entry = Entry {
+            index: before + 1,
+            term: self.node.raft.term,
+            data: data.clone().into(),
+            ..Default::default()
+        };
+        let admission =
+            match self
+                .log_admission
+                .prepare(&self.group, std::slice::from_ref(&entry), reservation)
+            {
+                Ok(admission) => admission,
+                Err(RuntimeError::Overloaded) => return Ok(None),
+                Err(error) => return Err(error),
+            };
+        let result = self.node.propose(Vec::new(), data);
+        self.finish_log_admission(admission)?;
+        if let Err(error) = result {
             let error = RuntimeError::from(error);
             if self.node.raft.raft_log.last_index() != before {
                 self.failed = Some(error.clone());
@@ -1133,6 +1210,7 @@ impl CellGroupOwner {
         mut write: GroupWrite<GroupHistory>,
     ) -> Result<CellGroupEffect, RuntimeError> {
         let ticket = self.ticket(LogPosition::default(), [0; 32])?;
+        write.log_reservations = self.log_admission.persistence(&write.entries)?;
         write.consensus_pin = Some(self.lease.clone());
         self.waiting = Some(ticket.clone());
         Ok(CellGroupEffect::Persist(Box::new(CellGroupPersist {
@@ -1257,6 +1335,7 @@ impl CellGroupOwner {
                     }
                     self.enqueue(ready.take_committed_entries())?;
                     let light = self.node.advance_append(*ready);
+                    self.finish_log_admission(Default::default())?;
                     if let Some(index) = installed {
                         self.node.advance_apply_to(index);
                         self.proposals.clear();
@@ -1356,7 +1435,13 @@ impl CellGroupOwner {
                         self.refresh_execution_fence();
                     }
                     let last = self.node.raft.raft_log.last_index();
+                    let automatic = self.node.raft.state == StateRole::Leader
+                        && self.node.raft.prs().conf().auto_leave
+                        && self.node.raft.raft_log.applied <= self.node.raft.pending_conf_index
+                        && ticket.position.index.get() >= self.node.raft.pending_conf_index;
+                    let admission = self.log_admission.applying(automatic)?;
                     self.node.advance_apply_to(ticket.position.index.get());
+                    self.finish_log_admission(admission)?;
                     if self.node.raft.raft_log.last_index() > last {
                         // Raft appended an automatic joint-leave entry. Drive
                         // replication without waiting for a later write/tick;

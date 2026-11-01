@@ -47,6 +47,7 @@ const LIFECYCLE_KEY: &[u8] = b"cellar-node-lifecycle";
 
 #[derive(Clone)]
 struct EngineCaches {
+    log_retention: Arc<super::cell_groups::log_retention::NodeLogRetention>,
     usage: Arc<AtomicUsize>,
     lifecycle: Arc<Mutex<LifecycleRecord>>,
 }
@@ -164,6 +165,7 @@ pub struct ReplicaLog {
 }
 
 struct LogHandle {
+    log_retention: Arc<super::cell_groups::log_retention::NodeLogRetention>,
     snapshot_scratch: cellar_ltx::stream_snapshot::ScratchPool,
     performance: Arc<Performance>,
     instance: std::sync::OnceLock<cellar_logic::consensus::EngineInstanceId>,
@@ -304,6 +306,15 @@ impl RuntimeLease {
 }
 
 impl ReplicaLog {
+    /// Advisory node-wide logical retained-entry debt and reservation use.
+    /// This is not physical file accounting or an admission capability.
+    pub fn cell_group_log_retention_usage(
+        &self,
+    ) -> Result<super::cell_groups::CellGroupLogRetentionUsage, LogError> {
+        self.admit()?;
+        self.inner.log_retention.usage()
+    }
+
     pub(crate) fn performance(&self) -> Arc<Performance> {
         self.inner.performance.clone()
     }
@@ -413,6 +424,10 @@ impl ReplicaLog {
         let (ready, wait) = oneshot::channel();
         let groups = Arc::new(RwLock::new(BTreeMap::new()));
         let closed = Arc::new(AtomicBool::new(false));
+        let log_retention = super::cell_groups::log_retention::NodeLogRetention::new(
+            options.cell_group_retention,
+            closed.clone(),
+        );
         let abort = Arc::new(AtomicBool::new(false));
         let terminal = Arc::new(Terminal {
             result: Mutex::new(None),
@@ -424,6 +439,7 @@ impl ReplicaLog {
         let lifecycle_cache = Arc::new(Mutex::new(LifecycleRecord::empty()));
         let handle = Self {
             inner: Arc::new(LogHandle {
+                log_retention: log_retention.clone(),
                 snapshot_scratch,
                 performance: performance.clone(),
                 instance: std::sync::OnceLock::new(),
@@ -475,6 +491,7 @@ impl ReplicaLog {
                     owner,
                     closed.clone(),
                     EngineCaches {
+                        log_retention,
                         usage: cache_usage,
                         lifecycle: lifecycle_cache,
                     },
@@ -850,6 +867,7 @@ impl MessageExt for EntryCodec {
 }
 
 struct Worker {
+    log_retention: Arc<super::cell_groups::log_retention::NodeLogRetention>,
     filesystem: Arc<dyn FileSystem>,
     snapshot_scratch: cellar_ltx::stream_snapshot::ScratchPool,
     performance: Arc<Performance>,
@@ -1009,6 +1027,7 @@ impl Worker {
         }
         *caches.lifecycle.lock().map_err(|_| LogError::Closed)? = lifecycle.clone();
         let mut worker = Self {
+            log_retention: caches.log_retention,
             filesystem: fs.clone(),
             snapshot_scratch,
             performance,
@@ -1181,7 +1200,16 @@ impl Worker {
         cache: CachedGroup,
         scope: S,
     ) -> Result<GroupLog<S>, LogError> {
+        let log_retention = if mapping.is_cells() {
+            Some(
+                self.log_retention
+                    .register(mapping.key, cache.entries.values())?,
+            )
+        } else {
+            None
+        };
         Ok(GroupLog {
+            log_retention,
             archive_compaction: Arc::new(
                 super::cell_groups::archive_compaction::ArchiveCompaction::new(
                     cache.archive_required,
@@ -1470,6 +1498,7 @@ impl Worker {
         let mut next_bytes = self.cache_bytes;
         let mut batch = LogBatch::default();
         let mut archive_admissions = Vec::new();
+        let mut log_admissions = Vec::new();
         for write in &writes {
             if !Arc::ptr_eq(&write.group.owner, &self.owner) || !unique.insert(write.group.key) {
                 return Err(LogError::WrongIdentity);
@@ -1510,6 +1539,28 @@ impl Worker {
                 self.options.max_entries_per_group,
                 mapping.history()?,
             )?;
+            let mut leases = Vec::new();
+            if let Some(retention) = &write.group.log_retention {
+                let indices: BTreeSet<_> = write.entries.iter().map(|e| e.index).collect();
+                if !write
+                    .log_reservations
+                    .keys()
+                    .all(|index| indices.contains(index))
+                {
+                    return Err(LogError::WrongIdentity);
+                }
+                for entry in &write.entries {
+                    if let Some(lease) = write.log_reservations.get(&entry.index) {
+                        lease.validate(retention, entry)?;
+                        leases.push(lease.clone());
+                    } else if old.entries.get(&entry.index) != Some(entry) {
+                        leases.push(retention.reserve_entry(entry)?);
+                    }
+                }
+            } else if !write.log_reservations.is_empty() {
+                return Err(LogError::WrongIdentity);
+            }
+            log_admissions.push(leases);
             next_bytes = next_bytes
                 .checked_sub(old.bytes())
                 .and_then(|size| size.checked_add(next.bytes()))
@@ -1608,6 +1659,16 @@ impl Worker {
             publication
                 .commit()
                 .map_err(|e| LogError::Corrupt(e.to_string()))?;
+        }
+        for (write, leases) in writes.iter().zip(&log_admissions) {
+            if let Some(retention) = &write.group.log_retention {
+                let cache = write.group.read()?;
+                retention
+                    .publish(cache.entries.values(), leases)
+                    .map_err(|error| {
+                        LogError::Corrupt(format!("retained log publication: {error}"))
+                    })?;
+            }
         }
         for write in &writes {
             if let Some(activation) = &write.require_archive {

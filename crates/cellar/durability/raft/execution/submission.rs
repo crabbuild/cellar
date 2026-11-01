@@ -26,6 +26,7 @@ struct Submission {
 
 #[derive(Clone)]
 pub struct CellPreparedCommand {
+    log_reservation: Option<Arc<crate::raft::cell_groups::log_retention::LogReservation>>,
     bytes: Arc<Vec<u8>>,
     proposal: ProposalId,
     term: Term,
@@ -55,6 +56,7 @@ impl CellPreparedCommand {
         engine: Arc<()>,
     ) -> Self {
         Self {
+            log_reservation: None,
             bytes: Arc::new(bytes),
             proposal,
             term,
@@ -64,6 +66,29 @@ impl CellPreparedCommand {
                 decision: Mutex::new(Decision::Open),
             }),
         }
+    }
+
+    pub(super) fn with_log_reservation(
+        mut self,
+        lease: Arc<crate::raft::cell_groups::log_retention::LogReservation>,
+    ) -> Self {
+        self.log_reservation = Some(lease);
+        self
+    }
+
+    pub(crate) fn log_reservation(
+        &self,
+    ) -> Result<&Arc<crate::raft::cell_groups::log_retention::LogReservation>, RuntimeError> {
+        self.log_reservation
+            .as_ref()
+            .ok_or_else(|| RuntimeError::Invalid("missing prepared log reservation".into()))
+    }
+
+    pub(super) fn release_log_reservation(&self) -> Result<(), RuntimeError> {
+        if let Some(lease) = &self.log_reservation {
+            lease.release()?;
+        }
+        Ok(())
     }
 
     pub fn term(&self) -> Term {
@@ -126,6 +151,7 @@ impl CellPreparedCommand {
             }
             Ok(None) if !uncertain => {
                 *decision = Decision::Rejected;
+                self.release_log_reservation()?;
                 Ok(CellSubmissionOutcome::Rejected(self.rejected()))
             }
             Ok(None) => {
@@ -158,6 +184,9 @@ impl CellPreparedCommand {
             .map_err(|_| RuntimeError::Protocol("submission state poisoned".into()))?;
         if matches!(*decision, Decision::Open) {
             *decision = Decision::Rejected;
+        }
+        if matches!(*decision, Decision::Rejected) {
+            self.release_log_reservation()?;
         }
         Ok(matches!(*decision, Decision::Rejected).then(|| self.rejected()))
     }

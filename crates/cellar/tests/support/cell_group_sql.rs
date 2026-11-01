@@ -667,3 +667,7 @@ mod node_reclaim;
 pub(crate) use node_reclaim::shared_inventory;
 
 pub(crate) use seed_crash::seed_retry;
+
+#[path = "cell_group_log_retention.rs"]
+mod log_retention;
+pub(super) use log_retention::retained_log_admission;

@@ -69,11 +69,16 @@ mod image_pin;
 mod manifest;
 pub(crate) mod membership;
 pub use membership::CellGroupMembershipChange;
+mod log_admission;
+pub(crate) mod log_retention;
 mod owner;
 mod page_store;
 mod page_wire;
 mod pins;
 mod proposal_admission;
+pub use log_retention::{
+    CellGroupLogCapacity, CellGroupLogRetentionLimits, CellGroupLogRetentionUsage,
+};
 mod read_authority;
 pub(crate) mod reclaim;
 pub use read_authority::{CellReadAuthority, CellReadConsistency};

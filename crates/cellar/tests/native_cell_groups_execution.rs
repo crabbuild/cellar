@@ -1347,3 +1347,13 @@ async fn provisioning_recovers_selected_roots() -> Result<()> {
 async fn provisioning_refusals_preserve_healthy_group() -> Result<()> {
     runtime_fixture::provisioning_refusals_preserve_healthy_group().await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn retained_log_materialized_refuses_new_callbacks_and_reclaims() -> Result<()> {
+    Box::pin(runtime_fixture::retained_log_admission(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn retained_log_extents_refuse_new_callbacks_and_reclaim() -> Result<()> {
+    Box::pin(runtime_fixture::retained_log_admission(true)).await
+}

@@ -22,6 +22,21 @@ pub struct CellEnrollmentState {
 }
 
 impl CellEnrollmentState {
+    pub(crate) fn reserve_log(
+        &self,
+        envelope: crate::application::consensus::EnvelopeLimits,
+    ) -> Result<Arc<super::log_retention::LogReservation>, RuntimeError> {
+        self.group
+            .log_retention
+            .as_ref()
+            .ok_or_else(|| RuntimeError::Protocol("missing cell-group log retention".into()))?
+            .reserve_execution(envelope)
+            .map_err(|error| match error {
+                crate::raft::storage::LogError::Overloaded => RuntimeError::Overloaded,
+                other => RuntimeError::Storage(other),
+            })
+    }
+
     pub(crate) fn engine_owner(&self) -> &Arc<()> {
         &self.group.owner
     }

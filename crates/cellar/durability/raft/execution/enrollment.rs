@@ -24,6 +24,7 @@ pub enum CellEnrollmentResolution {
 }
 
 struct Pending {
+    log_reservation: std::sync::Arc<crate::raft::cell_groups::log_retention::LogReservation>,
     record: EnrollmentRecord,
     _preview: Preview,
     submitted: bool,
@@ -102,6 +103,11 @@ impl CellPrivateEnrollment {
             return Err(ExecutionError::Busy);
         }
         self.authority.check().map_err(authority_failure)?;
+        let log_reservation = self
+            .authority
+            .state()
+            .reserve_log(self.options.limits.envelope)
+            .map_err(authority_failure)?;
         self.staged = true;
         let working = self
             .working
@@ -168,7 +174,11 @@ impl CellPrivateEnrollment {
             )
             .map_err(storage)?;
         self.authority.check().map_err(authority_failure)?;
+        log_reservation
+            .encoded(bytes.len())
+            .map_err(|error| authority_failure(error.into()))?;
         self.pending = Some(Pending {
+            log_reservation: log_reservation.clone(),
             record,
             _preview: preview,
             submitted: false,
@@ -179,7 +189,8 @@ impl CellPrivateEnrollment {
             state.term(),
             state.route().history,
             state.engine_owner().clone(),
-        ))
+        )
+        .with_log_reservation(log_reservation))
     }
 
     pub fn mark_submitted(&mut self, creation: ProposalId) -> Result<(), ExecutionError> {
@@ -215,6 +226,10 @@ impl CellPrivateEnrollment {
             Some(_) => CellEnrollmentResolution::Conflict,
             None => CellEnrollmentResolution::NotCommitted,
         };
+        pending
+            .log_reservation
+            .release()
+            .map_err(|error| authority_failure(error.into()))?;
         self.pending = None;
         Ok(outcome)
     }

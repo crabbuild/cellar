@@ -922,3 +922,7 @@ pub(super) use sql::{seed_crash, seed_process_fixture};
 pub(super) use sql::{membership_crash, membership_process_fixture};
 
 pub(super) use sql::{seed_retry, shared_inventory};
+
+pub(super) async fn retained_log_admission(rooted: bool) -> Result<()> {
+    Box::pin(sql::retained_log_admission(rooted)).await
+}
