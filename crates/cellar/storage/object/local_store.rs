@@ -146,9 +146,15 @@ impl LocalStore {
         connection
             .pragma_update(None, "journal_mode", "WAL")
             .map_err(db_error)?;
+        // Publish the complete metadata schema atomically. FULL synchronization
+        // still proves the commit, without an independent fsync for every DDL
+        // statement on the first cold request that opens this store.
+        let schema =
+            rusqlite::Transaction::new_unchecked(&connection, TransactionBehavior::Immediate)
+                .map_err(db_error)?;
         // A trailing BLOB preserves SQLite's zero-tail optimization while
         // incremental writes fill the space reserved by ZeroBlob.
-        connection
+        schema
             .execute_batch(
                 "CREATE TABLE IF NOT EXISTS __sys_local_objects (
                    key TEXT PRIMARY KEY,
@@ -199,6 +205,7 @@ impl LocalStore {
                  INSERT OR IGNORE INTO __sys_local_sequence(singleton, next_etag) VALUES (1, 1);",
             )
             .map_err(db_error)?;
+        schema.commit().map_err(db_error)?;
         Ok(Self {
             database,
             multipart_policy,
