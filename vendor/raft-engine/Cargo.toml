@@ -18,6 +18,7 @@ authors = ["The TiKV Project Developers"]
 description = "Cellar fork of raft-engine with injected storage and fail-closed sync errors"
 readme = "README.md"
 license = "Apache-2.0"
+exclude = ["Cargo.toml.orig"]
 repository = "https://github.com/crabbuild/cellar"
 
 [package.metadata.docs.rs]

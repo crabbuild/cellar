@@ -29,6 +29,7 @@ categories = [
     "database-implementations",
 ]
 license = "Apache-2.0"
+exclude = ["Cargo.toml.orig"]
 repository = "https://github.com/crabbuild/cellar"
 
 [lib]
