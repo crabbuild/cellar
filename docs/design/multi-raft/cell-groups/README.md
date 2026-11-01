@@ -7,10 +7,12 @@ CG-01 through CG-05 have passed their scoped native evidence gates. CG-05's
 complete checkpoint, authenticated learner/rebuild, membership, restart and
 resource-ownership requirements pass at `e0550acd`. Its current gate includes
 all five exact cases and 205 Rust regressions across eighteen commands.
-CG-06 is IN_PROGRESS: independent data recovery after voter-directory erasure and
-protected complete-cut publication/remote collection pass native gates. S3 output
-settlement, bounded outage admission, local Raft file purge and fenced seeding
-remain the next priorities.
+CG-06 is IN_PROGRESS: complete S3 checkpoint/tail recovery, bounded S3 settlement,
+local log reclamation, exact recovery fencing and fresh-history data preparation
+pass their scoped gates. Fresh engine genesis, atomic fenced publication,
+committed activation and a fresh serving quorum remain the immediate priorities.
+CG-08 due effects and safe cold-cache eviction follow, before CG-07 SDK/fleet
+cutover. See the latest [progress](progress.md) and [handoff](handoff.md).
 The production SDK/fleet has not yet cut over; topology, hibernation, complete S3
 recovery and deployment/release qualification remain tracked in later tasks.
 See [implementation progress](progress.md) and the generated task index.

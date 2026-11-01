@@ -10,6 +10,71 @@ CG-06 is IN_PROGRESS; CG-07 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-06 fresh-history data import and pending admission
+
+Source: 7052d218d60181d7b0bb5a4c12686e80e294a61c. CG-06 remains IN_PROGRESS. A fenced,
+complete source cut can now be prepared into dedicated replacement stores using
+`CellGroupRecoveryPool::prepare`. Every cell receives the replacement group's
+fresh incarnation, sequence 1, a new enrollment record and a genesis witness.
+SQLite bytes stay exact; materialized generation identity is rederived and extent
+history metadata is rebound while verified payload identities are reused. The
+source intent and its retained remote hold preserve original-witness provenance.
+No application callback or Raft engine is created by this data preparation.
+
+The replacement manifest carries mandatory nullable recovery lifecycle metadata.
+Pending roots refuse writes, enrollment, stale/strong reads, receipt reconciliation,
+membership changes and learner seed authority. No-ops preserve pending state.
+Snapshot receive and selected-root reopen retain the full marker; storage refuses
+forgetting or replacing recovery lineage. Deterministic apply checks the exact
+activation operation, proposal and seed commitment, preserves the first activation
+on an identical retry and rejects conflicting activation. A catalog-bound leader
+activation admission API and actual replacement-quorum activation remain required.
+
+One node-wide import pool separately bounds cells, restored bytes, metadata and
+image workspace. Result/root clones retain import admission. Cancellation during
+actual disk sync retains source pins and permits until entered physical work
+finishes; shutdown joins it. Clones of the fenced data proof share one verified
+cut and its existing admission when preparing multiple destinations.
+
+At this source, seven native shared-group suites pass 246 cases; 36 recovery-related
+unit cases and eleven legacy disaster cases also pass. The exact real RustFS
+import case passes in both image forms with seven signed S3 probes. It checks
+all-cell byte equality, fresh identities/witnesses, old-token rejection, admission
+limits and stable retries. All-target locked Cellar/logic Clippy, format/layout
+(1971 Rust files), native dependency/docs/preflight/plan checks, 37 plan tests and
+five backend-controller tests pass. The owned RustFS backend/profile are stopped
+with data retained and the default Docker context preserved. Independent audit
+checks 2588 source inputs, Git blobs/symlinks, copied executables, exact case
+selection and credential exclusion.
+
+Evidence: `.cellar/cell-groups-evidence/CG-06-recovery-import/qualification/record.json`
+(SHA256 `1c7ea62c6bd5c1e81357961c4acba22bb2820d89bc3556ec3bcaf82a43e1c0a3`); independent audit
+`1eae08c2bd03eb6fc42d81ae665533716aff5c90cc9217e92221733119d5b75d`. The initial test-fixture private-import compilation error and
+its interrupted compiler are retained in `focus-01/`; corrected source passes.
+The initial uncommitted-baseline preflight refusal is retained and the pinned
+source preflight passes. Earlier socket/deadline/host-pressure and slow-reader
+limitations remain historical; no causal fix is claimed for them.
+
+This follows the repository's internal marker-1 hard cutover: older intermediate
+cell-group manifest/archive shapes have no compatibility reader. Current native
+and RustFS fixtures use the complete new shape. Qualification here covers data
+preparation and admission barriers. The replacement still has no engine genesis,
+node/member/disk/engine seed binding, fenced publication or serving permission.
+Docker voter fencing, fresh-quorum serving after erasing every voter disk, actual
+registered-command duplicate receipt recovery and the original
+`fenced_group_seed_new_incarnations` oracle remain pending.
+
+Next, consume the complete typed preparation through atomic fresh-genesis storage
+and durable physical identity claims. Ordinary bootstrap must refuse an empty or
+missing replacement seed after publication. Publish exactly once under the
+existing recovery lock, then admit activation only with a catalog-bound permit
+and prove its actual commit/apply through a fresh quorum. Reverify fencing on
+resume and keep the source hold while its provenance is referenced. Complete the
+accepted Docker authority drill and the original full CG-06 gate before marking
+this task DONE. Then CG-08 due effects and safe cold-cache eviction precede CG-07
+public SDK/fleet cutover; transfer, split/merge, placement, hibernation, load/crash
+qualification and final legacy removal remain required.
+
 ## CG-06 exact whole-group recovery intents and fencing barrier
 
 Source: 65c5176975907fb52a53deca58e1ae1f5ba7adec. CG-06 remains IN_PROGRESS. The new

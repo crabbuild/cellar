@@ -15,25 +15,61 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch `codex/shared-cell-groups` and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The latest runtime source is
-65c5176975907fb52a53deca58e1ae1f5ba7adec. The exact whole-group
-recovery-intent/fencing barrier passes memory and real RustFS scenarios in both
-image forms, 211 native shared-group cases, eleven legacy disaster cases and
-all scoped static checks. Source/artifact/selection/credential audit passes under
-`.cellar/cell-groups-evidence/CG-06-recovery-fence/`. Qualification SHA256:
-`0c94cfd5071d49e59bdefd0d1fae78aff15237602eebcfc4ade48283d50b254c`.
-The retained stack diagnoses and unresolved socket/deadline timing
-limits are recorded in [progress](progress.md).
+The latest runtime source is 7052d218d60181d7b0bb5a4c12686e80e294a61c.
+Fenced source data now imports into complete fresh-history data roots, with
+pending application admission and bounded physical ownership. Seven native suites
+pass 246 cases; 36 recovery-related unit tests, eleven legacy disaster cases and
+the exact real RustFS import case in both image forms pass. Scoped static checks
+and independent source/artifact/selection/credential audit pass. Evidence is at
+`.cellar/cell-groups-evidence/CG-06-recovery-import/`; qualification SHA256:
+`1c7ea62c6bd5c1e81357961c4acba22bb2820d89bc3556ec3bcaf82a43e1c0a3`. See [progress](progress.md) for scope and retained limitations.
 
-Consume the fenced data proof to restore fresh histories, images, receipts and
-client floors without callbacks; install fresh genesis, publish once under the
-same topology lock, commit activation and require fresh quorum before serving.
-The proof currently grants no bootstrap, voting or serving permission. Complete
-the accepted Docker fencing-authority qualification including later/removed
-voters and permanent launch revocation, erase every owned voter disk and verify
-real RustFS restore, old-token refusal, exact receipt retries, new writes and
-replacement restart. Preserve the original full CG-06 gate and all later tasks.
-The full hard-cutover goal remains active and incomplete.
+The mandatory nullable recovery field is a marker-1 hard cutover, with no reader
+for older intermediate cell-group manifest/archive shapes. Keep recovery state
+through snapshots and retained reopen. `PreparedCellGroupRecovery` is data owned
+by an archive store; never cast that owner into a Raft engine or learner permit.
+Its source hold remains provenance and must stay retained while referenced.
+
+The most critical next work is physical fresh genesis and safe activation:
+
+1. Consume the exact preparation through a node/member/disk/process/engine-bound
+   recovery permit and atomically sync the complete imported root with the new
+   Raft mapping/genesis. Every seeded voter must bind the same request and seed
+   commitment. Preserve physical pins through unknown sync results. Do not copy
+   old Raft terms/configuration or reopen an already owned page directory.
+2. Persist the target recovery binding before publication. Ordinary bootstrap
+   must refuse blank replacement disks or an empty/incorrect genesis. Reverify
+   the permanent external fence on process resume. Continue using the accepted
+   fencing-authority API; no new approval is required for Docker qualification.
+3. Publish the exact replacement mutation with one CAS under the existing
+   recovery lock. Never clear the lock before ordinary publication. Mint a
+   catalog-bound leader activation permit only after exact readback and seed
+   validation. Raw administration remains unattached. Commit, persist and apply
+   activation through the fresh quorum before opening any application authority.
+4. Implement the original `fenced_group_seed_new_incarnations` oracle with real
+   registered commands, receipt results/minima/client floors, old-token refusal
+   and zero duplicate callbacks. The current import checks exact SQLite bytes;
+   it does not qualify the new serving receipt path. Exercise pending/active
+   recovered roots through actual engine restart and snapshot installation.
+5. Qualify Docker permanent launch/restart revocation for every possible old
+   writer, including later/removed voters. Erase every owned voter disk and local
+   recovery cache, restore all cells from real RustFS under fresh identities,
+   perform new writes and restart the retained replacement quorum. Keep effect
+   ambiguity closed. Complete the original full CG-06 gate before marking DONE.
+
+CG-08 is next after CG-06: replicated effect summaries exist, but due-work
+scheduling independent of client requests and bounded idle SQLite caches remain
+missing. Preserve effect identity, unknown outcomes and joined worker ownership.
+Then perform CG-07 public SDK/fleet cutover. CG-09–12 transfers, split/merge,
+placement and hibernation; CG-14/13/15 workload and managed recovery/qualification;
+and CG-16 final legacy removal and release matrix all remain required. The full
+hard-cutover goal remains active and incomplete.
+
+The prior whole-group fencing-barrier source is
+65c5176975907fb52a53deca58e1ae1f5ba7adec, with 211 native cases and four real RustFS
+resume/race scenarios. Its evidence remains at
+`.cellar/cell-groups-evidence/CG-06-recovery-fence/`. Historical qualifications
+remain scoped to their recorded sources.
 
 The prior bounded-outage qualification source is
 1159e9358c106fe1260c3479759e909e413257a4. CG-06 remains IN_PROGRESS. Its
