@@ -853,6 +853,22 @@ The **128-case suite** uses generated clients: Rust, Python, embedded V8 and Nod
 against each of the four providers, at each fault below. The owner keeps real
 SQLite state, signed peer authentication and normal fleet durability proof.
 
+The `sqlite-full-per-node-key` storage profile presents one logical object
+namespace to ordinary readers and lease clients. Each named node's authority
+record has its own FULL-synchronous SQLite file; other objects use the shared
+fleet data file. Both clients read and conditionally update the same canonical
+node records. Missing or failed canonical reads propagate without falling back
+to another file. The one-second node lease and all RPC deadlines stay unchanged.
+Shared-file contention remains covered by the native storage regressions above.
+
+The profile's held-writer, reopen, conditional-copy and stale-copy refusal
+checks can run without the guest engines:
+
+```sh
+cargo test --locked -p cellar-rpc-qualification --no-default-features \
+  --test peer_storage -- --test-threads=1
+```
+
 ```text
 generated client -> native source -> relay -> signed owner -> typed handler
                                        ^                       |
