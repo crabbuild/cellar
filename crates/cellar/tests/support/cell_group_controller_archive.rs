@@ -461,7 +461,23 @@ pub(crate) async fn archive_checkpoint_frontier(
     let before = group.checkpoint_manifest()?;
     let first = group.first_index()?;
     let call = controllers[0].archive(config.clone())?;
-    tokio::time::timeout(Duration::from_secs(10), publication.entered.notified()).await?;
+    tokio::time::timeout(Duration::from_secs(10), publication.entered.notified())
+        .await
+        .with_context(|| {
+            format!(
+                "archive publication did not enter (rooted={rooted}): {:?}",
+                controllers[0].archive_status(route.history).map(|status| {
+                    status.map(|status| {
+                        (
+                            status.attempts,
+                            status.published,
+                            status.error,
+                            status.stopped,
+                        )
+                    })
+                })
+            )
+        })?;
     let later = add(&fixture, &route, rooted, 1).await?;
     assert_eq!(group.checkpoint_manifest()?, before);
     assert_eq!(group.first_index()?, first);
