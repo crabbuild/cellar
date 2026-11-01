@@ -730,8 +730,9 @@ impl ReplicaLog {
     }
 
     /// Enable a local irreversible retention requirement before archive I/O.
-    /// Operation zero correlates this private idempotent metadata write only;
-    /// it is never a business proposal or a durability response.
+    /// The fixed nonzero operation correlates only this private idempotent
+    /// metadata write. Its receipt is never a business or durability response;
+    /// the storage worker assigns the actual durable sync sequence.
     pub(crate) async fn require_cell_group_archive(
         &self,
         history: &GroupHistory,
@@ -742,7 +743,7 @@ impl ReplicaLog {
         if !required {
             let mut write = GroupWrite::new(&group);
             write.require_archive = true;
-            self.persist_cells(OperationId::new(0), vec![write]).await?;
+            self.persist_cells(OperationId::new(1), vec![write]).await?;
         }
         Ok(())
     }
