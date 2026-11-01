@@ -672,6 +672,5 @@ pub(crate) use seed_crash::seed_retry;
 mod log_retention;
 pub(super) use log_retention::retained_log_admission;
 
-#[path = "cell_group_log_reclaim.rs"]
-mod log_reclaim;
-pub(super) use log_reclaim::physical_log_reclamation;
+#[allow(unused_imports)]
+pub(super) use archive_controller::physical_log_reclamation;

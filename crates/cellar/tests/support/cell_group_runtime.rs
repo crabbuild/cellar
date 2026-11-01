@@ -927,9 +927,5 @@ pub(super) async fn retained_log_admission(rooted: bool) -> Result<()> {
     Box::pin(sql::retained_log_admission(rooted)).await
 }
 
-pub(super) async fn physical_log_reclamation(
-    rooted: bool,
-    store: Arc<dyn object_store::ObjectStore>,
-) -> Result<()> {
-    Box::pin(sql::physical_log_reclamation(rooted, store)).await
-}
+#[allow(unused_imports)]
+pub(super) use sql::physical_log_reclamation;

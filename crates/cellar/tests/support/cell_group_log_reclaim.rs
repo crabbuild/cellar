@@ -364,10 +364,17 @@ fn sql_limits() -> CellSqlLimits {
     }
 }
 
-pub(in super::super) async fn physical_log_reclamation(
+// Construct the large scenario outside its caller's async poll frame, as the
+// snapshot acceptance harness does for its composite physical scenarios.
+#[inline(never)]
+pub(crate) fn physical_log_reclamation(
     rooted: bool,
     store: Arc<dyn object_store::ObjectStore>,
-) -> Result<()> {
+) -> std::pin::Pin<Box<impl std::future::Future<Output = Result<()>>>> {
+    Box::pin(run(rooted, store))
+}
+
+async fn run(rooted: bool, store: Arc<dyn object_store::ObjectStore>) -> Result<()> {
     let calls = Arc::new(AtomicUsize::new(0));
     let observed = calls.clone();
     let class = Arc::new(

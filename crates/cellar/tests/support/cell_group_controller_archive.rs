@@ -9,6 +9,10 @@ use std::sync::atomic::Ordering;
 
 pub(super) use crate::archive_store;
 
+#[path = "cell_group_log_reclaim.rs"]
+mod log_reclaim;
+pub(crate) use log_reclaim::physical_log_reclamation;
+
 pub(super) async fn verifier(
     fixture: &RuntimeCluster,
     route: &GroupRoute,
