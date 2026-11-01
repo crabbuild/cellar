@@ -4,6 +4,9 @@
 //! as native_cell_groups_execution. Each named case retains direct fixture oracles.
 #![allow(clippy::disallowed_methods)]
 
+#[path = "support/cell_group_archive_store.rs"]
+#[allow(dead_code)]
+mod archive_store;
 #[path = "support/raft_storage_fault.rs"]
 #[allow(dead_code)]
 mod fault;

@@ -7,9 +7,7 @@ use futures_util::TryStreamExt;
 use object_store::ObjectStore;
 use std::sync::atomic::Ordering;
 
-#[path = "cell_group_archive_store.rs"]
-#[allow(dead_code)]
-pub(super) mod archive_store;
+pub(super) use crate::archive_store;
 
 pub(super) async fn verifier(
     fixture: &RuntimeCluster,
