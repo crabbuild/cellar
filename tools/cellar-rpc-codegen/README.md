@@ -32,7 +32,7 @@ and inventory artifacts remain binary/JSON without comment headers, following
 Verify the resulting bundle with the shipped offline CLI:
 
 ```sh
-cargo run --locked -p cellar --bin cellar -- rpc check \
+cargo run --locked -p cellar-main --bin cellar -- rpc check \
   --descriptor /tmp/counter-generated/contracts.binpb \
   --inventory /tmp/counter-generated/rpc.json
 ```

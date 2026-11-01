@@ -138,7 +138,7 @@ For inventory-verified delivery using the existing Node packager:
 
 ```sh
 node tools/javascript/node-package.mjs --runtime examples/filesystem-agent/runtime.json .cellar/filesystem-agent-runtime
-cargo run --locked -p cellar -- build examples/filesystem-agent/project.json --output .cellar/filesystem-agent-package
+cargo run --locked -p cellar-main -- build examples/filesystem-agent/project.json --output .cellar/filesystem-agent-package
 ```
 
 Use a fresh runtime prefix at the same absolute path on build and serving

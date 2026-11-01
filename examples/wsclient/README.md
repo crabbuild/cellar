@@ -28,7 +28,7 @@ external service or cloud credential.
 In terminal 1:
 
 ```sh
-cargo run -p cellar --bin cellar --locked -- \
+cargo run -p cellar-main --bin cellar --locked -- \
   dev examples/wsclient/project.json --no-watch --clean
 ```
 
@@ -54,7 +54,7 @@ processes and a TCP/WebSocket handshake.
 Stop the local self-check host first. In terminal 1, start the echo server:
 
 ```sh
-cargo run -p cellar --bin cellar --locked -- \
+cargo run -p cellar-main --bin cellar --locked -- \
   dev examples/wsecho/project.json --no-watch --clean --port 9876
 ```
 
@@ -64,7 +64,7 @@ In terminal 2, create the client's local variable file and start the client:
 cat > examples/wsclient/.dev.vars <<'VARS'
 WEBSOCKET_PEER=ws://127.0.0.1:9876/rooms/outbound
 VARS
-cargo run -p cellar --bin cellar --locked -- \
+cargo run -p cellar-main --bin cellar --locked -- \
   dev examples/wsclient/project.json --no-watch --clean --port 9877
 ```
 

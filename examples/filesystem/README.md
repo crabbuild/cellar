@@ -39,7 +39,7 @@ Follow [AGENTS.md](../../AGENTS.md) for the checkout-specific target directory.
 From the repository root:
 
 ```sh
-cargo run --locked -p cellar --bin cellar -- \
+cargo run --locked -p cellar-main --bin cellar -- \
   dev examples/filesystem/project.json --no-watch
 ```
 
@@ -69,7 +69,7 @@ domains. Production deployment uses the normal Cellar durability configuration.
 ## Verify behavior
 
 ```sh
-cargo build --locked -p cellar --bin cellar --bin cellar-native-examples
+cargo build --locked -p cellar-main --bin cellar --bin cellar-native-examples
 python3 examples/focused_smoke.py --cellar "$CARGO_TARGET_DIR/debug/cellar" \
   --example filesystem
 ```

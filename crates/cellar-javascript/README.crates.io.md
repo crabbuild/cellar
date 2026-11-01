@@ -1,0 +1,792 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
+# JavaScript and TypeScript applications on Cellar
+
+`cellar-javascript` lets you write business logic and cell handlers in JavaScript
+or TypeScript while Rust owns the host, routing, SQLite storage, and durability.
+It implements Cellar's native `Application` and `Cell` contracts through two
+optional backends: embedded V8 and a supervised Node.js process.
+
+TypeScript is checked and compiled before execution. Applications use
+[`@cellar/sdk`](https://github.com/crabbuild/cellar/blob/v0.1.1/packages/cellar-sdk/README.md) for typed contexts and HTTP
+helpers; Rust registers their handlers and supplies deployment bindings.
+
+```text
+                         Your JS / TS application
+                        fetch(), cells, queue(), ...
+                                    |
+                              @cellar/sdk
+                                    |
+                   +----------------+----------------+
+                   |                                 |
+             Embedded V8                         Node.js
+          inside the Rust process          supervised child process
+                   |                                 |
+                   +---------- cellar-javascript ----+
+                                    |
+                         Original Rust invocation
+                                    |
+                             cellar-guest
+                      validation + native SDK calls
+                                    |
+                           Cellar Rust core
+                  ownership, routing, SQLite, durability
+```
+
+Start with the [TypeScript counter](https://github.com/crabbuild/cellar/blob/v0.1.1/examples/javascript/README.md) for an
+embedded executable, the [Node example](https://github.com/crabbuild/cellar/blob/v0.1.1/examples/node/README.md) for npm
+runtime compatibility, or the [durable Pi agent](https://github.com/crabbuild/cellar/blob/v0.1.1/examples/pi-agent/README.md)
+for checkpointed model and tool steps.
+The [Vercel AI SDK agent](https://github.com/crabbuild/cellar/blob/v0.1.1/examples/vercel-agent/README.md) demonstrates
+`ToolLoopAgent`, durable model middleware, atomic tools, six process interruption
+boundaries, and concurrent task recovery through the same Node bridge.
+It also includes a React/shadcn streaming chat workspace, six function tools,
+downstream HTTP idempotency, and live GPT-6 Luna interruption qualification.
+
+## Choose an execution backend
+
+| Question | Embedded V8 (`embed`) | Node.js (`node`) |
+| --- | --- | --- |
+| How does code execute? | One dedicated V8 thread inside the Rust host. | An actual Node process owned by the Rust bootstrap. |
+| What ships? | A Rust executable containing the compiled application bundle. | The Rust host, Node executable, emitted modules, and dependencies. |
+| How does npm work? | Compatible ESM/CommonJS code is bundled at build time. | Normal installed npm module resolution, including ESM/CommonJS and dynamic imports. |
+| Which runtime APIs exist? | ECMAScript builtins, bounded text encoding and Cellar SDK bindings. | Node builtins, timers, global fetch, streams, and compatible native addons. |
+| How is a blocked runtime detected? | An interruptible V8 pump-turn budget. | An event-loop heartbeat timeout. |
+| When is it useful? | Business modules whose effects use Cellar bindings. | Agent SDKs or packages needing the Node runtime and OS APIs. |
+
+The crate's default feature set enables neither backend. A Node-only Cargo build
+does not link the embedded V8 dependency; the external Node binary supplies its
+own engine. Native-only Cellar applications remain free of JavaScript engines.
+The current Node supervisor requires **Node 24+ on Unix** (macOS or Linux).
+
+Embedded V8 provides no Node builtins, native `.node` addons, DOM, global fetch,
+timers, or runtime module loader. A package must fit the APIs used by its bundled
+code paths. The counter qualifies Zod number validation, not every Zod API. Its
+configuration skips third-party declaration checking while strictly checking
+application code against ES2023 without DOM or Node globals.
+
+Both backends expose buffered HTTP, streaming HTTP/SSE, and host-owned WebSocket
+upgrades/events. See [streaming and WebSockets](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/27-streaming-and-websockets.md)
+for producers, forwarding, hibernation and cancellation. Cellar workflows and JavaScript-authored
+Raft commands are outside this adapter's current contract. The Node example
+qualifies React server rendering; browser DOM execution and arbitrary framework
+integrations are separate concerns.
+
+Named, typed unary RPC is implemented and under cross-language qualification.
+Protobuf generates `CounterClient` methods, handler interfaces and explicit
+registrations; RPC-only cells do not need a dummy `fetch`. The
+[runnable RPC fixtures](https://github.com/crabbuild/cellar/blob/v0.1.1/tools/rpc/README.md) exercise Rust/V8/Node pairs and
+receipt recovery. See the [implementation ledger](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/design/named-typed-rpc/implementation-status.md)
+for remaining fleet, schema validation, packaging and performance gates.
+
+Embedded V8 installs `TextEncoder` and `TextDecoder` before bundle evaluation,
+using Cellar's native encoding primitives. Decoding supports labels, fatal mode,
+BOM handling and incremental state. Inputs are bounded by `max_value_bytes`;
+native decoder handles have a separate `max_text_decoders` cap and follow their
+JS owners. Fixed private byte storage is required at this native boundary.
+
+## Cell-owned Docker and Podman containers
+
+Both backends expose `ctx.container`: lifecycle, exec with binary streams and
+bounded output, readiness, buffered port HTTP, TCP and event-owned WebSockets.
+TypeScript declarations live in `@cellar/sdk`; JavaScript uses the same facade.
+All effects run through the original native Rust invocation and its durability
+and ownership gates. Reacquire facades in each event; do not retain them on the
+cell object for reuse by later invocations.
+
+See the [cross-language container guide](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/09-integrations.md#apis-in-each-language)
+for deployment declarations, examples, byte limits, runtime prerequisites and
+the comparison with celld. This API does not implement the Cloudflare Sandbox
+SDK. The application engine and the container's own runtime remain separate.
+
+## Optional Cloudflare runtime work
+
+The experimental [Cloudflare runtime package](https://github.com/crabbuild/cellar/blob/v0.1.1/packages/cellar-cloudflare/README.md)
+now provides activation-owned DO storage, native sync/async transaction and
+critical-section callbacks, constructor admission and event-owned
+namespace/method RPC above the native operation boundary. Native CellRpc calls
+retain structured graphs and typed remote errors in both engines, with explicit
+visibility and clone limits. Node Worker modules additionally dispatch named
+and default entrypoint classes through native service/loopback routes, with
+copied props, value RPC, HTTP and retained callee background work. This partial
+profile includes TypeScript declarations; additional binding kinds, transferable
+service capabilities and returned RPC targets remain required.
+Published Containers 0.3.7 constructor/scheduling
+methods execute against native SQLite in both engines; Sandbox 0.12.9 constructor
+and metadata recovery execute in Node. These are constructor/storage fixtures
+using a stopped-provider view. They do not qualify the unchanged upstream HTTP/
+RPC applications, container startup/monitor/hooks, the Sandbox image or a cloud
+provider. Real-node fixtures verify native input admission and failure/reset;
+full versioned lifetime/deadline profiles and remaining runtime APIs stay
+in the [delivery ledger](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/design/sandbox-provider-progress.md).
+
+## Write an application
+
+Export application-level handlers and a `cells` map of named classes. The Rust
+`Source` must register the matching handlers before the host admits work.
+
+| Export or method | Signature | Rust registration |
+| --- | --- | --- |
+| Application `fetch` | `fetch(request, ctx)` | `.events([EventKind::Fetch])` |
+| Application `queue` | `queue(batch, ctx)` | `.events([EventKind::Queue])` |
+| Application `scheduled` | `scheduled(event, ctx)` | `.events([EventKind::Scheduled])` |
+| Cell `fetch` | `fetch(request, ctx)` | `.cell("Counter")` |
+| Cell `alarm` | `alarm(event, ctx)` | `.cell_events("Counter", [EventKind::Fetch, EventKind::Alarm])` when both handlers exist |
+| Cell `cell_rpc` | `cell_rpc({ method, args }, ctx)` | `.cell_events("Counter", [EventKind::CellRpc])` |
+
+Pass all application event kinds together to `Source::events`; it sets the event
+list rather than appending. Constructors take no arguments and receive no SDK
+context. Each handler receives its own invocation-scoped `Context`.
+
+### A small durable counter
+
+This complete `app.ts` routes every request to the cell named `alice`. `GET`
+reads its count; `POST` increments it by one. It uses only APIs shared by both
+backends. Configure the `COUNTERS` namespace binding to point to `Counter`.
+
+```ts
+import {
+  jsonResponse, request, response,
+  type Context, type Request,
+} from "@cellar/sdk";
+
+export class Counter {
+  async fetch(req: Request, ctx: Context) {
+    if (req.method !== "GET" && req.method !== "POST") {
+      return jsonResponse({error: "Use GET or POST"}, {status: 405});
+    }
+
+    const snapshot = await ctx.storage.read("count");
+    let count = snapshot.present ? snapshot.value : 0;
+    if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) {
+      throw new Error("Invalid stored counter");
+    }
+
+    if (req.method === "POST") {
+      if (!Number.isSafeInteger(count + 1)) {
+        return jsonResponse({error: "Counter limit reached"}, {status: 409});
+      }
+
+      count += 1;
+      // Compare and write in one synchronous Rust transaction.
+      await ctx.storage.apply({
+        checks: {count: snapshot},
+        puts: {count},
+      });
+      await ctx.storage.sync();
+    }
+
+    return jsonResponse({count});
+  }
+}
+
+export const cells = {Counter};
+
+export async function fetch(req: Request, ctx: Context) {
+  const result = await ctx.cell("COUNTERS", "alice").fetch(
+    request("http://counter/", {method: req.method}),
+  );
+  return response(result.body, {
+    status: result.status,
+    headers: result.headers,
+  });
+}
+```
+
+A concurrent update can invalidate the snapshot. The checked batch then raises
+`Conflict / not_committed` without applying that batch; this example leaves the
+error to the host and does not retry. See the [SDK counter example](https://github.com/crabbuild/cellar/blob/v0.1.1/packages/cellar-sdk/README.md#a-complete-durable-counter)
+for validation and an explicit conflict response.
+
+```text
+POST to the application
+        |
+        v
+application fetch() -- COUNTERS / alice --> Counter.fetch()
+                                                |
+                           read snapshot: count = 7
+                                                |
+                           apply: check 7, then put 8
+                                                |
+                           sync: await durability proof
+                                                |
+                           return JSON: {"count": 8}
+```
+
+`Request` is Cellar's buffered value, not the browser `Request` class.
+`req.body` is a `Uint8Array`; `req.text()` and `req.json()` decode synchronously.
+Use `request()`, `response()`, and `jsonResponse()` to build wire values rather
+than manually base64-encoding bodies.
+
+### A Node-only handler
+
+Node mode can import normal Node modules. For example, this alternative `app.ts`
+hashes the incoming bytes and returns JSON:
+
+```ts
+import {createHash} from "node:crypto";
+import {jsonResponse, type Request} from "@cellar/sdk";
+
+export async function fetch(req: Request) {
+  const sha256 = createHash("sha256").update(req.body).digest("hex");
+  return jsonResponse({sha256});
+}
+```
+
+Register only the application `Fetch` event for this module. Embedded V8 refuses
+its `node:crypto` import. The [Node compatibility example](https://github.com/crabbuild/cellar/blob/v0.1.1/examples/node/app.ts)
+also exercises npm, native addons, dynamic imports, and React server rendering.
+Direct Node filesystem and network effects are outside Cellar's transactions
+and cancellation guarantees; use the SDK when an effect must follow Cellar's
+storage and durability rules.
+
+## Connect the Rust host
+
+Both bootstraps validate application exports before calling the host closure.
+Use `Host::run_until` with `application.stopped()` so an engine failure drains
+the native host and allows bootstrap cleanup to finish. `Host::run` may exit the
+process before adapter teardown.
+
+Node starts with a small, fixed launcher in argv. The compiled runtime and its
+private configuration arrive over inherited stdin, so runtime growth does not
+cross a platform's per-argument size limit.
+
+| Bootstrap input | Transport / boundary |
+| --- | --- |
+| Launcher | Fixed source in `--eval`; independent of the compiled runtime's size |
+| Runtime source | Private stdin envelope, then a credential-free module URL |
+| Configuration | Same private envelope, passed as a function argument; retains `max_value_bytes` validation |
+| Authentication | Never embedded in argv, environment, module URLs or bootstrap files |
+| Parse/initialization failure | Fixed child exit; no private input or error stack printed |
+| Startup / shutdown | Existing startup deadline covers pipe writes; owned process group is killed and joined on failure |
+
+These entry points use a fleet deployment named `counter-app`, version `v1`,
+with a `Counter` class and a `COUNTERS` namespace binding. Registration does not
+create that deployment or binding. Follow the reference examples for complete
+project configuration; the [Node example's Rust entry point](https://github.com/crabbuild/cellar/blob/v0.1.1/examples/node/main.rs)
+also shows a local deployment graph for development.
+
+### Embedded V8 entry point
+
+With `embed` enabled, place this `main.rs` beside the generated `app.bundle.js`:
+
+```rust
+use anyhow::Result;
+use cellar::sdk::Host;
+use cellar_javascript::{EventKind, JavaScriptRuntime, Options, Source};
+
+fn main() -> Result<()> {
+    let source = Source::new(include_str!("app.bundle.js"), "app.ts")
+        .events([EventKind::Fetch])
+        .cell("Counter");
+
+    JavaScriptRuntime::run(Options::default(), source, |application| {
+        let stop = application.clone();
+        Host::fleet()
+            .register("counter-app", "v1", move || Ok(application.clone()))?
+            .run_until(async move { stop.stopped().await })
+    })
+}
+```
+
+The build tool emits a bundle defining `CellarApp`; pass that bundle to
+`Source::new`, not uncompiled TypeScript or an arbitrary ESM source file.
+
+### Node entry point
+
+With `node` enabled, select the built module at the CLI boundary. Set
+`CELLAR_NODE_ENTRY` to an absolute path such as `/srv/counter/dist/app.js`:
+
+```rust
+use anyhow::{Context as _, Result};
+use cellar::sdk::Host;
+use cellar_javascript::{EventKind, NodeOptions, NodeRuntime, Options, Source};
+
+fn main() -> Result<()> {
+    let entry = std::env::var_os("CELLAR_NODE_ENTRY")
+        .context("set CELLAR_NODE_ENTRY to the absolute module path")?;
+    let node = NodeOptions::new(std::path::PathBuf::from(entry));
+    let source = Source::module()
+        .events([EventKind::Fetch])
+        .cell("Counter");
+
+    NodeRuntime::run(Options::default(), node, source, |application| {
+        let stop = application.clone();
+        Host::fleet()
+            .register("counter-app", "v1", move || Ok(application.clone()))?
+            .run_until(async move { stop.stopped().await })
+    })
+}
+```
+
+This explicit-entry bootstrap resolves `node` through `PATH`. Set
+`NodeOptions::executable` for a specific binary and `working_directory` to an
+absolute directory when packages use relative OS paths. The default working
+directory is inherited. Explicit environment additions are supported;
+`NODE_OPTIONS` and `NODE_PATH` are always removed.
+
+The host sends its compiled bootstrap source and private configuration through
+the owned stdin pipe. Only a small loader appears in process arguments, so
+bootstrap growth does not depend on the operating system's argument-size limit.
+The same `startup_timeout` covers pipe writes, import and authentication; a
+stalled worker is terminated and joined. Authentication secrets remain off argv
+and the environment.
+
+For an inventory-bound fleet package, use `NodeOptions::packaged()` and pass its
+hash to `Host::runtime_inventory(FEATURE_NODE_V1, hash)`, as the reference Node
+entry point does. That verifies the build-bound runtime and dependencies before
+import and connects the process inventory to deployment admission.
+
+## Per-cell filesystem
+
+Register the class first, then call
+`Source::filesystem(class, cellar::sdk::filesystem::Policy::default())` before
+starting the runtime. Its invocations receive `ctx.fs`; stateless/facet access
+is refused. The [filesystem guide](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar/application/filesystem/README.md)
+describes the bounded POSIX profile and native lifetime/proof contract.
+For reader classes, register `Policy { read_only: true, ..Policy::default() }`;
+`(await ctx.fs.capabilities()).read_only` reports the policy, and filesystem
+mutations return EROFS without restricting local business-state writes.
+`@cellar/sdk` provides declarations and
+[durable file tools](https://github.com/crabbuild/cellar/blob/v0.1.1/packages/cellar-sdk/README.md#per-cell-files-and-durable-file-tools).
+The [session example](https://github.com/crabbuild/cellar/blob/v0.1.1/examples/filesystem-agent/README.md) demonstrates
+saved decisions, file/receipt transactions and follow-up workspace access.
+
+Filesystem-enabled sources require `max_value_bytes >= 4096`. Capabilities
+report transfer/helper/page limits reduced to fit the bridge result envelope;
+large reads return short counts. This primitive does not redirect Node's file
+APIs. Core release qualification is tracked separately from optional mounting.
+Looping `readExact` / `writeAll` errors identify the helper and its confirmed
+`completed_bytes`, including zero for capability/size preflight failures. They
+preserve uncertain outcomes; a failed loop can have a committed write prefix
+or an advanced read offset.
+
+Positional reads and metadata inspection use the guest known-read lane, as do
+bounded whole-file reads, stateless directory pages and `telldir`. They may
+overlap without advancing descriptor offsets. Await handle-state changes and
+mutations sequentially, including `read`, `readdir`, seek, open/close and proof
+barriers; overlapping calls retain the normal `ConcurrentMutation` refusal.
+
+## Build and deliver
+
+```text
+Embedded V8
+  app.ts + npm packages
+          |
+      typecheck + bundle
+          |
+      app.bundle.js (CellarApp)
+          |
+      include_str! + Cargo
+          |
+      Rust executable with V8 and application
+      Node/npm are build-time inputs only.
+
+Node.js
+  app.ts -- typecheck + emit --> dist/*.js
+                                    |
+                  Node + node_modules + Rust host
+                                    |
+                      inventory + package archive
+                                    |
+                  verified runtime files + executable
+                  Node remains a serving dependency.
+```
+
+From the repository root, use the repository Rust toolchain and a writable,
+checkout-specific `CARGO_TARGET_DIR` as required by [AGENTS.md](https://github.com/crabbuild/cellar/blob/v0.1.1/AGENTS.md).
+Build the existing examples before running their tests:
+
+```sh
+npm ci --prefix tools/javascript --ignore-scripts
+
+# Embedded V8 reference application
+npm ci --prefix examples/javascript --ignore-scripts
+npm run --prefix examples/javascript build
+cargo build --locked -p cellar-javascript --features embed --bin cellar-javascript-example
+
+# Streaming application (also compiled by crate-wide tests)
+npm ci --prefix examples/streaming --ignore-scripts
+npm run --prefix examples/streaming build
+npm ci --prefix examples/bindings --ignore-scripts
+npm run --prefix examples/bindings build
+
+# Node reference application
+npm ci --prefix examples/node --ignore-scripts
+npm run --prefix examples/node build
+cargo build --locked -p cellar-javascript --features node --bin cellar-node-example
+```
+
+These commands build the checked-in examples. To adapt the counter above, use
+its matching fetch-only registrations and deployment names. Generated bundles
+are ignored by Git and must exist before Cargo's `include_str!` runs.
+
+The [embedded delivery guide](https://github.com/crabbuild/cellar/blob/v0.1.1/examples/javascript/README.md) uses the
+existing native executable packaging and digest verification. The
+[Node delivery guide](https://github.com/crabbuild/cellar/blob/v0.1.1/examples/node/README.md#run-and-deliver) distinguishes
+a relocatable local delivery directory from a
+[fleet package](https://github.com/crabbuild/cellar/blob/v0.1.1/examples/node/README.md#native-fleet-packaging-and-installation),
+whose runtime is restored at the exact compiled prefix. Build Node packages and
+native addons for the target OS/CPU; operating-system libraries may still need
+separate provisioning. Changing code, dependencies, or runtime inputs requires
+rebuilding and replacing the deployment.
+
+## Understand invocation authority and object lifetime
+
+```text
+JavaScript runtime             Original Rust invocation          Native SDK
+       |                                |                             |
+       |<-------- dispatch(event) ------|                             |
+       |                                |                             |
+ await ctx.storage.read("count")        |                             |
+       |----- operation + call ID ----->|--- validate and execute --->|
+       |       Promise pending          |                             |
+       |                                |<------- native result ------|
+       |<------ bounded reply ----------|                             |
+       |       Promise resumes          |                             |
+       |-------- handler result ------->|                             |
+       |                                |-- revoke call authority     |
+```
+
+One V8 thread multiplexes promises. V8 continuation-preserved embedder data
+identifies the current invocation; Node uses `AsyncLocalStorage` across promises,
+timers, and I/O. The bridge checks invocation identity and liveness before
+admitting calls, and Rust independently checks invocation and activation
+liveness. SDK futures remain in the original native handler. JavaScript receives
+owned values and a private call facade, never a Rust context or storage handle.
+
+The optional compatibility runtime also has an internal synchronous bridge for
+local SQL, storage batches/reads, alarms and the native clock. Those calls still
+execute in the original Rust invocation and share the asynchronous operation,
+byte and mutation limits. Embedded V8 waits on a private bounded reply slot;
+Node uses a private I/O worker with a bounded shared reply buffer and a shared
+queue budget. Node old-space limits apply per isolate, including this worker;
+they do not bound total process memory. The application event-loop watchdog
+stays active during a wait.
+This plumbing is preparation for the
+[Cloudflare compatibility profile](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/design/sandbox-provider-progress.md),
+not a published Workers/DO API or full package compatibility. Normal Cellar
+application code continues to use the typed asynchronous storage facade.
+
+Await every SDK operation. Known reads may overlap; only one mutation may be
+outstanding per invocation. SQL, storage sync, and nested cell fetches count as
+mutations. Returning with outstanding operations fails the handler. Do not save
+contexts or binding handles for later calls or issue concurrent mutations with
+`Promise.all()`.
+
+The optional Workers surface has separate admission for routed object RPC/HTTP
+and container port requests. These independent native futures may overlap while
+local storage progresses. They retain operation/byte quotas, native output gates
+and mutation failure provenance; they are not classified as reads. Portable
+Cellar storage still permits only one outstanding mutation.
+
+```text
+Activation A                    Retire / restart               Activation B
+  new Counter()                       |                        new Counter()
+  object fields / caches -------------X                        fresh fields
+  ctx.storage ------------------------+----------------------->recovered state
+                                      |
+                         prior contexts lose authority
+```
+
+A JavaScript cell object lasts for one native activation. Persist business state
+through `ctx.storage`; object fields are caches. Native cancellation revokes SDK
+authority but does not undo committed writes. V8 and Node settle pending SDK
+promises with `ContextExpired/unknown`, allowing `catch` and `finally` cleanup to
+run. New SDK operations from that cleanup fail with
+`ContextExpired/not_committed`, including after awaiting another JavaScript
+promise. In Node, cancelled application code may continue its own OS work.
+
+### Typed RPC deadlines and cancellation
+
+Generated clients accept `{timeoutMs, signal}`. Use a native Node `AbortSignal`,
+or bundle a compatible implementation for embedded V8. The
+[SDK example](https://github.com/crabbuild/cellar/blob/v0.1.1/packages/cellar-sdk/README.md#cancel-a-named-call) shows both.
+
+Every generated call starts a private budget before codecs run. Verification,
+encoding, native admission/transport/proof and decoding share the original
+deadline, capped by host policy and the incoming parent call. V8 uses the native
+monotonic clock; Node uses a bounded private IPC control, conservatively charging
+its round trip and one clock tick. Options are captured before that wait.
+
+```text
+original Context -> native budget -> verify -> encode -> native call -> decode
+                         |                                  |
+                  parent/host ceiling                no fresh timeout
+```
+
+Budget controls have their own per-invocation bound and consume no extra SDK
+mutation slot. Release and retirement reclaim them. An expired pre-submission
+call is `DeadlineExceeded/not_committed`; expiry after a successful native call
+is `DeadlineExceeded/unknown`, including during decoding. Codec checks occur
+before and after synchronous work; they do not preempt it.
+
+```text
+checked admission -> [private reply promise, cancellation control]
+                            |                    |
+                  await native reply      AbortSignal callback
+                            |                    |
+                            |            original native call
+                            |             local / signed peer
+                            v
+                release mutation and byte ownership
+                            |
+                    settle the JS promise
+```
+
+The control can only cancel its admitted operation. It grants no ability to
+submit SDK effects and carries no caller-selected cancellation ID. Ordinary
+SDK admission still checks the original V8 continuation or Node async scope.
+Cancellation consumes no extra SDK operation slot; cleanup keeps the original
+native future and reservations until it settles. Signal subscriptions are also
+removed on invocation retirement. Node captures its
+[protected abort-listener API](https://nodejs.org/docs/latest-v24.x/api/events.html#eventsaddabortlistenersignal-listener)
+before importing the application. Cancellation never promises rollback, and
+synced writes remain committed. The signed two-node fixture now tests guest
+remote/nested deadlines, receiver caps, slow codecs and Node control queueing.
+Broader proof/lifecycle waits, dependency cycles and cancellation qualification
+remain in the [RPC ledger](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/design/named-typed-rpc/implementation-status.md).
+
+## Limits, errors, and shutdown
+
+Defaults come from [Options](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-javascript/runtime/mod.rs) and [NodeOptions](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-javascript/runtime/node/mod.rs):
+
+| Setting | Default | Scope |
+| --- | --- | --- |
+| `max_invocations` / `max_objects` | 64 / 4,096 | Admitted calls / retained cell objects per runtime. |
+| `max_text_decoders` | 4,096 | Native text-decoder handles in embedded V8; separate from cell objects. |
+| `max_pending_operations` / `max_operations` | 16 / 1,024 | Outstanding / total SDK operations per invocation. |
+| `max_body_bytes` / `max_value_bytes` | 1 MiB / 2 MiB | Buffered HTTP body / encoded bridge value. |
+| `max_batch_operations` | 128 | Checks, mutations, and optional alarm change per storage batch. |
+| `max_bridge_bytes` | 32 MiB | Shared native payload, V8 completion, Node frame and decoded-attachment reservations. |
+| `heap_bytes` | 128 MiB | Embedded V8 heap or Node old-space limit; not process RSS. |
+| `startup_timeout` | 5 seconds | Application initialization. |
+| `turn_timeout` | 100 ms | Entire V8 pump pass, including its calls and microtasks. |
+| `heartbeat_timeout` | 2 seconds | Node event-loop responsiveness; configured on `NodeOptions`. |
+
+The V8 turn budget is not a per-request wall-clock deadline. Node uses the
+heartbeat instead; slow asynchronous I/O can continue while its event loop
+remains responsive. A runaway V8 turn terminates the isolate, while a blocked
+or crashed Node worker stops the application. V8 bootstrap joins its engine and
+watchdog; Node bootstrap kills the owned Unix process group and waits for its
+child. Node processes one bounded IPC receive pass before its heartbeat decision,
+so queued valid heartbeats are observed after a native observer delay. New guest
+starts wait while heartbeats are overdue; invocation deadlines and retired SDK
+authority retain their original checks.
+
+An expired V8 budget adds a fixed phase and timing observation to the error
+chain. The original execution-budget error remains its root cause.
+
+```text
+startup
+   |
+   v
+replies -> admission -> microtasks -> completion -> cancellation -> retirement
+   ^                                                                  |
+   +------------------------- next pump pass ---------------------------+
+```
+
+| Error field | Observation |
+| --- | --- |
+| `phase` | Fixed pump phase observed by the watchdog. |
+| `observed_wall_us` / `phase_wall_us` | Wall time since this pass / phase began, sampled at expiry. |
+| `report_wall_us` | Wall time when the engine reports the error. |
+| `engine_thread_cpu_us` | Engine-thread CPU since the pass began, sampled before reporting; includes unwind work. |
+
+CPU time is available on Linux and macOS; an unavailable sample is explicit.
+These observations contain no application payload, method text or source code.
+They help distinguish CPU work from scheduling or blocking delays while keeping
+the existing startup, pump and invocation deadlines.
+
+The Node pump partitions socket work into turns. Each turn reads at most 1 MiB
+and writes at most 1 MiB, with independent quotas for each direction. Decoding
+also charges wire bytes: up to 1 MiB per turn, or one larger complete frame
+within the existing frame limit. Partial frames keep their full reservations.
+
+```text
+retire authority -> deliver native replies -> bounded IPC work -> yield
+        ^                                                         |
+        +---------------------------------------------------------+
+```
+
+The original 256-frame heartbeat observation pass can span several turns.
+Reaching a work quota does not mean the socket is empty or prove liveness.
+Queued heartbeats must still be examined within that finite pass; only a valid
+heartbeat renews liveness. Slices yield without adding a new heartbeat grace
+period. These work quotas do not change request deadlines or byte capacities,
+and are not a hard bound on decoder CPU time or process RSS.
+
+V8 reserves 128 bytes from the native pool when admitting each invocation, so
+other work cannot consume the capacity needed for its terminal failure. Startup
+requires `max_bridge_bytes >= max_value_bytes + 128`. Larger results must reserve
+their remaining bytes before copying either UTF-8 text or binary attachments.
+
+```text
+admit invocation -> reserve input + 128 completion bytes -> run handler
+                                                              |
+                                   inspect reply size/type ----+
+                                            |
+                              reserve remaining reply bytes
+                                  /                   \
+                             available              exhausted
+                                |                       |
+                          copy and complete    fixed ResourceExhausted
+                                |               with unknown effects
+                                +-----------+-----------+
+                                            |
+                               native receiver drops result
+                                            |
+                                  release reservation
+```
+
+An invalid or oversized result becomes `InvalidResponse` with unknown effects.
+One refused result leaves the engine available for later calls. Neither failure
+proves rollback: the handler may already have committed writes. Queue refusal,
+invocation retirement and joined shutdown also release the reserved allowance.
+This accounts for native bridge ownership; guest heap and process RSS remain
+separate limits.
+
+Node uses one native byte pool for overlapping payload and transport ownership:
+
+```text
+native invocation / operation / reply buffers --+
+queued output frames, including 8-byte header --+
+partial input allocations ---------------------+--> max_bridge_bytes
+decoded control strings + raw attachments -----+
+```
+
+Capacity is reserved before frame allocation or decoding copies. A partial
+write keeps the entire frame charged until its allocation is freed. Decoded
+frames retain their reservation through native admission; completed inputs
+release their backing capacity. Once a queued frame owns an invocation's bytes,
+Node keeps the invocation's authority without retaining another request buffer.
+
+Before allocating a decoded control object, Node checks its flat wire shape:
+at most 16 scalar fields, distinct literal ASCII keys of at most 64 bytes, and
+numeric tokens of at most 32 bytes. Application JSON stays inside the encoded
+`payload` string; RPC bytes use the raw attachment. Nested control arrays or
+objects and escaped key spellings are refused. An allocation-free scan counts
+decoded UTF-8 bytes, including Unicode escapes and surrogate pairs. Parser
+scratch is reserved separately and released after decoding; the decoded strings
+and attachment keep their reservations until native handoff or refusal.
+
+Startup checks a conservative isolated-transfer floor. With `V = max_value_bytes`
+and `F = 6 * V + 4096` (JSON escaping and protocol overhead), Node requires
+`max_bridge_bytes >= V + 2 * F + 8`. The defaults satisfy this bound. Concurrent
+work shares the remaining capacity and can exhaust it. Node worker JavaScript
+buffers, guest aliases, codec objects, allocator overhead, the fixed control
+layout and OS socket buffers require separate accounting and qualification.
+The native gauge is not a process RSS measurement; the control field limit
+bounds its object layout independently of payload byte reservations.
+
+Process restart belongs to the external supervisor. Do not detach Node children
+from the owned group without separate supervision.
+
+`application.bridge_usage()` returns a small `BridgeUsage` snapshot for host
+diagnostics. It reads native reservation counters and requires no guest call:
+
+| Field | Observation |
+| --- | --- |
+| `stopped` | Admission has been revoked and native waiters notified. |
+| `active_invocations` | Native invocation permits still held. |
+| `retained_bytes` | Native payload reservations, including V8 completion allowances, queued/partial Node frames and decoded frame payloads. |
+
+The fields are sampled independently. They do not measure heap, RSS or cached
+cell objects, and `stopped` alone does not prove cleanup. Join callers and the
+host before checking that native reservations returned to zero. The
+[owned Node qualification](https://github.com/crabbuild/cellar/blob/v0.1.1/tools/rpc/README.md#owned-node-worker-loss-and-active-call-shutdown)
+and [V8 qualification](https://github.com/crabbuild/cellar/blob/v0.1.1/tools/rpc/README.md#owned-v8-termination-and-active-call-shutdown)
+use these counters during real typed calls, process loss, watchdog termination
+and shutdown.
+
+JSON values must use finite numbers, safe integers, and nesting depth at most
+64. Encode larger integers as strings. A missing storage key and a stored JSON
+`null` have different snapshots.
+
+| SDK error | Meaning for this operation |
+| --- | --- |
+| `Conflict / not_committed` | The checked batch applied no changes. |
+| `ValidationError / not_committed` | Validation refused the operation before effects. |
+| Synchronous `ContextExpired`, `ContextMismatch`, or another admission refusal with `not_committed` | The call was refused before submission. |
+| `Ambiguous / unknown` | A submitted mutation or its result failed; effects may have committed. |
+| `Overloaded / unknown`, `OwnershipLost / unknown` | A native failure does not establish rollback, including nested-call failures. |
+| `HostError / unknown` | A known-read operation failed to produce a usable result. |
+
+A pending Node call revoked after submission can return `ContextExpired` with
+`outcome: "unknown"`. Inspect the outcome as well as the code; expiration alone
+does not prove that an earlier operation was refused.
+
+There is no automatic mutation replay. Reconcile unknown outcomes before
+retrying. SDK errors expose `code` and `outcome`; `CellarError` is a TypeScript
+interface, not a runtime class. See the [shared guest boundary](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-guest/README.md)
+for failure provenance and conversion limits, and the
+[SDK guide](https://github.com/crabbuild/cellar/blob/v0.1.1/packages/cellar-sdk/README.md) for application error handling.
+
+For named RPC, an entered handler's fixed failure category survives with
+`unknown` effects. A child `DeadlineExceeded/not_committed` can therefore escape
+its parent as `DeadlineExceeded/unknown`. Earlier synced writes remain visible.
+Exception text, arbitrary codes and outcome getters cannot claim rollback;
+the native completion channel accepts only fixed categories. The
+[provenance matrix](https://github.com/crabbuild/cellar/blob/v0.1.1/tools/rpc/README.md#failures-after-a-parent-commits)
+checks this for both V8/TS and Node/JS.
+
+These are trusted application runtimes. V8 heap exhaustion can terminate the
+host process, and Node has normal OS capabilities. Deployment still needs native
+process supervision and memory limits.
+
+## Validate a change and find the implementation
+
+After building both example applications, these focused commands exercise the
+bridge and real HTTP/restart paths without requiring a fleet account:
+
+```sh
+cargo test --locked -p cellar-javascript --features embed,node \
+  --lib --test node --test node_runtime -- --test-threads=1
+cargo test --locked -p cellar-guest
+cargo clippy --locked -p cellar-javascript --features embed,node \
+  --lib --tests -- -D warnings
+npm test --prefix tools/javascript
+python3 tools/docs/check.py
+```
+
+Tests cover continuation isolation, cancellation, overlapping mutation refusal,
+startup failures, runtime termination, IPC limits, npm/native-addon compatibility,
+named-cell isolation, and storage recovery in a fresh runtime. Installed-package
+checks have additional setup in the Node delivery guide. These checks are not
+production multi-node fault or performance qualification.
+
+| Source | Responsibility |
+| --- | --- |
+| [application.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-javascript/application.rs) | `Source` registration, native `Application`/`Cell` proxies, and SDK execution within each invocation. |
+| [lifetime.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-javascript/lifetime.rs) | Native-owned non-HTTP result publication and retained background drivers. |
+| [callbacks/mod.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-javascript/callbacks/mod.rs) | Native block/transaction callback scopes and bounded synchronous callback servicing. |
+| [runtime/mod.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-javascript/runtime/mod.rs) | Options, bounded channels, byte reservations, and joined bootstrap. |
+| [runtime/runner.js](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-javascript/runtime/runner.js) | Shared SDK facade, export validation, and activation-local objects. |
+| [runtime/engine/mod.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-javascript/runtime/engine/mod.rs) | V8 isolate, continuation/activation identity, promises, and watchdog. |
+| [runtime/engine/codec.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-javascript/runtime/engine/codec.rs) | Bounded structured-clone conversion inside the optional V8 engine. |
+| [runtime/node/mod.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-javascript/runtime/node/mod.rs) | Node startup, authentication, liveness checks, and process ownership. |
+| [runtime/node/bootstrap.mjs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-javascript/runtime/node/bootstrap.mjs) | Small pipe launcher; keeps runtime bytes and private configuration out of argv. |
+| [runtime/node/worker.mjs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-javascript/runtime/node/worker.mjs) | Node module loading, async context, and synchronous reply admission. |
+| [runtime/node/io.mjs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-javascript/runtime/node/io.mjs) | Private socket worker, bounded frames/queues and synchronous reply wakeups. |
+| [runtime/node/transport.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-javascript/runtime/node/transport.rs) | Bounded, length-prefixed JSON transport separate from stdout/stderr. |
+| [runtime/node/package.rs](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-javascript/runtime/node/package.rs) | Build-bound Node inventory verification. |
+| [cellar-guest](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-guest/README.md) | Shared native operation validation, storage batches, and failure envelopes. |
+
+For design context, see [ADR 005](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/adr/005-embedded-javascript.md) and
+[delivery gates](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/design/008-embedded-javascript-typescript.md). For repeatable
+measurements, use the [bridge benchmark](https://github.com/crabbuild/cellar/blob/v0.1.1/tools/perf/javascript/README.md)
+and read its [recorded results and limits](https://github.com/crabbuild/cellar/blob/v0.1.1/docs/design/javascript-bridge-performance-2026-10-22.md).
+
+A Rust host can select another container or sandbox backend with
+`Source::container_provider(Arc<dyn Provider>)`; see
+[`cellar-container`](https://github.com/crabbuild/cellar/blob/v0.1.1/crates/cellar-container/README.md) for the provider contract.
+The default provider preserves the native Docker/Podman behavior.
+
+
+For the optional Cloudflare runtime, `Source::workers_lifetimes()` selects retained
+native event/background behavior. A response may precede the completion of
+`ctx.waitUntil`, transaction callbacks and outstanding SDK calls. The native
+turn driver owns the remaining bridge, including after a client disconnect;
+ownership retirement, resource limits, event deadlines and shutdown still apply.
+The default Cellar handler contract continues to require awaited SDK work. This
+switch alone does not select a complete versioned Workers compatibility profile.

@@ -43,7 +43,7 @@ Build on the checkout's Rust toolchain, with its own writable target directory
 and a shared-library CPython 3.14.5 or 3.14.5t selected by `PYO3_PYTHON`:
 
 ```sh
-cargo build --locked -p cellar --bin cellar-perf-cells --bin cellar-perf-load
+cargo build --locked -p cellar-main --bin cellar-perf-cells --bin cellar-perf-load
 cargo build --locked -p cellar-python --example python-fleet --features embed
 docker pull rustfs/rustfs:1.0.0-beta.8-glibc
 python3 tools/python/fleet_smoke.py \

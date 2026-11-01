@@ -22,7 +22,7 @@ traffic. It checks results while timing bulk JSON writes, nested batches,
 clone writes/deletes, SQL reads with accounting, and alarm lookups.
 
 ```sh
-cargo run -p cellar --bin cellar-perf-storage --profile lab --locked -- 2000 5
+cargo run -p cellar-main --bin cellar-perf-storage --profile lab --locked -- 2000 5
 ```
 
 Output is JSON Lines with elapsed time and average time per operation cycle.

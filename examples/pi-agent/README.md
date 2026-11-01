@@ -278,7 +278,7 @@ the [Node example](../node/README.md). A fleet build is configured here:
 
 ```sh
 node tools/javascript/node-package.mjs --runtime examples/pi-agent/runtime.json .cellar/pi-agent-runtime
-cargo run --locked -p cellar -- build examples/pi-agent/project.json --output .cellar/pi-agent-package
+cargo run --locked -p cellar-main -- build examples/pi-agent/project.json --output .cellar/pi-agent-package
 ```
 
 Choose a fresh immutable runtime prefix that exists at the same absolute path

@@ -14,5 +14,7 @@
     "Cargo.toml",
     "src/raft.rs",
     "src/raw_node.rs"
-  ]
+  ],
+  "cellar_package": "cellar-raft",
+  "cellar_version": "0.1.1"
 }

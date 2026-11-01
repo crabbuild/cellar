@@ -47,17 +47,18 @@ axum = { version = "0.8.9", features = ["multipart"] }
 base64 = "0.22"
 bytes = "1"
 cc = "1.4.1"
-cellar = { path = "crates/cellar", version = "0.1.0" }
+cellar = { package = "cellar-main", path = "crates/cellar", version = "=0.1.1" }
+# Test-only dependency of the host; omit its version to break the publication cycle.
 cellar-admin = { path = "crates/cellar-admin" }
-cellar-axum = { path = "crates/cellar-axum", version = "0.1.0" }
-cellar-logic = { path = "crates/cellar-logic" }
-cellar-ltx = { path = "crates/cellar-ltx" }
-cellar-native = { path = "crates/cellar-native" }
-cellar-python = { path = "crates/cellar-python" }
-cellar-guest = { path = "crates/cellar-guest" }
-cellar-container = { path = "crates/cellar-container" }
-cellar-egress = { path = "crates/cellar-egress" }
-cellar-javascript = { path = "crates/cellar-javascript" }
+cellar-axum = { path = "crates/cellar-axum", version = "=0.1.1" }
+cellar-logic = { path = "crates/cellar-logic", version = "=0.1.1" }
+cellar-ltx = { path = "crates/cellar-ltx", version = "=0.1.1" }
+cellar-native = { path = "crates/cellar-native", version = "=0.1.1" }
+cellar-python = { path = "crates/cellar-python", version = "=0.1.1" }
+cellar-guest = { path = "crates/cellar-guest", version = "=0.1.1" }
+cellar-container = { path = "crates/cellar-container", version = "=0.1.1" }
+cellar-egress = { path = "crates/cellar-egress", version = "=0.1.1" }
+cellar-javascript = { path = "crates/cellar-javascript", version = "=0.1.1" }
 # Optional embedded adapter; never enabled by the Rust host itself.
 v8 = "=152.2.0"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
@@ -149,8 +150,8 @@ rand = "0.8"
 rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "ring", "pem"] }
 # Direct paths keep the host adapters active for external SDK workspaces too;
 # workspace-only Cargo patches would be ignored by those consumers.
-raft = { path = "vendor/raft", version = "=0.7.0", default-features = false, features = ["protobuf-codec"] }
-raft-engine = { path = "vendor/raft-engine", version = "=0.4.2", default-features = false }
+raft = { package = "cellar-raft", path = "vendor/raft", version = "=0.1.1", default-features = false, features = ["protobuf-codec"] }
+raft-engine = { package = "cellar-raft-engine", path = "vendor/raft-engine", version = "=0.1.1", default-features = false }
 protobuf = "=2.28.0"
 # Application RPC contracts; the Raft protobuf codec above remains independent.
 prost = "=0.14.4"

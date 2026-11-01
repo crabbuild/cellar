@@ -217,9 +217,9 @@ Run independent node fixtures serially, matching the
 [qualification guide](../../../../docs/19-testing-qualification.md) and SDK CI:
 
 ```sh
-cargo test --locked -p cellar --lib filesystem -- --test-threads=1
-cargo test --locked -p cellar --test native_filesystem -- --test-threads=1
-cargo test --locked -p cellar --test native_node filesystem -- --test-threads=1
+cargo test --locked -p cellar-main --lib filesystem -- --test-threads=1
+cargo test --locked -p cellar-main --test native_filesystem -- --test-threads=1
+cargo test --locked -p cellar-main --test native_node filesystem -- --test-threads=1
 ```
 
 Each fixture retains its internal concurrency, including the GC workload's

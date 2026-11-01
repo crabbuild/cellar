@@ -126,11 +126,11 @@ jobs:
       - name: Runtime archive and admission boundaries
         if: matrix.profile == 'adapters'
         run: |
-          cargo test --locked -p cellar --lib node_environment
-          cargo test --locked -p cellar --lib runtime_inventory
-          cargo test --locked -p cellar --lib python_environment::archive
-          cargo test --locked -p cellar --lib runtime_directories
-          cargo test --locked -p cellar --test native_artifacts
+          cargo test --locked -p cellar-main --lib node_environment
+          cargo test --locked -p cellar-main --lib runtime_inventory
+          cargo test --locked -p cellar-main --lib python_environment::archive
+          cargo test --locked -p cellar-main --lib runtime_directories
+          cargo test --locked -p cellar-main --test native_artifacts
       - name: Pi agent crash recovery
         if: matrix.profile == 'examples'
         run: |
@@ -183,21 +183,21 @@ jobs:
           aws --endpoint-url "$S3_ENDPOINT" --region "$AWS_REGION" s3api create-bucket \
             --bucket "$CELLAR_FS_S3_BUCKET"
           CELLAR_FS_FAULT_REPORT="$RUNNER_TEMP/filesystem-s3-proof-fault.json" \
-            cargo test --locked -p cellar --test native_node \
+            cargo test --locked -p cellar-main --test native_node \
               node_filesystem_faults::filesystem_s3_unproven_write_is_fenced_and_failed_recovery_refuses_admission \
               -- --ignored --exact --nocapture
           export CELLAR_FS_S3_BUCKET="cellar-filesystem-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-sockets"
           aws --endpoint-url "$S3_ENDPOINT" --region "$AWS_REGION" s3api create-bucket \
             --bucket "$CELLAR_FS_S3_BUCKET"
           CELLAR_FS_FAULT_REPORT="$RUNNER_TEMP/filesystem-s3-socket-fault.json" \
-            cargo test --locked -p cellar --test native_node \
+            cargo test --locked -p cellar-main --test native_node \
               node_filesystem_faults::filesystem_s3_socket_cuts_fence_unproven_writes_and_refuse_failed_recovery \
               -- --ignored --exact --nocapture
           export CELLAR_FS_S3_BUCKET="cellar-filesystem-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-stalls"
           aws --endpoint-url "$S3_ENDPOINT" --region "$AWS_REGION" s3api create-bucket \
             --bucket "$CELLAR_FS_S3_BUCKET"
           CELLAR_FS_FAULT_REPORT="$RUNNER_TEMP/filesystem-s3-stall-fault.json" \
-            cargo test --locked -p cellar --test native_node \
+            cargo test --locked -p cellar-main --test native_node \
               node_filesystem_faults::filesystem_s3_socket_stalls_fence_unproven_writes_and_refuse_failed_recovery \
               -- --ignored --exact --nocapture
           export CELLAR_AI_HOST="${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar-vercel-agent-example"
@@ -227,7 +227,7 @@ jobs:
           python3 tools/docs/check.py
       - name: Native package
         if: matrix.profile == 'examples'
-        run: cargo run --locked -p cellar -- build examples/javascript/project.json --output .cellar/javascript-package
+        run: cargo run --locked -p cellar-main -- build examples/javascript/project.json --output .cellar/javascript-package
       - name: Runnable streaming examples and restart
         if: matrix.profile == 'examples'
         run: |
@@ -264,7 +264,7 @@ jobs:
         if: matrix.profile == 'packages'
         run: |
           node tools/javascript/node-package.mjs --runtime examples/node/runtime.json .cellar/node-runtime
-          cargo run --locked -p cellar -- build examples/node/project.json --output .cellar/node-fleet-package
+          cargo run --locked -p cellar-main -- build examples/node/project.json --output .cellar/node-fleet-package
           # Restore from the published archive, without the captured source tree.
           mv .cellar/node-runtime .cellar/node-runtime-captured
           CELLAR_NODE_PACKAGE="$PWD/.cellar/node-fleet-package" cargo test --locked -p cellar-javascript --no-default-features --features node --test fleet_package published_node_package -- --ignored
@@ -272,21 +272,21 @@ jobs:
         if: matrix.profile == 'packages'
         run: |
           node tools/javascript/node-package.mjs --runtime examples/pi-agent/runtime.json .cellar/pi-agent-runtime
-          cargo run --locked -p cellar -- build examples/pi-agent/project.json --output .cellar/pi-agent-package
+          cargo run --locked -p cellar-main -- build examples/pi-agent/project.json --output .cellar/pi-agent-package
           mv .cellar/pi-agent-runtime .cellar/pi-agent-runtime-captured
           CELLAR_PI_PACKAGE="$PWD/.cellar/pi-agent-package" cargo test --locked -p cellar-javascript --no-default-features --features node --test fleet_package pi_agent_package -- --ignored --nocapture
       - name: Filesystem agent installed package and session recovery
         if: matrix.profile == 'packages'
         run: |
           node tools/javascript/node-package.mjs --runtime examples/filesystem-agent/runtime.json .cellar/filesystem-agent-runtime
-          cargo run --locked -p cellar -- build examples/filesystem-agent/project.json --output .cellar/filesystem-agent-package
+          cargo run --locked -p cellar-main -- build examples/filesystem-agent/project.json --output .cellar/filesystem-agent-package
           mv .cellar/filesystem-agent-runtime .cellar/filesystem-agent-runtime-captured
           CELLAR_FS_PACKAGE="$PWD/.cellar/filesystem-agent-package" cargo test --locked -p cellar-javascript --no-default-features --features node --test fleet_package filesystem_agent_package -- --ignored --nocapture
       - name: Vercel installed package and filesystem recovery
         if: matrix.profile == 'packages'
         run: |
           node tools/javascript/node-package.mjs --runtime examples/vercel-agent/runtime.json .cellar/vercel-agent-runtime
-          cargo run --locked -p cellar -- build examples/vercel-agent/project.json --output .cellar/vercel-agent-package
+          cargo run --locked -p cellar-main -- build examples/vercel-agent/project.json --output .cellar/vercel-agent-package
           mv .cellar/vercel-agent-runtime .cellar/vercel-agent-runtime-captured
           CELLAR_VERCEL_PACKAGE="$PWD/.cellar/vercel-agent-package" \
             CELLAR_VERCEL_PACKAGE_REPORT="$RUNNER_TEMP/vercel-installed-filesystem.json" \

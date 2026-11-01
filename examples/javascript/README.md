@@ -18,7 +18,7 @@ cargo build --locked -p cellar-javascript --features embed --bin cellar-javascri
 npm ci --prefix examples/streaming --ignore-scripts
 npm run --prefix examples/streaming build
 cargo test --locked -p cellar-javascript --features embed
-cargo run --locked -p cellar -- build examples/javascript/project.json --output .cellar/javascript-package
+cargo run --locked -p cellar-main -- build examples/javascript/project.json --output .cellar/javascript-package
 ```
 
 The generated `.cellar/javascript-package` uses the existing native package,

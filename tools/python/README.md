@@ -65,7 +65,7 @@ export CELLAR_PYTHON_TARGET="$(rustc -vV | sed -n 's/^host: //p')"
 "$PYO3_PYTHON" tools/python/environment.py project examples/python/project.json \
   --inventory "$CELLAR_PYTHON_INVENTORY" --archive "$CELLAR_PYTHON_PREFIX/environment.tar.gz" \
   --output "$CELLAR_PYTHON_PREFIX/project.json"
-cargo build -p cellar --bin cellar --example python-package-qualification --locked
+cargo build -p cellar-main --bin cellar --example python-package-qualification --locked
 "$CARGO_TARGET_DIR/debug/cellar" build "$CELLAR_PYTHON_PREFIX/project.json" \
   --output /absolute/private/path/python-package
 "$PYO3_PYTHON" tools/python/environment.py verify "$CELLAR_PYTHON_INVENTORY"
@@ -181,7 +181,7 @@ python3 tools/python/qualify_prerequisites.py \
   --target-dir "$CARGO_TARGET_DIR" --output /absolute/private/path/prerequisite-qualification
 python3 examples/python/smoke.py --cellar "$CARGO_TARGET_DIR/debug/cellar" \
   --project "$CELLAR_PYTHON_PREFIX/project.json" --with-cron
-cargo run -p cellar --example python-package-qualification --locked -- \
+cargo run -p cellar-main --example python-package-qualification --locked -- \
   /absolute/private/path/python-package /absolute/private/path
 ```
 
@@ -206,7 +206,7 @@ python3 tools/python/rolling_project.py "$CELLAR_PYTHON_PREFIX/project.json" \
   --output /absolute/private/path/rolling-project
 "$CARGO_TARGET_DIR/debug/cellar" build /absolute/private/path/rolling-project/project.json \
   --output /absolute/private/path/python-package-v2
-cargo run -p cellar --example python-package-qualification --locked -- \
+cargo run -p cellar-main --example python-package-qualification --locked -- \
   /absolute/private/path/python-package /absolute/private/path \
   /absolute/private/path/python-package-v2 \
   --supervisor "$CARGO_TARGET_DIR/debug/cellar"

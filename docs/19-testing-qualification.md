@@ -20,8 +20,8 @@ cargo check-layout
 python3 tools/docs/check.py
 python3 tools/check_native_dependencies.py
 cargo check --workspace --all-targets --all-features --locked
-cargo test -p cellar --test native_cli --test native_artifacts --locked
-cargo test -p cellar --test allocator_startup --locked
+cargo test -p cellar-main --test native_cli --test native_artifacts --locked
+cargo test -p cellar-main --test allocator_startup --locked
 cargo test --workspace --all-features --lib --tests --locked -- --test-threads=1
 cargo test --workspace --all-features --doc --locked
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings

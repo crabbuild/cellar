@@ -110,7 +110,7 @@ jobs:
             --output "$RUNNER_TEMP/fastapi/ingress-failure" ${{ matrix.smoke_flags }}
       - name: Restore and exercise the deployed application
         run: |
-          cargo run -p cellar --example python-fastapi-deployment --locked -- \
+          cargo run -p cellar-main --example python-fastapi-deployment --locked -- \
             "$RUNNER_TEMP/fastapi/package" "$RUNNER_TEMP/fastapi" "$(command -v python)" ${{ matrix.smoke_flags }}
       - name: Check performance harness correctness
         run: |

@@ -341,8 +341,195 @@ dependencies = [
 ]
 
 [[package]]
-name = "cellar"
+name = "cellar-admin"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "axum",
+ "base64 0.22.1",
+ "cellar-logic",
+ "cellar-main",
+ "futures-util",
+ "getrandom 0.3.4",
+ "http",
+ "http-body-util",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "subtle",
+ "tempfile",
+ "tokio",
+ "tower",
+ "tracing",
+]
+
+[[package]]
+name = "cellar-axum"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "bytes",
+ "cellar-main",
+ "cellar-native",
+ "fastwebsockets",
+ "futures-util",
+ "http",
+ "http-body",
+ "http-body-util",
+ "object_store",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+ "utoipa",
+ "utoipa-axum",
+]
+
+[[package]]
+name = "cellar-axum-counter"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "cellar-axum",
+ "cellar-main",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "utoipa-swagger-ui",
+]
+
+[[package]]
+name = "cellar-container"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "cellar-main",
+ "chrono",
+ "futures-util",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "object_store",
+ "rand 0.8.7",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tar",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "cellar-egress"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "futures-util",
+ "hickory-proto",
+ "nix 0.31.3",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "yamux",
+]
+
+[[package]]
+name = "cellar-guest"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "bytes",
+ "cellar-container",
+ "cellar-logic",
+ "cellar-main",
+ "futures-util",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "cellar-javascript"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "bytes",
+ "cellar-container",
+ "cellar-guest",
+ "cellar-main",
+ "fastwebsockets",
+ "futures-util",
+ "getrandom 0.3.4",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "libc",
+ "object_store",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tar",
+ "tempfile",
+ "tokio",
+ "tracing-subscriber",
+ "url",
+ "v8",
+]
+
+[[package]]
+name = "cellar-logic"
+version = "0.1.1"
+
+[[package]]
+name = "cellar-ltx"
+version = "0.1.1"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "chrono",
+ "crc-fast",
+ "futures-util",
+ "http",
+ "libc",
+ "lz4_flex",
+ "object_store",
+ "percent-encoding",
+ "rusqlite",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
+ "ureq",
+]
+
+[[package]]
+name = "cellar-main"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -355,6 +542,8 @@ dependencies = [
  "cellar-logic",
  "cellar-ltx",
  "cellar-native",
+ "cellar-raft",
+ "cellar-raft-engine",
  "chrono",
  "ed25519-dalek",
  "encoding_rs",
@@ -385,8 +574,6 @@ dependencies = [
  "prost",
  "prost-types",
  "protobuf",
- "raft",
- "raft-engine",
  "rand 0.8.7",
  "rcgen",
  "regex",
@@ -417,195 +604,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "cellar-admin"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "base64 0.22.1",
- "cellar",
- "cellar-logic",
- "futures-util",
- "getrandom 0.3.4",
- "http",
- "http-body-util",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
- "subtle",
- "tempfile",
- "tokio",
- "tower",
- "tracing",
-]
-
-[[package]]
-name = "cellar-axum"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "axum",
- "bytes",
- "cellar",
- "cellar-native",
- "fastwebsockets",
- "futures-util",
- "http",
- "http-body",
- "http-body-util",
- "object_store",
- "reqwest",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tower",
- "tracing",
- "tracing-subscriber",
- "utoipa",
- "utoipa-axum",
-]
-
-[[package]]
-name = "cellar-axum-counter"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "cellar",
- "cellar-axum",
- "reqwest",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "utoipa-swagger-ui",
-]
-
-[[package]]
-name = "cellar-container"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "base64 0.22.1",
- "cellar",
- "chrono",
- "futures-util",
- "http-body-util",
- "hyper",
- "hyper-util",
- "object_store",
- "rand 0.8.7",
- "reqwest",
- "serde",
- "serde_json",
- "sha2",
- "tar",
- "tempfile",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
-name = "cellar-egress"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "futures-util",
- "hickory-proto",
- "nix 0.31.3",
- "serde",
- "serde_json",
- "tokio",
- "tokio-util",
- "yamux",
-]
-
-[[package]]
-name = "cellar-guest"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64 0.22.1",
- "bytes",
- "cellar",
- "cellar-container",
- "cellar-logic",
- "futures-util",
- "reqwest",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
-]
-
-[[package]]
-name = "cellar-javascript"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "base64 0.22.1",
- "bytes",
- "cellar",
- "cellar-container",
- "cellar-guest",
- "fastwebsockets",
- "futures-util",
- "getrandom 0.3.4",
- "http-body-util",
- "hyper",
- "hyper-util",
- "libc",
- "object_store",
- "reqwest",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
- "tar",
- "tempfile",
- "tokio",
- "tracing-subscriber",
- "url",
- "v8",
-]
-
-[[package]]
-name = "cellar-logic"
-version = "0.1.0"
-
-[[package]]
-name = "cellar-ltx"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "bytes",
- "chrono",
- "crc-fast",
- "futures-util",
- "http",
- "libc",
- "lz4_flex",
- "object_store",
- "percent-encoding",
- "rusqlite",
- "sha2",
- "tempfile",
- "thiserror 2.0.19",
- "tokio",
- "tracing",
- "ureq",
-]
-
-[[package]]
 name = "cellar-native"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -645,16 +645,16 @@ dependencies = [
 
 [[package]]
 name = "cellar-python"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
  "base64 0.22.1",
  "bytes",
- "cellar",
  "cellar-container",
  "cellar-guest",
  "cellar-logic",
+ "cellar-main",
  "fastwebsockets",
  "futures-util",
  "http-body-util",
@@ -678,20 +678,75 @@ dependencies = [
 ]
 
 [[package]]
+name = "cellar-raft"
+version = "0.1.1"
+dependencies = [
+ "bytes",
+ "cellar-raft-proto",
+ "fxhash",
+ "getset",
+ "protobuf",
+ "rand 0.8.7",
+ "slog",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "cellar-raft-engine"
+version = "0.1.1"
+dependencies = [
+ "byteorder",
+ "crc32fast",
+ "crossbeam",
+ "fail",
+ "fs2",
+ "hashbrown 0.14.5",
+ "hex",
+ "if_chain",
+ "lazy_static",
+ "libc",
+ "log",
+ "lz4-sys",
+ "nix 0.26.4",
+ "num-derive",
+ "num-traits",
+ "parking_lot",
+ "prometheus",
+ "prometheus-static-metric",
+ "protobuf",
+ "rayon",
+ "scopeguard",
+ "serde",
+ "serde_repr",
+ "strum",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "cellar-raft-proto"
+version = "0.1.1"
+dependencies = [
+ "bytes",
+ "protobuf",
+ "protobuf-codegen-pure",
+ "regex",
+]
+
+[[package]]
 name = "cellar-recovery-tests"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "axum",
- "cellar",
  "cellar-logic",
  "cellar-ltx",
+ "cellar-main",
+ "cellar-raft",
  "futures-util",
  "hex",
  "object_store",
  "protobuf",
- "raft",
  "rand 0.8.7",
  "reqwest",
  "rusqlite",
@@ -711,7 +766,7 @@ name = "cellar-rpc-codegen"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "cellar",
+ "cellar-main",
  "heck 0.5.0",
  "proc-macro2",
  "prost",
@@ -729,8 +784,8 @@ dependencies = [
  "anyhow",
  "async-trait",
  "bytes",
- "cellar",
  "cellar-javascript",
+ "cellar-main",
  "cellar-python",
  "futures-util",
  "libc",
@@ -1432,8 +1487,8 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "bytes",
- "cellar",
  "cellar-logic",
+ "cellar-main",
  "fastwebsockets",
  "futures-util",
  "http-body-util",
@@ -3357,61 +3412,6 @@ name = "r-efi"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
-
-[[package]]
-name = "raft"
-version = "0.7.0"
-dependencies = [
- "bytes",
- "fxhash",
- "getset",
- "protobuf",
- "raft-proto",
- "rand 0.8.7",
- "slog",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "raft-engine"
-version = "0.4.2"
-dependencies = [
- "byteorder",
- "crc32fast",
- "crossbeam",
- "fail",
- "fs2",
- "hashbrown 0.14.5",
- "hex",
- "if_chain",
- "lazy_static",
- "libc",
- "log",
- "lz4-sys",
- "nix 0.26.4",
- "num-derive",
- "num-traits",
- "parking_lot",
- "prometheus",
- "prometheus-static-metric",
- "protobuf",
- "rayon",
- "scopeguard",
- "serde",
- "serde_repr",
- "strum",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "raft-proto"
-version = "0.7.0"
-dependencies = [
- "bytes",
- "protobuf",
- "protobuf-codegen-pure",
- "regex",
-]
 
 [[package]]
 name = "rand"
