@@ -114,7 +114,7 @@ def build_engine_test(evidence):
     })
     print("Building locked native Engine attach qualifier", flush=True)
     built = subprocess.run(
-        ["cargo", "test", "--locked", "-p", "cellar", "--test",
+        ["cargo", "test", "--locked", "-p", "cellar-main", "--test",
          "native_container_egress", "--no-run", "--message-format=json"],
         cwd=ROOT, env=environment, text=True, capture_output=True, timeout=600,
     )

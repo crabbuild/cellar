@@ -56,7 +56,7 @@ The [Rust application](main.rs) shows `IdentityTransformStream`,
 `Invocation::WebSocketMessage` callbacks.
 
 ```sh
-cargo run --locked -p cellar --bin cellar -- \
+cargo run --locked -p cellar-main --bin cellar -- \
   dev examples/streaming/project-rust.json --no-watch
 ```
 
@@ -70,7 +70,7 @@ WebSocket callbacks. Node owns the language process; Rust owns the SDK sockets.
 npm ci --prefix examples/streaming --ignore-scripts
 CELLAR_NODE_ENTRY="$PWD/examples/streaming/app.js" \
 CELLAR_NODE_EXECUTABLE="$(command -v node)" \
-  cargo run --locked -p cellar --bin cellar -- \
+  cargo run --locked -p cellar-main --bin cellar -- \
   dev examples/streaming/project-node.json --no-watch
 ```
 
@@ -89,11 +89,11 @@ npm run --prefix examples/streaming build
 # Choose Node:
 CELLAR_NODE_ENTRY="$PWD/examples/streaming/dist/app.js" \
 CELLAR_NODE_EXECUTABLE="$(command -v node)" \
-  cargo run --locked -p cellar --bin cellar -- \
+  cargo run --locked -p cellar-main --bin cellar -- \
   dev examples/streaming/project-node.json --no-watch
 
 # Or stop Node and choose embedded V8:
-cargo run --locked -p cellar --bin cellar -- \
+cargo run --locked -p cellar-main --bin cellar -- \
   dev examples/streaming/project-javascript.json --no-watch
 ```
 
@@ -112,7 +112,7 @@ registers callbacks and checks the combined shutdown report.
 ```sh
 # Select an installed CPython 3.14 with its matching shared library and stdlib:
 export PYO3_PYTHON="$(command -v python3.14)"
-cargo run --locked -p cellar --bin cellar -- \
+cargo run --locked -p cellar-main --bin cellar -- \
   dev examples/streaming/project-python.json --no-watch
 ```
 
@@ -184,7 +184,7 @@ in temporary private directories, verifies both socket types and SSE, restarts
 them, and checks recovered counts and clean shutdown:
 
 ```sh
-cargo build --locked -p cellar --bin cellar
+cargo build --locked -p cellar-main --bin cellar
 python3 examples/streaming/smoke.py \
   --cellar "$CARGO_TARGET_DIR/debug/cellar" \
   --backend rust --backend node-js --backend node-ts --backend v8 --backend python

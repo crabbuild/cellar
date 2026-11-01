@@ -84,7 +84,7 @@ async def fetch(request, ctx):
         fields = [f"{key} = {json.dumps(value)}" for key, value in spec.items()]
         dependencies.append(name + " = { " + ", ".join(fields) + " }")
     dependencies.extend([
-        "cellar = { path = " + json.dumps(str(root / "crates/cellar")) + " }",
+        'cellar = { package = "cellar-main", path = ' + json.dumps(str(root / "crates/cellar")) + " }",
         "cellar-python = { path = " + json.dumps(str(root / "crates/cellar-python")) + ', features = ["embed"] }',
     ])
     # A private workspace does not inherit the repository's package profiles.

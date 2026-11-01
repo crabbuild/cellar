@@ -17,7 +17,7 @@ The application uses explicit development keys and local TLS certificates.
 Do not use these identities or keys for production.
 
 ```sh
-cargo build --locked -p cellar --bin cellar-raft-effects
+cargo build --locked -p cellar-main --bin cellar-raft-effects
 python3 examples/raft-effects/smoke.py \
   "$CARGO_TARGET_DIR/debug/cellar-raft-effects" /tmp/cellar-effects-demo \
   crates/cellar/transport/tcp/fixtures/ca.der \

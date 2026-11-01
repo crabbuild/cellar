@@ -42,7 +42,7 @@ for local target-directory setup.
 Start the counter application:
 
 ```sh
-cargo run -p cellar --bin cellar --locked -- \
+cargo run -p cellar-main --bin cellar --locked -- \
   dev examples/native-counter/project.json
 ```
 
@@ -205,7 +205,7 @@ Event-delivery work and its remaining qualification gates are tracked in the
 Build a package containing your compiled application:
 
 ```sh
-cargo run -p cellar --bin cellar --locked -- \
+cargo run -p cellar-main --bin cellar --locked -- \
   build examples/native-counter/project.json --output counter-package
 ```
 

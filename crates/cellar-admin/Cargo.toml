@@ -2,10 +2,13 @@
 
 [package]
 name = "cellar-admin"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.94.1"
 license = "Apache-2.0"
+readme = "README.crates.io.md"
+repository = "https://github.com/crabbuild/cellar"
+description = "Management API and console for Cellar fleets"
 
 [lib]
 path = "lib.rs"

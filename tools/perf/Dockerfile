@@ -14,7 +14,7 @@ COPY tools/xtask ./tools/xtask
 RUN --mount=type=cache,id=cellar-perf-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=${TARGET_CACHE_ID},target=/src/target \
     find Cargo.toml Cargo.lock crates examples tools vendor -type f -exec touch {} + && \
-    cargo build --release --locked -p cellar --bin cellar-perf-cells --bin cellar-perf-load --bin cellar-perf-fault-cells && \
+    cargo build --release --locked -p cellar-main --bin cellar-perf-cells --bin cellar-perf-load --bin cellar-perf-fault-cells && \
     mkdir /out && cp target/release/cellar-perf-cells target/release/cellar-perf-load target/release/cellar-perf-fault-cells /out/
 FROM debian:bookworm-slim
 ARG SOURCE_REVISION=unspecified

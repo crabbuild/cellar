@@ -2,6 +2,11 @@
 
 # Node Raft effects
 
+Published dependencies retain the Cellar adaptations through `cellar-raft`,
+`cellar-raft-proto` and `cellar-raft-engine`, all at version `0.1.1`. Their
+Rust library names remain `raft`, `raft_proto` and `raft_engine`. The original
+upstream versions and modifications remain recorded in `vendor/*/UPSTREAM.json`.
+
 This component owns the log engine and the raft-rs adapter. Business activation,
 command output, query publication and archive proof belong to the actor and
 `cellar-logic`; `GroupStatus::protocol_ready` is only a protocol observation.

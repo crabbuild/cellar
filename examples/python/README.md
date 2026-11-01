@@ -25,7 +25,7 @@ export PYO3_PYTHON="$(command -v python3.14)"
 "$PYO3_PYTHON" -m venv examples/python/.venv
 examples/python/.venv/bin/python -m pip install --require-hashes --only-binary :all: -r examples/python/requirements.lock
 export CELLAR_PYTHON_SITE_PACKAGES="$(examples/python/.venv/bin/python -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
-cargo run -p cellar --bin cellar --locked -- dev examples/python/project.json --no-watch
+cargo run -p cellar-main --bin cellar --locked -- dev examples/python/project.json --no-watch
 ```
 
 For free-threaded Python, select `python3.14t` in `PYO3_PYTHON` and create a fresh
@@ -118,9 +118,9 @@ Keep the environment above and run:
 
 ```sh
 cargo test -p cellar-python --features embed --locked
-cargo build -p cellar --bin cellar --locked
+cargo build -p cellar-main --bin cellar --locked
 python3 examples/python/smoke.py --cellar "$CARGO_TARGET_DIR/debug/cellar" --with-cron
-cargo run -p cellar --bin cellar --locked -- \
+cargo run -p cellar-main --bin cellar --locked -- \
   build examples/python/project.json --output /tmp/cellar-python-package
 ```
 

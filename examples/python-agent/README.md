@@ -27,7 +27,7 @@ examples/python-agent/.venv/bin/python -m pip install \
   --require-hashes --only-binary :all: -r examples/python-agent/requirements.lock
 export CELLAR_PYTHON_SITE_PACKAGES="$(examples/python-agent/.venv/bin/python -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
 export CELLAR_AGENT_MODEL=demo
-cargo run -p cellar --bin cellar --locked -- \
+cargo run -p cellar-main --bin cellar --locked -- \
   dev examples/python-agent/project.json --no-watch
 ```
 
@@ -140,7 +140,7 @@ Keep the development environment above:
 
 ```sh
 PYTHONPATH="$CELLAR_PYTHON_SITE_PACKAGES" "$PYO3_PYTHON" -B examples/python-agent/test_app.py
-cargo build -p cellar --bin cellar --locked
+cargo build -p cellar-main --bin cellar --locked
 python3 examples/python-agent/smoke.py --cellar "$CARGO_TARGET_DIR/debug/cellar"
 ```
 

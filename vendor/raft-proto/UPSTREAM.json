@@ -14,5 +14,7 @@
     "Cargo.toml",
     "build.rs",
     "src/lib.rs"
-  ]
+  ],
+  "cellar_package": "cellar-raft-proto",
+  "cellar_version": "0.1.1"
 }

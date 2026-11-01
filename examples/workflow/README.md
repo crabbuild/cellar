@@ -43,7 +43,7 @@ external service or cloud credential.
 In terminal 1:
 
 ```sh
-cargo run -p cellar --bin cellar --locked -- \
+cargo run -p cellar-main --bin cellar --locked -- \
   dev examples/workflow/project.json --no-watch --clean
 ```
 

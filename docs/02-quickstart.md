@@ -19,7 +19,7 @@ on the workspace volume as required by [repository guidance](../AGENTS.md):
 ```sh
 checkout_name="$(basename "$(dirname "$PWD")")-$(basename "$PWD")"
 export CARGO_TARGET_DIR="$HOME/Workspace/crabbuild-target/$checkout_name"
-cargo run -p cellar --bin cellar --locked -- \
+cargo run -p cellar-main --bin cellar --locked -- \
   dev examples/native-counter/project.json
 ```
 
@@ -68,7 +68,7 @@ mutations to retrying clients.
 ## Build a package
 
 ```sh
-cargo run -p cellar --bin cellar --locked -- \
+cargo run -p cellar-main --bin cellar --locked -- \
   build examples/native-counter/project.json --output counter-package
 ```
 

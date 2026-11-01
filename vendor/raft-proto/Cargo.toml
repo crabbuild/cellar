@@ -12,13 +12,13 @@
 
 [package]
 edition = "2021"
-name = "raft-proto"
-version = "0.7.0"
+name = "cellar-raft-proto"
+version = "0.1.1"
 authors = ["The TiKV Project Developers"]
 build = "build.rs"
-description = "Protocol definitions for the rust language implementation of the Raft algorithm."
+description = "Cellar fork of raft-proto with a self-contained protobuf build"
 homepage = "https://github.com/pingcap/raft-rs"
-documentation = "https://docs.rs/raft-proto"
+documentation = "https://docs.rs/cellar-raft-proto"
 readme = "README.md"
 keywords = [
     "raft",
@@ -30,7 +30,12 @@ categories = [
     "database-implementations",
 ]
 license = "Apache-2.0"
-repository = "https://github.com/pingcap/raft-rs"
+exclude = ["Cargo.toml.orig"]
+repository = "https://github.com/crabbuild/cellar"
+
+[lib]
+name = "raft_proto"
+path = "src/lib.rs"
 
 [dependencies.bytes]
 version = "1"

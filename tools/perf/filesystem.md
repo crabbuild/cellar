@@ -13,7 +13,7 @@ Run with the checkout-specific target directory from [AGENTS.md](../../AGENTS.md
 ```sh
 CELLAR_FS_CAPACITY_MIB=10,100,1024 \
 CELLAR_FS_CAPACITY_REPORT="$PWD/.cellar/filesystem-dense-capacity.json" \
-cargo test --locked -p cellar --test native_node \
+cargo test --locked -p cellar-main --test native_node \
   filesystem_dense_capacity_cold_recovery -- --ignored --nocapture
 ```
 
@@ -39,7 +39,7 @@ phases without changing the fixture's lease or attempt budgets:
 ```sh
 RUST_LOG='warn,cellar::actor::effects=info,store[node_lease_store]=debug' \
 CELLAR_FS_CAPACITY_MIB=100 CELLAR_FS_CAPACITY_KEEP_FAILED=1 \
-cargo test --locked -p cellar --test native_node \
+cargo test --locked -p cellar-main --test native_node \
   filesystem_dense_capacity_cold_recovery -- --ignored --nocapture
 ```
 
@@ -157,7 +157,7 @@ region `us-east-1`; it never creates or deletes the bucket itself.
 CELLAR_FS_S3_BUCKET=cellar-filesystem-YOUR-UNIQUE-TEST-ID \
 CELLAR_FS_S3_ENDPOINT=http://127.0.0.1:YOUR-PRIVATE-STORE-PORT \
 CELLAR_FS_FAULT_REPORT=/absolute/qualification/filesystem-s3-proof-fault.json \
-cargo test --locked -p cellar --test native_node \
+cargo test --locked -p cellar-main --test native_node \
   node_filesystem_faults::filesystem_s3_unproven_write_is_fenced_and_failed_recovery_refuses_admission \
   -- --ignored --exact --nocapture
 ```
@@ -181,7 +181,7 @@ methods or generating HTTP responses.
 CELLAR_FS_S3_BUCKET=cellar-filesystem-YOUR-OTHER-UNIQUE-TEST-ID \
 CELLAR_FS_S3_ENDPOINT=http://127.0.0.1:YOUR-PRIVATE-STORE-PORT \
 CELLAR_FS_FAULT_REPORT=/absolute/qualification/filesystem-s3-socket-fault.json \
-cargo test --locked -p cellar --test native_node \
+cargo test --locked -p cellar-main --test native_node \
   node_filesystem_faults::filesystem_s3_socket_cuts_fence_unproven_writes_and_refuse_failed_recovery \
   -- --ignored --exact --nocapture
 ```
@@ -211,7 +211,7 @@ Use another fresh private bucket:
 CELLAR_FS_S3_BUCKET=cellar-filesystem-YOUR-STALL-TEST-ID \
 CELLAR_FS_S3_ENDPOINT=http://127.0.0.1:YOUR-PRIVATE-STORE-PORT \
 CELLAR_FS_FAULT_REPORT=/absolute/qualification/filesystem-s3-stall-fault.json \
-cargo test --locked -p cellar --test native_node \
+cargo test --locked -p cellar-main --test native_node \
   node_filesystem_faults::filesystem_s3_socket_stalls_fence_unproven_writes_and_refuse_failed_recovery \
   -- --ignored --exact --nocapture
 ```

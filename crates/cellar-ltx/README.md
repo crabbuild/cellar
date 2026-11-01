@@ -347,7 +347,7 @@ integration. Verified remote retention and admission before complete hydration
 remain open. See the
 [extent image contract](../../docs/design/multi-raft/extent-root-contract.md).
 
-Run `cargo test -p cellar --test native_raft_ltx --locked -- --test-threads=1`
+Run `cargo test -p cellar-main --test native_raft_ltx --locked -- --test-threads=1`
 for real SQLite images, checksum/chain corruption, retained readers, injected
 I/O failures and process-kill publication cuts. Those cuts use a fixture marker;
 engine marker atomicity and private command capture are exercised separately

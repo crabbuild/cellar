@@ -12,16 +12,21 @@
 [package]
 edition = "2018"
 rust-version = "1.75.0"
-name = "raft-engine"
-version = "0.4.2"
+name = "cellar-raft-engine"
+version = "0.1.1"
 authors = ["The TiKV Project Developers"]
-description = "A persistent storage engine for Multi-Raft logs"
+description = "Cellar fork of raft-engine with injected storage and fail-closed sync errors"
 readme = "README.md"
 license = "Apache-2.0"
-repository = "https://github.com/tikv/raft-engine"
+exclude = ["Cargo.toml.orig"]
+repository = "https://github.com/crabbuild/cellar"
 
 [package.metadata.docs.rs]
 features = ["internals"]
+
+[lib]
+name = "raft_engine"
+path = "src/lib.rs"
 
 [[example]]
 name = "append-compact-purge"

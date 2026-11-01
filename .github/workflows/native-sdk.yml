@@ -104,7 +104,7 @@ jobs:
           git rev-parse HEAD > "$RUNNER_TEMP/filesystem-release/source.txt"
       - name: Build the release CLI and filesystem application
         run: |
-          cargo build --release --locked -p cellar --bin cellar --bin cellar-native-examples \
+          cargo build --release --locked -p cellar-main --bin cellar --bin cellar-native-examples \
             2>&1 | tee "$RUNNER_TEMP/filesystem-release/build.log"
           python3 - <<'PY'
           import hashlib, json, os, platform, subprocess
@@ -179,7 +179,7 @@ jobs:
       - name: Select embedded Python
         run: echo "PYO3_PYTHON=$(command -v python)" >> "$GITHUB_ENV"
       - name: Check native-only libraries without Python
-        run: PYO3_PYTHON=/nonexistent/cellar-native-only cargo check -p cellar -p cellar-python --no-default-features --lib --locked
+        run: PYO3_PYTHON=/nonexistent/cellar-native-only cargo check -p cellar-main -p cellar-python --no-default-features --lib --locked
       - name: Check Rust formatting
         run: cargo format --check
       - name: Check Rust module layout
@@ -314,7 +314,7 @@ jobs:
           python tools/python/environment.py project examples/python/project.json \
             --inventory "$CELLAR_PYTHON_INVENTORY" --archive "$CELLAR_PYTHON_PREFIX/environment.tar.gz" \
             --output "$CELLAR_PYTHON_PREFIX/project.json"
-          cargo build -p cellar --bin cellar --example python-package-qualification --locked
+          cargo build -p cellar-main --bin cellar --example python-package-qualification --locked
           python examples/python/smoke.py --cellar target/debug/cellar \
             --project "$CELLAR_PYTHON_PREFIX/project.json" --with-cron ${{ matrix.smoke_flags }}
           target/debug/cellar build "$CELLAR_PYTHON_PREFIX/project.json" --output "$RUNNER_TEMP/python-package"
@@ -328,7 +328,7 @@ jobs:
             --output "$RUNNER_TEMP/python-rolling-project"
           target/debug/cellar build "$RUNNER_TEMP/python-rolling-project/project.json" \
             --output "$RUNNER_TEMP/python-package-v2"
-          cargo run -p cellar --example python-package-qualification --locked -- \
+          cargo run -p cellar-main --example python-package-qualification --locked -- \
             "$RUNNER_TEMP/python-package" "$RUNNER_TEMP" "$RUNNER_TEMP/python-package-v2" \
             --supervisor "$PWD/target/debug/cellar"
       - name: Test and lint
@@ -343,7 +343,7 @@ jobs:
           # The opt-in RPC qualifier owns every guest runtime, including V8.
           # Keep this native/Python job independent of JavaScript engines.
           cargo test --workspace --exclude cellar-python --exclude cellar-javascript --exclude cellar-rpc-qualification --all-features --lib --tests --locked -- --test-threads=1
-          cargo test -p cellar --bin cellar-perf-cells --bin cellar-perf-load --locked -- --test-threads=1
+          cargo test -p cellar-main --bin cellar-perf-cells --bin cellar-perf-load --locked -- --test-threads=1
           cargo test --workspace --exclude cellar-javascript --exclude cellar-rpc-qualification --all-features --doc --locked
           cargo clippy --workspace --exclude cellar-javascript --exclude cellar-rpc-qualification --all-targets --all-features --locked -- -D warnings
       - name: Preserve filesystem proof and recovery ledger
@@ -359,7 +359,7 @@ jobs:
           CELLAR_FS_CAPACITY_REPORT: ${{ runner.temp }}/filesystem-dense-capacity.json
           RUST_LOG: 'warn,cellar::actor::effects=info,store[node_lease_store]=debug'
         run: |
-          cargo test --locked -p cellar --all-features --test native_node \
+          cargo test --locked -p cellar-main --all-features --test native_node \
             filesystem_dense_capacity_cold_recovery -- --ignored --nocapture \
             2>&1 | tee "$RUNNER_TEMP/filesystem-dense-capacity.log"
       - name: Preserve dense filesystem observations
@@ -382,12 +382,12 @@ jobs:
           diff examples/axum-counter/generated_client.rs "$RUNNER_TEMP/counter-client.rs"
       - name: Build a Rust application package
         run: |
-          cargo run -p cellar --bin cellar --locked -- \
+          cargo run -p cellar-main --bin cellar --locked -- \
             build examples/native-counter/project.json \
             --output "$RUNNER_TEMP/native-counter-package"
       - name: Exercise native Rust examples
         run: |
-          cargo build -p cellar --bin cellar --bin cellar-native-examples \
+          cargo build -p cellar-main --bin cellar --bin cellar-native-examples \
             --bin cellar-example-embedded --locked
           python3 examples/focused_smoke.py --cellar target/debug/cellar --with-cron
           python3 examples/smoke.py --cellar target/debug/cellar
@@ -703,7 +703,7 @@ jobs:
           root = Path(os.environ["CELLAR_NATIVE_REPLAY_ROOT"])
           root.mkdir(parents=True, exist_ok=True)
           environment = dict(os.environ, TMPDIR=str(root))
-          command = ["cargo", "test", "-p", "cellar", "--all-features", "--test", "native_node", "--locked", "--"]
+          command = ["cargo", "test", "-p", "cellar-main", "--all-features", "--test", "native_node", "--locked", "--"]
           for selected in selected_cases:
               listed = subprocess.run(command + [selected, "--exact", "--list"], check=True,
                                       env=environment, stdout=subprocess.PIPE, text=True)

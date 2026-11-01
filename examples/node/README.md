@@ -78,7 +78,7 @@ fleet publication, prepare the runtime before compiling the host as follows.
 
 ```sh
 node tools/javascript/node-package.mjs --runtime examples/node/runtime.json .cellar/node-runtime
-cargo run --locked -p cellar -- build examples/node/project.json --output .cellar/node-fleet-package
+cargo run --locked -p cellar-main -- build examples/node/project.json --output .cellar/node-fleet-package
 ```
 
 `runtime.json` selects only Node, emitted code and installed dependencies. The

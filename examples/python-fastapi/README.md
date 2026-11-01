@@ -119,7 +119,7 @@ SQLite development bucket, and restores the runtime from that bucket. The
 installed executable runs with a cleared environment, without import-path flags.
 
 ```sh
-cargo run -p cellar --example python-fastapi-deployment --locked -- \
+cargo run -p cellar-main --example python-fastapi-deployment --locked -- \
   "$CELLAR_FASTAPI_ROOT/package-v1" "$CELLAR_FASTAPI_ROOT" "$(command -v python3)"
 ```
 

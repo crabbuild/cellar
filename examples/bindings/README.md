@@ -61,7 +61,7 @@ and Ctrl-C drains the host. Add `--port 9877` to use a different port.
 ### Rust
 
 ```sh
-cargo run --locked -p cellar --bin cellar -- \
+cargo run --locked -p cellar-main --bin cellar -- \
   dev examples/bindings/project-rust.json --no-watch
 ```
 
@@ -79,7 +79,7 @@ let response = cell.fetch(&context, request).await?;
 npm ci --prefix examples/bindings --ignore-scripts
 CELLAR_NODE_ENTRY="$PWD/examples/bindings/app.js" \
 CELLAR_NODE_EXECUTABLE="$(command -v node)" \
-  cargo run --locked -p cellar --bin cellar -- \
+  cargo run --locked -p cellar-main --bin cellar -- \
   dev examples/bindings/project-node.json --no-watch
 ```
 
@@ -96,11 +96,11 @@ npm run --prefix examples/bindings build
 # Choose Node:
 CELLAR_NODE_ENTRY="$PWD/examples/bindings/dist/app.js" \
 CELLAR_NODE_EXECUTABLE="$(command -v node)" \
-  cargo run --locked -p cellar --bin cellar -- \
+  cargo run --locked -p cellar-main --bin cellar -- \
   dev examples/bindings/project-node.json --no-watch
 
 # Or stop Node and choose embedded V8:
-cargo run --locked -p cellar --bin cellar -- \
+cargo run --locked -p cellar-main --bin cellar -- \
   dev examples/bindings/project-javascript.json --no-watch
 ```
 
@@ -117,7 +117,7 @@ the decoded nested response to an SDK handler response.
 
 ```sh
 export PYO3_PYTHON="$(command -v python3.14)"
-cargo run --locked -p cellar --bin cellar -- \
+cargo run --locked -p cellar-main --bin cellar -- \
   dev examples/bindings/project-python.json --no-watch
 ```
 
@@ -196,7 +196,7 @@ Node JavaScript and compiled TypeScript in turn, prints every actual curl comman
 and JSON response, and checks the results:
 
 ```sh
-cargo build --locked -p cellar --bin cellar
+cargo build --locked -p cellar-main --bin cellar
 python3 examples/bindings/smoke.py \
   --cellar "$CARGO_TARGET_DIR/debug/cellar" \
   --backend python --backend node-js --backend node-ts --curl-demo
@@ -236,7 +236,7 @@ After preparing the chosen language dependencies, run [smoke.py](smoke.py) to
 launch servers in temporary private project directories:
 
 ```sh
-cargo build --locked -p cellar --bin cellar
+cargo build --locked -p cellar-main --bin cellar
 python3 examples/bindings/smoke.py \
   --cellar "$CARGO_TARGET_DIR/debug/cellar" \
   --backend rust --backend node-js --backend node-ts --backend v8 --backend python

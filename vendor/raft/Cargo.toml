@@ -12,12 +12,12 @@
 
 [package]
 edition = "2021"
-name = "raft"
-version = "0.7.0"
+name = "cellar-raft"
+version = "0.1.1"
 authors = ["The TiKV Project Developers"]
-description = "The rust language implementation of Raft algorithm."
+description = "Cellar fork of raft-rs with host-seeded election randomness"
 homepage = "https://github.com/tikv/raft-rs"
-documentation = "https://docs.rs/raft"
+documentation = "https://docs.rs/cellar-raft"
 readme = "README.md"
 keywords = [
     "raft",
@@ -29,7 +29,12 @@ categories = [
     "database-implementations",
 ]
 license = "Apache-2.0"
-repository = "https://github.com/tikv/raft-rs"
+exclude = ["Cargo.toml.orig"]
+repository = "https://github.com/crabbuild/cellar"
+
+[lib]
+name = "raft"
+path = "src/lib.rs"
 
 [[example]]
 name = "single_mem_node"
@@ -61,7 +66,8 @@ version = "0.1.1"
 version = "2"
 
 [dependencies.raft-proto]
-version = "=0.7.0"
+package = "cellar-raft-proto"
+version = "=0.1.1"
 path = "../raft-proto"
 default-features = false
 

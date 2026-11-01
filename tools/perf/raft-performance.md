@@ -724,7 +724,7 @@ sync, after sync and after acknowledgement of a shared three-group batch.
 ```sh
 python3 tools/perf/raft_run.py --profile tools/perf/raft_profiles.json \
   --profile-name q1-capacity-plan --capacity-only
-cargo test -p cellar --test native_raft_multigroup --locked -- --test-threads=1
+cargo test -p cellar-main --test native_raft_multigroup --locked -- --test-threads=1
 python3 -m unittest discover -s tools/perf -p test_raft_run.py
 ```
 

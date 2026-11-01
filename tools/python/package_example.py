@@ -62,7 +62,7 @@ def package(example, binary):
     run(python, tool, "bundle", inventory, "--prefix", prefix, "--output", archive)
     run(python, tool, "project", example / "project.json", "--inventory", inventory,
         "--archive", archive, "--version", args.version, "--profile", args.profile, "--output", project)
-    run("cargo", "build", "-p", "cellar", "--bin", "cellar", "--locked")
+    run("cargo", "build", "-p", "cellar-main", "--bin", "cellar", "--locked")
     run(target / "debug/cellar", "build", project, "--output", output)
     run(python, tool, "verify", inventory)
     print(f"Built {output}; install with --python-root {prefix}", flush=True)

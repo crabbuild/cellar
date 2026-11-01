@@ -1,0 +1,56 @@
+Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+Cellar
+
+Cellar is licensed under the Apache License 2.0; see LICENSE.
+
+Upstream attribution
+--------------------
+
+Cellar includes source inherited or adapted from celld:
+
+  celld
+  Copyright 2026 Deno Land Inc.
+
+This attribution applies to the inherited and adapted celld portions, not to
+all Cellar additions. Those files retain their upstream notices and identify
+local modifications. Cellar-owned source, documentation and configuration files
+carry a short Cellar copyright and Apache-2.0 notice where the format supports
+comments. On adapted files, that notice covers Cellar contributions; upstream
+notices and license terms still apply to the inherited portions. Binary assets,
+JSON, lockfiles and recorded evidence are covered by the repository license
+unless separately attributed. Third-party sources retain their own notices.
+
+Code adapted from Tokio is under the MIT License; see the header of
+crates/cellar/execution/select.rs. The vendored replication and LZ4 source retains
+its attributions in crates/cellar-ltx/README.md and the license files there.
+
+Third-party software
+--------------------
+
+cellar uses lol_html, Cloudflare's HTML rewriting library (BSD-3-Clause,
+https://github.com/cloudflare/lol-html), to implement the HTMLRewriter
+API. lol_html depends on the following crates from the Servo project,
+which are licensed under the Mozilla Public License 2.0
+(https://mozilla.org/MPL/2.0/). cellar binaries include them unmodified;
+cssparser-macros runs only at build time. Their source code is available
+at:
+
+  cssparser          https://crates.io/crates/cssparser
+  cssparser-macros   https://crates.io/crates/cssparser-macros
+  dtoa-short         https://crates.io/crates/dtoa-short
+  selectors          https://crates.io/crates/selectors
+
+The exact versions are recorded in Cargo.lock.
+
+Cellar includes TiKV's Raft Rust implementation (raft 0.7.0), Raft protocol
+definitions (raft-proto 0.7.0), and Raft Engine (raft-engine 0.4.2), under the
+Apache License 2.0. Their sources retain notices for the TiKV Project Authors,
+PingCAP, Inc., and the etcd Authors. Original source versions, checksums, and
+Cellar adaptations are recorded in vendor/*/UPSTREAM.json. License texts are
+included in those directories. Cellar adapts filesystem integration, protobuf
+generation, and the election RNG source while retaining the Raft protocol.
+
+All other dependencies are under permissive licenses (Apache-2.0, MIT,
+BSD-3-Clause, ISC, Unicode-3.0, Zlib, BSL-1.0, CC0-1.0,
+CDLA-Permissive-2.0); Cargo.lock lists them.

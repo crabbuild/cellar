@@ -15,7 +15,7 @@ directory from [build guidance](../../AGENTS.md#build-and-validation):
 ```sh
 mkdir -p examples/.cellar/raft-counter
 openssl rand -hex 32 > examples/.cellar/raft-counter/http-token
-cargo run -p cellar --bin cellar-raft-counter --locked -- \
+cargo run -p cellar-main --bin cellar-raft-counter --locked -- \
   examples/.cellar/raft-counter \
   crates/cellar/transport/tcp/fixtures/ca.der \
   crates/cellar/transport/tcp/fixtures/server.der \

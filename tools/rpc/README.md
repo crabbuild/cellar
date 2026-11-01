@@ -118,7 +118,7 @@ blocking worker, a held SQLite transaction through caller timeout, and a native
 result ready while its caller remains unpolled:
 
 ```sh
-cargo test --locked -p cellar --lib local_store::timing_tests -- --test-threads=1
+cargo test --locked -p cellar-main --lib local_store::timing_tests -- --test-threads=1
 ```
 
 Large ordinary object puts additionally emit `body_staging` and `body_staged`
@@ -366,8 +366,8 @@ resource, packaging or release qualification.
 ## Native storage and lease progress
 
 ```sh
-cargo test --locked -p cellar --lib local_store:: -- --test-threads=1
-cargo test --locked -p cellar --test native_local_store -- --test-threads=1
+cargo test --locked -p cellar-main --lib local_store:: -- --test-threads=1
+cargo test --locked -p cellar-main --test native_local_store -- --test-threads=1
 ```
 
 The checkpoint regression pauses a real main-database sync during an unrelated
@@ -416,7 +416,7 @@ explains tool/runtime pins and the `--javascript-tools` option.
 Check the generated artifact before compiling a provider:
 
 ```sh
-cargo run --locked -p cellar --bin cellar -- rpc check \
+cargo run --locked -p cellar-main --bin cellar -- rpc check \
   --descriptor tools/rpc/fixtures/generated/contracts.binpb \
   --inventory tools/rpc/fixtures/generated/rpc.json
 ```
@@ -567,7 +567,7 @@ allowance. The allocation regression measures new allocator layouts separately
 from the already-owned input:
 
 ```sh
-cargo test --locked -p cellar --test native_rpc_reply_allocation
+cargo test --locked -p cellar-main --test native_rpc_reply_allocation
 ```
 
 This guard covers framework reply conversion. Business-message decoders, queued
@@ -608,7 +608,7 @@ and client refusal, large oneofs, default maps, saturation, cancellation and
 cross-thread refund after domain shutdown:
 
 ```sh
-cargo test --locked -p cellar --test native_rpc_decode_allocation
+cargo test --locked -p cellar-main --test native_rpc_decode_allocation
 cargo test --locked -p cellar-rpc-codegen
 ```
 
@@ -696,7 +696,7 @@ cargo run --locked -p cellar-rpc-codegen -- \
   --descriptor tools/rpc/fixtures/profile.binpb \
   --out tools/rpc/fixtures/profile-generated \
   --languages rust,python,typescript,javascript
-cargo test --locked -p cellar --test typed_rpc_profile
+cargo test --locked -p cellar-main --test typed_rpc_profile
 ```
 
 The separate live profile suite submits 18 shared vectors through all sixteen
@@ -962,7 +962,7 @@ packaging qualification remain open.
 cargo run --locked -p cellar-rpc-qualification --features full -- \
   --suite provenance --python-mode gil --report .cellar/rpc/provenance-matrix.json
 python3 tools/rpc/check_provenance.py .cellar/rpc/provenance-matrix.json
-cargo test --locked -p cellar --test native_rpc_failure_provenance -- --test-threads=1
+cargo test --locked -p cellar-main --test native_rpc_failure_provenance -- --test-threads=1
 ```
 
 The T06 matrix executes **112 cases**. Its original 96 cover all 16 Rust/Python/V8/Node
@@ -1038,7 +1038,7 @@ and package qualification retain their separate gates.
 ## Deadlines and cancellation during native construction
 
 ```sh
-cargo test --locked -p cellar --test native_typed_rpc cold_factory:: -- --test-threads=1
+cargo test --locked -p cellar-main --test native_typed_rpc cold_factory:: -- --test-threads=1
 ```
 
 The [cold-factory tests](../../crates/cellar/tests/support/rpc_cold_factory.rs)

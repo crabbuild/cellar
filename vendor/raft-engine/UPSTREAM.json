@@ -11,10 +11,13 @@
   "registry_checksum": "1213c3a24e3fee8afcc74b2be08c4081adde96f092e0fc1c607abb3e16ae722e",
   "patch_scope": "Injected directory operations and fail-closed sync-error propagation; upstream log format and Raft behavior retained.",
   "patched_files": [
+    "Cargo.toml",
     "src/engine.rs",
     "src/env/mod.rs",
     "src/file_pipe_log/log_file.rs",
     "src/file_pipe_log/pipe.rs",
     "src/file_pipe_log/pipe_builder.rs"
-  ]
+  ],
+  "cellar_package": "cellar-raft-engine",
+  "cellar_version": "0.1.1"
 }

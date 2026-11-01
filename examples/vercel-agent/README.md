@@ -330,7 +330,7 @@ The native runtime package remains independent of the UI gateway:
 ```sh
 node tools/javascript/node-package.mjs --runtime \
   examples/vercel-agent/runtime.json .cellar/vercel-agent-runtime
-cargo run --locked -p cellar -- build examples/vercel-agent/project.json \
+cargo run --locked -p cellar-main -- build examples/vercel-agent/project.json \
   --output .cellar/vercel-agent-package
 ```
 
