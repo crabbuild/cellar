@@ -10,6 +10,83 @@ CG-06 is IN_PROGRESS; CG-07 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-06 retained-log admission and progress capacity
+
+Source: `ad73f03f278f5845b311fe929d184cc947382b2d`. CG-06 remains IN_PROGRESS.
+Shared-group logs now account for logical retained entries and outstanding
+reservations against explicit node and group byte/count ceilings. The ledger
+reconstructs selected durable debt on reopen. Preexisting debt is preserved when
+a restart uses smaller limits, and new admission waits until it fits.
+Encoded-entry bytes include bounded accounting overhead; these are logical
+limits, not physical Raft Engine file-byte bounds.
+
+New SQL callbacks and initializers reserve a worst-case command envelope before
+execution. Known receipt reconciliation remains available at the ceiling. A
+preparation carries an exact engine/group/entry lease through submission and
+uncertain outcomes. Only sealed pre-append rejection or authoritative
+reconciliation releases unused preparation capacity. Entered storage retains the
+lease after waiter loss, then transfers its charge into selected durable entries
+after sync/cache publication without a release gap or double debit. Consumed
+leases cannot authorize another append.
+
+Local, inherited follower, election and configuration entries use the same
+ledger. Empty election and automatic configuration entries have separately
+reserved progress capacity. A joint transition promises its automatic leave
+before it can enter RawNode, avoiding capacity acquisition after collected apply
+work changes configuration. Capacity refusal on a deferred tick is nonfatal.
+Role changes revoke concurrent execution authority before accounting. Actual
+selected checkpoints and suffix replacement retire debt; archive status alone
+does not. Existing archive-required compaction still needs independently
+verified complete coverage.
+
+Three exact real-engine cases pass for entry ceilings/reopen, independent
+node/group byte ceilings with slack counts, suffix replacement, exact lease
+identity and held physical sync after all caller owners disappear. Both native
+SQL image forms pass before-callback and initializer refusal, known receipt
+recovery, sibling progress, exact local checkpoint selection/source release and
+resumed writes. They fill ordinary admission before a real automatic joint
+transition and require its automatic leave through the unchanged single progress
+entry. The local checkpoint scenario does not claim a full S3 backend outage or
+physical file purge.
+
+All seventeen exact real RustFS controller cases pass in both image forms, with
+seven signed S3 protocol probes. Twenty-two regression/check commands pass with
+267 distinct Rust cases and seven copied executables; all 22 storage cases and
+four native shared-group suites run. Locked all-target Cellar/logic/LTX Clippy,
+format/layout, native dependency/docs/preflight/plan checks, 37 Python tests and
+system-Python hashing pass. Source/artifact/selection and credential-exclusion
+audit passes across 2574 source inputs. Records, copied binaries/outputs,
+orchestration and frozen plan inputs are under
+`.cellar/cell-groups-evidence/CG-06-log-retention/`.
+
+Source-bound failures remain retained: initial accessor/type/layout compile
+checks, the coherent-hardstate correction to a wrong-term lease negative, the
+native fixture's impossible leader-only wait on followers, and the aggregate
+snapshot test's default-stack overflow. Copied binaries reproduce these fixture
+failures. The successor keeps the original identity assertions, quotas and
+deadlines and waits for the exact selected cut, retired debt and released
+checkpoint source on each voter. The aggregate snapshot case uses the existing
+non-inlined fixture constructor to keep large async construction off its poll
+frame; the exact case and complete suite pass on the original default stack. No
+temporary DEBUG instrumentation remains. The earlier `8dfe9ff3` slow-reader
+timeout remains unexplained despite unchanged passing reruns; this change is not
+claimed to fix it. The RustFS controller matrix does not delete voter disks.
+Original CG-06 cases, acceptance oracles and evidence array remain unchanged;
+four original cases/full task gate remain incomplete.
+
+Reflection: next qualify a full backend S3 outage with fresh catalog/epoch
+authority, without caching ownership past fencing. Complete and qualify physical
+shared-engine file reclamation constrained by every
+checkpoint/archive/reader/transfer and sibling hold; logical admission alone
+does not establish a disk bound. Complete fenced fresh-group/cell-incarnation
+recovery and replacement-quorum serving with the complete inventory of possible
+old voters, including joins after the selected cut, using the accepted
+fencing-authority API plus Docker qualification. Then finish CG-08
+effect/cache/result lifetimes before CG-07 public SDK/fleet cutover. Topology,
+placement, hibernation, managed recovery, measured load and final legacy removal
+follow. Voters remain host-native tasks and RustFS one local VM; independent
+failure domains and the full hard cutover remain unqualified.
+
 ## CG-06 owned archive activation and checkpoint drain
 
 Source: `ab0abf26dea4df436b5ced926f28a9ede4f360fd`. CG-06 remains IN_PROGRESS. A
