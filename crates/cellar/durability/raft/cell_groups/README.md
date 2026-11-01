@@ -177,7 +177,9 @@ and stale cuts refuse. `CheckpointPublished` is emitted after the matching engin
 completion. Source admission and pins survive accepted publication and shutdown.
 
 Archive registration now fsyncs a required local retention bit before object-store
-I/O. That bit is part of the required marker-1 group application record, remains
+I/O. Already admitted checkpoints retain owner/storage guards; activation retries
+until those guards drain before syncing the requirement. That bit is part of the
+required marker-1 group application record, remains
 set through ordinary writes and snapshot installation, and is recovered on open.
 The in-memory verified archive frontier is deliberately absent after restart.
 Local checkpoint publication and the storage preflight refuse a cut beyond that

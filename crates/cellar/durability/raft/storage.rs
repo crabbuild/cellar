@@ -1465,6 +1465,7 @@ impl Worker {
         let mut candidates = Vec::with_capacity(writes.len());
         let mut next_bytes = self.cache_bytes;
         let mut batch = LogBatch::default();
+        let mut archive_admissions = Vec::new();
         for write in &writes {
             if !Arc::ptr_eq(&write.group.owner, &self.owner) || !unique.insert(write.group.key) {
                 return Err(LogError::WrongIdentity);
@@ -1478,9 +1479,13 @@ impl Worker {
                 write.group.archive_compaction.require()?;
             }
             if let Some(SnapshotChange::CellGroupCheckpoint(prepared)) = &write.snapshot {
-                if !write.group.archive_compaction.permits(prepared.marker())? {
-                    return Err(LogError::Overloaded);
-                }
+                archive_admissions.push(
+                    write
+                        .group
+                        .archive_compaction
+                        .admit(prepared.marker())?
+                        .ok_or(LogError::Overloaded)?,
+                );
             }
             let next = old.changed(
                 write,

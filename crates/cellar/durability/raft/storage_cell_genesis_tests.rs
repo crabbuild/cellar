@@ -237,14 +237,22 @@ async fn archive_requirement_is_local_irreversible_and_recovered() -> anyhow::Re
     let group = log.create_cell_group(initial.clone()).await?;
     let marker = group.group_manifest()?.unwrap();
     assert!(group.archive_compaction.permits(&marker)?);
+    let admitted = group.archive_compaction.admit(&marker)?.unwrap();
+    assert!(matches!(
+        log.require_cell_group_archive(&initial.route.history).await,
+        Err(LogError::Overloaded)
+    ));
+    assert!(!group.read()?.archive_required);
+    drop(admitted);
     log.require_cell_group_archive(&initial.route.history)
         .await?;
     assert!(group.read()?.archive_required);
     assert!(!group.clone().archive_compaction.permits(&marker)?);
-    let cache = group.read()?;
-    let mapping = MappingRecord::new_cells(group.numeric_key(), &initial, &cache.conf_state)?;
-    let record = GroupRecord::from_cache(mapping, &cache)?;
-    drop(cache);
+    let record = {
+        let cache = group.read()?;
+        let mapping = MappingRecord::new_cells(group.numeric_key(), &initial, &cache.conf_state)?;
+        GroupRecord::from_cache(mapping, &cache)?
+    };
     let mut encoded = serde_json::to_value(record)?;
     encoded["application"]["state"]
         .as_object_mut()

@@ -164,7 +164,11 @@ enum Phase {
     Ready(Box<Ready>, Term),
     Light(LightReady),
     Apply(CellGroupTicket, Box<PreparedGroupManifest>, bool),
-    Checkpoint(PreparedLocalCellGroupCheckpoint, bool),
+    Checkpoint(
+        PreparedLocalCellGroupCheckpoint,
+        bool,
+        super::archive_compaction::ArchiveCompactionAdmission,
+    ),
 }
 
 pub struct CellGroupOwner {
@@ -641,10 +645,12 @@ impl CellGroupOwner {
         {
             return Err(RuntimeError::Overloaded);
         }
-        if !self.group.archive_compaction.permits(root.marker())? {
-            return Err(RuntimeError::Overloaded);
-        }
-        self.phase = Some(Phase::Checkpoint(checkpoint, false));
+        let admission = self
+            .group
+            .archive_compaction
+            .admit(root.marker())?
+            .ok_or(RuntimeError::Overloaded)?;
+        self.phase = Some(Phase::Checkpoint(checkpoint, false, admission));
         Ok(())
     }
 
@@ -1066,7 +1072,7 @@ impl CellGroupOwner {
                 entries(light.committed_entries()) + messages(light.messages())
             }
             Some(Phase::Apply(_, next, _)) => next.reserved_bytes() + 4096,
-            Some(Phase::Checkpoint(checkpoint, _)) => {
+            Some(Phase::Checkpoint(checkpoint, _, _)) => {
                 checkpoint.root().reserved_bytes()
                     + checkpoint.snapshot().compute_size() as usize
                     + 4096
@@ -1284,12 +1290,12 @@ impl CellGroupOwner {
                     self.messages(light.take_messages())?;
                     self.enqueue(light.take_committed_entries())?;
                 }
-                Some(Phase::Checkpoint(checkpoint, submitted)) => {
+                Some(Phase::Checkpoint(checkpoint, submitted, admission)) => {
                     if !submitted {
                         let mut write = GroupWrite::new(&self.group);
                         write.snapshot =
                             Some(SnapshotChange::CellGroupCheckpoint(checkpoint.clone()));
-                        self.phase = Some(Phase::Checkpoint(checkpoint, true));
+                        self.phase = Some(Phase::Checkpoint(checkpoint, true, admission));
                         return self.persistence(write).map(Some);
                     }
                     let cache = self.group.read()?;

@@ -4,11 +4,36 @@
 use super::{CellGroupArchiveCoverage, GroupManifest};
 use crate::raft::{cache::GroupLog, storage::LogError};
 use cellar_logic::cell_group::GroupHistory;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 struct State {
     required: bool,
     covered: Option<GroupManifest>,
+    admitted: usize,
+}
+
+impl State {
+    fn permits(&self, marker: &GroupManifest) -> bool {
+        !self.required
+            || self.covered.as_ref().is_some_and(|covered| {
+                covered.route() == marker.route()
+                    && covered.position().index >= marker.position().index
+                    && (covered.position().index != marker.position().index || covered == marker)
+            })
+    }
+}
+
+/// Admission already entered under the preceding policy. Archive activation
+/// retries until both the owner and entered storage work have released these
+/// guards; it cannot retract a write while retaining its sole source slot.
+pub(crate) struct ArchiveCompactionAdmission(Arc<ArchiveCompaction>);
+
+impl Drop for ArchiveCompactionAdmission {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.0.state.lock() {
+            state.admitted -= 1;
+        }
+    }
 }
 
 /// Shared by every clone of one engine-local group. The requirement survives
@@ -24,12 +49,16 @@ impl ArchiveCompaction {
             state: Mutex::new(State {
                 required,
                 covered: None,
+                admitted: 0,
             }),
         }
     }
 
     pub(crate) fn require(&self) -> Result<(), LogError> {
         let mut state = self.state.lock().map_err(|_| LogError::Closed)?;
+        if state.admitted != 0 {
+            return Err(LogError::Overloaded);
+        }
         state.required = true;
         state.covered = None;
         Ok(())
@@ -84,11 +113,18 @@ impl ArchiveCompaction {
 
     pub(crate) fn permits(&self, marker: &GroupManifest) -> Result<bool, LogError> {
         let state = self.state.lock().map_err(|_| LogError::Closed)?;
-        Ok(!state.required
-            || state.covered.as_ref().is_some_and(|covered| {
-                covered.route() == marker.route()
-                    && covered.position().index >= marker.position().index
-                    && (covered.position().index != marker.position().index || covered == marker)
-            }))
+        Ok(state.permits(marker))
+    }
+
+    pub(crate) fn admit(
+        self: &Arc<Self>,
+        marker: &GroupManifest,
+    ) -> Result<Option<ArchiveCompactionAdmission>, LogError> {
+        let mut state = self.state.lock().map_err(|_| LogError::Closed)?;
+        if !state.permits(marker) {
+            return Ok(None);
+        }
+        state.admitted = state.admitted.checked_add(1).ok_or(LogError::Overloaded)?;
+        Ok(Some(ArchiveCompactionAdmission(self.clone())))
     }
 }

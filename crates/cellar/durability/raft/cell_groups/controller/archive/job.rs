@@ -36,7 +36,10 @@ pub(super) async fn open(
         .log()
         .require_cell_group_archive(&registration.birth.route().history)
         .await
-        .map_err(|error| Error::Runtime(error.into()))?;
+        .map_err(|error| match error {
+            crate::raft::storage::LogError::Overloaded => Error::Runtime(RuntimeError::Overloaded),
+            error => Error::Runtime(error.into()),
+        })?;
     let registry = registration
         .directory
         .open_group_archive(execution, &registration.io, &registration.birth)

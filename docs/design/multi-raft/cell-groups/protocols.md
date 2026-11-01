@@ -1016,6 +1016,13 @@ match the exact local root and term; newer coverage cannot be replaced with olde
 or conflicting evidence. An intent reconciled behind the retained checkpoint
 keeps compaction closed until the next verified cut reaches local history.
 
+Activation retries while an earlier checkpoint admission is still owned. Both
+the Raft phase and the entered storage batch retain an admission guard through
+completion. The requirement is synced only after those guards drain, so it cannot
+retract an already entered checkpoint while retaining that checkpoint's sole
+source slot. Capacity refusal is retried specifically at this activation boundary.
+No mutex guard crosses an await or physical I/O.
+
 The automatic checkpoint scheduler checks the frontier before capture, letting
 quorum apply and another group's checkpoint lane progress during archive delay.
 The actual owner checks the exact captured cut again; the storage worker repeats
