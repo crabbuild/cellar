@@ -1383,9 +1383,17 @@ impl AppHandle {
     ) -> Result<Routed, RequestError> {
         if resident_work.is_none() {
             if let Some(runtime) = &self.runtime {
-                match runtime.retirements.get(&cell).await {
-                    Ok(None) => {}
-                    _ => return Err(RequestError::RuntimeFailed),
+                // Publication follows a fresh retirement check and restored
+                // SQLite admission state. Erasure closes that activation's
+                // business gate irreversibly before proving its intent and
+                // publishing the external marker. Reuse only live residency;
+                // a stop/swap/takeover must cross activation checks again.
+                // Routing, epoch and output authority checks still run below.
+                if runtime.published_epoch(&cell).is_none() {
+                    match runtime.retirements.get(&cell).await {
+                        Ok(None) => {}
+                        _ => return Err(RequestError::RuntimeFailed),
+                    }
                 }
             }
         }

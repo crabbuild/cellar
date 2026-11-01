@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 use anyhow::{ensure, Context, Result};
-use cellar::{bucket::Bucket, sdk::ShutdownMode};
+use cellar::sdk::ShutdownMode;
 use serde_json::{json, Value};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
@@ -212,15 +212,15 @@ async fn cases(
                         "explicit same-ID retry lost its stored result"
                     );
                 }
+                let changed = request(
+                    client,
+                    base,
+                    &format!("/{caller}/increment?target={target}&delta=2&id={id}"),
+                )
+                .await?;
                 ensure!(
-                    request(
-                        client,
-                        base,
-                        &format!("/{caller}/increment?target={target}&delta=2&id={id}")
-                    )
-                    .await?
-                        == json!({"error":"operation_conflict"}),
-                    "same-ID changed-command retry was accepted"
+                    changed == json!({"error":"operation_conflict"}),
+                    "same-ID changed-command retry {caller}->{target} returned {changed}"
                 );
                 ensure!(
                     request(client, base, &format!("/{caller}/read?target={target}")).await?
@@ -246,6 +246,7 @@ async fn cases(
     ensure!(cases.len() == 128, "peer fault matrix is incomplete");
     Ok(
         json!({"format":1,"contract_digest":app.contract.digest(),"topology":"signed-peer-fault-relay",
+        "storage_profile":"sqlite-full-per-node-key",
         "case_count":cases.len(),"cases":cases,"fleet_durability":true,
         "remote_fleet_qualified":false,"abrupt_crash_qualified":false}),
     )
@@ -254,7 +255,7 @@ async fn cases(
 pub async fn run(app: Arc<Composite>) -> Result<Value> {
     app.audit.reset_after_node_drain();
     let directory = tempfile::tempdir()?;
-    let bucket = Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    let bucket = super::storage::open(directory.path(), &[OWNER, SOURCE])?;
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
         .build()?;

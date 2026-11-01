@@ -8,6 +8,55 @@ use anyhow::{ensure, Context as _, Result};
 use cellar::{bucket::Bucket, sdk::ExecutionDomain};
 use std::io::Read as _;
 
+#[test]
+fn fresh_store_schema_has_one_durable_commit() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let database = directory.path().join("objects.sqlite");
+    let bucket = Bucket::open_dev(&database)?;
+    let wal = std::fs::read(directory.path().join("objects.sqlite-wal"))?;
+    let mut reader = cellar_ltx::wal::WalReader::new(&wal)?;
+    let mut page = vec![0; reader.page_size() as usize];
+    let mut commits = 0;
+    loop {
+        match reader.read_frame(&mut page) {
+            Ok((_, database_size)) => commits += usize::from(database_size != 0),
+            Err(cellar_ltx::wal::WalError::Eof) => break,
+            Err(error) => return Err(error.into()),
+        }
+    }
+    ensure!(
+        commits == 1,
+        "fresh schema required {commits} durable commits"
+    );
+    drop(bucket);
+    let connection = rusqlite::Connection::open(&database)?;
+    ensure!(connection.query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0))? == "ok");
+    Ok(())
+}
+
+#[test]
+fn failed_store_schema_does_not_publish_partial_tables() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let database = directory.path().join("objects.sqlite");
+    let connection = rusqlite::Connection::open(&database)?;
+    connection.execute_batch(
+        "CREATE TABLE __sys_local_sequence (singleton INTEGER PRIMARY KEY, next_etag INTEGER NOT NULL);
+         CREATE TRIGGER reject_sequence BEFORE INSERT ON __sys_local_sequence
+         BEGIN SELECT RAISE(ABORT, 'injected schema failure'); END;",
+    )?;
+    ensure!(Bucket::open_dev(&database).is_err());
+    let objects: u64 = connection.query_row(
+        "SELECT COUNT(*) FROM sqlite_schema WHERE name = '__sys_local_objects'",
+        [],
+        |row| row.get(0),
+    )?;
+    ensure!(
+        objects == 0,
+        "failed initialization published partial schema"
+    );
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_cas_has_one_winner_before_and_after_reopen() -> Result<()> {
     let directory = tempfile::tempdir()?;

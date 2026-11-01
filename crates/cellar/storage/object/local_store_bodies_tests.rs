@@ -3,6 +3,44 @@
 use super::*;
 use anyhow::{ensure, Result};
 
+#[tokio::test]
+async fn empty_body_maintenance_does_not_wait_for_an_unrelated_writer() -> Result<()> {
+    let domain = crate::sdk::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let outcome = domain
+        .run(async {
+            let directory = tempfile::tempdir()?;
+            let store = LocalStore::open(directory.path().join("objects.sqlite"))?;
+            for active_stage in [false, true] {
+                if active_stage {
+                    let mut connection = store.connect()?;
+                    store.stage_body(&mut connection, "active", &vec![7; READ_CHUNK_BYTES + 1])?;
+                }
+                let worker = store.clone();
+                let (sent, received) = std::sync::mpsc::channel();
+                let (observed, task) = {
+                    let _held = store.writer.lock();
+                    let task = crate::asyncrt::try_blocking(move || {
+                        let result = (|| {
+                            let mut connection = worker.connect()?;
+                            worker.maintain_bodies(&mut connection)
+                        })();
+                        let _ = sent.send(result);
+                    })?;
+                    (received.recv_timeout(Duration::from_secs(5)), task)
+                };
+                // Always release the writer and join even when the regression
+                // deadline fires, so a failed test cannot strand native work.
+                task.await?;
+                observed??;
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await;
+    domain.shutdown().await;
+    outcome??;
+    Ok(())
+}
+
 #[test]
 fn older_object_layout_is_refused_without_mutating_saved_state() -> Result<()> {
     let directory = tempfile::tempdir()?;

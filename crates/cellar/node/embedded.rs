@@ -1031,6 +1031,11 @@ async fn prepare(
             bucket,
         },
     )?;
+    runtime
+        .retirements
+        .prepare()
+        .await
+        .context("prepare cell retirement storage")?;
     let (fence_tx, fence_rx) = mpsc::unbounded_channel();
     let drain_pins = DrainPinRegistry::default();
     let actor = Actor::new(

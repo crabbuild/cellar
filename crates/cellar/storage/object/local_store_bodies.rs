@@ -153,6 +153,24 @@ impl LocalStore {
         connection: &mut Connection,
         selected: Option<i64>,
     ) -> object_store::Result<bool> {
+        if selected.is_none() {
+            // This is opportunistic collection, not a durability barrier for
+            // the object just committed. An empty pass must not queue behind
+            // another writer (and thereby delay a durable lease reply).
+            // A positive probe still revalidates the exact candidate under
+            // the existing write transaction, including staging renewal.
+            let pending: bool = connection
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM __sys_local_bodies WHERE retired = 1)
+                 OR EXISTS(SELECT 1 FROM __sys_local_bodies WHERE expires_ms <= ?1)",
+                    [crate::asyncrt::wall_ms()],
+                    |row| row.get(0),
+                )
+                .map_err(db_error)?;
+            if !pending {
+                return Ok(false);
+            }
+        }
         let writer = self.writer.lock();
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)

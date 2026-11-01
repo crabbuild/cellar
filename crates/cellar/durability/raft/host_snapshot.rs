@@ -350,6 +350,10 @@ impl Driver {
                 continue;
             }
             if !self.options.enable_snapshots
+                // Do not repopulate physical work after the maintenance gate
+                // quiesced it. Prior captures and required Raft transfers above
+                // still finish; permanent shutdown keeps its cleanup policy.
+                || self.local.admission.maintenance_paused()
                 || self.options.checkpoint_entries == 0
                 || cell.checkpoint_busy
                 || cell.apply_inflight

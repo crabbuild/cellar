@@ -98,6 +98,7 @@ fn maintenance_reopens_application_without_resetting_permanent_shutdown() {
     };
     gate.begin(&selector).unwrap();
     assert!(admission.application_paused());
+    assert!(admission.maintenance_paused());
     // An accepted HTTP handler can still register its final SDK write.
     drop(admission.registration(Access::Application).unwrap());
     gate.seal_raft(&selector).unwrap();
@@ -109,6 +110,7 @@ fn maintenance_reopens_application_without_resetting_permanent_shutdown() {
     drop(admission.registration(Access::Control).unwrap());
     gate.fence(&selector).unwrap();
     assert!(!admission.application_paused());
+    assert!(!admission.maintenance_paused());
     drop(admission.registration(Access::Application).unwrap());
     assert!(gate.begin(&selector).is_err());
     let mut next = selector.clone();
@@ -119,6 +121,7 @@ fn maintenance_reopens_application_without_resetting_permanent_shutdown() {
     gate.fence(&next).unwrap();
     assert!(admission.is_draining());
     assert!(admission.application_paused());
+    assert!(!admission.maintenance_paused());
     assert!(matches!(
         admission.registration(Access::Application),
         Err(CommandFailure::Unavailable)

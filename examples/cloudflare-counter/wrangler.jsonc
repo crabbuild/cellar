@@ -1,0 +1,53 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "cellar-counter-lab",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-29",
+  "workers_dev": true,
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": [
+      "/api/*"
+    ]
+  },
+  "containers": [
+    {
+      "class_name": "CounterContainer",
+      "image": "./Dockerfile",
+      "image_build_context": "../..",
+      "image_vars": {
+        "CELLAR_COMMIT": "development"
+      },
+      "instance_type": "standard-1",
+      "max_instances": 1
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "COUNTER",
+        "class_name": "CounterContainer"
+      }
+    ]
+  },
+  "exports": {
+    "CounterContainer": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "r2_buckets": [
+    {
+      "binding": "PROBES",
+      "bucket_name": "cellar-counter-demo"
+    }
+  ],
+  "vars": {
+    "R2_BUCKET": "cellar-counter-demo",
+    "CELLAR_REVISION": "development"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

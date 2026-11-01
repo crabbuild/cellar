@@ -23,6 +23,8 @@ mod node_filesystem_faults;
 mod node_http;
 #[path = "support/node_preserve.rs"]
 mod node_preserve;
+#[path = "support/node_retirement.rs"]
+mod node_retirement;
 use anyhow::{ensure, Context as _, Result};
 use cellar::bucket::Bucket;
 use cellar::engine_api::HttpResponse;

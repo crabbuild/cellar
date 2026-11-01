@@ -202,12 +202,28 @@ impl SandboxCatalog {
     /// prevents this cell from being recreated. Completion is asynchronous.
     pub fn request_erasure(&self, context: &Context) -> HandlerFuture<()> {
         let prepared = (|| {
-            let scope = self.check(context)?;
-            crate::storage::sandbox_erasure::prepare(scope)?;
-            maintenance::publish(context)?;
-            Ok::<_, anyhow::Error>(context.storage()?.sync())
+            let scope = self.check(context)?.to_string();
+            let mut held = context.state.erasure_gate.lock().unwrap();
+            let gate = match held.as_ref() {
+                Some(gate) => gate.clone(),
+                None => {
+                    let gate = crate::native_worker::InputGate::acquire(context.io.clone(), scope)?;
+                    *held = Some(gate.clone());
+                    gate
+                }
+            };
+            Ok::<_, anyhow::Error>(gate)
         })();
-        Box::pin(async move { prepared?.await })
+        let catalog = self.clone();
+        let context = context.clone();
+        Box::pin(async move {
+            let gate = prepared?;
+            gate.ready.clone().await.map_err(anyhow::Error::msg)?;
+            let scope = catalog.check(&context)?;
+            crate::storage::sandbox_erasure::prepare(scope)?;
+            maintenance::publish(&context)?;
+            context.storage()?.sync().await
+        })
     }
 
     /// Finish only after every child has confirmed deletion. The retained parent

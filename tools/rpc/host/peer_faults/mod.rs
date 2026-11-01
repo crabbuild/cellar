@@ -6,5 +6,6 @@ mod framing;
 mod matrix;
 mod receiver;
 mod relay;
+mod storage;
 
 pub use matrix::run;
