@@ -635,7 +635,13 @@ async fn retained_log_lease_survives_waiter_loss_and_transfers_once() -> anyhow:
             gate.entered.notified(),
         ))
         .await??;
+    let physical_lease = Arc::downgrade(&lease);
     drop(saving);
+    drop(lease);
+    assert!(
+        physical_lease.upgrade().is_some(),
+        "entered storage owns the final strong lease"
+    );
     assert_eq!(group.log_retention_usage()?, reserved);
     drop(release);
     log.reserve_node_revision().await?;
@@ -645,14 +651,33 @@ async fn retained_log_lease_survives_waiter_loss_and_transfers_once() -> anyhow:
         (1, 0)
     );
     assert_eq!(selected.retained_bytes, reserved.reserved_bytes);
-    // Keeping the original lease does not double-charge selected debt. It also
-    // cannot authorize another write after its exact reservation was consumed.
+    assert!(
+        physical_lease.upgrade().is_none(),
+        "FIFO join releases every physical lease clone"
+    );
+    assert_eq!(group.log_retention_usage()?, selected);
+    // A separately retained client lease is consumed exactly once. Keeping it
+    // cannot double-charge selected debt or authorize reuse of the capability.
+    let next = Entry {
+        index: 3,
+        ..entry.clone()
+    };
+    let lease = group.log_retention().unwrap().reserve_entry(&next)?;
+    let mut write = GroupWrite::new(&group);
+    write.entries.push(next.clone());
+    write.log_reservations.insert(3, lease.clone());
+    log.persist_cells(OperationId::new(63), vec![write]).await?;
+    let complete = group.log_retention_usage()?;
+    assert_eq!(
+        (complete.retained_entries, complete.reserved_entries),
+        (2, 0)
+    );
     assert!(matches!(
-        lease.validate(group.log_retention().unwrap(), &entry),
+        lease.validate(group.log_retention().unwrap(), &next),
         Err(LogError::WrongIdentity)
     ));
     drop(lease);
-    assert_eq!(group.log_retention_usage()?, selected);
+    assert_eq!(group.log_retention_usage()?, complete);
     log.close().await?;
     domain.shutdown().await;
     Ok(())

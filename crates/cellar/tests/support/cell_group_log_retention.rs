@@ -3,6 +3,10 @@
 //! Actual three-voter SQL and checkpoint boundaries at a small entry ceiling.
 //! Full-backend outage authority and physical file amplification are separate.
 use super::*;
+use raft::{
+    prelude::{ConfChangeSingle, ConfChangeTransition, ConfChangeType, ConfChangeV2},
+    Storage as _,
+};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub(crate) async fn retained_log_admission(rooted: bool) -> Result<()> {
@@ -233,6 +237,103 @@ pub(crate) async fn retained_log_admission(rooted: bool) -> Result<()> {
         })?
         .await??;
     assert_eq!(group.log_retention_usage()?.reserved_entries, 0);
+    // Fill three of the four ordinary slots with real cell commands. The
+    // revision-bound joint configuration consumes the fourth; its automatic
+    // leave must use promised progress capacity while ordinary admission is full.
+    for sequence in 2..=3 {
+        let mut executor = fixture.private_cell(&b).await?;
+        let (mut executor, command) = fixture
+            .cluster
+            .domain
+            .blocking(move || -> Result<_> {
+                let mut attempt = cell_attempt(94 + sequence as u8)?;
+                attempt.request.id = CommandId::new(ClientId::new([81; 16])?, sequence)?;
+                let CellStageOutcome::Prepared(command) = executor.stage(attempt, true, |tx| {
+                    tx.execute("UPDATE value SET n=n+1", [])?;
+                    Ok(b"joint-progress".to_vec())
+                })?
+                else {
+                    anyhow::bail!("ordinary command before joint transition")
+                };
+                executor.mark_submitted(command.proposal())?;
+                Ok((executor, command))
+            })?
+            .await??;
+        let accepted = accepted_private(&fixture.runtimes[0], &command).await?;
+        fixture.drive(Some(accepted.position.index)).await?;
+        let authority = fixture.runtimes[0]
+            .execution_authority(route.history, b.clone())
+            .await?;
+        fixture
+            .cluster
+            .domain
+            .blocking(move || -> Result<()> {
+                assert_eq!(
+                    executor.finish(authority)?.receipt.result(),
+                    b"joint-progress"
+                );
+                executor.close()?;
+                Ok(())
+            })?
+            .await??;
+    }
+    assert_eq!(group.log_retention_usage()?.retained_entries, 3);
+    let configuration = ConfChangeV2 {
+        transition: ConfChangeTransition::Auto,
+        changes: vec![
+            ConfChangeSingle {
+                node_id: 3,
+                change_type: ConfChangeType::AddLearnerNode,
+                ..Default::default()
+            },
+            ConfChangeSingle {
+                node_id: 2,
+                change_type: ConfChangeType::AddNode,
+                ..Default::default()
+            },
+        ]
+        .into(),
+        ..Default::default()
+    };
+    let request = CellGroupMembershipChange::new(&route, &group.membership()?, configuration, &[])?;
+    let accepted = fixture.runtimes[0]
+        .configure(route.history, request)
+        .await?;
+    tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            fixture.pump(&[], &mut BTreeMap::new()).await?;
+            let conf = group.initial_state()?.conf_state;
+            let status = fixture.runtimes[0].status(route.history).await?;
+            if conf.voters_outgoing.is_empty()
+                && conf.learners == vec![3]
+                && status.applied.index > accepted.position.index
+                && fixture.applied[&route.history]
+                    .iter()
+                    .all(|index| *index >= status.applied.index)
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .context("automatic joint leave progresses at the ordinary entry ceiling")??;
+    let usage = group.log_retention_usage()?;
+    assert_eq!((usage.retained_entries, usage.reserved_entries), (5, 0));
+    for voter in &fixture.cluster.voters {
+        let group = voter.log.cell_group(&route.history)?;
+        assert_eq!(group.initial_state()?.conf_state.learners, vec![3]);
+        assert_eq!(
+            group
+                .group_manifest()?
+                .context("complete post-joint root")?
+                .root()
+                .cells(),
+            3
+        );
+        assert_eq!(group.log_retention_usage()?.reserved_entries, 0);
+    }
     drop(prepared);
     drop(next);
     fixture.close().await
