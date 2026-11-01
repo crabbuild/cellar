@@ -178,6 +178,8 @@ pub(crate) async fn s3_remote_slow_delivery(
                     .retained_operations,
                 0
             );
+            let node = &h.controllers[0];
+            controller::wait_for(async || Ok(node.usage().retained_commands == 0)).await?;
             let successor = h
                 .command(2, b"successor", Durability::Quorum, Duration::from_secs(15))
                 .await?

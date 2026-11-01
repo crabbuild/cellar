@@ -1,10 +1,10 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! An authenticated reply owns its S3 output until the physical writer finishes.
-use super::query_wire as wire;
-use super::transport::TransportError;
+use super::TransportError;
 use crate::application::consensus::CommandFailure;
 use crate::raft::cell_groups::{CellCommandResponse, CellReceiptResponse, CellSqlEnrollment};
+use crate::raft::query_wire as wire;
 use cellar_logic::consensus::Durability;
 
 enum Owner {
