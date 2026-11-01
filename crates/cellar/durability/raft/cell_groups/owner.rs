@@ -167,7 +167,7 @@ enum Phase {
     Checkpoint(
         PreparedLocalCellGroupCheckpoint,
         bool,
-        super::archive_compaction::ArchiveCompactionAdmission,
+        Arc<super::archive_compaction::ArchiveCompactionAdmission>,
     ),
 }
 
@@ -1295,6 +1295,7 @@ impl CellGroupOwner {
                         let mut write = GroupWrite::new(&self.group);
                         write.snapshot =
                             Some(SnapshotChange::CellGroupCheckpoint(checkpoint.clone()));
+                        write.checkpoint_admission = Some(admission.clone());
                         self.phase = Some(Phase::Checkpoint(checkpoint, true, admission));
                         return self.persistence(write).map(Some);
                     }

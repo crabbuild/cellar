@@ -1016,12 +1016,22 @@ match the exact local root and term; newer coverage cannot be replaced with olde
 or conflicting evidence. An intent reconciled behind the retained checkpoint
 keeps compaction closed until the next verified cut reaches local history.
 
-Activation retries while an earlier checkpoint admission is still owned. Both
-the Raft phase and the entered storage batch retain an admission guard through
-completion. The requirement is synced only after those guards drain, so it cannot
-retract an already entered checkpoint while retaining that checkpoint's sole
-source slot. Capacity refusal is retried specifically at this activation boundary.
-No mutex guard crosses an await or physical I/O.
+An accepted registration owns a pending activation intent across retries. It
+closes later checkpoint admission while earlier work drains. The Raft phase and
+its storage batch share an exact engine/group/cut-bound lease; storage may finish
+that earlier work while the intent is pending. Raw persistence cannot manufacture
+or substitute the lease. The requirement is synced only after all older leases
+drain, preserving the checkpoint's sole source slot without letting new captures
+overtake activation. Capacity refusal is retried at this boundary.
+
+An unentered intent releases its barrier when registration is rejected or closed.
+An entered metadata write retains the intent independently of its waiter and
+publishes the irreversible requirement after physical sync and cache/root
+publication. Unknown I/O closes the engine rather than completing the intent.
+An existing durable bit follows the same drain and frontier-reset boundary.
+Frontier reset happens once before I/O; a delayed duplicate completion cannot
+discard subsequently verified coverage. No mutex guard crosses an await or
+physical I/O. These owners are local capabilities and add no serialized field.
 
 The automatic checkpoint scheduler checks the frontier before capture, letting
 quorum apply and another group's checkpoint lane progress during archive delay.

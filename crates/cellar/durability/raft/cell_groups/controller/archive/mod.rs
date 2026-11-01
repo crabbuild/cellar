@@ -8,6 +8,7 @@ pub(in crate::raft::cell_groups::controller) mod settlement;
 
 use super::calls::Delivery;
 use super::*;
+use crate::raft::cell_groups::archive_compaction::ArchiveActivation;
 use crate::raft::cell_groups::{archive::ControllerExecution, *};
 use cellar_logic::{cell_group::GroupHistory, consensus::LogIndex};
 use futures_util::future::BoxFuture;
@@ -108,6 +109,7 @@ impl CellGroupArchiveCall {
 
 pub(super) struct Request {
     registration: CellGroupArchiveRegistration,
+    activation: Arc<ArchiveActivation>,
     reply: RegistrationReply,
 }
 
@@ -164,11 +166,16 @@ impl CellGroupController {
             .commands
             .acquire(8192)
             .ok_or(Error::Runtime(RuntimeError::Overloaded))?;
+        let activation = local
+            .archive_compaction
+            .begin_activation()
+            .map_err(|error| Error::Runtime(error.into()))?;
         let (reply, receiver) = oneshot::channel();
         shared
             .requests
             .try_send(requests::Request::Archive(Box::new(Request {
                 registration,
+                activation,
                 reply: RegistrationReply {
                     sender: reply,
                     permit: Arc::new(permit),
@@ -200,6 +207,7 @@ impl CellGroupController {
 
 struct Entry {
     registration: CellGroupArchiveRegistration,
+    activation: Option<Arc<ArchiveActivation>>,
     context: Option<job::Context>,
     reply: Option<RegistrationReply>,
     queued: bool,
@@ -252,6 +260,7 @@ impl Manager {
             group,
             Entry {
                 registration: request.registration,
+                activation: Some(request.activation),
                 context: None,
                 reply: Some(request.reply),
                 queued: true,
@@ -336,6 +345,7 @@ impl Manager {
                 status.attempts = status.attempts.saturating_add(1);
             }
             let registration = entry.registration.clone();
+            let activation = entry.activation.clone();
             let mut context = entry.context.clone();
             let execution = self.execution.clone();
             let runtime = runtime.clone();
@@ -347,7 +357,15 @@ impl Manager {
             self.job = Some(Box::pin(async move {
                 let result = std::panic::AssertUnwindSafe(async {
                     if context.is_none() {
-                        context = Some(job::open(&registration, &runtime, &execution).await?);
+                        context = Some(
+                            job::open(
+                                &registration,
+                                &runtime,
+                                &execution,
+                                activation.ok_or(Error::Invalid("missing archive activation"))?,
+                            )
+                            .await?,
+                        );
                     }
                     let coverage = job::drive(
                         context.as_ref().expect("opened archive context"),
@@ -440,6 +458,9 @@ impl Manager {
                 entry.retry_at = now.saturating_add(shared.limits.retry_interval_ms);
                 status.error = Some(Arc::new(error));
             }
+        }
+        if entry.context.is_some() || entry.fatal {
+            entry.activation.take();
         }
         if entry.fatal {
             let error = status

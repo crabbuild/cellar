@@ -238,8 +238,10 @@ async fn archive_requirement_is_local_irreversible_and_recovered() -> anyhow::Re
     let marker = group.group_manifest()?.unwrap();
     assert!(group.archive_compaction.permits(&marker)?);
     let admitted = group.archive_compaction.admit(&marker)?.unwrap();
+    let activation = group.archive_compaction.begin_activation()?;
     assert!(matches!(
-        log.require_cell_group_archive(&initial.route.history).await,
+        log.require_cell_group_archive(&initial.route.history, activation.clone())
+            .await,
         Err(LogError::Overloaded)
     ));
     assert!(!group.read()?.archive_required);
@@ -247,8 +249,15 @@ async fn archive_requirement_is_local_irreversible_and_recovered() -> anyhow::Re
         group.archive_compaction.admit(&marker)?.is_none(),
         "a pending archive activation must stop later checkpoint admissions"
     );
+    let physical = admitted.clone();
     drop(admitted);
-    log.require_cell_group_archive(&initial.route.history)
+    assert!(matches!(
+        log.require_cell_group_archive(&initial.route.history, activation.clone())
+            .await,
+        Err(LogError::Overloaded)
+    ));
+    drop(physical);
+    log.require_cell_group_archive(&initial.route.history, activation)
         .await?;
     assert!(group.read()?.archive_required);
     assert!(!group.clone().archive_compaction.permits(&marker)?);
@@ -279,6 +288,202 @@ async fn archive_requirement_is_local_irreversible_and_recovered() -> anyhow::Re
     assert!(restored.read()?.archive_required);
     assert!(!restored.archive_compaction.permits(&marker)?);
     resumed.close().await?;
+    domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_activation_drains_an_admitted_checkpoint_at_storage() -> anyhow::Result<()> {
+    use crate::raft::cell_groups::{
+        CellGroupCheckpointLimits, CellGroupCheckpointPool, ManifestLimits, ManifestPageStore,
+        ManifestTree,
+    };
+    let root = tempfile::tempdir()?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let log = domain
+        .run(ReplicaLog::open(
+            options(root.path()),
+            Arc::new(cellar_ltx::DirectFileSystem),
+        ))
+        .await??;
+    let initial = bootstrap(5);
+    let group = log.create_cell_group(initial.clone()).await?;
+    let genesis = group.group_manifest()?.unwrap();
+    let earlier = group.archive_compaction.admit(&genesis)?.unwrap();
+    let source = group.clone();
+    let directory = root.path().join("pages");
+    let (pages, next) = domain
+        .blocking(move || -> anyhow::Result<_> {
+            let mut pages = ManifestPageStore::open(
+                &directory,
+                Arc::new(cellar_ltx::DirectFileSystem),
+                1024,
+                16 * 1024 * 1024,
+                16,
+            )?;
+            let tree = ManifestTree::new(genesis.route().clone(), ManifestLimits::default())?;
+            let prepared = tree.prepare_complete(
+                &source,
+                &mut pages,
+                genesis.root(),
+                genesis.position(),
+                genesis.membership_revision(),
+                |_| unreachable!("empty group"),
+            )?;
+            let next = tree.prepare_unchanged(
+                &pages,
+                &prepared,
+                LogPosition {
+                    index: LogIndex::new(2),
+                    term: Term::new(1),
+                },
+            )?;
+            Ok((pages, next))
+        })?
+        .await??;
+    let mut write = GroupWrite::new(&group);
+    write.entries.push(Entry {
+        index: 2,
+        term: 1,
+        ..Default::default()
+    });
+    let mut hard = group.initial_state()?.hard_state;
+    hard.commit = 2;
+    write.hard_state = Some(hard);
+    log.persist_cells(OperationId::new(20), vec![write]).await?;
+    let mut write = GroupWrite::new(&group);
+    write.group_manifest = Some(next.clone());
+    log.persist_cells(OperationId::new(21), vec![write]).await?;
+    let pool = CellGroupCheckpointPool::new(CellGroupCheckpointLimits {
+        max_sources: 1,
+        max_retained_bytes: 32 * 1024 * 1024,
+        max_cells: 64,
+        max_transfer_bytes: 32 * 1024 * 1024,
+        max_chunk_bytes: 4093,
+    })?;
+    let capture = pool.clone();
+    let source = group.clone();
+    let cut = next.clone();
+    let checkpoint = domain
+        .blocking(move || capture.capture(&source, &cut)?.prepare_publication())?
+        .await??;
+    let admitted = group
+        .archive_compaction
+        .admit(checkpoint.marker())?
+        .unwrap();
+    let activation = group.archive_compaction.begin_activation()?;
+    assert!(!group.archive_compaction.permits(checkpoint.marker())?);
+    assert!(group
+        .archive_compaction
+        .admit(checkpoint.marker())?
+        .is_none());
+
+    let mut wrong_cut = GroupWrite::new(&group);
+    wrong_cut.snapshot = Some(SnapshotChange::CellGroupCheckpoint(checkpoint.clone()));
+    wrong_cut.checkpoint_admission = Some(earlier.clone());
+    assert!(matches!(
+        log.persist_cells(OperationId::new(22), vec![wrong_cut])
+            .await,
+        Err(LogError::WrongIdentity)
+    ));
+    drop(earlier);
+    let foreign = log.create_cell_group(bootstrap(7)).await?;
+    let mut wrong_group = GroupWrite::new(&foreign);
+    wrong_group.snapshot = Some(SnapshotChange::CellGroupCheckpoint(checkpoint.clone()));
+    wrong_group.checkpoint_admission = Some(admitted.clone());
+    assert!(matches!(
+        log.persist_cells(OperationId::new(23), vec![wrong_group])
+            .await,
+        Err(LogError::WrongIdentity)
+    ));
+    let mut missing_cut = GroupWrite::new(&group);
+    missing_cut.checkpoint_admission = Some(admitted.clone());
+    assert!(matches!(
+        log.persist_cells(OperationId::new(24), vec![missing_cut])
+            .await,
+        Err(LogError::WrongIdentity)
+    ));
+    let mut unadmitted = GroupWrite::new(&group);
+    unadmitted.snapshot = Some(SnapshotChange::CellGroupCheckpoint(checkpoint.clone()));
+    assert!(matches!(
+        log.persist_cells(OperationId::new(25), vec![unadmitted])
+            .await,
+        Err(LogError::Overloaded)
+    ));
+    let mut write = GroupWrite::new(&group);
+    write.snapshot = Some(SnapshotChange::CellGroupCheckpoint(checkpoint.clone()));
+    write.checkpoint_admission = Some(admitted);
+    // This unpolled physical request now owns the final checkpoint lease.
+    // Activation must wait, then storage must accept its inherited exact cut.
+    let saving = log.persist_cells(OperationId::new(26), vec![write]);
+    assert!(matches!(
+        log.require_cell_group_archive(&initial.route.history, activation.clone())
+            .await,
+        Err(LogError::Overloaded)
+    ));
+    saving.await?;
+    assert_eq!(group.checkpoint_manifest()?.as_ref(), Some(next.marker()));
+    assert_eq!(group.first_index()?, 3);
+    log.require_cell_group_archive(&initial.route.history, activation)
+        .await?;
+    assert!(group.read()?.archive_required);
+    assert!(!group.archive_compaction.permits(next.marker())?);
+    assert_eq!(pool.usage().sources, 1);
+    drop(checkpoint);
+    assert_eq!(pool.usage().sources, 0);
+    log.close().await?;
+    drop(pages);
+    domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_activation_is_retained_by_entered_storage() -> anyhow::Result<()> {
+    use crate::raft::storage_fault as fault;
+    let root = tempfile::tempdir()?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let gate = fault::Gate::new(None);
+    let log = domain
+        .run(ReplicaLog::open(
+            options(root.path()),
+            Arc::new(fault::FaultFileSystem { gate: gate.clone() }),
+        ))
+        .await??;
+    let initial = bootstrap(5);
+    let group = log.create_cell_group(initial.clone()).await?;
+    let marker = group.group_manifest()?.unwrap();
+    let abandoned = group.archive_compaction.begin_activation()?;
+    assert!(!group.archive_compaction.permits(&marker)?);
+    drop(abandoned);
+    assert!(group.archive_compaction.permits(&marker)?);
+    assert!(!group.read()?.archive_required);
+
+    let activation = group.archive_compaction.begin_activation()?;
+    let release = gate.arm(fault::HOLD_SYNC);
+    let mut writing =
+        Box::pin(log.require_cell_group_archive(&initial.route.history, activation.clone()));
+    let pending = domain
+        .run(crate::asyncrt::timeout(
+            Duration::from_millis(50),
+            writing.as_mut(),
+        ))
+        .await?;
+    assert!(pending.is_err(), "actual metadata sync remains held");
+    domain
+        .run(crate::asyncrt::timeout(
+            Duration::from_secs(5),
+            gate.entered.notified(),
+        ))
+        .await??;
+    drop(writing);
+    drop(activation);
+    assert!(!group.archive_compaction.permits(&marker)?);
+    assert!(!group.read()?.archive_required);
+    drop(release);
+    log.reserve_node_revision().await?;
+    assert!(group.read()?.archive_required);
+    assert!(!group.archive_compaction.permits(&marker)?);
+    log.close().await?;
     domain.shutdown().await;
     Ok(())
 }

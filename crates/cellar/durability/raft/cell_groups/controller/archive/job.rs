@@ -31,10 +31,11 @@ pub(super) async fn open(
     registration: &CellGroupArchiveRegistration,
     runtime: &CellGroupRuntime,
     execution: &ControllerExecution,
+    activation: Arc<crate::raft::cell_groups::archive_compaction::ArchiveActivation>,
 ) -> Result<Context> {
     runtime
         .log()
-        .require_cell_group_archive(&registration.birth.route().history)
+        .require_cell_group_archive(&registration.birth.route().history, activation)
         .await
         .map_err(|error| match error {
             crate::raft::storage::LogError::Overloaded => Error::Runtime(RuntimeError::Overloaded),

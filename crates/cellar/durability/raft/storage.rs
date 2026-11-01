@@ -736,14 +736,17 @@ impl ReplicaLog {
     pub(crate) async fn require_cell_group_archive(
         &self,
         history: &GroupHistory,
+        activation: Arc<super::cell_groups::archive_compaction::ArchiveActivation>,
     ) -> Result<(), LogError> {
         let group = self.cell_group(history)?;
-        group.archive_compaction.require()?;
+        activation.drained(&group.archive_compaction)?;
         let required = group.read()?.archive_required;
         if !required {
             let mut write = GroupWrite::new(&group);
-            write.require_archive = true;
+            write.require_archive = Some(activation);
             self.persist_cells(OperationId::new(1), vec![write]).await?;
+        } else {
+            activation.published(&group.archive_compaction)?;
         }
         Ok(())
     }
@@ -1476,17 +1479,31 @@ impl Worker {
                 .get(&write.group.key)
                 .ok_or(LogError::WrongIdentity)?;
             let old = write.group.read()?;
-            if write.require_archive {
-                write.group.archive_compaction.require()?;
+            if write.checkpoint_admission.is_some()
+                && (write.require_archive.is_some()
+                    || !matches!(
+                        &write.snapshot,
+                        Some(SnapshotChange::CellGroupCheckpoint(_))
+                    ))
+            {
+                return Err(LogError::WrongIdentity);
+            }
+            if let Some(activation) = &write.require_archive {
+                activation.drained(&write.group.archive_compaction)?;
             }
             if let Some(SnapshotChange::CellGroupCheckpoint(prepared)) = &write.snapshot {
-                archive_admissions.push(
-                    write
+                let admission = match &write.checkpoint_admission {
+                    Some(admission) => {
+                        admission.validate(&write.group.archive_compaction, prepared.marker())?;
+                        admission.clone()
+                    }
+                    None => write
                         .group
                         .archive_compaction
                         .admit(prepared.marker())?
                         .ok_or(LogError::Overloaded)?,
-                );
+                };
+                archive_admissions.push(admission);
             }
             let next = old.changed(
                 write,
@@ -1591,6 +1608,15 @@ impl Worker {
             publication
                 .commit()
                 .map_err(|e| LogError::Corrupt(e.to_string()))?;
+        }
+        for write in &writes {
+            if let Some(activation) = &write.require_archive {
+                activation
+                    .published(&write.group.archive_compaction)
+                    .map_err(|error| {
+                        LogError::Corrupt(format!("archive policy publication: {error}"))
+                    })?;
+            }
         }
         self.cache_bytes = next_bytes;
         self.cache_usage.store(self.cache_bytes, Ordering::Release);

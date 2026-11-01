@@ -105,7 +105,10 @@ pub enum SnapshotChange {
 
 #[derive(Clone)]
 pub struct GroupWrite<S = GroupScope> {
-    pub(crate) require_archive: bool,
+    pub(crate) require_archive:
+        Option<Arc<super::cell_groups::archive_compaction::ArchiveActivation>>,
+    pub(crate) checkpoint_admission:
+        Option<Arc<super::cell_groups::archive_compaction::ArchiveCompactionAdmission>>,
     pub(crate) consensus_pin: Option<Arc<dyn Send + Sync>>,
     pub(crate) seed_grant: Option<Arc<super::transport::CellGroupSeedGrant>>,
     pub group: GroupLog<S>,
@@ -121,7 +124,8 @@ pub struct GroupWrite<S = GroupScope> {
 impl<S: Clone> GroupWrite<S> {
     pub fn new(group: &GroupLog<S>) -> Self {
         Self {
-            require_archive: false,
+            require_archive: None,
+            checkpoint_admission: None,
             consensus_pin: None,
             seed_grant: None,
             group: group.clone(),
@@ -597,7 +601,7 @@ impl CachedGroup {
         history: GroupHistory,
     ) -> Result<Self, LogError> {
         let mut next = self.clone();
-        if write.require_archive {
+        if write.require_archive.is_some() {
             if self.group_manifest.is_none() {
                 return Err(LogError::WrongIdentity);
             }

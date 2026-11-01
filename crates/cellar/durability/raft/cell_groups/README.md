@@ -176,10 +176,13 @@ compacts only the prefix represented by the complete checkpoint. Mixed writes
 and stale cuts refuse. `CheckpointPublished` is emitted after the matching engine
 completion. Source admission and pins survive accepted publication and shutdown.
 
-Archive registration now fsyncs a required local retention bit before object-store
-I/O. Already admitted checkpoints retain owner/storage guards; activation retries
-until those guards drain before syncing the requirement. That bit is part of the
-required marker-1 group application record, remains
+Archive registration owns an activation intent across retries, closing later
+checkpoint admission while earlier exact cut-bound leases drain. Owner and
+storage share the same lease so entered work can finish under the preceding
+policy. Rejected or unentered shutdown work releases its intent; entered metadata
+I/O retains it after waiter cancellation and fsyncs the required retention bit
+before object-store I/O. Only successful durable publication completes intent.
+That bit is part of the required marker-1 group application record, remains
 set through ordinary writes and snapshot installation, and is recovered on open.
 The in-memory verified archive frontier is deliberately absent after restart.
 Local checkpoint publication and the storage preflight refuse a cut beyond that
