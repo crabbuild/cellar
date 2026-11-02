@@ -356,6 +356,24 @@ impl CellGroupOwner {
         )
     }
 
+    pub(crate) fn next_effect(
+        &self,
+        now: u64,
+        after: Option<&CellId>,
+    ) -> Result<Option<super::CellExecutionAuthority>, RuntimeError> {
+        let status = self.status()?;
+        if self.node.raft.state != StateRole::Leader {
+            return Err(RuntimeError::NotLeader);
+        }
+        if !status.ready || status.applied.index != status.committed {
+            return Err(RuntimeError::NotReady);
+        }
+        let Some((leaf, _pin)) = self.current.next_due(now, after) else {
+            return Ok(None);
+        };
+        self.execution_authority(&leaf.version.history).map(Some)
+    }
+
     pub fn manifest(&self) -> &PreparedGroupManifest {
         &self.current
     }

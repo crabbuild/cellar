@@ -547,6 +547,13 @@ pub(crate) use s3_commands::{
 pub(crate) use s3_response::unproved_s3_responses;
 #[path = "cell_group_controller.rs"]
 mod controller;
+#[path = "cell_group_idle_cache.rs"]
+mod idle_cache;
+pub(crate) use idle_cache::idle_cache_reopens_exact_base;
+#[path = "cell_group_effects.rs"]
+mod effects;
+#[path = "cell_group_outbox_effects.rs"]
+mod outbox_effects;
 #[allow(unused_imports)]
 pub(crate) use archive_controller::{
     archive_checkpoint_frontier, archive_controller_publish, archive_controller_reconcile,
@@ -554,6 +561,12 @@ pub(crate) use archive_controller::{
 #[allow(unused_imports)]
 pub(crate) use archive_controller::{
     archive_controller_publish_store, archive_controller_reconcile_store,
+};
+pub(crate) use effects::{alarms_without_clients, hot_and_cold_alarms, shutdown_joins_alarm};
+pub(crate) use outbox_effects::{
+    identity_across_bindings as effect_identity_across_bindings,
+    leader_change as effect_leader_change, lost_reply as effect_lost_reply,
+    s3_lost_reply as effect_s3_lost_reply, shutdown as effect_delivery_shutdown,
 };
 #[path = "cell_group_controller_commands.rs"]
 mod controller_commands;

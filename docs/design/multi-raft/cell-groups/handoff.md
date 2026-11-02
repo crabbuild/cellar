@@ -47,14 +47,26 @@ Keep credentials, signing material and raw tokens private. Docker API config
 copies avoid the reproduced virtiofs truncation race; controller keys/launch
 ledgers never enter containers. Failed predecessors remain recorded.
 
-The next critical implementation is CG-08, then CG-07 SDK/fleet cutover. An
-isolated codex/cell-group-effects-3617 branch at
-/Users/haipingfu/.codex/worktrees/cell-group-effects/cellar contains an unqualified
-CG-08 due-index draft while the qualified checkout stays unchanged. It adds
-subtree next-due hints, required nullable marker-1 fields and bounded fair
-manifest lookup without SQLite hydration. Focused unit validation is in progress;
-no scheduler or full CG-08 qualification is claimed. Merge qualified changes
-back into the existing PR branch; do not create a permanent second runtime.
+CG-08 is IN_PROGRESS, followed by CG-07 SDK/fleet cutover. The committed due-index
+foundation is 783c270b. The isolated effects checkout retains the exact predecessor
+five-case execution run. Its expanded compile check and all five native-10
+lifecycle cases pass in both image modes. The preceding native-09 run passes four
+cases while an ordinary follower campaign times out under the healthy leader
+lease. The test-only correction uses real TimeoutNow transfer inside the same
+deadline. Preserve both source/executable/log records. Native-10 is terminal;
+source can now be reconciled with the successor checkout.
+
+The existing PR checkout contains the successor implementation and new
+native_cell_groups_effects target: exact cold-cache reopening, cold-cell discovery,
+logical delivery/proof identity under two independent physical group bindings,
+SQL/dispatch custody, joined shutdown, and normal/explicit RustFS S3 closure cases.
+All eight successor native cases now pass in both image modes, including the five
+declared cases and S3 coverage through the normal adapter. The real RustFS case,
+new unit/enrollment regressions, strict lint and complete task evidence remain.
+See the current [progress](progress.md). Local raw records/continuation remain
+ignored and backed up outside the checkout. Preserve the user's untracked diagram
+and both excluded MR progress basenames. Reconcile both checkouts only after the
+source-bound predecessor run terminates; reuse PR 160 and one final runtime.
 
 1. Finish the due-index validation and wire bounded fair node effect discovery,
    exact committed-image scans and sealed private system commands into the shared

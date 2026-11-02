@@ -28,14 +28,16 @@ fn request(
     })
 }
 
-async fn accepted(invocation: &mut CellCommandInvocation) -> Result<CellGroupProposal> {
+pub(super) async fn accepted(invocation: &mut CellCommandInvocation) -> Result<CellGroupProposal> {
     match invocation.submit().await? {
         CellCommandSubmission::Accepted(accepted) => Ok(accepted),
         CellCommandSubmission::Rejected => anyhow::bail!("unexpected sealed rejection"),
     }
 }
 
-async fn committed(invocation: &mut CellCommandInvocation) -> Result<CellCommandResponse> {
+pub(super) async fn committed(
+    invocation: &mut CellCommandInvocation,
+) -> Result<CellCommandResponse> {
     match invocation.settle().await? {
         CellCommandSettlement::Committed(receipt) => Ok(receipt),
         _ => anyhow::bail!("expected committed receipt"),

@@ -135,6 +135,10 @@ enum Command {
     Configure(CellGroupMembershipChange),
     ActivateRecovery(Box<CellGroupRecoveryActivationPermit>),
     Execution(cellar_logic::cell_group::CellHistory),
+    NextEffect {
+        now: u64,
+        after: Option<cellar_logic::cell_group::CellId>,
+    },
     Enrollment(cellar_logic::cell_group::CellHistory),
     EnrollmentState(cellar_logic::cell_group::CellHistory),
     Reconciliation(cellar_logic::cell_group::CellHistory),
@@ -166,6 +170,7 @@ enum Response {
     RecoveryActivation(Box<CellGroupRecoveryActivation>),
     Submission(crate::raft::execution::CellSubmissionOutcome),
     Execution(Box<CellExecutionAuthority>),
+    NextEffect(Option<Box<CellExecutionAuthority>>),
     Enrollment(Box<CellEnrollmentAuthority>),
     EnrollmentState(Box<CellEnrollmentState>),
     Reconciliation(Box<CellReconciliationAuthority>),
@@ -566,6 +571,22 @@ impl CellGroupRuntime {
         {
             Response::Execution(authority) => Ok(*authority),
             _ => Err(RuntimeError::Protocol("execution authority reply".into())),
+        }
+    }
+
+    pub(crate) async fn next_effect(
+        &self,
+        history: GroupHistory,
+        now: u64,
+        after: Option<cellar_logic::cell_group::CellId>,
+    ) -> Result<Option<CellExecutionAuthority>, RuntimeError> {
+        let bytes = after.as_ref().map_or(0, |cell| cell.as_str().len()) + 4096;
+        match self
+            .call(Some(history), Command::NextEffect { now, after }, bytes)
+            .await?
+        {
+            Response::NextEffect(authority) => Ok(authority.map(|authority| *authority)),
+            _ => Err(RuntimeError::Protocol("effect discovery reply".into())),
         }
     }
 

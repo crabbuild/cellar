@@ -115,6 +115,22 @@ impl CellGroupApplier {
         Ok(source)
     }
 
+    /// Advisory metadata from the already published in-memory marker. No page
+    /// or cell database is opened, and no serving authority is granted.
+    pub(crate) fn effect_hint(
+        &self,
+    ) -> Result<(cellar_logic::consensus::LogIndex, Option<u64>), ExecutionError> {
+        let marker = self
+            .group
+            .group_manifest()
+            .map_err(storage)?
+            .ok_or(ExecutionError::Invalid("effect group manifest missing"))?;
+        Ok((
+            marker.position().index,
+            marker.root().next_due_unix_millis(),
+        ))
+    }
+
     pub fn history(&self) -> GroupHistory {
         self.group.identity().scope
     }

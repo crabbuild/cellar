@@ -49,6 +49,12 @@ struct ClusterLogLimits {
     purge_interval_ms: Option<u64>,
 }
 
+struct ClusterBirthOptions {
+    group: GroupId,
+    minimum: Durability,
+    log: ClusterLogLimits,
+}
+
 impl Default for ClusterLogLimits {
     fn default() -> Self {
         Self {
@@ -164,11 +170,36 @@ impl Cluster {
         minimum: Durability,
         log_limits: ClusterLogLimits,
     ) -> Result<Self> {
+        Self::with_store_birth(
+            options,
+            root,
+            filesystem,
+            schema,
+            store,
+            ClusterBirthOptions {
+                group: GroupId::new([3; 16])?,
+                minimum,
+                log: log_limits,
+            },
+        )
+        .await
+    }
+
+    async fn with_store_birth(
+        options: RaftRuntimeOptions,
+        root: tempfile::TempDir,
+        filesystem: Arc<dyn cellar_ltx::FileSystem>,
+        schema: [u8; 32],
+        store: Arc<dyn object_store::ObjectStore>,
+        birth_options: ClusterBirthOptions,
+    ) -> Result<Self> {
+        let minimum = birth_options.minimum;
+        let log_limits = birth_options.log;
         let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         let history = GroupHistory {
             cluster: ClusterId::new([1; 16])?,
             namespace: NamespaceId::new([2; 16])?,
-            group: GroupId::new([3; 16])?,
+            group: birth_options.group,
             incarnation: IncarnationId::new([4; 16])?,
         };
         let catalog = Catalog::new(store.clone(), CatalogOptions::default())?;

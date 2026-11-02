@@ -98,6 +98,7 @@ struct Origin {
 /// Dropping it never releases the SQL worker's unresolved physical producer.
 pub struct CellCommandInvocation {
     dispatcher: CellGroupDispatcher,
+    system: bool,
     cell: CellHistory,
     request: CellCommandRequest,
     inputs: CommandInputs,
@@ -125,10 +126,33 @@ impl CellGroupDispatcher {
     pub(crate) async fn command_with_inputs(
         &self,
         cell: CellHistory,
+        request: CellCommandRequest,
+        limits: CellRoutingLimits,
+        cached: Option<ResolvedCellRoute>,
+        captured: Option<CommandInputs>,
+    ) -> Result<CellCommandInvocation, CellCommandError> {
+        self.command_compiled(cell, request, limits, cached, captured, false)
+            .await
+    }
+
+    pub(crate) async fn system_command(
+        &self,
+        cell: CellHistory,
+        request: CellCommandRequest,
+        limits: CellRoutingLimits,
+    ) -> Result<CellCommandInvocation, CellCommandError> {
+        self.command_compiled(cell, request, limits, None, None, true)
+            .await
+    }
+
+    async fn command_compiled(
+        &self,
+        cell: CellHistory,
         mut request: CellCommandRequest,
         limits: CellRoutingLimits,
         cached: Option<ResolvedCellRoute>,
         captured: Option<CommandInputs>,
+        system: bool,
     ) -> Result<CellCommandInvocation, CellCommandError> {
         let error = |cause| CellCommandError {
             command: request.id,
@@ -154,9 +178,24 @@ impl CellGroupDispatcher {
                 RegistrationError::KindMismatch,
             )));
         }
-        self.class
-            .validate_operation(&request.contract)
-            .map_err(|e| error(CellDispatchError::Registration(e)))?;
+        if system {
+            self.class.validate_system_operation(&request.contract)
+        } else {
+            self.class.validate_operation(&request.contract)
+        }
+        .map_err(|e| error(CellDispatchError::Registration(e)))?;
+        if system
+            && request.id.client
+                != crate::raft::effects::system_client(&cell).map_err(|failure| {
+                    error(CellDispatchError::Execution(ExecutionError::Refused(
+                        failure,
+                    )))
+                })?
+        {
+            return Err(error(CellDispatchError::Execution(
+                ExecutionError::Refused(CommandFailure::UnsupportedCapability),
+            )));
+        }
         let size = request
             .input
             .len()
@@ -202,6 +241,7 @@ impl CellGroupDispatcher {
             .using_cache(self.routes.clone());
         Ok(CellCommandInvocation {
             dispatcher: self.clone(),
+            system,
             cell,
             request,
             inputs,
@@ -412,8 +452,8 @@ impl CellCommandInvocation {
                 .as_ref()
                 .ok_or(CellDispatchError::Invalid("missing origin"))?,
         );
-        let outcome = sql
-            .stage_registered_owned(
+        let outcome = if self.system {
+            sql.stage_system_owned(
                 options,
                 authority,
                 command,
@@ -421,7 +461,18 @@ impl CellCommandInvocation {
                 self.request.input.clone(),
                 true,
             )
-            .await;
+            .await
+        } else {
+            sql.stage_registered_owned(
+                options,
+                authority,
+                command,
+                self.dispatcher.class.clone(),
+                self.request.input.clone(),
+                true,
+            )
+            .await
+        };
         match outcome {
             Ok(outcome) => self.preparation(outcome).await,
             Err(failure) => {
@@ -498,18 +549,32 @@ impl CellCommandInvocation {
         if authority.route() != &origin.route {
             return Err(CellDispatchError::Invalid("origin route binding"));
         }
-        let outcome = origin
-            .sql
-            .stage_registered(
-                origin.options.clone(),
-                authority,
-                self.command_attempt(origin),
-                self.dispatcher.class.clone(),
-                self.request.input.clone(),
-                false,
-            )
-            .await
-            .map_err(CellDispatchError::Execution)?;
+        let outcome = if self.system {
+            origin
+                .sql
+                .stage_system_owned(
+                    origin.options.clone(),
+                    authority,
+                    self.command_attempt(origin),
+                    self.dispatcher.class.clone(),
+                    self.request.input.clone(),
+                    false,
+                )
+                .await
+        } else {
+            origin
+                .sql
+                .stage_registered_owned(
+                    origin.options.clone(),
+                    authority,
+                    self.command_attempt(origin),
+                    self.dispatcher.class.clone(),
+                    self.request.input.clone(),
+                    false,
+                )
+                .await
+        }
+        .map_err(|failure| CellDispatchError::Execution(failure.error))?;
         self.preparation(outcome).await
     }
 

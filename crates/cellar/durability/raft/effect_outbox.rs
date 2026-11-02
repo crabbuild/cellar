@@ -16,6 +16,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 pub(crate) const CLAIM: &str = "__sys_raft_outbox_claim";
 pub(crate) const COMPLETE: &str = "__sys_raft_outbox_complete";
+pub(crate) const MAX_LANES: usize = 32;
 
 #[derive(Clone, Copy, Debug)]
 pub struct RaftOutboxLimits {
@@ -80,7 +81,7 @@ impl Default for RaftOutboxLimits {
 impl RaftOutboxLimits {
     fn validate(self) -> Result<()> {
         ensure!(
-            (1..=32).contains(&self.max_lanes)
+            (1..=MAX_LANES).contains(&self.max_lanes)
                 && (1..=128).contains(&self.max_pending)
                 && (1..=delivery::MAX_PAYLOAD).contains(&self.max_payload_bytes)
                 && (delivery::MAX_REQUEST..=16 * 1024 * 1024).contains(&self.max_total_bytes)

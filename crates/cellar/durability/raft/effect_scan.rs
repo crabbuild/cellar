@@ -12,6 +12,10 @@ use cellar_logic::consensus::{CommandFailure, CommandId, Durability, LogPosition
 use rusqlite::OptionalExtension;
 use std::sync::Arc;
 
+#[cfg(all(test, not(cellar_internal_tests)))]
+#[path = "effect_scan_tests.rs"]
+mod tests;
+
 pub(crate) enum DueEffect {
     Alarm(alarm::DueAlarm),
     Delivery {
@@ -128,4 +132,32 @@ pub(crate) fn scan_connection(
         due,
         _reservation: reservation,
     })
+}
+
+/// Alternate adapter preference using the last committed private operation.
+/// Placement, process restarts and the number of other cells do not affect it.
+pub(crate) fn scan_connection_fair(
+    connection: &rusqlite::Connection,
+    scope: &cellar_logic::cell_group::CellHistory,
+    position: LogPosition,
+    class: &RaftClass,
+    now: u64,
+    reservation: Permit,
+) -> Result<EffectScan> {
+    let client = super::system_client(scope)?;
+    let previous: Option<String> = connection.query_row(
+        "SELECT CASE WHEN typeof(r.operation)='text' AND length(CAST(r.operation AS BLOB)) BETWEEN 1 AND 128 THEN r.operation ELSE NULL END FROM __sys_raft_clients c JOIN __sys_raft_receipts r ON r.client_id=c.client_id AND r.sequence=c.last_sequence WHERE c.client_id=?1",
+        [client.bytes().as_slice()], |row| row.get(0),
+    ).optional()?;
+    let prefer_delivery =
+        previous.is_some_and(|operation| operation.starts_with("__sys_raft_alarm_"));
+    scan_connection(
+        connection,
+        scope,
+        position,
+        class,
+        now,
+        prefer_delivery,
+        reservation,
+    )
 }

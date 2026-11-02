@@ -404,6 +404,10 @@ impl Worker {
                                     .owner
                                     .execution_authority(&cell)
                                     .map(|authority| Response::Execution(Box::new(authority))),
+                                Command::NextEffect { now, after } => group
+                                    .owner
+                                    .next_effect(now, after.as_ref())
+                                    .map(|authority| Response::NextEffect(authority.map(Box::new))),
                                 Command::Enrollment(cell) => group
                                     .owner
                                     .enrollment_authority(cell)

@@ -8,7 +8,7 @@ pub(in crate::raft::host_sql) use apply::ApplyRequest;
 pub use apply::CellGroupPreparedApply;
 mod query;
 mod worker;
-pub use query::{CellSqlQueryResult, CellSqlReceiptLookup};
+pub use query::{CellSqlEffectScan, CellSqlQueryResult, CellSqlReceiptLookup};
 
 use super::{Budget, Budgets, Envelope, Permit, Pool, ResourceObserver, Worker};
 use crate::raft::cell_groups::{
@@ -85,7 +85,7 @@ pub enum CellSqlOptions {
 }
 
 impl CellSqlOptions {
-    fn limits(&self) -> ExecutionLimits {
+    pub(crate) fn limits(&self) -> ExecutionLimits {
         match self {
             Self::Materialized(o) => o.limits,
             Self::Extents(o) => o.limits,
@@ -321,6 +321,7 @@ pub enum CellSqlOutcome {
     Rejected,
     Queried(CellSqlQueryResult),
     ReceiptLookedUp(CellSqlReceiptLookup),
+    EffectsScanned(CellSqlEffectScan),
 }
 
 pub enum CellSqlReconciliation {
@@ -577,10 +578,7 @@ impl CellGroupSqlPool {
         input: Vec<u8>,
         allow_new: bool,
     ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
-        if input.len() > options.limits().envelope.max_payload_bytes {
-            return Err(CellSqlStageFailure::known(overloaded()));
-        }
-        self.stage_owned(
+        self.stage_compiled_owned(
             options,
             authority,
             attempt,
@@ -588,9 +586,53 @@ impl CellGroupSqlPool {
             worker::Callback::Registered {
                 class,
                 input: input.into_boxed_slice(),
+                system: false,
             },
         )
         .await
+    }
+
+    pub(crate) async fn stage_system_owned(
+        &self,
+        options: CellSqlOptions,
+        authority: CellExecutionAuthority,
+        attempt: CommandAttempt,
+        class: Arc<crate::application::consensus::RaftClass>,
+        input: Vec<u8>,
+        allow_new: bool,
+    ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
+        self.stage_compiled_owned(
+            options,
+            authority,
+            attempt,
+            allow_new,
+            worker::Callback::Registered {
+                class,
+                input: input.into_boxed_slice(),
+                system: true,
+            },
+        )
+        .await
+    }
+
+    async fn stage_compiled_owned(
+        &self,
+        options: CellSqlOptions,
+        authority: CellExecutionAuthority,
+        attempt: CommandAttempt,
+        allow_new: bool,
+        callback: worker::Callback,
+    ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
+        let worker::Callback::Registered { input, .. } = &callback else {
+            return Err(CellSqlStageFailure::known(ExecutionError::Invalid(
+                "compiled command callback",
+            )));
+        };
+        if input.len() > options.limits().envelope.max_payload_bytes {
+            return Err(CellSqlStageFailure::known(overloaded()));
+        }
+        self.stage_owned(options, authority, attempt, allow_new, callback)
+            .await
     }
 
     async fn stage_callback(

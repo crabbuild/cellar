@@ -19,6 +19,11 @@ impl CellCommandInvocation {
         transport: &RaftTransport,
         member: MemberId,
     ) -> Result<CellRemoteCommandResponse, CellCommandError> {
+        if self.system {
+            return Err(self.error(CellDispatchError::Invalid(
+                "private commands require local ownership",
+            )));
+        }
         let attempt = self.current()?.clone();
         self.session
             .validate_attempt(&attempt)

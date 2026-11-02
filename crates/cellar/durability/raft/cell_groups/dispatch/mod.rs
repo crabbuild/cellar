@@ -161,6 +161,35 @@ impl CellGroupDispatcher {
         Ok(self)
     }
 
+    pub(crate) fn effect_binding(
+        &self,
+        domain: &DomainToken,
+    ) -> Result<
+        (
+            crate::application::consensus::NamespaceConfig,
+            Arc<RaftClass>,
+        ),
+        CellDispatchError,
+    > {
+        let required_input = if self.class.outbox_definition().is_some() {
+            32 * 1024
+        } else {
+            1024
+        };
+        if !self.domain.same_owner(domain)
+            || !self.class.has_system_commands()
+            || self.limits.max_input_bytes < required_input
+        {
+            return Err(CellDispatchError::Invalid(
+                "effect dispatcher domain/class/input capacity",
+            ));
+        }
+        Ok((
+            self.directory.namespace_config().clone(),
+            self.class.clone(),
+        ))
+    }
+
     /// Retained namespace range hints, never per-cell execution or authority.
     pub fn route_cache_usage(&self) -> Result<CellRouteCacheUsage, CellDispatchError> {
         self.routes.usage().map_err(catalog_failure)

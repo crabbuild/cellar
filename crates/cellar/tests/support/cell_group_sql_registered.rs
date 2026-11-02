@@ -212,6 +212,21 @@ pub(super) async fn setup_cluster(
     cluster: Cluster,
     filesystem: Arc<dyn cellar_ltx::FileSystem>,
 ) -> Result<(RuntimeCluster, GroupRoute, CellHistory, CellHistory)> {
+    setup_cluster_named(
+        rooted,
+        cluster,
+        filesystem,
+        ["registered-a", "registered-b"],
+    )
+    .await
+}
+
+pub(super) async fn setup_cluster_named(
+    rooted: bool,
+    cluster: Cluster,
+    filesystem: Arc<dyn cellar_ltx::FileSystem>,
+    names: [&str; 2],
+) -> Result<(RuntimeCluster, GroupRoute, CellHistory, CellHistory)> {
     let mut fixture = Box::pin(RuntimeCluster::from_cluster(cluster, 256, 256, 1_000_000)).await?;
     let route = fixture.cluster.birth.route().clone();
     if rooted {
@@ -223,8 +238,8 @@ pub(super) async fn setup_cluster(
             )?);
         }
     }
-    let a = history(&route, "registered-a")?;
-    let b = history(&route, "registered-b")?;
+    let a = history(&route, names[0])?;
+    let b = history(&route, names[1])?;
     for node in 0..3 {
         apply::install(&mut fixture, &a, node).await?;
     }

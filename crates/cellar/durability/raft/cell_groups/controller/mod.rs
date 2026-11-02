@@ -15,7 +15,9 @@ pub use archive::{
 mod checkpoints;
 pub use checkpoints::CellGroupCheckpointPolicy;
 mod commands;
+mod effects;
 mod enrollments;
+pub use effects::CellGroupEffectRegistration;
 mod failure;
 mod provision;
 mod registration;
@@ -113,6 +115,11 @@ pub struct CellGroupControllerUsage {
     /// max_command_bytes. This lane cannot recursively consume command slots.
     pub retained_s3: usize,
     pub s3_bytes: usize,
+    /// At most one effect turn runs on the node. SQL and command admission are
+    /// shared with ordinary operations; configured metadata has its own permit.
+    pub active_effects: usize,
+    pub effect_turns: u64,
+    pub effect_retries: u64,
 }
 
 struct Shared {
@@ -123,6 +130,10 @@ struct Shared {
     domain: crate::asyncrt::DomainToken,
     commands: Arc<crate::raft::budget::Budget>,
     provisioning: Mutex<Option<Arc<provision::Config>>>,
+    effects: Mutex<Option<Arc<effects::Config>>>,
+    active_effects: AtomicUsize,
+    effect_turns: AtomicU64,
+    effect_retries: AtomicU64,
     requests: tokio::sync::mpsc::Sender<requests::Request>,
     archives: Mutex<BTreeMap<cellar_logic::cell_group::GroupHistory, CellGroupArchiveStatus>>,
     s3: Arc<crate::raft::budget::Budget>,
@@ -249,6 +260,10 @@ impl CellGroupController {
             domain: domain.clone(),
             commands: commands::budget(limits),
             provisioning: Mutex::new(None),
+            effects: Mutex::new(None),
+            active_effects: AtomicUsize::new(0),
+            effect_turns: AtomicU64::new(0),
+            effect_retries: AtomicU64::new(0),
             requests,
             archives: Mutex::new(BTreeMap::new()),
             s3: commands::budget(limits),
@@ -297,6 +312,12 @@ impl CellGroupController {
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .take();
+                shared
+                    .effects
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .take();
+                shared.active_effects.store(0, Ordering::Release);
                 shared.active_checkpoints.store(0, Ordering::Release);
                 shared.active_apply.store(0, Ordering::Release);
                 shared.pending_apply.store(0, Ordering::Release);
@@ -331,6 +352,9 @@ impl CellGroupController {
             })
             .unwrap_or_default();
         CellGroupControllerUsage {
+            active_effects: shared.active_effects.load(Ordering::Acquire),
+            effect_turns: shared.effect_turns.load(Ordering::Relaxed),
+            effect_retries: shared.effect_retries.load(Ordering::Relaxed),
             preparation_bytes,
             retained_preparations,
             provision_waiters,

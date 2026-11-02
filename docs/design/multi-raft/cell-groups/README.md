@@ -10,7 +10,7 @@ replace the unavailable historical raw artifacts. CG-06's complete archive,
 local reclamation and fresh-history recovery boundary also passes both actual
 Docker/RustFS all-voter-disks-deleted drills with permanent launch revocation,
 fresh-quorum activation, exact receipts, new writes and retained restart.
-CG-08 due effects and safe cache lifetimes follow, before CG-07 SDK/fleet
+CG-08 due effects and safe cache lifetimes are IN_PROGRESS, before CG-07 SDK/fleet
 cutover. See the latest [progress](progress.md) and [handoff](handoff.md).
 The production SDK/fleet has not yet cut over; topology, hibernation, managed S3
 recovery and deployment/release qualification remain tracked in later tasks.

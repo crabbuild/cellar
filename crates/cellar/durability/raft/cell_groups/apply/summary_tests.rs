@@ -6,7 +6,7 @@ use super::*;
 fn effects_are_bounded_and_inbox_receipts_do_not_schedule_work() {
     let db = rusqlite::Connection::open_in_memory().unwrap();
     assert_eq!(read(&db, 2).unwrap(), EffectSummary::default());
-    db.execute_batch("CREATE TABLE __sys_raft_inbox(sequence); INSERT INTO __sys_raft_inbox VALUES(1); CREATE TABLE __sys_raft_alarms(due); INSERT INTO __sys_raft_alarms VALUES(20),(0); CREATE TABLE __sys_raft_outbox(next_at); INSERT INTO __sys_raft_outbox VALUES(30),(10);").unwrap();
+    db.execute_batch("CREATE TABLE __sys_raft_inbox(sequence); INSERT INTO __sys_raft_inbox VALUES(1); CREATE TABLE __sys_raft_alarms(due); INSERT INTO __sys_raft_alarms VALUES(20),(0); CREATE TABLE __sys_raft_outbox(lane,sequence,next_at); INSERT INTO __sys_raft_outbox VALUES('A',x'0000000000000001',30),('B',x'0000000000000001',10);").unwrap();
     assert_eq!(
         read(&db, 2).unwrap(),
         EffectSummary {
@@ -17,6 +17,31 @@ fn effects_are_bounded_and_inbox_receipts_do_not_schedule_work() {
         }
     );
     assert!(read(&db, 1).is_err());
+}
+
+#[test]
+fn blocked_later_delivery_does_not_wake_a_sleeping_lane() {
+    let db = rusqlite::Connection::open_in_memory().unwrap();
+    db.execute_batch(
+        "CREATE TABLE __sys_raft_outbox(lane,sequence,next_at);
+        INSERT INTO __sys_raft_outbox VALUES
+        ('Events',x'0000000000000002',0),
+        ('Events',x'0000000000000001',10000),
+        ('Alerts',x'0000000000000001',300);",
+    )
+    .unwrap();
+    let summary = read(&db, 3).unwrap();
+    assert_eq!(summary.pending_outbox, 3);
+    assert_eq!(summary.next_outbox_unix_millis, Some(300));
+    db.execute("DELETE FROM __sys_raft_outbox WHERE lane='Alerts'", [])
+        .unwrap();
+    assert_eq!(read(&db, 3).unwrap().next_outbox_unix_millis, Some(10000));
+    db.execute(
+        "DELETE FROM __sys_raft_outbox WHERE sequence=x'0000000000000001'",
+        [],
+    )
+    .unwrap();
+    assert_eq!(read(&db, 3).unwrap().next_outbox_unix_millis, Some(0));
 }
 
 #[test]

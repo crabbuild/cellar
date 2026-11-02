@@ -18,6 +18,31 @@ mod runtime_fixture;
 mod checkpoint_fixture;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_effects_outbox_retries_lost_receiver_receipt() -> Result<()> {
+    Box::pin(runtime_fixture::effect_lost_reply()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_effects_outbox_leader_change_preserves_dispatch() -> Result<()> {
+    Box::pin(runtime_fixture::effect_leader_change()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_effects_outbox_shutdown_joins_delivery() -> Result<()> {
+    Box::pin(runtime_fixture::effect_delivery_shutdown()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_effects_shutdown_joins_held_alarm_callback() -> Result<()> {
+    Box::pin(runtime_fixture::shutdown_joins_alarm()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn controller_effects_alarms_run_without_client_traffic() -> Result<()> {
+    Box::pin(runtime_fixture::alarms_without_clients()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn runtime_archive_capture_retains_cut_without_blocking_quorum() -> Result<()> {
     Box::pin(runtime_fixture::capture_archive_cut()).await
 }

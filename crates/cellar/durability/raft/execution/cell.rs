@@ -100,13 +100,21 @@ impl CellPrivateExecutor {
                 .map_err(storage)?,
             _workspace: options.images.workspace().cloned(),
         };
-        let working = WorkingImage::open_cell(
+        let working = match WorkingImage::open_cell(
             &options,
             authority.image(),
             cell_image_history_digest(&authority.cell().version.history),
-        )
-        .map_err(storage)?;
-        authority.check().map_err(authority_failure)?;
+        ) {
+            Ok(working) => working,
+            Err(error) => {
+                options.discard_cell_scratch().map_err(storage)?;
+                return Err(storage(error));
+            }
+        };
+        if let Err(error) = authority.check() {
+            working.close_cell(&options).map_err(storage)?;
+            return Err(authority_failure(error));
+        }
         Ok(Self {
             options,
             authority,
@@ -127,6 +135,27 @@ impl CellPrivateExecutor {
         input: &[u8],
         allow_new: bool,
     ) -> Result<CellStageOutcome, ExecutionError> {
+        self.stage_registered_kind(attempt, class, input, allow_new, false)
+    }
+
+    pub(crate) fn stage_system_registered(
+        &mut self,
+        attempt: CommandAttempt,
+        class: &RaftClass,
+        input: &[u8],
+        allow_new: bool,
+    ) -> Result<CellStageOutcome, ExecutionError> {
+        self.stage_registered_kind(attempt, class, input, allow_new, true)
+    }
+
+    fn stage_registered_kind(
+        &mut self,
+        attempt: CommandAttempt,
+        class: &RaftClass,
+        input: &[u8],
+        allow_new: bool,
+        system: bool,
+    ) -> Result<CellStageOutcome, ExecutionError> {
         let history = self.authority.cell().version.history.clone();
         let contract = super::registered::validate(
             self.options.limits,
@@ -135,12 +164,23 @@ impl CellPrivateExecutor {
             &attempt.request,
             class,
             input,
-            false,
+            system,
         )?;
         let command = attempt.request.id;
         let durability = attempt.request.durability;
         self.stage(attempt, allow_new, |transaction| {
-            class.invoke_command(&contract, &history, command, durability, transaction, input)
+            if system {
+                class.invoke_system_command(
+                    &contract,
+                    &history,
+                    command,
+                    durability,
+                    transaction,
+                    input,
+                )
+            } else {
+                class.invoke_command(&contract, &history, command, durability, transaction, input)
+            }
         })
     }
 
@@ -423,7 +463,7 @@ impl CellPrivateExecutor {
     pub fn close(mut self) -> Result<(), ExecutionError> {
         let store = self.options.images.root_store().cloned();
         if let Some(working) = self.working.take() {
-            working.close().map_err(storage)?;
+            working.close_cell(&self.options).map_err(storage)?;
         }
         drop(self.options);
         drop(self._lock);

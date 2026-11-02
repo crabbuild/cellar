@@ -2020,7 +2020,7 @@
     {
       "id": "CG-08",
       "title": "Preserve per-cell effects and bounded idle execution caches",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "priority": "P1",
       "effort": "L",
       "risk": "HIGH",

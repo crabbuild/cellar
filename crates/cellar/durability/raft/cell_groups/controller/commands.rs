@@ -89,64 +89,71 @@ impl CellGroupController {
     pub fn command(
         &self,
         invocation: CellCommandInvocation,
-        mut options: CellSqlOptions,
+        options: CellSqlOptions,
     ) -> Result<CellCommandCall, CellCommandAdmissionError> {
-        let shared = &self.handle.0;
-        let admitted = (|| {
-            let (command, deadline, bytes) = invocation.controller_admission(&shared.domain)?;
-            if shared.closing.load(Ordering::Acquire) {
-                return Err(error(command, false, RuntimeError::Closed));
-            }
-            let bytes = bytes
-                .checked_add(option_bytes(&mut options).map_err(|e| error(command, false, e))?)
-                .ok_or_else(|| error(command, false, RuntimeError::Overloaded))?;
-            let permit = shared
-                .commands
-                .acquire(bytes)
-                .ok_or_else(|| error(command, false, RuntimeError::Overloaded))?;
-            Ok((command, deadline, permit))
-        })();
-        let (command, deadline, permit) = match admitted {
-            Ok(admitted) => admitted,
-            Err(error) => {
-                return Err(CellCommandAdmissionError {
-                    error,
-                    invocation: Box::new(invocation),
-                })
-            }
-        };
-        let (reply, receiver) = oneshot::channel();
-        shared
-            .requests
-            .try_send(requests::Request::Command(Box::new(Request {
-                invocation,
-                options,
-                reply,
-                permit: Arc::new(permit),
-            })))
-            .map_err(|e| {
-                let (request, reason) = match e {
-                    mpsc::error::TrySendError::Closed(request) => (request, RuntimeError::Closed),
-                    mpsc::error::TrySendError::Full(request) => (request, RuntimeError::Overloaded),
-                };
-                CellCommandAdmissionError {
-                    error: error(command, false, reason),
-                    invocation: match request {
-                        requests::Request::Command(request) => Box::new(request.invocation),
-                        _ => unreachable!("command admission envelope"),
-                    },
-                }
-            })?;
-        Ok(CellCommandCall {
-            inner: calls::Call {
-                receiver,
-                identity: command,
-                deadline,
-                domain: shared.domain.clone(),
-                failure: |id, reason| error(id, true, reason),
-            },
-        })
+        admit(&self.handle.0, invocation, options)
     }
+}
+
+pub(super) fn admit(
+    shared: &Arc<Shared>,
+    invocation: CellCommandInvocation,
+    mut options: CellSqlOptions,
+) -> Result<CellCommandCall, CellCommandAdmissionError> {
+    let admitted = (|| {
+        let (command, deadline, bytes) = invocation.controller_admission(&shared.domain)?;
+        if shared.closing.load(Ordering::Acquire) {
+            return Err(error(command, false, RuntimeError::Closed));
+        }
+        let bytes = bytes
+            .checked_add(option_bytes(&mut options).map_err(|e| error(command, false, e))?)
+            .ok_or_else(|| error(command, false, RuntimeError::Overloaded))?;
+        let permit = shared
+            .commands
+            .acquire(bytes)
+            .ok_or_else(|| error(command, false, RuntimeError::Overloaded))?;
+        Ok((command, deadline, permit))
+    })();
+    let (command, deadline, permit) = match admitted {
+        Ok(admitted) => admitted,
+        Err(error) => {
+            return Err(CellCommandAdmissionError {
+                error,
+                invocation: Box::new(invocation),
+            })
+        }
+    };
+    let (reply, receiver) = oneshot::channel();
+    shared
+        .requests
+        .try_send(requests::Request::Command(Box::new(Request {
+            invocation,
+            options,
+            reply,
+            permit: Arc::new(permit),
+        })))
+        .map_err(|e| {
+            let (request, reason) = match e {
+                mpsc::error::TrySendError::Closed(request) => (request, RuntimeError::Closed),
+                mpsc::error::TrySendError::Full(request) => (request, RuntimeError::Overloaded),
+            };
+            CellCommandAdmissionError {
+                error: error(command, false, reason),
+                invocation: match request {
+                    requests::Request::Command(request) => Box::new(request.invocation),
+                    _ => unreachable!("command admission envelope"),
+                },
+            }
+        })?;
+    Ok(CellCommandCall {
+        inner: calls::Call {
+            receiver,
+            identity: command,
+            deadline,
+            domain: shared.domain.clone(),
+            failure: |id, reason| error(id, true, reason),
+        },
+    })
 }
 
 pub(super) async fn drive(

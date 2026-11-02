@@ -47,6 +47,7 @@ pub(super) struct Worker {
     progress: tokio::sync::watch::Sender<()>,
     checkpoints: checkpoints::Manager,
     archives: archive::Manager,
+    effects: effects::Manager,
     _checkpoint_routes: Vec<crate::raft::transport::CellGroupCheckpointRegistration>,
 }
 
@@ -71,6 +72,7 @@ impl Worker {
             }
         }
         let archives = archive::Manager::new(shared.domain.clone());
+        let effects = effects::Manager::new(&roster)?;
         Ok(Self {
             runtime,
             events,
@@ -94,6 +96,7 @@ impl Worker {
             progress: tokio::sync::watch::channel(()).0,
             checkpoints: checkpoints::Manager::default(),
             archives,
+            effects,
             _checkpoint_routes: checkpoint_routes,
         })
     }
@@ -185,6 +188,7 @@ impl Worker {
                 .map_err(|_| CellGroupControllerError::Closed)?;
             self.launch(now)?;
             self.archives.launch(&self.runtime, &self.shared, now);
+            self.effects.launch(&self.quarantined, &self.shared, now)?;
             let timer = domain
                 .sleep_until(wake_at)
                 .map_err(|_| CellGroupControllerError::Closed)?;
@@ -206,13 +210,16 @@ impl Worker {
                             if self.roster.insert(group, request.registration.applier.clone()).is_some() {
                                 return Err(CellGroupControllerError::Invalid("duplicate registered applier"));
                             }
+                            self.effects.register(&request.registration.applier)?;
                             self.registrations.push(Box::pin(registration::drive(*request, self.runtime.clone(), self.transport.clone())));
                         }
                         other => self.commands.push(Box::pin(requests::drive(other, self.runtime.clone(), self.sql.clone(), self.shared.clone(), self.progress.subscribe()))),
                     }
                 }
                 Some(done) = self.provisioning.next(), if self.provisioning.is_running() => {
+                    let group = done.group();
                     self.provisioning.complete(done, &self.shared, &self.transport, &mut self.roster, &mut self.routes)?;
+                    if let Some(applier) = self.roster.get(&group) { self.effects.register(applier)?; }
                 }
                 Some(completed) = self.registrations.next(), if !self.registrations.is_empty() => {
                     let group = completed.group;
@@ -223,6 +230,7 @@ impl Worker {
                         Err(error) => {
                             if !self.quarantined.contains(&group) {
                                 self.roster.remove(&group);
+                                self.effects.remove(&group);
                             }
                             if uncertain { return Err(error); }
                         }
@@ -270,6 +278,10 @@ impl Worker {
                     }
                 }
                 Some(()) = self.hints.next(), if !self.hints.is_empty() => (),
+                Some(completed) = self.effects.next(), if self.effects.running() => {
+                    if let Some(applier) = self.roster.get(&completed.group) { self.effects.register(applier)?; }
+                    self.effects.complete(completed, &self.shared);
+                }
                 completed = self.archives.next(), if self.archives.running() => {
                     self.archives.complete(completed, &self.shared, now, false);
                     self.progress.send_replace(());
@@ -331,6 +343,7 @@ impl Worker {
                         }
                         CellGroupEffect::Applied { manifest, .. } | CellGroupEffect::CheckpointInstalled { manifest } => {
                             self.archives.applied(group, manifest.position().index);
+                            self.effects.observe(group, manifest.position().index, manifest.root().next_due_unix_millis())?;
                             // Only this post-sync event advances the published count.
                             self.shared.applied.fetch_add(1, Ordering::Relaxed);
                             self.progress.send_replace(());
@@ -390,6 +403,7 @@ impl Worker {
         while let Some(completed) = self.registrations.next().await {
             let _ = completed.finish(true);
         }
+        self.effects.join(&self.shared).await;
         self.provisioning.join().await;
         self.checkpoints.join().await;
         self.archives.finish(&self.shared).await;

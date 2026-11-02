@@ -29,6 +29,14 @@ pub(in super::super) enum Completed {
     ),
 }
 
+impl Completed {
+    pub(in super::super) fn group(&self) -> GroupHistory {
+        match self {
+            Self::Prepared(group, _) | Self::Attached(group, _) => *group,
+        }
+    }
+}
+
 #[derive(Default)]
 pub(in super::super) struct Manager {
     entries: BTreeMap<GroupHistory, Entry>,

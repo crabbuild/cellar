@@ -145,6 +145,81 @@ impl CellExecutionAuthority {
     }
 }
 
+/// Custody of an already committed outbox claim. It retains the selected
+/// image and leader fence while unrelated cells or later business writes may
+/// advance. It grants neither SQL execution nor an acknowledgement.
+pub(crate) struct CellEffectAuthority {
+    execution: CellExecutionAuthority,
+    minimum: cellar_logic::cell_group::CellVersion,
+}
+
+impl CellExecutionAuthority {
+    pub(crate) fn effect_authority(
+        self,
+        minimum: &cellar_logic::cell_group::CellVersion,
+        term: Term,
+    ) -> Result<CellEffectAuthority, RuntimeError> {
+        // The execution observation was minted at a ready applied barrier.
+        // Its own cell has since advanced through the exact committed claim;
+        // checking equality with that older leaf would invalidate every claim.
+        if term != self.term
+            || !minimum
+                .covers(&self.leaf.version)
+                .map_err(|_| RuntimeError::Invalid("effect claim history".into()))?
+        {
+            return Err(RuntimeError::NotReady);
+        }
+        let authority = CellEffectAuthority {
+            execution: self,
+            minimum: minimum.clone(),
+        };
+        authority.check()?;
+        Ok(authority)
+    }
+}
+
+impl CellEffectAuthority {
+    pub(crate) fn check(&self) -> Result<(), RuntimeError> {
+        let execution = &self.execution;
+        if execution.leader_term.load(Ordering::Acquire) != execution.term.get() {
+            return Err(RuntimeError::NotReady);
+        }
+        let cache = execution.group.read()?;
+        let current = cache
+            .group_manifest
+            .as_ref()
+            .ok_or(RuntimeError::NotReady)?;
+        let key = cell_routing_key(
+            execution.route.history.namespace,
+            &self.minimum.history.cell,
+        );
+        let (leaf, _pin) = cache
+            .manifest_pins
+            .as_ref()
+            .and_then(|pins| pins.get(&key))
+            .ok_or(RuntimeError::NotReady)?;
+        if !current.is_active()
+            || current.route() != &execution.route
+            || cache.hard_state.term != execution.term.get()
+            || !cache
+                .conf_state
+                .voters
+                .iter()
+                .chain(&cache.conf_state.voters_outgoing)
+                .any(|id| *id == execution.group.identity().member.get())
+            || !cache.membership.permits_group(execution.group.identity())
+            || !leaf
+                .version
+                .covers(&self.minimum)
+                .map_err(|_| RuntimeError::NotReady)?
+            || execution.leader_term.load(Ordering::Acquire) != execution.term.get()
+        {
+            return Err(RuntimeError::NotReady);
+        }
+        Ok(())
+    }
+}
+
 /// A durable current-term applied cut, including on a follower. This permits
 /// receipt inspection and retirement of older-term producers, never new SQL
 /// execution, a linearizable query, or an S3 acknowledgement.

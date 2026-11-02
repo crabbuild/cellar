@@ -75,13 +75,21 @@ impl CellPrivateEnrollment {
                 .map_err(storage)?,
             _workspace: options.images.workspace().cloned(),
         };
-        let working = WorkingImage::open(
+        let working = match WorkingImage::open(
             &options,
             None,
             cell_image_history_digest(authority.state().cell()),
-        )
-        .map_err(storage)?;
-        authority.check().map_err(authority_failure)?;
+        ) {
+            Ok(working) => working,
+            Err(error) => {
+                options.discard_cell_scratch().map_err(storage)?;
+                return Err(storage(error));
+            }
+        };
+        if let Err(error) = authority.check() {
+            working.close_cell(&options).map_err(storage)?;
+            return Err(authority_failure(error));
+        }
         Ok(Self {
             options,
             authority,
@@ -237,7 +245,7 @@ impl CellPrivateEnrollment {
     pub fn close(mut self) -> Result<(), ExecutionError> {
         let store = self.options.images.root_store().cloned();
         if let Some(working) = self.working.take() {
-            working.close().map_err(storage)?;
+            working.close_cell(&self.options).map_err(storage)?;
         }
         drop(self.options);
         drop(self.lock);

@@ -35,7 +35,8 @@ pub(super) fn read(
         Ok((count, earliest))
     };
     let (_, next_alarm_unix_millis) = scan("__sys_raft_alarms", "due")?;
-    let (pending_outbox, next_outbox_unix_millis) = scan("__sys_raft_outbox", "next_at")?;
+    let (pending_outbox, _) = scan("__sys_raft_outbox", "next_at")?;
+    let next_outbox_unix_millis = outbox_front(connection, pending_outbox)?;
     Ok(EffectSummary {
         next_alarm_unix_millis,
         next_outbox_unix_millis,
@@ -44,6 +45,51 @@ pub(super) fn read(
         // asynchronous work queue. Retained inbox receipts cannot prevent parking.
         pending_inbox: 0,
     })
+}
+
+fn outbox_front(
+    connection: &rusqlite::Connection,
+    count: u64,
+) -> Result<Option<u64>, ExecutionError> {
+    if count == 0 {
+        return Ok(None);
+    }
+    // The preceding scan has already bounded every row and validated its time.
+    // Read fixed-size metadata only; no payload allocation or unbounded sort.
+    // Later deliveries cannot run before their lane's oldest sequence, even
+    // when those later rows have next_at=0. Scheduling that zero spins on an
+    // otherwise sleeping cell until its dispatched head becomes retryable.
+    let mut statement = connection.prepare(
+        "SELECT CASE WHEN typeof(lane)='text' AND length(CAST(lane AS BLOB)) BETWEEN 1 AND 64 THEN lane ELSE NULL END,CASE WHEN typeof(sequence)='blob' AND length(sequence)=8 THEN sequence ELSE NULL END,next_at FROM __sys_raft_outbox LIMIT ?1",
+    ).map_err(storage)?;
+    let mut rows = statement.query([count]).map_err(storage)?;
+    let mut fronts = std::collections::BTreeMap::<String, (u64, u64)>::new();
+    while let Some(row) = rows.next().map_err(storage)? {
+        let lane: String = row.get(0).map_err(storage)?;
+        let sequence: Vec<u8> = row.get(1).map_err(storage)?;
+        let sequence = u64::from_be_bytes(
+            sequence
+                .try_into()
+                .map_err(|_| ExecutionError::Invalid("effect outbox sequence"))?,
+        );
+        let next: u64 = row.get(2).map_err(storage)?;
+        if sequence == 0 || !crate::raft::effects::delivery::valid_name(&lane) {
+            return Err(ExecutionError::Invalid("effect outbox identity"));
+        }
+        if !fronts.contains_key(&lane) && fronts.len() == crate::raft::effects::outbox::MAX_LANES {
+            return Err(ExecutionError::Invalid("effect outbox lane bounds"));
+        }
+        let front = fronts.entry(lane).or_insert((sequence, next));
+        if sequence < front.0 {
+            *front = (sequence, next);
+        }
+    }
+    let next = fronts
+        .values()
+        .map(|(_, next)| *next)
+        .min()
+        .ok_or(ExecutionError::Invalid("effect outbox row count changed"))?;
+    Ok(Some(next))
 }
 
 #[cfg(test)]

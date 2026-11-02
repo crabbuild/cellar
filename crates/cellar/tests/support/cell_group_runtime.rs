@@ -805,6 +805,11 @@ pub(super) async fn attachment_reserves_before_owner() -> Result<()> {
 mod sql;
 #[allow(unused_imports)]
 pub(super) use sql::unproved_s3_responses;
+pub(super) use sql::{
+    alarms_without_clients, effect_delivery_shutdown, effect_identity_across_bindings,
+    effect_leader_change, effect_lost_reply, effect_s3_lost_reply, hot_and_cold_alarms,
+    idle_cache_reopens_exact_base, shutdown_joins_alarm,
+};
 #[allow(unused_imports)]
 pub(super) use sql::{
     archive_checkpoint_frontier, archive_controller_publish, archive_controller_reconcile,

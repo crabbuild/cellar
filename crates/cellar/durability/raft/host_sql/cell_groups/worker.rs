@@ -11,6 +11,7 @@ pub(super) enum Callback {
     Registered {
         class: Arc<crate::application::consensus::RaftClass>,
         input: Box<[u8]>,
+        system: bool,
     },
 }
 
@@ -188,8 +189,16 @@ impl Cells {
                     Callback::Verification(callback) => {
                         executor.stage(attempt, allow_new, callback)
                     }
-                    Callback::Registered { class, input } => {
-                        executor.stage_registered(attempt, &class, &input, allow_new)
+                    Callback::Registered {
+                        class,
+                        input,
+                        system,
+                    } => {
+                        if system {
+                            executor.stage_system_registered(attempt, &class, &input, allow_new)
+                        } else {
+                            executor.stage_registered(attempt, &class, &input, allow_new)
+                        }
                     }
                 };
                 match result {

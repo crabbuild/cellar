@@ -12,6 +12,11 @@ type VerificationCallback = Box<
 >;
 
 enum Callback {
+    Effects {
+        class: Arc<crate::application::consensus::RaftClass>,
+        now: u64,
+        reservation: crate::raft::budget::Permit,
+    },
     Receipt {
         class: Arc<crate::application::consensus::RaftClass>,
         request: crate::raft::execution::CommandRequest,
@@ -32,6 +37,22 @@ pub(super) struct Query {
     cancelled: Arc<AtomicBool>,
     closing: Arc<AtomicBool>,
     bytes: Arc<Bytes>,
+}
+
+/// Opaque committed effect observation, charged to the node scheduler until
+/// the complete claim/delivery/settlement turn releases it.
+pub struct CellSqlEffectScan {
+    scan: Box<crate::raft::effects::scan::EffectScan>,
+    _bytes: Arc<Bytes>,
+}
+
+impl CellSqlEffectScan {
+    /// SQL discovery has joined. Its payload is already charged to the effect
+    /// metadata permit, so release the read slot before admitting the private
+    /// command. A group with one SQL slot must not recursively acquire it.
+    pub(crate) fn into_scan(self) -> Box<crate::raft::effects::scan::EffectScan> {
+        self.scan
+    }
 }
 
 pub struct CellSqlQueryResult {
@@ -89,6 +110,7 @@ impl CellSqlReceiptLookup {
 }
 
 enum Output {
+    Effects(Box<crate::raft::effects::scan::EffectScan>),
     Query(Vec<u8>),
     Receipt(Option<crate::raft::execution::StoredReceipt>),
 }
@@ -96,6 +118,9 @@ enum Output {
 impl Output {
     fn retained_bytes(&self) -> usize {
         match self {
+            // The scheduler's metadata permit accounts for scan payloads and
+            // remains owned by EffectScan, independently of SQL read admission.
+            Self::Effects(_) => 0,
             Self::Query(bytes) => bytes.len(),
             Self::Receipt(receipt) => receipt.as_ref().map_or(0, |r| r.result().len()),
         }
@@ -111,6 +136,37 @@ impl Drop for Cancel {
 }
 
 impl CellGroupSqlPool {
+    pub(crate) async fn scan_effects(
+        &self,
+        options: CellSqlOptions,
+        authority: CellReadAuthority,
+        class: Arc<crate::application::consensus::RaftClass>,
+        now: u64,
+        reservation: crate::raft::budget::Permit,
+    ) -> Result<CellSqlEffectScan, ExecutionError> {
+        if authority.barrier().is_none()
+            || !class.has_system_commands()
+            || class.schema_digest() != authority.route().schema_digest
+        {
+            return Err(ExecutionError::Invalid("effect scan authority/class"));
+        }
+        match self
+            .query_callback(
+                options,
+                authority,
+                Callback::Effects {
+                    class,
+                    now,
+                    reservation,
+                },
+            )
+            .await?
+        {
+            CellSqlOutcome::EffectsScanned(output) => Ok(output),
+            _ => Err(ExecutionError::Invalid("effect scan reply")),
+        }
+    }
+
     /// Consume an invocation's coherent pin. Queries can coexist with an
     /// unresolved private writer but read only the selected committed image.
     /// The registered dispatcher must enforce operation contracts before here.
@@ -229,7 +285,7 @@ impl CellGroupSqlPool {
             .map_err(crate::raft::execution::authority_failure)?;
         options.limits().validate()?;
         let input_bytes = match &callback {
-            Callback::Verification(_) => 0,
+            Callback::Verification(_) | Callback::Effects { .. } => 0,
             Callback::Registered { input, .. } | Callback::Receipt { input, .. } => input.len(),
         };
         let bytes = self.inner.admission.reserve_read(
@@ -257,7 +313,7 @@ impl CellGroupSqlPool {
         crate::asyncrt::select! {
             result = self.call(cell, worker::Action::Query(Box::new(query))) => {
                 match result? {
-                    output @ (CellSqlOutcome::Queried(_) | CellSqlOutcome::ReceiptLookedUp(_)) => {
+                    output @ (CellSqlOutcome::Queried(_) | CellSqlOutcome::ReceiptLookedUp(_) | CellSqlOutcome::EffectsScanned(_)) => {
                         if domain.mono_ms().map_err(|_| unavailable())? >= deadline {
                             return Err(crate::raft::execution::storage(RuntimeError::DeadlineExceeded));
                         }
@@ -358,6 +414,21 @@ pub(super) fn run(
     check(&query)?;
     let observation = query.authority.cell().observation();
     let result = std::panic::catch_unwind(AssertUnwindSafe(|| match query.callback {
+        Callback::Effects {
+            class,
+            now,
+            reservation,
+        } => crate::raft::effects::scan::scan_connection_fair(
+            database.connection(),
+            &observation.version.history,
+            query.authority.cell().last_mutation,
+            &class,
+            now,
+            reservation,
+        )
+        .map(Box::new)
+        .map(Output::Effects)
+        .map_err(crate::raft::execution::storage),
         Callback::Verification(callback) => callback(&database, &observation.version)
             .map(Output::Query)
             .map_err(crate::raft::execution::storage),
@@ -412,6 +483,10 @@ pub(super) fn run(
     drop(query.authority);
     Bytes::shrink(&mut query.bytes, result.retained_bytes() + 4096)?;
     Ok(match result {
+        Output::Effects(scan) => CellSqlOutcome::EffectsScanned(CellSqlEffectScan {
+            scan,
+            _bytes: query.bytes,
+        }),
         Output::Query(result) => CellSqlOutcome::Queried(CellSqlQueryResult {
             result,
             observation,

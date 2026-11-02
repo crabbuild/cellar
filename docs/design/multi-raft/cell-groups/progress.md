@@ -6,9 +6,59 @@ The executable design and implementation plan is delivered. Remaining
 end-to-end implementation and hard cutover work is specified in the
 [executor handoff](handoff.md).
 CG-01 through CG-06 have passed their scoped native gates;
-CG-07 through CG-16 remain TODO. Intermediate contracts
+CG-08 is IN_PROGRESS; CG-07 and CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
+
+## CG-08 node effects and disposable SQL lifetimes
+
+The successor implementation is under qualification on codex/shared-cell-groups.
+The committed due-index foundation is 783c270b. The node controller now owns fair
+group/cell discovery, exact committed-image scans, private alarm/outbox commands,
+claim durability, fenced delivery and joined shutdown. No cell owns a timer or
+resident execution worker. The expanded predecessor compile check passes.
+
+All five predecessor execution cases now pass in both image modes: alarms, lost
+receiver replies, actual leader transfer, delivery shutdown and held alarm
+shutdown. The successful native-10 run passes five cases in 7.11 seconds after an
+18.44-second build. Its retained executable SHA256 is
+e9fa57084a95fe02e0af8d8ddaceda5ccd0b8b9efd00c1b1ee92a61dcc06a8b7.
+The preceding run passes four cases but times out on an ordinary follower
+pre-vote under the healthy leader lease. The test-only correction uses the real
+TimeoutNow transfer and caught-up target check inside the original deadline,
+preserving every custody/state oracle. Both source-bound records, executables
+and real logs remain under
+.cellar/cell-groups-evidence/CG-08-effects-progress-783c270b/.
+
+The native_cell_groups_effects target now passes eight cases with zero failures
+and one explicitly ignored RustFS case, in 33.05 seconds after a 3m45s build. Each
+case exercises materialized and extent modes, including all five original CG-08
+case names. The source-bound native-11 record and executable are retained locally;
+executable SHA256:
+54d1af2d19bba8aacf206f23d04ca3fb1f3b23f1dafc554bbd49dc079760ffb9.
+
+Cold reopening checks the committed base, exact receipt retry, an older coherent
+read and an unchanged Raft term. Discovery leaves 32 cold cells unopened; a cell
+re-arming through four alarm generations rotates behind the other due cell.
+Identity qualification boots two independent physical group bindings, comparing
+exact signed deliveries and receiver proofs while suppressing duplicate execution
+under each. This does not qualify live CG-09 transfer. The normal S3 adapter case
+requires archived claim coverage before send and independently verifies the final
+complete image/receipt closure. Its explicit local RustFS variant remains unrun.
+
+The cache review found materialized settlement closed SQLite while retaining its
+private database and LTX files. Shared-cell close now discards those bounded
+scratch paths before releasing the private lock, including failed opens and
+post-open authority revocation. Sealed images and uncertain proposal custody are
+separate. The passing cold-reopen case asserts only the lock inode remains before
+injecting a bogus disposable database and checking exact reconstruction. Affected
+enrollment regressions and cleanup failure qualification remain pending.
+
+Private-operation discovery now bounds its SQLite projection before allocating
+the scheduling preference string. Its corruption/permit regression, strict
+Clippy and the complete CG-08 evidence gate remain required. Real RustFS effects
+and the later CG-07 public SDK/fleet cutover are still unqualified. CG-06's prior
+source-scoped closure remains intact; the full hard cutover is unfinished.
 
 ## CG-06 complete native and local disaster-recovery gate
 

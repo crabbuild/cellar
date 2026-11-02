@@ -109,6 +109,20 @@ impl From<RootPrivateOptions> for Options {
 }
 
 impl Options {
+    /// Only shared-cell private scratch is disposable here. Keep the lock inode
+    /// and sealed image stores; an unresolved producer still owns this directory
+    /// until its physical callback/settlement has joined.
+    pub(super) fn discard_cell_scratch(&self) -> anyhow::Result<()> {
+        if let Images::Materialized(_) = &self.images {
+            crate::raft::working::clean(
+                self.host.filesystem().as_ref(),
+                &self.directory,
+                &self.directory.join("working.sqlite"),
+            )?;
+        }
+        Ok(())
+    }
+
     pub fn materialized(&self) -> anyhow::Result<PrivateOptions> {
         let Images::Materialized(images) = &self.images else {
             anyhow::bail!("materialized private storage required");
@@ -327,6 +341,14 @@ impl WorkingImage {
             Self::Materialized(working) => (*working).close(),
             Self::Rooted(working) => (*working).close(),
         }
+    }
+
+    pub(super) fn close_cell(self, options: &Options) -> anyhow::Result<()> {
+        // Close SQLite/WAL capture before removing any path, including when its
+        // close reports an error. The caller still owns the private lock.
+        let closed = self.close();
+        options.discard_cell_scratch()?;
+        closed
     }
 
     pub fn trim(&self, options: &Options, base: Option<&Published>) -> anyhow::Result<()> {

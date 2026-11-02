@@ -25,8 +25,9 @@ The caller runs page
 I/O on its blocking execution domain and retains the selected verified root;
 returned metadata still requires fresh leader, route, image and private-command
 admission before execution. Missing scheduling fields refuse at marker 1, with
-no compatibility reader. Node scheduler/system-command integration and the full
-CG-08 effect/cache qualification remain unfinished.
+no compatibility reader. The shared controller now integrates indexed discovery
+and private system commands. Full CG-08 effect/cache qualification and the public
+SDK/fleet cutover remain unfinished; qualification is scoped to its recorded source.
 
 Leaves bind logical cell history, mutation sequence, image commitment and
 geometry, last group installation/mutation position, schema, effect summary,
@@ -515,6 +516,72 @@ archive observations cannot refund it. Reopen reconstructs debt from the selecte
 log, retaining entries even under a newly lowered admission limit. Mutations
 refuse until a reservation fits. No serialized field or per-cell worker is added.
 
-The admission implementation and new boundary cases are under qualification.
-Full-backend S3 outage authority, physical file amplification/reclamation,
-sustained-load fairness and the original CG-06 task gates remain pending.
+The source-scoped archive/reclamation and local disaster-recovery qualification
+is recorded in the [implementation progress](../../../../../docs/design/multi-raft/cell-groups/progress.md).
+Sustained-load fairness and final SDK/fleet cutover have separate task gates.
+
+
+## Per-cell effects on shared owners
+
+`CellGroupController::configure_effects` installs bounded compiled namespace/class
+registrations once. Each `CellGroupEffectRegistration` supplies explicit
+`RaftEffectOptions` and a synchronous SQL-options factory, executed on the owning
+domain's blocking service. The factory derives private paths from the complete
+cell history and shares bounded node resources; its captured configuration must
+not grow with enrolled cells. Dispatcher, SQL, engine and namespace schema owners
+must match. Configuration enforces private-input and metadata capacity, and each
+selected SQL execution verifies class-specific image, receipt and retry bounds.
+
+One owned turn per node rotates ready groups and due cells. Its group queue is
+initialized from the selected in-memory markers and updated only after synced
+publication. Empty and future-only groups require no runtime probe or SQLite open.
+Outbox summaries retain the minimum time among lane fronts; a blocked later
+sequence with an earlier timestamp cannot keep a sleeping lane busy. Hints remain
+advisory: the actual ready leader issues cell execution authority and a fresh
+linearizable image supplies each private client sequence and due generation.
+
+Discovery runs on the existing SQL workers. A completed scan transfers its
+payload into the effect metadata permit and releases SQL read admission before
+staging a command, including when the node/group has one SQL slot. Alarm discovery
+retains only its generation ID; its bounded payload stays in SQLite until the
+private callback loads it. The private operation and reserved logical cell client
+are checked before both new execution and duplicate lookup. Public and remote
+commands cannot select the private execution path. The last committed private
+receipt alternates alarm/outbox priority without a preference table for every cell.
+
+An outbox claim crosses ordinary quorum and requested S3 output settlement before
+send. After consuming the claim result, the turn releases its response admission
+before a loopback receiver or source completion needs the same bounded lane.
+Published durability survives that consumer release. The durable Dispatched row,
+bounded request metadata and fenced image custody retain the unknown outcome.
+Delivery custody requires the same active route, authorized member and leader
+term, and a current same-history cell version covering the committed claim.
+Later business writes and unrelated apply lag do not revoke that custody. A term,
+route, activation or lineage change does. The source rechecks custody before send
+and reply acceptance, verifies the configured receiver signature, then replicates
+conditional generation-matched completion through the normal durability gate.
+
+Cancellation does not retire admitted command producers. Closing stops new effect
+admission, joins factories/scans/delivery waiters, then closes the existing physical
+SQL/runtime owners. Pending callback work must finish before close succeeds;
+cancelled external delivery preserves committed debt for retry. Controller usage
+reports active turns, completed turns and retries; SQL usage separately reports
+retained producers and operations. Root publication can precede those resources'
+disposal, so inspection through a one-slot pool waits for their ownership to drain.
+Settled materialized producers discard the private SQLite/WAL and LTX scratch
+under their existing lock, retaining only its lock inode. Failed opens and revoked
+post-open authority also discard scratch before releasing that lock. Cleanup is
+bounded and its failure is reported. Sealed committed images, receipts and pending
+proposal bytes remain independently owned. Extent workspaces retain their existing
+bounded store ownership and joined release.
+
+The [native effect cases](../../../tests/native_cell_groups_effects.rs) exercise
+due discovery among cold cells, exact committed-base reopening after disposable
+state is removed, retained SQL/delivery ownership, and joined shutdown. Two
+independent physical group bindings compare the exact signed request and receiver
+proof while each loses a reply and suppresses duplicate receiver execution. Live
+transfer sealing/publication belongs to CG-09. The S3 case requires claim coverage
+before send, retains the receiver's S3 policy, and independently restores the final
+complete image/receipt closure. It has an explicit local RustFS variant without a
+memory fallback. Current results and remaining qualification are recorded in the
+[implementation progress](../../../../../docs/design/multi-raft/cell-groups/progress.md).

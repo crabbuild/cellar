@@ -43,8 +43,8 @@ pub use controller::{
     CellGroupArchiveCall, CellGroupArchiveControlError, CellGroupArchiveRegistration,
     CellGroupArchiveStatus, CellGroupCheckpointPolicy, CellGroupController,
     CellGroupControllerError, CellGroupControllerLimits, CellGroupControllerUsage,
-    CellGroupProvisionCall, CellGroupProvisioning, CellGroupRegistration,
-    CellGroupRegistrationCall, CellGroupRegistrationError,
+    CellGroupEffectRegistration, CellGroupProvisionCall, CellGroupProvisioning,
+    CellGroupRegistration, CellGroupRegistrationCall, CellGroupRegistrationError,
 };
 mod dispatch;
 pub use apply::{CellGroupApplier, CellGroupApplyImages};
@@ -59,6 +59,7 @@ pub use dispatch::{
 
 mod effect_index;
 mod execution_authority;
+pub(crate) use execution_authority::CellEffectAuthority;
 pub use execution_authority::{CellExecutionAuthority, CellReconciliationAuthority};
 
 mod enrollment_authority;
