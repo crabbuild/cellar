@@ -339,11 +339,18 @@ jobs:
           cargo clippy --workspace --exclude cellar-javascript --exclude cellar-rpc-qualification --all-targets --all-features --locked -- -D warnings
       - name: Qualify dense filesystem writes and cold recovery
         env:
+          # Match the native campaign while retaining its correctness checks.
+          CARGO_PROFILE_TEST_OPT_LEVEL: "1"
+          CARGO_PROFILE_TEST_DEBUG_ASSERTIONS: "true"
+          CARGO_PROFILE_TEST_OVERFLOW_CHECKS: "true"
           CELLAR_FS_CAPACITY_MIB: "10"
           CELLAR_FS_CAPACITY_REPORT: ${{ runner.temp }}/filesystem-dense-capacity.json
           RUST_LOG: 'warn,cellar::actor::effects=info,store[node_lease_store]=debug'
         run: |
           set -o pipefail
+          cargo test --locked -p cellar --all-features --test native_node --no-run
+          # Complete build writeback before the live durability qualification.
+          sync -f "${CARGO_TARGET_DIR:-$PWD/target}"
           cargo test --locked -p cellar --all-features --test native_node \
             filesystem_dense_capacity_cold_recovery -- --ignored --nocapture \
             2>&1 | tee "$RUNNER_TEMP/filesystem-dense-capacity.log"

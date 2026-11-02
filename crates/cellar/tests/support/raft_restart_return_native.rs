@@ -13,10 +13,7 @@ async fn offline(s: &mut Setup, p: usize) -> Result<(Running, FleetRestartReturn
         .await?;
     trust(s).await?;
     let cut = s.f.catalog.read(TIMEOUT).await?;
-    let result =
-        s.f.catalog
-            .stop_restart_maintenance(&cut, &request, &s.spare, TIMEOUT)
-            .await;
+    let result = submit_stop(s, &s.f.catalog, &cut, &request).await?;
     ensure!(
         result.is_ok()
             || matches!(
