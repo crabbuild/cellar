@@ -275,7 +275,9 @@ async fn owned() -> Result<()> {
         .await?;
     let (node, mut command, request) = prepare(&f, &server).await?;
     command.extend(["--wait".into(), "--timeout-seconds".into(), "5".into()]);
-    let (exit, value) = routed(&f, server.cli(&command, "maintainer")).await??;
+    let (exit, value) = routed(&f, server.cli(&command, "maintainer"))
+        .await
+        .with_context(|| format!("owned prepare wait; service {:?}", service.status()))??;
     ensure!(exit == 0, "maintenance prepare wait {exit}: {value}");
     let ready: RaftFleetMaintenanceStatus = serde_json::from_value(value)?;
     ready.validate()?;
@@ -298,7 +300,9 @@ async fn owned() -> Result<()> {
         "--timeout-seconds".into(),
         "5".into(),
     ]);
-    let (exit, value) = routed(&f, server.cli(&command, "canceller")).await??;
+    let (exit, value) = routed(&f, server.cli(&command, "canceller"))
+        .await
+        .with_context(|| format!("owned cancellation wait; service {:?}", service.status()))??;
     ensure!(exit == 0, "maintenance cancellation wait {exit}: {value}");
     let status: RaftFleetMaintenanceStatus = serde_json::from_value(value)?;
     status.validate()?;
