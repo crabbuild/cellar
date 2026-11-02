@@ -84,23 +84,47 @@ async fn replace(s: &Setup, from_s3: bool) -> Result<Replaced> {
     .await?;
     // Warm only actual physical observations. The terminal API must independently
     // obtain its own fresh quorum and complete physical probes afterward.
+    let seen = std::sync::Mutex::new((None, Vec::new()));
     s.f.domain
         .run(cellar::asyncrt::timeout(TIMEOUT, async {
             loop {
                 let cut = s.f.catalog.read(TIMEOUT).await?;
                 let mut complete = true;
+                seen.lock()
+                    .map_err(|_| anyhow::anyhow!("physical observations mutex"))?
+                    .1
+                    .clear();
                 for node in &s.nodes {
+                    seen.lock()
+                        .map_err(|_| anyhow::anyhow!("physical observations mutex"))?
+                        .0 = Some(node.spec.node);
                     let observed = node
                         .host
                         .inspect_peer_physical_inventory(node.spec.node, cut.revision(), TIMEOUT)
                         .await?;
-                    complete &= observed.view.seed_workers == 0
-                        && observed
+                    let history = if observed.view.seed_workers == 0 {
+                        observed
                             .inventory
                             .as_ref()
                             .unwrap()
                             .history(&request.resources.group)?
-                            .is_some_and(|h| h.completed_sequence() == 1);
+                    } else {
+                        None
+                    };
+                    let ready = observed.view.seed_workers == 0
+                        && history.is_some_and(|h| h.completed_sequence() == 1);
+                    complete &= ready;
+                    {
+                        let mut seen = seen
+                            .lock()
+                            .map_err(|_| anyhow::anyhow!("physical observations mutex"))?;
+                        seen.0 = None;
+                        seen.1.push((
+                            node.spec.node,
+                            observed.view.seed_workers,
+                            history.map(|h| (h.completed_sequence(), h.in_configuration())),
+                        ));
+                    }
                 }
                 if complete {
                     return Ok::<_, anyhow::Error>(());
@@ -109,7 +133,12 @@ async fn replace(s: &Setup, from_s3: bool) -> Result<Replaced> {
             }
         }))
         .await?
-        .context("warm terminal physical copies")??;
+        .with_context(|| {
+            format!(
+                "warm terminal physical copies; observations {:?}",
+                seen.lock()
+            )
+        })??;
     Ok(Replaced {
         cells,
         target,

@@ -99,7 +99,8 @@ async fn redistribute(f: &mut Scenario, admin: &Server, node: &str) -> Result<()
     let (exit, value) = admin.cli(&args, "reader").await?;
     ensure!(
         exit == 0 && value["converged"] == true,
-        "redistribution {exit}: {value}"
+        "redistribution {exit}: {value}; service {:?}",
+        service.status()
     );
     service.shutdown().await;
     completed_sql(f, 164).await?;
