@@ -108,6 +108,7 @@ pub(crate) struct Replica {
     pub write: Option<(WriteTicket, GroupWrite)>,
     outbound: VecDeque<RuntimeEventKind>,
     deliveries: Vec<std::sync::Weak<super::budget::Permit>>,
+    configuration_fence: Option<u64>,
     apply: VecDeque<Entry>,
     apply_ticket: Option<ApplyTicket>,
     finished_apply: Option<ApplyCompletion>,
@@ -173,6 +174,7 @@ impl Replica {
             write: None,
             outbound: VecDeque::new(),
             deliveries: Vec::new(),
+            configuration_fence: None,
             apply: VecDeque::new(),
             apply_ticket: None,
             finished_apply: None,
@@ -935,6 +937,7 @@ impl Replica {
                 if let Some(entry) = self.apply.pop_front() {
                     self.apply_bytes -= entry_bytes(&entry);
                 }
+                self.configuration_fence = None;
                 self.apply_ticket = None;
                 self.phase = Phase::Idle;
                 Ok(true)
@@ -964,27 +967,26 @@ impl Replica {
                     self.ready_bytes = 0;
                     return Ok(true);
                 }
-                // Drain the finite set of already-emitted sends before applying
-                // a committed configuration. Collecting another ordinary Ready
-                // here lets later heartbeats extend that fence indefinitely.
-                // An uninstalled snapshot retains its existing priority.
-                let configuration_pending = self
+                // Include one already-pending Ready in the send fence before
+                // membership revocation, then freeze that finite boundary.
+                // Later heartbeats cannot extend it. Snapshot priority and
+                // ordinary Ready admission limits remain unchanged.
+                let configuration_index = self
                     .apply
                     .front()
-                    .is_some_and(|entry| entry.get_entry_type() != EntryType::EntryNormal)
-                    && self.node.raft.raft_log.unstable_snapshot().is_none();
-                if configuration_pending {
-                    self.deliveries
-                        .retain(|delivery| delivery.strong_count() != 0);
-                    if !self.deliveries.is_empty() {
-                        return Ok(false);
-                    }
-                }
-                if !configuration_pending
+                    .filter(|entry| entry.get_entry_type() != EntryType::EntryNormal)
+                    .filter(|_| self.node.raft.raft_log.unstable_snapshot().is_none())
+                    .map(|entry| entry.index);
+                let fenced = configuration_index.is_some()
+                    && self.configuration_fence == configuration_index;
+                if !fenced
                     && self.node.has_ready()
                     && ((can_collect && self.apply_bytes < options.max_group_apply_bytes)
                         || self.node.raft.raft_log.unstable_snapshot().is_some())
                 {
+                    if configuration_index.is_some() {
+                        self.configuration_fence = configuration_index;
+                    }
                     let ready = self.node.ready();
                     self.ready_bytes = ready_bytes(&ready);
                     if self.ready_bytes > options.max_ready_bytes {
@@ -1018,6 +1020,7 @@ impl Replica {
                     return Ok(false);
                 };
                 if entry.get_entry_type() != EntryType::EntryNormal {
+                    self.configuration_fence = Some(entry.index);
                     self.deliveries
                         .retain(|delivery| delivery.strong_count() != 0);
                     if !self.deliveries.is_empty() {
@@ -1138,6 +1141,7 @@ impl Replica {
             (!ready.snapshot().is_empty()).then_some(ready.snapshot().get_metadata().index);
         if snapshot_index.is_some() {
             self.apply.clear();
+            self.configuration_fence = None;
             self.apply_bytes = 0;
             self.apply_ticket = None;
             self.finished_apply = None;

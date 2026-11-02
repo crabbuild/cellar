@@ -9,15 +9,27 @@ use cellar_logic::consensus::*;
 
 #[tokio::test]
 async fn membership_apply_waits_for_prior_message_delivery() -> anyhow::Result<()> {
-    membership_case(false).await
+    membership_case(ReadyCase::None).await
 }
 
 #[tokio::test]
 async fn membership_delivery_fence_is_not_extended_by_later_protocol_ready() -> anyhow::Result<()> {
-    membership_case(true).await
+    membership_case(ReadyCase::LaterHeartbeat).await
 }
 
-async fn membership_case(later_ready: bool) -> anyhow::Result<()> {
+#[tokio::test]
+async fn membership_apply_drains_an_already_queued_commit_notice() -> anyhow::Result<()> {
+    membership_case(ReadyCase::QueuedCommit).await
+}
+
+#[derive(Clone, Copy)]
+enum ReadyCase {
+    None,
+    LaterHeartbeat,
+    QueuedCommit,
+}
+
+async fn membership_case(ready_case: ReadyCase) -> anyhow::Result<()> {
     let root = tempfile::tempdir()?;
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
     let log = domain
@@ -75,7 +87,11 @@ async fn membership_case(later_ready: bool) -> anyhow::Result<()> {
                 from: 1,
                 to: 2,
                 term: 1,
-                commit: 2,
+                commit: if matches!(ready_case, ReadyCase::QueuedCommit) {
+                    1
+                } else {
+                    2
+                },
                 ..Default::default()
             };
             message.set_msg_type(MessageType::MsgAppend);
@@ -87,7 +103,47 @@ async fn membership_case(later_ready: bool) -> anyhow::Result<()> {
             let event = outbox.events.pop_front().unwrap();
             let transport_owner = event._permit.clone();
             drop(event);
-            if later_ready {
+            let transport_owner = if matches!(ready_case, ReadyCase::QueuedCommit) {
+                drop(transport_owner);
+                let mut committed = Message {
+                    from: 1,
+                    to: 2,
+                    term: 1,
+                    commit: 2,
+                    ..Default::default()
+                };
+                committed.set_msg_type(MessageType::MsgAppend);
+                replica.node.raft.msgs.push(committed);
+                let mut owned = None;
+                for _ in 0..16 {
+                    assert!(
+                        replica.write.is_none(),
+                        "configuration skipped a queued commit notice"
+                    );
+                    assert!(replica.drive(&mut operations, &mut outbox, &options, true)?);
+                    if let Some(event) = outbox.events.pop_front() {
+                        let RuntimeEventKind::Message { message, .. } = &event.kind else {
+                            panic!("queued commit notice was not emitted")
+                        };
+                        assert_eq!((message.to, message.commit), (2, 2));
+                        owned = Some(event._permit.clone());
+                        break;
+                    }
+                }
+                let owned = owned.expect("queued commit notice did not drain");
+                for _ in 0..16 {
+                    if replica.idle() && replica.ready_bytes == 0 {
+                        break;
+                    }
+                    assert!(replica.write.is_none());
+                    assert!(replica.drive(&mut operations, &mut outbox, &options, true)?);
+                }
+                owned
+            } else {
+                transport_owner
+            };
+            assert!(!replica.drive(&mut operations, &mut outbox, &options, true)?);
+            if matches!(ready_case, ReadyCase::LaterHeartbeat) {
                 let mut heartbeat = Message {
                     from: 1,
                     to: 3,
