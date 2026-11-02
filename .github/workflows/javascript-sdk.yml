@@ -242,6 +242,11 @@ jobs:
         if: matrix.profile == 'packages'
         env:
           RUST_LOG: timing=debug,cellar::runtime=debug,store=debug
+          # Keep the existing handler deadlines and all debug/overflow checks.
+          # Optimize this repeated cold-restart artifact, as in native SDK CI.
+          CARGO_PROFILE_TEST_OPT_LEVEL: '1'
+          CARGO_PROFILE_TEST_DEBUG_ASSERTIONS: 'true'
+          CARGO_PROFILE_TEST_OVERFLOW_CHECKS: 'true'
         run: |
           cargo build --locked -p cellar-javascript --no-default-features --features node --bin cellar-node-example
           mkdir -p .cellar

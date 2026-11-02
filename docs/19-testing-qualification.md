@@ -40,6 +40,10 @@ unchanged. Native CI sets `CARGO_PROFILE_TEST_OPT_LEVEL=1`,
 `CARGO_PROFILE_TEST_OVERFLOW_CHECKS=true`. Use these same settings when
 reproducing its bounded native campaign locally.
 
+The packaged Node delivery restart campaign uses the same test-profile settings
+for its repeated cold-start fixture. Its 250 ms handler budget and all 100 fresh
+store/process cases remain unchanged.
+
 The allocator startup test uses a fresh process with allocator environment
 overrides removed. Linux must start background purging; macOS must leave that
 unsupported build default disabled. Forcing `background_thread:true` on macOS
