@@ -48,6 +48,18 @@ CASES = (
     "rustfs_s3_receipt_lookup_deadlines_refund_read_admission",
 )
 
+SUITES = {
+    "archive": (
+        TARGET, CASES,
+        "shared-group RustFS archive/setup and local/remote command/enrollment/receipt S3 settlement",
+    ),
+    "effects": (
+        "native_cell_groups_effects",
+        ("rustfs_claim_receiver_and_completion_use_verified_coverage",),
+        "shared-group RustFS outbox claim, receiver receipt/deduplication and complete S3 recovery closure",
+    ),
+}
+
 
 def exact_case_passed(output, case):
     """Keep exact selection strict when validated observations interrupt libtest."""
@@ -114,11 +126,14 @@ def backend(root):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--suite", choices=tuple(SUITES), default="archive",
+                        help="fixed required RustFS case set; archive preserves the existing gate")
     parser.add_argument("--backend", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--target-directory", type=Path, required=True,
                         help="absolute checkout-private Cargo target on the workspace volume")
     args = parser.parse_args()
+    target, cases, scope = SUITES[args.suite]
     if not args.target_directory.is_absolute():
         parser.error("--target-directory must be absolute and unique to this checkout")
     subprocess.run(["git", "diff", "--exit-code", "HEAD", "--", ".",
@@ -132,14 +147,19 @@ def main():
     out.mkdir(mode=0o700, parents=True, exist_ok=False)
     prefix = "cell-groups/" + secrets.token_hex(16)
     record = {
-        "format": 1, "status": "RUNNING", "scope": "shared-group RustFS archive/setup and local/remote command/enrollment/receipt S3 settlement",
+        "format": 1, "status": "RUNNING", "scope": scope,
+        "suite": args.suite, "test_target": target,
         "source_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "source_inputs": sources(), "backend": remote, "prefix": prefix, "commands": [],
-        "limitations": "Host-native three-voter TLS fixture, both image forms; RustFS runs in one local VM. "
+        "limitations": ("Host-native three-voter TLS fixture, both image forms; RustFS runs in one local VM. "
                         "The bounded full-backend outage case controls only this owned container. "
                         "Logical retained-entry admission and controlled-geometry Raft file purge are tested; "
                         "global physical disk bounds, process-kill restart, fencing/DR, sustained performance "
-                        "and independent hosts remain separate gates.",
+                        "and independent hosts remain separate gates." if args.suite == "archive" else
+                        "Host-native three-voter TLS fixture, both image forms; RustFS runs in one local VM. "
+                        "This suite covers live effect S3 settlement and independent complete archive replay. "
+                        "It does not qualify a backend outage, public SDK/fleet cutover, live group transfer, "
+                        "external-effects disaster recovery, sustained load or independent hosts."),
     }
 
     def save():
@@ -166,10 +186,10 @@ def main():
             CARGO_TARGET_DIR=str(args.target_directory),
             CARGO_PROFILE_DEV_DEBUG="0", CARGO_PROFILE_TEST_DEBUG="0",
         )
-        cargo = ["cargo", "+1.98.1", "test", "-p", "cellar", "--locked", "--test", TARGET, "--"]
-        for number, selection in enumerate(("--list", *CASES)):
+        cargo = ["cargo", "+1.98.1", "test", "-p", "cellar", "--locked", "--test", target, "--"]
+        for number, selection in enumerate(("--list", *cases)):
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
-            print(f"START {number + 1}/{len(CASES) + 1}: {selection}", flush=True)
+            print(f"START {number + 1}/{len(cases) + 1}: {selection}", flush=True)
             started = time.monotonic()
             if selection == "rustfs_quorum_continues_bounded_s3_outage":
                 control = BackendControl(remote, out / "backend-control")
@@ -190,7 +210,7 @@ def main():
             record["commands"].append({"argv": argv, "exit_code": result.returncode,
                                        "elapsed_seconds": round(time.monotonic() - started, 3),
                                        "output": log.name, "sha256": sha(log)})
-            match = re.search(r"Running [^\n]*\(([^\n)]+/native_cell_groups_archive_controller-[a-f0-9]+)\)", output)
+            match = re.search(rf"Running [^\n]*\(([^\n)]+/{re.escape(target)}-[a-f0-9]+)\)", output)
             if match:
                 executable = Path(match[1])
                 selected_hash = sha(executable)
@@ -203,7 +223,7 @@ def main():
             if result.returncode:
                 raise RuntimeError(f"{selection} failed; see {log}")
             if number == 0:
-                for case in CASES:
+                for case in cases:
                     if not re.search(rf"^{re.escape(case)}: test$", output, re.M):
                         raise RuntimeError("missing exact RustFS test in executable inventory")
             elif not exact_case_passed(output, selection):
@@ -215,14 +235,14 @@ def main():
             raise RuntimeError("source changed during qualification")
         backend(args.backend.resolve())
         record["status"] = "PASSED"
-        record["passed_cases"] = list(CASES)
+        record["passed_cases"] = list(cases)
     except Exception:
         record["status"] = "FAILED"
         raise
     finally:
         save()
     print(json.dumps({"record": str(out / "record.json"), "status": record["status"],
-                      "rustfs_cases": len(CASES), "image_modes_per_case": 2}), flush=True)
+                      "rustfs_cases": len(cases), "image_modes_per_case": 2}), flush=True)
 
 
 if __name__ == "__main__":

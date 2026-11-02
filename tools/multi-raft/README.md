@@ -71,7 +71,7 @@ python3 tools/multi-raft/cell_groups.py \
 
 The runner verifies the backend's ownership label, image, running state, endpoint
 and actual resource limits, then makes seven signed S3 probes in a new bucket.
-It runs seventeen exact ignored RustFS cases, each in materialized and extent modes:
+It runs twenty exact ignored RustFS cases, each in materialized and extent modes:
 archive-gated local compaction with independent sibling checkpoint progress,
 stable publication with continuing quorum, uncertain-publication reconciliation
 with joined close, refusal of unproved S3 responses, positive local command S3
@@ -106,6 +106,26 @@ hashes, S3 observations and captured backend identity without credentials.
 Failed runs retain their record and logs. Every run owns a new remote prefix;
 remote objects and the backend remain available for inspection until explicitly
 stopped using the command above. No cleanup deletes another run's data.
+
+For CG-08, select the fixed effects case set:
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite effects \
+  --backend /tmp/cellar-raft-local-001 \
+  --output /tmp/cellar-cell-groups-effects-rustfs-001 \
+  --target-directory "$HOME/Workspace/crabbuild-target/cellar-my-checkout"
+```
+
+This runs the exact `rustfs_claim_receiver_and_completion_use_verified_coverage`
+case in `native_cell_groups_effects`, in both image forms. Source claims require
+published S3 coverage before send, the real receiver preserves its S3 receipt
+policy, and a lost reply retries identical delivery bytes with one receiver
+callback. Conditional source completion also crosses S3 settlement. A fresh
+verifier independently restores the final complete image/receipt closure and
+compares every cell leaf with the selected local state. The same ownership,
+resource, signed-probe, executable/source and exact-selection checks apply.
+The default archive suite keeps its complete existing case set. This effects
+suite does not qualify a backend outage or external-effects disaster recovery.
 
 ## Native node runs
 
