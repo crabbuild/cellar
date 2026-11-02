@@ -159,3 +159,48 @@ Fenced new-history disaster restore needs its own verified deployment fence.
 Stopping containers alone does not prevent an old quorum from returning.
 Release/durability qualification, performance measurement and federation remain
 separate gates in the [roadmap](../../docs/design/multi-raft/implementation-plan.md).
+
+## Shared-group all-voter-disk-loss drill
+
+`group_disaster.py` is the CG-06 Docker qualification runner. It launches the
+`cellar-perf-cell-group` executable with three actual shared-group voters and
+three independently versioned SQLite cells in one group. It uses real RustFS,
+TLS replication, S3-gated commands, physical image and receipt recovery, new
+incarnations, committed activation, fresh writes and retained-disk restart.
+The runner checks every recovered voter's final values and cell versions.
+
+Commit the sources before building. Use the dedicated profile described above,
+a checkout-specific build cache and the immutable image ID produced by Docker:
+
+```sh
+docker --context colima-cellar-multi-raft build -f tools/multi-raft/Dockerfile \
+  --build-arg TARGET_CACHE_ID=cellar-my-checkout-group-dr-target \
+  --build-arg SOURCE_REVISION="$(git rev-parse HEAD)" \
+  --iidfile /tmp/cellar-my-checkout-group-image-id .
+python3 tools/multi-raft/group_disaster.py \
+  --context colima-cellar-multi-raft \
+  --image "$(cat /tmp/cellar-my-checkout-group-image-id)" \
+  --mode materialized --output /tmp/cellar-group-disaster-materialized-001
+```
+
+Repeat with `--mode extents` and a fresh output directory. The image embeds the
+complete build-input manifest; the runner refuses a source mismatch. This uses
+the unoptimized, debug-info-free Cargo development profile for correctness
+qualification. It establishes no throughput or recovery-time claim.
+
+The controller owns the complete disposable deployment and is its sole launcher.
+It persists permanent generation revocation under a launch lock, verifies and
+removes the exact owned old containers and voter volumes, then signs the exact
+recovery request. Its private signing key and launch ledger never enter a voter
+or operator container. Reloading the controller cannot authorize the revoked
+generation; an unknown launch outcome prevents certification. Production needs
+an equivalent trusted infrastructure fencing authority that revokes every old
+writer's launch capability. Stopping processes alone does not supply that proof.
+
+Only this run's three old voter disks are deleted. The RustFS object volume,
+new voter volumes and evidence remain. The runner stops all remaining owned
+containers on exit, including failure, and verifies normal joined shutdown.
+The fresh private output directory contains credentials, opaque tokens, command
+ledgers, signing material and sanitized process logs; keep it out of Git and
+publish only deliberately sanitized reports. A successful drill is an exact
+local recovery result, separate from the complete CG-06 task and release gates.

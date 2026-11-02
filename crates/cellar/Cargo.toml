@@ -80,6 +80,10 @@ name = "cellar-perf-baseline"
 path = "../../tools/perf/baseline_node.rs"
 
 [[bin]]
+name = "cellar-perf-cell-group"
+path = "../../tools/multi-raft/node/main.rs"
+
+[[bin]]
 name = "cellar-perf-storage"
 path = "../../tools/perf/storage_operations.rs"
 
