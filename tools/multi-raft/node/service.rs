@@ -139,13 +139,16 @@ pub(super) async fn run(
     .await?;
     runtime.attach(permit, root).await?;
     let n = options.node as u16;
+    let bind: std::net::Ipv4Addr = config.peers[options.generation][options.node]
+        .host
+        .parse()?;
     let transport = RaftTransport::start_shared(
         runtime.clone(),
         Arc::new(PeerAuth::new([17; 32], format!("node-{}", n + 1))?),
         tls()?,
-        TcpListener::bind(("0.0.0.0", 7100 + n * 3)).await?,
-        TcpListener::bind(("0.0.0.0", 7101 + n * 3)).await?,
-        TcpListener::bind(("0.0.0.0", 7102 + n * 3)).await?,
+        TcpListener::bind((bind, 7100 + n * 3)).await?,
+        TcpListener::bind((bind, 7101 + n * 3)).await?,
+        TcpListener::bind((bind, 7102 + n * 3)).await?,
         Default::default(),
     )
     .await?;

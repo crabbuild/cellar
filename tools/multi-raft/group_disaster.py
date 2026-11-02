@@ -10,6 +10,7 @@ removed after complete inventory checks; new volumes and sanitized evidence stay
 import argparse
 from contextlib import contextmanager
 import fcntl
+import hashlib
 import ipaddress
 import json
 import os
@@ -162,6 +163,13 @@ class Qualification:
         require(len(data) == 44 and data[:12].hex() == '302a300506032b6570032100', 'unexpected public key encoding')
         self.config['fence_public'] = list(data[12:])
         self.save()
+        # Docker must see the host file, rather than create an empty guest path.
+        mounted = self.docker('run', '--rm', '--network', 'none', '--entrypoint', 'sha256sum',
+            '--mount', 'type=bind,source='+str(self.config_dir)+',target=/config,readonly',
+            self.args.image, '/config/config.json').split()[0]
+        require(mounted == hashlib.sha256((self.config_dir/'config.json').read_bytes()).hexdigest(),
+                'configuration output directory is not shared with the dedicated VM')
+        self.report['config_mount_verified'] = True
         self.docker('pull', RUSTFS)
         volume = self.prefix + '-objects'
         self.docker('volume', 'create', '--label', self.owner, volume)

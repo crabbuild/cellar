@@ -180,10 +180,12 @@ docker --context colima-cellar-multi-raft build -f tools/multi-raft/Dockerfile \
 python3 tools/multi-raft/group_disaster.py \
   --context colima-cellar-multi-raft \
   --image "$(cat /tmp/cellar-my-checkout-group-image-id)" \
-  --mode materialized --output /tmp/cellar-group-disaster-materialized-001
+  --mode materialized --output "$HOME/cellar-qualification/group-disaster-materialized-001"
 ```
 
-Repeat with `--mode extents` and a fresh output directory. The image embeds the
+Use an output directory shared with the VM; the runner verifies the mounted
+config file before starting the backend. Repeat with `--mode extents` and a fresh
+output directory. The image embeds the
 complete build-input manifest; the runner refuses a source mismatch. This uses
 the unoptimized, debug-info-free Cargo development profile for correctness
 qualification. It establishes no throughput or recovery-time claim.

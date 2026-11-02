@@ -68,7 +68,7 @@ impl Options {
 
 impl Config {
     pub fn load(path: &std::path::Path) -> Result<Self> {
-        let bytes = std::fs::read(path)?;
+        let bytes = std::fs::read(path).context("read mounted qualification config")?;
         ensure!(bytes.len() <= 256 * 1024, "config too large");
         let config: Self = serde_json::from_slice(&bytes)?;
         ensure!(
