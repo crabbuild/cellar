@@ -159,6 +159,22 @@ pub struct SyncReceipt<S = GroupScope> {
 }
 
 type Catalog = Arc<RwLock<BTreeMap<GroupHistory, StoredGroup>>>;
+
+fn release_closed_pins(groups: &Catalog) -> Result<(), LogError> {
+    let (groups, mut result) = match groups.read() {
+        Ok(groups) => (groups, Ok(())),
+        Err(error) => (
+            error.into_inner(),
+            Err(LogError::Corrupt("closed log catalog poisoned".into())),
+        ),
+    };
+    for group in groups.values() {
+        let released = group.release_closed_pins();
+        result = result.and(released);
+    }
+    result
+}
+
 type Reply<T> = oneshot::Sender<Result<T, LogError>>;
 
 #[derive(Clone)]
@@ -470,11 +486,12 @@ impl ReplicaLog {
         // if the open waiter or public handle is dropped.
         let _worker = domain
             .blocking(move || {
-                struct ClosedOnDrop(Arc<AtomicBool>, Arc<Terminal>);
+                struct ClosedOnDrop(Arc<AtomicBool>, Arc<Terminal>, Catalog);
 
                 impl Drop for ClosedOnDrop {
                     fn drop(&mut self) {
                         self.0.store(true, Ordering::Release);
+                        let _ = release_closed_pins(&self.2);
                         // Worker/resources unwind before this outer guard. A
                         // panic may close admission early, but cannot fake join.
                         let mut terminal = self
@@ -489,7 +506,7 @@ impl ReplicaLog {
                         self.1.changed.notify_waiters();
                     }
                 }
-                let _guard = ClosedOnDrop(closed.clone(), terminal.clone());
+                let guard = ClosedOnDrop(closed.clone(), terminal.clone(), groups.clone());
                 let result = Worker::open(
                     options,
                     files,
@@ -522,6 +539,9 @@ impl ReplicaLog {
                 // Engine drop joins its metrics thread; directory locks are owned
                 // by this same worker and cannot outlive its completion.
                 drop(worker);
+                // Closed public metadata handles may outlive this worker. They
+                // must not keep image/page-directory locks through cache pins.
+                let result = result.and(release_closed_pins(&guard.2));
                 *terminal
                     .result
                     .lock()

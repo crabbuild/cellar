@@ -224,6 +224,24 @@ impl<S: std::fmt::Debug> std::fmt::Debug for GroupLog<S> {
 }
 
 impl<S> GroupLog<S> {
+    /// Only the physical engine close owner may detach derived cache pins.
+    /// Independent readers retain their own pins until their physical work exits.
+    fn release_closed_pins(&self) -> Result<(), LogError> {
+        if !self.closed.load(Ordering::Acquire) {
+            return Err(LogError::Invalid("live manifest-pin release".into()));
+        }
+        match self.cache.write() {
+            Ok(mut cache) => {
+                cache.manifest_pins.take();
+                Ok(())
+            }
+            Err(error) => {
+                error.into_inner().manifest_pins.take();
+                Err(LogError::Corrupt("closed group cache poisoned".into()))
+            }
+        }
+    }
+
     pub(crate) fn log_retention(
         &self,
     ) -> Option<&Arc<super::cell_groups::log_retention::GroupLogRetention>> {
@@ -304,6 +322,13 @@ pub(crate) enum StoredGroup {
 }
 
 impl StoredGroup {
+    pub(crate) fn release_closed_pins(&self) -> Result<(), LogError> {
+        match self {
+            Self::Cell(group) => group.release_closed_pins(),
+            Self::Cells(group) => group.release_closed_pins(),
+        }
+    }
+
     pub(crate) fn as_cell(&self) -> Result<&GroupLog, LogError> {
         match self {
             Self::Cell(group) => Ok(group),

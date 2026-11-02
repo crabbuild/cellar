@@ -66,9 +66,14 @@ pub(crate) async fn recover(rooted: bool) -> Result<()> {
     let directory = fixture.cluster.directory.clone();
     let birth = fixture.cluster.birth.clone();
     let disk = std::mem::replace(&mut fixture.cluster._root, tempfile::tempdir()?);
+    let closed_log = fixture.cluster.voters[0].log.clone();
+    let closed_group = closed_log.cell_group(&route.history)?;
     fixture.close().await?;
+    assert!(closed_log.cell_groups().is_err());
+    assert!(closed_group.group_manifest().is_err());
 
-    // All prior engine, page, image, worker and runtime owners are gone.
+    // Retained closed metadata must not retain physical image/page owners.
+    // Keep both handles alive throughout fresh recovery on these same paths.
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
     let base = disk.path().join("node-1");
     let log = domain
@@ -95,6 +100,8 @@ pub(crate) async fn recover(rooted: bool) -> Result<()> {
         base.join("images")
     };
     let config = open_images(&image_directory, rooted)?;
+    assert!(closed_log.cell_groups().is_err());
+    assert!(closed_group.group_manifest().is_err());
     let pages = ManifestPageStore::open(
         &base.join("pages"),
         Arc::new(DirectFileSystem),
