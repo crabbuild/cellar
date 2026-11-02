@@ -47,6 +47,11 @@ campaign and flushes completed build output to keep compiler writeback out of
 the fixture's disk queue. Every fixture still performs its normal FULL syncs.
 The live RPC campaigns use the same build/writeback separation without changing
 their one-second node leases, per-request deadlines or runtime cleanup checks.
+Their disposable x64 Linux runners also bound ongoing dirty writeback to 4 MiB
+in the background and 16 MiB overall, with one-second expiry and 500 ms writeback
+intervals. This limits interference between buffered writes and FULL-sync
+commits; it does not disable syncs or filesystem barriers. An always-run cleanup
+step restores the runner's original writeback policy.
 
 The [shared durable fixture bucket](../tools/qualification/durable_bucket.rs)
 keeps node-record CAS independent of application-data writers using FULL-sync
