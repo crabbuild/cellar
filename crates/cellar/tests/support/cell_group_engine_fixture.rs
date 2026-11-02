@@ -439,9 +439,8 @@ fn apply_image(
 }
 
 fn prepare_cell_image(
-    images: &GenerationStore,
+    stores: (&GenerationStore, Option<&cellar_ltx::internal::NodeExtentStore>),
     schema: [u8; 32],
-    extents: Option<&cellar_ltx::internal::NodeExtentStore>,
     cell: &CellHistory,
     sequence: u64,
     base: Option<&CellImagePin>,
@@ -451,6 +450,7 @@ fn prepare_cell_image(
     use cellar_ltx::internal::{
         ExtentManifest, ExtentRootReference, Geometry, ImageBinding, ImageRootUpdate, EXTENT_BYTES,
     };
+    let (images, extents) = stores;
     if image.txid == 0 {
         anyhow::ensure!(base.is_none() && files.is_empty());
         return Ok(EnrollmentImage {
@@ -584,9 +584,8 @@ fn prepare(voter: &mut Voter, apply: &CellGroupApply) -> Result<PreparedGroupMan
                 },
                 |_| {
                     prepare_cell_image(
-                        &voter.images,
+                        (&voter.images, voter.extents.as_ref()),
                         apply.base.marker().route().schema_digest,
-                        voter.extents.as_ref(),
                         &cell,
                         1,
                         None,
@@ -601,9 +600,8 @@ fn prepare(voter: &mut Voter, apply: &CellGroupApply) -> Result<PreparedGroupMan
         GroupCommand::Mutation(mutation) => {
             let (old, base) = apply.base.pin_cell(&mutation.cell.cell).context("cell")?;
             let prepared = prepare_cell_image(
-                &voter.images,
+                (&voter.images, voter.extents.as_ref()),
                 apply.base.marker().route().schema_digest,
-                voter.extents.as_ref(),
                 &mutation.cell,
                 mutation.sequence.get(),
                 Some(&base),

@@ -97,9 +97,6 @@ impl Scenario {
         cluster.elect().await?;
         let mut expected =
             checkpoint_fixture::enroll_images(&mut cluster, rooted, false, 0, 8192).await?;
-        if let Some(workload) = workload.as_mut() {
-            Box::pin(workload.populate(&mut cluster, &mut expected)).await?;
-        }
         let archives = CellGroupArchivePool::new(Default::default())?;
         let binding = cluster
             .directory
@@ -117,6 +114,11 @@ impl Scenario {
         let checkpoint = upload
             .upload_checkpoint(&cluster.domain, source(&sources, &cluster)?)
             .await?;
+        // Put registered receipts and client-floor maintenance in the archived
+        // LTX tail, after the independent base checkpoint was uploaded.
+        if let Some(workload) = workload.as_mut() {
+            Box::pin(workload.populate(&mut cluster, &mut expected)).await?;
+        }
         let group = cluster.voters[0]
             .log
             .cell_group(&cluster.birth.route().history)?;
