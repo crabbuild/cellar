@@ -63,31 +63,57 @@ pub struct CellEnrollmentInvocation {
 }
 
 impl CellGroupDispatcher {
-    pub async fn enroll(
+    pub fn enroll(
         &self,
         cell: CellHistory,
         request: CellEnrollmentRequest,
         limits: CellRoutingLimits,
         cached: Option<ResolvedCellRoute>,
-    ) -> Result<CellEnrollmentInvocation, CellEnrollmentError> {
+    ) -> impl std::future::Future<Output = Result<CellEnrollmentInvocation, CellEnrollmentError>>
+           + Send
+           + 'static {
         self.enroll_with_inputs(cell, request, limits, cached, None)
-            .await
     }
 
-    pub(crate) async fn enroll_with_inputs(
+    pub(crate) fn enroll_with_inputs(
+        &self,
+        cell: CellHistory,
+        request: CellEnrollmentRequest,
+        limits: CellRoutingLimits,
+        cached: Option<ResolvedCellRoute>,
+        captured: Option<(CommandInputs, ImageId)>,
+    ) -> impl std::future::Future<Output = Result<CellEnrollmentInvocation, CellEnrollmentError>>
+           + Send
+           + 'static {
+        let dispatcher = self.clone();
+        let started = self.domain.mono_ms();
+        async move {
+            let started = started.map_err(|_| CellEnrollmentError {
+                creation: request.creation,
+                ambiguous: false,
+                cause: Box::new(closed()),
+            })?;
+            dispatcher
+                .enroll_captured(cell, request, limits, cached, captured, started)
+                .await
+        }
+    }
+
+    async fn enroll_captured(
         &self,
         cell: CellHistory,
         mut request: CellEnrollmentRequest,
         limits: CellRoutingLimits,
         cached: Option<ResolvedCellRoute>,
         captured: Option<(CommandInputs, ImageId)>,
+        started: u64,
     ) -> Result<CellEnrollmentInvocation, CellEnrollmentError> {
         let error = |cause| CellEnrollmentError {
             creation: request.creation,
             ambiguous: false,
             cause: Box::new(cause),
         };
-        let started = self.domain.mono_ms().map_err(|_| error(closed()))?;
+
         request.durability = request
             .durability
             .max(self.directory.namespace_config().minimum_durability);

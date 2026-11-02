@@ -51,6 +51,7 @@ struct ClusterLogLimits {
 
 struct ClusterBirthOptions {
     group: GroupId,
+    image_storage: RaftImageStorage,
     minimum: Durability,
     log: ClusterLogLimits,
 }
@@ -178,6 +179,7 @@ impl Cluster {
             store,
             ClusterBirthOptions {
                 group: GroupId::new([3; 16])?,
+                image_storage: RaftImageStorage::Materialized,
                 minimum,
                 log: log_limits,
             },
@@ -210,6 +212,7 @@ impl Cluster {
             schema,
         );
         config.minimum_durability = minimum;
+        config.image_storage = birth_options.image_storage;
         let namespace = domain.run(catalog.open_namespace(config)).await??;
         let directory = RangeDirectory::new(namespace, DirectoryLimits::default())?;
         let request = directory.prepare_group_birth(CellGroupBirthSpec {

@@ -41,6 +41,17 @@ Executable SHA256: 85ceb50508a519e2b1fd5198f47969185438f77c30d09e9de6ab884fd6a7c
 All source hashes, real streams, original capture record and executable are
 retained locally and backed up. See [progress](progress.md) for scope and failures.
 
+The namespace-host component now passes its ten-command checkpoint. It has
+bounded namespace/class registrations, history-derived SQL paths, logical cell
+handles, controller-owned queries and original enrollment deadlines. All three
+new host cases pass both image forms, including eight cells in one physical group
+on every voter and held-query shutdown. Execution/archive/effects regressions and
+strict checks pass. Evidence is under
+.cellar/cell-groups-evidence/CG-07-namespace-host-01/record.json.
+This binds already bootstrapped services; canonical startup, public SDK routing,
+ingress and managed whole-group lifecycle remain unqualified. Move to those
+consumers next, using this component rather than another per-cell binding owner.
+
 CG-07's synchronous command-admission checkpoint now passes all nine focused
 commands: the exact new regression, full execution/effects/archive suites,
 all-target strict Clippy, format/layout and dependency/docs checks. The record is

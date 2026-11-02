@@ -177,6 +177,7 @@ impl Harness {
                 class.schema_digest(),
                 store,
                 ClusterBirthOptions {
+                    image_storage: RaftImageStorage::Materialized,
                     group: GroupId::new([3; 16])?,
                     minimum,
                     log: ClusterLogLimits::default(),

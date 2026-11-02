@@ -935,3 +935,5 @@ pub(super) async fn retained_log_admission(rooted: bool) -> Result<()> {
 
 #[allow(unused_imports)]
 pub(super) use sql::physical_log_reclamation;
+
+pub(super) use sql::{host_many_cells, host_query_shutdown, host_registration_and_deadline};

@@ -44,9 +44,10 @@ pub use controller::{
     CellGroupArchiveStatus, CellGroupCheckpointPolicy, CellGroupController,
     CellGroupControllerError, CellGroupControllerLimits, CellGroupControllerUsage,
     CellGroupEffectRegistration, CellGroupProvisionCall, CellGroupProvisioning,
-    CellGroupRegistration, CellGroupRegistrationCall, CellGroupRegistrationError,
+    CellGroupRegistration, CellGroupRegistrationCall, CellGroupRegistrationError, CellQueryCall,
 };
 mod dispatch;
+mod host;
 pub use apply::{CellGroupApplier, CellGroupApplyImages};
 pub(crate) use dispatch::PendingCellCommand;
 pub use dispatch::{
@@ -56,6 +57,10 @@ pub use dispatch::{
     CellGroupDispatcher, CellQueryConsistency, CellQueryInvocation, CellQueryRequest,
     CellQueryResponse, CellReceiptInvocation, CellReceiptRequest, CellReceiptResponse,
     CellReceiptSelection,
+};
+pub use host::{
+    CellGroupCellHandle, CellGroupHost, CellGroupHostLimits, CellGroupHostRegistration,
+    CellGroupHostUsage, CellGroupNamespaceStorage,
 };
 
 mod effect_index;

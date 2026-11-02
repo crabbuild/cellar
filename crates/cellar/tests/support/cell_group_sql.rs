@@ -690,3 +690,10 @@ pub(super) use log_retention::retained_log_admission;
 
 #[allow(unused_imports)]
 pub(crate) use archive_controller::physical_log_reclamation;
+
+#[path = "cell_group_host.rs"]
+mod namespace_host;
+pub(crate) use namespace_host::{
+    many_cells as host_many_cells, query_shutdown as host_query_shutdown,
+    registration_and_deadline as host_registration_and_deadline,
+};

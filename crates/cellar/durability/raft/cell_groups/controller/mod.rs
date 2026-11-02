@@ -15,6 +15,8 @@ pub use archive::{
 mod checkpoints;
 pub use checkpoints::CellGroupCheckpointPolicy;
 mod commands;
+mod queries;
+pub use queries::CellQueryCall;
 mod effects;
 mod enrollments;
 pub use effects::CellGroupEffectRegistration;
@@ -51,7 +53,7 @@ pub struct CellGroupControllerLimits {
     pub max_parallel_apply: usize,
     /// One node timer backs off transient SQL admission, never one timer per cell.
     pub retry_interval_ms: u64,
-    /// Shared by commands, enrollments and registrations, including queued work, resolution
+    /// Shared by commands, queries, enrollments and registrations, including queued work, resolution
     /// and unconsumed responses.
     pub max_commands: usize,
     /// Invocation/input/options retention. The independent S3 output stage has
@@ -106,6 +108,7 @@ pub struct CellGroupControllerUsage {
     /// Immediate queue/route refusals. The transport tracks later I/O failures.
     pub send_refusals: u64,
     pub closing: bool,
+    /// Ordinary node calls, including queries, enrollments and registrations.
     pub retained_commands: usize,
     pub command_bytes: usize,
     pub retained_preparations: usize,

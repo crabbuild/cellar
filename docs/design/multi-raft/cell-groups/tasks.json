@@ -1921,7 +1921,8 @@
         "examples/",
         "crates/cellar/sdk.rs",
         "crates/cellar/tests/native_cell_groups_execution.rs",
-        "crates/cellar/tests/support/"
+        "crates/cellar/tests/support/",
+        "crates/cellar/tests/native_cell_groups_host.rs"
       ],
       "creates": [
         "crates/cellar/tests/native_cell_groups_public.rs"

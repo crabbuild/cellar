@@ -10,12 +10,14 @@ pub(super) enum Request {
     Registration(Box<registration::Request>),
     Provision(Box<provision::Request>),
     Command(Box<commands::Request>),
+    Query(Box<queries::Request>),
     Enrollment(Box<enrollments::Request>),
 }
 
 pub(super) enum Completed {
     Command(Box<commands::Completed>),
     Enrollment(Box<enrollments::Completed>),
+    Query,
 }
 
 impl Completed {
@@ -23,6 +25,7 @@ impl Completed {
         match self {
             Self::Command(done) => done.invocation.as_ref().and_then(|i| i.unresolved_group()),
             Self::Enrollment(done) => done.invocation.unresolved_group(),
+            Self::Query => None,
         }
     }
 
@@ -62,5 +65,9 @@ pub(super) async fn drive(
         Request::Enrollment(request) => Completed::Enrollment(Box::new(
             enrollments::drive(*request, runtime, sql, shared, progress).await,
         )),
+        Request::Query(request) => {
+            queries::drive(*request, runtime, sql, shared).await;
+            Completed::Query
+        }
     }
 }

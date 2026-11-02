@@ -10,6 +10,69 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 namespace host component
+
+CG-07 remains IN_PROGRESS. CellGroupHost now binds compiled namespace/class
+registrations to an exact existing shared controller, runtime, transport and SQL
+engine. Its immutable registry has explicit namespace and byte limits; the byte
+reservation includes configured invocation, route-cache and directory-cache
+capacities. Cell handles contain logical CellHistory and share that registry.
+Obtaining or cloning them neither enrolls cells nor adds permanent cell bindings.
+The component does not create another consensus algorithm or a legacy mode.
+
+Namespace SQL resources validate schema, image backend, execution limits and
+absolute private paths. Materialized directories and extent caches derive their
+suffix from the full logical history digest, retaining that identity independently
+of group placement. Only admitted workers open SQL. The host refuses reentrant
+callback host calls and requires configured matching effect ownership for classes
+with private background commands. These bindings grant no leader or bootstrap
+authority; every operation still obtains runtime/catalog authority.
+
+Commands and queries enter the existing bounded controller queue synchronously.
+Unpolled or disconnected query responses retain admission and physical callback
+ownership; close seals all handles and joins the controller's SQL/transport/runtime
+owners. Enrollment now captures its original deadline when construction is called,
+so delayed polling cannot renew it. Receipt lookup preserves the exact command
+binding and returns ambiguous absence without releasing a producer.
+
+All ten checkpoint commands pass. Three new native host cases pass both image
+forms over real three-voter engines/TLS and independent SQLite state. They enroll
+and mutate eight cells under a one-group limit, verify every replica's values and
+logical observations, reject wrong tenant/history/token bindings, retain exact
+receipts without callback replay and keep registry bytes constant after obtaining
+more handles. A held query exercises dropped response admission, global overload,
+cancelled close and engine-replacement refusal until the physical callback exits.
+Duplicate namespace, foreign controller and metadata exhaustion refuse without
+closing the healthy controller. Delayed enrollment expires before initialization.
+
+The full execution target passes 165 cases (two child-process fixture entries
+ignored by the ordinary run), archive-controller passes sixteen (twenty explicit
+RustFS ignores), and effects pass ten (one explicit RustFS ignore). Locked host
+check, all-target strict Clippy, format/layout, dependency and documentation checks
+pass. One SQL worker, one queued item and one pending cell per group remain in the
+native fixture; its existing node/group byte ceilings are unchanged. The fixture
+now explicitly declares its namespace image backend for the new host boundary.
+
+Record: .cellar/cell-groups-evidence/CG-07-namespace-host-01/record.json
+(SHA256 61132e3338e6a729205708ae9cc9043156c51455fecf0ae16df6689939c135d5). It retains all 4685 source hashes, including
+five new Rust files, the tracked source patch, copied changed/new files, actual
+streams and four executables. An independent complete workspace-volume backup is
+retained. No acceptance command, oracle, quota, timeout or validator was weakened.
+This is native component qualification, without a new real RustFS, load, managed
+lifecycle or complete public SDK/fleet claim.
+
+The host currently binds already bootstrapped services. The critical next step is
+to replace canonical Node startup and SDK consumers: separate namespace/class
+registration from group placement/provisioning and replicated cell enrollment;
+carry logical versions/witnesses and explicit consistency through local and remote
+routing, native/Axum ingress, CLI and examples. Managed capacity, repair, drain,
+maintenance, stop/return/resume and inventory must operate on complete group
+replicas while preserving CAS journals, permissions and physical debt. Keep the
+spare checkout's two canonical startup edits and user diagrams. Do not restore
+legacy startup, add a legacy/shared toggle or disguise groups as GroupScope.cell.
+All five original native_cell_groups_public cases and the complete CG-07 gate
+remain required. CG-09 through CG-16 and the full goal remain unfinished.
+
 ## CG-07 synchronous shared-command admission
 
 CG-07 remains IN_PROGRESS. The shared controller now captures registered command

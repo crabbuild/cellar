@@ -15,7 +15,7 @@ use std::{
 
 thread_local! { static CALLBACK_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 
-pub(super) fn callback_active() -> bool {
+pub(crate) fn callback_active() -> bool {
     CALLBACK_ACTIVE.with(std::cell::Cell::get)
 }
 

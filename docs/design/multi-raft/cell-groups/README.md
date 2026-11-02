@@ -14,6 +14,8 @@ CG-08 due effects and safe cache lifetimes now pass the complete native gate and
 same-source/executable RustFS case. CG-07 SDK/fleet cutover has started in the spare checkout and remains unqualified. See the latest [progress](progress.md) and [handoff](handoff.md).
 CG-07 synchronous shared-command admission now passes its focused native and lint
 checkpoint, preserving the original deadline and node-owned producer lifetime.
+The namespace-host component also passes its ten-command native/lint checkpoint,
+including eight cells in one group and physical query shutdown in both image forms.
 The production SDK/fleet has not yet cut over; topology, hibernation, managed S3
 recovery and deployment/release qualification remain tracked in later tasks.
 See [implementation progress](progress.md) and the generated task index.

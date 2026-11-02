@@ -145,6 +145,10 @@ impl DirectoryPublication {
 }
 
 impl RangeDirectory {
+    pub(crate) fn cache_capacity_bytes(&self) -> usize {
+        self.limits.max_cache_bytes
+    }
+
     pub(crate) fn namespace_config(&self) -> &crate::raft::catalog::NamespaceConfig {
         self.namespace.config()
     }

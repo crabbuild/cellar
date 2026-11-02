@@ -93,6 +93,32 @@ pub struct CellGroupDispatcher {
 }
 
 impl CellGroupDispatcher {
+    pub(crate) fn host_binding(
+        &self,
+    ) -> Result<
+        (
+            crate::application::consensus::NamespaceConfig,
+            Arc<RaftClass>,
+            usize,
+        ),
+        CellDispatchError,
+    > {
+        // Reserve the configured invocation/cache envelopes, rather than only
+        // their current usage, when admitting a node namespace registration.
+        let bytes = self
+            .limits
+            .retained_bytes
+            .checked_add(self.limits.route_cache_bytes)
+            .and_then(|n| n.checked_add(self.directory.cache_capacity_bytes()))
+            .and_then(|n| n.checked_add(8192))
+            .ok_or(CellDispatchError::Runtime(RuntimeError::Overloaded))?;
+        Ok((
+            self.directory.namespace_config().clone(),
+            self.class.clone(),
+            bytes,
+        ))
+    }
+
     pub(crate) fn uses_domain(&self, domain: &DomainToken) -> bool {
         self.domain.same_owner(domain)
     }
@@ -287,6 +313,29 @@ pub struct CellQueryInvocation {
 }
 
 impl CellQueryInvocation {
+    pub(crate) fn controller_admission(
+        &self,
+        domain: &DomainToken,
+    ) -> Result<(ProposalId, u64, usize), CellDispatchError> {
+        if !self.dispatcher.uses_domain(domain) || self.attempt.is_some() || self.dispatched {
+            return Err(CellDispatchError::Invalid(
+                "controller requires a fresh local query",
+            ));
+        }
+        let deadline = self.session.deadline_ms();
+        if domain.mono_ms().map_err(|_| closed())? >= deadline {
+            return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
+        }
+        let bytes = self
+            .request
+            .input
+            .len()
+            .checked_mul(2)
+            .and_then(|n| n.checked_add(8192))
+            .ok_or(CellDispatchError::Runtime(RuntimeError::Overloaded))?;
+        Ok((self.request.invocation, deadline, bytes))
+    }
+
     pub fn attempt(&self) -> Option<&CellRouteAttempt> {
         self.attempt.as_ref()
     }

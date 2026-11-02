@@ -320,6 +320,7 @@ async fn run_image(
         class.schema_digest(),
         store,
         ClusterBirthOptions {
+            image_storage: RaftImageStorage::Materialized,
             group,
             minimum,
             log: ClusterLogLimits::default(),

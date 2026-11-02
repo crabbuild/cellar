@@ -69,6 +69,35 @@ pub(super) struct Config {
 }
 
 impl CellGroupController {
+    pub(crate) fn require_host_effects(
+        &self,
+        dispatcher: &CellGroupDispatcher,
+    ) -> Result<(), crate::raft::cell_groups::CellDispatchError> {
+        use crate::raft::cell_groups::CellDispatchError;
+        let (_, class, _) = dispatcher.host_binding()?;
+        if !class.has_system_commands() {
+            return Ok(());
+        }
+        let effects = self
+            .handle
+            .0
+            .effects
+            .lock()
+            .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?;
+        if effects
+            .as_ref()
+            .and_then(|config| config.namespaces.get(&dispatcher.namespace()))
+            .is_none_or(|entry| entry.schema != class.schema_digest())
+        {
+            return Err(CellDispatchError::Execution(ExecutionError::Refused(
+                cellar_logic::consensus::CommandFailure::UnsupportedCapability,
+            )));
+        }
+        Ok(())
+    }
+}
+
+impl CellGroupController {
     /// Install the node's bounded compiled effect registrations once. All local
     /// groups in these namespaces, including later registrations, participate.
     /// Commands retain ordinary admission and S3 settlement. A scan or delivery
