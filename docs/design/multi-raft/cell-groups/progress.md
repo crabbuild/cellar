@@ -52,12 +52,35 @@ scratch paths before releasing the private lock, including failed opens and
 post-open authority revocation. Sealed images and uncertain proposal custody are
 separate. The passing cold-reopen case asserts only the lock inode remains before
 injecting a bogus disposable database and checking exact reconstruction. Affected
-enrollment regressions and cleanup failure qualification remain pending.
+enrollment regressions remain pending.
+
+The cleanup I/O failure case now passes. It holds the real private cleanup after
+commit, transfers leadership through TimeoutNow, returns a typed ambiguous storage
+error, and retains the failed invocation and quarantined group's capacity. With
+the group/apply limits tightened to one, an actual fresh registration refuses
+with Overloaded. The new leader returns the original receipt without callback
+replay; both serving replicas retain the value and joined shutdown releases work.
+The first test attempted to count retained capacity using the active-group metric;
+its failure remains as native-12. Native-13 corrects the active/quarantined
+observation and proves quota refusal directly without raising any limit.
+
+The real RustFS effects case passes in both image forms at e4901835, with seven
+signed S3 probes, exact source/backend/executable checks and independently restored
+final images/receipts. Its executable SHA256 remains
+54d1af2d19bba8aacf206f23d04ca3fb1f3b23f1dafc554bbd49dc079760ffb9.
+The backend and dedicated VM are stopped, data retained, and default Docker context
+remains colima. The fixed --suite effects selection preserves the original twenty
+archive cases. Twenty-four source-matched library regressions also pass. Strict
+Clippy initially identified sibling-only fixture functions as unused in the
+execution target; its shared fixture now carries the same scoped annotation as
+other native targets. Production lint, test oracles and qualification commands
+remain unchanged. These source-scoped records are retained under
+.cellar/cell-groups-evidence/CG-08-effects-progress-783c270b/.
 
 Private-operation discovery now bounds its SQLite projection before allocating
 the scheduling preference string. Its corruption/permit regression, strict
-Clippy and the complete CG-08 evidence gate remain required. Real RustFS effects
-and the later CG-07 public SDK/fleet cutover are still unqualified. CG-06's prior
+Clippy and the complete CG-08 evidence gate remain required. The later CG-07
+public SDK/fleet cutover is still unqualified. CG-06's prior
 source-scoped closure remains intact; the full hard cutover is unfinished.
 
 ## CG-06 complete native and local disaster-recovery gate

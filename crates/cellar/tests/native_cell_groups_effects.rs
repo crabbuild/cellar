@@ -31,6 +31,11 @@ async fn idle_cache_reopens_exact_cell_base() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn materialized_cleanup_failure_preserves_outcome_and_group_capacity() -> Result<()> {
+    Box::pin(runtime_fixture::cleanup_failure_retains_outcome()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn due_effect_without_client_request() -> Result<()> {
     Box::pin(runtime_fixture::alarms_without_clients()).await
 }

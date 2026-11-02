@@ -806,9 +806,9 @@ mod sql;
 #[allow(unused_imports)]
 pub(super) use sql::unproved_s3_responses;
 pub(super) use sql::{
-    alarms_without_clients, effect_delivery_shutdown, effect_identity_across_bindings,
-    effect_leader_change, effect_lost_reply, effect_s3_lost_reply, hot_and_cold_alarms,
-    idle_cache_reopens_exact_base, shutdown_joins_alarm,
+    alarms_without_clients, cleanup_failure_retains_outcome, effect_delivery_shutdown,
+    effect_identity_across_bindings, effect_leader_change, effect_lost_reply, effect_s3_lost_reply,
+    hot_and_cold_alarms, idle_cache_reopens_exact_base, shutdown_joins_alarm,
 };
 #[allow(unused_imports)]
 pub(super) use sql::{

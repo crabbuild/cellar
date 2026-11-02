@@ -296,3 +296,215 @@ async fn add(
         .response()
         .await?)
 }
+
+/// The cleanup fails after a committed receipt exists, while the private lock
+/// is still owned. A real leader handoff must preserve its ambiguous outcome.
+pub(crate) async fn cleanup_failure_retains_outcome() -> Result<()> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = calls.clone();
+    let gate = fault::Gate::new(None);
+    let class = Arc::new(RaftClass::new("Counter", 1, [227; 32])?.command(
+        "Add",
+        [228; 32],
+        move |context, _| {
+            observed.fetch_add(1, Ordering::SeqCst);
+            context.sql().execute("UPDATE value SET n=n+1", [])?;
+            Ok(b"committed".to_vec())
+        },
+    )?);
+    let (mut fixture, route, cell, _) = Box::pin(registered::setup(false, &class)).await?;
+    let controllers = controller::start_with_limits(
+        &mut fixture,
+        CellGroupControllerLimits {
+            max_groups: 1,
+            max_parallel_apply: 1,
+            ..controller::limits()
+        },
+    )
+    .await?;
+    let dispatcher = CellGroupDispatcher::new(
+        &fixture.cluster.domain,
+        fixture.cluster.directory.clone(),
+        class.clone(),
+        VersionKeys::new(
+            VersionSigningKey::new([229; 32], u64::MAX)?,
+            vec![],
+            Duration::from_secs(30),
+        )?,
+        CellDispatchLimits {
+            max_cached_routes: 32,
+            route_cache_bytes: 256 * 1024,
+            max_invocations: 8,
+            retained_bytes: 1024 * 1024,
+            max_input_bytes: 1024,
+        },
+    )?;
+    let retry_until_ms = fixture
+        .cluster
+        .domain
+        .run(async { cellar::asyncrt::wall_ms().max(0) as u64 + 60_000 })
+        .await?;
+    let request = CellCommandRequest {
+        id: CommandId::new(ClientId::new([230; 16])?, 1)?,
+        contract: class.contract("Add").context("Add")?,
+        input: Vec::new(),
+        durability: Durability::Quorum,
+        retry_until_ms,
+    };
+    let routing = CellRoutingLimits {
+        timeout: Duration::from_secs(5),
+        max_attempts: 4,
+    };
+    let invocation = dispatcher
+        .command(cell.clone(), request.clone(), routing, None)
+        .await?;
+    let CellSqlOptions::Materialized(mut options) = fixture.cell_options(&cell).await? else {
+        anyhow::bail!("materialized private state required");
+    };
+    let directory = options.directory.clone();
+    options.host = options
+        .host
+        .with_filesystem(Arc::new(fault::FaultFileSystem { gate: gate.clone() }));
+    let held = gate.arm(fault::HOLD_FAIL_PRIVATE_CLEANUP);
+    let call = controllers[0].command(invocation, CellSqlOptions::Materialized(options))?;
+    tokio::time::timeout(Duration::from_secs(5), gate.entered.notified()).await?;
+    let pool = &fixture.appliers[&(0, route.history)].0;
+    assert_eq!(pool.usage()?.active_cells, 1);
+    assert_eq!(controllers[0].usage().retained_commands, 1);
+    let old_term = fixture.runtimes[0].status(route.history).await?.term;
+    let mut transferred = false;
+    controller::wait_for(async || {
+        if !transferred {
+            match fixture.runtimes[0].transfer_leader(route.history, 2).await {
+                Ok(()) => transferred = true,
+                Err(RuntimeError::NotReady) => return Ok(false),
+                Err(error) => return Err(error.into()),
+            }
+        }
+        let status = fixture.runtimes[1].status(route.history).await?;
+        Ok(status.ready && status.term > old_term)
+    })
+    .await?;
+    drop(held);
+    let error = call
+        .response()
+        .await
+        .err()
+        .context("cleanup failure cannot acknowledge success")?;
+    assert!(error.ambiguous);
+    assert!(matches!(
+        error.cause.as_ref(),
+        CellDispatchError::Execution(ExecutionError::Storage(_))
+    ));
+    assert!(error
+        .to_string()
+        .contains("injected private scratch cleanup failure"));
+    controller::wait_for(async || Ok(controllers[0].usage().quarantined_groups == 1)).await?;
+    assert_eq!(controllers[0].usage().groups, 0);
+    assert_eq!(controllers[0].usage().retained_commands, 1);
+    assert_eq!(pool.usage()?.active_cells, 0);
+    assert!(!controllers[0].usage().closing);
+    let mut replacement = registration::prepare(&fixture, 31, &cell).await?;
+    let refused = controllers[0]
+        .register(replacement.inputs.remove(0))
+        .err()
+        .context("quarantined group retains the only registration slot")?;
+    assert!(matches!(
+        refused.error,
+        CellGroupControllerError::Runtime(RuntimeError::Overloaded)
+    ));
+    drop(refused);
+    drop(replacement);
+    assert_eq!(controllers[0].usage().pending_registrations, 0);
+    assert_eq!(controllers[0].usage().quarantined_groups, 1);
+    fixture
+        .cluster
+        .domain
+        .blocking(move || -> Result<()> {
+            assert!(directory.join("working.sqlite").is_file());
+            Ok(())
+        })?
+        .await??;
+    // The next leader reads the original replicated receipt. Neither the lost
+    // cleanup response nor a discarded private image can rerun the mutation.
+    let invocation = dispatcher
+        .command(cell.clone(), request, routing, None)
+        .await?;
+    let receipt = controllers[1]
+        .command(invocation, fixture.cell_options_at(&cell, 1).await?)?
+        .response()
+        .await?;
+    assert_eq!(receipt.receipt().receipt.result(), b"committed");
+    assert_eq!(receipt.receipt().version.sequence.get(), 2);
+    drop(receipt);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(controllers[0].usage().retained_commands, 1);
+    controller::wait_for(async || {
+        for runtime in fixture.runtimes.iter().skip(1) {
+            if runtime
+                .reconciliation_authority(route.history, cell.clone())
+                .await?
+                .cell()
+                .version
+                .sequence
+                .get()
+                != 2
+            {
+                return Ok(false);
+            }
+        }
+        for (node, controller) in controllers.iter().enumerate().skip(1) {
+            let usage = fixture.appliers[&(node, route.history)].0.usage()?;
+            if controller.usage().retained_commands != 0
+                || usage.active_cells != 0
+                || usage.retained_operations != 0
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    })
+    .await?;
+    for (node, runtime) in fixture.runtimes.iter().enumerate().skip(1) {
+        let deadline = fixture
+            .cluster
+            .domain
+            .run(async { cellar::asyncrt::mono_ms() + 5000 })
+            .await?;
+        let authority = runtime
+            .read_authority(
+                route.history,
+                cell.clone(),
+                CellReadConsistency::Stale,
+                deadline,
+            )
+            .await?;
+        let result = fixture.appliers[&(node, route.history)]
+            .0
+            .query(
+                fixture.cell_options_at(&cell, node).await?,
+                authority,
+                |database, version| {
+                    assert_eq!(version.sequence.get(), 2);
+                    let value: i64 =
+                        database
+                            .connection()
+                            .query_row("SELECT n FROM value", [], |row| row.get(0))?;
+                    Ok(value.to_be_bytes().to_vec())
+                },
+            )
+            .await?;
+        assert_eq!(result.result(), 1_i64.to_be_bytes());
+        drop(result);
+    }
+    for controller in &controllers {
+        controller.close().await?;
+    }
+    assert_eq!(controllers[0].usage().retained_commands, 0);
+    for (pool, _) in fixture.appliers.values() {
+        assert_eq!(pool.usage()?.active_cells, 0);
+        assert_eq!(pool.usage()?.running_workers, 0);
+    }
+    drop(controllers);
+    fixture.close().await
+}

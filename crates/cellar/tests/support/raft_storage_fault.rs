@@ -30,6 +30,7 @@ pub const HOLD_EXTENT_READ: u8 = 13;
 pub const FAIL_AFTER_SYNC: u8 = 14;
 pub const HOLD_DEPENDENCY_PREFIX: u8 = 15;
 pub const HOLD_DEPENDENCY_SYNC: u8 = 16;
+pub const HOLD_FAIL_PRIVATE_CLEANUP: u8 = 17;
 
 pub struct Gate {
     pub mode: AtomicU8,
@@ -407,6 +408,15 @@ impl FileSystem for FaultFileSystem {
     }
 
     fn remove_file(&self, path: &Path) -> io::Result<()> {
+        if path
+            .file_name()
+            .is_some_and(|name| name == "working.sqlite")
+            && self.gate.mode.load(Ordering::Acquire) == HOLD_FAIL_PRIVATE_CLEANUP
+            && DirectFileSystem.metadata(path).is_ok()
+        {
+            self.gate.pause()?;
+            return Err(io::Error::other("injected private scratch cleanup failure"));
+        }
         DirectFileSystem.remove_file(path)?;
         if path
             .parent()

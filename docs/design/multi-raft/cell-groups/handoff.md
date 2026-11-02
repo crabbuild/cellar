@@ -61,8 +61,13 @@ native_cell_groups_effects target: exact cold-cache reopening, cold-cell discove
 logical delivery/proof identity under two independent physical group bindings,
 SQL/dispatch custody, joined shutdown, and normal/explicit RustFS S3 closure cases.
 All eight successor native cases now pass in both image modes, including the five
-declared cases and S3 coverage through the normal adapter. The real RustFS case,
-new unit/enrollment regressions, strict lint and complete task evidence remain.
+declared cases and S3 coverage through the normal adapter. The exact real RustFS
+case also passes in both image modes at e4901835 with seven signed probes and
+source/executable/backend binding. Its backend/VM are stopped, data retained.
+The extra cleanup-fault case passes actual leader handoff, ambiguous storage
+failure, retained one-group quota and receipt retry without callback replay.
+Twenty-four library regressions pass. Current complete task evidence, affected
+enrollment/execution regressions and strict lint remain before closing CG-08.
 See the current [progress](progress.md). Local raw records/continuation remain
 ignored and backed up outside the checkout. Preserve the user's untracked diagram
 and both excluded MR progress basenames. Reconcile both checkouts only after the

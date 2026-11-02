@@ -549,7 +549,7 @@ pub(crate) use s3_response::unproved_s3_responses;
 mod controller;
 #[path = "cell_group_idle_cache.rs"]
 mod idle_cache;
-pub(crate) use idle_cache::idle_cache_reopens_exact_base;
+pub(crate) use idle_cache::{cleanup_failure_retains_outcome, idle_cache_reopens_exact_base};
 #[path = "cell_group_effects.rs"]
 mod effects;
 #[path = "cell_group_outbox_effects.rs"]

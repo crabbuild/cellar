@@ -12,6 +12,8 @@ mod archive_store;
 mod fault;
 
 #[path = "support/cell_group_runtime.rs"]
+// The shared fixture also owns cases selected by native_cell_groups_effects.
+#[allow(dead_code, unused_imports)]
 mod runtime_fixture;
 
 #[path = "support/cell_group_checkpoint.rs"]
