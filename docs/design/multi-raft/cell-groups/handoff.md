@@ -13,6 +13,19 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 ## Starting point
 
+Latest checkpoint supersedes the earlier run status below: the full 8a4c5ae0
+twenty-command gate passed (164 execution cases, two RustFS ignores), but its
+fully serial RustFS case found a real committed-output fencing race. The current
+runtime correction separates buffered S3 receipt/proof ownership from retired
+SQL. Its deterministic manifest-sync regression passes both image modes for new
+commands and duplicate receipts, without raising the one-item SQL quota or
+resetting deadlines. Preserve the valid failing baseline and all constructor
+failures under CG-08-output-repro-01 through -04, and passing focused snapshots
+under CG-08-output-fixed-01/-02. The runtime correction still requires fresh
+all-target/lint/native/archive regressions and serial real RustFS qualification;
+CG-08 remains IN_PROGRESS. Both owned backend/VM stop operations returned zero.
+Old 8a/e8 closure scripts are obsolete after this production change.
+
 Use branch codex/shared-cell-groups and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
 CG-01 through CG-06 now pass their current source-scoped gates. CG-06 is DONE

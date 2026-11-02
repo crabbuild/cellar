@@ -5,6 +5,10 @@
 mod dependencies;
 pub(crate) use dependencies::archive_dependencies;
 
+#[path = "cell_group_s3_output.rs"]
+mod output;
+pub(crate) use output::output_during_apply;
+
 #[path = "cell_group_s3_outage.rs"]
 mod outage;
 pub(crate) use outage::full_backend_outage;
@@ -37,6 +41,14 @@ struct Harness {
     calls: Arc<AtomicUsize>,
     initializations: Arc<AtomicUsize>,
     retry_until: u64,
+}
+
+enum Resources {
+    Retention(CellGroupLogRetentionLimits),
+    Storage {
+        root: tempfile::TempDir,
+        filesystem: Arc<dyn cellar_ltx::FileSystem>,
+    },
 }
 
 impl Harness {
@@ -96,6 +108,27 @@ impl Harness {
         send_buffer: Option<u32>,
         retention: Option<CellGroupLogRetentionLimits>,
     ) -> Result<Self> {
+        Self::configured_resources(
+            rooted,
+            store,
+            max_commands,
+            minimum,
+            result_size,
+            send_buffer,
+            retention.map(Resources::Retention),
+        )
+        .await
+    }
+
+    async fn configured_resources(
+        rooted: bool,
+        store: Arc<dyn object_store::ObjectStore>,
+        max_commands: usize,
+        minimum: Durability,
+        result_size: Option<usize>,
+        send_buffer: Option<u32>,
+        resources: Option<Resources>,
+    ) -> Result<Self> {
         let calls = Arc::new(AtomicUsize::new(0));
         let count = calls.clone();
         let initializations = Arc::new(AtomicUsize::new(0));
@@ -122,7 +155,8 @@ impl Harness {
                     },
                 )?,
         );
-        let (mut fixture, route, cell, _) = if let Some(retention) = retention {
+        let (mut fixture, route, cell, _) = if let Some(Resources::Retention(retention)) = resources
+        {
             let filesystem = Arc::new(DirectFileSystem);
             let cluster = Box::pin(Cluster::with_store_retention(
                 RaftRuntimeOptions::default(),
@@ -133,6 +167,21 @@ impl Harness {
                 minimum,
                 retention,
             ))
+            .await?;
+            Box::pin(registered::setup_cluster(rooted, cluster, filesystem)).await?
+        } else if let Some(Resources::Storage { root, filesystem }) = resources {
+            let cluster = Cluster::with_store_birth(
+                RaftRuntimeOptions::default(),
+                root,
+                filesystem.clone(),
+                class.schema_digest(),
+                store,
+                ClusterBirthOptions {
+                    group: GroupId::new([3; 16])?,
+                    minimum,
+                    log: ClusterLogLimits::default(),
+                },
+            )
             .await?;
             Box::pin(registered::setup_cluster(rooted, cluster, filesystem)).await?
         } else {

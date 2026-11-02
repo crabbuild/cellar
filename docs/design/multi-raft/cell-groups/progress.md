@@ -12,6 +12,32 @@ is being added.
 
 ## CG-08 node effects and disposable SQL lifetimes
 
+The complete successor gate passes all twenty commands at 8a4c5ae0, including
+164 execution cases with zero failures and two explicit RustFS ignores. The
+subsequent fully serial real RustFS case exposed a production output-phase race:
+SQL had committed and retired, but a later group entry temporarily prevented
+fresh serving authority after archive settlement. The driver retried SQL
+reconciliation with no remaining origin and returned an ambiguous missing-origin
+error. The passing native gate and the serial RustFS failure remain retained;
+the owned backend and VM stopped normally, with data and default context intact.
+
+The correction retains the exact receipt and archive proof in a distinct pending
+output phase. Progress retries only current authority under the original deadline;
+it cannot reopen SQL, replay a callback or turn completed SQL into quarantine
+debt. Both newly committed commands and duplicate receipts use this phase. The
+regression holds a real manifest-directory sync on another prepared cell under
+the original one-item SQL limit. It establishes committed greater than applied,
+requires the first S3 response to remain pending, then checks its exact result,
+receipt retry, one callback execution, healthy group and every replica's applied
+successor. The valid baseline fails before the correction; the focused corrected
+case passes materialized and extent modes for both entry paths in 2.29 seconds.
+Its snapshots, executable and real streams are retained under
+.cellar/cell-groups-evidence/CG-08-output-repro-04/ and
+.cellar/cell-groups-evidence/CG-08-output-fixed-02/. Earlier fixture construction
+failures remain recorded separately. No production refusal, deadline or quota
+was weakened. The new runtime requires a fresh complete gate and serial RustFS
+qualification before CG-08 can become DONE.
+
 At e8edfd12, all ten unchanged required commands pass, along with four extra
 effects cases and twenty-four library regressions. The same-source/executable
 real RustFS effects case passes both image modes with all seven signed probes.

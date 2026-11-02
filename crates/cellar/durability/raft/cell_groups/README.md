@@ -484,6 +484,15 @@ it. This returns `ExecutionError::Uncertain` with the original producer retained
 The owned controller obtains a fresh observation and retries receipt inspection
 without executing the callback again. Identity validation precedes this check.
 
+After receipt reconciliation retires SQL, S3 output fencing is a separate owned
+phase. It buffers the exact committed receipt and verified archive proof under
+their existing admission. Later group apply can temporarily refuse current
+serving authority; the controller waits for progress within the original deadline
+and rechecks route, leader and catalog binding. It neither restarts receipt
+reconciliation nor executes another callback. A duplicate receipt uses the same
+output phase. Cancellation keeps the admitted owner; terminal errors release
+output resources without quarantining a group whose SQL producer already closed.
+
 Shared log-engine I/O/corruption/closure and lost shared SQL worker replies still
 close the node. Unknown events and controller ownership violations fail closed.
 Request-driven group provisioning, configuration lifecycle and public SDK

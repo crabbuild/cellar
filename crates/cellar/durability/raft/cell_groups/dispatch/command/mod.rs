@@ -2,8 +2,10 @@
 
 //! Routed commands retain their originating producer until exact resolution.
 //! The node controller drives publication; acceptance is only provisional.
+mod output;
 mod owned;
 mod remote;
+use output::PendingOutput;
 
 use super::*;
 use crate::application::consensus::command_request_digest;
@@ -107,6 +109,7 @@ pub struct CellCommandInvocation {
     dispatched: bool,
     ambiguous: bool,
     origin: Option<Origin>,
+    output: Option<PendingOutput>,
     remote_route: Option<super::RemoteMutationRoute>,
     _admission: Permit,
 }
@@ -250,6 +253,7 @@ impl CellGroupDispatcher {
             dispatched: false,
             ambiguous: false,
             origin: None,
+            output: None,
             remote_route: None,
             _admission: admission,
         })
@@ -374,7 +378,7 @@ impl CellCommandInvocation {
             return Err(self.error(CellDispatchError::Invalid("consumed route attempt")));
         }
         self.dispatched = true;
-        if self.origin.is_some() {
+        if self.origin.is_some() || self.output.is_some() {
             return self.resume().await;
         }
         let domain = self.dispatcher.domain.clone();
@@ -523,6 +527,12 @@ impl CellCommandInvocation {
     }
 
     async fn resume_at(&mut self) -> Result<CellCommandPreparation, CellDispatchError> {
+        if self.output.is_some() {
+            return self
+                .finish_output()
+                .await
+                .map(CellCommandPreparation::Committed);
+        }
         let origin = self
             .origin
             .as_ref()
@@ -659,6 +669,12 @@ impl CellCommandInvocation {
     }
 
     async fn settle_at(&mut self) -> Result<CellCommandSettlement, CellDispatchError> {
+        if self.output.is_some() {
+            return self
+                .finish_output()
+                .await
+                .map(CellCommandSettlement::Committed);
+        }
         let origin = self
             .origin
             .as_ref()
@@ -704,93 +720,6 @@ impl CellCommandInvocation {
             }
             Err(error) => Err(CellDispatchError::Execution(error)),
         }
-    }
-
-    async fn response(
-        &mut self,
-        receipt: Box<CellSqlReceipt>,
-    ) -> Result<CellCommandResponse, CellDispatchError> {
-        if receipt.receipt().receipt.command() != self.request.id
-            || receipt.receipt().receipt.operation != self.request.contract.operation
-            || receipt.receipt().receipt.contract_digest != self.request.contract.digest
-            || receipt.receipt().receipt.request_digest
-                != command_request_digest(&self.request.input)
-            || receipt.receipt().version.history != self.cell
-        {
-            return Err(CellDispatchError::Invalid("command receipt binding"));
-        }
-        // SQL has resolved the producer. Archive delay, failure or cancellation
-        // must not retain an unresolved origin or quarantine this healthy group.
-        let mut origin = self
-            .origin
-            .take()
-            .ok_or(CellDispatchError::Invalid("resolved command origin"))?;
-        let required = self
-            .request
-            .durability
-            .max(receipt.receipt().receipt.minimum_durability());
-        let (receipt, s3, authority) = if required == Durability::S3 {
-            let owner = self
-                .dispatcher
-                .s3
-                .as_ref()
-                .ok_or(CellDispatchError::Execution(ExecutionError::Refused(
-                    CommandFailure::UnsupportedCapability,
-                )))?;
-            let limits = match &origin.options {
-                CellSqlOptions::Materialized(o) => o.limits,
-                CellSqlOptions::Extents(o) => o.limits,
-            };
-            // The worker has closed this producer. Its preparation must not
-            // keep a duplicate SQL admission lease during the archive wait.
-            origin.prepared = None;
-            let settled = owner
-                .command(
-                    &origin.runtime,
-                    origin.route.clone(),
-                    receipt,
-                    limits,
-                    self.session.deadline_ms(),
-                )
-                .await?;
-            // Archive coverage is historical data durability. Current catalog and
-            // leader authority remain independent requirements for this output.
-            let authority = origin
-                .runtime
-                .execution_authority(origin.route.history, self.cell.clone())
-                .await
-                .map_err(CellDispatchError::Runtime)?;
-            if authority.route() != &origin.route {
-                return Err(CellDispatchError::Invalid("S3 response current route"));
-            }
-            settled
-                .proof
-                .require_current(&self.dispatcher.domain, self.session.deadline_ms())
-                .await?;
-            authority.check().map_err(CellDispatchError::Runtime)?;
-            (settled.receipt, Some(settled.proof), Some(authority))
-        } else {
-            (receipt, None, None)
-        };
-        let now = self
-            .dispatcher
-            .domain
-            .run(async { crate::asyncrt::wall_ms().max(0) as u64 })
-            .await
-            .map_err(|_| closed())?;
-        let token = self
-            .dispatcher
-            .keys
-            .issue_cell(
-                &receipt.receipt().observation(),
-                self.dispatcher.class.schema_digest(),
-                now,
-            )
-            .map_err(CellDispatchError::Version)?;
-        if let Some(authority) = authority {
-            authority.check().map_err(CellDispatchError::Runtime)?;
-        }
-        Ok(CellCommandResponse { receipt, token, s3 })
     }
 }
 

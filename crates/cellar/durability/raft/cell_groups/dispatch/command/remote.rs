@@ -28,7 +28,11 @@ impl CellCommandInvocation {
         self.session
             .validate_attempt(&attempt)
             .map_err(|e| self.error(CellDispatchError::Routing(e)))?;
-        if self.dispatched || self.origin.is_some() || self.remote_route.is_some() {
+        if self.dispatched
+            || self.origin.is_some()
+            || self.output.is_some()
+            || self.remote_route.is_some()
+        {
             return Err(self.error(CellDispatchError::Invalid(
                 "consumed or local command attempt",
             )));

@@ -13,6 +13,7 @@ impl CellCommandInvocation {
             || self.attempt.is_some()
             || self.dispatched
             || self.origin.is_some()
+            || self.output.is_some()
         {
             return Err(self.error(CellDispatchError::Invalid(
                 "controller requires a fresh local invocation",
@@ -112,9 +113,13 @@ impl CellCommandInvocation {
         self.dispatched = true;
         // Unlike the response-facing phase API, do not drop this SQL waiter at
         // the response deadline. It carries the exact preparation or refusal.
-        match self.prepare_at(&attempt, runtime, sql, options).await? {
-            CellCommandPreparation::Committed(response) => return Ok(response),
-            CellCommandPreparation::Prepared => (),
+        match self.prepare_at(&attempt, runtime, sql, options).await {
+            Ok(CellCommandPreparation::Committed(response)) => return Ok(response),
+            Ok(CellCommandPreparation::Prepared) => (),
+            Err(error) if self.output.is_some() && output_retryable(&error) => {
+                return self.finish_owned_output(progress).await;
+            }
+            Err(error) => return Err(error),
         }
         loop {
             if self.expired()? {
@@ -169,20 +174,69 @@ impl CellCommandInvocation {
                         reason,
                     )))
                 }
-                Err(CellDispatchError::Runtime(
-                    RuntimeError::NotReady
-                    | RuntimeError::NotLeader
-                    | RuntimeError::Overloaded
-                    | RuntimeError::StaleCompletion,
-                ))
-                | Err(CellDispatchError::Execution(
-                    ExecutionError::Uncertain
-                    | ExecutionError::Busy
-                    | ExecutionError::Refused(CommandFailure::Overloaded),
-                )) => (),
+                Err(
+                    error @ CellDispatchError::Runtime(
+                        RuntimeError::NotReady
+                        | RuntimeError::NotLeader
+                        | RuntimeError::Overloaded
+                        | RuntimeError::StaleCompletion,
+                    ),
+                )
+                | Err(
+                    error @ CellDispatchError::Execution(
+                        ExecutionError::Uncertain
+                        | ExecutionError::Busy
+                        | ExecutionError::Refused(CommandFailure::Overloaded),
+                    ),
+                ) => {
+                    if self.output.is_some() && output_retryable(&error) {
+                        return self.finish_owned_output(progress).await;
+                    }
+                    // SQL has already resolved before an archive/output error.
+                    // Never restart reconciliation after retiring its origin.
+                    if self.origin.is_none() {
+                        return Err(error);
+                    }
+                }
                 Err(error) => return Err(error),
             }
             progress.changed().await.map_err(|_| closed())?;
         }
     }
+
+    async fn finish_owned_output(
+        &mut self,
+        progress: &mut watch::Receiver<()>,
+    ) -> Result<CellCommandResponse, CellDispatchError> {
+        let domain = self.dispatcher.domain.clone();
+        let deadline = self.session.deadline_ms();
+        loop {
+            let timer = domain.sleep_until(deadline).map_err(|_| closed())?;
+            let result = crate::asyncrt::select! {
+                result = self.finish_output() => result,
+                _ = timer => Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
+            };
+            match result {
+                Ok(response) => return Ok(response),
+                Err(error) if output_retryable(&error) => (),
+                Err(error) => return Err(error),
+            }
+            // This is buffered committed output, not an unresolved SQL producer.
+            // Progress wakes a fresh fence check without callbacks or proposals.
+            let timer = domain.sleep_until(deadline).map_err(|_| closed())?;
+            crate::asyncrt::select! {
+                result = progress.changed() => result.map_err(|_| closed())?,
+                _ = timer => return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
+            }
+        }
+    }
+}
+
+fn output_retryable(error: &CellDispatchError) -> bool {
+    matches!(
+        error,
+        CellDispatchError::Runtime(
+            RuntimeError::NotReady | RuntimeError::Overloaded | RuntimeError::StaleCompletion
+        )
+    )
 }

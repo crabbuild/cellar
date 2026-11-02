@@ -538,10 +538,10 @@ mod s3_commands;
 mod s3_response;
 #[allow(unused_imports)]
 pub(crate) use s3_commands::{
-    archive_dependencies, full_backend_outage, s3_commands, s3_deadline, s3_enrollment,
-    s3_enrollment_deadline, s3_missing_sibling, s3_namespace_minimum, s3_receipt_deadline,
-    s3_receipt_failures, s3_receipt_minimums, s3_receipt_observations, s3_remote_deadlines,
-    s3_remote_outputs, s3_remote_slow_delivery,
+    archive_dependencies, full_backend_outage, output_during_apply, s3_commands, s3_deadline,
+    s3_enrollment, s3_enrollment_deadline, s3_missing_sibling, s3_namespace_minimum,
+    s3_receipt_deadline, s3_receipt_failures, s3_receipt_minimums, s3_receipt_observations,
+    s3_remote_deadlines, s3_remote_outputs, s3_remote_slow_delivery,
 };
 #[allow(unused_imports)]
 pub(crate) use s3_response::unproved_s3_responses;
