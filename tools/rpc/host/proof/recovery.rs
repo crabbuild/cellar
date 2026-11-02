@@ -20,40 +20,48 @@ fn transient_transport(error: &reqwest::Error) -> bool {
 }
 
 pub(crate) async fn read(client: &reqwest::Client, url: &str, target: &str) -> Result<Value> {
-    tokio::time::timeout(Duration::from_secs(20), async {
-        loop {
-            // This is a new read observation, never a command retry. A fenced
-            // route can close transport before its typed refusal arrives.
-            // Keep builder, decoding and arbitrary application errors fatal.
-            let response = async {
-                let response = client
-                    .get(format!("{url}/rust/read?target={target}"))
-                    .send()
-                    .await?;
-                let status = response.status();
-                Ok::<_, reqwest::Error>((status, response.text().await?))
-            }
-            .await;
-            let (status, text) = match response {
-                Ok(observation) => observation,
-                Err(error) if transient_transport(&error) => {
-                    tokio::time::sleep(Duration::from_millis(20)).await;
-                    continue;
-                }
-                Err(error) => return Err(error.into()),
-            };
-            if status.is_success() {
-                return Ok::<_, anyhow::Error>(serde_json::from_str(&text)?);
-            }
-            ensure!(
+    // Recovery must not borrow the fenced owner's execution domain.
+    let domain = cellar::sdk::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            cellar::asyncrt::timeout(Duration::from_secs(20), async {
+                loop {
+                    // This is a new read observation, never a command retry. A fenced
+                    // route can close transport before its typed refusal arrives.
+                    // Keep builder, decoding and arbitrary application errors fatal.
+                    let response = async {
+                        let response = client
+                            .get(format!("{url}/rust/read?target={target}"))
+                            .send()
+                            .await?;
+                        let status = response.status();
+                        Ok::<_, reqwest::Error>((status, response.text().await?))
+                    }
+                    .await;
+                    let (status, text) = match response {
+                        Ok(observation) => observation,
+                        Err(error) if transient_transport(&error) => {
+                            cellar::asyncrt::sleep(Duration::from_millis(20)).await;
+                            continue;
+                        }
+                        Err(error) => return Err(error.into()),
+                    };
+                    if status.is_success() {
+                        return Ok::<_, anyhow::Error>(serde_json::from_str(&text)?);
+                    }
+                    ensure!(
                 transient(status, &text),
                 "recovery read failed outside a transient RPC admission refusal: {status}: {text}"
             );
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .context("proof recovery did not reopen read admission")?
+                    cellar::asyncrt::sleep(Duration::from_millis(20)).await;
+                }
+            })
+            .await
+            .context("proof recovery did not reopen read admission")?
+        })
+        .await;
+    domain.shutdown().await;
+    result?
 }
 
 #[cfg(test)]
