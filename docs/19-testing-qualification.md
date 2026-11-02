@@ -32,6 +32,11 @@ Run independent test cases serially, as CI does. Node fixtures own several
 concurrent runtimes and short leases; unrelated fixtures competing for the
 runner can expire those leases. Concurrency inside each fixture stays enabled.
 
+SDK CI runs the serial native campaign independently from Python ABI/package
+qualification in both Python threading modes. Each campaign retains the original
+commands, assertions and job ceiling; individual request and test deadlines stay
+unchanged.
+
 The allocator startup test uses a fresh process with allocator environment
 overrides removed. Linux must start background purging; macOS must leave that
 unsupported build default disabled. Forcing `background_thread:true` on macOS
