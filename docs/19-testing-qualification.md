@@ -35,7 +35,10 @@ runner can expire those leases. Concurrency inside each fixture stays enabled.
 SDK CI runs the serial native campaign independently from Python ABI/package
 qualification in both Python threading modes. Each campaign retains the original
 commands, assertions and job ceiling; individual request and test deadlines stay
-unchanged.
+unchanged. Native CI sets `CARGO_PROFILE_TEST_OPT_LEVEL=1`,
+`CARGO_PROFILE_TEST_DEBUG_ASSERTIONS=true` and
+`CARGO_PROFILE_TEST_OVERFLOW_CHECKS=true`. Use these same settings when
+reproducing its bounded native campaign locally.
 
 The allocator startup test uses a fresh process with allocator environment
 overrides removed. Linux must start background purging; macOS must leave that

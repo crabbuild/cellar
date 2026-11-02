@@ -393,6 +393,12 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || inputs.mode == 'qualification'
     name: Native framework tests (${{ matrix.python }})
     runs-on: ubuntu-22.04
+    env:
+      # Exercise native protocol deadlines with optimized code, retaining all
+      # debug assertions and integer overflow checks in the test artifact.
+      CARGO_PROFILE_TEST_OPT_LEVEL: "1"
+      CARGO_PROFILE_TEST_DEBUG_ASSERTIONS: "true"
+      CARGO_PROFILE_TEST_OVERFLOW_CHECKS: "true"
     # Separate the serial native campaign from ABI/package qualification;
     # preserve the original job ceiling and every existing test command.
     timeout-minutes: 120
