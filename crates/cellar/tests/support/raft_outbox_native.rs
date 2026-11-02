@@ -261,7 +261,7 @@ impl Cluster {
 
     async fn read(&self, index: usize, minimum: Option<VersionToken>) -> Result<QueryResult> {
         let deadline = tokio::time::Instant::now() + Duration::from_millis(1000);
-        Ok(tokio::time::timeout_at(deadline, async {
+        tokio::time::timeout_at(deadline, async {
             loop {
                 let result = self
                     .cell(index)?
@@ -284,13 +284,13 @@ impl Cluster {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         })
-        .await??)
+        .await?
     }
 
     async fn status(&self, index: usize) -> Result<CellStatus> {
         // Status shares admission with the scheduler's own observation. Keep
         // its original SDK bound while waiting for a fresh successful sample.
-        Ok(tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::time::timeout(Duration::from_secs(5), async {
             loop {
                 let result = self.cell(index)?.status().await;
                 if !matches!(result, Err(CommandFailure::Overloaded)) {
@@ -299,7 +299,7 @@ impl Cluster {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         })
-        .await??)
+        .await?
     }
 
     async fn settled(&self, sequence: u64) -> Result<QueryResult> {
