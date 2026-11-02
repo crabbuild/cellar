@@ -16,6 +16,11 @@ mod directory;
 mod fault;
 
 #[tokio::test]
+async fn directory_inventory_pages_bind_the_exact_topology_cut() -> anyhow::Result<()> {
+    directory::inventory_pages().await
+}
+
+#[tokio::test]
 async fn range_directory_has_single_owner() -> anyhow::Result<()> {
     directory::single_owner().await
 }

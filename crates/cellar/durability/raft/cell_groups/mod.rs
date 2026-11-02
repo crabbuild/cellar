@@ -116,7 +116,8 @@ pub use page_store::{ManifestPageStore, ManifestReclaimReport, ManifestStoreUsag
 
 pub use crate::raft::catalog::{
     CellGroupArchiveBindingError, CellGroupBirth, CellGroupBirthRequest, CellGroupBirthSpec,
-    CellGroupBootstrapPermit, CellGroupDisasterFenceRequest, CellGroupRecoveryActivationAck,
+    CellGroupBootstrapPermit, CellGroupDirectoryCursor, CellGroupDirectoryPage,
+    CellGroupDisasterFenceRequest, CellGroupRecoveryActivationAck,
     CellGroupRecoveryActivationPermit, CellGroupRecoveryError, CellGroupRecoveryRequest,
     CellRouteAttempt, CellRouteCacheUsage, CellRouteOperation, CellRouteRequest, CellRoutingError,
     CellRoutingFailure, CellRoutingLimits, CellRoutingSession, DirectoryLimits, DirectoryMutation,

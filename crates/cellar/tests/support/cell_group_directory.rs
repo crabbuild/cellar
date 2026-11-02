@@ -161,6 +161,62 @@ fn split(parent: &GroupRoute, id: u64) -> Vec<GroupRoute> {
     ]
 }
 
+pub async fn inventory_pages() -> Result<()> {
+    let f = Fixture::new(DirectoryLimits {
+        max_cached_pages: 2,
+        max_cache_bytes: 2 * 64 * 1024,
+        ..DirectoryLimits::default()
+    })
+    .await?;
+    let d = &f.directory;
+    let mut initial = ranges(7);
+    f.reserve(&mut initial).await?;
+    let init = d.prepare_initialization(operation(991), &initial)?;
+    f.run(d.publish(&init)).await?;
+    let view = f.run(d.observe()).await?;
+    for limit in [0, 129] {
+        assert!(f.run(d.group_page(&view, None, limit)).await.is_err());
+    }
+    let page = f.run(d.group_page(&view, None, 2)).await?;
+    assert_eq!(page.routes, initial[..2]);
+    let first_cursor = page.next.context("seven groups require a second page")?;
+
+    let mut replacement = split(&initial[0], 992);
+    f.reserve(&mut replacement).await?;
+    let mutation = d.prepare_replacement(&view, operation(993), &initial[..1], &replacement)?;
+    f.run(d.publish(&mutation)).await?;
+    let current = f.run(d.observe()).await?;
+    assert_eq!(current.groups(), 8);
+    assert!(f
+        .run(d.group_page(&current, Some(&first_cursor), 2))
+        .await
+        .is_err());
+    let reopened = f.reopen().await?;
+    assert!(f.run(reopened.group_page(&view, None, 2)).await.is_err());
+
+    let mut routes = page.routes;
+    let mut cursor = Some(first_cursor);
+    while let Some(after) = cursor {
+        let page = f.run(d.group_page(&view, Some(&after), 2)).await?;
+        assert!(!page.routes.is_empty() && page.routes.len() <= 2);
+        routes.extend(page.routes);
+        cursor = page.next;
+    }
+    assert_eq!(routes, initial);
+    let page = f.run(d.group_page(&current, None, 128)).await?;
+    let expected: Vec<_> = replacement
+        .into_iter()
+        .chain(initial.into_iter().skip(1))
+        .collect();
+    assert_eq!(page.routes, expected);
+    assert!(page.next.is_none());
+    let usage = d.cache_usage()?;
+    assert!(usage.0 <= f.limits.max_cached_pages && usage.1 <= f.limits.max_cache_bytes);
+    assert_eq!(f.store.listing_calls.load(Ordering::Acquire), 0);
+    f.domain.shutdown().await;
+    Ok(())
+}
+
 pub async fn single_owner() -> Result<()> {
     let f = Fixture::new(DirectoryLimits::default()).await?;
     let d = &f.directory;

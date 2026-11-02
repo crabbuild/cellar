@@ -28,7 +28,8 @@ pub(crate) use range_directory::RecoverySeedPermit;
 pub(crate) use range_directory::RouteCache;
 pub use range_directory::{
     CellGroupArchiveBindingError, CellGroupBirth, CellGroupBirthRequest, CellGroupBirthSpec,
-    CellGroupBootstrapPermit, CellGroupDisasterFenceRequest, CellGroupRecoveryActivationAck,
+    CellGroupBootstrapPermit, CellGroupDirectoryCursor, CellGroupDirectoryPage,
+    CellGroupDisasterFenceRequest, CellGroupRecoveryActivationAck,
     CellGroupRecoveryActivationPermit, CellGroupRecoveryError, CellGroupRecoveryRequest,
     CellRouteAttempt, CellRouteCacheUsage, CellRouteOperation, CellRouteRequest, CellRoutingError,
     CellRoutingFailure, CellRoutingLimits, CellRoutingSession, DirectoryLimits, DirectoryMutation,

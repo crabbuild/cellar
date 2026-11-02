@@ -21,6 +21,8 @@ mod archive;
 pub use archive::{CellGroupArchiveBindingError, PreparedCellGroupArchiveBinding};
 mod birth;
 mod bootstrap;
+mod inventory;
+pub use inventory::{CellGroupDirectoryCursor, CellGroupDirectoryPage};
 mod recovery;
 pub(crate) use recovery::RecoverySeedPermit;
 pub use recovery::{
