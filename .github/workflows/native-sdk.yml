@@ -104,6 +104,7 @@ jobs:
           git rev-parse HEAD > "$RUNNER_TEMP/filesystem-release/source.txt"
       - name: Build the release CLI and filesystem application
         run: |
+          set -o pipefail
           cargo build --release --locked -p cellar --bin cellar --bin cellar-native-examples \
             2>&1 | tee "$RUNNER_TEMP/filesystem-release/build.log"
           python3 - <<'PY'
@@ -123,6 +124,7 @@ jobs:
           PY
       - name: Exercise the release filesystem application and restart
         run: |
+          set -o pipefail
           python3 examples/focused_smoke.py --cellar target/release/cellar \
             --example filesystem --profile release \
             2>&1 | tee "$RUNNER_TEMP/filesystem-release/smoke.log"
@@ -341,6 +343,7 @@ jobs:
           CELLAR_FS_CAPACITY_REPORT: ${{ runner.temp }}/filesystem-dense-capacity.json
           RUST_LOG: 'warn,cellar::actor::effects=info,store[node_lease_store]=debug'
         run: |
+          set -o pipefail
           cargo test --locked -p cellar --all-features --test native_node \
             filesystem_dense_capacity_cold_recovery -- --ignored --nocapture \
             2>&1 | tee "$RUNNER_TEMP/filesystem-dense-capacity.log"
