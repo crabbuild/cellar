@@ -10,7 +10,6 @@ removed after complete inventory checks; new volumes and sanitized evidence stay
 import argparse
 from contextlib import contextmanager
 import fcntl
-import hashlib
 import ipaddress
 import json
 import os
@@ -26,6 +25,7 @@ sys.path.insert(0, str(ROOT / 'tools/perf'))
 from raft_disaster import LABEL, command, fence_and_delete, owned_container
 from raft_run import input_digest, parse_manifest, request, require, source_manifest
 from run import create_bucket
+from group_configuration import copy_configuration
 
 RUSTFS = 'ghcr.io/rustfs/rustfs@sha256:bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858'
 PURPOSE = b'cellar-docker-cell-group-fence-1\0'
@@ -163,13 +163,6 @@ class Qualification:
         require(len(data) == 44 and data[:12].hex() == '302a300506032b6570032100', 'unexpected public key encoding')
         self.config['fence_public'] = list(data[12:])
         self.save()
-        # Docker must see the host file, rather than create an empty guest path.
-        mounted = self.docker('run', '--rm', '--network', 'none', '--entrypoint', 'sha256sum',
-            '--mount', 'type=bind,source='+str(self.config_dir)+',target=/config,readonly',
-            self.args.image, '/config/config.json').split()[0]
-        require(mounted == hashlib.sha256((self.config_dir/'config.json').read_bytes()).hexdigest(),
-                'configuration output directory is not shared with the dedicated VM')
-        self.report['config_mount_verified'] = True
         self.docker('pull', RUSTFS)
         volume = self.prefix + '-objects'
         self.docker('volume', 'create', '--label', self.owner, volume)
@@ -205,16 +198,30 @@ class Qualification:
             time.sleep(.2)
         raise RuntimeError('bounded qualification wait expired: ' + str(last))
 
+    def stage_configuration(self, identifier):
+        value = owned_container(self.docker, identifier, self.run_id)
+        require(not value['State']['Running'], 'configuration cannot change under a live process')
+        hashes = copy_configuration(self.args.context, identifier, self.config_dir)
+        self.report.setdefault('configuration_copies', []).append({'container_id':identifier, 'sha256':hashes})
+        self.save()
+
     def operator(self, action, node=0, *, volume=None, generation=0, check=True):
-        args = ['run', '--rm', '--label', self.owner, '--network', self.prefix,
-            '-v', str(self.config_dir) + ':/config:ro', '-e', 'CELLAR_GROUP_ACTION=' + action,
+        args = ['create', '--label', self.owner, '--network', self.prefix,
+            '-e', 'CELLAR_GROUP_ACTION=' + action,
             '-e', 'CELLAR_GROUP_NODE=' + str(node), '-e', 'CELLAR_GROUP_GENERATION=' + str(generation)]
         if volume:
             args += ['-v', volume + ':/data']
-        result = command(['docker', '--context', self.args.context, *args, self.args.image], check=False)
+        identifier = self.docker(*args, self.args.image)
+        self.stage_configuration(identifier)
+        result = command(['docker', '--context', self.args.context, 'start', '--attach', identifier], check=False)
+        value = owned_container(self.docker, identifier, self.run_id)
+        require(not value['State']['Running'], 'operator did not join')
+        require(result.returncode == 0 or value['State']['ExitCode'] != 0, 'Docker attachment failed')
+        result.returncode = value['State']['ExitCode']
         text = self.redact(result.stdout + result.stderr)
         with (self.root / 'operator.log').open('a') as stream:
             stream.write(action + ': exit ' + str(result.returncode) + '\n' + text + '\n')
+        self.docker('rm', identifier)
         if check:
             require(result.returncode == 0, 'operator failed; inspect private sanitized operator log')
         return result, text
@@ -225,13 +232,15 @@ class Qualification:
         if volume == name:
             self.docker('volume', 'create', '--label', self.owner, volume)
         def invoke():
-            identifier = self.docker('run', '-d', '--label', self.owner, '--restart=no', '--name', name,
+            identifier = self.docker('create', '--label', self.owner, '--restart=no', '--name', name,
                 '--network', self.prefix, '--ip', self.config['peers'][generation][node]['host'],
                 '--cpus', '1', '--memory', '3g', '--memory-swap', '3g', '-p', f'127.0.0.1:{self.args.port_base+node+1}:{8080+node}',
-                '-v', volume + ':/data', '-v', str(self.config_dir) + ':/config:ro',
+                '-v', volume + ':/data',
                 '-e', 'CELLAR_GROUP_NODE=' + str(node), '-e', 'CELLAR_GROUP_GENERATION=' + str(generation),
                 '-e', 'CELLAR_GROUP_RETAINED=' + str(generation == 1).lower(), self.args.image)
             self.containers.append(identifier)
+            self.stage_configuration(identifier)
+            self.docker('start', identifier)
             captured = owned_container(self.docker, identifier, self.run_id)
             self.capture_resources(captured, 3)
             self.save()
@@ -338,7 +347,7 @@ class Qualification:
         self.config['certificate'] = list(bytes.fromhex(plan['fence_digest']) + bytes(64))
         self.save()
         forged, text = self.operator('fence', check=False)
-        require(forged.returncode != 0 and 'untrusted Docker controller fence' in text, 'forged infrastructure certificate accepted')
+        require(forged.returncode != 0 and 'untrusted Docker controller fence' in text, 'forged certificate did not reach signature-verification refusal')
         inventory = self.launcher.revoke(0)
         require(inventory == old, 'durable launcher inventory differs')
         for identifier, _ in old:
@@ -418,6 +427,8 @@ class Qualification:
         self.docker('stop', '--time','60', *(identifier for identifier,_ in self.targets))
         for peer in self.config['peers'][1]: peer['process'] = list(secrets.token_bytes(16))
         self.save()
+        for identifier, _ in self.targets:
+            self.stage_configuration(identifier)
         self.docker('start', *(identifier for identifier,_ in self.targets))
         self.ready(1)
         self.ok({'action':'archive'},1)

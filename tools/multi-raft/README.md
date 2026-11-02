@@ -183,9 +183,10 @@ python3 tools/multi-raft/group_disaster.py \
   --mode materialized --output "$HOME/cellar-qualification/group-disaster-materialized-001"
 ```
 
-Use an output directory shared with the VM; the runner verifies the mounted
-config file before starting the backend. Repeat with `--mode extents` and a fresh
-output directory. The image embeds the
+Repeat with `--mode extents` and a fresh output directory. Configuration reaches
+each stopped container through the Docker API with exact byte readback before
+startup. Mutable host bind mounts are avoided because virtiofs can expose mixed
+file size/content across atomic replacements. The image embeds the
 complete build-input manifest; the runner refuses a source mismatch. This uses
 the unoptimized, debug-info-free Cargo development profile for correctness
 qualification. It establishes no throughput or recovery-time claim.
