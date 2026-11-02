@@ -87,6 +87,16 @@ pub struct EffectSummary {
     pub pending_inbox: u64,
 }
 
+impl EffectSummary {
+    /// Earliest durable work hint. It grants no callback or delivery authority.
+    pub fn next_due_unix_millis(self) -> Option<u64> {
+        [self.next_alarm_unix_millis, self.next_outbox_unix_millis]
+            .into_iter()
+            .flatten()
+            .min()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CellManifestLeaf {
     /// Original creation identity, retained atomically with every selected image.
@@ -113,6 +123,17 @@ impl CellManifestLeaf {
     }
 
     pub(super) fn validate(&self, route: &GroupRoute) -> Result<CellKey, ManifestError> {
+        if [
+            self.effects.next_alarm_unix_millis,
+            self.effects.next_outbox_unix_millis,
+        ]
+        .into_iter()
+        .flatten()
+        .any(|due| due > i64::MAX as u64)
+            || (self.effects.pending_outbox == 0) != self.effects.next_outbox_unix_millis.is_none()
+        {
+            return Err(ManifestError::Invalid("effect summary"));
+        }
         let key = cell_routing_key(route.history.namespace, &self.version.history.cell);
         route
             .check_cell(&self.version.history, &key)
@@ -188,6 +209,12 @@ impl ManifestRoot {
         self.0.map_or(0, |p| p.height)
     }
 
+    /// Authenticated subtree hint after complete-root verification. No SQLite
+    /// database needs to be opened to decide whether this root has due work.
+    pub fn next_due_unix_millis(self) -> Option<u64> {
+        self.0.and_then(|p| p.next_due_unix_millis)
+    }
+
     pub fn digest(self) -> Option<[u8; 32]> {
         self.0.map(|p| p.digest)
     }
@@ -216,6 +243,21 @@ impl ManifestTree {
             }
         }
         Ok(Self { route, limits })
+    }
+
+    /// Select one due cell after the cursor in routing-key order, wrapping once.
+    /// Run on the owning blocking domain while retaining the verified selected
+    /// root. Reads at most three tree depths of pages, and opens no SQLite DB.
+    /// The returned leaf is advisory: execution still needs fresh leader, route,
+    /// exact-image and private-command admission checks.
+    pub fn next_due(
+        &self,
+        store: &ManifestPageStore,
+        root: ManifestRoot,
+        now_unix_millis: u64,
+        after: Option<&CellId>,
+    ) -> Result<Option<CellManifestLeaf>, ManifestError> {
+        super::effect_index::next(self, store, root, now_unix_millis, after, self.limits)
     }
 
     pub fn get(

@@ -57,6 +57,7 @@ pub use dispatch::{
     CellReceiptSelection,
 };
 
+mod effect_index;
 mod execution_authority;
 pub use execution_authority::{CellExecutionAuthority, CellReconciliationAuthority};
 

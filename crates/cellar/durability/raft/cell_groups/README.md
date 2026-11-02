@@ -8,11 +8,25 @@ is not yet wired to these contracts; a stored root is not quorum authority.
 
 A manifest is a persistent AVL tree ordered by the namespace routing digest and
 full cell ID. Each bounded page holds one cell leaf and at most two child
-references. References bind SHA-256, height and subtree count. Insertions and
+references. References bind SHA-256, height, subtree count and earliest due-effect time. Insertions and
 updates copy bounded paths; rotations preserve balance. Unchanged cell images
 are reused. The format uses `CLRCGM01`, the marker-1 page hash domain, canonical
 JSON and a 16 KiB decode bound. Tree depth and cell count are explicit limits.
 These limits are admission ceilings, not qualified fleet capacities.
+
+The due-effect index stores each subtree's earliest alarm/outbox time in its
+required nullable page reference. `ManifestRoot::next_due_unix_millis` is a cheap
+hint after complete-root verification. `ManifestTree::next_due` visits bounded
+paths to select one due cell after a routing-key cursor, wrapping once for fair
+selection. Future-only subtrees need no SQLite hydration. A prepared physical root also
+exposes `next_due` over its verified persistent pin tree, with no filesystem or
+SQLite I/O. Its returned image pin is a data view and grants no execution rights.
+The caller runs page
+I/O on its blocking execution domain and retains the selected verified root;
+returned metadata still requires fresh leader, route, image and private-command
+admission before execution. Missing scheduling fields refuse at marker 1, with
+no compatibility reader. Node scheduler/system-command integration and the full
+CG-08 effect/cache qualification remain unfinished.
 
 Leaves bind logical cell history, mutation sequence, image commitment and
 geometry, last group installation/mutation position, schema, effect summary,

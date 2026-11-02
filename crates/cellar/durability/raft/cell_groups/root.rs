@@ -103,7 +103,14 @@ impl GroupManifest {
             }
         }
         if let Some(root) = self.root.0 {
-            if root.cells == 0 || root.cells > 1_000_000 || root.height == 0 || root.height > 32 {
+            if root.cells == 0
+                || root.cells > 1_000_000
+                || root.height == 0
+                || root.height > 32
+                || root
+                    .next_due_unix_millis
+                    .is_some_and(|due| due > i64::MAX as u64)
+            {
                 return Err(ManifestError::Invalid("root bounds"));
             }
         }
@@ -212,6 +219,18 @@ impl PreparedGroupManifest {
     pub fn pin_cell(&self, cell: &CellId) -> Option<(&CellManifestLeaf, CellImagePin)> {
         self.images
             .get(&cell_routing_key(self.marker.route.history.namespace, cell))
+    }
+
+    /// Select one due cell from this immutable physical closure without I/O,
+    /// wrapping after the routing-key cursor. Like `pin_cell`, this is a data
+    /// view only; it grants no execution, leadership or delivery permission.
+    pub fn next_due(
+        &self,
+        now_unix_millis: u64,
+        after: Option<&CellId>,
+    ) -> Option<(&CellManifestLeaf, CellImagePin)> {
+        let after = after.map(|cell| cell_routing_key(self.marker.route.history.namespace, cell));
+        self.images.next_due(now_unix_millis, after.as_ref())
     }
 
     pub(crate) fn require_checkpoint<S>(

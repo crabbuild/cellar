@@ -21,6 +21,15 @@ pub(super) struct PageRef {
     pub digest: [u8; 32],
     pub height: u8,
     pub cells: u32,
+    // Required even when null: internal marker-1 hard cutover, no old reader.
+    #[serde(deserialize_with = "required_due")]
+    pub next_due_unix_millis: Option<u64>,
+}
+
+fn required_due<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<u64>, D::Error> {
+    Option::<u64>::deserialize(deserializer)
 }
 
 pub(super) struct Page {
@@ -42,6 +51,9 @@ impl Page {
                 || child.height > limits.max_depth
                 || child.cells == 0
                 || child.cells > limits.max_cells
+                || child
+                    .next_due_unix_millis
+                    .is_some_and(|due| due > i64::MAX as u64)
             {
                 return Err(ManifestError::Invalid("child bounds"));
             }
@@ -64,6 +76,14 @@ impl Page {
             digest: digest(bytes),
             height,
             cells,
+            next_due_unix_millis: [
+                self.leaf.effects.next_due_unix_millis(),
+                self.left.and_then(|p| p.next_due_unix_millis),
+                self.right.and_then(|p| p.next_due_unix_millis),
+            ]
+            .into_iter()
+            .flatten()
+            .min(),
         })
     }
 }

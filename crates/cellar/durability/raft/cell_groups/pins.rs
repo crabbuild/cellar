@@ -77,6 +77,44 @@ impl ManifestPins {
         self.find(key).map(|p| (&p.leaf, p.image.clone()))
     }
 
+    /// The complete verified mirror already owns every referenced page/image.
+    /// Discovery uses immutable metadata only: no filesystem or SQLite work.
+    pub(super) fn next_due(
+        &self,
+        now: u64,
+        after: Option<&CellKey>,
+    ) -> Option<(&CellManifestLeaf, CellImagePin)> {
+        let page = self
+            .find_due(now, after)
+            .or_else(|| after.and_then(|_| self.find_due(now, None)))?;
+        Some((&page.leaf, page.image.clone()))
+    }
+
+    fn find_due(&self, now: u64, after: Option<&CellKey>) -> Option<&PinnedPage> {
+        let page = self.0.as_deref()?;
+        if !page
+            .reference
+            .next_due_unix_millis
+            .is_some_and(|due| due <= now)
+        {
+            return None;
+        }
+        if after.is_none_or(|after| &page.key > after) {
+            if let Some(found) = page.left.find_due(now, after) {
+                return Some(found);
+            }
+            if page
+                .leaf
+                .effects
+                .next_due_unix_millis()
+                .is_some_and(|due| due <= now)
+            {
+                return Some(page);
+            }
+        }
+        page.right.find_due(now, after)
+    }
+
     fn find(&self, key: &CellKey) -> Option<&Arc<PinnedPage>> {
         let mut cursor = &self.0;
         while let Some(page) = cursor {
