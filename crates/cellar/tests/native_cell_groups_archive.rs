@@ -38,6 +38,31 @@ mod runtime_fixture;
 include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn fenced_group_seed_new_incarnations() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(disaster_fixture::registered_receipts(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_fenced_group_seed_new_incarnations() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(disaster_fixture::registered_receipts(
+            rooted,
+            rustfs::store("recovery-receipts", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn group_recovery_publication_requires_seeded_quorum_activation() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(disaster_fixture::activate_quorum(
@@ -325,6 +350,7 @@ use std::sync::atomic::Ordering;
 struct ArchiveDestination {
     store: CellGroupArchiveStore,
     images: GenerationStore,
+    apply_images: CellGroupApplyImages,
 }
 
 async fn destination(cluster: &Cluster) -> Result<ArchiveDestination> {
@@ -403,7 +429,7 @@ async fn destination_at(
             let store = CellGroupArchiveStore::new(
                 route,
                 pages,
-                images,
+                images.clone(),
                 ManifestLimits::default(),
                 GroupEntryLimits::default(),
                 100,
@@ -411,6 +437,7 @@ async fn destination_at(
             Ok(ArchiveDestination {
                 store,
                 images: generations,
+                apply_images: images,
             })
         })?
         .await?

@@ -34,6 +34,13 @@ pub(super) use checkpoint_receive::{install_checkpoint, refuse_checkpoint};
 mod tcp;
 pub(super) use tcp::physical_transport;
 
+pub(super) async fn start_recovery_transport(
+    runtime: &CellGroupRuntime,
+    node: usize,
+) -> Result<RaftTransport, TransportError> {
+    tcp::start(runtime, node).await
+}
+
 struct RuntimeCluster {
     snapshot_sources: BTreeMap<(usize, GroupHistory), PreparedGroupManifest>,
     snapshot_transfers: usize,

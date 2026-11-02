@@ -4,6 +4,11 @@
 //! voter disks are gone. The external fence is still a contract fixture.
 use super::*;
 
+#[path = "cell_group_disaster_receipts.rs"]
+mod receipts;
+pub(crate) use receipts::registered_receipts;
+pub(super) use receipts::ReceiptWorkload;
+
 struct FreshVoter {
     log: ReplicaLog,
     applier: CellGroupApplier,
@@ -11,7 +16,8 @@ struct FreshVoter {
     base: std::path::PathBuf,
     options: ReplicaLogOptions,
     runtime: CellGroupRuntime,
-    events: CellGroupRuntimeEvents,
+    events: Option<CellGroupRuntimeEvents>,
+    images: CellGroupApplyImages,
     sql: CellGroupSqlPool,
 }
 
@@ -22,7 +28,12 @@ async fn pump(
 ) -> Result<()> {
     for (ordinal, voter) in voters.iter_mut().enumerate() {
         for _ in 0..64 {
-            let Ok(event) = voter.events.try_recv() else {
+            let Ok(event) = voter
+                .events
+                .as_mut()
+                .context("owned recovery events")?
+                .try_recv()
+            else {
                 break;
             };
             match event.effect().map_err(|e| anyhow::anyhow!(e.to_string()))? {
@@ -78,7 +89,7 @@ async fn applied(voters: &mut [FreshVoter], history: GroupHistory, index: LogInd
 type SeededVoters = (
     Vec<SeededCellGroupRecovery>,
     Vec<ReplicaLog>,
-    Vec<(std::path::PathBuf, ReplicaLogOptions)>,
+    Vec<(std::path::PathBuf, ReplicaLogOptions, CellGroupApplyImages)>,
 );
 
 struct FreshQuorum {
@@ -164,7 +175,7 @@ fn seed_voters(
                     Arc::new(DirectFileSystem),
                 ))
                 .await??;
-            reopen.push((base, options));
+            reopen.push((base, options, destination.apply_images.clone()));
             let seed = s
                 .cluster
                 .directory
@@ -315,7 +326,7 @@ fn publish_voters(
         ));
         s.remote.put(&binding_key, binding_bytes.into()).await?;
         let mut voters = Vec::new();
-        for ((seed, log), (base, options)) in seeds.into_iter().zip(logs).zip(reopen) {
+        for ((seed, log), (base, options, images)) in seeds.into_iter().zip(logs).zip(reopen) {
             let permit = s
                 .cluster
                 .domain
@@ -353,7 +364,8 @@ fn publish_voters(
                 options,
                 log,
                 runtime,
-                events,
+                events: Some(events),
+                images,
                 sql,
             });
         }
@@ -631,7 +643,7 @@ fn restart_voters<'a>(
                 .await??;
             let group = log.cell_group(&history)?;
             let target = base.join("data");
-            let (applier, root) = s
+            let (applier, root, images) = s
                 .cluster
                 .domain
                 .blocking(move || reopen_applier(group, target, rooted))?
@@ -675,7 +687,8 @@ fn restart_voters<'a>(
                 applier,
                 member,
                 runtime,
-                events,
+                events: Some(events),
+                images,
                 sql,
                 base,
                 options,
@@ -699,7 +712,11 @@ fn reopen_applier(
     group: cellar::application::consensus::verification::GroupLog<GroupHistory>,
     base: std::path::PathBuf,
     rooted: bool,
-) -> Result<(CellGroupApplier, PreparedGroupManifest)> {
+) -> Result<(
+    CellGroupApplier,
+    PreparedGroupManifest,
+    CellGroupApplyImages,
+)> {
     let filesystem: Arc<dyn cellar_ltx::FileSystem> = Arc::new(DirectFileSystem);
     let pages = ManifestPageStore::open(
         &base.join("pages"),
@@ -737,12 +754,13 @@ fn reopen_applier(
             services,
         }
     };
-    Ok(CellGroupApplier::recover(
+    let (applier, root) = CellGroupApplier::recover(
         group,
         pages,
-        images,
+        images.clone(),
         ManifestLimits::default(),
         GroupEntryLimits::default(),
         100,
-    )?)
+    )?;
+    Ok((applier, root, images))
 }

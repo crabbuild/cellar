@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 mod activation;
 #[path = "cell_group_disaster_seed.rs"]
 mod seed;
-pub(super) use activation::activate_quorum;
+pub(super) use activation::{activate_quorum, registered_receipts};
 pub(super) use seed::seed_engine;
 
 #[derive(Default)]
@@ -75,18 +75,31 @@ struct Scenario {
 
 impl Scenario {
     async fn new(rooted: bool, store: Arc<dyn object_store::ObjectStore>) -> Result<Self> {
+        Box::pin(Self::with_workload(rooted, store, None)).await
+    }
+
+    async fn with_workload(
+        rooted: bool,
+        store: Arc<dyn object_store::ObjectStore>,
+        mut workload: Option<&mut activation::ReceiptWorkload>,
+    ) -> Result<Self> {
         let remote = archive_store::Store::around(store);
         let mut cluster = Cluster::with_store(
             Default::default(),
             tempfile::tempdir()?,
             Arc::new(DirectFileSystem),
-            [6; 32],
+            workload
+                .as_ref()
+                .map_or([6; 32], |w| w.class.schema_digest()),
             remote.clone(),
         )
         .await?;
         cluster.elect().await?;
-        let expected =
+        let mut expected =
             checkpoint_fixture::enroll_images(&mut cluster, rooted, false, 0, 8192).await?;
+        if let Some(workload) = workload.as_mut() {
+            Box::pin(workload.populate(&mut cluster, &mut expected)).await?;
+        }
         let archives = CellGroupArchivePool::new(Default::default())?;
         let binding = cluster
             .directory

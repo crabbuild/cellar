@@ -440,6 +440,7 @@ fn apply_image(
 
 fn prepare_cell_image(
     images: &GenerationStore,
+    schema: [u8; 32],
     extents: Option<&cellar_ltx::internal::NodeExtentStore>,
     cell: &CellHistory,
     sequence: u64,
@@ -484,7 +485,7 @@ fn prepare_cell_image(
             };
             let binding = ImageBinding {
                 history: cell_image_history_digest(cell),
-                schema: [6; 32],
+                schema,
                 epoch: image.epoch,
                 txid: image.txid,
                 checksum: image.checksum,
@@ -584,6 +585,7 @@ fn prepare(voter: &mut Voter, apply: &CellGroupApply) -> Result<PreparedGroupMan
                 |_| {
                     prepare_cell_image(
                         &voter.images,
+                        apply.base.marker().route().schema_digest,
                         voter.extents.as_ref(),
                         &cell,
                         1,
@@ -600,6 +602,7 @@ fn prepare(voter: &mut Voter, apply: &CellGroupApply) -> Result<PreparedGroupMan
             let (old, base) = apply.base.pin_cell(&mutation.cell.cell).context("cell")?;
             let prepared = prepare_cell_image(
                 &voter.images,
+                apply.base.marker().route().schema_digest,
                 voter.extents.as_ref(),
                 &mutation.cell,
                 mutation.sequence.get(),

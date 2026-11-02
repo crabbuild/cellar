@@ -653,10 +653,31 @@ pub async fn birth_reservations() -> Result<()> {
         fault::missing_read(key.to_string(), f.run(d.reserve_group_birth(&original))).await,
         Err(CatalogError::Unconfirmed)
     ));
+    let reservation = f.store.inner.get(&key).await?.bytes().await?;
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "birth": original.encode(),
+        "recovery": null,
+    }))?;
+    let end = 13 + payload.len();
+    assert_eq!(reservation.len(), end + 32);
+    assert_eq!(&reservation[..9], b"CLRCAT01\xc2");
+    assert_eq!(&reservation[9..13], &(payload.len() as u32).to_be_bytes());
+    assert_eq!(&reservation[13..end], payload.as_slice());
     assert_eq!(
-        f.store.inner.get(&key).await?.bytes().await?.as_ref(),
-        original.encode()
+        &reservation[end..],
+        &Sha256::digest(&reservation[..end])[..]
     );
+    // A bare birth is no longer a global reservation. The required origin
+    // wrapper must not be synthesized while reading an older record.
+    f.store
+        .inner
+        .put(&key, original.encode().to_vec().into())
+        .await?;
+    assert!(matches!(
+        f.run(d.reserve_group_birth(&original)).await,
+        Err(CatalogError::Conflict(_))
+    ));
+    f.store.inner.put(&key, reservation.clone().into()).await?;
     f.run(d.reserve_group_birth(&original)).await?;
     for which in 0..4 {
         let mut spec = birth_spec(&route);
@@ -711,7 +732,7 @@ pub async fn birth_reservations() -> Result<()> {
     // The original reservation survives every conflicting attempt unchanged.
     assert_eq!(
         f.store.inner.get(&key).await?.bytes().await?.as_ref(),
-        original.encode()
+        reservation.as_ref()
     );
     // Configuring a managed policy does not authorize the unmanaged APIs. No
     // fleet permit is fabricated, and refusal must precede any store access.
