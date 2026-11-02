@@ -260,18 +260,46 @@ impl Cluster {
     }
 
     async fn read(&self, index: usize, minimum: Option<VersionToken>) -> Result<QueryResult> {
-        Ok(self
-            .cell(index)?
-            .query(
-                self.definitions[index].get.clone(),
-                vec![],
-                QueryOptions {
-                    consistency: minimum.map_or(QueryConsistency::Stale, QueryConsistency::AtLeast),
-                    timeout: Duration::from_millis(1000),
-                    ..Default::default()
-                },
-            )
-            .await?)
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(1000);
+        Ok(tokio::time::timeout_at(deadline, async {
+            loop {
+                let result = self
+                    .cell(index)?
+                    .query(
+                        self.definitions[index].get.clone(),
+                        vec![],
+                        QueryOptions {
+                            consistency: minimum
+                                .clone()
+                                .map_or(QueryConsistency::Stale, QueryConsistency::AtLeast),
+                            timeout: deadline
+                                .saturating_duration_since(tokio::time::Instant::now()),
+                            ..Default::default()
+                        },
+                    )
+                    .await;
+                if !matches!(result, Err(CommandFailure::Overloaded)) {
+                    return Ok::<_, anyhow::Error>(result?);
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await??)
+    }
+
+    async fn status(&self, index: usize) -> Result<CellStatus> {
+        // Status shares admission with the scheduler's own observation. Keep
+        // its original SDK bound while waiting for a fresh successful sample.
+        Ok(tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let result = self.cell(index)?.status().await;
+                if !matches!(result, Err(CommandFailure::Overloaded)) {
+                    return Ok::<_, anyhow::Error>(result?);
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await??)
     }
 
     async fn settled(&self, sequence: u64) -> Result<QueryResult> {
@@ -314,7 +342,7 @@ impl Cluster {
         let leader = self.leader().await?;
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {
-                let status = self.cell(leader)?.status().await?;
+                let status = self.status(leader).await?;
                 if status.command_ready && status.archived >= status.applied.index {
                     return Ok::<_, anyhow::Error>(());
                 }
@@ -626,7 +654,7 @@ pub async fn leadership_race() -> Result<()> {
         loop {
             let read = f.destination.read(target, None).await?;
             if i64::from_be_bytes(read.result.as_slice().try_into()?) == 9 {
-                let status = f.destination.cell(target)?.status().await?;
+                let status = f.destination.status(target).await?;
                 if status.archived < read.version.position.index {
                     return Ok::<_, anyhow::Error>(());
                 }
@@ -681,8 +709,13 @@ pub async fn replicated_progress() -> Result<()> {
     ensure!(f.source.store.archive_unavailable.load(Ordering::SeqCst));
     f.source
         .read(leader, Some(settled.version_token.clone()))
-        .await?;
-    let status = f.source.cell(leader)?.status().await?;
+        .await
+        .context("source settled minimum read")?;
+    let status = f
+        .source
+        .status(leader)
+        .await
+        .context("source terminal progress status")?;
     ensure!(
         status.applied.index >= settled.version.position.index
             && status.archived < settled.version.position.index,
@@ -693,7 +726,11 @@ pub async fn replicated_progress() -> Result<()> {
     );
     // Source cleanup committed while its promised S3 completion response is
     // unavailable. Stop the producer and recover progress on another voter.
-    let report = f.source.stop(leader).await?;
+    let report = f
+        .source
+        .stop(leader)
+        .await
+        .context("stop producer after settled progress")?;
     ensure!(
         !report.unfinished.is_empty(),
         "missing ambiguous S3 completion in close report"
