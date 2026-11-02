@@ -1666,6 +1666,11 @@ The surviving caller runs in a separate process with a distinct node directory
 and the same development bucket. Peer calls use the production signed transport
 with fleet durability enabled.
 
+Both processes open the same `sqlite-full-per-node-key` namespace described
+above. The owner's and successor's authority records each use their canonical
+FULL-synchronous file, including after the owner is killed. Cell state, receipt
+recovery and the one-second lease retain their normal durability requirements.
+
 ```text
 before_handler
   admit RPC -> hold before business method -> SIGKILL owner
