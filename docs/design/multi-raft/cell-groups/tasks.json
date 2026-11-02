@@ -117,7 +117,7 @@
         "I12"
       ],
       "evidence": [
-        ".cellar/cell-groups-evidence/CG-01-ee7f4a8d2dec/record.json"
+        ".cellar/cell-groups-evidence/CG-01-06-gates-e32115aa-02/CG-01-record.json"
       ],
       "stop_conditions": [
         "A current source excerpt no longer matches: review and record the successor baseline before edits.",
@@ -247,7 +247,7 @@
         "I12"
       ],
       "evidence": [
-        ".cellar/cell-groups-evidence/CG-02-ec9d277e5041/record.json"
+        ".cellar/cell-groups-evidence/CG-01-06-gates-e32115aa-02/CG-02-record.json"
       ],
       "stop_conditions": [
         "A current source excerpt no longer matches: review and record the successor baseline before edits.",
@@ -403,7 +403,7 @@
         "I12"
       ],
       "evidence": [
-        ".cellar/cell-groups-evidence/CG-03-routing-final/record.json"
+        ".cellar/cell-groups-evidence/CG-01-06-gates-e32115aa-02/CG-03-record.json"
       ],
       "stop_conditions": [
         "A current source excerpt no longer matches: review and record the successor baseline before edits.",
@@ -1541,7 +1541,7 @@
         "I12"
       ],
       "evidence": [
-        ".cellar/cell-groups-evidence/CG-04-qualified/checkpoint.json"
+        ".cellar/cell-groups-evidence/CG-01-06-gates-e32115aa-02/CG-04-record.json"
       ],
       "stop_conditions": [
         "A current source excerpt no longer matches: review and record the successor baseline before edits.",
@@ -1689,7 +1689,7 @@
         "I12"
       ],
       "evidence": [
-        ".cellar/cell-groups-evidence/CG-05-completion-admission/qualification/checkpoint.json"
+        ".cellar/cell-groups-evidence/CG-01-06-gates-e32115aa-02/CG-05-record.json"
       ],
       "stop_conditions": [
         "A current source excerpt no longer matches: review and record the successor baseline before edits.",
@@ -1706,7 +1706,7 @@
     {
       "id": "CG-06",
       "title": "Archive and reclaim the complete group recovery history",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P1",
       "effort": "L",
       "risk": "HIGH",
@@ -1875,7 +1875,9 @@
         "I11",
         "I12"
       ],
-      "evidence": [],
+      "evidence": [
+        ".cellar/cell-groups-evidence/CG-01-06-gates-e32115aa-02/CG-06-record.json"
+      ],
       "stop_conditions": [
         "A current source excerpt no longer matches: review and record the successor baseline before edits.",
         "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",

@@ -5,16 +5,55 @@
 The executable design and implementation plan is delivered. Remaining
 end-to-end implementation and hard cutover work is specified in the
 [executor handoff](handoff.md).
-CG-01 through CG-05 have passed their scoped native gates;
-CG-06 is IN_PROGRESS; CG-07 through CG-16 remain TODO. Intermediate contracts
+CG-01 through CG-06 have passed their scoped native gates;
+CG-07 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
+
+## CG-06 complete native and local disaster-recovery gate
+
+CG-06 is DONE at its declared unmanaged archive/reclamation/recovery boundary.
+Qualified native source: e32115aa3218dc6eaa7ed53e134f413f26305938, containing
+origin/main 81cbbc2f72f302751dd471cf06cf51394146ac63. Its executable inputs match
+the Docker-qualified f8aacd05 source; their only differences are plan documents.
+CG-07–16 and the complete hard cutover remain unfinished.
+
+All 123 unique commands in the unchanged CG-01–06 gate refresh pass: 110 exact
+native cases, nineteen pure-logic unit tests, all-target locked check/Clippy,
+format/layout over 1990 Rust files, native dependency and documentation checks.
+Six copied test executables and 3257 source hashes bind the new records. The
+unavailable historical CG-01–05 raw records have been superseded by fresh exact
+native gate evidence at this source; their earlier results remain historical.
+No acceptance command, oracle or validator was weakened.
+
+Current records live under
+.cellar/cell-groups-evidence/CG-01-06-gates-e32115aa-02/ and are backed up on the
+workspace volume. CG-06-record.json SHA256:
+29cfff144bb38f5cda6968e5a8d2cf163ff440df0562ec8948059176ab7827b8.
+Its native executable SHA256:
+8b18b5677e07862c892dcea3a02fceb36a11234a2636b20d6efae87f4bddd5ac.
+Each task record independently passes the unchanged source/artifact/command
+validator. Full package validation passes with six DONE tasks, all source-bound
+records and 44 local links; no unavailable-record exemption is used.
+
+The reclaim case originally passed but its stderr observations interrupted the
+libtest result line in the merged log. That original output is retained. The
+unchanged case passes again with stdout and stderr retained and hashed separately;
+the strict one-case result requirement stays intact. The original gate runner's
+initial unsupported ls-tree exclude-pathspec failure is also retained.
+
+Both complete Docker/RustFS disk-loss drills below pass, including exact physical
+recovery and retained restart. These establish local correctness only; managed
+recovery, external effects, independent failure domains, sustained load and final
+SDK/fleet cutover belong to later gates. The dedicated VM is stopped and data
+retained. CG-08's bounded effect scheduler and safe cache lifetimes now have
+priority, followed by CG-07 public SDK/fleet cutover.
 
 ## CG-06 Docker-fenced, all-voter-disks-deleted recovery
 
 Source: f8aacd052591b7d3a31ea7ca426bef10d9d845cf, containing freshly fetched
-origin/main 81cbbc2f72f302751dd471cf06cf51394146ac63. CG-06 remains IN_PROGRESS
-pending its original complete gate and evidence refresh.
+origin/main 81cbbc2f72f302751dd471cf06cf51394146ac63. At this source CG-06
+remained IN_PROGRESS; the complete gate above closes it.
 
 The actual shared-group Docker/RustFS drill now passes in both materialized and
 extent modes. Three voter processes replicate three independent SQLite cells in

@@ -15,44 +15,56 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch codex/shared-cell-groups and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The latest Docker-qualified source is f8aacd052591b7d3a31ea7ca426bef10d9d845cf,
-containing freshly fetched origin/main 81cbbc2f72f302751dd471cf06cf51394146ac63.
-Actual shared-group Docker voters pass the complete permanent-fencing and
-all-voter-disks-deleted RustFS drill in both image modes. Exact genesis, pending
-admission refusal, fresh-quorum activation, restored receipts/floors/S3 minimums,
-old-token and old-launch refusal, new writes, retained restart and every replica's
-final state are checked. Every remaining owned process joins normally.
+CG-01 through CG-06 now pass their current source-scoped gates. CG-06 is DONE
+at its unmanaged archive/reclamation/disaster-recovery boundary. Native gate
+source: e32115aa3218dc6eaa7ed53e134f413f26305938, including origin/main
+81cbbc2f72f302751dd471cf06cf51394146ac63. All 123 unchanged gate commands pass:
+110 exact native cases, nineteen pure-logic tests, all-target check/Clippy,
+format/layout and dependency/documentation checks. Six retained executable hashes
+and 3257 source hashes bind the evidence.
 
-See [progress](progress.md) and tools/multi-raft/README.md for the scope and runner.
-The scoped record is
+Fresh records replace the unavailable CG-01–05 raw artifacts in tasks.json:
+.cellar/cell-groups-evidence/CG-01-06-gates-e32115aa-02/CG-01-record.json through
+CG-06-record.json. They are backed up outside the checkout. Each record passes the
+unchanged evidence validator. Full package validation passes with six DONE
+tasks and 44 local links. CG-06 record SHA256:
+29cfff144bb38f5cda6968e5a8d2cf163ff440df0562ec8948059176ab7827b8.
+The reclaim case was rerun with separate real stdout/stderr after its original
+passing merged log's diagnostics interrupted the test result line. Both logs
+remain; no test/validator expectation was weakened.
+
+Actual shared-group Docker voters pass permanent fencing and all-voter-disks-
+deleted RustFS recovery in both image forms at f8aacd05. Its executable inputs
+match the native gate source (only plan documents differ). Pending admission,
+fresh activation/quorum, receipts/floors/S3 minima, old-token/launch refusal, new
+writes, retained restart and every replica's final state pass. All remaining
+processes join normally; the VM is stopped, data retained and default context
+preserved. See [progress](progress.md) and tools/multi-raft/README.md.
+Scoped Docker record:
 .cellar/cell-groups-evidence/CG-06-docker-f8aacd05/qualification.json
 (SHA256 08cf2112d4f91519c00d481a6cea3f8c0e378a242ecef258ac67a182c265e77d).
-It is backed up outside this checkout. Raw command/token/credential files remain
-private outside Git. Four failed predecessors are retained and explained.
-Do not repeat the former mutable host config bind: a 150-read probe reproduced
-38 truncated JSON observations through virtiofs. Docker API copies now verify
-exact immutable config bytes before process startup, including retained restart.
-The real Docker configuration regression passes.
+Keep credentials, signing material and raw tokens private. Docker API config
+copies avoid the reproduced virtiofs truncation race; controller keys/launch
+ledgers never enter containers. Failed predecessors remain recorded.
 
-The earlier native/RustFS receipt source is
-9a0bad9124f0089055a0ba63b2952e5ef5e77853: 47 archive/catalog cases and five exact
-RustFS recovery cases in both forms, seven signed probes and all-target checks.
-Its scoped record remains in progress.md. Historical results stay source-scoped.
-CG-06 remains IN_PROGRESS; the full hard-cutover goal remains active.
+The next critical implementation is CG-08, then CG-07 SDK/fleet cutover. An
+isolated codex/cell-group-effects-3617 branch at
+/Users/haipingfu/.codex/worktrees/cell-group-effects/cellar contains an unqualified
+CG-08 due-index draft while the qualified checkout stays unchanged. It adds
+subtree next-due hints, required nullable marker-1 fields and bounded fair
+manifest lookup without SQLite hydration. Focused unit validation is in progress;
+no scheduler or full CG-08 qualification is claimed. Merge qualified changes
+back into the existing PR branch; do not create a permanent second runtime.
 
-The critical next work is formal CG-06 closure:
-
-1. Run the unchanged original five exact native cases, inventory and all-target
-   check/Clippy, format/layout commands at the current source. Retain the actual
-   executable, outputs and source hashes in one task record. The Docker result
-   closes the requested deployment drill, not this full record by itself.
-2. Restore or refresh unavailable CG-01–05 raw evidence before claiming complete
-   package validation. The validator currently refuses the missing CG-01 record;
-   do not waive that check or rewrite historical results.
-3. Close CG-06 only after its complete evidence passes. Then implement CG-08's
-   bounded fair due-work scheduler and qualify close-on-settle/exact-root reopen,
-   followed by CG-07 public SDK/fleet cutover. Keep the accepted external fencing
-   contract; no provider approval is needed.
+1. Finish the due-index validation and wire bounded fair node effect discovery,
+   exact committed-image scans and sealed private system commands into the shared
+   controller. Preserve current CellHistory-based identities and receiver dedupe.
+2. Drive alarm/outbox work without client requests, retaining unknown delivery and
+   SQL producer ownership through leadership change, cancellation and shutdown.
+   Qualify the current close-on-settle/exact-root reopen policy under hot/cold work.
+3. Complete the original five CG-08 cases, then cut public SDK/fleet consumers over
+   in CG-07. Topology, hibernation, managed recovery, load/crash qualification and
+   removal of old consumers remain later tasks. The full goal stays active.
 
 The required nullable recovery metadata remains an internal marker-1 hard
 cutover. There is no legacy reader, state migration or permanent mode flag.

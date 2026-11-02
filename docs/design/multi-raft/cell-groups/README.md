@@ -3,17 +3,14 @@
 # Cell group delivery package
 
 Status: executable design and implementation plan delivered on 2026-10-29.
-CG-01 through CG-05 have passed their scoped native evidence gates. CG-05's
-complete checkpoint, authenticated learner/rebuild, membership, restart and
-resource-ownership requirements pass at `e0550acd`. Its current gate includes
-all five exact cases and 205 Rust regressions across eighteen commands.
-CG-06 is IN_PROGRESS: complete S3 checkpoint/tail recovery, bounded S3 settlement,
-local reclamation, fresh physical genesis, fenced publication, committed activation
-and registered receipt recovery through a fresh quorum pass scoped native/RustFS
-checks. Actual shared-group Docker launch/restart fencing and all-voter-disks-
-deleted RustFS recovery now pass in both image modes; the original complete
-CG-06 gate and unavailable historical raw evidence still need refresh.
-CG-08 due effects and safe cold-cache eviction follow, before CG-07 SDK/fleet
+CG-01 through CG-06 have passed their current scoped native evidence gates at
+e32115aa. The unchanged gate refresh passes 123 commands: 110 exact native cases,
+nineteen pure-logic tests and the shared repository checks. Fresh retained records
+replace the unavailable historical raw artifacts. CG-06's complete archive,
+local reclamation and fresh-history recovery boundary also passes both actual
+Docker/RustFS all-voter-disks-deleted drills with permanent launch revocation,
+fresh-quorum activation, exact receipts, new writes and retained restart.
+CG-08 due effects and safe cache lifetimes follow, before CG-07 SDK/fleet
 cutover. See the latest [progress](progress.md) and [handoff](handoff.md).
 The production SDK/fleet has not yet cut over; topology, hibernation, managed S3
 recovery and deployment/release qualification remain tracked in later tasks.
@@ -50,29 +47,17 @@ The plan runner requires Python 3.11 or newer and Git; it has no Python package 
    only with verified evidence and completed dependencies. Final qualification
    repeats the full capability matrix at one release revision.
 
-Historical native gate records are referenced under the ignored
-`.cellar/cell-groups-evidence/CG-01-ee7f4a8d2dec/`,
-`.cellar/cell-groups-evidence/CG-02-ec9d277e5041/` and
-`.cellar/cell-groups-evidence/CG-03-routing-final/` directories. CG-04 adds
-`.cellar/cell-groups-evidence/CG-04-qualified/` and its supporting
-`.cellar/cell-groups-evidence/CG-04-local-provisioning-final/` directory. A fresh
-checkout must receive these retained directories at the same relative paths
-before validating the first four DONE checkpoints. CG-05 additionally requires
-`.cellar/cell-groups-evidence/CG-05-completion-admission/qualification/` and its
-retained predecessor/reproduction records. Missing evidence fails validation.
-CG-05's earlier partial source checkpoint is retained in
-`.cellar/cell-groups-evidence/CG-05-checkpoint-source/` and the receiver slice in
-`.cellar/cell-groups-evidence/CG-05-checkpoint-receiver/`, followed by owner/runtime
-acceptance in `.cellar/cell-groups-evidence/CG-05-snapshot-owner/`. These partial
-checkpoints and local publication in
-`.cellar/cell-groups-evidence/CG-05-local-checkpoint/`, authenticated transport in
-`.cellar/cell-groups-evidence/CG-05-snapshot-transport/`, automatic policy in
-`.cellar/cell-groups-evidence/CG-05-controller-checkpoints/` and membership in
-`.cellar/cell-groups-evidence/CG-05-group-membership/` remain historical partial records;
-the complete current-source gate above closes CG-05.
-The referenced CG-01–05 raw directories are currently unavailable locally.
-Restore their records or rerun the unchanged exact gates before complete package
-validation. The scoped CG-06 receipt checkpoint does not replace them.
+Current source-scoped records live under the ignored
+`.cellar/cell-groups-evidence/CG-01-06-gates-e32115aa-02/` directory, with one
+`CG-NN-record.json` per completed task. Logs, six copied executables and all source
+hashes are retained locally and backed up on the workspace volume. A fresh
+checkout must receive the same repository-relative evidence paths, or rerun the
+unchanged exact gates before full package validation. The separately scoped local
+Docker/RustFS record is retained under
+`.cellar/cell-groups-evidence/CG-06-docker-f8aacd05/`. Historical CG-01–05 raw
+records remain unavailable; their earlier source-scoped results are documented in
+progress.md and are superseded by the fresh native records. Missing or changed
+evidence still fails validation.
 The design, task briefs and validator unit tests are committed in this package.
 
 ```sh
