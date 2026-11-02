@@ -10,8 +10,8 @@ replace the unavailable historical raw artifacts. CG-06's complete archive,
 local reclamation and fresh-history recovery boundary also passes both actual
 Docker/RustFS all-voter-disks-deleted drills with permanent launch revocation,
 fresh-quorum activation, exact receipts, new writes and retained restart.
-CG-08 due effects and safe cache lifetimes are IN_PROGRESS, before CG-07 SDK/fleet
-cutover. See the latest [progress](progress.md) and [handoff](handoff.md).
+CG-08 due effects and safe cache lifetimes now pass the complete native gate and
+same-source/executable RustFS case. CG-07 SDK/fleet cutover has started in the spare checkout and remains unqualified. See the latest [progress](progress.md) and [handoff](handoff.md).
 The production SDK/fleet has not yet cut over; topology, hibernation, managed S3
 recovery and deployment/release qualification remain tracked in later tasks.
 See [implementation progress](progress.md) and the generated task index.
@@ -38,7 +38,7 @@ The plan runner requires Python 3.11 or newer and Git; it has no Python package 
    behavior and final release gates; they supersede fixed assignment as the final
    target. Fixed assignment is an intermediate milestone only.
 2. Run the commands below from the repository root. `ready` reports dependency
-   eligibility; `show CG-06` emits a complete executor brief, source excerpts,
+   eligibility; `show CG-07` emits a complete executor brief, source excerpts,
    scope, steps, exact test commands and completion rules. It never runs them.
 3. Implement each task in dependency order on the active PR branch or an explicitly
    assigned branch. Preserve working intermediate commits. Do not expose a second
@@ -49,7 +49,7 @@ The plan runner requires Python 3.11 or newer and Git; it has no Python package 
 
 Current source-scoped records live under the ignored
 `.cellar/cell-groups-evidence/CG-01-06-gates-e32115aa-02/` directory, with one
-`CG-NN-record.json` per completed task. Logs, six copied executables and all source
+`CG-NN-record.json` per CG-01–06 task. Logs, six copied executables and all source
 hashes are retained locally and backed up on the workspace volume. A fresh
 checkout must receive the same repository-relative evidence paths, or rerun the
 unchanged exact gates before full package validation. The separately scoped local
@@ -58,13 +58,16 @@ Docker/RustFS record is retained under
 records remain unavailable; their earlier source-scoped results are documented in
 progress.md and are superseded by the fresh native records. Missing or changed
 evidence still fails validation.
+CG-08 current-source evidence lives under
+`.cellar/cell-groups-evidence/CG-08-gates-4ea70e48-01/`; same-executable RustFS
+evidence lives under the `rustfs-4ea70e48/` effects checkpoint described in progress.md.
 The design, task briefs and validator unit tests are committed in this package.
 
 ```sh
 python3 docs/design/multi-raft/cell-groups/plan.py validate
 python3 docs/design/multi-raft/cell-groups/plan.py preflight
 python3 docs/design/multi-raft/cell-groups/plan.py ready
-python3 docs/design/multi-raft/cell-groups/plan.py show CG-06
+python3 docs/design/multi-raft/cell-groups/plan.py show CG-07
 python3 -m unittest discover -s docs/design/multi-raft/cell-groups -p 'test_*.py'
 ```
 
@@ -83,14 +86,19 @@ qualification belongs only to the harness's recorded, owned disposable resources
 
 ### Current executor handoff
 
-Continue from the existing code and retained evidence. CG-01 through CG-05 are
-DONE at their declared native boundaries; CG-06 is dependency-ready and requires
-implementation. Read [progress](progress.md), then run `plan.py show CG-06` for the
-complete archive/reclamation brief. Preserve every group's selected current and
-checkpoint closure, exact cell identities and permanent physical claims. Only
-verified complete remote coverage may settle S3 outputs or authorize archive-policy
-reclamation. A task's current-source gate must pass before marking it DONE; final
-release repeats the complete capability/profile matrix at one revision.
+CG-01 through CG-06 and CG-08 are DONE at their declared scoped boundaries.
+CG-07 is IN_PROGRESS in the spare checkout, with incomplete canonical startup changes.
+Read [progress](progress.md) and [handoff](handoff.md), then run `plan.py show CG-07`
+for canonical SDK/host/fleet cutover. Keep complete group closure, logical cell
+identity, uncertainty, managed admission and physical ownership intact. The public
+cutover and all CG-09 through CG-16 capabilities and release profiles remain
+required. No intermediate gate proves the final combined runtime.
+
+### Historical implementation checkpoints
+
+These checkpoints describe earlier source-scoped work. Current records above
+supersede unavailable historical raw artifacts; the current handoff determines
+what remains. Earlier “next” or IN_PROGRESS statements below are historical.
 
 Physical group genesis, typed replica handles, permanent initial-member claims,
 complete group inventory and invocation-bounded catalog-confirmed redirects are

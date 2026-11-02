@@ -5,12 +5,73 @@
 The executable design and implementation plan is delivered. Remaining
 end-to-end implementation and hard cutover work is specified in the
 [executor handoff](handoff.md).
-CG-01 through CG-06 have passed their scoped native gates;
-CG-08 is IN_PROGRESS; CG-07 and CG-09 through CG-16 remain TODO. Intermediate contracts
+CG-01 through CG-06 and CG-08 have passed their scoped native gates.
+CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
-## CG-08 node effects and disposable SQL lifetimes
+## CG-08 complete effects, cache and RustFS gate
+
+CG-08 is DONE at its bounded shared-runtime effects/cache boundary. Qualified
+source: 4ea70e483e84ca88d77ca062278edb5ff2389646, including origin/main
+81cbbc2f72f302751dd471cf06cf51394146ac63. All twenty-two commands pass: the unchanged
+ten-command task gate, five additional exact effects cases, twenty-four library
+regressions, the complete shared execution target (164 passed, 2 ignored),
+the affected archive-controller suite (16 passed, 20 explicit RustFS ignores),
+and dependency/documentation checks. The task's reviewed source anchors still
+match. Locked all-target check/Clippy, format and layout pass; no source edits
+occurred during the run.
+
+The ten exact native effects cases cover both image forms where applicable:
+logical delivery/proof identity across physical bindings, exact cold reopening,
+due discovery without client traffic, hot/cold fairness, cancellation and actual
+leader transfer, lost receiver replies, held callback/delivery shutdown, S3 claim
+and completion coverage, and real materialized cleanup failure. The cleanup-fault
+case retains ambiguous outcome and one-group capacity, refuses another group's
+registration, and returns the original receipt on the new leader without replay.
+No worker, timer or SQL connection is retained for every idle cell.
+
+Serial RustFS at the preceding 8a source exposed a committed-output race despite
+its passing native gate. SQL had retired before fresh output authority became
+available; retrying SQL reconciliation then produced missing-origin. The current
+pending-output phase retains the exact receipt and archive proof, waits only for
+a fresh serving fence under the original deadline, and preserves typed terminal
+errors. It cannot resurrect a SQL producer, replay a callback or quarantine a
+healthy group. The deterministic physical manifest-sync regression fails before
+the fix and passes both image modes for new and duplicate receipt paths. Failed
+setup attempts, the valid failing baseline and corrected passing snapshots are
+retained under the CG-08-output-repro/fixed checkpoint directories.
+
+The explicit real RustFS case passes at this same source and exact effects
+executable in both image modes. Seven signed S3 probes pass. Claim settlement
+precedes delivery; final complete image/receipt closure is independently restored.
+This is a host-native TLS fixture with the RustFS container in one local VM,
+not a measured workload or independent-domain qualification. The owned backend
+and dedicated VM are stopped, data retained; default Docker context stays colima.
+
+Task record: .cellar/cell-groups-evidence/CG-08-gates-4ea70e48-01/record.json
+(SHA256 a072fb6fd8957b6afd5fdf4dffc88c312a0e34c2e1f5c4cfd81b4d2456ea9d0c). Effects executable SHA256:
+85ceb50508a519e2b1fd5198f47969185438f77c30d09e9de6ab884fd6a7cce6. All 4680 tracked source hashes, stdout/stderr,
+the original runner record and executable are retained and backed up on the
+workspace volume. Commands with empty stdout reference their real nonempty
+stderr as the generic output artifact; exact case outputs remain untouched.
+The unchanged task evidence validator passes. Current RustFS evidence is under
+.cellar/cell-groups-evidence/CG-08-effects-progress-783c270b/rustfs-4ea70e48/.
+Earlier failing fixture runs and predecessor qualifications remain recorded.
+
+Recorded scope update: shared native fixture helpers under crates/cellar/tests/support/
+and the repeatable tools/multi-raft/ RustFS effects selector support the authorized
+local verification. The original archive selector's twenty cases are unchanged.
+Acceptance names, oracles, commands, limits and validator rules are unchanged.
+
+The next critical implementation is CG-07: replace canonical per-cell birth/host
+startup and per-cell binding capacity with group placement and replicated
+enrollment; carry logical cell versions/witnesses through SDK/ingress; convert
+managed lifecycle and accounting to complete groups. Live transfers, topology,
+hibernation, managed recovery, load/crash qualification and final legacy removal
+remain required. This task gate does not qualify the public SDK/fleet cutover.
+
+## Earlier CG-08 implementation checkpoints
 
 The complete successor gate passes all twenty commands at 8a4c5ae0, including
 164 execution cases with zero failures and two explicit RustFS ignores. The

@@ -13,116 +13,68 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 ## Starting point
 
-Latest checkpoint supersedes the earlier run status below: the full 8a4c5ae0
-twenty-command gate passed (164 execution cases, two RustFS ignores), but its
-fully serial RustFS case found a real committed-output fencing race. The current
-runtime correction separates buffered S3 receipt/proof ownership from retired
-SQL. Its deterministic manifest-sync regression passes both image modes for new
-commands and duplicate receipts, without raising the one-item SQL quota or
-resetting deadlines. Preserve the valid failing baseline and all constructor
-failures under CG-08-output-repro-01 through -04, and passing focused snapshots
-under CG-08-output-fixed-01/-02. The runtime correction still requires fresh
-all-target/lint/native/archive regressions and serial real RustFS qualification;
-CG-08 remains IN_PROGRESS. Both owned backend/VM stop operations returned zero.
-Old 8a/e8 closure scripts are obsolete after this production change.
+Reuse codex/shared-cell-groups and [PR 160](https://github.com/crabbuild/cellar/pull/160).
+The isolated effects checkout and PR checkout were reconciled at 4ea70e483e84ca88d77ca062278edb5ff2389646.
+Preserve the user's untracked diagram and both excluded MR progress basenames.
+The current goal remains incomplete: the production SDK/fleet still uses its
+old host and no final combined release or load envelope is qualified.
 
-Use branch codex/shared-cell-groups and the existing
-[PR 160](https://github.com/crabbuild/cellar/pull/160).
-CG-01 through CG-06 now pass their current source-scoped gates. CG-06 is DONE
-at its unmanaged archive/reclamation/disaster-recovery boundary. Native gate
-source: e32115aa3218dc6eaa7ed53e134f413f26305938, including origin/main
-81cbbc2f72f302751dd471cf06cf51394146ac63. All 123 unchanged gate commands pass:
-110 exact native cases, nineteen pure-logic tests, all-target check/Clippy,
-format/layout and dependency/documentation checks. Six retained executable hashes
-and 3257 source hashes bind the evidence.
+CG-01 through CG-06 are DONE at their scoped native boundaries. Their refreshed
+records remain under .cellar/cell-groups-evidence/CG-01-06-gates-e32115aa-02/.
+CG-06 also passes the actual Docker-fenced, all-voter-disks-deleted RustFS drill
+in both image forms at f8aacd05. Fresh history/genesis/quorum activation, receipt
+restoration without replay, S3 minima, old-launch refusal, new writes and retained
+restart are qualified at that unmanaged local boundary. Its Docker record is
+.cellar/cell-groups-evidence/CG-06-docker-f8aacd05/qualification.json.
 
-Fresh records replace the unavailable CG-01–05 raw artifacts in tasks.json:
-.cellar/cell-groups-evidence/CG-01-06-gates-e32115aa-02/CG-01-record.json through
-CG-06-record.json. They are backed up outside the checkout. Each record passes the
-unchanged evidence validator. Full package validation passes with six DONE
-tasks and 44 local links. CG-06 record SHA256:
-29cfff144bb38f5cda6968e5a8d2cf163ff440df0562ec8948059176ab7827b8.
-The reclaim case was rerun with separate real stdout/stderr after its original
-passing merged log's diagnostics interrupted the test result line. Both logs
-remain; no test/validator expectation was weakened.
+CG-08 is now DONE at 4ea70e483e84ca88d77ca062278edb5ff2389646. All twenty-two current-source commands
+pass, including all ten original required commands, ten exact native effects
+cases, twenty-four library regressions and the full shared execution target
+(164 passed, 2 ignored), and the affected archive-controller suite
+(16 passed, 20 explicit RustFS ignores). The same-source/executable real RustFS case passes
+both image modes with seven signed probes and independent full archive replay.
+The backend and dedicated VM are stopped, data retained and default context
+preserved. Source preflight and unchanged task evidence validation pass.
+Record: .cellar/cell-groups-evidence/CG-08-gates-4ea70e48-01/record.json
+SHA256: a072fb6fd8957b6afd5fdf4dffc88c312a0e34c2e1f5c4cfd81b4d2456ea9d0c
+Executable SHA256: 85ceb50508a519e2b1fd5198f47969185438f77c30d09e9de6ab884fd6a7cce6
+All source hashes, real streams, original capture record and executable are
+retained locally and backed up. See [progress](progress.md) for scope and failures.
 
-Actual shared-group Docker voters pass permanent fencing and all-voter-disks-
-deleted RustFS recovery in both image forms at f8aacd05. Its executable inputs
-match the native gate source (only plan documents differ). Pending admission,
-fresh activation/quorum, receipts/floors/S3 minima, old-token/launch refusal, new
-writes, retained restart and every replica's final state pass. All remaining
-processes join normally; the VM is stopped, data retained and default context
-preserved. See [progress](progress.md) and tools/multi-raft/README.md.
-Scoped Docker record:
-.cellar/cell-groups-evidence/CG-06-docker-f8aacd05/qualification.json
-(SHA256 08cf2112d4f91519c00d481a6cea3f8c0e378a242ecef258ac67a182c265e77d).
-Keep credentials, signing material and raw tokens private. Docker API config
-copies avoid the reproduced virtiofs truncation race; controller keys/launch
-ledgers never enter containers. Failed predecessors remain recorded.
+CG-07 is IN_PROGRESS in the spare PR checkout. Its first canonical node service
+and startup changes now select CellGroupRuntime and shared transport. They are
+uncommitted and intentionally incomplete: the old host/SDK/fleet consumers still
+need replacement before that checkout can compile. Preserve both dirty Rust
+files and the user's diagrams. Do not restore legacy startup or add a mode flag.
+The exact source state and remaining work are recorded in the spare checkout's
+.cellar/cell-groups-evidence/CG-07-cutover-progress.json.
+Its reviewed source preflight still matches.
+Read plan.py show CG-07 and the existing production callers before editing.
 
-CG-08 is IN_PROGRESS, followed by CG-07 SDK/fleet cutover. The committed due-index
-foundation is 783c270b. The isolated effects checkout retains the exact predecessor
-five-case execution run. Its expanded compile check and all five native-10
-lifecycle cases pass in both image modes. The preceding native-09 run passes four
-cases while an ordinary follower campaign times out under the healthy leader
-lease. The test-only correction uses real TimeoutNow transfer inside the same
-deadline. Preserve both source/executable/log records. Native-10 is terminal;
-source can now be reconciled with the successor checkout.
+1. Replace canonical host/startup/registration with group placement and cell
+   enrollment; do not add a legacy/shared toggle. Use the existing shared runtime,
+   controller, coalesced provisioning, directory and registered dispatch owners.
+2. Replace per-cell binding capacity with bounded namespace/class registrations
+   and separate group/cell occupancy. SDK handles stay cell-addressed and carry
+   logical cell versions with their original commit witnesses. Preserve typed
+   ambiguity, caller command identities, strong reads and ingress authorization.
+3. Convert managed import, capacity, repair, drain, maintenance, stop/return/resume
+   and topology to complete group replicas while retaining CAS journals,
+   permissions and disruption debt. Update native/Axum/admin/CLI/examples together.
+4. Qualify all five original CG-07 cases and its complete source/evidence gate.
+   Occupancy one must use the same path. Feature-off Fleet contracts remain intact.
 
-The existing PR checkout contains the successor implementation and new
-native_cell_groups_effects target: exact cold-cache reopening, cold-cell discovery,
-logical delivery/proof identity under two independent physical group bindings,
-SQL/dispatch custody, joined shutdown, and normal/explicit RustFS S3 closure cases.
-All eight successor native cases now pass in both image modes, including the five
-declared cases and S3 coverage through the normal adapter. The exact real RustFS
-case also passes in both image modes at e4901835 with seven signed probes and
-source/executable/backend binding. Its backend/VM are stopped, data retained.
-The extra cleanup-fault case passes actual leader handoff, ambiguous storage
-failure, retained one-group quota and receipt retry without callback replay.
-Twenty-four library regressions and strict lint pass. Complete successor task
-evidence and affected execution regressions remain before closing CG-08.
-See the current [progress](progress.md). Local raw records/continuation remain
-ignored and backed up outside the checkout. Preserve the user's untracked diagram
-and both excluded MR progress basenames. Reconcile both checkouts only after the
-source-bound predecessor run terminates; reuse PR 160 and one final runtime.
+The source-bound investigation record in the spare PR checkout is ignored:
+.cellar/cell-groups-evidence/CG-07-startup-inspection-e8edfd12.json.
+It records integration gaps, not implementation evidence. CG-09 through CG-16
+remain TODO: transfers, topology, placement, hibernation, managed recovery,
+workload/crash qualification and deletion of superseded consumers.
+The full goal stays active. Final CG-16 repeats every required capability and
+profile at one release source; earlier isolated passes cannot qualify it.
 
-The e8edfd12 full gate is now terminal: all ten required commands, four extra
-effects cases, twenty-four library regressions and the exact same-binary real
-RustFS effects case pass. Its expanded execution target passes 162 cases but
-fails two obsolete outbox-projection fixtures; two RustFS cases are ignored.
-The test-only correction adds lane/sequence and a blocked later row. Both failing
-cases now pass with the earliest runnable head and all pending rows asserted.
-Preserve the failed full gate and partial correction records. Rerun the complete
-gate at the committed successor before closing CG-08. Its source remains frozen
-while a source-bound job runs; poll its exact handle instead of restarting.
-The owned RustFS backend and dedicated VM are stopped and default context stays
-colima. The separate same-source RustFS record is under rustfs-e8edfd12/ in the
-effects checkpoint. The earlier current-source statement above is superseded by
-this checkpoint. CG-07's reviewed anchors still match; the spare PR checkout has
-a source-bound startup inspection record, without any cutover completion claim.
-
-1. Finish the due-index validation and wire bounded fair node effect discovery,
-   exact committed-image scans and sealed private system commands into the shared
-   controller. Preserve current CellHistory-based identities and receiver dedupe.
-2. Drive alarm/outbox work without client requests, retaining unknown delivery and
-   SQL producer ownership through leadership change, cancellation and shutdown.
-   Qualify the current close-on-settle/exact-root reopen policy under hot/cold work.
-3. Complete the original five CG-08 cases, then cut public SDK/fleet consumers over
-   in CG-07. Topology, hibernation, managed recovery, load/crash qualification and
-   removal of old consumers remain later tasks. The full goal stays active.
-
-The required nullable recovery metadata remains an internal marker-1 hard
-cutover. There is no legacy reader, state migration or permanent mode flag.
-PreparedCellGroupRecovery is private data preparation; only the sealed physical
-seed, recovered-bootstrap and activation contracts admit their respective next
-steps. Never reopen owned page/image directories or cast archive ownership into
-engine authority. Keep unknown outcomes and physical joins owned.
-
-CG-08 follows CG-06: implement bounded fair due-work scheduling independent of
-client requests and qualify the current close-on-settle/exact-root reopen policy.
-Preserve effect identity and unresolved delivery outcomes. Then perform CG-07
-public SDK/fleet cutover. CG-09–16 topology, placement, hibernation, managed
-recovery, crash/load qualification and final legacy removal remain required.
+Required nullable recovery metadata stays an internal marker-1 hard cutover.
+There is no legacy reader or state migration. Prepared recovery data alone is
+never engine/serving authority. Keep unknown outcomes and physical joins owned.
 
 The prior whole-group fencing-barrier source is
 65c5176975907fb52a53deca58e1ae1f5ba7adec, with 211 native cases and four real RustFS
