@@ -10,7 +10,64 @@ CG-06 is IN_PROGRESS; CG-07 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
-## CG-06 fresh quorum and registered receipt recovery
+## CG-06 Docker-fenced, all-voter-disks-deleted recovery
+
+Source: f8aacd052591b7d3a31ea7ca426bef10d9d845cf, containing freshly fetched
+origin/main 81cbbc2f72f302751dd471cf06cf51394146ac63. CG-06 remains IN_PROGRESS
+pending its original complete gate and evidence refresh.
+
+The actual shared-group Docker/RustFS drill now passes in both materialized and
+extent modes. Three voter processes replicate three independent SQLite cells in
+one group. Four registered source commands receive S3 acknowledgements. The
+trusted sole-launcher controller fsyncs permanent generation revocation, confirms
+all three immutable old containers and voter volumes are absent, and only then
+signs the exact recovery request. Reloading the controller refuses the revoked
+generation; missing/forged certificates and recreated old disks are refused.
+Its private key and launcher ledger never enter a voter or operator container.
+
+Three cold S3 restorations select the same complete genesis binding under fresh
+group/cell/node/member/disk/engine identities. Pending application writes and all
+read modes refuse. Actual TLS Raft replication commits and applies activation
+before serving. Exact old receipt results preserve their original incarnation
+without callbacks, Quorum retries retain stored S3 minimums, expired client floors
+and conflicts refuse, and old tokens remain valid only for their old history.
+New S3 writes succeed. Every fresh voter stops and resumes its retained disk with
+new process identities; imported and new receipts still avoid replay, another new
+write succeeds, and all three replicas' values, versions and incarnations match.
+Every remaining owned process joins normally; both runs retain their object and
+new voter volumes. All voter and operator containers capture one CPU/3 GiB with
+no extra swap; each RustFS captures one CPU/2 GiB.
+
+The runner and native node live in tools/multi-raft/group_disaster.py and
+tools/multi-raft/node/. Configurations are copied through the Docker API with
+exact byte readback before startup. A real Docker regression verifies snapshot
+isolation from later host replacements and exclusion of the controller key.
+A separate 150-read probe reproduced 38 truncated JSON reads through mutable
+virtiofs bind mounts; that transport is no longer used. Retained failed runs also
+cover the initial unshared output path, wildcard transport endpoint mismatch and
+an oracle that incorrectly expected genesis version after a later write.
+The corrected oracle keeps exact original results and checks the current cell
+observation (alpha version 2 after the first new write, beta version 1), with zero
+replayed callbacks. No production assertion or protocol was weakened.
+
+Scoped record: .cellar/cell-groups-evidence/CG-06-docker-f8aacd05/qualification.json
+(SHA256 08cf2112d4f91519c00d481a6cea3f8c0e378a242ecef258ac67a182c265e77d).
+Deployed executable SHA256:
+ea5e554d781cdd8004891d28ec8ecfb0abb0664ac5e372a135f0585842045be8.
+The record binds both reports, source manifest, raw ledger/log hashes and actual
+container/VM resources. Private credentials/signing material stay outside Git;
+sanitized scoped evidence is copied locally and backed up on the workspace volume.
+This is a local correctness result, without managed recovery, external effects,
+sustained load, independent hosts, Amazon S3 or a recovery-time SLA claim.
+
+The original five-case CG-06 native gate and all-target checks still need a fresh
+complete record. Historical CG-01–05 raw records remain unavailable; package
+validation refuses the missing CG-01 record. Restore or rerun the original gates,
+without changing validation or historical task boundaries. Then prioritize CG-08
+bounded effect discovery/execution and exact-root cold-cache reopening, followed
+by CG-07 public SDK/fleet cutover.
+
+## Earlier CG-06 native quorum and receipt checkpoint
 
 Source: 9a0bad9124f0089055a0ba63b2952e5ef5e77853, including origin/main 81cbbc2f72f302751dd471cf06cf51394146ac63. CG-06 remains IN_PROGRESS.
 Fresh recovery now installs the complete imported root and physical Raft genesis

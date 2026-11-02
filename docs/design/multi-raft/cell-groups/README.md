@@ -10,7 +10,9 @@ all five exact cases and 205 Rust regressions across eighteen commands.
 CG-06 is IN_PROGRESS: complete S3 checkpoint/tail recovery, bounded S3 settlement,
 local reclamation, fresh physical genesis, fenced publication, committed activation
 and registered receipt recovery through a fresh quorum pass scoped native/RustFS
-checks. Actual shared-group Docker launch/restart fencing is the immediate gate.
+checks. Actual shared-group Docker launch/restart fencing and all-voter-disks-
+deleted RustFS recovery now pass in both image modes; the original complete
+CG-06 gate and unavailable historical raw evidence still need refresh.
 CG-08 due effects and safe cold-cache eviction follow, before CG-07 SDK/fleet
 cutover. See the latest [progress](progress.md) and [handoff](handoff.md).
 The production SDK/fleet has not yet cut over; topology, hibernation, managed S3

@@ -15,39 +15,44 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 
 Use branch codex/shared-cell-groups and the existing
 [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The latest tested source is 9a0bad9124f0089055a0ba63b2952e5ef5e77853, containing origin/main 81cbbc2f72f302751dd471cf06cf51394146ac63.
-Fresh physical genesis, exact fenced publication, committed activation and
-fresh-quorum admission are implemented. Registered receipt recovery now passes
-through production TLS/controllers/SQL and the replacement archive in both image
-forms. Archive/catalog suites pass 47 cases; five exact real RustFS cases pass in
-both forms with seven signed S3 probes. All-target Cellar/logic Clippy and the
-scoped format/layout/dependency/documentation checks pass.
+The latest Docker-qualified source is f8aacd052591b7d3a31ea7ca426bef10d9d845cf,
+containing freshly fetched origin/main 81cbbc2f72f302751dd471cf06cf51394146ac63.
+Actual shared-group Docker voters pass the complete permanent-fencing and
+all-voter-disks-deleted RustFS drill in both image modes. Exact genesis, pending
+admission refusal, fresh-quorum activation, restored receipts/floors/S3 minimums,
+old-token and old-launch refusal, new writes, retained restart and every replica's
+final state are checked. Every remaining owned process joins normally.
 
-See [progress](progress.md) for the scope and limitations. The scoped record is
-.cellar/cell-groups-evidence/CG-06-recovery-genesis-settlement/receipt-recovery-qualification.json (SHA256 eb0efe6af7d4e6bed3a9801d821e0ea8e48058f7ce949cdc01912a74642fe25d). This is not a complete CG-06 gate.
+See [progress](progress.md) and tools/multi-raft/README.md for the scope and runner.
+The scoped record is
+.cellar/cell-groups-evidence/CG-06-docker-f8aacd05/qualification.json
+(SHA256 08cf2112d4f91519c00d481a6cea3f8c0e378a242ecef258ac67a182c265e77d).
+It is backed up outside this checkout. Raw command/token/credential files remain
+private outside Git. Four failed predecessors are retained and explained.
+Do not repeat the former mutable host config bind: a 150-read probe reproduced
+38 truncated JSON observations through virtiofs. Docker API copies now verify
+exact immutable config bytes before process startup, including retained restart.
+The real Docker configuration regression passes.
+
+The earlier native/RustFS receipt source is
+9a0bad9124f0089055a0ba63b2952e5ef5e77853: 47 archive/catalog cases and five exact
+RustFS recovery cases in both forms, seven signed probes and all-target checks.
+Its scoped record remains in progress.md. Historical results stay source-scoped.
 CG-06 remains IN_PROGRESS; the full hard-cutover goal remains active.
 
-The most critical next work is the accepted Docker fencing qualification:
+The critical next work is formal CG-06 closure:
 
-1. Add an actual shared-group voter path to the Docker qualification harness.
-   Its current raft_node.rs/raft_disaster.py path still uses the older per-cell
-   runtime. Use three real voter containers and a durable source command ledger;
-   archive complete group checkpoint/tail state against RustFS.
-2. Reuse the controller's exact owner/container/volume checks and private signing
-   key. Durably revoke the old deployment in the sole launcher's policy before
-   signing. Disable restarts, stop/join every possible old writer, remove the
-   immutable containers and all voter volumes, and confirm absence. Reload the
-   controller and prove old-deployment launch remains refused. No additional
-   provider choice or approval is needed: fencing-authority API plus Docker
-   qualification was already accepted.
-3. Run the recovery operator with only the exact held S3 cut, request and signed
-   certificate. Seed fresh node/member/disk/process/engine identities, publish
-   once under the recovery lock and commit/apply activation through the fresh
-   quorum. Recheck original results, stored S3 minimums, client floors, old-token
-   refusal and no duplicate callback; perform new writes and retained restart.
-4. Finish the original CG-06 gate without changing its commands or oracle.
-   Restore or refresh the unavailable CG-01–05 raw evidence before claiming
-   complete package validation. Keep the source hold as recovery provenance.
+1. Run the unchanged original five exact native cases, inventory and all-target
+   check/Clippy, format/layout commands at the current source. Retain the actual
+   executable, outputs and source hashes in one task record. The Docker result
+   closes the requested deployment drill, not this full record by itself.
+2. Restore or refresh unavailable CG-01–05 raw evidence before claiming complete
+   package validation. The validator currently refuses the missing CG-01 record;
+   do not waive that check or rewrite historical results.
+3. Close CG-06 only after its complete evidence passes. Then implement CG-08's
+   bounded fair due-work scheduler and qualify close-on-settle/exact-root reopen,
+   followed by CG-07 public SDK/fleet cutover. Keep the accepted external fencing
+   contract; no provider approval is needed.
 
 The required nullable recovery metadata remains an internal marker-1 hard
 cutover. There is no legacy reader, state migration or permanent mode flag.
