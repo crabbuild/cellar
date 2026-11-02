@@ -84,6 +84,7 @@ async fn replace(s: &Setup, from_s3: bool) -> Result<Replaced> {
     .await?;
     // Warm only actual physical observations. The terminal API must independently
     // obtain its own fresh quorum and complete physical probes afterward.
+    let last_inventory = std::sync::Mutex::new(Vec::new());
     s.f.domain
         // Observe a multi-node retirement, not one control operation. Each
         // physical probe retains its original five-second deadline.
@@ -91,12 +92,41 @@ async fn replace(s: &Setup, from_s3: bool) -> Result<Replaced> {
             loop {
                 let cut = s.f.catalog.read(TIMEOUT).await?;
                 let mut complete = true;
-                for node in &s.nodes {
-                    let observed = node
-                        .host
-                        .inspect_peer_physical_inventory(node.spec.node, cut.revision(), TIMEOUT)
+                let mut round = Vec::new();
+                for (node, host, owner) in s
+                    .nodes
+                    .iter()
+                    .map(|n| (n.spec.node, &n.host, &n.node))
+                    .chain(std::iter::once((
+                        request.plan.replacement.node,
+                        &s.target,
+                        &s.target_node,
+                    )))
+                {
+                    let observed = host
+                        .inspect_peer_physical_inventory(node, cut.revision(), TIMEOUT)
                         .await?;
+                    round.push(format!(
+                        "node={:?} closed={} workers={} history={:?}",
+                        node,
+                        owner.is_closed(),
+                        observed.view.seed_workers,
+                        observed
+                            .inventory
+                            .as_ref()
+                            .unwrap()
+                            .history(&request.resources.group)?
+                            .map(|h| (h.member(), h.completed_sequence(), h.in_configuration()))
+                    ));
+                    *last_inventory.lock().unwrap() = round.clone();
                     complete &= observed.view.seed_workers == 0
+                        && observed.view.pending_history_registrations == 0
+                        && observed
+                            .inventory
+                            .as_ref()
+                            .unwrap()
+                            .initializing()
+                            .is_none()
                         && observed
                             .inventory
                             .as_ref()
@@ -111,7 +141,12 @@ async fn replace(s: &Setup, from_s3: bool) -> Result<Replaced> {
             }
         }))
         .await?
-        .context("replacement physical histories did not settle")??;
+        .with_context(|| {
+            format!(
+                "replacement physical histories did not settle: {:?}",
+                last_inventory.lock().unwrap()
+            )
+        })??;
     Ok(Replaced {
         cells,
         target,
@@ -134,6 +169,60 @@ async fn completion(
             attestation: s.request(0, id, cut.revision()).await?.attestation,
         },
     ))
+}
+
+// Both terminal operations have exact request identities and durable receipts.
+// A transient pre-commit refusal must not masquerade as the injected lost reply.
+async fn lose_terminal_confirmation<F, Fut, T>(s: &Setup, mut work: F) -> Result<()>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = std::result::Result<T, FleetCatalogError>>,
+{
+    use cellar::application::consensus::InspectionError;
+    s.f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+            let mut attempts = 0;
+            loop {
+                attempts += 1;
+                let pre_cas_armed = s.f.store.fail_fleet_before.load(Ordering::Acquire);
+                let result = work().await;
+                if !s.f.store.fail_fleet_confirmation.load(Ordering::Acquire) {
+                    ensure!(
+                        result.is_err(),
+                        "lost terminal confirmation was acknowledged"
+                    );
+                    ensure!(
+                        attempts >= 2,
+                        "pre-CAS refusal did not require an exact retry"
+                    );
+                    ensure!(!s.f.store.fail_fleet_before.load(Ordering::Acquire));
+                    return Ok::<_, anyhow::Error>(());
+                }
+                match result {
+                    // The store reports an ambiguous write even for our known
+                    // pre-CAS injection. Only that consumed fault authorizes
+                    // this test's exact-identity retry; other storage errors fail.
+                    Err(FleetCatalogError::Storage(_))
+                        if pre_cas_armed
+                            && !s.f.store.fail_fleet_before.load(Ordering::Acquire) =>
+                    {
+                        cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                    }
+                    Err(FleetCatalogError::Unconfirmed | FleetCatalogError::Overloaded)
+                    | Err(FleetCatalogError::Observation(
+                        InspectionError::Unavailable
+                        | InspectionError::Overloaded
+                        | InspectionError::StalePeer
+                        | InspectionError::Unreachable,
+                    )) => cellar::asyncrt::sleep(Duration::from_millis(10)).await,
+                    Err(error) => return Err(error.into()),
+                    Ok(_) => anyhow::bail!("terminal operation bypassed confirmation loss"),
+                }
+            }
+        }))
+        .await?
+        .context("terminal operation did not reach its confirmation-loss fault")??;
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -234,15 +323,15 @@ async fn fleet_movement_completion_lost_reply_survives_target_shutdown() -> Resu
     let s = Box::pin(Setup::new(true)).await?;
     let r = replace(&s, false).await?;
     let (cut, request) = completion(&s, &r.request, 230).await?;
+    s.f.store.fail_fleet_before.store(true, Ordering::Release);
     s.f.store
         .fail_fleet_confirmation
         .store(true, Ordering::Release);
-    ensure!(s
-        .f
-        .catalog
-        .complete_movement(&cut, &request, &s.target, TIMEOUT)
-        .await
-        .is_err());
+    lose_terminal_confirmation(&s, || {
+        s.f.catalog
+            .complete_movement(&cut, &request, &s.target, TIMEOUT)
+    })
+    .await?;
     let root = s.f.catalog.read(TIMEOUT).await?;
     ensure!(root.revision() == cut.revision() + 1);
     joined(s.target_node).await?;

@@ -57,51 +57,62 @@ async fn finish(
     observer: &RaftCells,
 ) -> Result<Vec<FleetMovementPhase>> {
     // Four distinct remote/configuration/settlement turns each retain the
-    // existing five-second operation bound. The cohort has one overall bound.
-    s.f.domain
-        .run(cellar::asyncrt::timeout(TIMEOUT * 4, async {
-            let mut phases = Vec::new();
-            let mut last_error = None;
-            for _ in 0..64 {
-                let catalog = Fixture::open_catalog(&s.f.domain, s.f.store.clone())?;
-                let cut = match catalog.read(TIMEOUT).await {
-                    Ok(cut) => cut,
-                    Err(
-                        FleetCatalogError::Storage(_)
-                        | FleetCatalogError::Unconfirmed
-                        | FleetCatalogError::Overloaded,
-                    ) => {
-                        cellar::asyncrt::sleep(Duration::from_millis(20)).await;
-                        continue;
-                    }
-                    Err(error) => return Err(error.into()),
-                };
-                match catalog
-                    .reconcile_movement(&cut, request, observer, TIMEOUT)
-                    .await
-                {
-                    Ok(progress) => {
-                        ensure!(progress.reservation == request.reservation);
-                        phases.push(progress.phase);
-                        if progress.settled {
-                            return Ok::<_, anyhow::Error>(phases);
+    // existing five-second operation bound. Transient observations consume
+    // time within the same overall bound, not the protocol-transition budget.
+    let mut phases = Vec::new();
+    let mut last_error = None;
+    let finished =
+        s.f.domain
+            .run(cellar::asyncrt::timeout(TIMEOUT * 4, async {
+                loop {
+                    let catalog = Fixture::open_catalog(&s.f.domain, s.f.store.clone())?;
+                    let cut = match catalog.read(TIMEOUT).await {
+                        Ok(cut) => cut,
+                        Err(
+                            error @ (FleetCatalogError::Storage(_)
+                            | FleetCatalogError::Unconfirmed
+                            | FleetCatalogError::Overloaded),
+                        ) => {
+                            last_error = Some(error.to_string());
+                            cellar::asyncrt::sleep(Duration::from_millis(20)).await;
+                            continue;
                         }
+                        Err(error) => return Err(error.into()),
+                    };
+                    match catalog
+                        .reconcile_movement(&cut, request, observer, TIMEOUT)
+                        .await
+                    {
+                        Ok(progress) => {
+                            ensure!(progress.reservation == request.reservation);
+                            if phases.last() != Some(&progress.phase) {
+                                ensure!(
+                                    phases.len() < 64,
+                                    "movement protocol transitions exhausted: {phases:?}"
+                                );
+                                phases.push(progress.phase);
+                            }
+                            if progress.settled {
+                                return Ok::<_, anyhow::Error>(phases.clone());
+                            }
+                        }
+                        Err(
+                            error @ (FleetCatalogError::Overloaded
+                            | FleetCatalogError::Unconfirmed
+                            | FleetCatalogError::Conflict
+                            | FleetCatalogError::Storage(_)),
+                        ) => last_error = Some(error.to_string()),
+                        Err(error) => return Err(error.into()),
                     }
-                    Err(
-                        error @ (FleetCatalogError::Overloaded
-                        | FleetCatalogError::Unconfirmed
-                        | FleetCatalogError::Conflict
-                        | FleetCatalogError::Storage(_)),
-                    ) => last_error = Some(error.to_string()),
-                    Err(error) => return Err(error.into()),
+                    cellar::asyncrt::sleep(Duration::from_millis(20)).await;
                 }
-                cellar::asyncrt::sleep(Duration::from_millis(20)).await;
-            }
-            anyhow::bail!(
-                "bounded movement turns exhausted: {phases:?}; last error: {last_error:?}"
-            )
-        }))
-        .await??
+            }))
+            .await?;
+    finished.with_context(|| {
+        format!(
+            "movement exceeded its original time budget: {phases:?}; last error: {last_error:?}"
+        )
+    })?
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -266,7 +277,9 @@ async fn fleet_executor_duplicate_turns_consume_one_permit() -> Result<()> {
     let cut = s.f.catalog.read(TIMEOUT).await?;
     ensure!(cut.revision() == ac.revision());
     ensure!(s.f.catalog.pending_movements(&cut, TIMEOUT).await?.len() == 1);
-    let phases = finish(&s, &request, &s.target).await?;
+    let (finished, remaining) = fault::fail_fleet_reads(65, finish(&s, &request, &s.target)).await;
+    let phases = finished?;
+    ensure!(remaining == 0, "scoped read refusals were not consumed");
     ensure!(phases.last() == Some(&FleetMovementPhase::Complete));
     let target = s.target.cell(
         movement.resources.group.namespace,

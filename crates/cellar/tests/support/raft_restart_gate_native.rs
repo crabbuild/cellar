@@ -235,7 +235,7 @@ fn cancel(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_restart_gate_drains_accepted_http_and_preserves_consensus() -> Result<()> {
-    let (s, signals, mut entered) = held().await?;
+    let (s, signals, mut entered) = held().await.context("prepare held HTTP fixture")?;
     let p = primary(&s.f, &s.cells).await?;
     *signals
         .command
@@ -283,7 +283,11 @@ async fn fleet_restart_gate_drains_accepted_http_and_preserves_consensus() -> Re
         .await?
         .is_err());
     ensure!(!s.nodes[p].node.is_closed());
-    s.nodes[p].host.observe_node(TIMEOUT).await?;
+    s.nodes[p]
+        .host
+        .observe_node(TIMEOUT)
+        .await
+        .context("observe quiescing node")?;
     signals.release.add_permits(1);
     let (status, bytes) = response.await??;
     ensure!(
@@ -315,18 +319,40 @@ async fn fleet_restart_gate_drains_accepted_http_and_preserves_consensus() -> Re
         .await
         .is_err());
     ensure!(!s.nodes[p].node.is_closed());
-    let state = s.cells[p].inspect().await?.member.context("member")?;
+    let state = s.cells[p]
+        .inspect()
+        .await
+        .context("inspect quiesced leader before transfer")?
+        .member
+        .context("member")?;
     let q = (p + 1) % 3;
-    s.cells[p]
-        .transfer_leadership(
-            LeadershipTransfer {
-                expected_term: state.term,
-                expected_revision: state.membership_revision,
-                target: MemberId::new(q as u64 + 1)?,
-            },
-            TIMEOUT,
-        )
-        .await?;
+    // Overloaded is a pre-transfer refusal (busy protocol or lagging target).
+    // Keep the exact term/revision/target and the original operation budget;
+    // a lost or unavailable response does not authorize another transfer.
+    s.f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+            loop {
+                match s.cells[p]
+                    .transfer_leadership(
+                        LeadershipTransfer {
+                            expected_term: state.term,
+                            expected_revision: state.membership_revision,
+                            target: MemberId::new(q as u64 + 1)?,
+                        },
+                        TIMEOUT,
+                    )
+                    .await
+                {
+                    Ok(()) => return Ok::<_, anyhow::Error>(()),
+                    Err(CommandFailure::Overloaded) => {
+                        cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        }))
+        .await?
+        .context("transfer quiesced leadership exceeded its original budget")??;
     s.f.domain
         .run(cellar::asyncrt::timeout(TIMEOUT, async {
             loop {
@@ -343,7 +369,8 @@ async fn fleet_restart_gate_drains_accepted_http_and_preserves_consensus() -> Re
             5i64.to_be_bytes().to_vec(),
             public_node::options(3)?,
         )
-        .await?;
+        .await
+        .context("write after quiesced leader transfer")?;
     ensure!(
         i64::from_be_bytes(
             written
@@ -384,7 +411,9 @@ async fn fleet_restart_gate_drains_accepted_http_and_preserves_consensus() -> Re
         .await
         .is_err());
     ensure!(client.get(format!("{url}/probe")).send().await?.status() == 200);
-    write_read(&s.f, &s.cells, 4, 7, 28).await?;
+    write_read(&s.f, &s.cells, 4, 7, 28)
+        .await
+        .context("write/read after gate cancellation")?;
     s.close().await
 }
 

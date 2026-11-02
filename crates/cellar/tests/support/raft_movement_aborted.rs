@@ -111,15 +111,15 @@ async fn retained_case() -> Result<()> {
     warm_owners(&s, &started).await?;
     write_read(&s.f, &started.cells, 2, 5, 12).await?;
     let (cut, request) = completion(&s, &started.movement, 230).await?;
+    s.f.store.fail_fleet_before.store(true, Ordering::Release);
     s.f.store
         .fail_fleet_confirmation
         .store(true, Ordering::Release);
-    ensure!(s
-        .f
-        .catalog
-        .settle_aborted_movement(&cut, &request, &s.target, TIMEOUT)
-        .await
-        .is_err());
+    lose_terminal_confirmation(&s, || {
+        s.f.catalog
+            .settle_aborted_movement(&cut, &request, &s.target, TIMEOUT)
+    })
+    .await?;
     ensure!(s.f.catalog.read(TIMEOUT).await?.revision() == cut.revision() + 1);
     let catalog = Fixture::open_catalog(&s.f.domain, s.f.store.clone())?;
     let current = catalog.read(TIMEOUT).await?;

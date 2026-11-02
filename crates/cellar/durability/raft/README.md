@@ -902,10 +902,15 @@ refund queued/in-flight work. Peer and node usage counters expose held bytes and
 items; permits release on completion, refusal, close and domain cancellation.
 
 Before applying a committed configuration, the replica drains ownership of its
-already-emitted protocol sends so membership revocation cannot invalidate their
-delivery. Later ordinary Ready work waits behind this finite fence; an unstable
-snapshot retains priority. Send completion only releases ownership: configuration
-application still requires its own durable write.
+already-emitted protocol sends and admits at most one pending Ready batch under
+the ordinary byte/apply budgets. That batch can contain the removed member's
+commit notification. The leader queues a single final append to removed members,
+using a temporary probe while preserving their real matched/inflight progress;
+normal flow control may otherwise pause the terminal update until after removal.
+Subsequent Ready work waits behind this finite fence, so
+new heartbeats cannot extend it indefinitely; an unstable snapshot retains
+priority. Send completion only releases ownership: configuration application
+still requires its own durable write.
 
 Receiver frame admission validates the current member and bounded message before
 queueing it, without waiting for that group's Ready or image installation. Raft
