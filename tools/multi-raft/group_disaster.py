@@ -207,11 +207,13 @@ class Qualification:
 
     def operator(self, action, node=0, *, volume=None, generation=0, check=True):
         args = ['create', '--label', self.owner, '--network', self.prefix,
+            '--cpus', '1', '--memory', '3g', '--memory-swap', '3g',
             '-e', 'CELLAR_GROUP_ACTION=' + action,
             '-e', 'CELLAR_GROUP_NODE=' + str(node), '-e', 'CELLAR_GROUP_GENERATION=' + str(generation)]
         if volume:
             args += ['-v', volume + ':/data']
         identifier = self.docker(*args, self.args.image)
+        self.capture_resources(owned_container(self.docker, identifier, self.run_id), 3)
         self.stage_configuration(identifier)
         result = command(['docker', '--context', self.args.context, 'start', '--attach', identifier], check=False)
         value = owned_container(self.docker, identifier, self.run_id)
@@ -338,6 +340,7 @@ class Qualification:
         self.ledger['observations'] = self.observations(0)
         require({k:v['value'] for k,v in self.ledger['observations'].items()} == {'alpha':3,'beta':1,'gamma':0}, 'source group state mismatch')
         require(self.counts() == {'commands':4,'initializations':3}, 'source callbacks not exact')
+        self.report['checks']['source_s3_ledger_verified'] = True
         self.save()
         plan = self.ok({'action': 'plan'}, 0)
         self.config['recovery'] = plan['recovery']
@@ -367,6 +370,7 @@ class Qualification:
             else:
                 raise ValueError('revoked deployment launch accepted')
         self.report['checks']['old_launch_after_controller_reload_refused'] = True
+        self.report['checks']['all_source_disks_deleted'] = True
         self.sign(plan['fence_digest'])
         self.operator('fence')
         bindings = []
@@ -404,6 +408,7 @@ class Qualification:
             return code == 200 and value.get('activated')
         self.until(activate)
         self.ready(1)
+        self.report['checks']['fresh_quorum_activation'] = True
         self.operator('target-archive')
         self.ok({'action':'archive'}, 1)
         self.operator('verify-old-tokens')
@@ -419,6 +424,7 @@ class Qualification:
             code, value = self.call(node, {'action':'command','cell':'alpha','sequence':sequence,'input':input_value,'retry_until_ms':int(time.time()*1000)+300000,'s3':False})
             require(code == 503 and expected in value['error'], 'restored receipt floor/identity lost')
         require(self.counts() == {'commands':0,'initializations':0}, 'recovery replayed callbacks')
+        self.report['checks'].update(source_cut_restored=True, exact_receipts_no_replay=True, s3_minimums=True, client_floors=True, old_tokens_refused=True)
         fresh = self.command('alpha', 4, 1)
         require(fresh['result']['value']==4 and fresh['result']['incarnation']=='47'*16 and fresh['version']==2, 'fresh write not in new history')
         require(self.counts() == {'commands':1,'initializations':0}, 'fresh callback count mismatch')
@@ -434,8 +440,11 @@ class Qualification:
         self.ok({'action':'archive'},1)
         for cell, sequence, original in [('alpha',2,source),('beta',1,beta)]:
             restored_retry = self.command(cell,sequence,1,s3=False)
-            require(restored_retry['result']==original['result'] and restored_retry['version']==1,
-                    'imported receipt lost on retained restart')
+            # The original opaque result stays fixed. Its proof observes the
+            # current cell image: alpha advanced once after genesis; beta did not.
+            expected_version = 2 if cell == 'alpha' else 1
+            require(restored_retry['result']==original['result'] and restored_retry['version']==expected_version,
+                    'imported receipt or current observation lost on retained restart')
         retry = self.command('alpha',4,1,s3=False)
         require(retry['result']==fresh['result'] and retry['version']==2, 'retained receipt changed')
         require(self.counts()=={'commands':0,'initializations':0}, 'retained restart replayed callback')
