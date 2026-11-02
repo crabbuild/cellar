@@ -205,6 +205,9 @@ impl Scenario {
 struct Evidence {
     target: RaftCells,
     request: FleetMovementExecutionRequest,
+    delay: Duration,
+    fail_first: bool,
+    attempts: AtomicUsize,
 }
 
 impl FleetMovementEvidence for Evidence {
@@ -221,6 +224,10 @@ impl FleetMovementEvidence for Evidence {
         >,
     > {
         Box::pin(async move {
+            cellar::asyncrt::sleep(self.delay).await;
+            if self.attempts.fetch_add(1, Ordering::AcqRel) == 0 && self.fail_first {
+                return Err(FleetCatalogError::Unconfirmed);
+            }
             if movement.reservation != self.request.reservation {
                 return Err(FleetCatalogError::Conflict);
             }
@@ -252,7 +259,9 @@ async fn fleet_topology_long_walk_refreshes_nodes_and_seeds_latest_sql() -> Resu
 async fn delivery(long_walk: bool) -> Result<()> {
     let mut f = Box::pin(Scenario::new(true)).await?;
     for round in 0..2 {
-        discover(&f.s.f, &f.hosts()).await?;
+        discover(&f.s.f, &f.hosts())
+            .await
+            .with_context(|| format!("topology discovery round {round}"))?;
         let request = f.request().await?;
         let mut collection = f
             .collection(&request)
@@ -284,7 +293,11 @@ async fn delivery(long_walk: bool) -> Result<()> {
                 .await?;
             ensure!(f.s.f.catalog.read(TIMEOUT).await?.revision() == revision);
         }
-        while collection.verify_next(TIMEOUT).await? {}
+        while collection
+            .verify_next(TIMEOUT)
+            .await
+            .with_context(|| format!("topology verification round {round}"))?
+        {}
         ensure!(collection.histories_checked() == 2);
         let preview = collection.preview(TIMEOUT).await?;
         ensure!(preview.plan().moves.len() == 2 - round);
@@ -339,8 +352,19 @@ async fn delivery(long_walk: bool) -> Result<()> {
             ensure!(movement.plan.replacement.node == NodeId::new([8; 16])?);
             f.spare.clone()
         };
+        // Exercise a recoverable evidence failure plus four durable movement
+        // phases. Every callback remains below the unchanged five-second turn
+        // deadline; the overall wait must also allow the failed turn and retry.
+        let delayed_evidence = long_walk && round == 0;
         let evidence = Arc::new(Evidence {
             target: target.clone(),
+            delay: if delayed_evidence {
+                Duration::from_secs(4)
+            } else {
+                Duration::ZERO
+            },
+            fail_first: delayed_evidence,
+            attempts: AtomicUsize::new(0),
             request: FleetMovementExecutionRequest {
                 reservation: movement.resources.identity.id,
                 attestation: movement.resources.attestation.clone(),
@@ -350,7 +374,7 @@ async fn delivery(long_walk: bool) -> Result<()> {
         let service = other
             .start_movement_service(
                 f.s.nodes[0].host.clone(),
-                evidence,
+                evidence.clone(),
                 FleetMovementServiceOptions {
                     interval: Duration::from_millis(50),
                     retry_max_interval: Duration::from_millis(500),
@@ -360,12 +384,18 @@ async fn delivery(long_walk: bool) -> Result<()> {
             .await?;
         f.s.f
             .domain
-            .run(cellar::asyncrt::timeout(TIMEOUT * 4, async {
+            .run(cellar::asyncrt::timeout(TIMEOUT * 8, async {
                 while service.status().settled_movements != 1 {
                     cellar::asyncrt::sleep(Duration::from_millis(10)).await;
                 }
             }))
-            .await??;
+            .await?
+            .with_context(|| {
+                format!("topology settlement round {round}: {:?}", service.status())
+            })?;
+        if evidence.fail_first {
+            ensure!(evidence.attempts.load(Ordering::Acquire) >= 5);
+        }
         service.shutdown().await;
         let index =
             f.s.proposals
@@ -391,9 +421,12 @@ async fn delivery(long_walk: bool) -> Result<()> {
             if long_walk { 9 } else { 5 },
             if long_walk { 21 } else { 12 },
         )
-        .await?;
+        .await
+        .with_context(|| format!("topology moved write/read round {round}"))?;
     }
-    discover(&f.s.f, &f.hosts()).await?;
+    discover(&f.s.f, &f.hosts())
+        .await
+        .context("topology final discovery")?;
     let request = f.request().await?;
     let mut collection = f.collection(&request).await?;
     while collection.verify_next(TIMEOUT).await? {}
@@ -498,6 +531,9 @@ async fn settle_with_service(
                 f.s.nodes[0].host.clone(),
                 Arc::new(Evidence {
                     target: target.clone(),
+                    delay: Duration::ZERO,
+                    fail_first: false,
+                    attempts: AtomicUsize::new(0),
                     request: FleetMovementExecutionRequest {
                         reservation: movement.resources.identity.id,
                         attestation: movement.resources.attestation.clone(),

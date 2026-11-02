@@ -299,14 +299,15 @@ async fn write_read(
     value: i64,
     expected: i64,
 ) -> Result<()> {
-    let p = primary(f, cells).await?;
+    let p = primary(f, cells).await.context("find write/read primary")?;
     let receipt = cells[p]
         .command(
             f.definition.increment.clone(),
             value.to_be_bytes().to_vec(),
             public_node::archived_options(sequence)?,
         )
-        .await?;
+        .await
+        .context("write/read archived command")?;
     ensure!(receipt.durability == Durability::S3);
     let read = cells[p]
         .query(
@@ -317,7 +318,8 @@ async fn write_read(
                 ..Default::default()
             },
         )
-        .await?;
+        .await
+        .context("write/read linearizable query")?;
     ensure!(i64::from_be_bytes(read.result.as_slice().try_into()?) == expected);
     ensure!(read.version.covers(&receipt.version)?);
     ensure!(matches!(
@@ -329,7 +331,11 @@ async fn write_read(
                     disk: DiskLineage::new([19; 16])?
                 },
                 LearnerOptions {
-                    expected_revision: cells[p].status().await?.membership_revision,
+                    expected_revision: cells[p]
+                        .status()
+                        .await
+                        .context("read membership before unsupported learner probe")?
+                        .membership_revision,
                     timeout: TIMEOUT
                 }
             )

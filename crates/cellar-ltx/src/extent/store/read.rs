@@ -3,7 +3,7 @@
 //! Read-only, pinned local cache handles. The durable inventory owns the data;
 //! the image cache owns bounded descriptors and verification metadata only.
 
-use super::{inventory::object_name, *};
+use super::*;
 use crate::extent::file::ExtentFile;
 use crate::stream_snapshot::ScratchReservation;
 
@@ -42,6 +42,17 @@ impl RootView {
         id: ExtentId,
         reservation: ScratchReservation,
     ) -> Result<ExtentFile, StoreError> {
+        let publishing = self
+            .inner
+            .state()?
+            .objects
+            .get(&id)
+            .is_some_and(|v| v.publishing);
+        let _key = if publishing {
+            Some(self.inner.key(Key::Object(id), true)?)
+        } else {
+            None
+        };
         let result = (|| {
             let (verified, proof) = {
                 let state = self.inner.state()?;
@@ -51,15 +62,11 @@ impl RootView {
                 }
                 (entry.verified, entry.read_proof.clone())
             };
-            let mut file = self.inner.checked_file(
-                &self.inner.directory.join(object_name(id)),
-                u64::from(id.length()),
-            )?;
+            let mut file = self.inner.checked_object(id)?;
             // Restart clears persistence observations. Re-establish both
             // barriers before deriving a read capability from reopened bytes.
             if !verified {
-                file.sync_all()?;
-                self.inner.filesystem.sync_all(&self.inner.directory)?;
+                self.inner.persist_reopened(&mut file)?;
             }
             let reused = verified && proof.is_some();
             let file = ExtentFile::from_local(

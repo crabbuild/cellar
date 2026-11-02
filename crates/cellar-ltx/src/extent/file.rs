@@ -196,7 +196,15 @@ impl ExtentFile {
         let mut output = Vec::with_capacity(length);
         while position < end {
             let count = (u64::from(self.id.length()) - position).min(BUFFER_BYTES as u64) as usize;
-            let bytes = file.read_exact_at(position, count)?;
+            let bytes = {
+                let _read = super::store::timing::span(super::store::timing::Phase::ExtentRead);
+                let bytes = file.read_exact_at(position, count)?;
+                super::store::timing::bytes(
+                    super::store::timing::Phase::ExtentRead,
+                    bytes.len() as u64,
+                );
+                bytes
+            };
             if bytes.len() != count {
                 return Err(std::io::ErrorKind::UnexpectedEof.into());
             }
@@ -206,7 +214,11 @@ impl ExtentFile {
                 .hashes
                 .get((position / BUFFER_BYTES as u64) as usize)
                 .ok_or(Error::Invalid("extent read proof coverage"))?;
-            if <[u8; 32]>::from(Sha256::digest(&bytes)) != *expected {
+            let observed = {
+                let _hash = super::store::timing::span(super::store::timing::Phase::ExtentHash);
+                <[u8; 32]>::from(Sha256::digest(&bytes))
+            };
+            if observed != *expected {
                 return Err(Error::Integrity);
             }
             let first = offset.saturating_sub(position) as usize;
@@ -252,12 +264,23 @@ pub(crate) fn verify_file(file: &mut HostFile, id: ExtentId) -> Result<Arc<Verif
     let mut offset = 0;
     while offset < u64::from(id.length()) {
         let length = (u64::from(id.length()) - offset).min(BUFFER_BYTES as u64) as usize;
-        let bytes = file.read_exact_at(offset, length)?;
+        let bytes = {
+            let _read = super::store::timing::span(super::store::timing::Phase::ExtentRead);
+            let bytes = file.read_exact_at(offset, length)?;
+            super::store::timing::bytes(
+                super::store::timing::Phase::ExtentRead,
+                bytes.len() as u64,
+            );
+            bytes
+        };
         if bytes.len() != length {
             return Err(std::io::ErrorKind::UnexpectedEof.into());
         }
-        hash.update(&bytes);
-        blocks.push(Sha256::digest(&bytes).into());
+        {
+            let _hash = super::store::timing::span(super::store::timing::Phase::ExtentHash);
+            hash.update(&bytes);
+            blocks.push(Sha256::digest(&bytes).into());
+        }
         offset += length as u64;
     }
     if <[u8; 32]>::from(hash.finalize()) != id.bytes() {

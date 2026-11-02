@@ -4,6 +4,31 @@ use super::inventory::{object_name, root_name};
 use super::*;
 
 impl NodeExtentStore {
+    /// Retire a root pinned by this inventory's live image seal without joining
+    /// physical I/O. The pin and active marker references still exclude GC;
+    /// only the retention hint changes, and no persistent bytes are refunded.
+    pub fn retire_image_root(&self, image: &SealedImageRoot) -> Result<(), StoreError> {
+        if !self.owns_image(image) {
+            return Err(StoreError::Layout);
+        }
+        let reference = image.reference();
+        let mut state = self.inner.state()?;
+        if state.quarantined {
+            return Err(StoreError::Quarantined);
+        }
+        let root = state
+            .roots
+            .get_mut(&reference.root)
+            .ok_or(StoreError::Missing)?;
+        if root.bytes != u64::from(reference.length)
+            || !Arc::ptr_eq(&root.token, &image.view()._token)
+        {
+            return Err(StoreError::Integrity);
+        }
+        root.retained = false;
+        Ok(())
+    }
+
     /// Retain an already sealed image without I/O or waiting for a physical
     /// mutation. The live exact-owner capability pins its root throughout GC;
     /// native control loops can therefore publish retention using metadata only.
@@ -58,7 +83,7 @@ impl NodeExtentStore {
     /// The host supplies the complete authoritative marker/archive reference
     /// set. Validate every selected root before changing any retention flags.
     pub fn retain_only(&self, references: &[ExtentRootReference]) -> Result<(), StoreError> {
-        let operation = self.begin()?;
+        let operation = self.begin_exclusive()?;
         let result = (|| {
             if references.len() > self.inner.limits.max_roots {
                 return Err(StoreError::Limit);
@@ -75,8 +100,7 @@ impl NodeExtentStore {
             state.references_reconciled = true;
             Ok(())
         })();
-        operation.finish()?;
-        result
+        operation.finish(result)
     }
 
     pub fn retire_root(&self, reference: ExtentRootReference) -> Result<(), StoreError> {
@@ -93,8 +117,7 @@ impl NodeExtentStore {
             entry.retained = false;
             Ok(())
         })();
-        operation.finish()?;
-        result
+        operation.finish(result)
     }
 
     /// Delete at most `limit` files. Remove retired, unpinned root metadata and
@@ -104,15 +127,17 @@ impl NodeExtentStore {
         if limit == 0 {
             return Err(StoreError::Limit);
         }
-        let operation = self.begin()?;
+        let operation = self.begin_exclusive()?;
         let result = self.reclaim_inner(limit);
-        operation.finish()?;
-        result
+        operation.finish(result)
     }
 
     fn reclaim_inner(&self, limit: usize) -> Result<usize, StoreError> {
         if !self.inner.state()?.references_reconciled {
             return Err(StoreError::Unreconciled);
+        }
+        if self.inner.segments.is_some() {
+            return self.reclaim_segments(limit);
         }
         let roots = {
             let state = self.inner.state()?;
@@ -138,7 +163,7 @@ impl NodeExtentStore {
                         .filesystem
                         .remove_file(&self.inner.directory.join(root_name(*root)))?;
                 }
-                self.inner.filesystem.sync_all(&self.inner.directory)
+                self.inner.sync_directory().map_err(io::Error::other)
             })();
             if let Err(error) = result {
                 self.inner.quarantine();
@@ -187,7 +212,7 @@ impl NodeExtentStore {
                         .filesystem
                         .remove_file(&self.inner.directory.join(object_name(*id)))?;
                 }
-                self.inner.filesystem.sync_all(&self.inner.directory)
+                self.inner.sync_directory().map_err(io::Error::other)
             })();
             if let Err(error) = result {
                 self.inner.quarantine();
@@ -234,7 +259,23 @@ impl NodeExtentStore {
                 }
             }
             self.load_root(reference)?;
-            self.inner.state()?.references.insert(
+            let mut state = self.inner.state()?;
+            // Another publisher may have advanced this marker during I/O.
+            if let Some(before) = state.references.get(&key) {
+                if revision < before.revision {
+                    return Ok(());
+                }
+                if revision == before.revision {
+                    return if before.reference == reference && before.active {
+                        Ok(())
+                    } else {
+                        Err(StoreError::Integrity)
+                    };
+                }
+            } else if state.references.len() >= self.inner.limits.max_references {
+                return Err(StoreError::Limit);
+            }
+            state.references.insert(
                 key,
                 ReferenceEntry {
                     revision,
@@ -244,8 +285,7 @@ impl NodeExtentStore {
             );
             Ok(())
         })();
-        operation.finish()?;
-        result
+        operation.finish(result)
     }
 
     pub fn release_reference(&self, key: [u8; 32], revision: u64) -> Result<(), StoreError> {

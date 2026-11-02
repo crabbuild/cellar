@@ -33,6 +33,14 @@ def rows(stamp, node_count=3):
 
 
 class Measurements(unittest.TestCase):
+    def test_pre_image_timer_observations_remain_readable(self):
+        raw = observation()
+        raw['operations'] = raw['operations'][:44]
+        raw['counters'] = raw['counters'][:42]
+        sample = snapshot(raw)
+        self.assertEqual(len(sample['operations']), 44)
+        self.assertNotIn('image_stage_leader_sql', sample['operations'])
+
     def test_metric_contract_matches_the_native_owner(self):
         rust = (Path(__file__).resolve().parents[2] / 'crates/cellar/durability/raft/performance.rs').read_text()
         operations = rust.split('impl Operation {', 1)[1].split('#[derive', 1)[0]

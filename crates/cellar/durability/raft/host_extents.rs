@@ -21,6 +21,14 @@ pub struct RaftExtentOptions {
     pub inventory: RaftExtentLimits,
     pub cache: RaftExtentCacheLimits,
     pub cache_scratch: ScratchLimits,
+    /// Maximum concurrent physical operations on existing blocking workers.
+    pub publication_capacity: usize,
+    /// Coalesce compatible directory proofs without relaxing file barriers.
+    pub batch_directory_barriers: bool,
+    /// Opt-in append-segment target size (4 KiB through 64 MiB). This selects
+    /// a distinct on-disk inventory format; existing inventories are not migrated.
+    /// Whole-segment GC conservatively retains mixed live/dead records.
+    pub append_segment_bytes: Option<u64>,
     pub gc_interval_ms: u64,
     pub gc_batch_files: usize,
 }
@@ -34,6 +42,9 @@ impl Default for RaftExtentOptions {
                 max_bytes: 256 * 1024 * 1024,
                 max_files: 64,
             },
+            publication_capacity: 2,
+            batch_directory_barriers: true,
+            append_segment_bytes: None,
             gc_interval_ms: 1000,
             gc_batch_files: 64,
         }
@@ -42,7 +53,17 @@ impl Default for RaftExtentOptions {
 
 impl RaftExtentOptions {
     pub(super) fn validate(&self, execution: ExecutionLimits) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            (1..=16).contains(&self.publication_capacity),
+            "invalid extent publication capacity"
+        );
         self.inventory.validate()?;
+        if let Some(bytes) = self.append_segment_bytes {
+            anyhow::ensure!(
+                (4096..=64 * 1024 * 1024).contains(&bytes),
+                "invalid append segment size"
+            );
+        }
         self.cache_scratch.validate()?;
         let workspace = RootPrivateOptions::workspace_bounds(execution)?.reservation()?;
         let extents = execution.max_image_bytes.div_ceil(EXTENT_BYTES) as usize;
@@ -95,11 +116,25 @@ impl Owner {
         let owner = log
             .domain()
             .blocking(move || {
-                let store = NodeExtentStore::open_serialized(
-                    directory.join("extent-inventory"),
-                    host.filesystem(),
-                    options.inventory,
-                )?;
+                let path = directory.join("extent-inventory");
+                let store = if let Some(bytes) = options.append_segment_bytes {
+                    NodeExtentStore::open_append(
+                        path,
+                        host.filesystem(),
+                        options.inventory,
+                        options.publication_capacity,
+                        bytes,
+                        options.batch_directory_barriers,
+                    )
+                } else {
+                    NodeExtentStore::open_parallel(
+                        path,
+                        host.filesystem(),
+                        options.inventory,
+                        options.publication_capacity,
+                        options.batch_directory_barriers,
+                    )
+                }?;
                 let mut retained = BTreeMap::<[u8; 32], ExtentRootReference>::new();
                 for group in groups {
                     let applied = group.applied()?;

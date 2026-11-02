@@ -66,7 +66,7 @@ impl Drop for Directory {
         // retain one until their handles close; no mutex spans filesystem I/O.
         let result = (|| {
             discard(self.inner.filesystem.as_ref(), &self.path)?;
-            self.inner.filesystem.sync_all(&self.inner.directory)?;
+            self.inner.sync_directory_cleanup()?;
             let mut state = self.inner.state()?;
             if state.workspaces.get(&self.id) != Some(&self.charge) || state.bytes < self.charge {
                 return Err(StoreError::Quarantined);
@@ -179,8 +179,7 @@ impl NodeExtentStore {
                 charge,
             })))
         })();
-        operation.finish()?;
-        result
+        operation.finish(result)
     }
 
     pub fn owns_workspace(&self, workspace: &NodeWorkspace) -> bool {

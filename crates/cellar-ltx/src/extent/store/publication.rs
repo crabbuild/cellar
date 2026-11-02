@@ -1,13 +1,34 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
+use super::batch::Batch;
 use super::inventory::{object_name, root_name};
 use super::*;
 use sha2::Digest;
+use timing::Phase;
 
 pub(super) fn read_object(
-    inner: &Inner,
+    inner: &Arc<Inner>,
+    id: ExtentId,
+    consume: impl FnMut(u64, &[u8]) -> Result<(), StoreError>,
+) -> Result<(), StoreError> {
+    let publishing = inner
+        .state()?
+        .objects
+        .get(&id)
+        .is_some_and(|v| v.publishing);
+    let _key = if publishing {
+        Some(inner.key(Key::Object(id), true)?)
+    } else {
+        None
+    };
+    read_object_locked(inner, id, consume, None)
+}
+
+pub(super) fn read_object_locked(
+    inner: &Arc<Inner>,
     id: ExtentId,
     mut consume: impl FnMut(u64, &[u8]) -> Result<(), StoreError>,
+    pending: Option<&Arc<VerifiedBlocks>>,
 ) -> Result<(), StoreError> {
     let result = (|| {
         let (verified, previous_proof) = {
@@ -16,24 +37,35 @@ pub(super) fn read_object(
             if entry.bytes != u64::from(id.length()) {
                 return Err(StoreError::Integrity);
             }
-            (entry.verified, entry.read_proof.clone())
+            (
+                entry.verified,
+                pending.cloned().or_else(|| entry.read_proof.clone()),
+            )
         };
-        let mut file = inner.checked_file(
-            &inner.directory.join(object_name(id)),
-            u64::from(id.length()),
-        )?;
+        let mut file = inner.checked_object(id)?;
+        if inner.segments.is_some() && !verified && pending.is_none() {
+            inner.persist_reopened(&mut file)?;
+        }
         let mut hash = id.stream_hasher();
         let mut blocks = Vec::with_capacity((id.length() as usize).div_ceil(65536));
         let mut offset = 0;
         while offset < u64::from(id.length()) {
             let count = (u64::from(id.length()) - offset).min(65536) as usize;
-            let bytes = file.read_exact_at(offset, count)?;
+            let bytes = {
+                let _read = timing::span(Phase::ExtentRead);
+                let bytes = file.read_exact_at(offset, count)?;
+                timing::bytes(Phase::ExtentRead, bytes.len() as u64);
+                bytes
+            };
             if bytes.len() != count {
                 return Err(StoreError::Integrity);
             }
-            hash.update(&bytes);
-            if previous_proof.is_none() {
-                blocks.push(sha2::Sha256::digest(&bytes).into());
+            {
+                let _hash = timing::span(Phase::ExtentHash);
+                hash.update(&bytes);
+                if previous_proof.is_none() {
+                    blocks.push(sha2::Sha256::digest(&bytes).into());
+                }
             }
             consume(offset, &bytes)?;
             offset += count as u64;
@@ -43,18 +75,20 @@ pub(super) fn read_object(
         {
             return Err(StoreError::Integrity);
         }
-        if !verified {
-            file.sync_all()?;
-            inner.filesystem.sync_all(&inner.directory)?;
+        if inner.segments.is_none() && !verified && pending.is_none() {
+            inner.persist_reopened(&mut file)?;
         }
         let proof = match previous_proof {
             Some(proof) => proof,
             None => VerifiedBlocks::from_verified(id, blocks)?,
         };
-        let mut state = inner.state()?;
-        let entry = state.objects.get_mut(&id).ok_or(StoreError::Missing)?;
-        entry.verified = true;
-        entry.read_proof = Some(proof);
+        if pending.is_none() {
+            let mut state = inner.state()?;
+            let entry = state.objects.get_mut(&id).ok_or(StoreError::Missing)?;
+            entry.verified = true;
+            entry.publishing = false;
+            entry.read_proof = Some(proof);
+        }
         Ok(())
     })();
     if result.is_err() {
@@ -66,6 +100,30 @@ pub(super) fn read_object(
     result
 }
 
+/// Authenticate the exact owned metadata destination after its barrier.
+pub(super) fn verify_root_owned(
+    file: &mut HostFile,
+    reference: ExtentRootReference,
+) -> Result<(), StoreError> {
+    if file.file_len()? != u64::from(reference.length) {
+        return Err(StoreError::Integrity);
+    }
+    let mut observed = Vec::with_capacity(reference.length as usize);
+    while observed.len() < reference.length as usize {
+        let count = (reference.length as usize - observed.len()).min(65536);
+        let bytes = file.read_exact_at(observed.len() as u64, count)?;
+        if bytes.len() != count {
+            return Err(StoreError::Integrity);
+        }
+        observed.extend_from_slice(&bytes);
+    }
+    if file.file_len()? != u64::from(reference.length) {
+        return Err(StoreError::Integrity);
+    }
+    ExtentManifest::decode(&observed, reference.root)?;
+    Ok(())
+}
+
 impl NodeExtentStore {
     /// Borrow an already admitted complete object without copying source chunks.
     /// Native providers write one at-most-4-MiB window; other providers retain
@@ -75,8 +133,7 @@ impl NodeExtentStore {
     pub fn put_extent_bytes(&self, id: ExtentId, bytes: &[u8]) -> Result<(), StoreError> {
         let operation = self.begin()?;
         let result = self.put_extent_bytes_inner(id, bytes);
-        operation.finish()?;
-        result
+        operation.finish(result)
     }
 
     pub(super) fn put_extent_bytes_inner(
@@ -84,18 +141,37 @@ impl NodeExtentStore {
         id: ExtentId,
         bytes: &[u8],
     ) -> Result<(), StoreError> {
+        let key = self.inner.key(Key::Object(id), false)?;
+        self.put_extent_bytes_locked(id, bytes, key, None)
+    }
+
+    pub(super) fn put_extent_bytes_locked(
+        &self,
+        id: ExtentId,
+        bytes: &[u8],
+        key: KeyGuard,
+        batch: Option<&mut Batch<'_>>,
+    ) -> Result<(), StoreError> {
         if bytes.len() != id.length() as usize {
             return Err(StoreError::Integrity);
         }
-        self.put_extent_with(id, |file| {
-            if ExtentId::of(bytes)? != id {
-                return Err(StoreError::Integrity);
-            }
-            // The caller already owns this bounded input. Avoid a second
-            // extent allocation and preserve injected providers' fallback.
-            file.write_all_at_window(0, bytes)?;
-            Ok(())
-        })
+        self.put_extent_with_key(
+            id,
+            |file| {
+                {
+                    let _hash = timing::span(Phase::ExtentHash);
+                    if ExtentId::of(bytes)? != id {
+                        return Err(StoreError::Integrity);
+                    }
+                }
+                let _write = timing::span(Phase::ExtentWrite);
+                file.write_all_at_window(0, bytes)?;
+                timing::bytes(Phase::ExtentWrite, bytes.len() as u64);
+                Ok(())
+            },
+            key,
+            batch,
+        )
     }
 
     /// Import one immutable object. Admission precedes creation/source reads;
@@ -108,8 +184,7 @@ impl NodeExtentStore {
     ) -> Result<(), StoreError> {
         let operation = self.begin()?;
         let result = self.put_extent_inner(id, &mut read);
-        operation.finish()?;
-        result
+        operation.finish(result)
     }
 
     pub(super) fn put_extent_inner(
@@ -142,15 +217,26 @@ impl NodeExtentStore {
         id: ExtentId,
         write: impl FnOnce(&mut HostFile) -> Result<(), StoreError>,
     ) -> Result<(), StoreError> {
+        let key = self.inner.key(Key::Object(id), false)?;
+        self.put_extent_with_key(id, write, key, None)
+    }
+
+    fn put_extent_with_key(
+        &self,
+        id: ExtentId,
+        write: impl FnOnce(&mut HostFile) -> Result<(), StoreError>,
+        key: KeyGuard,
+        batch: Option<&mut Batch<'_>>,
+    ) -> Result<(), StoreError> {
         let exists = self.inner.state()?.objects.contains_key(&id);
         if exists {
-            return read_object(&self.inner, id, |_, _| Ok(()));
+            return read_object_locked(&self.inner, id, |_, _| Ok(()), None);
         }
         {
             let mut state = self.inner.state()?;
             let bytes = state
                 .bytes
-                .checked_add(u64::from(id.length()))
+                .checked_add(self.inner.storage_charge(u64::from(id.length())))
                 .ok_or(StoreError::Limit)?;
             if bytes > self.inner.limits.max_bytes
                 || state.objects.len() >= self.inner.limits.max_objects
@@ -162,10 +248,53 @@ impl NodeExtentStore {
                 id,
                 ObjectEntry {
                     bytes: u64::from(id.length()),
+                    location: None,
+                    publishing: true,
                     verified: false,
                     read_proof: None,
                 },
             );
+        }
+        if self.inner.segments.is_some() {
+            let result = (|| {
+                let (location, mut file) =
+                    self.inner
+                        .append_record(Key::Object(id), u64::from(id.length()), write)?;
+                self.inner
+                    .state()?
+                    .objects
+                    .get_mut(&id)
+                    .ok_or(StoreError::Missing)?
+                    .location = Some(location);
+                if batch.is_none() {
+                    self.inner.sync_file(&mut file)?;
+                }
+                let proof = crate::extent::file::verify_file(&mut file, id)?;
+                Ok::<_, StoreError>((file, proof))
+            })();
+            let (file, proof) = match result {
+                Ok(result) => result,
+                Err(error) => {
+                    if !self.inner.state()?.quarantined && matches!(error, StoreError::Limit) {
+                        let mut state = self.inner.state()?;
+                        state.objects.remove(&id);
+                        state.bytes -= self.inner.storage_charge(u64::from(id.length()));
+                    } else {
+                        self.inner.quarantine();
+                    }
+                    return Err(error);
+                }
+            };
+            if let Some(batch) = batch {
+                batch.object(id, proof, 0, file, key);
+            } else {
+                let mut state = self.inner.state()?;
+                let entry = state.objects.get_mut(&id).ok_or(StoreError::Missing)?;
+                entry.verified = true;
+                entry.publishing = false;
+                entry.read_proof = Some(proof);
+            }
+            return Ok(());
         }
         let path = self.inner.directory.join(object_name(id));
         let mut file = match self.inner.filesystem.create_read_write(&path) {
@@ -179,16 +308,21 @@ impl NodeExtentStore {
             if file.file_len()? != 0 {
                 return Err(StoreError::Integrity);
             }
+            let epoch = self.inner.namespace_changed()?;
             write(&mut file)?;
-            file.sync_all()?;
+            if batch.is_none() {
+                self.inner.sync_file(&mut file)?;
+            }
             let proof = crate::extent::file::verify_file(&mut file, id)?;
-            self.inner.filesystem.sync_all(&self.inner.directory)?;
-            Ok(proof)
+            if batch.is_none() {
+                self.inner.persist_created(epoch)?;
+            }
+            Ok((proof, epoch))
         })();
-        drop(file);
-        let proof = match result {
+        let (proof, epoch) = match result {
             Ok(proof) => proof,
             Err(error) => {
+                drop(file);
                 let error = self.cleanup_created(&path, error)?;
                 let mut state = self.inner.state()?;
                 let entry = state.objects.remove(&id).ok_or(StoreError::Missing)?;
@@ -196,9 +330,15 @@ impl NodeExtentStore {
                 return Err(error);
             }
         };
+        if let Some(batch) = batch {
+            batch.object(id, proof, epoch, file, key);
+            return Ok(());
+        }
+        drop(file);
         let mut state = self.inner.state()?;
         let entry = state.objects.get_mut(&id).ok_or(StoreError::Missing)?;
         entry.verified = true;
+        entry.publishing = false;
         entry.read_proof = Some(proof);
         Ok(())
     }
@@ -208,8 +348,7 @@ impl NodeExtentStore {
     pub fn verify_extent(&self, id: ExtentId) -> Result<(), StoreError> {
         let operation = self.begin()?;
         let result = read_object(&self.inner, id, |_, _| Ok(()));
-        operation.finish()?;
-        result
+        operation.finish(result)
     }
 
     pub(super) fn cleanup_created(
@@ -217,12 +356,11 @@ impl NodeExtentStore {
         path: &Path,
         error: StoreError,
     ) -> Result<StoreError, StoreError> {
-        if let Err(cleanup) = self
-            .inner
-            .filesystem
-            .remove_file(path)
-            .and_then(|_| self.inner.filesystem.sync_all(&self.inner.directory))
-        {
+        if let Err(cleanup) = self.inner.filesystem.remove_file(path).and_then(|_| {
+            self.inner
+                .sync_directory_cleanup()
+                .map_err(io::Error::other)
+        }) {
             self.inner.quarantine();
             return Err(StoreError::Cleanup {
                 operation: Box::new(error),
@@ -237,8 +375,7 @@ impl NodeExtentStore {
     pub fn stage_root(&self, manifest: ExtentManifest) -> Result<RootView, StoreError> {
         let operation = self.begin()?;
         let result = self.stage_inner(manifest);
-        operation.finish()?;
-        result
+        operation.finish(result)
     }
 
     /// Pin an authenticated receive closure before importing its objects. A
@@ -246,60 +383,62 @@ impl NodeExtentStore {
     /// marker retention subsequently selects it. Existing retention is kept.
     pub fn stage_transient_root(&self, manifest: ExtentManifest) -> Result<RootView, StoreError> {
         let operation = self.begin()?;
-        let result = (|| {
-            let existed = self.inner.state()?.roots.contains_key(&manifest.root());
-            let view = self.stage_inner(manifest)?;
-            if !existed {
-                self.inner
-                    .state()?
-                    .roots
-                    .get_mut(&view.reference.root)
-                    .ok_or(StoreError::Missing)?
-                    .retained = false;
-            }
-            Ok(view)
-        })();
-        operation.finish()?;
-        result
+        let result = self.stage_inner_batch(manifest, None, false);
+        operation.finish(result)
     }
 
     pub fn seal_root(&self, manifest: ExtentManifest) -> Result<SealedRoot, StoreError> {
         let operation = self.begin()?;
         let result = self.seal_root_inner(manifest);
-        operation.finish()?;
-        result
+        operation.finish(result)
     }
 
     pub(super) fn seal_root_inner(
         &self,
         manifest: ExtentManifest,
     ) -> Result<SealedRoot, StoreError> {
+        self.seal_root_batch(manifest, None)
+    }
+
+    pub(super) fn seal_root_batch(
+        &self,
+        manifest: ExtentManifest,
+        mut batch: Option<&mut Batch<'_>>,
+    ) -> Result<SealedRoot, StoreError> {
         let state = self.inner.state()?;
         for index in 0..manifest.geometry().extent_count() {
             let id = manifest.extent(index).ok_or(StoreError::Layout)?;
-            if !state
-                .objects
-                .get(&id)
-                .is_some_and(|entry| entry.verified && entry.bytes == u64::from(id.length()))
-            {
+            if !state.objects.get(&id).is_some_and(|entry| {
+                (entry.verified || batch.as_ref().is_some_and(|b| b.contains(&id)))
+                    && entry.bytes == u64::from(id.length())
+            }) {
                 return Err(StoreError::Unverified);
             }
         }
         drop(state);
-        let view = self.stage_inner(manifest)?;
+        let view = self.stage_inner_batch(manifest, batch.as_deref_mut(), true)?;
         let state = self.inner.state()?;
-        if view
-            .data
-            .objects
-            .iter()
-            .any(|id| !state.objects.get(id).is_some_and(|entry| entry.verified))
-        {
+        if view.data.objects.iter().any(|id| {
+            !state.objects.get(id).is_some_and(|entry| {
+                entry.verified || batch.as_ref().is_some_and(|b| b.contains(id))
+            })
+        }) {
             return Err(StoreError::Unverified);
         }
         Ok(SealedRoot(view))
     }
 
     fn stage_inner(&self, manifest: ExtentManifest) -> Result<RootView, StoreError> {
+        self.stage_inner_batch(manifest, None, true)
+    }
+
+    fn stage_inner_batch(
+        &self,
+        manifest: ExtentManifest,
+        batch: Option<&mut Batch<'_>>,
+        retained: bool,
+    ) -> Result<RootView, StoreError> {
+        let key = self.inner.key(Key::Root(manifest.root()), false)?;
         let bytes = manifest.encode()?;
         let reference = ExtentRootReference::new(manifest.root(), bytes.len() as u32)?;
         let path = self.inner.directory.join(root_name(reference.root));
@@ -319,7 +458,7 @@ impl NodeExtentStore {
             let mut state = self.inner.state()?;
             let charged = state
                 .bytes
-                .checked_add(bytes.len() as u64)
+                .checked_add(self.inner.storage_charge(bytes.len() as u64))
                 .ok_or(StoreError::Limit)?;
             let refs = state
                 .root_extents
@@ -337,12 +476,69 @@ impl NodeExtentStore {
                 reference.root,
                 RootEntry {
                     bytes: bytes.len() as u64,
+                    location: None,
                     slots,
-                    retained: true,
+                    retained,
+                    metadata_persisted: false,
                     token: Arc::new(()),
                     data: None,
                 },
             );
+        }
+        if self.inner.segments.is_some() {
+            let result = (|| {
+                let (location, mut file) = self.inner.append_record(
+                    Key::Root(reference.root),
+                    bytes.len() as u64,
+                    |file| {
+                        for (index, chunk) in bytes.chunks(65536).enumerate() {
+                            file.write_all_at(index as u64 * 65536, chunk)?;
+                        }
+                        Ok(())
+                    },
+                )?;
+                self.inner
+                    .state()?
+                    .roots
+                    .get_mut(&reference.root)
+                    .ok_or(StoreError::Missing)?
+                    .location = Some(location);
+                if batch.is_none() {
+                    self.inner.sync_file(&mut file)?;
+                }
+                verify_root_owned(&mut file, reference)?;
+                Ok::<_, StoreError>(file)
+            })();
+            let file = match result {
+                Ok(file) => file,
+                Err(error) => {
+                    if !self.inner.state()?.quarantined && matches!(error, StoreError::Limit) {
+                        let mut state = self.inner.state()?;
+                        state.roots.remove(&reference.root);
+                        state.bytes -= self.inner.storage_charge(bytes.len() as u64);
+                        state.root_extents -= slots;
+                    } else {
+                        self.inner.quarantine();
+                    }
+                    return Err(error);
+                }
+            };
+            let objects = (0..manifest.geometry().extent_count())
+                .map(|index| manifest.extent(index).ok_or(StoreError::Layout))
+                .collect::<Result<BTreeSet<_>, _>>()?;
+            let data = Arc::new(RootData { manifest, objects });
+            let mut state = self.inner.state()?;
+            let entry = state
+                .roots
+                .get_mut(&reference.root)
+                .ok_or(StoreError::Missing)?;
+            entry.data = Some(data.clone());
+            entry.metadata_persisted = batch.is_none();
+            drop(state);
+            if let Some(batch) = batch {
+                batch.root(reference, 0, file, key);
+            }
+            return self.view(reference, data);
         }
         let mut file = match self.inner.filesystem.create_read_write(&path) {
             Ok(file) => file,
@@ -352,13 +548,16 @@ impl NodeExtentStore {
             }
         };
         let result = (|| {
+            let epoch = self.inner.namespace_changed()?;
             if file.file_len()? != 0 {
                 return Err(StoreError::Integrity);
             }
             for (index, bytes) in bytes.chunks(65536).enumerate() {
                 file.write_all_at(index as u64 * 65536, bytes)?;
             }
-            file.sync_all()?;
+            if batch.is_none() {
+                self.inner.sync_file(&mut file)?;
+            }
             // Read the owned destination, not a pathname which might replace it.
             let mut observed = Vec::with_capacity(bytes.len());
             while observed.len() < bytes.len() {
@@ -373,31 +572,41 @@ impl NodeExtentStore {
                 return Err(StoreError::Integrity);
             }
             ExtentManifest::decode(&observed, reference.root)?;
-            self.inner.filesystem.sync_all(&self.inner.directory)?;
-            Ok(())
+            if batch.is_none() {
+                self.inner.persist_created(epoch)?;
+            }
+            Ok(epoch)
         })();
-        drop(file);
-        if let Err(error) = result {
-            let error = self.cleanup_created(&path, error)?;
-            let mut state = self.inner.state()?;
-            let entry = state
-                .roots
-                .remove(&reference.root)
-                .ok_or(StoreError::Missing)?;
-            state.bytes -= entry.bytes;
-            state.root_extents -= entry.slots;
-            return Err(error);
-        }
+        let epoch = match result {
+            Ok(epoch) => epoch,
+            Err(error) => {
+                drop(file);
+                let error = self.cleanup_created(&path, error)?;
+                let mut state = self.inner.state()?;
+                let entry = state
+                    .roots
+                    .remove(&reference.root)
+                    .ok_or(StoreError::Missing)?;
+                state.bytes -= entry.bytes;
+                state.root_extents -= entry.slots;
+                return Err(error);
+            }
+        };
         let objects = (0..manifest.geometry().extent_count())
             .map(|index| manifest.extent(index).ok_or(StoreError::Layout))
             .collect::<Result<BTreeSet<_>, _>>()?;
         let data = Arc::new(RootData { manifest, objects });
-        self.inner
-            .state()?
+        let mut state = self.inner.state()?;
+        let entry = state
             .roots
             .get_mut(&reference.root)
-            .ok_or(StoreError::Missing)?
-            .data = Some(data.clone());
+            .ok_or(StoreError::Missing)?;
+        entry.data = Some(data.clone());
+        entry.metadata_persisted = batch.is_none();
+        drop(state);
+        if let Some(batch) = batch {
+            batch.root(reference, epoch, file, key);
+        }
         self.view(reference, data)
     }
 }

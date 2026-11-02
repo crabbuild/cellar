@@ -10,8 +10,8 @@ use super::receipts;
 mod images;
 mod rooted_working;
 use crate::application::consensus::{
-    command_request_digest, CommittedVersion, EnvelopeLimits, OperationContract, OperationKind,
-    ProtocolError, RaftClass, RegistrationError,
+    command_request_digest, CommittedVersion, EnvelopeLimits, LtxImage, OperationContract,
+    OperationKind, ProtocolError, RaftClass, RegistrationError,
 };
 use crate::storage::{CommandInputs, CommandTransaction};
 use cellar_logic::consensus::Durability;
@@ -440,6 +440,31 @@ struct Pending {
 }
 
 impl Pending {
+    fn take_rooted_preview(
+        &mut self,
+        images: &cellar_ltx::internal::NodeExtentStore,
+        bytes: &[u8],
+        base: images::RootState,
+        result: images::RootState,
+    ) -> Option<std::sync::Arc<cellar_ltx::internal::SealedImageRoot>> {
+        let Preview::Rooted(image) = self.preview.as_ref()? else {
+            return None;
+        };
+        if !self.submitted
+            || self.base != State::Rooted(base)
+            || self.result != State::Rooted(result)
+            || images::RootState::of(image) != result
+            || self.payload_digest != <[u8; 32]>::from(Sha256::digest(bytes))
+        {
+            return None;
+        }
+        images.validate_image_seal(image).ok()?;
+        match self.preview.take()? {
+            Preview::Rooted(image) => Some(image),
+            Preview::Materialized(_) => None,
+        }
+    }
+
     fn take_preview(
         &mut self,
         images: &GenerationStore,
@@ -1033,6 +1058,13 @@ impl PrivateExecutor {
 
     /// Call before awaiting proposal submission. Cancellation or a lost response
     /// then retains the uncertainty fence rather than freeing the command slot.
+    /// Telemetry classification only; this does not authorize apply or reuse.
+    pub(super) fn submitted_payload(&self, bytes: &[u8]) -> bool {
+        self.pending.as_ref().is_some_and(|pending| {
+            pending.submitted && pending.payload_digest == <[u8; 32]>::from(Sha256::digest(bytes))
+        })
+    }
+
     pub fn mark_submitted(&mut self, proposal: ProposalId) -> Result<(), ExecutionError> {
         let pending = self
             .pending
@@ -1062,6 +1094,39 @@ impl PrivateExecutor {
         self.pending
             .as_mut()?
             .take_preview(images, bytes, base, result)
+    }
+
+    /// Transfer an independently replayed, sealed local preview only after the
+    /// applier has authenticated the committed entry and exact native ticket.
+    /// A mismatch leaves ownership here and requires ordinary physical replay.
+    pub(super) fn take_rooted_preview(
+        &mut self,
+        replica: &ReplicaIdentity,
+        images: &cellar_ltx::internal::NodeExtentStore,
+        bytes: &[u8],
+        base: LtxImage,
+        result: LtxImage,
+        geometry: cellar_ltx::internal::Geometry,
+    ) -> Option<std::sync::Arc<cellar_ltx::internal::SealedImageRoot>> {
+        if &self.authority.replica != replica {
+            return None;
+        }
+        let pending = self.pending.as_mut()?;
+        let State::Rooted(before) = pending.base else {
+            return None;
+        };
+        if before.image != base {
+            return None;
+        }
+        pending.take_rooted_preview(
+            images,
+            bytes,
+            before,
+            images::RootState {
+                image: result,
+                geometry,
+            },
+        )
     }
 
     pub fn finish(
@@ -1122,6 +1187,9 @@ impl PrivateExecutor {
         request: &CommandRequest,
         published: &Published,
     ) -> Result<CommittedReceipt, ExecutionError> {
+        let _sql = cellar_ltx::internal::image_timing::span(
+            cellar_ltx::internal::image_timing::Phase::Sql,
+        );
         let database = self
             .options
             .images

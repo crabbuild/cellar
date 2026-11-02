@@ -98,6 +98,16 @@ async fn socket_bucket(
 
 const NAME: &str = "filesystem-fault";
 
+fn configure_s3_authority(config: &mut NodeConfig, backend: Backend) {
+    if !matches!(backend, Backend::Development) {
+        // Real S3 renewals can exceed the one-second fixture's 333ms attempt
+        // bound before any fault is injected. Keep expiry fencing enabled and
+        // still require it within the existing ten-second observation window.
+        config.actor.lease_ttl_ms = 5_000;
+        config.startup.recovery_retry_backoff = Duration::from_millis(config.actor.lease_ttl_ms);
+    }
+}
+
 fn scope() -> String {
     let id = cellar_native::cell_id::for_name("cells:v1:13:embedded-node:Account", NAME);
     format!("Account:{}", cellar_native::cell_id::encode_hex(&id))
@@ -348,7 +358,14 @@ async fn exercise(
         let (bucket, fault) = StoreOutage::wrap(&bucket)?;
         (bucket, Fault::Store(fault))
     };
-    let (config, mut services) = inputs(
+    let (isolated, delayed_lease) = if matches!(backend, Backend::S3Stalls) {
+        let (bucket, delay) = StoreOutage::wrap(&isolated)?;
+        delay.renewal_delay_ms.store(400, Ordering::Release);
+        (bucket, Some(delay))
+    } else {
+        (isolated, None)
+    };
+    let (mut config, mut services) = inputs(
         "filesystem-outage-owner",
         &directory.path().join("old"),
         &core,
@@ -356,6 +373,8 @@ async fn exercise(
         0,
     )
     .await?;
+    configure_s3_authority(&mut config, backend);
+    let lease_ttl_ms = config.actor.lease_ttl_ms;
     let (publication_store, publication) =
         if matches!(backend, Backend::S3Sockets | Backend::S3Stalls) {
             let (bucket, fault) = socket_bucket(backend, management, proxies).await?;
@@ -382,6 +401,20 @@ async fn exercise(
     )?;
     let owner = Node::start(config, services, graph(), applications(signals.clone())?).await?;
     ready(&owner).await?;
+    if let Some(delay) = &delayed_lease {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while delay.delayed_renewals.load(Ordering::Acquire) < 2 {
+                ensure!(
+                    !owner.is_closed(),
+                    "owner fenced before the intentional storage fault"
+                );
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        .context("healthy delayed S3 renewals before fault")??;
+    }
     let http = client()?;
     let seed: Value =
         serde_json::from_str(&call(&http, &owner, reqwest::Method::POST, "/seed").await?)?;
@@ -475,6 +508,7 @@ async fn exercise(
         0,
     )
     .await?;
+    configure_s3_authority(&mut config, backend);
     config.startup.recovery_retry_backoff = Duration::from_secs(10);
     // Retirement metadata is a separate admission authority on this same
     // backend. Keep its real reads healthy so the refusal comes from replica
@@ -529,7 +563,7 @@ async fn exercise(
 
     let new_core = Executor::new("filesystem-outage-successor")?;
     let new_path = directory.path().join("successor");
-    let (config, services) = inputs(
+    let (mut config, services) = inputs(
         "filesystem-outage-successor",
         &new_path,
         &new_core,
@@ -537,6 +571,7 @@ async fn exercise(
         0,
     )
     .await?;
+    configure_s3_authority(&mut config, backend);
     let successor = Node::start(config, services, graph(), applications(signals.clone())?).await?;
     ready(&successor).await?;
     let recovered: Value =
@@ -553,7 +588,7 @@ async fn exercise(
     stopped(successor).await?;
     std::fs::remove_dir_all(&new_path)?;
     let final_core = Executor::new("filesystem-outage-verifier")?;
-    let (config, services) = inputs(
+    let (mut config, services) = inputs(
         "filesystem-outage-verifier",
         &directory.path().join("final"),
         &final_core,
@@ -561,6 +596,7 @@ async fn exercise(
         0,
     )
     .await?;
+    configure_s3_authority(&mut config, backend);
     let verifier = Node::start(config, services, graph(), applications(signals.clone())?).await?;
     ready(&verifier).await?;
     let final_receipt = call(&http, &verifier, reqwest::Method::GET, "/recovered").await;
@@ -589,6 +625,8 @@ async fn exercise(
         "stale_descriptor_checks":signals.stale_checks.load(Ordering::SeqCst),
         "predecessor_local_data_removed":true,"successor_local_data_removed":true,
         "owner_fenced":true,"caller_executor_preserved":true,"remaining_nodes_joined":true,
+        "lease_ttl_ms":lease_ttl_ms,
+        "healthy_delayed_renewals":delayed_lease.as_ref().map_or(0, |delay| delay.delayed_renewals.load(Ordering::Acquire)),
     });
     let names = if matches!(backend, Backend::S3Stalls) {
         [

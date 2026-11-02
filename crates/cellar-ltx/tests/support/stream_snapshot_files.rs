@@ -14,10 +14,16 @@ use std::{
     },
 };
 
+type FileSyncHook = Arc<dyn Fn(bool) -> io::Result<()> + Send + Sync>;
+type DirectorySyncHook = Arc<dyn Fn() -> io::Result<()> + Send + Sync>;
+
 #[derive(Default)]
 pub struct Metrics {
     pub max_read: AtomicUsize,
     pub read_bytes: AtomicUsize,
+    pub before_file_sync: Mutex<Option<FileSyncHook>>,
+    pub after_file_sync: Mutex<Option<FileSyncHook>>,
+    pub before_directory_sync: Mutex<Option<DirectorySyncHook>>,
     pub before_file_len: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     pub max_write: AtomicUsize,
     pub random_write_calls: AtomicUsize,
@@ -177,10 +183,18 @@ impl HostFileIo for File {
 
     fn sync_all(&mut self) -> io::Result<()> {
         self.metrics.file_sync_calls.fetch_add(1, Ordering::AcqRel);
+        let hook = self.metrics.before_file_sync.lock().unwrap().clone();
+        if let Some(hook) = hook {
+            hook(self.root_metadata)?;
+        }
         if self.metrics.fail_sync.swap(false, Ordering::AcqRel) {
             return Err(io::Error::other("uncertain file sync"));
         }
         self.inner.sync_all()?;
+        let hook = self.metrics.after_file_sync.lock().unwrap().clone();
+        if let Some(hook) = hook {
+            hook(self.root_metadata)?;
+        }
         if self.root_metadata && self.metrics.exit_after_root_sync.load(Ordering::Acquire) {
             std::process::exit(77);
         }
@@ -217,6 +231,10 @@ impl BoundedFiles {
 }
 
 impl FileSystem for BoundedFiles {
+    fn open_read_write(&self, path: &Path) -> io::Result<HostFile> {
+        Ok(self.wrap(DirectFileSystem.open_read_write(path)?))
+    }
+
     fn clone_read_write(&self, source: &Path, destination: &Path) -> io::Result<Option<HostFile>> {
         let mode = self.metrics.clone_mode.load(Ordering::Acquire);
         if mode == 0 {
@@ -304,6 +322,10 @@ impl FileSystem for BoundedFiles {
     fn sync_all(&self, path: &Path) -> io::Result<()> {
         if DirectFileSystem.metadata(path)?.is_dir {
             self.metrics.dir_sync_calls.fetch_add(1, Ordering::AcqRel);
+            let hook = self.metrics.before_directory_sync.lock().unwrap().clone();
+            if let Some(hook) = hook {
+                hook()?;
+            }
             if self.metrics.fail_dir_sync.swap(false, Ordering::AcqRel) {
                 return Err(io::Error::other("injected directory sync failure"));
             }

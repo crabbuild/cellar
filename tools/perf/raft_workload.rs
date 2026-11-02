@@ -17,6 +17,28 @@ pub fn definition() -> Result<RaftClass> {
         })?
         .query("Read", [73; 32], |sql, _| {
             Ok(serde_json::to_vec(&sql.query_row(READ_SQL, [], decode)?)?)
+        })?
+        .query("DenseAudit", [74; 32], |sql, input| {
+            let block: Option<usize> = serde_json::from_slice(input)?;
+            let (blocks, bytes): (u64, u64) = sql.query_row(
+                "SELECT count(*),coalesce(sum(length(bytes)),0) FROM dense_padding",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?;
+            let digest = if let Some(block) = block {
+                use sha2::{Digest, Sha256};
+                let bytes: Vec<u8> = sql.query_row(
+                    "SELECT bytes FROM dense_padding WHERE block=?1",
+                    [block as i64],
+                    |row| row.get(0),
+                )?;
+                Some(hex::encode(Sha256::digest(&bytes)))
+            } else {
+                None
+            };
+            Ok(serde_json::to_vec(
+                &serde_json::json!({"blocks":blocks,"bytes":bytes,"block":block,"sha256":digest}),
+            )?)
         })?)
 }
 
@@ -25,6 +47,7 @@ pub struct Api {
     namespace: NamespaceId,
     command: OperationContract,
     query: OperationContract,
+    audit: OperationContract,
     secret: String,
     durability: Durability,
 }
@@ -46,6 +69,9 @@ impl Api {
             query: class
                 .contract("Read")
                 .ok_or_else(|| anyhow::anyhow!("missing read"))?,
+            audit: class
+                .contract("DenseAudit")
+                .ok_or_else(|| anyhow::anyhow!("missing dense audit"))?,
             secret,
             durability,
         }))
@@ -94,6 +120,16 @@ impl Api {
             )?;
             let mut options = CommandOptions::new(id, field("x-retry-until-ms")?.parse()?);
             options.durability = self.durability;
+            // Bulk population is setup work, separate from the five-second
+            // foreground command budget used by timed request windows.
+            if matches!(&change, Change::Populate { .. })
+                || headers
+                    .get("x-cellar-setup")
+                    .and_then(|value| value.to_str().ok())
+                    == Some("preloaded-warmup")
+            {
+                options.timeout = Duration::from_secs(120);
+            }
             cell.command(self.command.clone(), serde_json::to_vec(&change)?, options).await.map(|reply| {
                 let result = serde_json::from_slice::<Transition>(&reply.result);
                 (result.map(|value| serde_json::json!({"state":value.state, "changed":value.changed})), reply.version, reply.version_token, None,
@@ -112,9 +148,16 @@ impl Api {
                 "stale" => QueryConsistency::Stale,
                 _ => anyhow::bail!("unknown consistency"),
             };
+            let audit = headers.get("x-cellar-dense-audit");
+            let (contract, input) = if let Some(value) = audit {
+                let block: Option<usize> = serde_json::from_str(value.to_str()?)?;
+                (self.audit.clone(), serde_json::to_vec(&block)?)
+            } else {
+                (self.query.clone(), vec![])
+            };
             cell.query(
-                self.query.clone(),
-                vec![],
+                contract,
+                input,
                 QueryOptions {
                     consistency,
                     timeout: Duration::from_secs(5),
@@ -124,8 +167,12 @@ impl Api {
             .await
             .map(|reply| {
                 (
-                    serde_json::from_slice::<State>(&reply.result)
-                        .map(|state| serde_json::json!({"state":state})),
+                    if audit.is_some() {
+                        serde_json::from_slice::<serde_json::Value>(&reply.result)
+                    } else {
+                        serde_json::from_slice::<State>(&reply.result)
+                            .map(|state| serde_json::json!({"state":state}))
+                    },
                     reply.version,
                     reply.version_token,
                     Some(reply.served_by.get()),

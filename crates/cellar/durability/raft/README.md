@@ -128,9 +128,14 @@ One node owner shares `<raft-cells>/extent-inventory` across every group. Before
 GC starts, it rebuilds references from all durable engine groups, including
 groups omitted from the current registrations. A joined blocking job reclaims
 bounded batches; per-cell receive pins protect in-flight dependency closures.
-Already sealed capabilities update checkpoint retention through metadata only,
-so the async Raft driver does not wait for inventory I/O. Physical mutations
-serialize on blocking owners. Each cell's disposable cache is outside the
+Already sealed capabilities update checkpoint/applied retention and retire old
+roots through metadata only, so publication does not wait for inventory I/O.
+Live pins and active durable-marker references continue to exclude reclamation. `RaftExtentOptions::publication_capacity` admits 1..=16 independent
+physical operations (default two) on the existing blocking owners. Same-object
+publication remains exclusive, and GC waits for active operations.
+`batch_directory_barriers` defaults to true: independently verified and synced
+files can share a namespace barrier, but each image waits for its complete
+dependency closure before obtaining a seal. Each cell's disposable cache is outside the
 inventory, and the node's shared cache scratch pool bounds those files.
 `RaftCells::resource_usage().extents` reports actual inventory counters through
 a weak observer that releases the directory lock after joined shutdown.
@@ -459,6 +464,17 @@ A cancelled or retired waiter records abandonment when its owner is released.
 The wait includes fairness behind existing waiters; it does not include the
 subsequent SQL queue, command execution or archive publication.
 
+Image workers retain the aggregate `sql_stage`, `sql_prepare` and `sql_publish`
+timers and add leader/follower preparation and publication totals. Fixed
+`image_stage_leader_*`, `image_prepare_leader_*`, `image_prepare_follower_*`,
+`image_publish_leader_*` and `image_publish_follower_*` samples split exclusive
+wall time into SQL, inventory wait, LTX decode, extent read/hash/write, file sync,
+directory sync, barrier wait and other work. Each request samples every phase,
+including zero work. Separate counters count primitive calls and extent bytes;
+a phase sample count is a request count. Worker queue time remains outside these
+phases. Role totals overlap the aggregate timers and must not be added again to
+estimate worker occupancy. Unavailable clocks and unclassified roles are counted.
+
 Archive publication exposes an `archive_publication_batch` timer from scheduling
 until every captured cut returns, including object I/O, replay and waiting for
 the shared verifier. A successful batch means all its cuts verified; it does not
@@ -499,7 +515,9 @@ the entire physical apply before proposal submission. The SQL owner can transfer
 that exact generation to committed apply after validating the durable ticket,
 entry, schema and current base. Reuse additionally requires the original replica,
 submitted proposal, complete encoded payload digest, exact base/result states and
-the same open image-store owner. A mismatch keeps the preview private and uses
+the same open image-store owner. Extent previews also bind image geometry and
+recheck the live seal: quarantine or a known failed local read prevents reuse.
+A mismatch keeps the preview private and uses
 ordinary physical replay, as followers and recovery do. The transfer removes the
 pin from private cleanup ownership; the durable applied marker and publication
 still precede acknowledgement. Reusing a sealed preview removes one copy, replay
@@ -884,10 +902,15 @@ refund queued/in-flight work. Peer and node usage counters expose held bytes and
 items; permits release on completion, refusal, close and domain cancellation.
 
 Before applying a committed configuration, the replica drains ownership of its
-already-emitted protocol sends so membership revocation cannot invalidate their
-delivery. Later ordinary Ready work waits behind this finite fence; an unstable
-snapshot retains priority. Send completion only releases ownership: configuration
-application still requires its own durable write.
+already-emitted protocol sends and admits at most one pending Ready batch under
+the ordinary byte/apply budgets. That batch can contain the removed member's
+commit notification. The leader queues a single final append to removed members,
+using a temporary probe while preserving their real matched/inflight progress;
+normal flow control may otherwise pause the terminal update until after removal.
+Subsequent Ready work waits behind this finite fence, so
+new heartbeats cannot extend it indefinitely; an unstable snapshot retains
+priority. Send completion only releases ownership: configuration application
+still requires its own durable write.
 
 Receiver frame admission validates the current member and bounded message before
 queueing it, without waiting for that group's Ready or image installation. Raft
@@ -1583,3 +1606,14 @@ require their fleet guard.
 Earlier roots/state have no compatibility reader. Use a fresh experimental
 namespace/prefix and local state. The earlier MR-10 evidence retains its exact
 historical protocol and source scope.
+
+`RaftExtentOptions::append_segment_bytes` optionally selects the append-segment
+inventory for extent namespaces. `None` keeps the existing file inventory.
+`Some(bytes)` accepts targets from 4 KiB through 64 MiB and requires a fresh or
+matching-format inventory; it does not migrate existing node storage. The
+`batch_directory_barriers` option enables sharing compatible segment commit
+watermarks in this mode. Each image still waits for every required segment
+barrier and post-sync destination verification before publication. Native marker,
+log, receipt, ownership and output gates are unchanged. See the
+[LTX append-segment contract](../../../cellar-ltx/README.md#append-segment-inventory-opt-in)
+for recovery, physical accounting and conservative whole-segment GC limitations.

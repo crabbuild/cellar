@@ -217,6 +217,8 @@ impl HostFile {
     }
 
     pub fn sync_all(&mut self) -> io::Result<()> {
+        let _sync =
+            crate::extent::store::timing::span(crate::extent::store::timing::Phase::FileSync);
         let result = self.inner.sync_all();
         self.record_activity(result)
     }
@@ -380,8 +382,16 @@ pub fn create_dir_all_durable(filesystem: &dyn FileSystem, path: &Path) -> io::R
     }
     for directory in missing.iter().rev() {
         filesystem.create_dir_all(directory)?;
-        filesystem.sync_all(directory)?;
+        {
+            let _sync = crate::extent::store::timing::span(
+                crate::extent::store::timing::Phase::DirectorySync,
+            );
+            filesystem.sync_all(directory)?;
+        }
         if let Some(parent) = directory.parent() {
+            let _sync = crate::extent::store::timing::span(
+                crate::extent::store::timing::Phase::DirectorySync,
+            );
             filesystem.sync_all(parent)?;
         }
     }
@@ -389,7 +399,12 @@ pub fn create_dir_all_durable(filesystem: &dyn FileSystem, path: &Path) -> io::R
     // Existence alone is not evidence that any ancestor entry was synced.
     let mut current = Some(path);
     while let Some(directory) = current {
-        filesystem.sync_all(directory)?;
+        {
+            let _sync = crate::extent::store::timing::span(
+                crate::extent::store::timing::Phase::DirectorySync,
+            );
+            filesystem.sync_all(directory)?;
+        }
         current = directory.parent();
     }
     Ok(())

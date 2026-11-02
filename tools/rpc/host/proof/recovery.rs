@@ -19,6 +19,9 @@ fn transient_transport(error: &reqwest::Error) -> bool {
     error.is_connect() || error.is_timeout() || error.is_request() || error.is_body()
 }
 
+// This external observer must keep wall-clock time while the node's execution
+// domain is faulted or stopped. It never runs within that node's boundary.
+#[allow(clippy::disallowed_methods)]
 pub(crate) async fn read(client: &reqwest::Client, url: &str, target: &str) -> Result<Value> {
     tokio::time::timeout(Duration::from_secs(20), async {
         loop {

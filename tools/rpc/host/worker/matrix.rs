@@ -224,7 +224,8 @@ async fn live_case(
         OWNER,
         bucket.clone(),
         None,
-        |config, _| {
+        |config, services| {
+            super::configure_lifecycle(config, services)?;
             if end == End::ForcedShutdown {
                 config.shutdown.no_progress_ms = FORCED_DRAIN_STALL_MS;
             }
@@ -249,7 +250,7 @@ async fn live_case(
             None
         };
         let source_url = if peer {
-            let (node, url) = fleet::start(&path.join("source"), fixture.clone(), SOURCE, bucket).await?;
+            let (node, url) = fleet::start_configured(&path.join("source"), fixture.clone(), SOURCE, bucket, None, super::configure_lifecycle).await?;
             source = Some(node);
             url
         } else { owner_url.clone() };
@@ -457,7 +458,15 @@ async fn recovered(
         provider_class: backend.class(),
     });
     let bucket = Bucket::open_dev(&path.join("fleet.sqlite"))?;
-    let (node, url) = fleet::start(&path.join("owner"), fixture, OWNER, bucket).await?;
+    let (node, url) = fleet::start_configured(
+        &path.join("owner"),
+        fixture,
+        OWNER,
+        bucket,
+        None,
+        super::configure_lifecycle,
+    )
+    .await?;
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
         .build()?;

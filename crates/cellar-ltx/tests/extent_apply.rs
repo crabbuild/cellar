@@ -102,6 +102,10 @@ struct Fixture {
 
 impl Fixture {
     fn new(page_size: u32, payload: u64) -> (Self, Vec<u8>) {
+        Self::with_append(page_size, payload, false)
+    }
+
+    fn with_append(page_size: u32, payload: u64, append: bool) -> (Self, Vec<u8>) {
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join("source.sqlite");
         let db = rusqlite::Connection::open(&path).unwrap();
@@ -115,9 +119,20 @@ impl Fixture {
             directory: root.path().into(),
             metrics: Arc::default(),
         });
-        let store =
-            NodeExtentStore::open(root.path().join("store"), files.clone(), Default::default())
-                .unwrap();
+        let directory = root.path().join("store");
+        let store = if append {
+            NodeExtentStore::open_append(
+                directory,
+                files.clone(),
+                Default::default(),
+                2,
+                8 * EXTENT_BYTES,
+                true,
+            )
+        } else {
+            NodeExtentStore::open(directory, files.clone(), Default::default())
+        }
+        .unwrap();
         (
             Self {
                 root,
@@ -457,4 +472,591 @@ fn byte_closure_and_reopened_inventory_cannot_substitute_for_sqlite_image_valida
         page_size,
     };
     fixture.query(&recovered, 7);
+}
+
+#[test]
+fn image_publication_batches_extent_and_root_directory_barriers() {
+    let (mut f, before) = Fixture::new(4096, 0);
+    drop(f.store);
+    f.store = NodeExtentStore::open_parallel(
+        f.root.path().join("store"),
+        f.files.clone(),
+        Default::default(),
+        2,
+        true,
+    )
+    .unwrap();
+    let mut buffer = vec![0; EXTENT_BYTES as usize];
+    let base = f.seal(&before, true, &mut buffer);
+    let after = f.mutate("UPDATE counter SET value=8");
+    let encoded = delta(&before, &after, f.page_size, 2, true);
+    let update = f.update(&base, &encoded, &after, 2, true);
+    f.files.metrics.dir_sync_calls.store(0, Ordering::Release);
+    f.files.metrics.file_sync_calls.store(0, Ordering::Release);
+    let prepared = f
+        .store
+        .prepare_image_root(Some(&base), &update, &ApplyLimits::default(), &mut buffer)
+        .unwrap();
+    f.store.validate_image_seal(&prepared.image).unwrap();
+    assert_eq!(
+        f.files.metrics.dir_sync_calls.load(Ordering::Acquire),
+        1,
+        "extent and root repeated a compatible directory barrier"
+    );
+    assert_eq!(
+        f.files.metrics.file_sync_calls.load(Ordering::Acquire),
+        2,
+        "both dependency and root still require their file barriers"
+    );
+}
+
+#[test]
+fn batched_persistence_writes_the_complete_cohort_before_the_first_file_barrier() {
+    let (mut f, before) = Fixture::new(4096, 0);
+    drop(f.store);
+    f.store = NodeExtentStore::open_parallel(
+        f.root.path().join("store"),
+        f.files.clone(),
+        Default::default(),
+        2,
+        true,
+    )
+    .unwrap();
+    let mut buffer = vec![0; EXTENT_BYTES as usize];
+    let base = f.seal(&before, true, &mut buffer);
+    let after = f.mutate("UPDATE counter SET value=8");
+    let encoded = delta(&before, &after, f.page_size, 2, true);
+    let update = f.update(&base, &encoded, &after, 2, true);
+    let root = manifest(&after, f.page_size, 2, true).root();
+    let root_name: String = root.bytes().iter().map(|b| format!("{b:02x}")).collect();
+    let root_path = f.root.path().join("store").join(format!("r-{root_name}"));
+    *f.files.metrics.before_file_sync.lock().unwrap() = Some(Arc::new(move |is_root| {
+        if !is_root && !std::fs::metadata(&root_path).is_ok_and(|m| m.len() > 0) {
+            return Err(std::io::Error::other(
+                "file barrier preceded the complete image cohort",
+            ));
+        }
+        Ok(())
+    }));
+    let prepared = f
+        .store
+        .prepare_image_root(Some(&base), &update, &ApplyLimits::default(), &mut buffer)
+        .unwrap();
+    f.store.validate_image_seal(&prepared.image).unwrap();
+    f.query(&prepared.image, 8);
+}
+
+#[test]
+fn batched_files_are_reverified_after_their_own_syncs() {
+    for corrupt_root in [false, true] {
+        let (mut f, before) = Fixture::new(4096, 0);
+        drop(f.store);
+        f.store = NodeExtentStore::open_parallel(
+            f.root.path().join("store"),
+            f.files.clone(),
+            Default::default(),
+            2,
+            true,
+        )
+        .unwrap();
+        let mut buffer = vec![0; EXTENT_BYTES as usize];
+        let base = f.seal(&before, true, &mut buffer);
+        let after = f.mutate("UPDATE counter SET value=8");
+        let encoded = delta(&before, &after, f.page_size, 2, true);
+        let update = f.update(&base, &encoded, &after, 2, true);
+        let expected = manifest(&after, f.page_size, 2, true);
+        let name = if corrupt_root {
+            let hex: String = expected
+                .root()
+                .bytes()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            format!("r-{hex}")
+        } else {
+            let id = expected.extent(0).unwrap();
+            let hex: String = id.bytes().iter().map(|b| format!("{b:02x}")).collect();
+            format!("e-{:08x}-{hex}", id.length())
+        };
+        let destination = f.root.path().join("store").join(name);
+        *f.files.metrics.before_file_sync.lock().unwrap() = Some(Arc::new(move |is_root| {
+            if is_root == corrupt_root {
+                use std::io::{Seek as _, Write as _};
+                let mut file = std::fs::OpenOptions::new().write(true).open(&destination)?;
+                file.seek(std::io::SeekFrom::Start(0))?;
+                file.write_all(&[0xff])?;
+            }
+            Ok(())
+        }));
+        assert!(
+            f.store
+                .prepare_image_root(Some(&base), &update, &ApplyLimits::default(), &mut buffer,)
+                .is_err(),
+            "pre-sync verification escaped as a durable image proof"
+        );
+        *f.files.metrics.before_file_sync.lock().unwrap() = None;
+        f.query(&base, 7);
+    }
+}
+
+#[test]
+fn parallel_image_cohorts_share_namespace_barriers_and_fail_closed_together() {
+    for fail in [false, true] {
+        let (mut f, before) = Fixture::new(4096, 0);
+        drop(f.store);
+        f.store = NodeExtentStore::open_parallel(
+            f.root.path().join("store"),
+            f.files.clone(),
+            Default::default(),
+            2,
+            true,
+        )
+        .unwrap();
+        let base = f.seal(&before, true, &mut vec![0; EXTENT_BYTES as usize]);
+        let after_a = f.mutate("UPDATE counter SET value=8");
+        let after_b = f.mutate("UPDATE counter SET value=9");
+        let encoded_a = delta(&before, &after_a, f.page_size, 2, true);
+        let encoded_b = delta(&before, &after_b, f.page_size, 2, true);
+        let update_a = f.update(&base, &encoded_a, &after_a, 2, true);
+        let update_b = f.update(&base, &encoded_b, &after_b, 2, true);
+        let roots_created = Arc::new(std::sync::Barrier::new(2));
+        *f.files.metrics.before_file_sync.lock().unwrap() = Some(Arc::new(move |root| {
+            if root {
+                roots_created.wait();
+            }
+            Ok(())
+        }));
+        f.files.metrics.dir_sync_calls.store(0, Ordering::Release);
+        f.files.metrics.file_sync_calls.store(0, Ordering::Release);
+        f.files.metrics.fail_dir_sync.store(fail, Ordering::Release);
+        let (a, b) = std::thread::scope(|scope| {
+            let a = scope.spawn(|| {
+                f.store.prepare_image_root(
+                    Some(&base),
+                    &update_a,
+                    &ApplyLimits::default(),
+                    &mut vec![0; EXTENT_BYTES as usize],
+                )
+            });
+            let b = scope.spawn(|| {
+                f.store.prepare_image_root(
+                    Some(&base),
+                    &update_b,
+                    &ApplyLimits::default(),
+                    &mut vec![0; EXTENT_BYTES as usize],
+                )
+            });
+            (a.join().unwrap(), b.join().unwrap())
+        });
+        *f.files.metrics.before_file_sync.lock().unwrap() = None;
+        assert_eq!(
+            f.files.metrics.dir_sync_calls.load(Ordering::Acquire),
+            1,
+            "concurrent candidates did not share their covered namespace epoch"
+        );
+        assert_eq!(f.files.metrics.file_sync_calls.load(Ordering::Acquire), 4);
+        if fail {
+            assert!(
+                a.is_err() && b.is_err(),
+                "a failed shared barrier granted an image seal"
+            );
+            assert!(f.store.usage().unwrap().quarantined);
+            assert_eq!(
+                f.store.usage().unwrap().objects,
+                3,
+                "failed cohorts refunded uncertain files"
+            );
+            assert_eq!(f.store.usage().unwrap().roots, 3);
+            assert!(matches!(f.store.reclaim(32), Err(StoreError::Quarantined)));
+        } else {
+            let a = a.unwrap();
+            let b = b.unwrap();
+            f.store.validate_image_seal(&a.image).unwrap();
+            f.store.validate_image_seal(&b.image).unwrap();
+            f.query(&a.image, 8);
+            f.query(&b.image, 9);
+        }
+    }
+}
+
+#[test]
+fn namespace_proof_never_substitutes_for_another_publishers_file_sync() {
+    let (mut f, before) = Fixture::new(4096, 0);
+    drop(f.store);
+    f.store = NodeExtentStore::open_parallel(
+        f.root.path().join("store"),
+        f.files.clone(),
+        Default::default(),
+        2,
+        true,
+    )
+    .unwrap();
+    let base = f.seal(&before, true, &mut vec![0; EXTENT_BYTES as usize]);
+    let after_a = f.mutate("UPDATE counter SET value=8");
+    let after_b = f.mutate("UPDATE counter SET value=9");
+    let encoded_a = delta(&before, &after_a, f.page_size, 2, true);
+    let encoded_b = delta(&before, &after_b, f.page_size, 2, true);
+    let update_a = f.update(&base, &encoded_a, &after_a, 2, true);
+    let update_b = f.update(&base, &encoded_b, &after_b, 2, true);
+    let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+    let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+    let release = std::sync::Mutex::new(release_rx);
+    let first = std::sync::atomic::AtomicBool::new(true);
+    *f.files.metrics.before_file_sync.lock().unwrap() = Some(Arc::new(move |root| {
+        if !root && first.swap(false, Ordering::AcqRel) {
+            entered_tx.send(()).map_err(std::io::Error::other)?;
+            release
+                .lock()
+                .unwrap()
+                .recv()
+                .map_err(std::io::Error::other)?;
+            return Err(std::io::Error::other("injected file barrier failure"));
+        }
+        Ok(())
+    }));
+    let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+    let (a, b, early) = std::thread::scope(|scope| {
+        let a = scope.spawn(|| {
+            done_tx
+                .send(f.store.prepare_image_root(
+                    Some(&base),
+                    &update_a,
+                    &ApplyLimits::default(),
+                    &mut vec![0; EXTENT_BYTES as usize],
+                ))
+                .unwrap()
+        });
+        entered_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        // This successful peer syncs the shared directory while A's file has
+        // not passed its own data barrier. A must still not return a seal.
+        let b = f.store.prepare_image_root(
+            Some(&base),
+            &update_b,
+            &ApplyLimits::default(),
+            &mut vec![0; EXTENT_BYTES as usize],
+        );
+        let early = done_rx.recv_timeout(std::time::Duration::from_millis(50));
+        // B's complete proof is valid while A still has no file proof.
+        f.store
+            .validate_image_seal(&b.as_ref().unwrap().image)
+            .unwrap();
+        f.query(&b.as_ref().unwrap().image, 9);
+        release_tx.send(()).unwrap();
+        a.join().unwrap();
+        (
+            done_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap(),
+            b,
+            early,
+        )
+    });
+    *f.files.metrics.before_file_sync.lock().unwrap() = None;
+    assert!(
+        early.is_err(),
+        "directory coverage exposed a file before its sync"
+    );
+    assert!(a.is_err());
+    let b = b.unwrap();
+    assert!(f.store.usage().unwrap().quarantined);
+    assert!(matches!(
+        f.store.validate_image_seal(&b.image),
+        Err(StoreError::Quarantined)
+    ));
+    f.query(&b.image, 9);
+}
+
+#[test]
+#[ignore = "isolated deadlock regression child, invoked by its parent"]
+fn reverse_dependency_order_child() {
+    let (mut f, before) = Fixture::new(4096, 3 * EXTENT_BYTES);
+    drop(f.store);
+    f.store = NodeExtentStore::open_parallel(
+        f.root.path().join("store"),
+        f.files.clone(),
+        Default::default(),
+        2,
+        true,
+    )
+    .unwrap();
+    let base = f.seal(&before, false, &mut vec![0; EXTENT_BYTES as usize]);
+    // Byte-closure mechanics only: the first SQLite/header extent stays real.
+    // The two non-header extents deliberately reverse content-addressed IDs.
+    let mut a = before.clone();
+    let mut b = before.clone();
+    let size = EXTENT_BYTES as usize;
+    a[size..2 * size].fill(31);
+    a[2 * size..3 * size].fill(32);
+    b[size..2 * size].fill(32);
+    b[2 * size..3 * size].fill(31);
+    let encoded_a = delta(&before, &a, f.page_size, 2, false);
+    let encoded_b = delta(&before, &b, f.page_size, 2, false);
+    let update_a = f.update(&base, &encoded_a, &a, 2, false);
+    let update_b = f.update(&base, &encoded_b, &b, 2, false);
+    let rendezvous = Arc::new(std::sync::Barrier::new(2));
+    let calls = std::sync::atomic::AtomicUsize::new(0);
+    *f.files.metrics.before_file_sync.lock().unwrap() = Some(Arc::new(move |root| {
+        if !root && calls.fetch_add(1, Ordering::AcqRel) < 2 {
+            rendezvous.wait();
+        }
+        Ok(())
+    }));
+    let (a, b) = std::thread::scope(|scope| {
+        let a = scope.spawn(|| {
+            f.store.prepare_image_root(
+                Some(&base),
+                &update_a,
+                &ApplyLimits::default(),
+                &mut vec![0; EXTENT_BYTES as usize],
+            )
+        });
+        let b = scope.spawn(|| {
+            f.store.prepare_image_root(
+                Some(&base),
+                &update_b,
+                &ApplyLimits::default(),
+                &mut vec![0; EXTENT_BYTES as usize],
+            )
+        });
+        (a.join().unwrap().unwrap(), b.join().unwrap().unwrap())
+    });
+    *f.files.metrics.before_file_sync.lock().unwrap() = None;
+    f.store.validate_image_seal(&a.image).unwrap();
+    f.store.validate_image_seal(&b.image).unwrap();
+    assert_eq!(a.image.manifest().extent(1), b.image.manifest().extent(2));
+    assert_eq!(a.image.manifest().extent(2), b.image.manifest().extent(1));
+}
+
+#[test]
+fn competing_image_cohorts_do_not_deadlock_on_reverse_dependency_order() {
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "reverse_dependency_order_child",
+            "--ignored",
+            "--exact",
+            "--test-threads=1",
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            assert!(status.success(), "reverse-order publication child failed");
+            return;
+        }
+        if std::time::Instant::now() >= deadline {
+            child.kill().unwrap();
+            child.wait().unwrap();
+            panic!("reverse-order publications deadlocked");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+#[test]
+#[ignore = "abrupt batched-image child, invoked by its parent"]
+fn batched_image_crash_child() {
+    let path = std::path::PathBuf::from(std::env::var_os("CELLAR_BATCH_IMAGE_CRASH_PATH").unwrap());
+    let before = std::fs::read(path.join("before.bin")).unwrap();
+    let after = std::fs::read(path.join("after.bin")).unwrap();
+    let encoded = std::fs::read(path.join("delta.ltx")).unwrap();
+    let files = Arc::new(bounded_files::BoundedFiles {
+        directory: path.clone(),
+        metrics: Arc::default(),
+    });
+    let store = NodeExtentStore::open_parallel(
+        path.join("store"),
+        files.clone(),
+        Default::default(),
+        2,
+        true,
+    )
+    .unwrap();
+    let base_manifest = manifest(&before, 4096, 1, true);
+    for id in (0..base_manifest.geometry().extent_count()).map(|i| base_manifest.extent(i).unwrap())
+    {
+        store.verify_extent(id).unwrap();
+    }
+    let base = store
+        .seal_image_root(base_manifest, &mut vec![0; EXTENT_BYTES as usize])
+        .unwrap();
+    let expected = manifest(&after, 4096, 2, true);
+    let file = ltx::decode_file_bounded(&encoded, Default::default()).unwrap();
+    let update = ImageRootUpdate {
+        base: base.reference(),
+        result: reference(&expected),
+        binding: expected.binding(),
+        geometry: expected.geometry(),
+        segments: vec![LtxSegment {
+            bytes: &encoded,
+            min_txid: TXID(2),
+            max_txid: TXID(2),
+            page_count: file.pages().len(),
+            decoded_bytes: file.decoded_bytes(),
+        }],
+    };
+    // Exit after the new root's file barrier, before its batch returns a seal.
+    files
+        .metrics
+        .exit_after_root_sync
+        .store(true, Ordering::Release);
+    let _ = store.prepare_image_root(
+        Some(&base),
+        &update,
+        &ApplyLimits::default(),
+        &mut vec![0; EXTENT_BYTES as usize],
+    );
+    panic!("batched crash hook did not execute");
+}
+
+#[test]
+fn interrupted_batched_image_keeps_the_selected_old_root_and_reclaims_only_orphans() {
+    let (mut f, before) = Fixture::new(4096, 0);
+    let base = f.seal(&before, true, &mut vec![0; EXTENT_BYTES as usize]);
+    let selected = base.reference();
+    let after = f.mutate("UPDATE counter SET value=8");
+    let encoded = delta(&before, &after, 4096, 2, true);
+    std::fs::write(f.root.path().join("before.bin"), before).unwrap();
+    std::fs::write(f.root.path().join("after.bin"), after).unwrap();
+    std::fs::write(f.root.path().join("delta.ltx"), encoded).unwrap();
+    drop(base);
+    drop(f.store);
+    let child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "batched_image_crash_child",
+            "--ignored",
+            "--exact",
+            "--test-threads=1",
+        ])
+        .env("CELLAR_BATCH_IMAGE_CRASH_PATH", f.root.path())
+        .output()
+        .unwrap();
+    assert_eq!(child.status.code(), Some(77));
+    f.store = NodeExtentStore::open_parallel(
+        f.root.path().join("store"),
+        f.files.clone(),
+        Default::default(),
+        2,
+        true,
+    )
+    .unwrap();
+    assert_eq!(f.store.usage().unwrap().roots, 2);
+    let view = f.store.open_root(selected).unwrap();
+    let restored = f
+        .store
+        .seal_image_root(view.manifest().clone(), &mut vec![0; EXTENT_BYTES as usize])
+        .unwrap();
+    f.query(&restored, 7);
+    f.store.retain_only(&[selected]).unwrap();
+    assert_eq!(f.store.reclaim(32).unwrap(), 2);
+    f.query(&restored, 7);
+    assert_eq!(f.store.usage().unwrap().roots, 1);
+}
+
+#[test]
+fn append_publication_persists_changed_data_and_root_with_one_barrier() {
+    let (fixture, before) = Fixture::with_append(4096, 0, true);
+    let mut buffer = vec![0; EXTENT_BYTES as usize];
+    let base = fixture.seal(&before, false, &mut buffer);
+    let after = fixture.mutate("UPDATE counter SET value=8");
+    let encoded = delta(&before, &after, 4096, 2, false);
+    let update = fixture.update(&base, &encoded, &after, 2, false);
+    fixture
+        .files
+        .metrics
+        .file_sync_calls
+        .store(0, Ordering::Release);
+    fixture
+        .files
+        .metrics
+        .dir_sync_calls
+        .store(0, Ordering::Release);
+    let prepared = fixture
+        .store
+        .prepare_image_root(Some(&base), &update, &ApplyLimits::default(), &mut buffer)
+        .unwrap();
+    fixture.store.validate_image_seal(&prepared.image).unwrap();
+    assert_eq!(
+        fixture
+            .files
+            .metrics
+            .file_sync_calls
+            .load(Ordering::Acquire),
+        1,
+        "changed data and root metadata must share one persistence barrier"
+    );
+    assert_eq!(
+        fixture.files.metrics.dir_sync_calls.load(Ordering::Acquire),
+        0,
+        "appending to an existing segment must not create names"
+    );
+    fixture.query(&prepared.image, 8);
+}
+
+#[test]
+fn append_abrupt_exit_before_and_after_shared_sync_keeps_exact_old_selection() {
+    for cut in ["before", "after"] {
+        let evidence = tempfile::tempdir().unwrap();
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--ignored", "--exact", "append_shared_sync_exit_child"])
+            .env("CELLAR_APPEND_CRASH_EVIDENCE", evidence.path())
+            .env("CELLAR_APPEND_CRASH_CUT", cut)
+            .status()
+            .unwrap();
+        assert_eq!(status.code(), Some(if cut == "before" { 83 } else { 84 }));
+        let path = std::fs::read_to_string(evidence.path().join("path")).unwrap();
+        let before = std::fs::read(evidence.path().join("before.sqlite")).unwrap();
+        let root = manifest(&before, 4096, 1, false);
+        let store = NodeExtentStore::open_append(
+            std::path::Path::new(&path).join("store"),
+            Arc::new(DirectFileSystem),
+            Default::default(),
+            2,
+            8 * EXTENT_BYTES,
+            true,
+        )
+        .unwrap();
+        let view = store.open_root(reference(&root)).unwrap();
+        assert_eq!(view.read_extent(root.extent(0).unwrap()).unwrap(), before);
+        store.retain_only(&[reference(&root)]).unwrap();
+        // The unsent candidate is not selected by append position or filename.
+        assert_eq!(view.reference(), reference(&root));
+        drop(view);
+        drop(store);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+}
+
+#[test]
+#[ignore = "abrupt-exit helper launched by the parent test"]
+fn append_shared_sync_exit_child() {
+    let evidence =
+        std::path::PathBuf::from(std::env::var_os("CELLAR_APPEND_CRASH_EVIDENCE").unwrap());
+    let cut = std::env::var("CELLAR_APPEND_CRASH_CUT").unwrap();
+    let (fixture, before) = Fixture::with_append(4096, 0, true);
+    std::fs::write(evidence.join("path"), fixture.root.path().to_str().unwrap()).unwrap();
+    std::fs::write(evidence.join("before.sqlite"), &before).unwrap();
+    let mut buffer = vec![0; EXTENT_BYTES as usize];
+    let base = fixture.seal(&before, false, &mut buffer);
+    let after = fixture.mutate("UPDATE counter SET value=8");
+    let encoded = delta(&before, &after, 4096, 2, false);
+    let update = fixture.update(&base, &encoded, &after, 2, false);
+    if cut == "before" {
+        *fixture.files.metrics.before_file_sync.lock().unwrap() =
+            Some(Arc::new(|_| std::process::exit(83)));
+    } else {
+        *fixture.files.metrics.after_file_sync.lock().unwrap() =
+            Some(Arc::new(|_| std::process::exit(84)));
+    }
+    let _ = fixture.store.prepare_image_root(
+        Some(&base),
+        &update,
+        &ApplyLimits::default(),
+        &mut buffer,
+    );
+    panic!("shared sync cut was not reached");
 }

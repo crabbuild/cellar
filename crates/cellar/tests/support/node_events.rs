@@ -475,7 +475,12 @@ async fn node_activates_declarations_checks_adoption_and_processes_redelivery() 
     // Reuse the directory immediately: a failed activation must join its domain
     // and release the directory lock, not merely return an error to the caller.
     let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
-    let (config, services) = inputs("events", &data, &core, Some(bucket), 0).await?;
+    let (mut config, services) = inputs("events", &data, &core, Some(bucket), 0).await?;
+    // Activation, adoption and redelivery perform real durable store I/O. Give
+    // this functional case authority across transient writer queues; clock and
+    // fencing fixtures keep their independently selected short lease policies.
+    config.actor.lease_ttl_ms = 5_000;
+    config.startup.recovery_retry_backoff = Duration::from_millis(config.actor.lease_ttl_ms);
     let mut node =
         Node::start(config, services, graph(1, false), applications("original")?).await?;
     // Resource activation and the independent fleet observer both contribute

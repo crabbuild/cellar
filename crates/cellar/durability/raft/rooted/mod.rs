@@ -155,10 +155,10 @@ impl RootImageApplier {
         if let Some(current) = &applier.current {
             applier
                 .store
-                .retain_reference(
+                .retain_image_reference(
                     marker::reference_key(&applier.group, 1),
                     applied.position.index.get(),
-                    current.image.reference(),
+                    &current.image,
                 )
                 .map_err(ImageApplyError::Extents)?;
         } else if applier.snapshot.is_some() {
@@ -272,10 +272,10 @@ impl RootImageApplier {
             buffer,
         )?;
         self.store
-            .retain_reference(
+            .retain_image_reference(
                 marker::reference_key(&self.group, 2),
                 position.index.get(),
-                image.reference(),
+                &image,
             )
             .map_err(ImageApplyError::Extents)?;
         let previous = self.snapshot.replace((position, Arc::new(image)));
@@ -290,7 +290,7 @@ impl RootImageApplier {
                     .is_none_or(|(_, current)| current.reference() != old.reference())
             {
                 self.store
-                    .retire_root(old.reference())
+                    .retire_image_root(&old)
                     .map_err(ImageApplyError::Extents)?;
             }
         }
@@ -303,8 +303,21 @@ impl RootImageApplier {
         entry: &raft::prelude::Entry,
         buffer: &mut [u8],
     ) -> Result<ApplyCompletion, ImageApplyError> {
+        self.prepare_private(ticket, entry, None, buffer)
+    }
+
+    pub(super) fn prepare_private(
+        &mut self,
+        ticket: ApplyTicket,
+        entry: &raft::prelude::Entry,
+        private: Option<&mut super::execution::PrivateExecutor>,
+        buffer: &mut [u8],
+    ) -> Result<ApplyCompletion, ImageApplyError> {
         if self.pending.is_some() {
             return Err(ImageApplyError::Busy);
+        }
+        if buffer.len() != cellar_ltx::internal::EXTENT_BYTES as usize {
+            return Err(ImageApplyError::Invalid("extent apply workspace bound"));
         }
         let update = validate_committed_update(
             &self.group,
@@ -362,40 +375,70 @@ impl RootImageApplier {
         )
         .map_err(StoreError::from)
         .map_err(ImageApplyError::Extents)?;
-        let segments = update
-            .files
-            .iter()
-            .map(|file| {
-                Ok(LtxSegment {
-                    bytes: &file.bytes,
-                    min_txid: cellar_ltx::TXID(file.min_txid),
-                    max_txid: cellar_ltx::TXID(file.max_txid),
-                    page_count: usize::try_from(file.page_count)
-                        .map_err(|_| ImageApplyError::Invalid("page count"))?,
-                    decoded_bytes: file.decoded_bytes,
-                })
-            })
-            .collect::<Result<Vec<_>, ImageApplyError>>()?;
-        let prepared = self
+        if geometry.length() > self.limits.decode.max_image_bytes {
+            return Err(ImageApplyError::Invalid("extent image exceeds quota"));
+        }
+        if self
             .store
-            .prepare_image_root(
-                self.current.as_ref().map(|current| current.image.as_ref()),
-                &ImageRootUpdate {
-                    base: marker::reference(&base)?,
-                    result: expected,
-                    binding,
-                    geometry,
-                    segments,
-                },
-                &self.limits,
-                buffer,
+            .usage()
+            .map_err(ImageApplyError::Extents)?
+            .quarantined
+        {
+            return Err(ImageApplyError::Extents(StoreError::Quarantined));
+        }
+        // Ticket/head/schema validation precedes transfer. The exact encoded
+        // payload, base, result geometry and live inventory owner must match
+        // the submitted preview; followers and mismatches still replay LTX.
+        let preview = private.and_then(|private| {
+            private.take_rooted_preview(
+                self.group.identity(),
+                &self.store,
+                &entry.data,
+                update.base,
+                update.result,
+                geometry,
             )
-            .map_err(ImageApplyError::Extents)?;
-        let marker = marker::encode(&prepared.image);
+        });
+        let image = match preview {
+            Some(image) => image,
+            None => {
+                let segments = update
+                    .files
+                    .iter()
+                    .map(|file| {
+                        Ok(LtxSegment {
+                            bytes: &file.bytes,
+                            min_txid: cellar_ltx::TXID(file.min_txid),
+                            max_txid: cellar_ltx::TXID(file.max_txid),
+                            page_count: usize::try_from(file.page_count)
+                                .map_err(|_| ImageApplyError::Invalid("page count"))?,
+                            decoded_bytes: file.decoded_bytes,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, ImageApplyError>>()?;
+                let prepared = self
+                    .store
+                    .prepare_image_root(
+                        self.current.as_ref().map(|current| current.image.as_ref()),
+                        &ImageRootUpdate {
+                            base: marker::reference(&base)?,
+                            result: expected,
+                            binding,
+                            geometry,
+                            segments,
+                        },
+                        &self.limits,
+                        buffer,
+                    )
+                    .map_err(ImageApplyError::Extents)?;
+                Arc::new(prepared.image)
+            }
+        };
+        let marker = marker::encode(&image);
         marker.validate().map_err(ImageApplyError::Log)?;
         self.pending = Some(Pending {
             ticket: ticket.clone(),
-            image: Arc::new(prepared.image),
+            image,
             marker: marker.clone(),
             proposal: update.proposal,
         });
@@ -441,10 +484,10 @@ impl RootImageApplier {
         )?;
         self.refresh_snapshot(buffer)?;
         self.store
-            .retain_reference(
+            .retain_image_reference(
                 marker::reference_key(&self.group, 1),
                 position.index.get(),
-                image.reference(),
+                &image,
             )
             .map_err(ImageApplyError::Extents)?;
         let head = RootPublishedImage {
@@ -463,7 +506,7 @@ impl RootImageApplier {
                     .is_none_or(|(_, image)| image.reference() != previous.image.reference())
             {
                 self.store
-                    .retire_root(previous.image.reference())
+                    .retire_image_root(&previous.image)
                     .map_err(ImageApplyError::Extents)?;
             }
         }
@@ -490,10 +533,13 @@ impl RootImageApplier {
             return Err(ImageApplyError::Unpublished);
         }
         self.store
-            .retain_reference(
+            .validate_image_seal(&pending.image)
+            .map_err(ImageApplyError::Extents)?;
+        self.store
+            .retain_image_reference(
                 marker::reference_key(&self.group, 1),
                 applied.position.index.get(),
-                pending.image.reference(),
+                &pending.image,
             )
             .map_err(ImageApplyError::Extents)?;
         let head = RootPublishedImage {
@@ -513,7 +559,7 @@ impl RootImageApplier {
                     .is_none_or(|(_, image)| image.reference() != previous.image.reference())
             {
                 self.store
-                    .retire_root(previous.image.reference())
+                    .retire_image_root(&previous.image)
                     .map_err(ImageApplyError::Extents)?;
             }
         }

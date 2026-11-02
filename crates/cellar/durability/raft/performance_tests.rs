@@ -168,3 +168,77 @@ async fn measured_futures_distinguish_failure_from_cancellation() -> anyhow::Res
     domain.shutdown().await;
     Ok(())
 }
+
+#[tokio::test]
+async fn image_phase_metrics_keep_roles_zero_work_and_actual_primitive_counts() -> anyhow::Result<()>
+{
+    use cellar_ltx::internal::image_timing::{Phase, Sample, Timings};
+    let (domain, registry) = registry().await?;
+    let mut work = Timings::default();
+    work.phases[Phase::Sql as usize] = Sample {
+        calls: 1,
+        micros: 3,
+        bytes: 0,
+    };
+    work.phases[Phase::InventoryWait as usize] = Sample {
+        calls: 1,
+        micros: 17,
+        bytes: 0,
+    };
+    work.phases[Phase::DirectorySync as usize] = Sample {
+        calls: 1,
+        micros: 11,
+        bytes: 0,
+    };
+    work.phases[Phase::ExtentRead as usize] = Sample {
+        calls: 2,
+        micros: 7,
+        bytes: 8192,
+    };
+    work.phases[Phase::ExtentWrite as usize] = Sample {
+        calls: 1,
+        micros: 5,
+        bytes: 4096,
+    };
+    registry.record_image(ImageWork::StageLeader, &work, true);
+    registry.record_image(ImageWork::PrepareLeader, &Timings::default(), true);
+    registry.record_image(ImageWork::PrepareFollower, &work, true);
+    registry
+        .timer(Operation::SqlPrepare)
+        .finish_as(true, Some(Operation::SqlPrepareLeader));
+    let snapshot = registry.snapshot();
+    assert!(snapshot.available && !snapshot.saturated);
+    assert_eq!(
+        snapshot.operations[Operation::ImageStageLeaderDirectorySync as usize].sum_us,
+        11
+    );
+    assert_eq!(
+        snapshot.operations[Operation::ImagePrepareFollowerDirectorySync as usize].sum_us,
+        11
+    );
+    let reuse = &snapshot.operations[Operation::ImagePrepareLeaderDirectorySync as usize];
+    assert_eq!((reuse.count, reuse.sum_us), (1, 0));
+    let all = &snapshot.operations[Operation::SqlPrepare as usize];
+    let leader = &snapshot.operations[Operation::SqlPrepareLeader as usize];
+    assert_eq!(
+        (all.started, all.count, all.sum_us),
+        (leader.started, leader.count, leader.sum_us)
+    );
+    assert_eq!(
+        snapshot.counters[Counter::ImageDirectorySyncCalls as usize].value,
+        2
+    );
+    assert_eq!(
+        snapshot.counters[Counter::ImageExtentReadBytes as usize].value,
+        16384
+    );
+    assert_eq!(
+        snapshot.counters[Counter::ImageExtentWriteBytes as usize].value,
+        8192
+    );
+    work.unavailable = true;
+    registry.record_image(ImageWork::PrepareFollower, &work, true);
+    assert!(!registry.snapshot().available);
+    domain.shutdown().await;
+    Ok(())
+}

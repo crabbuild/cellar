@@ -32,6 +32,51 @@ fn digest(text: &str) -> Result<[u8; 32], StoreError> {
 }
 
 impl NodeExtentStore {
+    /// Append immutable records to bounded segments on admitted blocking workers.
+    pub fn open_append(
+        directory: PathBuf,
+        filesystem: Arc<dyn FileSystem>,
+        limits: NodeExtentLimits,
+        publications: usize,
+        segment_bytes: u64,
+        group_commit: bool,
+    ) -> Result<Self, StoreError> {
+        if !(1..=16).contains(&publications) {
+            return Err(StoreError::Limit);
+        }
+        Self::open_with_admission(
+            directory,
+            filesystem,
+            limits,
+            true,
+            publications,
+            true,
+            Some(segment::Segments::new(segment_bytes, group_commit)?),
+        )
+    }
+
+    /// Bounded publication from already admitted blocking workers.
+    pub fn open_parallel(
+        directory: PathBuf,
+        filesystem: Arc<dyn FileSystem>,
+        limits: NodeExtentLimits,
+        publications: usize,
+        batch_directory_barriers: bool,
+    ) -> Result<Self, StoreError> {
+        if !(1..=16).contains(&publications) {
+            return Err(StoreError::Limit);
+        }
+        Self::open_with_admission(
+            directory,
+            filesystem,
+            limits,
+            true,
+            publications,
+            batch_directory_barriers,
+            None,
+        )
+    }
+
     /// Inventory names and lengths only. No data extent is scanned at startup,
     /// and no filename chooses an authoritative root. Partial known files stay
     /// charged until explicit reclamation after the host supplies its references.
@@ -40,7 +85,7 @@ impl NodeExtentStore {
         filesystem: Arc<dyn FileSystem>,
         limits: NodeExtentLimits,
     ) -> Result<Self, StoreError> {
-        Self::open_with_admission(directory, filesystem, limits, false)
+        Self::open_with_admission(directory, filesystem, limits, false, 1, false, None)
     }
 
     /// Serialize physical operations from bounded blocking owners sharing one
@@ -51,7 +96,7 @@ impl NodeExtentStore {
         filesystem: Arc<dyn FileSystem>,
         limits: NodeExtentLimits,
     ) -> Result<Self, StoreError> {
-        Self::open_with_admission(directory, filesystem, limits, true)
+        Self::open_with_admission(directory, filesystem, limits, true, 1, false, None)
     }
 
     fn open_with_admission(
@@ -59,6 +104,9 @@ impl NodeExtentStore {
         filesystem: Arc<dyn FileSystem>,
         limits: NodeExtentLimits,
         serialized: bool,
+        publications: usize,
+        batch_directory_barriers: bool,
+        segments: Option<segment::Segments>,
     ) -> Result<Self, StoreError> {
         limits.validate()?;
         create_dir_all_durable(filesystem.as_ref(), &directory)?;
@@ -98,6 +146,23 @@ impl NodeExtentStore {
             if entry.is_dir || !metadata.is_file {
                 return Err(StoreError::Layout);
             }
+            if let Some(segments) = &segments {
+                if name.len() != 18 || !name.starts_with("s-") {
+                    return Err(StoreError::Layout);
+                }
+                let id = u64::from_str_radix(&name[2..], 16).map_err(|_| StoreError::Layout)?;
+                if segment::name(id) != name {
+                    return Err(StoreError::Layout);
+                }
+                segments.recover(
+                    &directory,
+                    filesystem.as_ref(),
+                    &mut state,
+                    limits,
+                    (id, metadata.len),
+                )?;
+                continue;
+            }
             let next_bytes = state
                 .bytes
                 .checked_add(metadata.len)
@@ -119,6 +184,8 @@ impl NodeExtentStore {
                     id,
                     ObjectEntry {
                         bytes: metadata.len,
+                        location: None,
+                        publishing: false,
                         verified: false,
                         read_proof: None,
                     },
@@ -143,8 +210,10 @@ impl NodeExtentStore {
                     root,
                     RootEntry {
                         bytes: metadata.len,
+                        location: None,
                         slots,
                         retained: true,
+                        metadata_persisted: false,
                         token: Arc::new(()),
                         data: None,
                     },
@@ -153,6 +222,9 @@ impl NodeExtentStore {
                 return Err(StoreError::Layout);
             }
             state.bytes = next_bytes;
+        }
+        if let Some(segments) = &segments {
+            segments.finish_recovery()?;
         }
         // Do not delete while enumerating: changing directory iteration offsets
         // could skip an immutable object and undercount the recovered inventory.
@@ -170,6 +242,10 @@ impl NodeExtentStore {
                 state: Mutex::new(state),
                 idle: Condvar::new(),
                 serialized,
+                publications,
+                batch_directory_barriers,
+                barrier: Default::default(),
+                segments,
                 _lock: lock,
             }),
         })
@@ -179,6 +255,7 @@ impl NodeExtentStore {
         &self,
         reference: ExtentRootReference,
     ) -> Result<Arc<RootData>, StoreError> {
+        let _key = self.inner.key(Key::Root(reference.root), true)?;
         self.read_root(reference, false)
     }
 
@@ -194,32 +271,51 @@ impl NodeExtentStore {
         reference: ExtentRootReference,
         persist: bool,
     ) -> Result<Arc<RootData>, StoreError> {
-        let path = self.inner.directory.join(root_name(reference.root));
-        let mut file = self
-            .inner
-            .checked_file(&path, u64::from(reference.length))?;
-        let mut bytes = Vec::with_capacity(reference.length as usize);
-        while bytes.len() < reference.length as usize {
-            let count = (reference.length as usize - bytes.len()).min(65536);
-            let next = file.read_exact_at(bytes.len() as u64, count)?;
-            if next.len() != count {
+        let result = (|| {
+            let mut file = self.inner.checked_root(reference)?;
+            let mut bytes = Vec::with_capacity(reference.length as usize);
+            while bytes.len() < reference.length as usize {
+                let count = (reference.length as usize - bytes.len()).min(65536);
+                let next = file.read_exact_at(bytes.len() as u64, count)?;
+                if next.len() != count {
+                    return Err(StoreError::Integrity);
+                }
+                bytes.extend_from_slice(&next);
+            }
+            if file.file_len()? != u64::from(reference.length) {
                 return Err(StoreError::Integrity);
             }
-            bytes.extend_from_slice(&next);
+            let manifest = ExtentManifest::decode(&bytes, reference.root)?;
+            let persisted = self
+                .inner
+                .state()?
+                .roots
+                .get(&reference.root)
+                .is_some_and(|entry| entry.metadata_persisted);
+            if persist && !persisted {
+                self.inner.persist_reopened(&mut file)?;
+                if self.inner.segments.is_some() {
+                    publication::verify_root_owned(&mut file, reference)?;
+                }
+                self.inner
+                    .state()?
+                    .roots
+                    .get_mut(&reference.root)
+                    .ok_or(StoreError::Missing)?
+                    .metadata_persisted = true;
+            }
+            let mut objects = BTreeSet::new();
+            for index in 0..manifest.geometry().extent_count() {
+                objects.insert(manifest.extent(index).ok_or(StoreError::Layout)?);
+            }
+            Ok(Arc::new(RootData { manifest, objects }))
+        })();
+        if result.is_err() {
+            if let Some(entry) = self.inner.state()?.roots.get_mut(&reference.root) {
+                entry.metadata_persisted = false;
+            }
         }
-        if file.file_len()? != u64::from(reference.length) {
-            return Err(StoreError::Integrity);
-        }
-        let manifest = ExtentManifest::decode(&bytes, reference.root)?;
-        if persist {
-            file.sync_all()?;
-            self.inner.filesystem.sync_all(&self.inner.directory)?;
-        }
-        let mut objects = BTreeSet::new();
-        for index in 0..manifest.geometry().extent_count() {
-            objects.insert(manifest.extent(index).ok_or(StoreError::Layout)?);
-        }
-        Ok(Arc::new(RootData { manifest, objects }))
+        result
     }
 
     pub(super) fn load_root(
@@ -254,7 +350,6 @@ impl NodeExtentStore {
         let result = self
             .load_root(reference)
             .and_then(|data| self.view(reference, data));
-        operation.finish()?;
-        result
+        operation.finish(result)
     }
 }

@@ -199,16 +199,26 @@ impl Repaired {
                 loop {
                     let cut = s.f.catalog.read(TIMEOUT).await?;
                     let mut done = true;
-                    for node in &s.nodes {
-                        let sample = node
-                            .host
-                            .inspect_peer_physical_inventory(
-                                node.spec.node,
-                                cut.revision(),
-                                TIMEOUT,
-                            )
+                    for (node, host) in
+                        s.nodes
+                            .iter()
+                            .map(|n| (n.spec.node, &n.host))
+                            .chain(std::iter::once((
+                                movement.plan.replacement.node,
+                                &s.observer,
+                            )))
+                    {
+                        let sample = host
+                            .inspect_peer_physical_inventory(node, cut.revision(), TIMEOUT)
                             .await?;
                         done &= sample.view.seed_workers == 0
+                            && sample.view.pending_history_registrations == 0
+                            && sample
+                                .inventory
+                                .as_ref()
+                                .context("physical inventory")?
+                                .initializing()
+                                .is_none()
                             && sample
                                 .inventory
                                 .as_ref()
@@ -236,7 +246,8 @@ impl Repaired {
                     &s.observer,
                     TIMEOUT,
                 )
-                .await?;
+                .await
+                .context("complete isolated replacement after live-owner settlement")?;
         ensure!(complete.isolated_sources() == [old.spec.node.bytes()]);
         let peers = [
             s.nodes[0].spec.node,
@@ -273,7 +284,8 @@ impl Repaired {
             .await?;
         let fixed = proof
             .freeze_live(&self.s.observer, self.peers, TIMEOUT)
-            .await?;
+            .await
+            .context("freeze isolated evacuation verification")?;
         let reference = self.s.reference(&fixed).await?;
         proof
             .verify_live(
@@ -282,7 +294,8 @@ impl Repaired {
                 archive(&self.s, &reference),
                 TIMEOUT,
             )
-            .await?;
+            .await
+            .context("verify isolated evacuation live closure")?;
         Ok(proof)
     }
 

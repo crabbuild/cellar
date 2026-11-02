@@ -108,6 +108,7 @@ pub(crate) struct Replica {
     pub write: Option<(WriteTicket, GroupWrite)>,
     outbound: VecDeque<RuntimeEventKind>,
     deliveries: Vec<std::sync::Weak<super::budget::Permit>>,
+    configuration_ready: Option<LogPosition>,
     apply: VecDeque<Entry>,
     apply_ticket: Option<ApplyTicket>,
     finished_apply: Option<ApplyCompletion>,
@@ -173,6 +174,7 @@ impl Replica {
             write: None,
             outbound: VecDeque::new(),
             deliveries: Vec::new(),
+            configuration_ready: None,
             apply: VecDeque::new(),
             apply_ticket: None,
             finished_apply: None,
@@ -692,6 +694,76 @@ impl Replica {
         Ok(())
     }
 
+    // A removed peer may still have the last append in flight when a different
+    // quorum commits its removal. Give it one commit-bearing retransmission
+    // before revoking the route. Probe on a copy: no matched index, real
+    // inflight reservation or quorum progress may be advanced by this send.
+    fn configuration_messages(&mut self) -> Result<(), RuntimeError> {
+        if self.node.raft.state != StateRole::Leader {
+            return Ok(());
+        }
+        let Some(entry) = self.apply.front() else {
+            return Ok(());
+        };
+        let mut targets = std::collections::BTreeSet::new();
+        {
+            let mut add = |member| {
+                if member != self.identity().member.get()
+                    && self.node.raft.prs().get(member).is_some()
+                {
+                    targets.insert(member);
+                }
+            };
+            match entry.get_entry_type() {
+                EntryType::EntryConfChange => {
+                    let change = ConfChange::parse_from_bytes(&entry.data)
+                        .map_err(|error| RuntimeError::Protocol(error.to_string()))?;
+                    if change.get_change_type() == ConfChangeType::RemoveNode {
+                        add(change.node_id);
+                    }
+                }
+                EntryType::EntryConfChangeV2 => {
+                    let change = ConfChangeV2::parse_from_bytes(&entry.data)
+                        .map_err(|error| RuntimeError::Protocol(error.to_string()))?;
+                    if change.changes.is_empty() {
+                        let conf = self.log.initial_state()?.conf_state;
+                        for member in &conf.voters_outgoing {
+                            if !conf.voters.contains(member)
+                                && !conf.learners.contains(member)
+                                && !conf.learners_next.contains(member)
+                            {
+                                add(*member);
+                            }
+                        }
+                    } else {
+                        for change in &change.changes {
+                            if change.get_change_type() == ConfChangeType::RemoveNode {
+                                add(change.node_id);
+                            }
+                        }
+                    }
+                }
+                EntryType::EntryNormal => (),
+            }
+        }
+        for member in targets {
+            let original = {
+                let progress = self.node.raft.mut_prs().get_mut(member).unwrap();
+                let next = progress
+                    .matched
+                    .checked_add(1)
+                    .ok_or(RuntimeError::Overloaded)?;
+                let mut probe = progress.clone();
+                probe.become_probe();
+                probe.next_idx = next;
+                std::mem::replace(progress, probe)
+            };
+            self.node.raft.send_append(member);
+            *self.node.raft.mut_prs().get_mut(member).unwrap() = original;
+        }
+        Ok(())
+    }
+
     pub fn drive(
         &mut self,
         operations: &mut Operations,
@@ -964,15 +1036,21 @@ impl Replica {
                     self.ready_bytes = 0;
                     return Ok(true);
                 }
-                // Drain the finite set of already-emitted sends before applying
-                // a committed configuration. Collecting another ordinary Ready
-                // here lets later heartbeats extend that fence indefinitely.
+                // Drain prior sends, including one already pending Ready admitted
+                // under the ordinary budgets. It can contain the commit notice
+                // for the member about to be removed. Capture that prefix once:
+                // later heartbeats must not extend the delivery fence forever.
                 // An uninstalled snapshot retains its existing priority.
                 let configuration_pending = self
                     .apply
                     .front()
                     .is_some_and(|entry| entry.get_entry_type() != EntryType::EntryNormal)
                     && self.node.raft.raft_log.unstable_snapshot().is_none();
+                let configuration_position =
+                    configuration_pending.then(|| entry_position(self.apply.front().unwrap()));
+                if !configuration_pending {
+                    self.configuration_ready = None;
+                }
                 if configuration_pending {
                     self.deliveries
                         .retain(|delivery| delivery.strong_count() != 0);
@@ -980,11 +1058,19 @@ impl Replica {
                         return Ok(false);
                     }
                 }
-                if !configuration_pending
+                if configuration_pending
+                    && self.configuration_ready != configuration_position
+                    && can_collect
+                    && self.apply_bytes < options.max_group_apply_bytes
+                {
+                    self.configuration_messages()?;
+                }
+                if (!configuration_pending || self.configuration_ready != configuration_position)
                     && self.node.has_ready()
                     && ((can_collect && self.apply_bytes < options.max_group_apply_bytes)
                         || self.node.raft.raft_log.unstable_snapshot().is_some())
                 {
+                    self.configuration_ready = configuration_position;
                     let ready = self.node.ready();
                     self.ready_bytes = ready_bytes(&ready);
                     if self.ready_bytes > options.max_ready_bytes {

@@ -81,9 +81,63 @@ pub(crate) enum Operation {
     ArchivePhysicalAdmission,
     ArchivePhysicalQueue,
     EnginePurge,
+    ImageStageLeaderSql,
+    ImageStageLeaderInventoryWait,
+    ImageStageLeaderLtxDecode,
+    ImageStageLeaderExtentRead,
+    ImageStageLeaderExtentHash,
+    ImageStageLeaderExtentWrite,
+    ImageStageLeaderFileSync,
+    ImageStageLeaderDirectorySync,
+    ImageStageLeaderBarrierWait,
+    ImageStageLeaderOther,
+    ImagePrepareLeaderSql,
+    ImagePrepareLeaderInventoryWait,
+    ImagePrepareLeaderLtxDecode,
+    ImagePrepareLeaderExtentRead,
+    ImagePrepareLeaderExtentHash,
+    ImagePrepareLeaderExtentWrite,
+    ImagePrepareLeaderFileSync,
+    ImagePrepareLeaderDirectorySync,
+    ImagePrepareLeaderBarrierWait,
+    ImagePrepareLeaderOther,
+    ImagePrepareFollowerSql,
+    ImagePrepareFollowerInventoryWait,
+    ImagePrepareFollowerLtxDecode,
+    ImagePrepareFollowerExtentRead,
+    ImagePrepareFollowerExtentHash,
+    ImagePrepareFollowerExtentWrite,
+    ImagePrepareFollowerFileSync,
+    ImagePrepareFollowerDirectorySync,
+    ImagePrepareFollowerBarrierWait,
+    ImagePrepareFollowerOther,
+    ImagePublishLeaderSql,
+    ImagePublishLeaderInventoryWait,
+    ImagePublishLeaderLtxDecode,
+    ImagePublishLeaderExtentRead,
+    ImagePublishLeaderExtentHash,
+    ImagePublishLeaderExtentWrite,
+    ImagePublishLeaderFileSync,
+    ImagePublishLeaderDirectorySync,
+    ImagePublishLeaderBarrierWait,
+    ImagePublishLeaderOther,
+    ImagePublishFollowerSql,
+    ImagePublishFollowerInventoryWait,
+    ImagePublishFollowerLtxDecode,
+    ImagePublishFollowerExtentRead,
+    ImagePublishFollowerExtentHash,
+    ImagePublishFollowerExtentWrite,
+    ImagePublishFollowerFileSync,
+    ImagePublishFollowerDirectorySync,
+    ImagePublishFollowerBarrierWait,
+    ImagePublishFollowerOther,
+    SqlPrepareLeader,
+    SqlPrepareFollower,
+    SqlPublishLeader,
+    SqlPublishFollower,
 }
 
-const OPERATIONS: [Operation; 44] = [
+const OPERATIONS: [Operation; 98] = [
     Operation::EngineQueue,
     Operation::EngineFileSync,
     Operation::EngineDirectorySync,
@@ -128,6 +182,60 @@ const OPERATIONS: [Operation; 44] = [
     Operation::ArchivePhysicalAdmission,
     Operation::ArchivePhysicalQueue,
     Operation::EnginePurge,
+    Operation::ImageStageLeaderSql,
+    Operation::ImageStageLeaderInventoryWait,
+    Operation::ImageStageLeaderLtxDecode,
+    Operation::ImageStageLeaderExtentRead,
+    Operation::ImageStageLeaderExtentHash,
+    Operation::ImageStageLeaderExtentWrite,
+    Operation::ImageStageLeaderFileSync,
+    Operation::ImageStageLeaderDirectorySync,
+    Operation::ImageStageLeaderBarrierWait,
+    Operation::ImageStageLeaderOther,
+    Operation::ImagePrepareLeaderSql,
+    Operation::ImagePrepareLeaderInventoryWait,
+    Operation::ImagePrepareLeaderLtxDecode,
+    Operation::ImagePrepareLeaderExtentRead,
+    Operation::ImagePrepareLeaderExtentHash,
+    Operation::ImagePrepareLeaderExtentWrite,
+    Operation::ImagePrepareLeaderFileSync,
+    Operation::ImagePrepareLeaderDirectorySync,
+    Operation::ImagePrepareLeaderBarrierWait,
+    Operation::ImagePrepareLeaderOther,
+    Operation::ImagePrepareFollowerSql,
+    Operation::ImagePrepareFollowerInventoryWait,
+    Operation::ImagePrepareFollowerLtxDecode,
+    Operation::ImagePrepareFollowerExtentRead,
+    Operation::ImagePrepareFollowerExtentHash,
+    Operation::ImagePrepareFollowerExtentWrite,
+    Operation::ImagePrepareFollowerFileSync,
+    Operation::ImagePrepareFollowerDirectorySync,
+    Operation::ImagePrepareFollowerBarrierWait,
+    Operation::ImagePrepareFollowerOther,
+    Operation::ImagePublishLeaderSql,
+    Operation::ImagePublishLeaderInventoryWait,
+    Operation::ImagePublishLeaderLtxDecode,
+    Operation::ImagePublishLeaderExtentRead,
+    Operation::ImagePublishLeaderExtentHash,
+    Operation::ImagePublishLeaderExtentWrite,
+    Operation::ImagePublishLeaderFileSync,
+    Operation::ImagePublishLeaderDirectorySync,
+    Operation::ImagePublishLeaderBarrierWait,
+    Operation::ImagePublishLeaderOther,
+    Operation::ImagePublishFollowerSql,
+    Operation::ImagePublishFollowerInventoryWait,
+    Operation::ImagePublishFollowerLtxDecode,
+    Operation::ImagePublishFollowerExtentRead,
+    Operation::ImagePublishFollowerExtentHash,
+    Operation::ImagePublishFollowerExtentWrite,
+    Operation::ImagePublishFollowerFileSync,
+    Operation::ImagePublishFollowerDirectorySync,
+    Operation::ImagePublishFollowerBarrierWait,
+    Operation::ImagePublishFollowerOther,
+    Operation::SqlPrepareLeader,
+    Operation::SqlPrepareFollower,
+    Operation::SqlPublishLeader,
+    Operation::SqlPublishFollower,
 ];
 
 impl Operation {
@@ -177,6 +285,60 @@ impl Operation {
             Self::ArchivePhysicalAdmission => "archive_physical_admission",
             Self::ArchivePhysicalQueue => "archive_physical_queue",
             Self::EnginePurge => "engine_purge",
+            Self::ImageStageLeaderSql => "image_stage_leader_sql",
+            Self::ImageStageLeaderInventoryWait => "image_stage_leader_inventory_wait",
+            Self::ImageStageLeaderLtxDecode => "image_stage_leader_ltx_decode",
+            Self::ImageStageLeaderExtentRead => "image_stage_leader_extent_read",
+            Self::ImageStageLeaderExtentHash => "image_stage_leader_extent_hash",
+            Self::ImageStageLeaderExtentWrite => "image_stage_leader_extent_write",
+            Self::ImageStageLeaderFileSync => "image_stage_leader_file_sync",
+            Self::ImageStageLeaderDirectorySync => "image_stage_leader_directory_sync",
+            Self::ImageStageLeaderBarrierWait => "image_stage_leader_barrier_wait",
+            Self::ImageStageLeaderOther => "image_stage_leader_other",
+            Self::ImagePrepareLeaderSql => "image_prepare_leader_sql",
+            Self::ImagePrepareLeaderInventoryWait => "image_prepare_leader_inventory_wait",
+            Self::ImagePrepareLeaderLtxDecode => "image_prepare_leader_ltx_decode",
+            Self::ImagePrepareLeaderExtentRead => "image_prepare_leader_extent_read",
+            Self::ImagePrepareLeaderExtentHash => "image_prepare_leader_extent_hash",
+            Self::ImagePrepareLeaderExtentWrite => "image_prepare_leader_extent_write",
+            Self::ImagePrepareLeaderFileSync => "image_prepare_leader_file_sync",
+            Self::ImagePrepareLeaderDirectorySync => "image_prepare_leader_directory_sync",
+            Self::ImagePrepareLeaderBarrierWait => "image_prepare_leader_barrier_wait",
+            Self::ImagePrepareLeaderOther => "image_prepare_leader_other",
+            Self::ImagePrepareFollowerSql => "image_prepare_follower_sql",
+            Self::ImagePrepareFollowerInventoryWait => "image_prepare_follower_inventory_wait",
+            Self::ImagePrepareFollowerLtxDecode => "image_prepare_follower_ltx_decode",
+            Self::ImagePrepareFollowerExtentRead => "image_prepare_follower_extent_read",
+            Self::ImagePrepareFollowerExtentHash => "image_prepare_follower_extent_hash",
+            Self::ImagePrepareFollowerExtentWrite => "image_prepare_follower_extent_write",
+            Self::ImagePrepareFollowerFileSync => "image_prepare_follower_file_sync",
+            Self::ImagePrepareFollowerDirectorySync => "image_prepare_follower_directory_sync",
+            Self::ImagePrepareFollowerBarrierWait => "image_prepare_follower_barrier_wait",
+            Self::ImagePrepareFollowerOther => "image_prepare_follower_other",
+            Self::ImagePublishLeaderSql => "image_publish_leader_sql",
+            Self::ImagePublishLeaderInventoryWait => "image_publish_leader_inventory_wait",
+            Self::ImagePublishLeaderLtxDecode => "image_publish_leader_ltx_decode",
+            Self::ImagePublishLeaderExtentRead => "image_publish_leader_extent_read",
+            Self::ImagePublishLeaderExtentHash => "image_publish_leader_extent_hash",
+            Self::ImagePublishLeaderExtentWrite => "image_publish_leader_extent_write",
+            Self::ImagePublishLeaderFileSync => "image_publish_leader_file_sync",
+            Self::ImagePublishLeaderDirectorySync => "image_publish_leader_directory_sync",
+            Self::ImagePublishLeaderBarrierWait => "image_publish_leader_barrier_wait",
+            Self::ImagePublishLeaderOther => "image_publish_leader_other",
+            Self::ImagePublishFollowerSql => "image_publish_follower_sql",
+            Self::ImagePublishFollowerInventoryWait => "image_publish_follower_inventory_wait",
+            Self::ImagePublishFollowerLtxDecode => "image_publish_follower_ltx_decode",
+            Self::ImagePublishFollowerExtentRead => "image_publish_follower_extent_read",
+            Self::ImagePublishFollowerExtentHash => "image_publish_follower_extent_hash",
+            Self::ImagePublishFollowerExtentWrite => "image_publish_follower_extent_write",
+            Self::ImagePublishFollowerFileSync => "image_publish_follower_file_sync",
+            Self::ImagePublishFollowerDirectorySync => "image_publish_follower_directory_sync",
+            Self::ImagePublishFollowerBarrierWait => "image_publish_follower_barrier_wait",
+            Self::ImagePublishFollowerOther => "image_publish_follower_other",
+            Self::SqlPrepareLeader => "sql_prepare_leader",
+            Self::SqlPrepareFollower => "sql_prepare_follower",
+            Self::SqlPublishLeader => "sql_publish_leader",
+            Self::SqlPublishFollower => "sql_publish_follower",
         }
     }
 }
@@ -225,9 +387,22 @@ pub(crate) enum Counter {
     SnapshotPreparedHits,
     SnapshotPreparedMisses,
     SnapshotPreparedReusedBytes,
+    ImageSqlCalls,
+    ImageInventoryWaitCalls,
+    ImageLtxDecodeCalls,
+    ImageExtentReadCalls,
+    ImageExtentHashCalls,
+    ImageExtentWriteCalls,
+    ImageFileSyncCalls,
+    ImageDirectorySyncCalls,
+    ImageBarrierWaitCalls,
+    ImageOtherCalls,
+    ImageExtentReadBytes,
+    ImageExtentWriteBytes,
+    ImageUnattributedRequests,
 }
 
-const COUNTERS: [Counter; 42] = [
+const COUNTERS: [Counter; 55] = [
     Counter::EngineReadBytes,
     Counter::EngineWriteRequestedBytes,
     Counter::EngineWriteCompletedBytes,
@@ -270,6 +445,19 @@ const COUNTERS: [Counter; 42] = [
     Counter::SnapshotPreparedHits,
     Counter::SnapshotPreparedMisses,
     Counter::SnapshotPreparedReusedBytes,
+    Counter::ImageSqlCalls,
+    Counter::ImageInventoryWaitCalls,
+    Counter::ImageLtxDecodeCalls,
+    Counter::ImageExtentReadCalls,
+    Counter::ImageExtentHashCalls,
+    Counter::ImageExtentWriteCalls,
+    Counter::ImageFileSyncCalls,
+    Counter::ImageDirectorySyncCalls,
+    Counter::ImageBarrierWaitCalls,
+    Counter::ImageOtherCalls,
+    Counter::ImageExtentReadBytes,
+    Counter::ImageExtentWriteBytes,
+    Counter::ImageUnattributedRequests,
 ];
 
 impl Counter {
@@ -325,9 +513,120 @@ impl Counter {
             Self::SnapshotPreparedHits => "snapshot_prepared_hits",
             Self::SnapshotPreparedMisses => "snapshot_prepared_misses",
             Self::SnapshotPreparedReusedBytes => "snapshot_prepared_reused_bytes",
+            Self::ImageSqlCalls => "image_sql_calls",
+            Self::ImageInventoryWaitCalls => "image_inventory_wait_calls",
+            Self::ImageLtxDecodeCalls => "image_ltx_decode_calls",
+            Self::ImageExtentReadCalls => "image_extent_read_calls",
+            Self::ImageExtentHashCalls => "image_extent_hash_calls",
+            Self::ImageExtentWriteCalls => "image_extent_write_calls",
+            Self::ImageFileSyncCalls => "image_file_sync_calls",
+            Self::ImageDirectorySyncCalls => "image_directory_sync_calls",
+            Self::ImageBarrierWaitCalls => "image_barrier_wait_calls",
+            Self::ImageOtherCalls => "image_other_calls",
+            Self::ImageExtentReadBytes => "image_extent_read_bytes",
+            Self::ImageExtentWriteBytes => "image_extent_write_bytes",
+            Self::ImageUnattributedRequests => "image_unattributed_requests",
         }
     }
 }
+
+// Originating-replica classification is observational, never an admission proof.
+#[derive(Clone, Copy)]
+#[repr(usize)]
+pub(crate) enum ImageWork {
+    StageLeader,
+    PrepareLeader,
+    PrepareFollower,
+    PublishLeader,
+    PublishFollower,
+}
+
+impl ImageWork {
+    pub(crate) fn total_operation(self) -> Option<Operation> {
+        match self {
+            Self::StageLeader => None,
+            Self::PrepareLeader => Some(Operation::SqlPrepareLeader),
+            Self::PrepareFollower => Some(Operation::SqlPrepareFollower),
+            Self::PublishLeader => Some(Operation::SqlPublishLeader),
+            Self::PublishFollower => Some(Operation::SqlPublishFollower),
+        }
+    }
+}
+
+const IMAGE_OPERATIONS: [[Operation; cellar_ltx::internal::image_timing::PHASES.len()]; 5] = [
+    [
+        Operation::ImageStageLeaderSql,
+        Operation::ImageStageLeaderInventoryWait,
+        Operation::ImageStageLeaderLtxDecode,
+        Operation::ImageStageLeaderExtentRead,
+        Operation::ImageStageLeaderExtentHash,
+        Operation::ImageStageLeaderExtentWrite,
+        Operation::ImageStageLeaderFileSync,
+        Operation::ImageStageLeaderDirectorySync,
+        Operation::ImageStageLeaderBarrierWait,
+        Operation::ImageStageLeaderOther,
+    ],
+    [
+        Operation::ImagePrepareLeaderSql,
+        Operation::ImagePrepareLeaderInventoryWait,
+        Operation::ImagePrepareLeaderLtxDecode,
+        Operation::ImagePrepareLeaderExtentRead,
+        Operation::ImagePrepareLeaderExtentHash,
+        Operation::ImagePrepareLeaderExtentWrite,
+        Operation::ImagePrepareLeaderFileSync,
+        Operation::ImagePrepareLeaderDirectorySync,
+        Operation::ImagePrepareLeaderBarrierWait,
+        Operation::ImagePrepareLeaderOther,
+    ],
+    [
+        Operation::ImagePrepareFollowerSql,
+        Operation::ImagePrepareFollowerInventoryWait,
+        Operation::ImagePrepareFollowerLtxDecode,
+        Operation::ImagePrepareFollowerExtentRead,
+        Operation::ImagePrepareFollowerExtentHash,
+        Operation::ImagePrepareFollowerExtentWrite,
+        Operation::ImagePrepareFollowerFileSync,
+        Operation::ImagePrepareFollowerDirectorySync,
+        Operation::ImagePrepareFollowerBarrierWait,
+        Operation::ImagePrepareFollowerOther,
+    ],
+    [
+        Operation::ImagePublishLeaderSql,
+        Operation::ImagePublishLeaderInventoryWait,
+        Operation::ImagePublishLeaderLtxDecode,
+        Operation::ImagePublishLeaderExtentRead,
+        Operation::ImagePublishLeaderExtentHash,
+        Operation::ImagePublishLeaderExtentWrite,
+        Operation::ImagePublishLeaderFileSync,
+        Operation::ImagePublishLeaderDirectorySync,
+        Operation::ImagePublishLeaderBarrierWait,
+        Operation::ImagePublishLeaderOther,
+    ],
+    [
+        Operation::ImagePublishFollowerSql,
+        Operation::ImagePublishFollowerInventoryWait,
+        Operation::ImagePublishFollowerLtxDecode,
+        Operation::ImagePublishFollowerExtentRead,
+        Operation::ImagePublishFollowerExtentHash,
+        Operation::ImagePublishFollowerExtentWrite,
+        Operation::ImagePublishFollowerFileSync,
+        Operation::ImagePublishFollowerDirectorySync,
+        Operation::ImagePublishFollowerBarrierWait,
+        Operation::ImagePublishFollowerOther,
+    ],
+];
+const IMAGE_CALLS: [Counter; cellar_ltx::internal::image_timing::PHASES.len()] = [
+    Counter::ImageSqlCalls,
+    Counter::ImageInventoryWaitCalls,
+    Counter::ImageLtxDecodeCalls,
+    Counter::ImageExtentReadCalls,
+    Counter::ImageExtentHashCalls,
+    Counter::ImageExtentWriteCalls,
+    Counter::ImageFileSyncCalls,
+    Counter::ImageDirectorySyncCalls,
+    Counter::ImageBarrierWaitCalls,
+    Counter::ImageOtherCalls,
+];
 
 #[derive(Default)]
 struct Samples {
@@ -406,6 +705,7 @@ impl Registry {
             operation,
             start,
             outcome: None,
+            secondary: None,
         }
     }
 
@@ -420,6 +720,35 @@ impl Registry {
         let result = future.await;
         timer.finish(result.is_ok());
         result
+    }
+
+    /// One exclusive phase-sum sample per request (including zero work).
+    /// Separate counters count actual primitive calls and byte amplification.
+    pub(crate) fn record_image(
+        &self,
+        work: ImageWork,
+        timings: &cellar_ltx::internal::image_timing::Timings,
+        succeeded: bool,
+    ) {
+        use cellar_ltx::internal::image_timing::Phase;
+        if timings.unavailable {
+            self.mark_unavailable();
+            return;
+        }
+        for (index, sample) in timings.phases.iter().enumerate() {
+            let operation = IMAGE_OPERATIONS[work as usize][index];
+            self.update(operation, |s| self.add(&mut s.started, 1));
+            self.record(operation, Some(succeeded), Some(sample.micros));
+            self.increment(IMAGE_CALLS[index], sample.calls);
+        }
+        self.increment(
+            Counter::ImageExtentReadBytes,
+            timings.phases[Phase::ExtentRead as usize].bytes,
+        );
+        self.increment(
+            Counter::ImageExtentWriteBytes,
+            timings.phases[Phase::ExtentWrite as usize].bytes,
+        );
     }
 
     fn record(&self, operation: Operation, outcome: Option<bool>, elapsed: Option<u64>) {
@@ -498,9 +827,19 @@ pub(crate) struct Timer {
     operation: Operation,
     start: Option<u64>,
     outcome: Option<bool>,
+    secondary: Option<Operation>,
 }
 
 impl Timer {
+    pub(crate) fn finish_as(mut self, succeeded: bool, secondary: Option<Operation>) {
+        self.outcome = Some(succeeded);
+        self.secondary = secondary;
+        if let Some(operation) = secondary {
+            self.registry
+                .update(operation, |s| self.registry.add(&mut s.started, 1));
+        }
+    }
+
     pub(crate) fn finish(mut self, succeeded: bool) {
         self.outcome = Some(succeeded);
     }
@@ -513,6 +852,9 @@ impl Drop for Timer {
             .zip(self.registry.clock.mono_us().ok())
             .and_then(|(start, end)| end.checked_sub(start));
         self.registry.record(self.operation, self.outcome, elapsed);
+        if let Some(operation) = self.secondary {
+            self.registry.record(operation, self.outcome, elapsed);
+        }
     }
 }
 

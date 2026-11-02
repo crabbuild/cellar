@@ -109,7 +109,9 @@ async fn start_named_configuration(
             idle_evict_ms: None,
             pressure: Default::default(),
         },
-        lease_ttl_ms: 1_000,
+        // Functional adapter tests include durable local I/O and cold guest
+        // startup. Keep their authority lease within the operation envelope.
+        lease_ttl_ms: 5_000,
         placement_weight: 1,
         generation: signer.public_key_hex(),
         resume_generation: None,
@@ -124,7 +126,9 @@ async fn start_named_configuration(
         path.to_path_buf(),
     );
     config.maintenance.rebalance = false;
-    config.runtime.handler_budget = Duration::from_millis(250);
+    // Guest deadline tests select their own budget below this host envelope.
+    // A 250-ms host limit preempts legitimate durable provider/Node callbacks.
+    config.runtime.handler_budget = Duration::from_secs(5);
     let executor = tokio::runtime::Handle::current();
     let peer_http = reqwest::Client::new();
     let peer_auth = Arc::new(PeerAuth::new([31; 32], name)?);

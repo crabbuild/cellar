@@ -188,15 +188,20 @@ async fn extent_activation_requires_physical_admission_before_catalog_mutation()
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn node_extent_gc_preserves_closed_groups_and_releases_the_shared_inventory_on_shutdown(
 ) -> Result<()> {
-    exercise(12).await
+    exercise(12, None).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn extent_gc_retries_preserve_exact_committed_callbacks_under_root_pressure() -> Result<()> {
-    exercise(8).await
+    exercise(8, None).await
 }
 
-async fn exercise(max_roots: usize) -> Result<()> {
+#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
+async fn append_segments_preserve_closed_groups_receipts_and_shutdown_recovery() -> Result<()> {
+    exercise(128, Some(32 * 1024)).await
+}
+
+async fn exercise(max_roots: usize, segment_bytes: Option<u64>) -> Result<()> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter("cellar=debug")
         .with_test_writer()
@@ -224,7 +229,11 @@ async fn exercise(max_roots: usize) -> Result<()> {
         store.clone(),
         registrations.clone(),
         false,
-        host(max_roots),
+        {
+            let mut options = host(max_roots);
+            options.extents.as_mut().unwrap().append_segment_bytes = segment_bytes;
+            options
+        },
         Default::default(),
     )
     .await?;
@@ -279,7 +288,11 @@ async fn exercise(max_roots: usize) -> Result<()> {
         store.clone(),
         vec![registrations[0].clone()],
         true,
-        host(max_roots),
+        {
+            let mut options = host(max_roots);
+            options.extents.as_mut().unwrap().append_segment_bytes = segment_bytes;
+            options
+        },
         Default::default(),
     )
     .await?;
@@ -311,7 +324,11 @@ async fn exercise(max_roots: usize) -> Result<()> {
         store,
         registrations.clone(),
         true,
-        host(max_roots),
+        {
+            let mut options = host(max_roots);
+            options.extents.as_mut().unwrap().append_segment_bytes = segment_bytes;
+            options
+        },
         Default::default(),
     )
     .await?;

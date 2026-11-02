@@ -11,28 +11,11 @@ import hashlib
 import itertools
 import json
 import math
-import os
 import random
 import threading
 import time
 
-
-class Ledger:
-    def __init__(self, path):
-        self.stream = open(path, 'x', encoding='utf-8')
-        self.lock = threading.Lock()
-        self.order = 0
-
-    def append(self, record):
-        with self.lock:
-            self.order += 1
-            self.stream.write(json.dumps({**record, 'order': self.order}, sort_keys=True) + '\n')
-            self.stream.flush()
-            os.fsync(self.stream.fileno())
-            return self.order
-
-    def close(self):
-        self.stream.close()
+from operation_ledger import Ledger
 
 
 def input_digest(value):

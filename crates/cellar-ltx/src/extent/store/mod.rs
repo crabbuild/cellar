@@ -4,12 +4,19 @@
 //! closing them never refunds files that remain on disk. Root selection and
 //! native acknowledgement authority belong to the host, not this inventory.
 
+mod admission;
+mod barrier;
+mod batch;
 mod image;
 mod inventory;
 mod publication;
 mod read;
 mod reclaim;
+mod segment;
+pub mod timing;
 mod workspace;
+
+use admission::{Key, KeyGuard};
 
 pub use image::{ImageRootUpdate, PreparedImageRoot, RootApplyWork, SealedImageRoot};
 pub use workspace::{NodeWorkspace, WorkspaceBounds};
@@ -146,6 +153,8 @@ impl ExtentRootReference {
 
 struct ObjectEntry {
     bytes: u64,
+    location: Option<segment::Location>,
+    publishing: bool,
     verified: bool,
     read_proof: Option<Arc<VerifiedBlocks>>,
 }
@@ -157,8 +166,13 @@ struct RootData {
 
 struct RootEntry {
     bytes: u64,
+    location: Option<segment::Location>,
     slots: usize,
     retained: bool,
+    // This open inventory completed both immutable metadata barriers. Reopen
+    // and any failed metadata read revoke the proof; cached RootData does not
+    // establish it. Every subsequent seal still authenticates the file bytes.
+    metadata_persisted: bool,
     token: Arc<()>,
     data: Option<Arc<RootData>>,
 }
@@ -177,7 +191,10 @@ struct State {
     workspaces: BTreeMap<[u8; 32], u64>,
     bytes: u64,
     root_extents: usize,
-    busy: bool,
+    active: usize,
+    exclusive: bool,
+    exclusive_waiters: usize,
+    keys: BTreeSet<Key>,
     quarantined: bool,
     references_reconciled: bool,
 }
@@ -189,6 +206,10 @@ struct Inner {
     state: Mutex<State>,
     idle: Condvar,
     serialized: bool,
+    publications: usize,
+    batch_directory_barriers: bool,
+    barrier: barrier::DirectoryBarrier,
+    segments: Option<segment::Segments>,
     _lock: HostFileLock,
 }
 
@@ -202,6 +223,7 @@ impl Inner {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .quarantined = true;
+        self.idle.notify_all();
     }
 
     fn checked_file(&self, path: &Path, length: u64) -> Result<HostFile, StoreError> {
@@ -256,72 +278,7 @@ impl NodeExtentStore {
     }
 }
 
-struct Operation {
-    inner: Arc<Inner>,
-    complete: bool,
-}
-
-impl Operation {
-    fn finish(mut self) -> Result<(), StoreError> {
-        self.inner.state()?.busy = false;
-        self.complete = true;
-        self.inner.idle.notify_all();
-        Ok(())
-    }
-}
-
-impl Drop for Operation {
-    fn drop(&mut self) {
-        if !self.complete {
-            let mut state = self
-                .inner
-                .state
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-            state.quarantined = true;
-            state.busy = false;
-            drop(state);
-            self.inner.idle.notify_all();
-        }
-    }
-}
-
 impl NodeExtentStore {
-    fn begin(&self) -> Result<Operation, StoreError> {
-        self.start(false)
-    }
-
-    fn begin_read(&self) -> Result<Operation, StoreError> {
-        self.start(true)
-    }
-
-    fn start(&self, allow_quarantine: bool) -> Result<Operation, StoreError> {
-        let mut state = self.inner.state()?;
-        loop {
-            if state.quarantined && !allow_quarantine {
-                return Err(StoreError::Quarantined);
-            }
-            if !state.busy {
-                break;
-            }
-            if !self.inner.serialized {
-                return Err(StoreError::Busy);
-            }
-            // A bounded native blocking owner may wait for another physical
-            // operation. No state mutex remains held during its I/O or wait.
-            state = self
-                .inner
-                .idle
-                .wait(state)
-                .map_err(|_| StoreError::Quarantined)?;
-        }
-        state.busy = true;
-        Ok(Operation {
-            inner: self.inner.clone(),
-            complete: false,
-        })
-    }
-
     pub fn usage(&self) -> Result<NodeExtentUsage, StoreError> {
         let state = self.inner.state()?;
         Ok(NodeExtentUsage {
@@ -331,7 +288,7 @@ impl NodeExtentStore {
             root_extents: state.root_extents,
             workspace_bytes: state.workspaces.values().sum(),
             workspaces: state.workspaces.len(),
-            busy: state.busy,
+            busy: state.active != 0,
             quarantined: state.quarantined,
         })
     }

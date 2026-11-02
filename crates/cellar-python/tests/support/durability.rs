@@ -5,9 +5,7 @@ use super::fault_gates::{Gate, Peer, Release, Store};
 use super::*;
 use std::sync::atomic::Ordering;
 
-async fn restored_state(client: &reqwest::Client, url: &str) -> Result<Value> {
-    // Failure responses do not mean the asynchronous proof/reset path has
-    // finished. Retry only this read, within the original HTTP read budget.
+async fn recovered_state(client: &reqwest::Client, url: &str) -> Result<Value> {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let response = client.get(format!("{url}/proof/state")).send().await?;
@@ -16,16 +14,20 @@ async fn restored_state(client: &reqwest::Client, url: &str) -> Result<Value> {
             if status.is_success() {
                 return Ok::<_, anyhow::Error>(serde_json::from_str(&body)?);
             }
+            // Activation reset can refuse admission or retain the failed proof
+            // until reset finishes. Retry only this fixed read-only route.
             ensure!(
-                status.is_server_error()
-                    && body.contains("cellar output-gate durability proof failed for ")
-                    && body.contains("ltx durability timed out for "),
-                "restored proof read failed outside the pending proof reset: {status}: {body}"
+                status == reqwest::StatusCode::SERVICE_UNAVAILABLE
+                    || (status.is_server_error()
+                        && body.contains("cellar output-gate durability proof failed for ")
+                        && body.contains("ltx durability timed out for ")),
+                "recovered proof read failed outside pending reset: {status}: {body}"
             );
-            tokio::time::sleep(Duration::from_millis(20)).await;
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
-    .await?
+    .await
+    .context("read-only proof recovery exceeded its original budget")?
 }
 
 pub(super) fn child() -> Result<()> {
@@ -176,13 +178,57 @@ pub(super) fn child() -> Result<()> {
                     );
                     data.open();
                 }
+                peers.hold();
+                data.hold();
+                let mut failed = Box::pin(client.get(format!("{url}/proof/failure")).send());
+                let committed = async {
+                    loop {
+                        let progress: Value = client
+                            .get(format!("{url}/proof/progress"))
+                            .send().await?.error_for_status()?.json().await?;
+                        if progress["failure_committed"] == true {
+                            return Ok::<_, anyhow::Error>(());
+                        }
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                };
+                cellar::asyncrt::select! {
+                    response = &mut failed => anyhow::bail!("failure request escaped its held proof: {response:?}"),
+                    result = tokio::time::timeout(Duration::from_secs(5), committed) => result??,
+                }
+                // Admit the read against the unproven write before failing its
+                // proof. Reopening transports cannot turn that old read into
+                // a newly admitted recovery request.
+                let mut reading = Box::pin(client.get(format!("{url}/proof/state")).send());
+                let entered = async {
+                    loop {
+                        let progress: Value = client
+                            .get(format!("{url}/proof/progress"))
+                            .send().await?.error_for_status()?.json().await?;
+                        if progress["state_reads"] == 1 {
+                            return Ok::<_, anyhow::Error>(());
+                        }
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                };
+                cellar::asyncrt::select! {
+                    response = &mut failed => anyhow::bail!("failure request settled before read admission: {response:?}"),
+                    response = &mut reading => anyhow::bail!("read escaped the unproven write: {response:?}"),
+                    result = tokio::time::timeout(Duration::from_secs(5), entered) => result??,
+                }
                 peers.fail();
                 data.fail();
-                let failed = client.get(format!("{url}/proof/failure")).send().await?;
+                let failed = failed.await?;
                 ensure!(
                     failed.status().is_server_error(),
                     "unproven mutation was acknowledged: {:?}",
                     failed.status()
+                );
+                let refused = reading.await?;
+                ensure!(
+                    refused.status().is_server_error(),
+                    "read acknowledged an unproven write: {:?}",
+                    refused.status()
                 );
                 peers.open();
                 data.open();
@@ -197,7 +243,7 @@ pub(super) fn child() -> Result<()> {
                     attempts["failure"] == 1,
                     "an unproven mutation handler was blindly replayed: {attempts}"
                 );
-                let state = restored_state(&client, &url).await?;
+                let state = recovered_state(&client, &url).await?;
                 ensure!(
                     state["sync"] == 1 && state["output"] == 1,
                     "restored proof access lost previously acknowledged state: {state}"

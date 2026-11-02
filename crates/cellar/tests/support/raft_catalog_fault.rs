@@ -11,6 +11,22 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 tokio::task_local! {
     static READ_COUNTS: std::cell::RefCell<std::collections::BTreeMap<String, usize>>;
     static MISSING_READ: String;
+    static FAILED_FLEET_READS: std::cell::Cell<usize>;
+}
+
+// Refuse only this verifier's reads; live nodes and authority renewal keep
+// observing the real store. Return the remainder to prove fault consumption.
+#[allow(dead_code)]
+pub async fn fail_fleet_reads<T>(
+    count: usize,
+    work: impl std::future::Future<Output = T>,
+) -> (T, usize) {
+    FAILED_FLEET_READS
+        .scope(std::cell::Cell::new(count), async {
+            let result = work.await;
+            (result, FAILED_FLEET_READS.with(std::cell::Cell::get))
+        })
+        .await
 }
 
 // Keep a read fault local to one verifier; running nodes still see the store.
@@ -61,6 +77,7 @@ impl RegistryGate {
 pub struct Store {
     pub fail_closure_after: AtomicBool,
     pub fail_fleet_after: AtomicBool,
+    pub fail_fleet_before: AtomicBool,
     pub fail_fleet_confirmation: AtomicBool,
     pub fail_fleet_read: AtomicBool,
     // Background trust refresh must not steal the mutator's confirmation loss.
@@ -374,6 +391,9 @@ impl ObjectStore for Store {
         }
         let fleet_cas =
             path.as_ref().ends_with("/fleet/head") && matches!(options.mode, PutMode::Update(_));
+        if fleet_cas && self.fail_fleet_before.swap(false, Ordering::AcqRel) {
+            return Err(failure());
+        }
         let result = self.inner.put_opts(path, payload, options).await?;
         if path.as_ref().contains("/closures/")
             && self.fail_closure_after.swap(false, Ordering::AcqRel)
@@ -486,6 +506,20 @@ impl ObjectStore for Store {
         let _ = READ_COUNTS.try_with(|counts| {
             *counts.borrow_mut().entry(path.to_string()).or_default() += 1;
         });
+        if path.as_ref().ends_with("/fleet/head")
+            && FAILED_FLEET_READS
+                .try_with(|remaining| {
+                    let count = remaining.get();
+                    if count == 0 {
+                        return false;
+                    }
+                    remaining.set(count - 1);
+                    true
+                })
+                .unwrap_or(false)
+        {
+            return Err(failure());
+        }
         if MISSING_READ
             .try_with(|missing| missing == path.as_ref())
             .unwrap_or(false)

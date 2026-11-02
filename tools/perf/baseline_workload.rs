@@ -180,6 +180,41 @@ impl Cell for Workload {
                         header(&request.headers, "x-read-consistency")? == "owner",
                         "baseline supports owner reads only"
                     );
+                    if let Some((_, value)) = request
+                        .headers
+                        .iter()
+                        .find(|(key, _)| key.eq_ignore_ascii_case("x-cellar-dense-audit"))
+                    {
+                        let block: Option<i64> = serde_json::from_str(value)?;
+                        let rows = storage
+                            .sql_cursor(
+                                "SELECT count(*),coalesce(sum(length(bytes)),0) FROM dense_padding",
+                                &[],
+                            )?
+                            .to_raw_array()?;
+                        let [SqlValue::Integer(blocks), SqlValue::Integer(bytes)] =
+                            rows.first().context("missing dense summary")?.as_slice()
+                        else {
+                            bail!("invalid dense summary")
+                        };
+                        let digest = if let Some(block) = block {
+                            let rows = storage
+                                .sql_cursor(
+                                    "SELECT bytes FROM dense_padding WHERE block=?1",
+                                    &[SqlValue::Integer(block)],
+                                )?
+                                .to_raw_array()?;
+                            let [SqlValue::Blob(bytes)] =
+                                rows.first().context("missing dense block")?.as_slice()
+                            else {
+                                bail!("invalid dense block")
+                            };
+                            Some(hex::encode(Sha256::digest(bytes)))
+                        } else {
+                            None
+                        };
+                        return Ok(Output::Http(Response::from_json(&serde_json::json!({"blocks":blocks,"bytes":bytes,"block":block,"sha256":digest}))?.into_http(&context)?));
+                    }
                     let client = storage.get_json("client")?.context("uninitialized cell")?;
                     serde_json::json!({"state":storage.state()?, "scope":scope,
                         "sequence":client["sequence"], "owner":self.node.as_ref(), "read_contract":"owner"})
