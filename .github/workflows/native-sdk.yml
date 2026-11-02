@@ -413,7 +413,7 @@ jobs:
       - uses: actions/checkout@v6
       - name: Install Rust
         run: |
-          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup toolchain install "$RUST_VERSION" --profile minimal --component rustfmt
           rustup default "$RUST_VERSION"
       - uses: actions/setup-python@v6
         with:

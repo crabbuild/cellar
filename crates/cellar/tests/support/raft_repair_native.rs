@@ -520,7 +520,8 @@ pub(super) async fn learner_before_promotion() -> Result<()> {
 }
 
 pub(super) async fn stale_plan_idempotence() -> Result<()> {
-    let f = Fixture::new(false).await?;
+    let mut f = Fixture::new(false).await?;
+    let _learner = standby::registered(&mut f).await?;
     f.fail_obsolete().await?;
     // Admission starts synchronously even while its returned future is unpolled.
     let lost = f.handles[f.primary].begin_repair(f.plan.clone(), Duration::from_secs(5));
