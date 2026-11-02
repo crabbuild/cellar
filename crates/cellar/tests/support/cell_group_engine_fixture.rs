@@ -439,7 +439,10 @@ fn apply_image(
 }
 
 fn prepare_cell_image(
-    stores: (&GenerationStore, Option<&cellar_ltx::internal::NodeExtentStore>),
+    stores: (
+        &GenerationStore,
+        Option<&cellar_ltx::internal::NodeExtentStore>,
+    ),
     schema: [u8; 32],
     cell: &CellHistory,
     sequence: u64,

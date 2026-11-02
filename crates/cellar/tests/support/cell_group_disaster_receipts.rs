@@ -358,7 +358,7 @@ impl Serving {
     ) -> Result<Self> {
         let mut transports = Vec::new();
         for (node, voter) in quorum.voters.iter().enumerate() {
-            transports.push(runtime_fixture::start_recovery_transport(&voter.runtime, node).await?);
+            transports.push(runtime_fixture::tcp::start(&voter.runtime, node).await?);
         }
         let route = cellar::application::consensus::verification::GroupRoute {
             scope: quorum.route.history,

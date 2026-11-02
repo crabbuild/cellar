@@ -21,7 +21,7 @@ pub(super) fn tls() -> Result<RaftTls> {
     )?)
 }
 
-pub(super) async fn start(
+pub(crate) async fn start(
     runtime: &CellGroupRuntime,
     n: usize,
 ) -> Result<RaftTransport, TransportError> {
