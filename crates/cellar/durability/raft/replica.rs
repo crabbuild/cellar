@@ -101,6 +101,11 @@ enum Phase {
     },
 }
 
+struct ConfigurationFence {
+    index: u64,
+    announced: bool,
+}
+
 pub(crate) struct Replica {
     pub log: GroupLog,
     node: RawNode<ConsensusStorage>,
@@ -108,7 +113,7 @@ pub(crate) struct Replica {
     pub write: Option<(WriteTicket, GroupWrite)>,
     outbound: VecDeque<RuntimeEventKind>,
     deliveries: Vec<std::sync::Weak<super::budget::Permit>>,
-    configuration_fence: Option<u64>,
+    configuration_fence: Option<ConfigurationFence>,
     apply: VecDeque<Entry>,
     apply_ticket: Option<ApplyTicket>,
     finished_apply: Option<ApplyCompletion>,
@@ -694,6 +699,59 @@ impl Replica {
         Ok(())
     }
 
+    fn announce_configuration(&mut self, index: u64) -> Result<(), RuntimeError> {
+        if self
+            .configuration_fence
+            .as_ref()
+            .is_some_and(|fence| fence.index == index && fence.announced)
+        {
+            return Ok(());
+        }
+        self.configuration_fence = Some(ConfigurationFence {
+            index,
+            announced: true,
+        });
+        if self.node.raft.state != StateRole::Leader {
+            return Ok(());
+        }
+        let hard = self.log.initial_state()?.hard_state;
+        // A concurrent term change cannot advertise an unpersisted promise.
+        if hard.term != self.node.raft.term || hard.vote != self.node.raft.vote {
+            return Ok(());
+        }
+        let entry = self
+            .apply
+            .front()
+            .filter(|entry| entry.index == index)
+            .ok_or_else(|| RuntimeError::Protocol("missing configuration apply".into()))?;
+        // A paused append stream can miss Raft's commit broadcast. Once this
+        // configuration removes that peer, ordinary routing cannot reach it.
+        // Announce this already committed entry once while the old binding is
+        // still valid. An empty Append requires the receiver to match its exact
+        // index/term; transport acceptance is never a durability proof. A lagging
+        // or unavailable copy still fails the catalog's physical closure check.
+        for (&member, _) in self.node.raft.prs().iter() {
+            if member == self.node.raft.id {
+                continue;
+            }
+            let mut message = Message {
+                from: self.node.raft.id,
+                to: member,
+                term: self.node.raft.term,
+                index,
+                log_term: entry.term,
+                commit: index,
+                ..Default::default()
+            };
+            message.set_msg_type(MessageType::MsgAppend);
+            self.outbound.push_back(RuntimeEventKind::Message {
+                replica: self.log.identity().clone(),
+                message,
+            });
+        }
+        Ok(())
+    }
+
     pub fn drive(
         &mut self,
         operations: &mut Operations,
@@ -977,15 +1035,20 @@ impl Replica {
                     .filter(|entry| entry.get_entry_type() != EntryType::EntryNormal)
                     .filter(|_| self.node.raft.raft_log.unstable_snapshot().is_none())
                     .map(|entry| entry.index);
-                let fenced = configuration_index.is_some()
-                    && self.configuration_fence == configuration_index;
+                let fenced = self
+                    .configuration_fence
+                    .as_ref()
+                    .is_some_and(|fence| configuration_index == Some(fence.index));
                 if !fenced
                     && self.node.has_ready()
                     && ((can_collect && self.apply_bytes < options.max_group_apply_bytes)
                         || self.node.raft.raft_log.unstable_snapshot().is_some())
                 {
-                    if configuration_index.is_some() {
-                        self.configuration_fence = configuration_index;
+                    if let Some(index) = configuration_index {
+                        self.configuration_fence = Some(ConfigurationFence {
+                            index,
+                            announced: false,
+                        });
                     }
                     let ready = self.node.ready();
                     self.ready_bytes = ready_bytes(&ready);
@@ -1016,17 +1079,38 @@ impl Replica {
                     };
                     return Ok(true);
                 }
-                let Some(entry) = self.apply.front() else {
-                    return Ok(false);
-                };
-                if entry.get_entry_type() != EntryType::EntryNormal {
-                    self.configuration_fence = Some(entry.index);
+                if let Some(index) = self
+                    .apply
+                    .front()
+                    .filter(|entry| entry.get_entry_type() != EntryType::EntryNormal)
+                    .map(|entry| entry.index)
+                {
+                    if self
+                        .configuration_fence
+                        .as_ref()
+                        .is_none_or(|fence| fence.index != index)
+                    {
+                        self.configuration_fence = Some(ConfigurationFence {
+                            index,
+                            announced: false,
+                        });
+                    }
                     self.deliveries
                         .retain(|delivery| delivery.strong_count() != 0);
                     if !self.deliveries.is_empty() {
                         return Ok(false);
                     }
+                    // The notification must not overtake an earlier Append on
+                    // another transport stream. Its own sends then join the
+                    // same finite fence before membership is revoked.
+                    self.announce_configuration(index)?;
+                    if !self.outbound.is_empty() {
+                        return Ok(true);
+                    }
                 }
+                let Some(entry) = self.apply.front() else {
+                    return Ok(false);
+                };
                 let position = entry_position(entry);
                 if entry.get_entry_type() == EntryType::EntryNormal && !entry.data.is_empty() {
                     if let Some(completed) = self.finished_apply.take() {
