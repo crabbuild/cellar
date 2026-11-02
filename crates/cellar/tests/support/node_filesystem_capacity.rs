@@ -12,6 +12,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "../../../../tools/qualification/durable_bucket.rs"]
+mod durable_bucket;
+
 const BLOCK: usize = 1 << 20;
 const PATCH: usize = 4096;
 
@@ -336,7 +339,7 @@ async fn profile(mib: usize) -> Result<Value> {
     let directory = tempfile::tempdir()?;
     let management = ExecutionDomain::new(tokio::runtime::Handle::current());
     let bucket = management
-        .run(async { cellar::bucket::Bucket::open_dev(&directory.path().join("bucket.sqlite")) })
+        .run(async { durable_bucket::open(directory.path(), &["dense-owner", "dense-successor"]) })
         .await??;
     let core = Executor::new("filesystem-dense-core")?;
     let http = reqwest::Client::builder()

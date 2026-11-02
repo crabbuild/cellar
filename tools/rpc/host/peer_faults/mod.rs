@@ -6,6 +6,7 @@ mod framing;
 mod matrix;
 mod receiver;
 mod relay;
+#[path = "../../../qualification/durable_bucket.rs"]
 mod storage;
 
 pub use matrix::run;

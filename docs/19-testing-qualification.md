@@ -44,6 +44,11 @@ The packaged Node delivery restart campaign uses the same test-profile settings
 for its repeated cold-start fixture. Its 250 ms handler budget and all 100 fresh
 store/process cases remain unchanged.
 
+The [shared durable fixture bucket](../tools/qualification/durable_bucket.rs)
+keeps node-record CAS independent of application-data writers using FULL-sync
+SQLite stores. Ordinary reads, CAS, listings and recovery use one coherent
+namespace, including the dense filesystem cold-recovery fixture.
+
 The allocator startup test uses a fresh process with allocator environment
 overrides removed. Linux must start background purging; macOS must leave that
 unsupported build default disabled. Forcing `background_thread:true` on macOS
