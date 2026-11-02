@@ -150,7 +150,7 @@ jobs:
       measure: ${{ inputs.fleet_measure }}
   check:
     if: github.event_name != 'workflow_dispatch' || inputs.mode == 'qualification'
-    name: Rust framework and SDK (${{ matrix.python }})
+    name: Python ABI and SDK (${{ matrix.python }})
     runs-on: ubuntu-22.04
     # ABI/package qualification and examples retain their existing ceiling.
     # Native campaigns run independently with all per-test bounds unchanged.
@@ -452,6 +452,27 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+
+  qualification:
+    if: always() && (github.event_name != 'workflow_dispatch' || inputs.mode == 'qualification')
+    needs: [check, native_tests]
+    # Preserve the existing required contexts across the campaign split. A
+    # failed, cancelled or skipped campaign must fail the original gate.
+    name: Rust framework and SDK (${{ matrix.python }})
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.14', '3.14t']
+    steps:
+      - name: Require both qualification campaigns
+        env:
+          SDK_RESULT: ${{ needs.check.result }}
+          NATIVE_RESULT: ${{ needs.native_tests.result }}
+        run: |
+          test "$SDK_RESULT" = success
+          test "$NATIVE_RESULT" = success
 
   python_load:
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'python-load'
