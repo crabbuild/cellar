@@ -14,7 +14,7 @@ node resources. A group spans voter nodes; it is not all cells on one node.
 ## Starting point
 
 Reuse codex/shared-cell-groups and [PR 160](https://github.com/crabbuild/cellar/pull/160).
-The isolated effects checkout and PR checkout were reconciled at 4ea70e483e84ca88d77ca062278edb5ff2389646.
+Keep the isolated effects checkout and PR checkout aligned at each published checkpoint.
 Preserve the user's untracked diagram and both excluded MR progress basenames.
 The current goal remains incomplete: the production SDK/fleet still uses its
 old host and no final combined release or load envelope is qualified.
@@ -40,6 +40,16 @@ SHA256: a072fb6fd8957b6afd5fdf4dffc88c312a0e34c2e1f5c4cfd81b4d2456ea9d0c
 Executable SHA256: 85ceb50508a519e2b1fd5198f47969185438f77c30d09e9de6ab884fd6a7cce6
 All source hashes, real streams, original capture record and executable are
 retained locally and backed up. See [progress](progress.md) for scope and failures.
+
+CG-07's synchronous command-admission checkpoint now passes all nine focused
+commands: the exact new regression, full execution/effects/archive suites,
+all-target strict Clippy, format/layout and dependency/docs checks. The record is
+.cellar/cell-groups-evidence/CG-07-command-admission-fixed-02/record.json.
+Its source patch, 4680 source hashes, three executables and actual streams are
+retained and independently backed up. This is a shared-runtime prerequisite;
+the public SDK/fleet cutover and all original CG-07 acceptance cases remain open.
+Next implement the canonical namespace/class registry and shared host with logical
+cell handles, then complete managed whole-group lifecycle and accounting.
 
 CG-07 is IN_PROGRESS in the spare PR checkout. Its first canonical node service
 and startup changes now select CellGroupRuntime and shared transport. They are

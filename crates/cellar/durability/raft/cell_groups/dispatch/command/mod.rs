@@ -114,28 +114,48 @@ pub struct CellCommandInvocation {
     _admission: Permit,
 }
 
+/// Synchronous request capture for the node queue. No SQL or routing I/O has
+/// begun; dropping this preparation releases only its invocation reservation.
+pub(crate) struct PendingCellCommand {
+    dispatcher: CellGroupDispatcher,
+    cell: CellHistory,
+    request: CellCommandRequest,
+    limits: CellRoutingLimits,
+    cached: Option<ResolvedCellRoute>,
+    captured: Option<CommandInputs>,
+    system: bool,
+    started: u64,
+    deadline: u64,
+    admission: Permit,
+}
+
 impl CellGroupDispatcher {
-    pub async fn command(
+    /// Capture invocation admission and the original deadline immediately.
+    /// Polling constructs routing state; it never restarts the timeout.
+    pub fn command(
         &self,
         cell: CellHistory,
         request: CellCommandRequest,
         limits: CellRoutingLimits,
         cached: Option<ResolvedCellRoute>,
-    ) -> Result<CellCommandInvocation, CellCommandError> {
+    ) -> impl std::future::Future<Output = Result<CellCommandInvocation, CellCommandError>>
+           + Send
+           + 'static {
         self.command_with_inputs(cell, request, limits, cached, None)
-            .await
     }
 
-    pub(crate) async fn command_with_inputs(
+    pub(crate) fn command_with_inputs(
         &self,
         cell: CellHistory,
         request: CellCommandRequest,
         limits: CellRoutingLimits,
         cached: Option<ResolvedCellRoute>,
         captured: Option<CommandInputs>,
-    ) -> Result<CellCommandInvocation, CellCommandError> {
-        self.command_compiled(cell, request, limits, cached, captured, false)
-            .await
+    ) -> impl std::future::Future<Output = Result<CellCommandInvocation, CellCommandError>>
+           + Send
+           + 'static {
+        let pending = self.prepare_command(cell, request, limits, cached, captured, false);
+        async move { pending?.finish().await }
     }
 
     pub(crate) async fn system_command(
@@ -144,11 +164,12 @@ impl CellGroupDispatcher {
         request: CellCommandRequest,
         limits: CellRoutingLimits,
     ) -> Result<CellCommandInvocation, CellCommandError> {
-        self.command_compiled(cell, request, limits, None, None, true)
+        self.prepare_command(cell, request, limits, None, None, true)?
+            .finish()
             .await
     }
 
-    async fn command_compiled(
+    pub(crate) fn prepare_command(
         &self,
         cell: CellHistory,
         mut request: CellCommandRequest,
@@ -156,13 +177,19 @@ impl CellGroupDispatcher {
         cached: Option<ResolvedCellRoute>,
         captured: Option<CommandInputs>,
         system: bool,
-    ) -> Result<CellCommandInvocation, CellCommandError> {
+    ) -> Result<PendingCellCommand, CellCommandError> {
         let error = |cause| CellCommandError {
             command: request.id,
             ambiguous: false,
             cause: Box::new(cause),
         };
         let started = self.domain.mono_ms().map_err(|_| error(closed()))?;
+        let deadline = limits.deadline_at(started).ok_or_else(|| {
+            error(CellDispatchError::Routing(CellRoutingError {
+                reason: CellRoutingFailure::InvalidRequest,
+                ambiguous_command: None,
+            }))
+        })?;
         request.durability = request
             .durability
             .max(self.directory.namespace_config().minimum_durability);
@@ -211,10 +238,74 @@ impl CellGroupDispatcher {
             .ok_or_else(|| error(CellDispatchError::Runtime(RuntimeError::Overloaded)))?;
         request.input = request.input.into_boxed_slice().into_vec();
         request.contract.operation = request.contract.operation.into_boxed_str().into_string();
+        Ok(PendingCellCommand {
+            dispatcher: self.clone(),
+            cell,
+            request,
+            limits,
+            cached,
+            captured,
+            system,
+            started,
+            deadline,
+            admission,
+        })
+    }
+}
+
+impl PendingCellCommand {
+    pub(crate) fn controller_admission(
+        &self,
+        domain: &DomainToken,
+    ) -> Result<(CommandId, u64, usize), CellCommandError> {
+        let error = |cause| CellCommandError {
+            command: self.request.id,
+            ambiguous: false,
+            cause: Box::new(cause),
+        };
+        if !self.dispatcher.uses_domain(domain) {
+            return Err(error(CellDispatchError::Invalid(
+                "command dispatcher domain",
+            )));
+        }
+        if domain.mono_ms().map_err(|_| error(closed()))? >= self.deadline {
+            return Err(error(CellDispatchError::Runtime(
+                RuntimeError::DeadlineExceeded,
+            )));
+        }
+        let bytes = self
+            .request
+            .input
+            .len()
+            .checked_mul(2)
+            .and_then(|n| n.checked_add(8192))
+            .ok_or_else(|| error(CellDispatchError::Runtime(RuntimeError::Overloaded)))?;
+        Ok((self.request.id, self.deadline, bytes))
+    }
+
+    pub(crate) async fn finish(self) -> Result<CellCommandInvocation, CellCommandError> {
+        let Self {
+            dispatcher,
+            cell,
+            request,
+            limits,
+            cached,
+            captured,
+            system,
+            started,
+            deadline: _,
+            admission,
+        } = self;
+        let error = |cause| CellCommandError {
+            command: request.id,
+            ambiguous: false,
+            cause: Box::new(cause),
+        };
         let inputs = if let Some(inputs) = captured {
             inputs
         } else {
-            self.domain
+            dispatcher
+                .domain
                 .run(async {
                     use rand::RngCore as _;
                     let mut random = [0; 32];
@@ -227,10 +318,10 @@ impl CellGroupDispatcher {
                 .await
                 .map_err(|_| error(closed()))?
         };
-        let session = self
+        let session = dispatcher
             .directory
             .routing_session_in(
-                self.domain.clone(),
+                dispatcher.domain.clone(),
                 CellRouteRequest {
                     cell: cell.clone(),
                     operation: CellRouteOperation::Command(request.id),
@@ -241,9 +332,9 @@ impl CellGroupDispatcher {
                 started,
             )
             .map_err(|e| error(CellDispatchError::Routing(e)))?
-            .using_cache(self.routes.clone());
+            .using_cache(dispatcher.routes.clone());
         Ok(CellCommandInvocation {
-            dispatcher: self.clone(),
+            dispatcher,
             system,
             cell,
             request,

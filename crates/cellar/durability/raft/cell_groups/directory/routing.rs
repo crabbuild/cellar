@@ -34,6 +34,18 @@ pub struct CellRoutingLimits {
     pub max_attempts: u8,
 }
 
+impl CellRoutingLimits {
+    pub(crate) fn deadline_at(self, started_at: u64) -> Option<u64> {
+        if self.timeout.as_millis() == 0
+            || self.timeout > Duration::from_secs(60)
+            || !(1..=16).contains(&self.max_attempts)
+        {
+            return None;
+        }
+        started_at.checked_add(self.timeout.as_millis() as u64)
+    }
+}
+
 #[derive(Debug)]
 pub enum CellRoutingFailure {
     InvalidRequest,
@@ -163,9 +175,6 @@ impl RangeDirectory {
         if request.cell.cluster != config.cluster
             || request.cell.namespace != config.namespace
             || request.fingerprint == [0; 32]
-            || limits.timeout.as_millis() == 0
-            || limits.timeout > Duration::from_secs(60)
-            || !(1..=16).contains(&limits.max_attempts)
             || cached.as_ref().is_some_and(|cached| {
                 cached.cell != request.cell
                     || !Arc::ptr_eq(&cached.owner, &self.namespace.inner.owner)
@@ -179,8 +188,8 @@ impl RangeDirectory {
         if started_at > now {
             return Err(error(CellRoutingFailure::InvalidRequest));
         }
-        let deadline = started_at
-            .checked_add(limits.timeout.as_millis() as u64)
+        let deadline = limits
+            .deadline_at(started_at)
             .ok_or_else(|| error(CellRoutingFailure::InvalidRequest))?;
         if now >= deadline {
             return Err(error(CellRoutingFailure::Deadline));

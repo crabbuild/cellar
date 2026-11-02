@@ -10,6 +10,55 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 synchronous shared-command admission
+
+CG-07 remains IN_PROGRESS. The shared controller now captures registered command
+admission synchronously and queues construction before returning its response
+waiter. Its existing node worker owns preparation, routing, SQL and publication;
+an unpolled or dropped response cannot remove that work. Capture retains the
+original absolute deadline before queueing. The dispatcher also reserves its
+invocation budget when command construction is called, and an unpolled
+construction cannot defer its timeout or bypass its configured capacity.
+
+Preparation failures before SQL have no unresolved producer to quarantine.
+Once SQL enters, the existing exact reconciliation, sticky ambiguity, receipt,
+physical join and group quarantine rules remain intact. No worker per cell or
+second execution queue is introduced. All original limits and lifecycle assertions
+remain unchanged. Private effect commands still use their sealed registration.
+
+All nine focused-checkpoint commands pass with 4680 source hashes and three
+retained executables. The new exact regression passes both image modes. The full
+execution target passes 165 cases, with zero failures and two ignored child-process
+entry points controlled by their parent crash tests. Effects pass ten cases with
+one explicit RustFS ignore; archive-controller passes sixteen with twenty explicit
+RustFS ignores. All-target locked strict Clippy, format, layout, dependency and
+documentation checks pass. These native suites do not establish a new real-backend,
+public SDK/fleet, managed lifecycle, load or release qualification.
+
+Focused record: .cellar/cell-groups-evidence/CG-07-command-admission-fixed-02/record.json
+(SHA256 5a44b6f76da74b72eddf45e34cd93c7ec1eb9cf12b67e41acc43fe49331920f6). The record binds the reviewed base revision plus its exact source
+patch, all source hashes, actual streams and executables. Artifacts and an
+independent complete backup are retained on the workspace volume.
+
+The valid baseline fails because unpolled construction retains zero invocation
+slots instead of one. Its exact source and failing executable are preserved under
+CG-07-command-admission-baseline-02. The earlier baseline-01 omitted a key-helper
+argument and executed no case. Fixed-01 passed the first mode's constructor
+assertions, then its fixture attempted a second SQL owner and correctly received
+AlreadyExists. Fixed-02 inspects the existing controller pool with the same
+zero-active-cell assertion. Those failures and their analyses remain retained;
+no acceptance oracle, timeout, ownership check or resource cap was weakened.
+
+The critical next vertical slice is canonical shared host/SDK startup: bounded
+namespace/class registrations, group range placement and provisioning, replicated
+cell enrollment, logical cell handles/versions/witnesses and explicit consistency.
+Then convert managed capacity, repair, drain, maintenance, stop/return/resume and
+inventory to whole group replicas with separate cell/image occupancy. Preserve
+CAS journals, permissions and disruption debt. The spare checkout's two incomplete
+canonical node-service/startup edits remain owned work; never restore legacy
+startup or add a legacy/shared flag. All five original public CG-07 cases and its
+complete gate remain required before DONE.
+
 ## CG-08 complete effects, cache and RustFS gate
 
 CG-08 is DONE at its bounded shared-runtime effects/cache boundary. Qualified

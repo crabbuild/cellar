@@ -48,6 +48,7 @@ pub use controller::{
 };
 mod dispatch;
 pub use apply::{CellGroupApplier, CellGroupApplyImages};
+pub(crate) use dispatch::PendingCellCommand;
 pub use dispatch::{
     CellCommandError, CellCommandInvocation, CellCommandPreparation, CellCommandRequest,
     CellCommandResponse, CellCommandSettlement, CellCommandSubmission, CellDispatchError,

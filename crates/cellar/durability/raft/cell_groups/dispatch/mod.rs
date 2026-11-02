@@ -12,6 +12,7 @@ mod enrollment;
 pub use enrollment::{CellEnrollmentError, CellEnrollmentInvocation, CellEnrollmentRequest};
 
 mod command;
+pub(crate) use command::PendingCellCommand;
 pub use command::{
     CellCommandError, CellCommandInvocation, CellCommandPreparation, CellCommandRequest,
     CellCommandResponse, CellCommandSettlement, CellCommandSubmission,

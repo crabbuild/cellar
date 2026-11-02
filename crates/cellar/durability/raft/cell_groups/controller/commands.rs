@@ -5,20 +5,26 @@ use super::calls::Delivery;
 use super::*;
 use crate::raft::budget::{Budget, Permit};
 use crate::raft::cell_groups::{
-    CellCommandError, CellCommandInvocation, CellCommandResponse, CellDispatchError, CellSqlOptions,
+    CellCommandError, CellCommandInvocation, CellCommandRequest, CellCommandResponse,
+    CellDispatchError, CellGroupDispatcher, CellRoutingLimits, CellSqlOptions, PendingCellCommand,
 };
 use cellar_logic::consensus::CommandId;
 use tokio::sync::{mpsc, oneshot, watch};
 
+enum Invocation {
+    Ready(Box<CellCommandInvocation>),
+    Pending(Box<PendingCellCommand>),
+}
+
 pub(super) struct Request {
-    invocation: CellCommandInvocation,
+    invocation: Invocation,
     options: CellSqlOptions,
     reply: oneshot::Sender<Delivery<CellCommandResponse, CellCommandError>>,
     permit: Arc<Permit>,
 }
 
 pub(super) struct Completed {
-    pub invocation: CellCommandInvocation,
+    pub invocation: Option<CellCommandInvocation>,
     pub error: Option<Arc<CellCommandError>>,
     _permit: Arc<Permit>,
 }
@@ -93,6 +99,62 @@ impl CellGroupController {
     ) -> Result<CellCommandCall, CellCommandAdmissionError> {
         admit(&self.handle.0, invocation, options)
     }
+
+    /// Capture and queue a registered cell command before returning its response
+    /// waiter. Construction, routing, SQL and publication remain node-owned even
+    /// if that waiter is never polled or is dropped. The timeout starts here.
+    pub fn dispatch_command(
+        &self,
+        dispatcher: &CellGroupDispatcher,
+        cell: cellar_logic::cell_group::CellHistory,
+        request: CellCommandRequest,
+        routing: CellRoutingLimits,
+        mut options: CellSqlOptions,
+    ) -> Result<CellCommandCall, CellCommandError> {
+        let shared = &self.handle.0;
+        let command = request.id;
+        if shared.closing.load(Ordering::Acquire) {
+            return Err(error(command, false, RuntimeError::Closed));
+        }
+        let option_bytes = option_bytes(&mut options).map_err(|e| error(command, false, e))?;
+        let pending = dispatcher.prepare_command(cell, request, routing, None, None, false)?;
+        let (_, deadline, bytes) = pending.controller_admission(&shared.domain)?;
+        let bytes = bytes
+            .checked_add(option_bytes)
+            .ok_or_else(|| error(command, false, RuntimeError::Overloaded))?;
+        let permit = shared
+            .commands
+            .acquire(bytes)
+            .ok_or_else(|| error(command, false, RuntimeError::Overloaded))?;
+        let (reply, receiver) = oneshot::channel();
+        shared
+            .requests
+            .try_send(requests::Request::Command(Box::new(Request {
+                invocation: Invocation::Pending(Box::new(pending)),
+                options,
+                reply,
+                permit: Arc::new(permit),
+            })))
+            .map_err(|e| {
+                error(
+                    command,
+                    false,
+                    match e {
+                        mpsc::error::TrySendError::Closed(_) => RuntimeError::Closed,
+                        mpsc::error::TrySendError::Full(_) => RuntimeError::Overloaded,
+                    },
+                )
+            })?;
+        Ok(CellCommandCall {
+            inner: calls::Call {
+                receiver,
+                identity: command,
+                deadline,
+                domain: shared.domain.clone(),
+                failure: |id, reason| error(id, true, reason),
+            },
+        })
+    }
 }
 
 pub(super) fn admit(
@@ -127,7 +189,7 @@ pub(super) fn admit(
     shared
         .requests
         .try_send(requests::Request::Command(Box::new(Request {
-            invocation,
+            invocation: Invocation::Ready(Box::new(invocation)),
             options,
             reply,
             permit: Arc::new(permit),
@@ -140,7 +202,10 @@ pub(super) fn admit(
             CellCommandAdmissionError {
                 error: error(command, false, reason),
                 invocation: match request {
-                    requests::Request::Command(request) => Box::new(request.invocation),
+                    requests::Request::Command(request) => match request.invocation {
+                        Invocation::Ready(invocation) => invocation,
+                        Invocation::Pending(_) => unreachable!("ready command admission envelope"),
+                    },
                     _ => unreachable!("command admission envelope"),
                 },
             }
@@ -164,11 +229,29 @@ pub(super) async fn drive(
     mut progress: watch::Receiver<()>,
 ) -> Completed {
     let Request {
-        mut invocation,
+        invocation,
         options,
         reply,
         permit,
     } = request;
+    let mut invocation = match invocation {
+        Invocation::Ready(invocation) => *invocation,
+        Invocation::Pending(pending) => match (*pending).finish().await {
+            Ok(invocation) => invocation,
+            Err(error) => {
+                let error = Arc::new(error);
+                let _ = reply.send(Delivery {
+                    result: Err(error.clone()),
+                    _permit: permit.clone(),
+                });
+                return Completed {
+                    invocation: None,
+                    error: Some(error),
+                    _permit: permit,
+                };
+            }
+        },
+    };
     let result = invocation
         .run_owned(&runtime, &sql, options, &shared.groups, &mut progress)
         .await
@@ -179,7 +262,7 @@ pub(super) async fn drive(
         _permit: permit.clone(),
     });
     Completed {
-        invocation,
+        invocation: Some(invocation),
         error,
         _permit: permit,
     }

@@ -21,17 +21,19 @@ pub(super) enum Completed {
 impl Completed {
     pub fn group(&self) -> Option<cellar_logic::cell_group::GroupHistory> {
         match self {
-            Self::Command(done) => done.invocation.unresolved_group(),
+            Self::Command(done) => done.invocation.as_ref().and_then(|i| i.unresolved_group()),
             Self::Enrollment(done) => done.invocation.unresolved_group(),
         }
     }
 
     pub fn failure(&self) -> Option<CellGroupControllerError> {
         match self {
-            Self::Command(done) if done.invocation.unresolved() => Some(done.error.clone().map_or(
-                CellGroupControllerError::Invalid("unresolved successful command"),
-                CellGroupControllerError::Command,
-            )),
+            Self::Command(done) if done.invocation.as_ref().is_some_and(|i| i.unresolved()) => {
+                Some(done.error.clone().map_or(
+                    CellGroupControllerError::Invalid("unresolved successful command"),
+                    CellGroupControllerError::Command,
+                ))
+            }
             Self::Enrollment(done) if done.invocation.unresolved() => {
                 Some(done.error.clone().map_or(
                     CellGroupControllerError::Invalid("unresolved successful enrollment"),

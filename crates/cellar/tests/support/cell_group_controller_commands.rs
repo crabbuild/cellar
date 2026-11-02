@@ -44,6 +44,90 @@ pub(super) async fn invocation(
         .await?)
 }
 
+pub(crate) async fn command_admission_starts_before_poll() -> Result<()> {
+    for rooted in [false, true] {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counted = calls.clone();
+        let class = Arc::new(RaftClass::new("Counter", 1, [81; 32])?.command(
+            "Add",
+            [82; 32],
+            move |_, _| {
+                counted.fetch_add(1, Ordering::SeqCst);
+                Ok(Vec::new())
+            },
+        )?);
+        let (mut fixture, route, cell, _) = Box::pin(registered::setup(rooted, &class)).await?;
+        let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
+        let pool = fixture.appliers[&(0, route.history)].0.clone();
+        let dispatcher = CellGroupDispatcher::new(
+            &fixture.cluster.domain,
+            fixture.cluster.directory.clone(),
+            class.clone(),
+            super::remote_queries::keys(89)?,
+            CellDispatchLimits {
+                max_cached_routes: 1,
+                route_cache_bytes: 8192,
+                max_invocations: 1,
+                retained_bytes: 64 * 1024,
+                max_input_bytes: 1024,
+            },
+        )?;
+        let request = CellCommandRequest {
+            id: CommandId::new(ClientId::new([188; 16])?, 1)?,
+            contract: class.contract("Add").context("Add")?,
+            input: b"unpolled".to_vec(),
+            durability: Durability::Quorum,
+            retry_until_ms: u64::MAX,
+        };
+        let limits = CellRoutingLimits {
+            timeout: Duration::from_millis(40),
+            max_attempts: 1,
+        };
+        let pending = dispatcher.command(cell.clone(), request.clone(), limits, None);
+        assert_eq!(
+            dispatcher.usage().1,
+            1,
+            "unpolled construction retains admission"
+        );
+        let refused = dispatcher
+            .command(cell.clone(), request.clone(), limits, None)
+            .await
+            .err()
+            .context("unpolled construction exhausts admission")?;
+        assert!(!refused.ambiguous);
+        assert!(matches!(
+            refused.cause.as_ref(),
+            CellDispatchError::Runtime(RuntimeError::Overloaded)
+        ));
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        let expired = pending
+            .await
+            .err()
+            .context("construction keeps original deadline")?;
+        assert!(!expired.ambiguous);
+        assert!(matches!(
+            expired.cause.as_ref(),
+            CellDispatchError::Routing(CellRoutingError {
+                reason: CellRoutingFailure::Deadline,
+                ..
+            })
+        ));
+        assert_eq!(dispatcher.usage().1, 0);
+        let cancelled = dispatcher.command(cell, request, limits, None);
+        assert_eq!(dispatcher.usage().1, 1);
+        drop(cancelled);
+        assert_eq!(dispatcher.usage().1, 0);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert_eq!(pool.usage()?.active_cells, 0);
+        for controller in &controllers {
+            controller.close().await?;
+        }
+        drop(controllers);
+        fixture.close().await?;
+    }
+    Ok(())
+}
+
 // phase=0 holds callback execution; phase=1 holds the committed manifest sync.
 // mode=0 disconnects, mode=1 expires the response, mode=2 cancels node close.
 pub(crate) async fn owned_commands(phase: u8, mode: u8) -> Result<()> {
@@ -189,8 +273,20 @@ pub(crate) async fn owned_commands(phase: u8, mode: u8) -> Result<()> {
         } else {
             Duration::from_secs(15)
         };
-        let call = controllers[0].command(
-            invocation(&dispatcher, &class, &a, timeout, retry_until).await?,
+        let call = controllers[0].dispatch_command(
+            &dispatcher,
+            a.clone(),
+            CellCommandRequest {
+                id: CommandId::new(ClientId::new([188; 16])?, 1)?,
+                contract: class.contract("Add").context("Add")?,
+                input: b"owned".to_vec(),
+                durability: Durability::Quorum,
+                retry_until_ms: retry_until,
+            },
+            CellRoutingLimits {
+                timeout,
+                max_attempts: 4,
+            },
             fixture.cell_options(&a).await?,
         )?;
         tokio::time::timeout(Duration::from_secs(5), started).await??;

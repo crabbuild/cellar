@@ -1919,7 +1919,9 @@
         "crates/cellar-axum/",
         "crates/cellar-admin/",
         "examples/",
-        "crates/cellar/sdk.rs"
+        "crates/cellar/sdk.rs",
+        "crates/cellar/tests/native_cell_groups_execution.rs",
+        "crates/cellar/tests/support/"
       ],
       "creates": [
         "crates/cellar/tests/native_cell_groups_public.rs"

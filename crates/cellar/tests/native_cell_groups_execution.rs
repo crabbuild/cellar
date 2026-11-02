@@ -337,6 +337,11 @@ async fn checkpoint_stream_detects_corruption_and_closed_engine() -> Result<()> 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn command_construction_reserves_admission_and_original_deadline() -> Result<()> {
+    Box::pin(runtime_fixture::command_admission_starts_before_poll()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn controller_owned_commands_survive_sql_disconnect() -> Result<()> {
     runtime_fixture::owned_commands(0, 0).await
 }

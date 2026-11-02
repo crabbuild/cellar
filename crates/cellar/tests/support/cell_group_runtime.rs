@@ -823,10 +823,10 @@ pub(super) use sql::{
     s3_receipt_deadline, s3_receipt_failures, s3_receipt_minimums, s3_receipt_observations,
     s3_remote_deadlines, s3_remote_outputs, s3_remote_slow_delivery,
 };
+pub(super) use sql::{command_admission_starts_before_poll, owned_command_failure, owned_commands};
 pub(super) use sql::{
     controller_apply_faults, controller_close, controller_owners, controller_replication,
 };
-pub(super) use sql::{owned_command_failure, owned_commands};
 
 pub(super) async fn cell_receipts(rooted: bool) -> Result<()> {
     sql::cell_receipts(rooted).await
