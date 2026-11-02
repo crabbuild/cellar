@@ -8,12 +8,12 @@ complete checkpoint, authenticated learner/rebuild, membership, restart and
 resource-ownership requirements pass at `e0550acd`. Its current gate includes
 all five exact cases and 205 Rust regressions across eighteen commands.
 CG-06 is IN_PROGRESS: complete S3 checkpoint/tail recovery, bounded S3 settlement,
-local log reclamation, exact recovery fencing and fresh-history data preparation
-pass their scoped gates. Fresh engine genesis, atomic fenced publication,
-committed activation and a fresh serving quorum remain the immediate priorities.
+local reclamation, fresh physical genesis, fenced publication, committed activation
+and registered receipt recovery through a fresh quorum pass scoped native/RustFS
+checks. Actual shared-group Docker launch/restart fencing is the immediate gate.
 CG-08 due effects and safe cold-cache eviction follow, before CG-07 SDK/fleet
 cutover. See the latest [progress](progress.md) and [handoff](handoff.md).
-The production SDK/fleet has not yet cut over; topology, hibernation, complete S3
+The production SDK/fleet has not yet cut over; topology, hibernation, managed S3
 recovery and deployment/release qualification remain tracked in later tasks.
 See [implementation progress](progress.md) and the generated task index.
 Package validation alone does not qualify implementation or a release.
@@ -48,7 +48,7 @@ The plan runner requires Python 3.11 or newer and Git; it has no Python package 
    only with verified evidence and completed dependencies. Final qualification
    repeats the full capability matrix at one release revision.
 
-This checkout retains evidence under the ignored
+Historical native gate records are referenced under the ignored
 `.cellar/cell-groups-evidence/CG-01-ee7f4a8d2dec/`,
 `.cellar/cell-groups-evidence/CG-02-ec9d277e5041/` and
 `.cellar/cell-groups-evidence/CG-03-routing-final/` directories. CG-04 adds
@@ -68,6 +68,9 @@ checkpoints and local publication in
 `.cellar/cell-groups-evidence/CG-05-controller-checkpoints/` and membership in
 `.cellar/cell-groups-evidence/CG-05-group-membership/` remain historical partial records;
 the complete current-source gate above closes CG-05.
+The referenced CG-01–05 raw directories are currently unavailable locally.
+Restore their records or rerun the unchanged exact gates before complete package
+validation. The scoped CG-06 receipt checkpoint does not replace them.
 The design, task briefs and validator unit tests are committed in this package.
 
 ```sh

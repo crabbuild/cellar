@@ -10,6 +10,63 @@ CG-06 is IN_PROGRESS; CG-07 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-06 fresh quorum and registered receipt recovery
+
+Source: 9a0bad9124f0089055a0ba63b2952e5ef5e77853, including origin/main 81cbbc2f72f302751dd471cf06cf51394146ac63. CG-06 remains IN_PROGRESS.
+Fresh recovery now installs the complete imported root and physical Raft genesis
+in one synced engine publication. Permanent seed records bind the exact recovery
+request, genesis commitment, node, member, disk and engine. Ordinary bootstrap
+refuses recovered births; recovered startup revalidates the seed and external
+fencing authority. Replacement publication retains the recovery lock until a
+catalog-bound activation is committed and applied through the fresh quorum.
+
+The original `fenced_group_seed_new_incarnations` oracle now exercises registered
+commands. It writes actual receipts and an expired client floor after the base
+checkpoint, archives their LTX tails, and deletes every old native voter directory,
+private SQL files, extent store and the previous
+verification cache, then seeds and activates three fresh voters. Production TLS
+transports, controllers, SQL workers and the replacement group's archive owner
+serve retries. Exact opaque results survive without callback replay; Quorum
+retries honor stored S3 minimums through actual replacement-history coverage.
+Expired sequences and conflicting inputs refuse. Old tokens remain valid for
+their original history at the same wall time and fail with WrongHistory for the
+fresh history. A new registered write and retained-quorum restart preserve the
+imported receipts and client floors.
+
+At this source, archive/catalog suites pass 47 cases; five explicitly ignored
+RustFS cases pass when selected against the owned real backend, each in both
+materialized and extent modes. Seven signed S3 operations verify conditional
+creation, CAS and readback behavior. All-target locked Cellar/logic Clippy,
+format/layout over 1985 Rust files, native dependency and documentation checks
+pass. The RustFS backend and dedicated VM are stopped with data retained; the
+default Docker context remains colima.
+
+Scoped record: .cellar/cell-groups-evidence/CG-06-recovery-genesis-settlement/receipt-recovery-qualification.json (SHA256 eb0efe6af7d4e6bed3a9801d821e0ea8e48058f7ce949cdc01912a74642fe25d). Records bind the tested source
+inputs, copied test artifact, exact selections, logs and backend cleanup. This is
+a physical/receipt recovery checkpoint, not a full CG-06 DONE or release record.
+Earlier failed fixture builds, capture-admission refusal, extent-schema mismatch
+and cache-admission failure remain recorded beside the corrected passing run.
+The catalog golden now verifies the required recovery-origin wrapper and refuses
+the older bare birth record; no compatibility reader was added.
+
+The remaining feature gate is actual Docker fencing. The current native and
+RustFS drills use an explicit contract-test authority; they do not qualify
+permanent infrastructure launch/restart revocation. The existing Docker harness
+uses the older per-cell runtime. Replace its voter path with actual shared-group
+nodes, retain its ownership checks/signing flow, revoke the old deployment in a
+durable sole-launcher policy, erase all owned voter containers and volumes, then
+cold-recover through a fresh quorum. Reopening the launcher must still refuse
+the old deployment. Complete that drill and the original CG-06 gate before DONE.
+
+Historical CG-01–05 raw gate directories are currently unavailable in this
+checkout. Their prior source-scoped results remain historical; complete package
+validation requires restoring those records or rerunning the unchanged exact
+gates. This checkpoint does not replace them or weaken the validator. The 37 validator
+unit tests pass and all 24 reviewed source anchors match; complete validation
+currently refuses the missing CG-01 record.
+After CG-06, prioritize CG-08 bounded due-work scheduling and qualification of
+the current close-on-settle SQL policy, then CG-07 public SDK/fleet cutover.
+
 ## CG-06 fresh-history data import and pending admission
 
 Source: 7052d218d60181d7b0bb5a4c12686e80e294a61c. CG-06 remains IN_PROGRESS. A fenced,
