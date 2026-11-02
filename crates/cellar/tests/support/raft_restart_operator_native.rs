@@ -327,7 +327,14 @@ async fn preparation(recreate: bool, concurrent: bool, churn: bool) -> Result<()
                         }
                         Err(FleetCatalogError::Conflict | FleetCatalogError::PayloadConflict)
                             if concurrent => {}
-                        Err(FleetCatalogError::Unconfirmed | FleetCatalogError::Overloaded)
+                        // Recreated controllers must obtain a complete live
+                        // inventory before returning the same durable intent's
+                        // Ready proof. Refusal is not preparation progress.
+                        Err(
+                            FleetCatalogError::Unconfirmed
+                            | FleetCatalogError::Overloaded
+                            | FleetCatalogError::InventoryIncomplete,
+                        )
                         | Err(FleetCatalogError::Observation(
                             InspectionError::Unavailable | InspectionError::Overloaded,
                         )) => {}

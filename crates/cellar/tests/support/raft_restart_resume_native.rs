@@ -58,30 +58,35 @@ async fn prepare_resume(
     s: &Setup,
     request: &FleetRestartResumeRequest,
 ) -> Result<FleetRestartResumeVerification> {
-    trust(s).await?;
+    trust(s).await.context("restart resume peer discovery")?;
     // Returning engines register asynchronously. Construct the verification
     // from a fresh, complete inventory within the existing call budget.
     s.f.domain
         .run(cellar::asyncrt::timeout(TIMEOUT, async {
             loop {
-                let root = s.f.catalog.read(TIMEOUT).await?;
-                match s
-                    .f
-                    .catalog
-                    .prepare_restart_resume(
-                        &root,
-                        request,
-                        std::slice::from_ref(&s.namespace),
-                        &s.spare,
-                        TIMEOUT,
-                    )
-                    .await
-                {
+                let observed = async {
+                    let root = s.f.catalog.read(TIMEOUT).await?;
+                    s.f.catalog
+                        .prepare_restart_resume(
+                            &root,
+                            request,
+                            std::slice::from_ref(&s.namespace),
+                            &s.spare,
+                            TIMEOUT,
+                        )
+                        .await
+                }
+                .await;
+                match observed {
                     Ok(walk) => return Ok(walk),
-                    Err(FleetCatalogError::InventoryIncomplete) => {
+                    Err(FleetCatalogError::InventoryIncomplete | FleetCatalogError::Overloaded) => {
                         cellar::asyncrt::sleep(Duration::from_millis(10)).await;
                     }
-                    Err(error) => return Err(error.into()),
+                    Err(error) => {
+                        return Err(
+                            anyhow::Error::from(error).context("restart resume proof construction")
+                        );
+                    }
                 }
             }
         }))
@@ -425,9 +430,15 @@ async fn fleet_restart_resume_root_drift_requires_fresh_same_scope_consent() -> 
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_restart_resume_rechecks_and_hands_off_regained_leadership() -> Result<()> {
-    let (s, p, request) = Box::pin(setup(false)).await?;
-    let mut warm = prepare_resume(&s, &request).await?;
-    consume_resume(&s, &mut warm).await?;
+    let (s, p, request) = Box::pin(setup(false))
+        .await
+        .context("regained leader setup")?;
+    let mut warm = prepare_resume(&s, &request)
+        .await
+        .context("initial resume proof")?;
+    consume_resume(&s, &mut warm)
+        .await
+        .context("initial resume histories")?;
     drop(warm);
     let source = primary(&s.f, &s.cells).await?;
     ensure!(source != p);
@@ -457,18 +468,32 @@ async fn fleet_restart_resume_rechecks_and_hands_off_regained_leadership() -> Re
             Ok::<_, anyhow::Error>(())
         }))
         .await???;
-    pending(&s, p, true).await?;
-    let mut walk = prepare_resume(&s, &request).await?;
-    ensure!(consume_resume(&s, &mut walk).await? > 0);
+    pending(&s, p, true)
+        .await
+        .context("regained leader paused state")?;
+    let mut walk = prepare_resume(&s, &request)
+        .await
+        .context("regained leader fresh proof")?;
+    ensure!(
+        consume_resume(&s, &mut walk)
+            .await
+            .context("regained leader handoff proof")?
+            > 0
+    );
     let admission = walk
         .admit_resume(&request, TIMEOUT)
         .await
         .context("publish refreshed resume consent")?;
-    trust(&s).await?;
+    trust(&s)
+        .await
+        .context("regained leader resume discovery")?;
     s.f.catalog
         .resume_restart_maintenance(&admission, &s.spare, TIMEOUT)
-        .await?;
-    pending(&s, p, false).await?;
+        .await
+        .context("guarded regained leader resume")?;
+    pending(&s, p, false)
+        .await
+        .context("regained leader resumed state")?;
     ensure!(
         !coherent_inspection(&s, &s.cells[p])
             .await?
@@ -476,7 +501,7 @@ async fn fleet_restart_resume_rechecks_and_hands_off_regained_leadership() -> Re
             .context("returned member")?
             .is_leader
     );
-    s.close().await
+    s.close().await.context("regained leader joined cleanup")
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

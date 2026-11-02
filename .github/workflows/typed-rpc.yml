@@ -7,6 +7,7 @@ on:
       - 'crates/**'
       - 'packages/cellar-sdk/**'
       - 'tools/rpc/**'
+      - 'tools/qualification/**'
       - 'tools/javascript/**'
       - 'tools/cellar-rpc-codegen/**'
       - 'tools/python/**'

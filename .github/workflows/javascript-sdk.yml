@@ -17,6 +17,7 @@ on:
       - 'tools/javascript/**'
       - 'tools/sandbox/**'
       - 'tools/rpc/**'
+      - 'tools/qualification/**'
       - 'tools/cellar-rpc-codegen/**'
       - 'proto/**'
       - 'docs/design/named-typed-rpc/*.proto'

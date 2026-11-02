@@ -188,7 +188,7 @@ I/O or group enumeration. The internal generation-bound, authenticated
 `/peer/raft/metrics` endpoint exports these counters, actual SQL work reservations
 and incoming/outgoing transport and snapshot/metadata banks, without identity
 labels or callback execution. Live SQL, image, group and transport sources use
-111 fixed samples. A configured controller and a live extent inventory each
+113 fixed samples. A configured controller and a live extent inventory each
 add 13 samples. Unavailable sources omit their values rather than synthesizing
 zero. Weak transport and inventory observers cannot retain physical resources
 after joined shutdown. The [operations contract](../../../../docs/design/multi-raft/operations-design.md)
