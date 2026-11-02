@@ -58,10 +58,17 @@ async fn trust(s: &Setup) -> Result<()> {
 }
 
 async fn joined(node: &mut cellar::sdk::Node, f: &Fixture) -> Result<()> {
-    let outcome = f
+    let completed = f
         .domain
         .run(cellar::asyncrt::timeout(TIMEOUT, node.finished()))
-        .await???;
+        .await?;
+    let outcome = completed.with_context(|| {
+        format!(
+            "restart stopped process join: node={}, closed={}",
+            node.info().node,
+            node.is_closed()
+        )
+    })??;
     let NodeOutcome::Stopped(report) = outcome else {
         anyhow::bail!("maintenance did not autonomously stop");
     };

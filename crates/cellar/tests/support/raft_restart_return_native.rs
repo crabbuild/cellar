@@ -7,7 +7,7 @@ mod resume;
 use cellar::application::consensus::verification::FleetRestartReturnRequest;
 
 async fn offline(s: &mut Setup, p: usize) -> Result<(Running, FleetRestartReturnRequest)> {
-    let (gate, request, root) = consent(s, p).await?;
+    let (gate, request, root) = consent(s, p).await.context("restart return stop consent")?;
     s.f.catalog
         .admit_restart_stop(&root, &request, TIMEOUT)
         .await?;
@@ -27,7 +27,9 @@ async fn offline(s: &mut Setup, p: usize) -> Result<(Running, FleetRestartReturn
         result.as_ref().err()
     );
     let mut target = s.nodes.remove(p);
-    joined(&mut target.node, &s.f).await?;
+    joined(&mut target.node, &s.f)
+        .await
+        .context("restart return old process join")?;
     let root = s.f.catalog.read(TIMEOUT).await?;
     let mut identity = request_identity(180, root.revision(), gate.identity.operation);
     let offline = FleetRestartOfflineRequest {
@@ -82,14 +84,20 @@ async fn configuration(
 }
 
 async fn returned(primary_target: bool, lose_confirmations: bool) -> Result<()> {
-    let mut s = Box::pin(Setup::new()).await?;
-    let leader = primary(&s.f, &s.cells).await?;
+    let mut s = Box::pin(Setup::new())
+        .await
+        .context("restart return setup")?;
+    let leader = primary(&s.f, &s.cells)
+        .await
+        .context("restart return initial primary")?;
     let p = if primary_target {
         leader
     } else {
         (leader + 1) % 3
     };
-    let (mut target, request) = offline(&mut s, p).await?;
+    let (mut target, request) = offline(&mut s, p)
+        .await
+        .context("restart return offline predecessor")?;
     let old = target.host.observe_node(TIMEOUT).await;
     ensure!(old.is_err());
     let root = s.f.catalog.read(TIMEOUT).await?;
@@ -124,7 +132,9 @@ async fn returned(primary_target: bool, lose_confirmations: bool) -> Result<()> 
         .filter(|(i, _)| *i != p)
         .map(|(_, c)| c.clone())
         .collect::<Vec<_>>();
-    write_read(&s.f, &survivors, 2, 5, 12).await?;
+    write_read(&s.f, &survivors, 2, 5, 12)
+        .await
+        .context("restart return survivor write before startup")?;
     let node = public_node::node_named(
         target.root.path(),
         s.f.definition.application.clone(),
@@ -210,16 +220,24 @@ async fn returned(primary_target: bool, lose_confirmations: bool) -> Result<()> 
     );
     let revision = root.revision();
     for survivor in &s.nodes {
-        s.f.remote(&survivor.host, request.node, revision).await?;
-        s.f.remote(&host, survivor.spec.node, revision).await?;
+        s.f.remote(&survivor.host, request.node, revision)
+            .await
+            .context("restart return install returned peer")?;
+        s.f.remote(&host, survivor.spec.node, revision)
+            .await
+            .context("restart return install survivor peer")?;
     }
-    write_read(&s.f, &survivors, 3, 2, 14).await?;
+    write_read(&s.f, &survivors, 3, 2, 14)
+        .await
+        .context("restart return survivor write after startup")?;
     let wanted = survivors[0]
         .inspect()
-        .await?
+        .await
+        .context("restart return survivor progress")?
         .member
         .context("survivor progress")?
         .applied;
+    let seen = std::sync::Mutex::new((0u64, None));
     s.f.domain
         .run(cellar::asyncrt::timeout(TIMEOUT, async {
             loop {
@@ -231,6 +249,25 @@ async fn returned(primary_target: bool, lose_confirmations: bool) -> Result<()> 
                     Err(CommandFailure::Overloaded) => None,
                     Err(error) => return Err(error.into()),
                 };
+                {
+                    let mut seen = seen
+                        .lock()
+                        .map_err(|_| anyhow::anyhow!("restart return observation mutex"))?;
+                    if let Some(view) = observed.as_ref() {
+                        seen.1 = Some(view.member.as_ref().map(|m| {
+                            (
+                                m.applied,
+                                m.committed,
+                                m.membership_revision,
+                                m.term,
+                                m.leader,
+                                m.is_leader,
+                            )
+                        }));
+                    } else {
+                        seen.0 += 1;
+                    }
+                }
                 if observed
                     .and_then(|view| view.member)
                     .is_some_and(|m| m.applied.index > wanted.index || m.applied == wanted)
@@ -240,7 +277,14 @@ async fn returned(primary_target: bool, lose_confirmations: bool) -> Result<()> 
                 cellar::asyncrt::sleep(Duration::from_millis(10)).await;
             }
         }))
-        .await???;
+        .await?
+        .with_context(|| {
+            format!(
+                "restart return catch-up: wanted={wanted:?}, seen={:?}",
+                seen.lock()
+            )
+        })?
+        .context("restart return inspect sample")?;
     ensure!(host.observe_node(TIMEOUT).await?.node.profile.draining);
     ensure!(reopened
         .begin_evacuation(
@@ -255,7 +299,7 @@ async fn returned(primary_target: bool, lose_confirmations: bool) -> Result<()> 
     target.node = node;
     target.host = host;
     s.nodes.push(target);
-    s.close().await
+    s.close().await.context("restart return joined cleanup")
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

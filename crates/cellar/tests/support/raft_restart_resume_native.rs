@@ -59,17 +59,56 @@ async fn prepare_resume(
     request: &FleetRestartResumeRequest,
 ) -> Result<FleetRestartResumeVerification> {
     trust(s).await?;
-    let root = s.f.catalog.read(TIMEOUT).await?;
-    Ok(s.f
-        .catalog
-        .prepare_restart_resume(
-            &root,
-            request,
-            std::slice::from_ref(&s.namespace),
-            &s.spare,
-            TIMEOUT,
-        )
-        .await?)
+    // Returning engines register asynchronously. Construct the verification
+    // from a fresh, complete inventory within the existing call budget.
+    s.f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+            loop {
+                let root = s.f.catalog.read(TIMEOUT).await?;
+                match s
+                    .f
+                    .catalog
+                    .prepare_restart_resume(
+                        &root,
+                        request,
+                        std::slice::from_ref(&s.namespace),
+                        &s.spare,
+                        TIMEOUT,
+                    )
+                    .await
+                {
+                    Ok(walk) => return Ok(walk),
+                    Err(FleetCatalogError::InventoryIncomplete) => {
+                        cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        }))
+        .await?
+        .context("restart resume inventory preparation deadline")?
+}
+
+async fn coherent_inspection(
+    s: &Setup,
+    cell: &RaftCellHandle,
+) -> Result<cellar::application::consensus::CellInspection> {
+    // inspect() itself has a five-second budget. A mixed runtime/image sample
+    // is refused with Overloaded; keep that same bound across fresh samples.
+    s.f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+            loop {
+                match cell.inspect().await {
+                    Ok(view) => return Ok(view),
+                    Err(CommandFailure::Overloaded) => {
+                        cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        }))
+        .await?
+        .context("coherent restart inspection deadline")?
 }
 
 async fn consume_resume(s: &Setup, walk: &mut FleetRestartResumeVerification) -> Result<usize> {
@@ -392,8 +431,7 @@ async fn fleet_restart_resume_rechecks_and_hands_off_regained_leadership() -> Re
     drop(warm);
     let source = primary(&s.f, &s.cells).await?;
     ensure!(source != p);
-    let state = s.cells[source]
-        .inspect()
+    let state = coherent_inspection(&s, &s.cells[source])
         .await?
         .member
         .context("surviving leader")?;
@@ -409,8 +447,7 @@ async fn fleet_restart_resume_rechecks_and_hands_off_regained_leadership() -> Re
         .await?;
     s.f.domain
         .run(cellar::asyncrt::timeout(TIMEOUT, async {
-            while !s.cells[p]
-                .inspect()
+            while !coherent_inspection(&s, &s.cells[p])
                 .await?
                 .member
                 .is_some_and(|m| m.is_leader)
@@ -433,8 +470,7 @@ async fn fleet_restart_resume_rechecks_and_hands_off_regained_leadership() -> Re
         .await?;
     pending(&s, p, false).await?;
     ensure!(
-        !s.cells[p]
-            .inspect()
+        !coherent_inspection(&s, &s.cells[p])
             .await?
             .member
             .context("returned member")?
