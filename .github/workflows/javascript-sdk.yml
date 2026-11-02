@@ -260,6 +260,10 @@ jobs:
           .cellar/node-delivery/launch.sh --help
           export CELLAR_TEST_NODE_ENTRY="$PWD/.cellar/node-delivery/app/dist/app.js"
           export CELLAR_TEST_NODE_EXECUTABLE="$PWD/.cellar/node-delivery/bin/node"
+          cargo test --locked -p cellar-javascript --no-default-features --features node --test node_runtime --no-run
+          # Finish build writeback before measuring fresh FULL-sync fixtures.
+          # Keep their real fsyncs and the existing handler deadline unchanged.
+          sync -f "${CARGO_TARGET_DIR:-$PWD/target}"
           # Fresh stores and Node processes in every case. Stop at the first
           # failure; these repetitions never retry a failed request or test.
           for iteration in {1..100}; do
