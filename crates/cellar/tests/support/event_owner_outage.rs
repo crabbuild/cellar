@@ -45,7 +45,12 @@ async fn subscription(client: &reqwest::Client, node: &Node) -> Result<Value> {
 async fn storage_isolated_event_owner_expires_and_recovers_before_replay() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let old_core = Executor::new("isolated-event-core")?;
-    let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    // Wrap the entire coherent namespace: isolation must refuse authority as
+    // well as data, while healthy successor CAS has its own FULL-sync writer.
+    let bucket = super::super::durable_bucket::open(
+        directory.path(),
+        &["isolated-event-owner", "successor-event-owner"],
+    )?;
     let (isolated, outage) = Outage::wrap(&bucket)?;
     let (mut config, services) = inputs(
         "isolated-event-owner",

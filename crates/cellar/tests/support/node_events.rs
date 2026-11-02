@@ -2428,7 +2428,7 @@ fn metric(snapshot: &cellar::sdk::EventMetricsSnapshot, name: &str) -> u64 {
 async fn event_metrics_export_tracks_real_work_and_keeps_hosts_isolated() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let core = Executor::new("event-metrics-core")?;
-    let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    let bucket = super::durable_bucket::open(directory.path(), &["event-metrics-owner"])?;
     let (config, services) = inputs(
         "event-metrics-owner",
         &directory.path().join("owner"),
@@ -2439,8 +2439,9 @@ async fn event_metrics_export_tracks_real_work_and_keeps_hosts_isolated() -> Res
     .await?;
     let owner = Node::start(config, services, graph(1, false), applications("owner")?).await?;
     super::ready(&owner).await?;
+    let sibling_directory = tempfile::tempdir_in(directory.path())?;
     let sibling_bucket =
-        cellar::bucket::Bucket::open_dev(&directory.path().join("sibling-fleet.sqlite"))?;
+        super::durable_bucket::open(sibling_directory.path(), &["event-metrics-sibling"])?;
     let (config, services) = inputs(
         "event-metrics-sibling",
         &directory.path().join("sibling"),

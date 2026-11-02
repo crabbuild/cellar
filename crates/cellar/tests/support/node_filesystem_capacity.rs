@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Opt-in dense payload qualification through public SDK turns and bucket proof.
-use super::{inputs, ready, response, Executor};
+use super::{durable_bucket, inputs, ready, response, Executor};
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{filesystem::*, *};
 use serde_json::{json, Value};
@@ -11,9 +11,6 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-
-#[path = "../../../../tools/qualification/durable_bucket.rs"]
-mod durable_bucket;
 
 const BLOCK: usize = 1 << 20;
 const PATCH: usize = 4096;

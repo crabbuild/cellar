@@ -266,7 +266,9 @@ async fn fleet_restart_stop_renews_expired_readiness_against_current_sql() -> Re
             || matches!(
                 result,
                 Err(FleetCatalogError::Unconfirmed | FleetCatalogError::Closed)
-            )
+            ),
+        "expired-readiness stop refusal: {:?}",
+        result.as_ref().err().map(ToString::to_string)
     );
     let mut target = s.nodes.remove(p);
     joined(&mut target.node, &s.f).await?;
