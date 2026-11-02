@@ -1410,6 +1410,13 @@ supersedes the earlier source lease to that learner, whose outstanding stream
 retains its pins until bounded I/O exits. Identity/authentication failures remain
 refusals.
 
+The single source slot distinguishes an offered snapshot from an authenticated
+pull that has started. An authorized fresh seed request may retire an unclaimed
+offer to another voter, which might have ignored an obsolete announcement.
+Retiring an offer and claiming its first pull are mutually exclusive atomic
+transitions. Active transfers to other peers stay protected, and every retained
+physical owner keeps its source reservation through cancellation and I/O exit.
+
 `snapshot_seed.rs` validates the original birth, exact learner binding, included
 configuration and barrier before sealing the physical image. The engine creates
 the mapping, snapshot, current configuration, bindings and applied marker in one
