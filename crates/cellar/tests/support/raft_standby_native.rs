@@ -58,7 +58,7 @@ pub(in super::super) async fn registered_standby_refuses_quorumless_s3_activatio
     f.cluster.close().await
 }
 
-async fn registered(f: &mut Fixture) -> Result<RaftCellHandle> {
+pub(super) async fn registered(f: &mut Fixture) -> Result<RaftCellHandle> {
     let service = f
         .cluster
         .join_standby(
