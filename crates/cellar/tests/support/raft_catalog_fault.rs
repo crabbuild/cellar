@@ -144,6 +144,7 @@ pub struct Store {
     pub payload_size_delta: AtomicUsize,
     pub payload_chunks: std::sync::Arc<AtomicUsize>,
     pub refuse_archive_payload_reads: AtomicBool,
+    pub refused_archive_payload_reads: AtomicUsize,
     pub hold_next_payload: AtomicBool,
     pub payload_hang: AtomicBool,
     pub payload_waiting: AtomicBool,
@@ -722,6 +723,8 @@ impl ObjectStore for Store {
             }
 
             if self.refuse_archive_payload_reads.load(Ordering::Acquire) {
+                self.refused_archive_payload_reads
+                    .fetch_add(1, Ordering::AcqRel);
                 return Err(failure());
             }
         }

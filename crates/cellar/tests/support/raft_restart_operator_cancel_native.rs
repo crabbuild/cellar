@@ -34,14 +34,21 @@ pub(super) async fn ready(
     s.f.domain
         .run(cellar::asyncrt::timeout(TIMEOUT, async {
             loop {
-                routes(s).await?;
+                routes(s).await.context("operator readiness discovery")?;
                 match controller.reconcile(TIMEOUT).await {
                     Ok(Some(progress)) => {
                         if let Some(ready) = progress.ready {
                             return Ok::<_, anyhow::Error>(ready);
                         }
                     }
-                    Err(FleetCatalogError::Unconfirmed | FleetCatalogError::Overloaded)
+                    // The driver owns durable child identities across turns.
+                    // Incomplete physical registration is not readiness; keep
+                    // reconciling that same operation within this call's bound.
+                    Err(
+                        FleetCatalogError::Unconfirmed
+                        | FleetCatalogError::Overloaded
+                        | FleetCatalogError::InventoryIncomplete,
+                    )
                     | Err(FleetCatalogError::Observation(
                         InspectionError::Unavailable | InspectionError::Overloaded,
                     )) => (),

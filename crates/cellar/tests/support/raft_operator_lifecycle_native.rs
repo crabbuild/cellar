@@ -180,12 +180,53 @@ async fn departure() -> Result<()> {
     let args = admin.departure_args(&node, "prepare-removal", &preparation);
     let (exit, value) = admin.cli(&args, "evacuator").await?;
     ensure!(exit == 4 && value["error"]["code"] == "forbidden");
+    let refused_before =
+        f.s.f
+            .store
+            .refused_archive_payload_reads
+            .load(Ordering::Acquire);
     f.s.f
         .store
         .refuse_archive_payload_reads
         .store(true, Ordering::Release);
-    let (exit, value) = admin.cli(&args, "remover").await?;
+    // A read-only quorum blocker can precede replay. It is not the injected
+    // failure and must not count as coverage. Reconcile the exact request only
+    // while its validated progress proves no history or authority was admitted.
+    let (exit, value) = f
+        .s
+        .f
+        .domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+            loop {
+                let (exit, value) = admin.cli(&args, "remover").await?;
+                if exit != 0 {
+                    return Ok::<_, anyhow::Error>((exit, value));
+                }
+                let progress = accepted(value.clone())?;
+                ensure!(
+                    progress.phase == RaftFleetEvacuationPhase::VerifyingBeforeStop
+                        && progress.checked_histories == 0
+                        && progress.blocker.as_ref().is_some_and(|blocker| {
+                            blocker.stage == RaftFleetVerificationStage::HistoryQuorum
+                        })
+                        && progress.applied_revision.is_none()
+                        && progress.fence_id.is_none(),
+                    "replay fault allowed progress or authority: {value}"
+                );
+                ensure!(f.s.f.catalog.read(TIMEOUT).await?.revision() == status.observed_revision);
+                cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+            }
+        }))
+        .await???;
     ensure!(exit != 0, "physical replay failure admitted fence: {value}");
+    ensure!(
+        f.s.f
+            .store
+            .refused_archive_payload_reads
+            .load(Ordering::Acquire)
+            > refused_before,
+        "archive replay fault was not reached: {value}"
+    );
     f.s.f
         .store
         .refuse_archive_payload_reads
