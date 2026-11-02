@@ -76,13 +76,19 @@ async fn fleet_operator_departure_redistributes_verifies_joins_and_removes() -> 
 }
 
 async fn redistribute(f: &mut Scenario, admin: &Server, node: &str) -> Result<()> {
-    let mut begin = request(f, 164).await?;
+    let mut begin = request(f, 164)
+        .await
+        .context("departure redistribution evidence")?;
     begin.keep.retain(|n| n.as_str() != node);
     let (exit, value) = admin
         .cli(&admin.begin_args(&begin, "departure-keep.json")?, "owner")
         .await?;
     ensure!(exit == 0, "redistribution admission {exit}: {value}");
-    let evidence = Arc::new(Inputs::new(f).await?);
+    let evidence = Arc::new(
+        Inputs::new(f)
+            .await
+            .context("departure redistribution service inputs")?,
+    );
     let service =
         f.s.f
             .catalog
@@ -93,17 +99,23 @@ async fn redistribute(f: &mut Scenario, admin: &Server, node: &str) -> Result<()
                 options(),
                 FleetTopologyCollectionOptions::default(),
             )
-            .await?;
+            .await
+            .context("departure redistribution service start")?;
     let mut args = op_args("wait", &begin.operation_id);
     args.extend(["--timeout-seconds".into(), "40".into()]);
-    let (exit, value) = admin.cli(&args, "reader").await?;
+    let (exit, value) = admin
+        .cli(&args, "reader")
+        .await
+        .context("departure redistribution CLI wait")?;
     ensure!(
         exit == 0 && value["converged"] == true,
         "redistribution {exit}: {value}; service {:?}",
         service.status()
     );
     service.shutdown().await;
-    completed_sql(f, 164).await?;
+    completed_sql(f, 164)
+        .await
+        .context("departure redistribution SQL receipts")?;
     ensure!(f
         .live
         .iter()
@@ -113,8 +125,10 @@ async fn redistribute(f: &mut Scenario, admin: &Server, node: &str) -> Result<()
 }
 
 async fn departure() -> Result<()> {
-    let mut f = Box::pin(Scenario::new(true)).await?;
-    let mut admin = server(&f).await?;
+    let mut f = Box::pin(Scenario::new(true))
+        .await
+        .context("departure scenario")?;
+    let mut admin = server(&f).await.context("departure admin server")?;
     let node = hex::encode([4; 16]);
     let revision = f.s.f.catalog.read(TIMEOUT).await?.revision();
     let refused = operation(&admin, 165, revision);
@@ -130,7 +144,9 @@ async fn departure() -> Result<()> {
     );
     ensure!(f.s.f.catalog.read(TIMEOUT).await?.revision() == revision);
 
-    redistribute(&mut f, &admin, &node).await?;
+    redistribute(&mut f, &admin, &node)
+        .await
+        .context("departure redistribution")?;
 
     let exclusion = operation(&admin, 167, f.s.f.catalog.read(TIMEOUT).await?.revision());
     let args = admin.departure_args(&node, "evacuate", &exclusion);
@@ -254,7 +270,8 @@ async fn departure() -> Result<()> {
     // authenticated discovery path before the exact stop RPC.
     f.s.f
         .remote(&f.s.nodes[1].host, NodeId::new([4; 16])?, revision)
-        .await?;
+        .await
+        .context("departure finalizing process metadata")?;
     let (exit, value) = admin.cli(&stop_args, "stopper").await?;
     ensure!(
         (exit == 0 && accepted(value.clone())?.phase == RaftFleetEvacuationPhase::StopRequested)
