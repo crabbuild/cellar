@@ -45,6 +45,8 @@ for its repeated cold-start fixture. Its 250 ms handler budget and all 100 fresh
 store/process cases remain unchanged. CI builds the test artifact before the
 campaign and flushes completed build output to keep compiler writeback out of
 the fixture's disk queue. Every fixture still performs its normal FULL syncs.
+The live RPC campaigns use the same build/writeback separation without changing
+their one-second node leases, per-request deadlines or runtime cleanup checks.
 
 The [shared durable fixture bucket](../tools/qualification/durable_bucket.rs)
 keeps node-record CAS independent of application-data writers using FULL-sync

@@ -89,6 +89,12 @@ jobs:
           python3 -m unittest discover -s tools/perf -p test_python_fleet.py
           cargo clippy --locked -p cellar-rpc-qualification --all-targets --features full -- -D warnings
           cargo test --locked -p cellar-rpc-qualification --features full -- --test-threads=1
+      - name: Finish build writeback before live qualification
+        run: |
+          cargo build --locked -p cellar-rpc-qualification --features full
+          # Preserve real FULL syncs and the one-second authority lease while
+          # keeping completed compiler writes out of the fixture's disk queue.
+          sync -f "$CARGO_TARGET_DIR"
       - name: Live portable Protobuf profile
         if: matrix.campaign == 'focused'
         run: |
