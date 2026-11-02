@@ -8,10 +8,7 @@ use super::super::{
 use super::{probes, recovery, Case, Trigger, DELTA, OWNER, SOURCE};
 use crate::{application::Composite, fleet};
 use anyhow::{ensure, Context as _, Result};
-use cellar::{
-    bucket::Bucket,
-    sdk::{NodeOutcome, ShutdownMode},
-};
+use cellar::sdk::{NodeOutcome, ShutdownMode};
 use cellar_python::PythonApplication;
 use serde_json::{json, Value};
 use std::{
@@ -34,7 +31,7 @@ pub(super) async fn run(
         trace: trace.clone(),
         provider_class: "PythonCounter",
     });
-    let bucket = Bucket::open_dev(&root.join("fleet.sqlite"))?;
+    let bucket = crate::peer_faults::durable_fixture_bucket(root, &[OWNER, SOURCE])?;
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
         .build()?;
@@ -111,7 +108,8 @@ pub(super) async fn run(
         } else {
             let stopping = owner.take().context("Python owner already stopped")?.shutdown(ShutdownMode::Preserve);
             let (stopped, returned) = tokio::join!(stopping, tokio::time::timeout(Duration::from_secs(12), &mut call));
-            let NodeOutcome::Stopped(proof) = stopped? else { anyhow::bail!("Python owner failed during shutdown"); };
+            let outcome = stopped?;
+            let NodeOutcome::Stopped(proof) = outcome else { anyhow::bail!("Python owner failed during shutdown: {outcome:?}; case={spec:?}"); };
             ensure!(proof.drain_timed_out && !proof.application_work_drained && !proof.cells_drained
                 && !proof.clean_reload_prepared && proof.pending_application_events > 0 && proof.pending_dispatches > 0
                 && proof.log_quiesced && proof.local_durability_closed, "Python forced shutdown proof differs: {proof:?}");

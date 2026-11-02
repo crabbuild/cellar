@@ -1,10 +1,10 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 use super::super::{application::Fixture, matrix::request, trace::Trace};
-use super::{DELTA, OWNER};
+use super::{DELTA, OWNER, SOURCE};
 use crate::{application::Composite, fleet};
 use anyhow::{ensure, Context as _, Result};
-use cellar::{bucket::Bucket, sdk::ShutdownMode};
+use cellar::sdk::ShutdownMode;
 use cellar_python::PythonApplication;
 use serde_json::{json, Value};
 use std::{path::Path, sync::Arc};
@@ -24,7 +24,7 @@ pub(super) async fn run(
         trace: trace.clone(),
         provider_class: "PythonCounter",
     });
-    let bucket = Bucket::open_dev(&root.join("fleet.sqlite"))?;
+    let bucket = crate::peer_faults::durable_fixture_bucket(root, &[OWNER, SOURCE])?;
     let (node, url) = fleet::start(&root.join("owner"), app, OWNER, bucket).await?;
     let result = async {
         let before = before.to_string();
