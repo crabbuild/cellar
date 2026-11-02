@@ -1370,6 +1370,11 @@ enum SqlPurpose {
 }
 
 enum Job {
+    MessageDelivery {
+        scope: GroupScope,
+        member: u64,
+        result: Result<(), super::transport::TransportError>,
+    },
     FleetMovementServiceStopped,
     FleetRestartServiceStopped,
     FleetAction(Box<fleet_execution::Completed>),
@@ -3100,23 +3105,37 @@ impl Driver {
                     self.send_snapshot(&replica.scope, message.clone());
                     return;
                 }
-                if self
-                    .transport
-                    .submit(&replica.scope, message.clone())
-                    .is_err()
-                {
-                    let runtime = self.runtime.clone();
-                    let scope = replica.scope.clone();
-                    let member = message.to;
-                    let snapshot =
-                        message.get_msg_type() == ::raft::prelude::MessageType::MsgSnapshot;
-                    self.jobs.push(Box::pin(async move {
-                        let _ = runtime.admit_unreachable(&scope, member).await;
-                        if snapshot {
-                            let _ = runtime.admit_snapshot_status(&scope, member, false).await;
-                        }
-                        Job::Hint
-                    }));
+                match self.transport.submit(&replica.scope, message.clone()) {
+                    Ok(delivery) => {
+                        let scope = replica.scope.clone();
+                        let member = message.to;
+                        let permit = event._permit.clone();
+                        self.jobs.push(Box::pin(async move {
+                            let result = delivery.accepted().await;
+                            // Keep the runtime's send boundary owned until the
+                            // transport accepts or refuses this exact message.
+                            drop(permit);
+                            Job::MessageDelivery {
+                                scope,
+                                member,
+                                result,
+                            }
+                        }));
+                    }
+                    Err(_) => {
+                        let runtime = self.runtime.clone();
+                        let scope = replica.scope.clone();
+                        let member = message.to;
+                        let snapshot =
+                            message.get_msg_type() == ::raft::prelude::MessageType::MsgSnapshot;
+                        self.jobs.push(Box::pin(async move {
+                            let _ = runtime.admit_unreachable(&scope, member).await;
+                            if snapshot {
+                                let _ = runtime.admit_snapshot_status(&scope, member, false).await;
+                            }
+                            Job::Hint
+                        }));
+                    }
                 }
             }
             RuntimeEventKind::Apply { ticket, .. } => {
@@ -3438,6 +3457,20 @@ impl Driver {
 
     fn on_job(&mut self, job: Job) {
         match job {
+            Job::MessageDelivery {
+                scope,
+                member,
+                result,
+            } => {
+                if let Err(error) = result {
+                    tracing::debug!(?error, "Raft message was not accepted");
+                    let runtime = self.runtime.clone();
+                    self.jobs.push(Box::pin(async move {
+                        let _ = runtime.admit_unreachable(&scope, member).await;
+                        Job::Hint
+                    }));
+                }
+            }
             Job::FleetMovementServiceStopped | Job::FleetRestartServiceStopped => (),
             Job::FleetAction(completed) => self.finish_fleet_action(*completed),
             Job::PeerFleetStop(completed) => self.finish_peer_fleet_stop(*completed),

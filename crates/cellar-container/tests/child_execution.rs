@@ -169,6 +169,11 @@ impl Cell for Root {
                 "erase" => {
                     let parent = catalog.parent(&context)?.unwrap();
                     catalog.request_erasure(&context).await?;
+                    // Cleanup is runnable now. The intent's requesting event
+                    // must still finish its proven reply before cleanup closes
+                    // business admission. Keep the original handler budget.
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    context.storage()?.get_json("erasure_reply_probe")?;
                     json!(parent.scope)
                 }
                 "retired" => {

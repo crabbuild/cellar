@@ -27,6 +27,25 @@ struct RepairFleet {
     live: Vec<Vec<(NodeId, RaftCellHandle)>>,
 }
 
+async fn observed_status(
+    f: &Fixture,
+    cell: &RaftCellHandle,
+) -> Result<cellar::application::consensus::CellStatus> {
+    f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+            loop {
+                match cell.status().await {
+                    Ok(status) => return Ok::<_, anyhow::Error>(status),
+                    Err(CommandFailure::Overloaded) => {
+                        cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        }))
+        .await??
+}
+
 impl RepairFleet {
     async fn new(extra: bool) -> Result<Self> {
         Box::pin(Self::with_isolation(extra, true)).await
@@ -149,7 +168,7 @@ impl RepairFleet {
         let first = live[0].iter().map(|(_, c)| c.clone()).collect::<Vec<_>>();
         let leader = primary(&s.f, &first).await?;
         if leader != 0 {
-            let before = first[leader].status().await?;
+            let before = observed_status(&s.f, &first[leader]).await?;
             first[leader]
                 .transfer_leadership(
                     LeadershipTransfer {
@@ -163,7 +182,7 @@ impl RepairFleet {
         }
         s.f.domain
             .run(cellar::asyncrt::timeout(TIMEOUT, async {
-                while !first[0].status().await?.command_ready {
+                while !observed_status(&s.f, &first[0]).await?.command_ready {
                     cellar::asyncrt::sleep(Duration::from_millis(10)).await;
                 }
                 Ok::<_, anyhow::Error>(())

@@ -256,8 +256,8 @@ jobs:
           export CELLAR_TEST_NODE_EXECUTABLE="$PWD/.cellar/node-delivery/bin/node"
           # Fresh stores and Node processes in every case. Stop at the first
           # failure; these repetitions never retry a failed request or test.
-          for iteration in {1..20}; do
-            echo "Node delivery case $iteration/20"
+          for iteration in {1..100}; do
+            echo "Node delivery case $iteration/100"
             cargo test --locked -p cellar-javascript --no-default-features --features node --test node_runtime
           done
       - name: Node fleet publish, restore and process recovery

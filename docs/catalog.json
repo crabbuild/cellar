@@ -554,6 +554,18 @@
       "category": "Design and evidence"
     },
     {
+      "path": "design/cloudflare-counter-latency.md",
+      "title": "Cloudflare counter latency qualification",
+      "summary": "Record resident retirement admission correctness, measured counter latency gains, proxy-path comparisons, and qualification limits.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations",
+        "team"
+      ],
+      "category": "Design and evidence"
+    },
+    {
       "path": "design/javascript-bridge-performance-2026-10-22.md",
       "title": "JS/TS bridge performance — 2026-10-22",
       "summary": "Compare recorded V8 and Node bridge measurements, failure cases, workload assumptions, and reproduction inputs.",

@@ -5,6 +5,29 @@ use super::fault_gates::{Gate, Peer, Release, Store};
 use super::*;
 use std::sync::atomic::Ordering;
 
+async fn restored_state(client: &reqwest::Client, url: &str) -> Result<Value> {
+    // Failure responses do not mean the asynchronous proof/reset path has
+    // finished. Retry only this read, within the original HTTP read budget.
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let response = client.get(format!("{url}/proof/state")).send().await?;
+            let status = response.status();
+            let body = response.text().await?;
+            if status.is_success() {
+                return Ok::<_, anyhow::Error>(serde_json::from_str(&body)?);
+            }
+            ensure!(
+                status.is_server_error()
+                    && body.contains("cellar output-gate durability proof failed for ")
+                    && body.contains("ltx durability timed out for "),
+                "restored proof read failed outside the pending proof reset: {status}: {body}"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await?
+}
+
 pub(super) fn child() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let report = run(
@@ -174,13 +197,7 @@ pub(super) fn child() -> Result<()> {
                     attempts["failure"] == 1,
                     "an unproven mutation handler was blindly replayed: {attempts}"
                 );
-                let state: Value = client
-                    .get(format!("{url}/proof/state"))
-                    .send()
-                    .await?
-                    .error_for_status()?
-                    .json()
-                    .await?;
+                let state = restored_state(&client, &url).await?;
                 ensure!(
                     state["sync"] == 1 && state["output"] == 1,
                     "restored proof access lost previously acknowledged state: {state}"

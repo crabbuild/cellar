@@ -27,15 +27,33 @@ async fn prepare(
     .await?;
     let root = s.f.catalog.read(TIMEOUT).await?;
     let walk =
-        s.f.catalog
-            .prepare_restart_verification(
-                &root,
-                ProposalId::new(gate.identity.operation)?,
-                std::slice::from_ref(&s.namespace),
-                &s.spare,
-                TIMEOUT,
-            )
-            .await?;
+        s.f.domain
+            .run(cellar::asyncrt::timeout(TIMEOUT, async {
+                loop {
+                    match Box::pin(s.f.catalog.prepare_restart_verification(
+                        &root,
+                        ProposalId::new(gate.identity.operation)?,
+                        std::slice::from_ref(&s.namespace),
+                        &s.spare,
+                        TIMEOUT,
+                    ))
+                    .await
+                    {
+                        Ok(walk) => return Ok::<_, anyhow::Error>(walk),
+                        // Quiescence prevents new work. Captures already owned before
+                        // the gate must still finish and satisfy the same fresh proof.
+                        Err(
+                            FleetCatalogError::InventoryIncomplete
+                            | FleetCatalogError::Unconfirmed
+                            | FleetCatalogError::Overloaded,
+                        ) => {
+                            cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                        }
+                        Err(error) => return Err(error.into()),
+                    }
+                }
+            }))
+            .await???;
     Ok((gate, walk))
 }
 

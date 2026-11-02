@@ -1066,6 +1066,12 @@ must retain or report immediate queue refusals. Dropping a delivery does not
 refund queued/in-flight work. Peer and node usage counters expose held bytes and
 items; permits release on completion, refusal, close and domain cancellation.
 
+Before applying a committed configuration, the replica drains ownership of its
+already-emitted protocol sends so membership revocation cannot invalidate their
+delivery. Later ordinary Ready work waits behind this finite fence; an unstable
+snapshot retains priority. Send completion only releases ownership: configuration
+application still requires its own durable write.
+
 Receiver frame admission validates the current member and bounded message before
 queueing it, without waiting for that group's Ready or image installation. Raft
 execution validates again against its then-current membership. Queued messages

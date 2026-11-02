@@ -227,8 +227,12 @@ async fn fleet_isolated_repair_service_recovers_with_retained_physical_seed() ->
 async fn physical_seed() -> Result<()> {
     // The second group has voters 4/6/7. Node7 is both its surviving voter and
     // the pending initializer for the first group's blocked replacement.
-    let mut fleet = Box::pin(RepairFleet::with_histories(true, true, 1)).await?;
-    let stalled = Stalled::begin(&fleet).await?;
+    let mut fleet = Box::pin(RepairFleet::with_histories(true, true, 1))
+        .await
+        .context("build retained-seed fleet")?;
+    let stalled = Stalled::begin(&fleet)
+        .await
+        .context("reserve retained-seed movement")?;
     let f = &fleet.s.f;
     let reader = Fixture::open_catalog(&f.domain, f.store.clone())?;
     let target = fleet
@@ -272,7 +276,10 @@ async fn physical_seed() -> Result<()> {
         .context("held initializer")?
         .initializing()
         .is_some());
-    let inputs = fleet.evidence().await?;
+    let inputs = fleet
+        .evidence()
+        .await
+        .context("capture held-seed evidence")?;
     let blocked = Blocked::new(inputs.clone(), stalled.pending.group.clone(), false);
     let service = f
         .catalog
@@ -294,7 +301,14 @@ async fn physical_seed() -> Result<()> {
                     .read(TIMEOUT)
                     .await
                     .context("read concurrent repair admission")?;
-                let rows = reader.pending_movements(&cut, TIMEOUT).await?;
+                let rows = match reader.pending_movements(&cut, TIMEOUT).await {
+                    Ok(rows) => rows,
+                    // The independent controller can commit between these two
+                    // reads. Observe a fresh Root within the original deadline;
+                    // only two actual admitted debits satisfy the assertion.
+                    Err(FleetCatalogError::Conflict) => continue,
+                    Err(error) => return Err(error.into()),
+                };
                 if rows.len() == 2 {
                     ensure!(rows.iter().any(|r| r.group == fleet.s.proposals[1].scope));
                     break;
@@ -332,15 +346,24 @@ async fn physical_seed() -> Result<()> {
         .await?;
     ensure!(f.store.payload_hang.load(Ordering::Acquire));
     ensure!(blocked.old_calls.load(Ordering::Acquire) > 1);
-    stalled.assert_retained(&fleet).await?;
-    fleet.verify(1).await?;
+    stalled
+        .assert_retained(&fleet)
+        .await
+        .context("retained debit after independent settlement")?;
+    fleet
+        .verify(1)
+        .await
+        .context("verify independently repaired history")?;
     drop(gate);
     blocked.block_old.store(false, Ordering::Release);
     fleet
         .wait(&service, |s| s.settled_movements == 2 && s.work.is_empty())
         .await?;
     service.shutdown().await;
-    fleet.verify(0).await?;
+    fleet
+        .verify(0)
+        .await
+        .context("verify resumed retained-seed history")?;
     retained_engine(&fleet.s.f, fleet.old_engine.clone()).await?;
     fleet.close().await
 }

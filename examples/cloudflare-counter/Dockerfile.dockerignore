@@ -1,0 +1,10 @@
+.git
+target
+**/.cellar
+**/node_modules
+.DS_Store
+examples/cloudflare-counter/public
+examples/cloudflare-counter/worker.js
+examples/cloudflare-counter/package*.json
+examples/cloudflare-counter/wrangler.jsonc
+examples/cloudflare-counter/README.md

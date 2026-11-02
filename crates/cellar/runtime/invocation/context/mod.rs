@@ -322,6 +322,8 @@ pub struct IoContext {
     pub(crate) native_event: OnceLock<Weak<crate::application::EventState>>,
     pub(crate) source_generation: u64,
     pub(crate) framework_source: AtomicBool,
+    /// Owned cleanup and identity-checked destroy replies may finish erasure.
+    pub(crate) erasure_cleanup: AtomicBool,
     registration: Option<ContextRegistration>,
     engine: OnceLock<Box<dyn Any + Send + Sync>>,
     cleanup: OnceLock<ContextCleanup>,
@@ -660,6 +662,7 @@ impl IoContext {
             native_event: OnceLock::new(),
             source_generation: 0,
             framework_source: AtomicBool::new(false),
+            erasure_cleanup: AtomicBool::new(false),
             tail_logs: Mutex::new(TailLogCapture::default()),
         })
     }
@@ -810,6 +813,13 @@ impl IoContext {
         drop(claims);
         retirement.send_replace(true);
         held
+    }
+
+    pub(crate) fn release_erasure_gate(&self) {
+        if let Some(state) = self.native_event.get().and_then(Weak::upgrade) {
+            let gate = state.erasure_gate.lock().unwrap().take();
+            drop(gate);
+        }
     }
 
     pub(crate) fn end_event_registrations(&self) -> Option<Vec<BackgroundRegistration>> {

@@ -717,6 +717,9 @@ impl InFlight {
                 self.failure = Some(crate::telemetry::cap_error(error.to_string()));
             }
             self.gated_reply = reply.fail_with_arm_gates(error, self.context.take_arm_gates());
+            if self.gated_reply.is_none() {
+                self.context.release_erasure_gate();
+            }
         }
     }
 
@@ -832,6 +835,7 @@ impl InFlight {
         completion: Result<GatedReplyCompletion, tokio::sync::oneshot::error::RecvError>,
     ) {
         self.gated_reply = None;
+        self.context.release_erasure_gate();
         if self.trace.is_some_and(|trace| trace.sampled) {
             match completion {
                 Ok(GatedReplyCompletion::Sent {

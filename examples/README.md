@@ -17,6 +17,8 @@ concurrent updates, restart recovery and changing a binding target.
 
 The [Axum counter](axum-counter/README.md) is a separate shared-builder example
 with native Cellar and Axum hosts, OpenAPI export and a generated client.
+The [Cloudflare counter lab](cloudflare-counter/README.md) deploys a native
+SQLite/R2 counter in a 0.5 vCPU Container with browser latency traces.
 The [Python example](python/README.md) uses an optional PyO3 adapter in a native
 Rust host and has its own CPython 3.14 prerequisites and smoke test.
 The [FastAPI order API](python-fastapi/README.md) adds validated HTTP routes,
