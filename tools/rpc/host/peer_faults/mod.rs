@@ -9,3 +9,5 @@ mod relay;
 mod storage;
 
 pub use matrix::run;
+
+pub(crate) use storage::open as durable_fixture_bucket;
