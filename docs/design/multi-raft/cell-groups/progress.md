@@ -12,6 +12,27 @@ is being added.
 
 ## CG-08 node effects and disposable SQL lifetimes
 
+At e8edfd12, all ten unchanged required commands pass, along with four extra
+effects cases and twenty-four library regressions. The same-source/executable
+real RustFS effects case passes both image modes with all seven signed probes.
+Its record, logs and executable are retained under
+.cellar/cell-groups-evidence/CG-08-effects-progress-783c270b/rustfs-e8edfd12/.
+The owned backend and dedicated VM are stopped; data and default context remain.
+
+The expanded execution suite passes 162 cases, fails two and explicitly ignores
+two RustFS cases. Both failures use an old summary fixture whose outbox table
+contains only next_at; lane-head discovery now also requires lane and sequence.
+The fixture correction adds those identities and a third, immediately due row
+blocked behind its lane's older sequence. Exact summary assertions still require
+the other lane's time 40 and now all three pending rows. Both original failed
+cases pass after this test-only correction, in both image forms. Production
+validation, resource limits, deadlines and acceptance oracles stay intact.
+The failed full gate, source inputs, both regression executables and real streams
+remain under .cellar/cell-groups-evidence/CG-08-gates-e8edfd12-01/ and are backed up.
+The corrected partial run lives under
+.cellar/cell-groups-evidence/CG-08-apply-summary-fixture-e8edfd12-01/.
+CG-08 stays IN_PROGRESS until the complete gate passes at the successor source.
+
 The successor implementation is under qualification on codex/shared-cell-groups.
 The committed due-index foundation is 783c270b. The node controller now owns fair
 group/cell discovery, exact committed-image scans, private alarm/outbox commands,
@@ -78,8 +99,8 @@ remain unchanged. These source-scoped records are retained under
 .cellar/cell-groups-evidence/CG-08-effects-progress-783c270b/.
 
 Private-operation discovery now bounds its SQLite projection before allocating
-the scheduling preference string. Its corruption/permit regression, strict
-Clippy and the complete CG-08 evidence gate remain required. The later CG-07
+the scheduling preference string. Its corruption/permit regression and strict
+Clippy pass; the complete successor CG-08 evidence gate remains required. The later CG-07
 public SDK/fleet cutover is still unqualified. CG-06's prior
 source-scoped closure remains intact; the full hard cutover is unfinished.
 

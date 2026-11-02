@@ -99,7 +99,18 @@ pub(crate) async fn apply_images(rooted: bool) -> Result<()> {
     // Enroll through the production adapter on all voters, including scheduling
     // summaries derived from real SQLite state rather than fixture defaults.
     let cell = history(&route, "effects")?;
-    let bytes = images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES(7); CREATE TABLE __sys_raft_alarms(due); INSERT INTO __sys_raft_alarms VALUES(90),(30); CREATE TABLE __sys_raft_outbox(next_at); INSERT INTO __sys_raft_outbox VALUES(80),(40);")?;
+    // Keep the lane/sequence projection used by real outbox discovery. The
+    // later A row is immediately due but cannot pass its sleeping lane head.
+    let bytes = images::image(
+        None,
+        "CREATE TABLE value(n); INSERT INTO value VALUES(7);
+         CREATE TABLE __sys_raft_alarms(due); INSERT INTO __sys_raft_alarms VALUES(90),(30);
+         CREATE TABLE __sys_raft_outbox(lane,sequence,next_at);
+         INSERT INTO __sys_raft_outbox VALUES
+           ('A',x'0000000000000001',80),
+           ('A',x'0000000000000002',0),
+           ('B',x'0000000000000001',40);",
+    )?;
     let encoded = enrollment_bytes(&route, &cell, &bytes, rooted)?;
     let accepted = fixture.runtimes[0].propose(route.history, encoded).await?;
     fixture.drive(Some(accepted.position.index)).await?;
@@ -109,7 +120,7 @@ pub(crate) async fn apply_images(rooted: bool) -> Result<()> {
             .await?;
         assert_eq!(state.cell().effects.next_alarm_unix_millis, Some(30));
         assert_eq!(state.cell().effects.next_outbox_unix_millis, Some(40));
-        assert_eq!(state.cell().effects.pending_outbox, 2);
+        assert_eq!(state.cell().effects.pending_outbox, 3);
     }
 
     let options = fixture.cell_options(&a).await?;

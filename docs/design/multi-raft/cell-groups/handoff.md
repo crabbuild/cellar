@@ -66,12 +66,27 @@ case also passes in both image modes at e4901835 with seven signed probes and
 source/executable/backend binding. Its backend/VM are stopped, data retained.
 The extra cleanup-fault case passes actual leader handoff, ambiguous storage
 failure, retained one-group quota and receipt retry without callback replay.
-Twenty-four library regressions pass. Current complete task evidence, affected
-enrollment/execution regressions and strict lint remain before closing CG-08.
+Twenty-four library regressions and strict lint pass. Complete successor task
+evidence and affected execution regressions remain before closing CG-08.
 See the current [progress](progress.md). Local raw records/continuation remain
 ignored and backed up outside the checkout. Preserve the user's untracked diagram
 and both excluded MR progress basenames. Reconcile both checkouts only after the
 source-bound predecessor run terminates; reuse PR 160 and one final runtime.
+
+The e8edfd12 full gate is now terminal: all ten required commands, four extra
+effects cases, twenty-four library regressions and the exact same-binary real
+RustFS effects case pass. Its expanded execution target passes 162 cases but
+fails two obsolete outbox-projection fixtures; two RustFS cases are ignored.
+The test-only correction adds lane/sequence and a blocked later row. Both failing
+cases now pass with the earliest runnable head and all pending rows asserted.
+Preserve the failed full gate and partial correction records. Rerun the complete
+gate at the committed successor before closing CG-08. Its source remains frozen
+while a source-bound job runs; poll its exact handle instead of restarting.
+The owned RustFS backend and dedicated VM are stopped and default context stays
+colima. The separate same-source RustFS record is under rustfs-e8edfd12/ in the
+effects checkpoint. The earlier current-source statement above is superseded by
+this checkpoint. CG-07's reviewed anchors still match; the spare PR checkout has
+a source-bound startup inspection record, without any cutover completion claim.
 
 1. Finish the due-index validation and wire bounded fair node effect discovery,
    exact committed-image scans and sealed private system commands into the shared
