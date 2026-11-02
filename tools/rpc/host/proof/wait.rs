@@ -91,7 +91,10 @@ async fn case_inner(app: Arc<Composite>, client: &reqwest::Client, case: Case) -
     lease_trace.mark("proof-wait case start");
     app.audit.reset_after_node_drain();
     let directory = tempfile::tempdir()?;
-    let bucket = Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    let bucket = crate::peer_faults::durable_fixture_bucket(
+        directory.path(),
+        &["proof-owner", "proof-ingress", "proof-replica"],
+    )?;
     let controls = Controls::default();
     let (owner, owner_url) = fleet::start_controlled(
         &directory.path().join("owner"),

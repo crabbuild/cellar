@@ -1801,6 +1801,9 @@ The suite runs all 16 caller/provider pairs at four boundaries across three
 authenticated nodes, reusing the native SDK's real log-transport and object-store fault gates.
 Distinct acknowledged warmup commands establish both replica members before
 any fault is armed. Lease renewal and reads remain independent of data proof.
+Proof and proof-wait fixtures use the shared canonical FULL-synchronous bucket:
+each node key has its own SQLite writer, while application data shares the
+ordinary durable data store. Lease CAS and ordinary reads see the same records.
 
 | Point | Original handler at the barrier | Coordinator action |
 | --- | --- | --- |
