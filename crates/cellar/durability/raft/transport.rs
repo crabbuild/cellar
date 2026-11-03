@@ -274,6 +274,8 @@ impl Banks {
 }
 
 struct SendRequest {
+    // The runtime configuration fence survives a dropped Delivery waiter.
+    _source: Option<Arc<Permit>>,
     route: SendRoute,
     member: cellar_logic::consensus::MemberId,
     header: RequestHeader,
@@ -859,6 +861,7 @@ impl RaftTransport {
         header.set_sequence(sequence);
         let (result, wait) = oneshot::channel();
         let request = SendRequest {
+            _source: None,
             route: SendRoute::Legacy {
                 scope: scope.clone(),
                 route,

@@ -553,6 +553,9 @@ impl Worker {
                     group.fail(RuntimeError::Overloaded);
                 } else if let Some(permit) = self.output.acquire(bytes) {
                     let permit = Arc::new(permit);
+                    if let Ok(CellGroupEffect::Message(_)) = &pending {
+                        group.owner.track_delivery(&permit);
+                    }
                     if let Ok(CellGroupEffect::Apply(work)) = &mut pending {
                         work.ticket.admission = Some(permit.clone());
                     }

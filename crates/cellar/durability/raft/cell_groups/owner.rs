@@ -26,7 +26,7 @@ use std::{
     collections::VecDeque,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc,
+        Arc, Weak,
     },
 };
 
@@ -177,6 +177,11 @@ enum Phase {
     ),
 }
 
+struct ConfigurationFence {
+    index: u64,
+    announced: bool,
+}
+
 pub struct CellGroupOwner {
     log_admission: super::log_admission::LogAdmission,
     leader_term: Arc<AtomicU64>,
@@ -193,6 +198,8 @@ pub struct CellGroupOwner {
     phase: Option<Phase>,
     waiting: Option<CellGroupTicket>,
     effects: VecDeque<CellGroupEffect>,
+    deliveries: Vec<Weak<crate::raft::budget::Permit>>,
+    configuration_fence: Option<ConfigurationFence>,
     apply: VecDeque<Entry>,
     apply_bytes: usize,
     applying: Option<CellGroupTicket>,
@@ -289,6 +296,8 @@ impl CellGroupOwner {
             phase: None,
             waiting: None,
             effects: VecDeque::new(),
+            deliveries: Vec::new(),
+            configuration_fence: None,
             apply: VecDeque::new(),
             apply_bytes: 0,
             applying: None,
@@ -1680,6 +1689,61 @@ impl CellGroupOwner {
         Ok(())
     }
 
+    /// Register the exact output admission before exposing a Message. A physical
+    /// sender retains it independently of its caller's response waiter.
+    pub(super) fn track_delivery(&mut self, permit: &Arc<crate::raft::budget::Permit>) {
+        self.deliveries
+            .retain(|delivery| delivery.strong_count() != 0);
+        self.deliveries.push(Arc::downgrade(permit));
+    }
+
+    fn announce_configuration(&mut self, index: u64) -> Result<(), RuntimeError> {
+        if self
+            .configuration_fence
+            .as_ref()
+            .is_some_and(|f| f.index == index && f.announced)
+        {
+            return Ok(());
+        }
+        self.configuration_fence = Some(ConfigurationFence {
+            index,
+            announced: true,
+        });
+        if self.node.raft.state != StateRole::Leader {
+            return Ok(());
+        }
+        let hard = self.group.initial_state()?.hard_state;
+        if hard.term != self.node.raft.term || hard.vote != self.node.raft.vote {
+            return Ok(());
+        }
+        let entry = self
+            .apply
+            .front()
+            .filter(|e| e.index == index)
+            .ok_or_else(|| RuntimeError::Protocol("missing configuration apply".into()))?;
+        let messages = self
+            .node
+            .raft
+            .prs()
+            .iter()
+            .filter(|(member, _)| **member != self.node.raft.id)
+            .map(|(&member, _)| Message {
+                msg_type: MessageType::MsgAppend,
+                from: self.node.raft.id,
+                to: member,
+                term: self.node.raft.term,
+                index,
+                log_term: entry.term,
+                commit: index,
+                ..Default::default()
+            })
+            .collect();
+        // Paused peers may miss the normal commit broadcast. Announce this exact
+        // committed index/term before removing their old route. Acceptance is
+        // advisory; the catalog still requires actual physical closure.
+        self.messages(messages)
+    }
+
     fn poll_inner(
         &mut self,
         collect: bool,
@@ -1708,6 +1772,7 @@ impl CellGroupOwner {
                             .require_checkpoint(&self.group)
                             .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
                         self.current = checkpoint.manifest().clone();
+                        self.configuration_fence = None;
                         Some(self.current.marker().position().index.get())
                     } else {
                         None
@@ -1838,6 +1903,7 @@ impl CellGroupOwner {
                             return Err(RuntimeError::StaleCompletion);
                         }
                         self.refresh_execution_fence();
+                        self.configuration_fence = None;
                     }
                     let last = self.node.raft.raft_log.last_index();
                     let automatic = self.node.raft.state == StateRole::Leader
@@ -1880,10 +1946,30 @@ impl CellGroupOwner {
                     } else {
                         return Ok(None);
                     }
-                    if collect
+                    // Include one already-pending Ready, then freeze the finite
+                    // send boundary. Later heartbeat work cannot starve Apply.
+                    // An admitted snapshot keeps its existing priority.
+                    let configuration_index = self
+                        .apply
+                        .front()
+                        .filter(|e| e.get_entry_type() == EntryType::EntryConfChangeV2)
+                        .filter(|_| self.node.raft.raft_log.unstable_snapshot().is_none())
+                        .map(|e| e.index);
+                    let fenced = self
+                        .configuration_fence
+                        .as_ref()
+                        .is_some_and(|f| configuration_index == Some(f.index));
+                    if !fenced
+                        && collect
                         && self.node.has_ready()
                         && self.apply_bytes < self.options.max_group_apply_bytes
                     {
+                        if let Some(index) = configuration_index {
+                            self.configuration_fence = Some(ConfigurationFence {
+                                index,
+                                announced: false,
+                            });
+                        }
                         let ready = self.node.ready();
                         if !ready.snapshot().is_empty()
                             && self
@@ -1945,6 +2031,27 @@ impl CellGroupOwner {
                     }
                     if self.applying.is_some() {
                         return Ok(None);
+                    }
+                    if let Some(index) = configuration_index {
+                        if self
+                            .configuration_fence
+                            .as_ref()
+                            .is_none_or(|f| f.index != index)
+                        {
+                            self.configuration_fence = Some(ConfigurationFence {
+                                index,
+                                announced: false,
+                            });
+                        }
+                        self.deliveries
+                            .retain(|delivery| delivery.strong_count() != 0);
+                        if !self.deliveries.is_empty() {
+                            return Ok(None);
+                        }
+                        self.announce_configuration(index)?;
+                        if !self.effects.is_empty() {
+                            continue;
+                        }
                     }
                     let Some(entry) = self.apply.front().cloned() else {
                         return Ok(None);

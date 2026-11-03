@@ -597,6 +597,7 @@ async fn control_window_drives_both_directions_with_one_byte_buffers() -> anyhow
         );
         let charge = body.len() + state.options.max_header_bytes + frame::PREFIX + frame::TAG;
         requests.push(SendRequest {
+            _source: None,
             route: SendRoute::Legacy {
                 scope,
                 route,

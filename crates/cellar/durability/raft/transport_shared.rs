@@ -381,7 +381,27 @@ impl RaftTransport {
         history: &GroupHistory,
         message: Message,
     ) -> Result<Delivery, TransportError> {
-        self.submit_physical_inner(history, message, true)
+        self.submit_physical_inner(history, message, true, None)
+    }
+
+    /// Retain the runtime's exact prior-protocol send admission through physical
+    /// transport completion, independently of the Delivery response waiter.
+    pub fn submit_cell_group_event(
+        &self,
+        event: &crate::raft::cell_groups::CellGroupRuntimeEvent,
+    ) -> Result<Delivery, TransportError> {
+        let crate::raft::cell_groups::CellGroupEffect::Message(message) = event
+            .effect()
+            .map_err(|e| TransportError::Runtime(e.clone()))?
+        else {
+            return Err(TransportError::Protocol);
+        };
+        self.submit_physical_inner(
+            &event.group(),
+            message.clone(),
+            true,
+            Some(event.delivery_admission()),
+        )
     }
 
     fn submit_physical_inner(
@@ -389,12 +409,13 @@ impl RaftTransport {
         history: &GroupHistory,
         message: Message,
         discover: bool,
+        source: Option<Arc<Permit>>,
     ) -> Result<Delivery, TransportError> {
         let state = &self.handle.0;
         let runtime = state.runtime.shared()?;
         if message.get_msg_type() == MessageType::MsgSnapshot {
             self.reconcile_managed_physical(history)?;
-            return self.submit_group_checkpoint(history, message);
+            return self.submit_group_checkpoint(history, message, source);
         }
         let lane = frame::classify(&message)?;
         let size = message.compute_size() as usize;
@@ -427,7 +448,7 @@ impl RaftTransport {
                 // Retry once, before allocating/charging a serialized frame.
                 drop(registry);
                 self.reconcile_managed_physical(history)?;
-                return self.submit_physical_inner(history, message, false);
+                return self.submit_physical_inner(history, message, false, source);
             }
             None => return Err(TransportError::StalePeer),
         };
@@ -485,6 +506,7 @@ impl RaftTransport {
         header.set_sequence(sequence);
         let (result, wait) = oneshot::channel();
         let request = SendRequest {
+            _source: source,
             member: peer.replica.member,
             route: SendRoute::Physical { route, peer },
             header,

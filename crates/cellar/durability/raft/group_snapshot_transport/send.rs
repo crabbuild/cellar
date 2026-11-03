@@ -6,6 +6,7 @@ impl RaftTransport {
         &self,
         history: &GroupHistory,
         message: Message,
+        source: Option<Arc<Permit>>,
     ) -> Result<Delivery, TransportError> {
         let state = &self.handle.0;
         let (endpoint, checkpoints) = state.checkpoint_endpoint(history)?;
@@ -51,6 +52,7 @@ impl RaftTransport {
             .ok_or(TransportError::StalePeer)?;
         let charge = wire_charge(&state.options);
         let admission = Arc::new(Admission {
+            _source: source,
             _node: state
                 .outgoing
                 .lane(Lane::Data)
@@ -84,6 +86,10 @@ impl RaftTransport {
             // Closing the channel wakes a blocked physical producer before any
             // runtime hint can await a busy consensus owner.
             drop(chunks);
+            // The producer independently retains admission through physical
+            // source exit. The completed network task must not extend its send
+            // fence while awaiting advisory runtime feedback.
+            drop(_admission);
             let delivered = outcome.is_ok();
             if !delivered {
                 state.failed.fetch_add(1, Ordering::Relaxed);

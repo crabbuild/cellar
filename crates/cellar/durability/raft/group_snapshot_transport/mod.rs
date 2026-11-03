@@ -226,6 +226,8 @@ fn wire_charge(options: &TransportOptions) -> usize {
 }
 
 struct Admission {
+    // Source producers and transfer work share this owner through actual exit.
+    _source: Option<Arc<Permit>>,
     _node: Permit,
     _peer: Permit,
     _transfer: Permit,

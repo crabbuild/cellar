@@ -182,6 +182,22 @@ async fn membership_group_configuration_waits_for_sync_and_joins_close() -> Resu
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn membership_delivery_fence_holds_prior_messages_and_allows_later_progress() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::membership_delivery_fence(rooted)).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn membership_delivery_fence_outlives_dropped_physical_waiter() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::membership_physical_delivery_fence(rooted)).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn membership_quorum_waits_for_durable_floor_before_its_barrier() -> Result<()> {
     runtime_fixture::membership_quorum_floor().await
 }

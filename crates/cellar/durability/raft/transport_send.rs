@@ -182,6 +182,11 @@ impl State {
         mut request: SendRequest,
         result: Result<(), TransportError>,
     ) {
+        // The frame's physical exchange has settled. Feedback is advisory and
+        // may wait for an idle Raft owner; retaining its send fence through that
+        // wait would prevent the configuration which makes the owner idle.
+        // Keep transport metadata/queue charges until this task actually exits.
+        drop(request._source.take());
         if result.is_err() {
             self.failed.fetch_add(1, Ordering::Relaxed);
             if self.current(&request) {

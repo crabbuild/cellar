@@ -41,6 +41,7 @@ impl State {
         let (endpoint, checkpoints) = self.checkpoint_endpoint(&target.scope)?;
         let charge = wire_charge(&self.options);
         let admission = Arc::new(Admission {
+            _source: None,
             _node: self
                 .incoming
                 .lane(Lane::Data)

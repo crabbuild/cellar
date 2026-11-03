@@ -48,6 +48,7 @@ impl State {
             .saturating_add(request.timeout_ms.min(self.options.snapshot_timeout_ms));
         let charge = wire_charge(&self.options);
         let admission = Arc::new(Admission {
+            _source: None,
             _node: self
                 .outgoing
                 .lane(Lane::Data)

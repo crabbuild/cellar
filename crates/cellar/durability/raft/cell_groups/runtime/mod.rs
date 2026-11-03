@@ -70,6 +70,10 @@ pub struct CellGroupRuntimeEvent {
 }
 
 impl CellGroupRuntimeEvent {
+    pub(crate) fn delivery_admission(&self) -> Arc<Permit> {
+        self._permit.clone()
+    }
+
     pub fn group(&self) -> GroupHistory {
         self.group
     }

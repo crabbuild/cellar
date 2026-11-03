@@ -68,6 +68,195 @@ pub(super) async fn configure(
     configure_at(fixture, 0, route, command, joins).await
 }
 
+/// Hold an actual runtime message across a committed membership change. The
+/// configuration may not invalidate the old physical send's membership binding.
+pub(crate) async fn membership_delivery_fence(rooted: bool) -> Result<()> {
+    membership_delivery_fence_case(rooted, false).await
+}
+
+pub(crate) async fn membership_physical_delivery_fence(rooted: bool) -> Result<()> {
+    membership_delivery_fence_case(rooted, true).await
+}
+
+async fn membership_delivery_fence_case(rooted: bool, physical: bool) -> Result<()> {
+    let class = RaftClass::new("Counter", 1, [81; 32])?;
+    let (mut fixture, route, _, _) = Box::pin(registered::setup(rooted, &class)).await?;
+    let second = controller::add_second(&mut fixture, route.history).await?;
+    for _ in 0..16 {
+        fixture.pump(&[], &mut BTreeMap::new()).await?;
+        tokio::task::yield_now().await;
+    }
+    let (transports, sink) = if physical {
+        // Declare the sink before any pool is installed. A physical node has
+        // one endpoint across groups; replacing one group's existing endpoint
+        // would correctly be refused as a stale peer before admitting a send.
+        for (node, runtime) in fixture.runtimes.iter().enumerate() {
+            fixture.transports.push(tcp::start(runtime, node).await?);
+        }
+        let sink = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        for history in fixture.applied.keys() {
+            let mut route = fixture.tcp_route(*history)?;
+            route.peers[2].control_address = sink.local_addr()?;
+            fixture.transports[0].install_physical_group(route)?;
+        }
+        (std::mem::take(&mut fixture.transports), Some(sink))
+    } else {
+        (Vec::new(), None)
+    };
+    for _ in 0..2 {
+        fixture.runtimes[0].tick().await?;
+    }
+    let prior = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let event = fixture.events[0].recv().await.context("leader event")?;
+            match event.effect().map_err(|e| anyhow::anyhow!(e.to_string()))? {
+                CellGroupEffect::Message(message) if message.to == 3 => {
+                    return Ok::<_, anyhow::Error>(event)
+                }
+                CellGroupEffect::Message(message) => {
+                    fixture.network.push_back((route.history, message.clone()))
+                }
+                _ => anyhow::bail!("expected settled protocol message"),
+            }
+        }
+    })
+    .await??;
+    let (prior, socket) = if let Some(sink) = sink {
+        let delivery = transports[0].submit_cell_group_event(&prior)?;
+        let (socket, _) = tokio::time::timeout(Duration::from_secs(5), sink.accept()).await??;
+        // The physical handshake is entered. Dropping both response owners must
+        // not refund the runtime admission still held by the actual SendRequest.
+        drop(delivery);
+        drop(prior);
+        (None, Some(socket))
+    } else {
+        (Some(prior), None)
+    };
+    let group = fixture.cluster.voters[0].log.cell_group(&route.history)?;
+    let request = CellGroupMembershipChange::new(
+        &route,
+        &group.membership()?,
+        change(
+            3,
+            ConfChangeType::AddLearnerNode,
+            ConfChangeTransition::Explicit,
+        ),
+        &[],
+    )?;
+    let accepted = fixture.runtimes[0]
+        .configure(route.history, request)
+        .await?;
+    let mut held = BTreeMap::new();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while group.initial_state()?.hard_state.commit < accepted.position.index.get() {
+            fixture.pump(&[route.history], &mut held).await?;
+            tokio::task::yield_now().await;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await??;
+    // A membership fence is group-local even though sends, persistence and
+    // output admission are node-wide. Elect/apply another group while held.
+    fixture.runtimes[0].campaign(second).await?;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            fixture.pump(&[route.history], &mut held).await?;
+            let status = fixture.runtimes[0].status(second).await?;
+            if status.ready
+                && fixture.applied[&second]
+                    .iter()
+                    .all(|i| *i >= status.applied.index)
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await??;
+    // Inject later protocol work while the finite prior-send boundary is held.
+    for _ in 0..8 {
+        fixture.runtimes[0].tick().await?;
+        fixture.pump(&[route.history], &mut held).await?;
+    }
+    assert!(
+        !held.contains_key(&route.history),
+        "configuration Apply overtook an owned prior message"
+    );
+    assert!(group.membership()?.revision() < accepted.position.index);
+    drop(prior);
+    drop(socket);
+    let notices = tokio::time::timeout(Duration::from_secs(5), async {
+        let mut notices = Vec::new();
+        while notices.len() < 2 {
+            let event = fixture.events[0]
+                .recv()
+                .await
+                .context("commit announcement")?;
+            if event.group() != route.history {
+                match event.effect().map_err(|e| anyhow::anyhow!(e.to_string()))? {
+                    CellGroupEffect::Message(message) => {
+                        fixture.network.push_back((event.group(), message.clone()))
+                    }
+                    CellGroupEffect::Applied { manifest, .. } => {
+                        fixture
+                            .applied
+                            .get_mut(&event.group())
+                            .context("other group")?[0] = manifest.position().index
+                    }
+                    _ => anyhow::bail!(
+                        "unexpected other-group work while awaiting configuration announcement"
+                    ),
+                }
+                continue;
+            }
+            let CellGroupEffect::Message(message) =
+                event.effect().map_err(|e| anyhow::anyhow!(e.to_string()))?
+            else {
+                anyhow::bail!("configuration skipped terminal message fence");
+            };
+            assert_eq!(
+                message.get_msg_type(),
+                MessageType::MsgAppend,
+                "fenced group emitted a nonterminal message after releasing its prior send"
+            );
+            assert!(message.entries.is_empty());
+            assert_eq!(
+                (message.index, message.log_term, message.commit),
+                (
+                    accepted.position.index.get(),
+                    accepted.position.term.get(),
+                    accepted.position.index.get()
+                )
+            );
+            notices.push(event);
+        }
+        let targets = notices
+            .iter()
+            .map(|event| match event.effect().unwrap() {
+                CellGroupEffect::Message(message) => message.to,
+                _ => unreachable!(),
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(targets, std::collections::BTreeSet::from([2, 3]));
+        Ok::<_, anyhow::Error>(notices)
+    })
+    .await??;
+    for _ in 0..2 {
+        fixture.runtimes[0].tick().await?;
+        fixture.pump(&[route.history], &mut held).await?;
+    }
+    assert!(
+        !held.contains_key(&route.history),
+        "configuration skipped its terminal announcement deliveries"
+    );
+    drop(notices);
+    fixture.drive(Some(accepted.position.index)).await?;
+    assert_eq!(group.membership()?.revision(), accepted.position.index);
+    fixture.transports = transports;
+    fixture.close().await
+}
+
 pub(crate) async fn membership_lifecycle(rooted: bool) -> Result<()> {
     let class = RaftClass::new("Counter", 1, [81; 32])?;
     let (mut fixture, route, a, _) = Box::pin(registered::setup(rooted, &class)).await?;

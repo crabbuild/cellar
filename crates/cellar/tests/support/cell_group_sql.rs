@@ -656,7 +656,8 @@ pub(crate) use checkpoint_fairness::concurrent_checkpoints;
 #[path = "cell_group_membership.rs"]
 mod membership;
 pub(crate) use membership::{
-    membership_lifecycle, membership_quorum_floor, membership_quorum_followers, membership_sync,
+    membership_delivery_fence, membership_lifecycle, membership_physical_delivery_fence,
+    membership_quorum_floor, membership_quorum_followers, membership_sync,
 };
 
 #[path = "cell_group_seed.rs"]

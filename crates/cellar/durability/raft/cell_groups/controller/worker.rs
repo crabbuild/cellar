@@ -308,7 +308,7 @@ impl Worker {
                     let installed_checkpoint = matches!(&effect, CellGroupEffect::CheckpointInstalled { .. });
                     match effect {
                         CellGroupEffect::Message(message) => {
-                            if let Err(error) = self.transport.submit_physical(&group, message.clone()) {
+                            if let Err(error) = self.transport.submit_cell_group_event(&event) {
                                 if !matches!(error, TransportError::Overloaded | TransportError::UnknownGroup | TransportError::StalePeer | TransportError::Refused) {
                                     return Err(CellGroupControllerError::Transport(error));
                                 }
