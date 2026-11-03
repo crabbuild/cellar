@@ -10,9 +10,11 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 #[tokio::test]
 async fn recovery_reads_retry_disconnect_and_typed_refusal_inside_one_deadline() -> Result<()> {
+    let domain = cellar::sdk::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain.run(async {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let url = format!("http://{}", listener.local_addr()?);
-    let server = tokio::spawn(async move {
+    let server = cellar::asyncrt::spawn(async move {
         for index in 0..3 {
             let (mut socket, _) = listener.accept().await?;
             let mut request = Vec::new();
@@ -43,7 +45,7 @@ async fn recovery_reads_retry_disconnect_and_typed_refusal_inside_one_deadline()
         Ok::<_, anyhow::Error>(())
     });
     let client = reqwest::Client::new();
-    let observed = tokio::time::timeout(
+    let observed = cellar::asyncrt::timeout(
         Duration::from_secs(1),
         recovery::read(&client, &url, "python"),
     )
@@ -55,5 +57,8 @@ async fn recovery_reads_retry_disconnect_and_typed_refusal_inside_one_deadline()
     let observed = observed??;
     ensure!(observed == serde_json::json!({"value":"7"}));
     served??;
-    Ok(())
+    Ok::<_, anyhow::Error>(())
+    }).await;
+    domain.shutdown().await;
+    result?
 }

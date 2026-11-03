@@ -58,18 +58,62 @@ async fn prepare_resume(
     s: &Setup,
     request: &FleetRestartResumeRequest,
 ) -> Result<FleetRestartResumeVerification> {
-    trust(s).await?;
-    let root = s.f.catalog.read(TIMEOUT).await?;
-    Ok(s.f
-        .catalog
-        .prepare_restart_resume(
-            &root,
-            request,
-            std::slice::from_ref(&s.namespace),
-            &s.spare,
-            TIMEOUT,
-        )
-        .await?)
+    trust(s).await.context("restart resume peer discovery")?;
+    // Returning engines register asynchronously. Construct the verification
+    // from a fresh, complete inventory within the existing call budget.
+    s.f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+            loop {
+                let observed = async {
+                    let root = s.f.catalog.read(TIMEOUT).await?;
+                    s.f.catalog
+                        .prepare_restart_resume(
+                            &root,
+                            request,
+                            std::slice::from_ref(&s.namespace),
+                            &s.spare,
+                            TIMEOUT,
+                        )
+                        .await
+                }
+                .await;
+                match observed {
+                    Ok(walk) => return Ok(walk),
+                    Err(FleetCatalogError::InventoryIncomplete | FleetCatalogError::Overloaded) => {
+                        cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                    }
+                    Err(error) => {
+                        return Err(
+                            anyhow::Error::from(error).context("restart resume proof construction")
+                        );
+                    }
+                }
+            }
+        }))
+        .await?
+        .context("restart resume inventory preparation deadline")?
+}
+
+async fn coherent_inspection(
+    s: &Setup,
+    cell: &RaftCellHandle,
+) -> Result<cellar::application::consensus::CellInspection> {
+    // inspect() itself has a five-second budget. A mixed runtime/image sample
+    // is refused with Overloaded; keep that same bound across fresh samples.
+    s.f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+            loop {
+                match cell.inspect().await {
+                    Ok(view) => return Ok(view),
+                    Err(CommandFailure::Overloaded) => {
+                        cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        }))
+        .await?
+        .context("coherent restart inspection deadline")?
 }
 
 async fn consume_resume(s: &Setup, walk: &mut FleetRestartResumeVerification) -> Result<usize> {
@@ -386,14 +430,19 @@ async fn fleet_restart_resume_root_drift_requires_fresh_same_scope_consent() -> 
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_restart_resume_rechecks_and_hands_off_regained_leadership() -> Result<()> {
-    let (s, p, request) = Box::pin(setup(false)).await?;
-    let mut warm = prepare_resume(&s, &request).await?;
-    consume_resume(&s, &mut warm).await?;
+    let (s, p, request) = Box::pin(setup(false))
+        .await
+        .context("regained leader setup")?;
+    let mut warm = prepare_resume(&s, &request)
+        .await
+        .context("initial resume proof")?;
+    consume_resume(&s, &mut warm)
+        .await
+        .context("initial resume histories")?;
     drop(warm);
     let source = primary(&s.f, &s.cells).await?;
     ensure!(source != p);
-    let state = s.cells[source]
-        .inspect()
+    let state = coherent_inspection(&s, &s.cells[source])
         .await?
         .member
         .context("surviving leader")?;
@@ -409,8 +458,7 @@ async fn fleet_restart_resume_rechecks_and_hands_off_regained_leadership() -> Re
         .await?;
     s.f.domain
         .run(cellar::asyncrt::timeout(TIMEOUT, async {
-            while !s.cells[p]
-                .inspect()
+            while !coherent_inspection(&s, &s.cells[p])
                 .await?
                 .member
                 .is_some_and(|m| m.is_leader)
@@ -420,27 +468,40 @@ async fn fleet_restart_resume_rechecks_and_hands_off_regained_leadership() -> Re
             Ok::<_, anyhow::Error>(())
         }))
         .await???;
-    pending(&s, p, true).await?;
-    let mut walk = prepare_resume(&s, &request).await?;
-    ensure!(consume_resume(&s, &mut walk).await? > 0);
+    pending(&s, p, true)
+        .await
+        .context("regained leader paused state")?;
+    let mut walk = prepare_resume(&s, &request)
+        .await
+        .context("regained leader fresh proof")?;
+    ensure!(
+        consume_resume(&s, &mut walk)
+            .await
+            .context("regained leader handoff proof")?
+            > 0
+    );
     let admission = walk
         .admit_resume(&request, TIMEOUT)
         .await
         .context("publish refreshed resume consent")?;
-    trust(&s).await?;
+    trust(&s)
+        .await
+        .context("regained leader resume discovery")?;
     s.f.catalog
         .resume_restart_maintenance(&admission, &s.spare, TIMEOUT)
-        .await?;
-    pending(&s, p, false).await?;
+        .await
+        .context("guarded regained leader resume")?;
+    pending(&s, p, false)
+        .await
+        .context("regained leader resumed state")?;
     ensure!(
-        !s.cells[p]
-            .inspect()
+        !coherent_inspection(&s, &s.cells[p])
             .await?
             .member
             .context("returned member")?
             .is_leader
     );
-    s.close().await
+    s.close().await.context("regained leader joined cleanup")
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

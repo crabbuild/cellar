@@ -16,12 +16,23 @@ async fn restored_state(client: &reqwest::Client, url: &str) -> Result<Value> {
             if status.is_success() {
                 return Ok::<_, anyhow::Error>(serde_json::from_str(&body)?);
             }
-            ensure!(
-                status.is_server_error()
-                    && body.contains("cellar output-gate durability proof failed for ")
-                    && body.contains("ltx durability timed out for "),
-                "restored proof read failed outside the pending proof reset: {status}: {body}"
-            );
+            if status == reqwest::StatusCode::SERVICE_UNAVAILABLE {
+                // Python preserves the native refusal on this read-only route.
+                // It is an unknown outcome, never rollback or an acknowledged
+                // mutation. Reject unrelated errors instead of retrying a 500.
+                ensure!(
+                    serde_json::from_str::<Value>(&body)?
+                        == json!({"code":"Ambiguous","outcome":"unknown"}),
+                    "recovery read lost its native refusal: {body}"
+                );
+            } else {
+                ensure!(
+                    status.is_server_error()
+                        && body.contains("cellar output-gate durability proof failed for ")
+                        && body.contains("ltx durability timed out for "),
+                    "restored proof read failed outside the pending proof reset: {status}: {body}"
+                );
+            }
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     })
@@ -198,6 +209,17 @@ pub(super) fn child() -> Result<()> {
                     "an unproven mutation handler was blindly replayed: {attempts}"
                 );
                 let state = restored_state(&client, &url).await?;
+                let restored_attempts: Value = client
+                    .get(format!("{url}/proof/attempts"))
+                    .send()
+                    .await?
+                    .error_for_status()?
+                    .json()
+                    .await?;
+                ensure!(
+                    restored_attempts == attempts,
+                    "recovery read replayed a mutation: {restored_attempts}"
+                );
                 ensure!(
                     state["sync"] == 1 && state["output"] == 1,
                     "restored proof access lost previously acknowledged state: {state}"

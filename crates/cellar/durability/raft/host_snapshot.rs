@@ -12,6 +12,10 @@ pub(super) struct SourceRequest {
     reservation: SourceReservation,
 }
 
+#[cfg(test)]
+#[path = "host_snapshot_tests.rs"]
+mod tests;
+
 #[derive(PartialEq, Eq)]
 enum Phase {
     Fetching,
@@ -32,9 +36,18 @@ pub(super) struct Incoming {
     received: Option<ReceivedSnapshot>,
     completion: Option<SnapshotCompletion>,
     retry_at: u64,
+    next: Option<RuntimeEvent>,
 }
 
 impl Incoming {
+    fn defer(&mut self, event: RuntimeEvent) -> bool {
+        if !matches!(self.phase, Phase::Publish | Phase::Publishing) || self.next.is_some() {
+            return false;
+        }
+        self.next = Some(event);
+        true
+    }
+
     pub(super) fn allows_apply(&self) -> bool {
         matches!(self.phase, Phase::NeedAbort | Phase::Aborting)
     }
@@ -175,17 +188,32 @@ impl Driver {
         }
     }
 
-    pub(super) fn receive_snapshot(
-        &mut self,
-        ticket: ApplyTicket,
-        snapshot: ::raft::prelude::Snapshot,
-        source: u64,
-    ) {
+    pub(super) fn receive_snapshot(&mut self, event: RuntimeEvent) {
+        let (ticket, snapshot, source) = match &event.kind {
+            RuntimeEventKind::Snapshot {
+                ticket,
+                snapshot,
+                source,
+            } => (ticket.clone(), snapshot.clone(), *source),
+            _ => return,
+        };
         let scope = ticket.replica().scope.clone();
         let Some(cell) = self.cells.get_mut(&scope) else {
             return;
         };
-        if cell.incoming.is_some() || cell.group.identity() != ticket.replica() {
+        if cell.group.identity() != ticket.replica() {
+            self.fail(&scope);
+            return;
+        }
+        if let Some(incoming) = cell.incoming.as_mut() {
+            // The runtime may accept its next snapshot after durable install,
+            // before the SQL owner has published the preceding image. Retain
+            // one exact event, including its admission, until publication.
+            // That runtime cannot emit another snapshot until this ticket is
+            // completed or aborted, so a second deferred event is a violation.
+            if incoming.defer(event) {
+                return;
+            }
             self.fail(&scope);
             return;
         }
@@ -200,6 +228,7 @@ impl Driver {
             received: None,
             completion: None,
             retry_at: 0,
+            next: None,
         });
         self.refuse(&scope, CommandFailure::Unavailable);
         if !abort {
@@ -513,11 +542,14 @@ impl Driver {
                         ..
                     }) if valid => {
                         cell.image = view;
-                        cell.incoming.take();
+                        let next = cell.incoming.take().and_then(|incoming| incoming.next);
                         if let Ok(Some(progress)) =
                             progress(&cell.group, cell.image.as_ref(), cell.archived)
                         {
                             let _ = cell.core.observe_progress(progress);
+                        }
+                        if let Some(event) = next {
+                            self.on_event(event);
                         }
                     }
                     _ => self.fail(&scope),

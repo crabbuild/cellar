@@ -7,6 +7,7 @@ on:
       - 'crates/**'
       - 'packages/cellar-sdk/**'
       - 'tools/rpc/**'
+      - 'tools/qualification/**'
       - 'tools/javascript/**'
       - 'tools/cellar-rpc-codegen/**'
       - 'tools/python/**'
@@ -88,6 +89,27 @@ jobs:
           python3 -m unittest discover -s tools/perf -p test_python_fleet.py
           cargo clippy --locked -p cellar-rpc-qualification --all-targets --features full -- -D warnings
           cargo test --locked -p cellar-rpc-qualification --features full -- --test-threads=1
+      - name: Finish build writeback before live qualification
+        run: |
+          cargo build --locked -p cellar-rpc-qualification --features full
+          # Bound ongoing dirty writeback on this disposable x64 runner. A
+          # one-time flush alone still allowed >1s commits in the full matrix.
+          # FULL sync, barriers and the one-second authority lease stay enabled.
+          snapshot="$RUNNER_TEMP/cellar-rpc-writeback.conf"
+          : > "$snapshot"
+          for setting in dirty_background dirty; do
+            bytes=$(sysctl -n "vm.${setting}_bytes")
+            if [ "$bytes" -eq 0 ]; then
+              key="vm.${setting}_ratio"
+            else
+              key="vm.${setting}_bytes"
+            fi
+            printf '%s=%s\n' "$key" "$(sysctl -n "$key")" >> "$snapshot"
+          done
+          sysctl vm.dirty_expire_centisecs vm.dirty_writeback_centisecs >> "$snapshot"
+          sudo sysctl -w vm.dirty_background_bytes=4194304 vm.dirty_bytes=16777216 \
+            vm.dirty_expire_centisecs=100 vm.dirty_writeback_centisecs=50
+          sync -f "$CARGO_TARGET_DIR"
       - name: Live portable Protobuf profile
         if: matrix.campaign == 'focused'
         run: |
@@ -135,6 +157,13 @@ jobs:
           python3 tools/rpc/check_python_mode.py --expected "$CELLAR_RPC_PYTHON_MODE" .cellar/rpc/all.json
           python3 tools/rpc/check_provenance.py .cellar/rpc/all.json
           python3 tools/rpc/check_provider_limits.py .cellar/rpc/all.json
+      - name: Restore runner writeback policy
+        if: always()
+        run: |
+          snapshot="$RUNNER_TEMP/cellar-rpc-writeback.conf"
+          if [ -f "$snapshot" ]; then
+            sudo sysctl -p "$snapshot"
+          fi
       - name: Retain lifecycle evidence
         if: always()
         uses: actions/upload-artifact@v6

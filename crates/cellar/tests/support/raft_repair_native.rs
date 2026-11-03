@@ -453,7 +453,11 @@ impl Fixture {
 }
 
 pub(super) async fn learner_before_promotion() -> Result<()> {
-    let f = Fixture::new(false).await.context("start learner fixture")?;
+    let mut f = Fixture::new(false).await.context("start learner fixture")?;
+    // The advertised peer must own a real protocol listener even while its
+    // learner remains unactivated. Otherwise unrelated sends wait for transport
+    // timeouts while the test is trying to observe a committed abort.
+    let learner = standby::registered(&mut f).await?;
     f.fail_obsolete().await.context("stop obsolete voter")?;
     let started = f.begin().await?;
     let current = f.handles[f.primary].status().await?;
@@ -484,6 +488,11 @@ pub(super) async fn learner_before_promotion() -> Result<()> {
         matches!(result, Err(CommandFailure::Unavailable)),
         "empty learner promoted: {result:?}"
     );
+    ensure!(matches!(
+        learner.status().await,
+        Err(CommandFailure::UnsupportedCapability)
+    ));
+    assert_eq!(f.calls[3].load(Ordering::SeqCst), 0);
     assert_eq!(
         f.handles[f.primary].repair_status().await?.unwrap().phase,
         RepairPhase::Seeding
@@ -511,7 +520,8 @@ pub(super) async fn learner_before_promotion() -> Result<()> {
 }
 
 pub(super) async fn stale_plan_idempotence() -> Result<()> {
-    let f = Fixture::new(false).await?;
+    let mut f = Fixture::new(false).await?;
+    let _learner = standby::registered(&mut f).await?;
     f.fail_obsolete().await?;
     // Admission starts synchronously even while its returned future is unpolled.
     let lost = f.handles[f.primary].begin_repair(f.plan.clone(), Duration::from_secs(5));

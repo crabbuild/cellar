@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Opt-in dense payload qualification through public SDK turns and bucket proof.
-use super::{inputs, ready, response, Executor};
+use super::{durable_bucket, inputs, ready, response, Executor};
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{filesystem::*, *};
 use serde_json::{json, Value};
@@ -336,7 +336,7 @@ async fn profile(mib: usize) -> Result<Value> {
     let directory = tempfile::tempdir()?;
     let management = ExecutionDomain::new(tokio::runtime::Handle::current());
     let bucket = management
-        .run(async { cellar::bucket::Bucket::open_dev(&directory.path().join("bucket.sqlite")) })
+        .run(async { durable_bucket::open(directory.path(), &["dense-owner", "dense-successor"]) })
         .await??;
     let core = Executor::new("filesystem-dense-core")?;
     let http = reqwest::Client::builder()

@@ -171,7 +171,11 @@ async fn verified(dynamic: bool, owned: bool) -> Result<()> {
                     Ok(Some(cellar::application::consensus::verification::FleetRestartRuntimeProgress::HandoffRequested { from, to, .. })) => {
                         ensure!(dynamic && from == r.request.plan.replacement.member && from != to);
                     }
-                    Err(FleetCatalogError::Unconfirmed | FleetCatalogError::Overloaded)
+                    // Handoff can overlap a fresh physical inventory cut. Keep
+                    // the pending history until an actual Verified turn; an
+                    // incomplete cut is neither progress nor a matched vote.
+                    Err(FleetCatalogError::Unconfirmed | FleetCatalogError::Overloaded
+                        | FleetCatalogError::InventoryIncomplete)
                     | Err(FleetCatalogError::Observation(cellar::application::consensus::InspectionError::Unavailable
                         | cellar::application::consensus::InspectionError::Overloaded)) => {
                         cellar::asyncrt::sleep(Duration::from_millis(10)).await;

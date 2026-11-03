@@ -72,6 +72,9 @@ pub(crate) mod operations;
 mod raft_metrics;
 mod raft_startup;
 mod rpc_deadline;
+#[cfg(test)]
+#[path = "shutdown_acceptor_tests.rs"]
+mod shutdown_acceptor_tests;
 mod source_operator;
 mod state_sampling;
 mod stream_operator;
@@ -3842,11 +3845,13 @@ fn spawn_shutdown_acceptor(
     surface: HttpSurface,
     connections: mpsc::Sender<ShutdownConnection>,
     #[cfg(all(test, cellar_internal_tests))] mut fail_next_for_test: bool,
-) {
+) -> Result<(), crate::asyncrt::DomainClosed> {
     // Shutdown selects finish whenever a timer, request, or actor message
     // wins. Keep each listener's accept and retry waits in one task so those
     // unrelated events cannot cancel a wait or reset its retry delay.
-    crate::asyncrt::spawn(async move {
+    // Forced closure can race this supervisor poll. Refuse task admission and
+    // drop the captured listener instead of panicking or detaching unowned work.
+    let task = crate::asyncrt::try_spawn(async move {
         let mut retry_delay = SHUTDOWN_ACCEPT_RETRY_INITIAL;
         let mut recovering = false;
         #[cfg(all(test, cellar_internal_tests))]
@@ -3923,8 +3928,9 @@ fn spawn_shutdown_acceptor(
                 }
             }
         }
-    })
-    .detach();
+    })?;
+    task.detach();
+    Ok(())
 }
 
 fn serve_http_connection(

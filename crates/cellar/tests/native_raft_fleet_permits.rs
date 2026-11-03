@@ -62,13 +62,33 @@ struct Fixture {
 }
 
 async fn leader(domain: &ExecutionDomain, cells: &[RaftCellHandle]) -> Result<usize> {
+    Ok(leader_status(domain, cells).await?.0)
+}
+
+// Local readiness can briefly outlive isolation. Route at the highest
+// observed term; the guarded operation still has to establish its proof.
+async fn leader_status(
+    domain: &ExecutionDomain,
+    cells: &[RaftCellHandle],
+) -> Result<(usize, CellStatus)> {
     Ok(domain
         .run(cellar::asyncrt::timeout(TIMEOUT, async {
             loop {
+                let mut highest_term = 0;
+                let mut ready = None;
                 for (index, cell) in cells.iter().enumerate() {
-                    if cell.status().await.is_ok_and(|status| status.command_ready) {
-                        return index;
+                    if let Ok(status) = cell.status().await {
+                        if status.term.get() > highest_term {
+                            highest_term = status.term.get();
+                            ready = None;
+                        }
+                        if status.term.get() == highest_term && status.command_ready {
+                            ready = Some((index, status));
+                        }
                     }
+                }
+                if let Some(ready) = ready {
+                    return ready;
                 }
                 cellar::asyncrt::sleep(Duration::from_millis(10)).await;
             }
@@ -319,14 +339,19 @@ impl Fixture {
         authorization: &FleetPermitAuthorization,
         step: RepairStep,
     ) -> Result<RepairStatus> {
-        self.domain
+        let mut last_status = None;
+        let mut last_refusal = None;
+        let result = self
+            .domain
             .run(cellar::asyncrt::timeout(TIMEOUT, async {
                 loop {
-                    let expected = self.handles[self.primary]
-                        .status()
-                        .await?
-                        .membership_revision;
-                    match self.handles[self.primary]
+                    // A repair survives leader loss. Route the same permit
+                    // and idempotent step to a freshly observed leader; the
+                    // initial fixture leader is not permanent authority.
+                    let (primary, status) = leader_status(&self.domain, &self.handles).await?;
+                    let expected = status.membership_revision;
+                    last_status = Some((primary, status));
+                    match self.handles[primary]
                         .advance_managed_repair(
                             authorization.clone(),
                             step,
@@ -336,15 +361,23 @@ impl Fixture {
                         .await
                     {
                         Ok(status) => return Ok(status),
-                        Err(CommandFailure::Unavailable | CommandFailure::Overloaded) => {
+                        Err(
+                            error @ (CommandFailure::Unavailable
+                            | CommandFailure::Overloaded
+                            | CommandFailure::NotLeader { .. }),
+                        ) => {
+                            last_refusal = Some(error);
                             cellar::asyncrt::sleep(Duration::from_millis(10)).await
                         }
                         Err(error) => return Err(error.into()),
                     }
                 }
             }))
-            .await?
-            .context("managed repair step timed out")?
+            .await?;
+        result.map_err(anyhow::Error::from).and_then(|status| status)
+            .with_context(|| format!(
+                "managed repair {step:?}: last leader status {last_status:?}, refusal {last_refusal:?}",
+            ))
     }
 
     fn activation(&self, from_s3: bool) -> Result<LearnerActivation> {
@@ -456,7 +489,10 @@ impl Fixture {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_permit_delayed_after_cancel() -> Result<()> {
-    let f = Fixture::new().await?;
+    let mut f = Fixture::new().await?;
+    // The reserved replacement receives protocol traffic once the plan starts.
+    // Start its real dormant process; activation still requires normal seeding.
+    f.standby().await?;
     let plan = f.plan(40).await?;
     let cached = f.reserve(1, 20, &plan).await?;
     let status = f.handles[f.primary]
@@ -505,6 +541,43 @@ async fn fleet_permit_delayed_after_cancel() -> Result<()> {
         RepairPhase::Aborted
     );
     f.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_permit_repair_step_follows_new_quorum_leader() -> Result<()> {
+    let mut f = Fixture::new().await?;
+    f.standby().await?;
+    let plan = f.plan(40).await?;
+    let authorization = f.reserve(1, 20, &plan).await?;
+    let repair = f.handles[f.primary]
+        .begin_managed_repair(authorization.clone(), plan, TIMEOUT)
+        .await?;
+    ensure!(repair.phase == RepairPhase::Seeding);
+    let (source, status) = leader_status(&f.domain, &f.handles).await?;
+    ensure!(source == f.primary);
+    // Optional transfers correctly refuse an active repair. Exercise actual
+    // leader loss instead, retaining the same permit and committed plan.
+    f.cluster.isolate_consensus(source).await?;
+    let survivors = f
+        .handles
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| *index != source)
+        .map(|(_, cell)| cell.clone())
+        .collect::<Vec<_>>();
+    let (_, successor) = leader_status(&f.domain, &survivors).await?;
+    ensure!(successor.term > status.term);
+    let advanced = f.step(&authorization, RepairStep::AbortLearner).await;
+    if advanced.is_err() {
+        for (index, cell) in f.handles.iter().enumerate() {
+            eprintln!("stalled repair node {index}: {:?}", cell.status().await);
+        }
+    }
+    f.cluster.heal();
+    let closed = f.close().await;
+    let advanced = advanced.with_context(|| format!("joined repair fixture: {closed:?}"))?;
+    ensure!(advanced.phase == RepairPhase::Aborted);
+    closed
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

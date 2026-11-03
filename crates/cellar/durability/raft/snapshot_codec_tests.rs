@@ -106,8 +106,7 @@ async fn prepared_owner_shutdown_joins_even_if_the_stop_waiter_was_never_polled(
     fixture.close().await
 }
 
-#[tokio::test]
-async fn obsolete_snapshot_routes_cancel_sources_without_releasing_live_owners() -> Result<()> {
+async fn source_fixture() -> Result<(Fixture, GroupRoute)> {
     use cellar_logic::consensus::{
         ClusterId, DiskLineage, GroupId, IncarnationId, NamespaceId, ProcessGeneration,
     };
@@ -156,7 +155,7 @@ async fn obsolete_snapshot_routes_cancel_sources_without_releasing_live_owners()
         .persist(cellar_logic::consensus::OperationId::new(1), vec![write])
         .await?;
 
-    let mut route = GroupRoute {
+    let route = GroupRoute {
         scope: scope.clone(),
         schema_digest: [9; 32],
         revision: 1,
@@ -186,6 +185,91 @@ async fn obsolete_snapshot_routes_cancel_sources_without_releasing_live_owners()
         ],
     };
     fixture.transport.install_group(route.clone())?;
+    Ok((fixture, route))
+}
+
+fn source_offer(fixture: &Fixture, route: &GroupRoute) -> Result<SnapshotSource> {
+    let group = fixture
+        .transport
+        .handle
+        .0
+        .runtime
+        .log()
+        .group(&route.scope)?;
+    let package =
+        SnapshotPackage::capture_empty(&group, route.schema_digest, SnapshotLimits::default())?;
+    Ok(fixture.transport.serve_snapshot(
+        &route.scope,
+        2,
+        package,
+        fixture.transport.reserve_snapshot_source()?,
+    )?)
+}
+
+#[tokio::test]
+async fn unclaimed_offer_yields_to_seed_without_releasing_retained_owners() -> Result<()> {
+    let (fixture, route) = source_fixture().await?;
+    let state = fixture.transport.handle.0.clone();
+    let source = source_offer(&fixture, &route)?;
+    let delayed_pull = source.0.clone();
+    ensure!(matches!(
+        fixture.transport.reserve_snapshot_source(),
+        Err(TransportError::Overloaded)
+    ));
+    // A voter may ignore an obsolete snapshot announcement. Its unclaimed
+    // offer must not occupy the only source slot for a learner's full deadline.
+    ensure!(source.yield_for_seed(&route.scope, MemberId::new(3)?));
+    ensure!(source.finished(0));
+    ensure!(
+        !delayed_pull.begin_pull(),
+        "a yielded offer admitted a pull"
+    );
+    drop(source);
+    ensure!(state.snapshot_source_budget.usage().1 == 1);
+    ensure!(matches!(
+        fixture.transport.reserve_snapshot_source(),
+        Err(TransportError::Overloaded)
+    ));
+    drop(delayed_pull);
+    ensure!(state.snapshot_source_budget.usage() == (0, 0));
+    let next = source_offer(&fixture, &route)?;
+    ensure!(!next.finished(0));
+    next.cancel();
+    ensure!(state.snapshot_source_budget.usage() == (0, 0));
+    fixture.close().await
+}
+
+#[tokio::test]
+async fn claimed_offer_protects_other_peers_and_retains_cancelled_io_charge() -> Result<()> {
+    let (fixture, route) = source_fixture().await?;
+    let state = fixture.transport.handle.0.clone();
+    let source = source_offer(&fixture, &route)?;
+    let active = source.0.clone();
+    ensure!(active.begin_pull());
+    ensure!(!source.yield_for_seed(&route.scope, MemberId::new(3)?));
+    ensure!(!source.finished(0));
+    ensure!(matches!(
+        fixture.transport.reserve_snapshot_source(),
+        Err(TransportError::Overloaded)
+    ));
+    // A fresh request for this same physical learner still supersedes its
+    // earlier transfer. The old physical owner keeps its reservation.
+    ensure!(source.yield_for_seed(&route.scope, MemberId::new(2)?));
+    source.cancel();
+    ensure!(active.is_finished());
+    ensure!(!active.begin_pull());
+    ensure!(state.snapshot_source_budget.usage().1 == 1);
+    drop(active);
+    ensure!(state.snapshot_source_budget.usage() == (0, 0));
+    fixture.close().await
+}
+
+#[tokio::test]
+async fn obsolete_snapshot_routes_cancel_sources_without_releasing_live_owners() -> Result<()> {
+    let (fixture, mut route) = source_fixture().await?;
+    let state = fixture.transport.handle.0.clone();
+    let scope = route.scope.clone();
+    let group = state.runtime.log().group(&scope)?;
     for remove in [false, true] {
         let package = SnapshotPackage::capture_empty(&group, [9; 32], SnapshotLimits::default())?;
         let lease = fixture.transport.serve_snapshot(

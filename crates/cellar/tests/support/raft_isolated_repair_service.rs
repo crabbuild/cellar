@@ -60,8 +60,13 @@ impl RepairFleet {
     }
 
     async fn with_admission(extra: bool, isolated: Option<bool>, histories: u8) -> Result<Self> {
-        let mut s = Box::pin(Setup::with_histories(true, 6, histories)).await?;
-        let (spare_root, spare_node, spare) = s.f.peer_host(8).await?;
+        let mut s = Box::pin(Setup::with_histories(true, 6, histories))
+            .await
+            .context("construct isolated-repair resource fixture")?;
+        let (spare_root, spare_node, spare) =
+            s.f.peer_host(8)
+                .await
+                .context("start isolated-repair spare host")?;
         if extra {
             let mut proposal = s.proposals[0].clone();
             proposal.scope.cell = "Counter:independent-majority".into();
@@ -133,11 +138,19 @@ impl RepairFleet {
                 };
                 cells.push(
                     host.register_managed_history(authorization.clone(), TIMEOUT)
-                        .await?,
+                        .await
+                        .with_context(|| {
+                            format!("register isolated-repair voter for {}", proposal.scope.cell)
+                        })?,
                 );
                 nodes.push(member.node);
             }
-            activate(&cells, &authorization).await?;
+            activate(&cells, &authorization).await.with_context(|| {
+                format!(
+                    "activate isolated-repair voters for {}",
+                    proposal.scope.cell
+                )
+            })?;
             write_read(&s.f, &cells, 1, 7, 7).await.with_context(|| {
                 format!(
                     "initial SQL for isolated-repair history {}",
@@ -147,7 +160,9 @@ impl RepairFleet {
             live.push(nodes.into_iter().zip(cells).collect::<Vec<_>>());
         }
         for (index, host) in s.nodes.iter().map(|n| &n.host).chain([&spare]).enumerate() {
-            let evidence = crate::hosts::capacity_tests::attestation(&s.f, &s.target, host).await?;
+            let evidence = crate::hosts::capacity_tests::attestation(&s.f, &s.target, host)
+                .await
+                .with_context(|| format!("attest isolated-repair host {index}"))?;
             let cut = s.f.catalog.read(TIMEOUT).await?;
             s.f.catalog
                 .admit_node_capacity(
@@ -161,7 +176,8 @@ impl RepairFleet {
                     std::slice::from_ref(&s.namespace),
                     TIMEOUT,
                 )
-                .await?;
+                .await
+                .with_context(|| format!("admit isolated-repair host capacity {index}"))?;
         }
         discover(&s.f, &hosts).await?;
         // Exercise a failed leader, rather than only a failed follower.
@@ -178,7 +194,8 @@ impl RepairFleet {
                     },
                     TIMEOUT,
                 )
-                .await?;
+                .await
+                .context("transfer initial isolated-repair leader")?;
         }
         s.f.domain
             .run(cellar::asyncrt::timeout(TIMEOUT, async {
@@ -193,7 +210,8 @@ impl RepairFleet {
         let boot = old
             .host
             .observe_node(TIMEOUT)
-            .await?
+            .await
+            .context("observe failed isolated-repair leader")?
             .fleet_boot
             .context("failed leader boot")?;
         let old_engine = old.node.info().data_dir.join("raft");
@@ -245,7 +263,12 @@ impl RepairFleet {
             .chain([&self.s.target, &self.spare])
         {
             hosts.push((
-                host.observe_node(TIMEOUT).await?.node.identity.node,
+                host.observe_node(TIMEOUT)
+                    .await
+                    .context("observe isolated-repair inventory host")?
+                    .node
+                    .identity
+                    .node,
                 host.clone(),
             ));
         }
@@ -291,7 +314,13 @@ impl RepairFleet {
             .map(|(_, c)| c.clone())
             .collect::<Vec<_>>();
         for host in [&self.s.target, &self.spare] {
-            let node = host.observe_node(TIMEOUT).await?.node.identity.node;
+            let node = host
+                .observe_node(TIMEOUT)
+                .await
+                .context("observe post-repair host identity")?
+                .node
+                .identity
+                .node;
             if self.live[index].iter().any(|(n, _)| *n == node) {
                 continue;
             }
@@ -310,7 +339,8 @@ impl RepairFleet {
         for cell in &cells {
             let proof = cell
                 .observe_fleet_membership(authorization.clone(), TIMEOUT)
-                .await?;
+                .await
+                .with_context(|| format!("observe repaired membership for {}", scope.cell))?;
             ensure!(
                 proof.configuration().voters().len() == 3
                     && proof.configuration().outgoing_voters().is_empty()
@@ -604,12 +634,19 @@ async fn fleet_isolated_repair_service_skips_minority_and_repairs_independent_ma
 }
 
 async fn minority() -> Result<()> {
-    let mut fleet = Box::pin(RepairFleet::new(true)).await?;
+    let mut fleet = Box::pin(RepairFleet::new(true))
+        .await
+        .context("construct minority isolated-repair fleet")?;
     let second = fleet.s.nodes.remove(0);
     ensure!(second.spec.node == NodeId::new([5; 16])?);
     let second_engine = second.node.info().data_dir.join("raft");
-    joined(second.node).await?;
-    let evidence = fleet.evidence().await?;
+    joined(second.node)
+        .await
+        .context("join second failed minority voter")?;
+    let evidence = fleet
+        .evidence()
+        .await
+        .context("collect minority isolated-repair evidence")?;
     let hosts = fleet
         .s
         .nodes
@@ -617,7 +654,9 @@ async fn minority() -> Result<()> {
         .map(|n| &n.host)
         .chain([&fleet.s.target, &fleet.spare])
         .collect::<Vec<_>>();
-    discover(&fleet.s.f, &hosts).await?;
+    discover(&fleet.s.f, &hosts)
+        .await
+        .context("discover surviving minority-repair hosts")?;
     let service = fleet
         .s
         .f
@@ -629,7 +668,8 @@ async fn minority() -> Result<()> {
             ProposalId::new([100; 16])?,
             options(),
         )
-        .await?;
+        .await
+        .context("start minority isolated-repair service")?;
     fleet
         .wait(&service, |s| {
             s.settled_movements == 1
@@ -638,7 +678,8 @@ async fn minority() -> Result<()> {
                     r.inventory_exhausted && r.blocked_histories == 3 && r.histories_checked == 4
                 })
         })
-        .await?;
+        .await
+        .context("settle independent-majority repair")?;
     service.shutdown().await;
     let cut = fleet.s.f.catalog.read(TIMEOUT).await?;
     for proposal in &fleet.s.proposals[..3] {
@@ -655,9 +696,14 @@ async fn minority() -> Result<()> {
             .await?
             .is_none());
     }
-    fleet.verify(3).await?;
-    retained_engine(&fleet.s.f, second_engine).await?;
-    fleet.close().await
+    fleet
+        .verify(3)
+        .await
+        .context("verify independently repaired majority")?;
+    retained_engine(&fleet.s.f, second_engine)
+        .await
+        .context("verify retained minority engine")?;
+    fleet.close().await.context("join minority-repair fleet")
 }
 
 async fn retained_engine(f: &Fixture, path: std::path::PathBuf) -> Result<()> {

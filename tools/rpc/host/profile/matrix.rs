@@ -2,7 +2,6 @@
 
 //! Every vector traverses real generated clients, native cells and peer routing.
 use super::*;
-use cellar::bucket::Bucket;
 use serde_json::{json, Value};
 
 async fn matrix(
@@ -85,7 +84,12 @@ pub(super) async fn run(
     vectors: Arc<Vec<Vector>>,
 ) -> Result<Value> {
     let directory = tempfile::tempdir()?;
-    let bucket = Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    // Node-key CAS stays durable and visible through the shared namespace, but
+    // cannot queue behind application-data writers and consume the lease TTL.
+    let bucket = crate::peer_faults::durable_fixture_bucket(
+        directory.path(),
+        &["profile-owner", "profile-source"],
+    )?;
     let client = reqwest::Client::builder()
         .no_proxy()
         .timeout(Duration::from_secs(20))

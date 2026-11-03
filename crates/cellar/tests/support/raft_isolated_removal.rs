@@ -33,9 +33,15 @@ struct Repaired {
 
 impl Repaired {
     async fn new() -> Result<Self> {
-        let mut s = Box::pin(Started::new()).await?;
-        let (namespace, _) = initial_birth(&s.f).await?;
-        write_read(&s.f, &s.cells, 1, 7, 7).await?;
+        let mut s = Box::pin(Started::new())
+            .await
+            .context("start isolated removal fixture")?;
+        let (namespace, _) = initial_birth(&s.f)
+            .await
+            .context("initialize isolated removal history")?;
+        write_read(&s.f, &s.cells, 1, 7, 7)
+            .await
+            .context("verify state before isolated removal")?;
         let p = primary(&s.f, &s.cells).await?;
         let obsolete = (p + 1) % 3;
         let evidence = attestation(&s.f, &s.nodes[p].host, &s.observer).await?;
@@ -52,7 +58,8 @@ impl Repaired {
                 std::slice::from_ref(&namespace),
                 TIMEOUT,
             )
-            .await?;
+            .await
+            .context("admit capacity before isolated replacement")?;
         let old = s.nodes.remove(obsolete);
         let boot = old
             .host
@@ -60,7 +67,9 @@ impl Repaired {
             .await?
             .fleet_boot
             .context("old boot")?;
-        joined(old.node).await?;
+        joined(old.node)
+            .await
+            .context("join obsolete owner before isolation")?;
         let cut = s.f.catalog.read(TIMEOUT).await?;
         s.f.catalog
             .begin_evacuation(
@@ -70,7 +79,8 @@ impl Repaired {
                 std::slice::from_ref(&namespace),
                 TIMEOUT,
             )
-            .await?;
+            .await
+            .context("begin evacuation of joined obsolete owner")?;
         let cut = s.f.catalog.read(TIMEOUT).await?;
         s.f.catalog
             .attest_node_isolation(
@@ -85,7 +95,8 @@ impl Repaired {
                 },
                 TIMEOUT,
             )
-            .await?;
+            .await
+            .context("attest isolation of joined obsolete owner")?;
         let mut active = s
             .cells
             .iter()
@@ -141,16 +152,19 @@ impl Repaired {
                     std::slice::from_ref(&namespace),
                     TIMEOUT,
                 )
-                .await?;
+                .await
+                .context("reserve isolated replacement movement")?;
         let permit = admitted.authorization();
         let target = s
             .observer
             .register_managed_history(s.authorization.clone(), TIMEOUT)
-            .await?;
+            .await
+            .context("register isolated replacement history")?;
         discover(&s.f, &[&s.nodes[0].host, &s.nodes[1].host, &s.observer]).await?;
         active[p]
             .begin_managed_repair(permit.clone(), movement.plan.clone(), TIMEOUT)
-            .await?;
+            .await
+            .context("begin isolated replacement repair")?;
         let source_member = s
             .proposal
             .voters
@@ -169,7 +183,8 @@ impl Repaired {
                     timeout: TIMEOUT,
                 },
             )
-            .await?;
+            .await
+            .context("activate isolated replacement from archive")?;
         ensure!(
             super::super::super::retirement::step(
                 &s.f,
@@ -177,7 +192,8 @@ impl Repaired {
                 &permit,
                 RepairStep::PromoteAndRemove
             )
-            .await?
+            .await
+            .context("promote isolated replacement and remove obsolete voter")?
             .phase
                 == RepairPhase::Joint
         );
@@ -188,12 +204,15 @@ impl Repaired {
                 &permit,
                 RepairStep::FinishJoint
             )
-            .await?
+            .await
+            .context("finish isolated replacement joint configuration")?
             .phase
                 == RepairPhase::Complete
         );
         active.push(target);
-        write_read(&s.f, &active, 2, 5, 12).await?;
+        write_read(&s.f, &active, 2, 5, 12)
+            .await
+            .context("verify state after isolated replacement")?;
         s.f.domain
             .run(cellar::asyncrt::timeout(TIMEOUT, async {
                 loop {
@@ -236,7 +255,8 @@ impl Repaired {
                     &s.observer,
                     TIMEOUT,
                 )
-                .await?;
+                .await
+                .context("complete isolated replacement movement")?;
         ensure!(complete.isolated_sources() == [old.spec.node.bytes()]);
         let peers = [
             s.nodes[0].spec.node,
@@ -270,11 +290,17 @@ impl Repaired {
                 std::slice::from_ref(&self.namespace),
                 TIMEOUT,
             )
-            .await?;
+            .await
+            .context("prepare isolated removal verification")?;
         let fixed = proof
             .freeze_live(&self.s.observer, self.peers, TIMEOUT)
-            .await?;
-        let reference = self.s.reference(&fixed).await?;
+            .await
+            .context("freeze isolated removal survivor cut")?;
+        let reference = self
+            .s
+            .reference(&fixed)
+            .await
+            .context("capture isolated removal archive reference")?;
         proof
             .verify_live(
                 &self.s.observer,
@@ -282,13 +308,17 @@ impl Repaired {
                 archive(&self.s, &reference),
                 TIMEOUT,
             )
-            .await?;
+            .await
+            .context("verify isolated removal archive replay and survivors")?;
         Ok(proof)
     }
 
     async fn finalizing(&self) -> Result<FleetEvacuationCandidate> {
         let mut proof = self.verification(&self.s.f.catalog).await?;
-        let candidate = proof.publish_candidate(TIMEOUT).await?;
+        let candidate = proof
+            .publish_candidate(TIMEOUT)
+            .await
+            .context("publish isolated removal candidate")?;
         let cut = self.s.f.catalog.read(TIMEOUT).await?;
         let intent = request(230, cut.revision());
         ensure!(candidate
@@ -330,7 +360,8 @@ impl Repaired {
         ensure!(root.revision() == cut.revision() + 1);
         let fence = candidate
             .begin_isolated_finalization(&root, &intent, ProposalId::new(ISOLATION)?, &[], TIMEOUT)
-            .await?;
+            .await
+            .context("reconcile isolated finalization after lost confirmation")?;
         ensure!(fence.isolation_request() == Some(ISOLATION));
         ensure!(fence.stop_request(ProposalId::new([238; 16])?).is_err());
         ensure!(fence

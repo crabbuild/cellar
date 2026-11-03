@@ -430,7 +430,7 @@ pub fn counter_with_blobs(
         Ok(())
     };
     if blobs {
-        counter_observed_with_blobs(observe, gate, true)
+        counter_definition(observe, gate, true, None)
     } else {
         counter_observed(observe, gate)
     }
@@ -441,29 +441,57 @@ pub fn counter_observed(
     observe: impl Fn(&cellar_logic::cell_group::CellHistory) -> Result<()> + Send + Sync + 'static,
     gate: Arc<Gate>,
 ) -> Result<Counter> {
-    counter_observed_with_blobs(observe, gate, false)
+    counter_definition(observe, gate, false, None)
 }
 
-fn counter_observed_with_blobs(
+/// A bulk seed must exceed the bounded grant metadata, even after compression.
+#[allow(dead_code)] // Shared support; only snapshot tests need the bulk payload.
+pub fn counter_with_seed_payload(
+    calls: Arc<std::sync::atomic::AtomicUsize>,
+    gate: Arc<Gate>,
+) -> Result<Counter> {
+    use sha2::Digest as _;
+    let mut bytes = Vec::with_capacity(256 * 1024);
+    for block in 0_u64..8192 {
+        bytes.extend_from_slice(&sha2::Sha256::digest(block.to_be_bytes()));
+    }
+    let observe = move |_: &cellar_logic::cell_group::CellHistory| {
+        calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    };
+    counter_definition(observe, gate, false, Some(bytes.into()))
+}
+
+fn counter_definition(
     observe: impl Fn(&cellar_logic::cell_group::CellHistory) -> Result<()> + Send + Sync + 'static,
     gate: Arc<Gate>,
     blobs: bool,
+    padding: Option<Arc<[u8]>>,
 ) -> Result<Counter> {
     let mut class = RaftClass::new("Counter", 1, [21; 32])?;
     if blobs {
         class = class.immutable_blobs(RaftBlobLimits::default())?;
     }
+    let expected_padding = padding.clone();
     let class=class
         .command("Increment",[22;32],move |context,input|{
             observe(context.identity())?;
             let delta=i64::from_be_bytes(input.try_into()?);
+            if let Some(padding)=&padding {
+                context.sql().execute_batch("CREATE TABLE IF NOT EXISTS seed_payload(data BLOB NOT NULL)")?;
+                context.sql().execute("INSERT INTO seed_payload SELECT ?1 WHERE NOT EXISTS(SELECT 1 FROM seed_payload)",[padding.as_ref()])?;
+            }
             context.sql().execute_batch("CREATE TABLE IF NOT EXISTS counter(value INTEGER); INSERT INTO counter SELECT 0 WHERE NOT EXISTS(SELECT 1 FROM counter)")?;
             context.sql().execute("UPDATE counter SET value=value+?1",[delta])?;
             if context.command().sequence()==2 {gate.wait()?;}
             let value:i64=context.sql().query_row("SELECT value FROM counter",[],|row|row.get(0))?;
             Ok(value.to_be_bytes().to_vec())
         })?
-        .query("Get",[23;32],|context,_|{
+        .query("Get",[23;32],move |context,_|{
+            if let Some(expected)=&expected_padding {
+                let actual:Vec<u8>=context.query_row("SELECT data FROM seed_payload",[],|row|row.get(0))?;
+                anyhow::ensure!(actual.as_slice()==expected.as_ref(),"seed payload changed");
+            }
             let value:i64=context.query_row("SELECT value FROM counter",[],|row|row.get(0))?;
             Ok(value.to_be_bytes().to_vec())
         })?;

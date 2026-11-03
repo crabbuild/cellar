@@ -568,37 +568,55 @@ where
         shutdown_accept_failure_test_active,
         "listener failure armed",
     );
+    // Forced closure can win during this poll. Refused shutdown work means
+    // cancellation and must never produce a graceful completion proof.
     #[cfg(all(test, cellar_internal_tests))]
     {
         if let Some(listener) = listener {
-            spawn_shutdown_acceptor(
+            if spawn_shutdown_acceptor(
                 listener,
                 HttpSurface::Public,
                 shutdown_connection_tx.clone(),
                 shutdown_accept_failure_test_active,
-            );
+            )
+            .is_err()
+            {
+                return Ok(NodeOutcome::Cancelled);
+            }
         }
-        spawn_shutdown_acceptor(
+        if spawn_shutdown_acceptor(
             internal_listener,
             HttpSurface::Internal,
             shutdown_connection_tx,
             false,
-        );
+        )
+        .is_err()
+        {
+            return Ok(NodeOutcome::Cancelled);
+        }
     }
     #[cfg(not(all(test, cellar_internal_tests)))]
     {
         if let Some(listener) = listener {
-            spawn_shutdown_acceptor(
+            if spawn_shutdown_acceptor(
                 listener,
                 HttpSurface::Public,
                 shutdown_connection_tx.clone(),
-            );
+            )
+            .is_err()
+            {
+                return Ok(NodeOutcome::Cancelled);
+            }
         }
-        spawn_shutdown_acceptor(
+        if spawn_shutdown_acceptor(
             internal_listener,
             HttpSurface::Internal,
             shutdown_connection_tx,
-        );
+        )
+        .is_err()
+        {
+            return Ok(NodeOutcome::Cancelled);
+        }
     }
     let mut drain_token_hold: Option<crate::drain_token::Hold> = None;
     let (admitted_work_drained, ingress_drained_before_cut) = {
@@ -617,7 +635,7 @@ where
                 let baseline_ownership = ready_ownership.clone();
                 let wait = std::time::Duration::from_millis(drain_token_wait_ms)
                     .min(handoff_deadline.saturating_duration_since(tokio::time::Instant::now()));
-                crate::asyncrt::spawn(async move {
+                let task = crate::asyncrt::try_spawn(async move {
                     let now_ms = crate::ownership_store::now_ms();
                     let restoration_baseline = match baseline_ownership {
                         Some(ownership) => match ownership.read_capacity_peers().await {
@@ -662,8 +680,11 @@ where
                     )
                     .await;
                     *slot.lock().expect("drain token slot") = Some(outcome);
-                })
-                .detach();
+                });
+                match task {
+                    Ok(task) => task.detach(),
+                    Err(_) => return Ok(NodeOutcome::Cancelled),
+                }
             }
             _ => {
                 *drain_token.lock().expect("drain token slot") =

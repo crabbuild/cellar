@@ -319,7 +319,16 @@ async def fetch(request, ctx):
     if request.path == "/library":
         # A real native extension (_hashlib) plus pure Python library imports.
         return Response.json(hashlib.sha256(b"cellar").hexdigest())
-    return await ctx.namespace("COUNTERS").get_by_name("one").fetch(request)
+    cell = ctx.namespace("COUNTERS").get_by_name("one")
+    if request.path == "/proof/state":
+        try:
+            return await cell.fetch(request)
+        except Ambiguous as error:
+            # Only this fixed, read-only recovery route can be reconciled. A
+            # failed/reset callee never establishes a mutation's rollback.
+            assert error.code == "Ambiguous" and error.outcome == "unknown"
+            return Response.json({"code": error.code, "outcome": error.outcome}, status=503)
+    return await cell.fetch(request)
 
 
 class Counter:

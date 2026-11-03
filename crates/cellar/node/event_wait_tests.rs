@@ -366,41 +366,54 @@ async fn cancellation_of_an_unpolled_local_wait_releases_the_actual_activity() -
 async fn real_dispatch_route_timeout_cancels_the_pending_actor_request() -> Result<()> {
     use crate::application::event_stream::{Authority, Binding};
     let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
-    let result = domain.run(async {
-        let (app, mut messages) = app()?;
+    let result = domain.run(crate::asyncrt::timeout(std::time::Duration::from_secs(2), async {
         let binding: Binding = serde_json::from_value(serde_json::json!({
             "environment": "EVENTS",
             "resource": {"tenant": "t", "application": "a", "id": "a".repeat(32), "name": "e", "family": "e"},
             "principal": "test", "grant": "grant", "read": true
         }))?;
-        let authority = Authority::resolution(&binding)?;
-        let (reply, result) = oneshot::channel();
-        let call = crate::host_channels::RpcCallReq {
-            reservation: None,
-            parent_cancellation: None,
-            signal: None,
-            deadline_ms: None,
-            authority: Some(authority.into()), request_id: None, cancel: None,
-            scope: crate::application::event_stream::cell_scope(&binding.resource)?,
-            name: None, method: "__streamResolve".into(),
-            args: crate::engine_api::RpcData::Json("[]".into()), reply,
-        };
-        let dispatch = super::super::dispatch_rpc_call(app, call);
-        let actor = async {
-            let crate::actor::Message::Request { request, reply, .. } = messages.recv().await.unwrap()
+        loop {
+            let (app, mut messages) = app()?;
+            let authority = Authority::resolution(&binding)?;
+            let (reply, result) = oneshot::channel();
+            let call = crate::host_channels::RpcCallReq {
+                reservation: None,
+                parent_cancellation: None,
+                signal: None,
+                deadline_ms: None,
+                authority: Some(authority.into()), request_id: None, cancel: None,
+                scope: crate::application::event_stream::cell_scope(&binding.resource)?,
+                name: None, method: "__streamResolve".into(),
+                args: crate::engine_api::RpcData::Json("[]".into()), reply,
+            };
+            let mut dispatch = Box::pin(super::super::dispatch_rpc_call(app, call));
+            // The host can exhaust this attempt's unchanged 10 ms budget before
+            // its first routing poll. Verify that refusal submitted nothing, then
+            // establish the pending-route state within the original outer bound.
+            if dispatch.as_mut().now_or_never().is_some() {
+                let error = result.await?.err().expect("RPC unexpectedly succeeded");
+                assert_eq!(code(&error), ErrorCode::Unavailable);
+                untagged(&error);
+                assert!(messages.try_recv().is_err(), "completed setup submitted actor work");
+                crate::asyncrt::sleep(std::time::Duration::from_millis(1)).await;
+                continue;
+            }
+            let crate::actor::Message::Request { request, reply, .. } = messages.try_recv()?
                 else { panic!("routing request missing") };
-            let cancelled = messages.recv().await.unwrap();
-            assert!(matches!(cancelled, crate::actor::Message::CancelRoute { request: observed } if observed == request));
-            drop(reply);
-        };
-        crate::asyncrt::timeout(std::time::Duration::from_secs(2), futures_util::future::join(dispatch, actor)).await?;
-        let error = result.await?.err().expect("RPC unexpectedly succeeded");
-        assert_eq!(code(&error), ErrorCode::Unavailable);
-        untagged(&error);
-        Ok::<_, anyhow::Error>(())
-    }).await?;
+            let actor = async {
+                let cancelled = messages.recv().await.unwrap();
+                assert!(matches!(cancelled, crate::actor::Message::CancelRoute { request: observed } if observed == request));
+                drop(reply);
+            };
+            futures_util::future::join(dispatch, actor).await;
+            let error = result.await?.err().expect("RPC unexpectedly succeeded");
+            assert_eq!(code(&error), ErrorCode::Unavailable);
+            untagged(&error);
+            return Ok::<_, anyhow::Error>(());
+        }
+    })).await?;
     domain.shutdown().await;
-    result
+    result?
 }
 
 #[tokio::test]

@@ -371,7 +371,7 @@ I/O or group enumeration. The internal generation-bound, authenticated
 `/peer/raft/metrics` endpoint exports these counters, actual SQL work reservations
 and incoming/outgoing transport and snapshot/metadata banks, without identity
 labels or callback execution. Live SQL, image, group and transport sources use
-111 fixed samples. A configured controller and a live extent inventory each
+113 fixed samples. A configured controller and a live extent inventory each
 add 13 samples. Unavailable sources omit their values rather than synthesizing
 zero. Weak transport and inventory observers cannot retain physical resources
 after joined shutdown. The [operations contract](../../../../docs/design/multi-raft/operations-design.md)
@@ -1041,11 +1041,12 @@ must retain or report immediate queue refusals. Dropping a delivery does not
 refund queued/in-flight work. Peer and node usage counters expose held bytes and
 items; permits release on completion, refusal, close and domain cancellation.
 
-Before applying a committed configuration, the replica drains ownership of its
-already-emitted protocol sends so membership revocation cannot invalidate their
-delivery. Later ordinary Ready work waits behind this finite fence; an unstable
-snapshot retains priority. Send completion only releases ownership: configuration
-application still requires its own durable write.
+Before applying a committed configuration, the replica includes one already-pending
+ordinary Ready within existing admission limits, then drains ownership of its
+protocol sends so membership revocation cannot invalidate their delivery. Later
+ordinary Ready work waits behind this finite fence; an unstable snapshot retains
+priority. Send completion only releases ownership: configuration application still
+requires its own durable write.
 
 Receiver frame admission validates the current member and bounded message before
 queueing it, without waiting for that group's Ready or image installation. Raft
@@ -1566,6 +1567,13 @@ transport failures obtain a fresh grant under the same deadline. A new request
 supersedes the earlier source lease to that learner, whose outstanding stream
 retains its pins until bounded I/O exits. Identity/authentication failures remain
 refusals.
+
+The single source slot distinguishes an offered snapshot from an authenticated
+pull that has started. An authorized fresh seed request may retire an unclaimed
+offer to another voter, which might have ignored an obsolete announcement.
+Retiring an offer and claiming its first pull are mutually exclusive atomic
+transitions. Active transfers to other peers stay protected, and every retained
+physical owner keeps its source reservation through cancellation and I/O exit.
 
 `snapshot_seed.rs` validates the original birth, exact learner binding, included
 configuration and barrier before sealing the physical image. The engine creates

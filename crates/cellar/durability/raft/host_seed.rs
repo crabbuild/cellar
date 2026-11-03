@@ -58,13 +58,14 @@ impl Driver {
             reply(&mut request, Err(CommandFailure::Unavailable));
             return;
         }
-        // A fresh authenticated request supersedes an earlier transfer to the
-        // same physical learner. Old stream owners retain their pins until
-        // their bounded I/O exits; no unverified progress escapes either one.
+        // A valid seed request may release an unclaimed snapshot offer to an
+        // unrelated voter. Otherwise an ignored offer can hold the sole source
+        // slot for the seed's entire deadline. Active transfers to other peers
+        // remain protected; this learner's earlier transfer is superseded.
         if self
             .snapshot_source
             .as_ref()
-            .is_some_and(|source| source.targets(&request.scope, target.member))
+            .is_some_and(|source| source.yield_for_seed(&request.scope, target.member))
         {
             if let Some(source) = self.snapshot_source.take() {
                 source.cancel();

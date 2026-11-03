@@ -751,7 +751,13 @@ async fn native_seed_drill_store(
     let calls: Vec<_> = (0..4).map(|_| Arc::new(AtomicUsize::new(0))).collect();
     let definitions = calls
         .iter()
-        .map(|calls| public_node::counter(calls.clone(), gate.clone()))
+        .map(|calls| {
+            if interrupt {
+                public_node::counter_with_seed_payload(calls.clone(), gate.clone())
+            } else {
+                public_node::counter(calls.clone(), gate.clone())
+            }
+        })
         .collect::<Result<Vec<_>>>()?;
     let mut namespace = native_snapshot_config();
     namespace.schema_digest = definitions[0].schema;
@@ -2068,14 +2074,16 @@ async fn native_snapshot_drill(
             // Exercise independent-group progress on the same node whose
             // snapshot download is held, rather than depending on election luck.
             let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+            let mut placement_observed = vec![String::new(); healthy.len()];
+            let mut transfer_observed = String::new();
             tokio::time::timeout_at(deadline, async {
                 loop {
-                    if healthy[follower]
+                    let target_status = healthy[follower]
                         .status()
                         .await
-                        .context("recovering node healthy-group leadership status")?
-                        .command_ready
-                    {
+                        .context("recovering node healthy-group leadership status")?;
+                    placement_observed[follower] = format!("{target_status:?}");
+                    if target_status.command_ready {
                         return Ok::<_, anyhow::Error>(());
                     }
                     for (node, handle) in healthy.iter().enumerate() {
@@ -2088,8 +2096,9 @@ async fn native_snapshot_drill(
                         let status = handle.status().await.with_context(|| {
                             format!("healthy-group transfer source status on node {node}")
                         })?;
+                        placement_observed[node] = format!("{status:?}");
                         if status.command_ready {
-                            match handle
+                            let result = handle
                                 .transfer_leadership(
                                     LeadershipTransfer {
                                         target: MemberId::new(follower as u64 + 1)?,
@@ -2098,8 +2107,9 @@ async fn native_snapshot_drill(
                                     },
                                     deadline.saturating_duration_since(tokio::time::Instant::now()),
                                 )
-                                .await
-                            {
+                                .await;
+                            transfer_observed = format!("node {node}: {result:?}");
+                            match result {
                                 Ok(())
                                 | Err(
                                     CommandFailure::Overloaded
@@ -2117,7 +2127,9 @@ async fn native_snapshot_drill(
                 }
             })
             .await
-            .context("place healthy leader on snapshot recovery node")??;
+            .with_context(|| format!(
+                "place healthy leader on snapshot recovery node {follower}: statuses {placement_observed:?}, last transfer {transfer_observed}"
+            ))??;
         }
         let mut observed = [None, None, None];
         let healthy_primary = tokio::time::timeout(Duration::from_secs(10), async {

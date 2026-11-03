@@ -6,7 +6,7 @@ use super::*;
 mod rejoin;
 use cellar::application::consensus::verification::{
     FleetChange, FleetMutation, FleetRestartOfflineRequest, FleetRestartReadyRequest,
-    FleetRestartStopRequest, FleetSnapshot, FleetTable,
+    FleetRestartStopAdmission, FleetRestartStopRequest, FleetSnapshot, FleetTable,
 };
 
 async fn consent(
@@ -58,16 +58,50 @@ async fn trust(s: &Setup) -> Result<()> {
 }
 
 async fn joined(node: &mut cellar::sdk::Node, f: &Fixture) -> Result<()> {
-    let outcome = f
+    let completed = f
         .domain
         .run(cellar::asyncrt::timeout(TIMEOUT, node.finished()))
-        .await???;
+        .await?;
+    let outcome = completed.with_context(|| {
+        format!(
+            "restart stopped process join: node={}, closed={}",
+            node.info().node,
+            node.is_closed()
+        )
+    })??;
     let NodeOutcome::Stopped(report) = outcome else {
         anyhow::bail!("maintenance did not autonomously stop");
     };
     let raft = report.raft.context("joined Raft report")?;
     ensure!(!raft.startup_incomplete && raft.result?.unfinished.is_empty());
     Ok(())
+}
+
+// Overload is a retryable observation, not proof of stop or closure. Reuse the
+// exact admitted request within the original stop-call budget; callers still
+// validate the final verdict and join the actual process below.
+async fn submit_stop(
+    s: &Setup,
+    catalog: &FleetCatalog,
+    snapshot: &FleetSnapshot,
+    request: &FleetRestartStopRequest,
+) -> Result<std::result::Result<FleetRestartStopAdmission, FleetCatalogError>> {
+    s.f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+            loop {
+                match catalog
+                    .stop_restart_maintenance(snapshot, request, &s.spare, TIMEOUT)
+                    .await
+                {
+                    Err(FleetCatalogError::Overloaded) => {
+                        cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                    }
+                    result => return result,
+                }
+            }
+        }))
+        .await?
+        .context("maintenance stop submission deadline")
 }
 
 async fn stop_and_confirm(primary_target: bool, lose_replies: bool) -> Result<()> {
@@ -116,9 +150,7 @@ async fn stop_and_confirm(primary_target: bool, lose_replies: bool) -> Result<()
     ));
     ensure!(catalog.read(TIMEOUT).await?.revision() == cut.revision());
     trust(&s).await?;
-    let outcome = catalog
-        .stop_restart_maintenance(&cut, &request, &s.spare, TIMEOUT)
-        .await;
+    let outcome = submit_stop(&s, &catalog, &cut, &request).await?;
     ensure!(
         outcome.is_ok()
             || matches!(
@@ -250,16 +282,15 @@ async fn fleet_restart_stop_renews_expired_readiness_against_current_sql() -> Re
     s.f.domain
         .run(async { cellar::asyncrt::sleep(Duration::from_millis(5001)).await })
         .await?;
-    let result =
-        s.f.catalog
-            .stop_restart_maintenance(&root, &request, &s.spare, TIMEOUT)
-            .await;
+    let result = submit_stop(&s, &s.f.catalog, &root, &request).await?;
     ensure!(
         result.is_ok()
             || matches!(
                 result,
                 Err(FleetCatalogError::Unconfirmed | FleetCatalogError::Closed)
-            )
+            ),
+        "expired-readiness stop refusal: {:?}",
+        result.as_ref().err().map(ToString::to_string)
     );
     let mut target = s.nodes.remove(p);
     joined(&mut target.node, &s.f).await?;

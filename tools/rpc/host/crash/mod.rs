@@ -12,7 +12,12 @@ pub use gate::{Counter, Gate, Point};
 use anyhow::{ensure, Context as _, Result};
 use cellar::{bucket::Bucket, sdk::ShutdownMode};
 use serde_json::{json, Value};
-use std::{collections::BTreeSet, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
 
 use super::{application::Composite, fleet};
 
@@ -23,13 +28,31 @@ pub struct Server {
     pub ready: PathBuf,
 }
 
+fn durable_bucket(database: &Path) -> Result<Bucket> {
+    // The coordinator and the killed owner must reopen the same canonical
+    // namespace. Independent authority writes retain FULL sync without waiting
+    // behind the other node's application-data transaction.
+    ensure!(
+        database
+            .file_name()
+            .is_some_and(|name| name == "fleet.sqlite"),
+        "crash fixture requires its canonical fleet database"
+    );
+    crate::peer_faults::durable_fixture_bucket(
+        database
+            .parent()
+            .context("crash fixture bucket directory")?,
+        &["crash-owner", "crash-next"],
+    )
+}
+
 pub async fn serve(app: Arc<Composite>, server: Server) -> Result<Value> {
     // Only the disposable crash-owner process installs this observer. Native
     // applications and the qualification coordinator keep their SQLite hooks.
     sqlite::install()?;
     app.crash
         .evidence_file(server.ready.with_file_name("barrier.json"));
-    let bucket = Bucket::open_dev(&server.bucket)?;
+    let bucket = durable_bucket(&server.bucket)?;
     let controls = app.durability.clone();
     let (mut node, url) =
         fleet::start_controlled(&server.data, app, &server.name, bucket, Some(controls)).await?;
@@ -98,7 +121,7 @@ async fn case(
     class: &'static str,
 ) -> Result<Value> {
     let directory = tempfile::tempdir()?;
-    let bucket = Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    let bucket = durable_bucket(&directory.path().join("fleet.sqlite"))?;
     let (mut owner, owner_url) = process::Owner::start(directory.path(), "crash-owner").await?;
     let worker = get(client, &owner_url, "/node/process").await?;
     owner.worker(
