@@ -4,6 +4,34 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Latest cold managed group checkpoint
+
+The follow-up on b9be4de7 implements explicit standby inventory and exact-root
+first range selection, journaled import freeze, catalog-owned namespace execution
+and boot-bound capacity at initial birth admission. An Active hint cannot reuse
+old-boot capacity. The negative admission case preserves the root; fresh actual
+Ready/Active admission permits the identical proposal. Unselected reservations
+retain their physical references.
+
+Final source CG-07-cold-managed-group-06 passes all seven managed Node cases and
+23 catalog cases. Both image forms complete RF3 genesis, two independent cells,
+joined close, canonical retained startup, duplicate receipts, old-token reads and
+new quorum writes. Deployment bounds are explicit fixture attestations. Full
+shared execution is 179 passed, two owned process fixtures ignored. Twenty wire
+cases, three host cases and one public SDK case pass, along with counter/effects
+builds, the original retained smoke, native-only library compilation and five
+static checks. Full library has 1056 passed, one retired inspection failure and
+two ignored. Package builds still fail on 27 performance errors; strict lint remains 222 diagnostics, 202 dead_code.
+
+All qualification jobs are terminal. Consult cold_bootstrap_work in the ignored
+continuation for immutable artifacts, source hashes, failed attempts, preservation
+and publication. Next feature priority is joined-member startup and whole-group
+repair/drain/maintenance/stop/return/resume with real debt/accounting, then original
+consumers/public gates, exact-reference S3 learner activation and current-source
+RustFS recovery/load. The full managed lifecycle and CG-09–16 remain required.
+Keep PR #160 draft and the end-to-end goal incomplete. Preserve all eight user
+diagrams and exclude both requested MR progress basenames.
+
 ## Latest shared membership and managed ownership work
 
 The user-ordered merged-source checkpoint is published to draft PR #160 at

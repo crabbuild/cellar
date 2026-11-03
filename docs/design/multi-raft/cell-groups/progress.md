@@ -12,6 +12,56 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 cold managed group qualification checkpoint
+
+The follow-up on b9be4de7 adds an explicit standby directory genesis with its
+permanent pin, immutable journal and operation index. It proves zero selected
+groups before capacity admission; missing metadata still refuses. First range
+selection requires rooted birth reservations and an exact standby-root CAS.
+Selected ranges cannot return to standby. Missing tree fields reject. Import
+freeze journals its head transition, including a real zero-group inventory.
+Fleet birth identity reservation and materialization enter their owning execution
+domain; public callers need not provide one.
+
+Initial placement now revalidates every voter's current opaque capacity receipt.
+The direct post-restart regression fails before this guard: an Active descriptor
+admits a new birth using stale capacity, advancing root revision 19 to 20. The
+fixed path refuses without a root change; actual new-boot qualification and
+activation then let the identical proposal succeed. Its unselected reservation
+remains inventoried. Existing group ownership and serving survive readmission.
+
+Capture CG-07-cold-managed-group-06 binds 2126 Rust inputs (manifest SHA256
+4f5a778a4c2bed7db7fd9bc0c30bc4f2ee962341e2fce08a03059fe01381ff01).
+All seven actual-Node managed cases pass. In both image forms, three registered standby nodes qualify
+and activate capacity, reserve/select one group, reach RF3 quorum and enroll two
+independent SQLite cells. Canonical retained startup, exact duplicate results,
+old-token reads and new quorum writes pass. Deployment resource bounds are explicit
+fixture attestations, not kernel measurements. The original missing-pin failure,
+import head/journal disagreement, caller-domain backtrace, fixture compilation
+errors and stale-capacity admission remain preserved with their exact sources.
+
+The final broader chain is terminal: all 23 catalog and 179 shared execution cases
+pass, with two owned process fixtures intentionally ignored. Library builds; all
+twenty wire cases pass. Full library is 1056 passed, the same retired inspection
+protocol failure, and two ignored. All 1058 earlier names remain and the strict
+missing-tree parser test is added. Three host cases, the original public SDK
+counter drill, counter/effects builds and retained effects smoke pass. The effects
+smoke uses the SQLite development object store. Locked native-only library
+compilation, format, layout, native dependencies, docs and diff checks pass.
+
+Package builds still exit 101 on 27 unconverted performance-binary errors despite
+emitting current native executables. Strict Clippy fails with 222 diagnostics,
+including 202 dead_code. These are failing merge gates, not package passes.
+Profiles remain local opt-level zero with debug assertions/overflow checks and
+without internal test cfg, raised timeouts/capacities/stacks or lint suppressions.
+No optimized CI, complete feature matrix or current RustFS/load claim follows.
+
+This qualifies local cold initial-group/ordinary-retained startup. Joined-member
+startup, repair, drain, maintenance, stop/return/resume and physical disruption
+accounting still need the original public lifecycle gate. Exact-reference S3
+learner activation, remaining consumers/public gates, current-source RustFS
+recovery/load and CG-09–16 remain required; CG-07 and the full goal stay incomplete.
+
 ## CG-07 final shared ownership qualification checkpoint
 
 Source-06 preserves the finite shared membership fence and physical send/hint
