@@ -3189,11 +3189,7 @@ impl Driver {
                 tracing::error!(group = ?replica.scope.group, ?error, "Raft runtime failed");
                 self.fail(&replica.scope);
             }
-            RuntimeEventKind::Snapshot {
-                ticket,
-                snapshot,
-                source,
-            } => self.receive_snapshot(ticket.clone(), snapshot.clone(), *source),
+            RuntimeEventKind::Snapshot { .. } => self.receive_snapshot(event),
             RuntimeEventKind::SnapshotInstalled { ticket, .. } => self.snapshot_installed(ticket),
             RuntimeEventKind::SnapshotAborted { ticket, .. } => self.snapshot_aborted(ticket),
             RuntimeEventKind::Checkpointed { ticket } => {
