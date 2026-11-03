@@ -122,6 +122,18 @@ separate operator protocols. An enrolled standby can boot before its first range
 is published, without inventing an empty directory or serving a cell. This is not
 capacity readiness, complete inventory or group activation.
 
+Cold operators can publish an explicit standby directory genesis before capacity
+admission. Its pin, journal and operation index prove zero selected groups; a
+missing head or pin refuses. The exact standby observation is then the CAS base
+for the first complete range map, after the fleet has reserved every birth.
+Standby has no cell route and cannot replace an existing partition. Persist and
+retry the same encoded intent after an uncertain publication. Import freezing
+also journals its head transition, including for a real zero-group inventory.
+Initial birth admission revalidates each voter's opaque capacity receipt at the
+exact fleet cut. An ordinary retained boot invalidates the previous receipt even
+if its descriptor remains Active. Existing groups retain ownership; new births
+require fresh capacity qualification and activation for that boot.
+
 The host pins its physical engine before binding a boot. The ordinary boot CAS
 or retained maintenance rejoin protocol must settle, and the exact lifecycle
 guard must sync before endpoints are published or groups attach. Retained routes

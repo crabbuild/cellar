@@ -24,6 +24,138 @@ struct Fixture {
     limits: DirectoryLimits,
 }
 
+pub(super) async fn standby_initialization() -> Result<()> {
+    let f = Fixture::new(DirectoryLimits::default()).await?;
+    anyhow::ensure!(f.run(f.directory.observe()).await.is_err());
+    anyhow::ensure!(f
+        .directory
+        .prepare_initialization(operation(72000), &[])
+        .is_err());
+    let intent = f
+        .directory
+        .prepare_standby_initialization(operation(72001))?;
+    let saved = intent.encode().to_vec();
+    f.store.fail_head_after.store(true, Ordering::Release);
+    let accepted = f.run(f.directory.publish(&intent)).await?;
+    anyhow::ensure!(accepted.revision() == 1 && accepted.tree_digest().is_none());
+    let reopened = f.reopen().await?;
+    let retry = reopened.decode_mutation(&saved)?;
+    anyhow::ensure!(f.run(reopened.publish(&retry)).await? == accepted);
+    let view = f.run(reopened.observe()).await?;
+    let page = f.run(reopened.group_page(&view, None, 16)).await?;
+    anyhow::ensure!(view.groups() == 0 && page.routes.is_empty() && page.next.is_none());
+    anyhow::ensure!(matches!(
+        f.run(reopened.lookup(&view, &CellId::new("not-enrolled")?))
+            .await,
+        Err(CatalogError::Conflict(_))
+    ));
+    let head = f.key("head");
+    let bytes = f.store.inner.get(&head).await?.bytes().await?;
+    f.store.inner.delete(&head).await?;
+    anyhow::ensure!(f.run(reopened.observe()).await.is_err());
+    anyhow::ensure!(f.run(reopened.publish(&retry)).await.is_err());
+    f.store.inner.put(&head, bytes.into()).await?;
+    anyhow::ensure!(f.run(reopened.observe()).await?.digest() == view.digest());
+    anyhow::ensure!(f.store.listing_calls.load(Ordering::Acquire) == 0);
+    f.domain.shutdown().await;
+    Ok(())
+}
+
+pub(super) async fn standby_import() -> Result<()> {
+    let f = Fixture::new(DirectoryLimits::default()).await?;
+    let intent = f
+        .directory
+        .prepare_standby_initialization(operation(72200))?;
+    f.run(f.directory.publish(&intent)).await?;
+    let standby = f.run(f.directory.observe()).await?;
+    let route =
+        f.directory
+            .prepare_group_birth(birth_spec(&assigned(72201, CellRange::all(), 1)))?;
+    let first = f.directory.prepare_initialization_at(
+        &standby,
+        operation(72202),
+        std::slice::from_ref(route.route()),
+    )?;
+    let cut = f
+        .run(f.directory.freeze_group_births(operation(72203)))
+        .await?;
+    anyhow::ensure!(cut.is_empty() && cut.len() == 0);
+    let frozen = f.run(f.directory.observe()).await?;
+    anyhow::ensure!(frozen.revision() == 2 && frozen.groups() == 0);
+    anyhow::ensure!(f
+        .run(f.directory.group_page(&frozen, None, 16))
+        .await?
+        .routes
+        .is_empty());
+    anyhow::ensure!(matches!(
+        f.run(f.directory.publish(&first)).await,
+        Err(CatalogError::BirthsFrozen)
+    ));
+    let reopened = f.reopen().await?;
+    anyhow::ensure!(f
+        .run(reopened.freeze_group_births(operation(72203)))
+        .await?
+        .is_empty());
+    anyhow::ensure!(f.run(reopened.observe()).await?.digest() == frozen.digest());
+    f.domain.shutdown().await;
+    Ok(())
+}
+
+pub(super) async fn standby_first_ranges() -> Result<()> {
+    let f = Fixture::new(DirectoryLimits::default()).await?;
+    let empty = f
+        .directory
+        .prepare_standby_initialization(operation(72100))?;
+    let receipt = f.run(f.directory.publish(&empty)).await?;
+    let standby = f.run(f.directory.observe()).await?;
+    let mut routes = ranges(3);
+    f.reserve(&mut routes).await?;
+    let first = f
+        .directory
+        .prepare_initialization_at(&standby, operation(72101), &routes)?;
+    let loser = f
+        .directory
+        .prepare_initialization_at(&standby, operation(72102), &routes)?;
+    // Lose confirmation after the real root CAS. Reopen and retry the original
+    // canonical intent; neither a timeout nor another operation can rebase it.
+    let saved = first.encode().to_vec();
+    f.store
+        .fail_head_confirmation
+        .store(true, Ordering::Release);
+    anyhow::ensure!(matches!(
+        f.run(f.directory.publish(&first)).await,
+        Err(CatalogError::Unconfirmed)
+    ));
+    f.store.fail_read.store(false, Ordering::Release);
+    let reopened = f.reopen().await?;
+    let accepted = f
+        .run(reopened.publish(&reopened.decode_mutation(&saved)?))
+        .await?;
+    anyhow::ensure!(accepted.revision() == 2 && accepted.tree_digest().is_some());
+    anyhow::ensure!(matches!(
+        f.run(f.directory.publish(&loser)).await,
+        Err(CatalogError::Conflict(_))
+    ));
+    let active = f.run(reopened.observe()).await?;
+    anyhow::ensure!(active.groups() == 3 && active.digest() != standby.digest());
+    anyhow::ensure!(reopened
+        .prepare_initialization_at(&active, operation(72103), &routes)
+        .is_err());
+    // A standby receipt stays historical after ranges exist. Replaying its
+    // operation cannot remove or replace the selected partition.
+    anyhow::ensure!(
+        f.run(reopened.publish(&reopened.decode_mutation(empty.encode())?))
+            .await?
+            == receipt
+    );
+    anyhow::ensure!(f.run(reopened.observe()).await?.digest() == active.digest());
+    let page = f.run(reopened.group_page(&active, None, 16)).await?;
+    anyhow::ensure!(page.routes == routes && page.next.is_none());
+    anyhow::ensure!(f.store.listing_calls.load(Ordering::Acquire) == 0);
+    f.domain.shutdown().await;
+    Ok(())
+}
+
 pub(super) async fn group_import_freeze() -> Result<()> {
     let f = Fixture::new(DirectoryLimits::default()).await?;
     let mut selected = ranges(3);

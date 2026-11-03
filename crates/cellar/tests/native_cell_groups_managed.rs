@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Managed boot/discovery/stop component qualification over actual embedded Nodes.
-//! This does not qualify capacity activation or the full managed lifecycle gate.
+//! Managed boot, cold capacity and retained-group qualification over embedded Nodes.
+//! Deployment bounds use fixture attestations; the full lifecycle gate is separate.
 #![allow(clippy::disallowed_methods)]
 use anyhow::{ensure, Context as _, Result};
 use cellar::application::consensus::verification::{Catalog, FleetCatalog, FleetCatalogError};
@@ -13,6 +13,8 @@ use std::{
     sync::{atomic::Ordering, Arc},
     time::Duration,
 };
+#[path = "support/cell_group_managed_bootstrap.rs"]
+mod bootstrap;
 #[path = "support/raft_catalog_fault.rs"]
 #[allow(dead_code)]
 mod fault;
@@ -38,7 +40,7 @@ impl PaginatedListStore for NoListing {
 }
 
 struct Fixture {
-    domain: ExecutionDomain,
+    domain: Arc<ExecutionDomain>,
     store: Arc<fault::Store>,
     catalog: FleetCatalog,
     declaration: RaftNamespaceRegistration,
@@ -48,7 +50,15 @@ struct Fixture {
 
 impl Fixture {
     async fn new(rooted: bool) -> Result<Self> {
-        let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+        Box::pin(Self::with_class(
+            rooted,
+            RaftClass::new("Counter", 1, [81; 32])?,
+        ))
+        .await
+    }
+
+    async fn with_class(rooted: bool, class: RaftClass) -> Result<Self> {
+        let domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
         let store = Arc::new(fault::Store::default());
         let bucket = Bucket::from_clients(
             store.clone(),
@@ -66,7 +76,6 @@ impl Fixture {
             "hosts/",
         )?;
         catalog.initialize(TIMEOUT).await?;
-        let class = RaftClass::new("Counter", 1, [81; 32])?;
         let schema = class.schema_digest();
         let application: Arc<dyn Application> =
             Arc::new(Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_class(class)?);

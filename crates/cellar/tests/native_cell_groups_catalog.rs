@@ -16,6 +16,21 @@ mod directory;
 mod fault;
 
 #[tokio::test]
+async fn standby_directory_is_explicit_durable_and_non_serving() -> anyhow::Result<()> {
+    directory::standby_initialization().await
+}
+
+#[tokio::test]
+async fn standby_first_range_cas_reconciles_and_never_reopens() -> anyhow::Result<()> {
+    directory::standby_first_ranges().await
+}
+
+#[tokio::test]
+async fn standby_import_freezes_a_real_empty_inventory() -> anyhow::Result<()> {
+    directory::standby_import().await
+}
+
+#[tokio::test]
 async fn group_import_freeze_retains_pending_and_fences_topology() -> anyhow::Result<()> {
     directory::group_import_freeze().await
 }

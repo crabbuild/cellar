@@ -222,7 +222,8 @@ pub(super) struct Head {
     pub namespace: [u8; 32],
     pub genesis: [u8; 32],
     pub revision: u64,
-    pub tree: Reference,
+    #[serde(deserialize_with = "required_tree")]
+    pub tree: Option<Reference>,
     pub operations: Option<[u8; 32]>,
     pub groups: Option<[u8; 32]>,
     pub journal: [u8; 32],
@@ -270,7 +271,16 @@ pub(super) struct Journal {
     pub request: [u8; 32],
     pub revision: u64,
     pub previous: Option<[u8; 32]>,
-    pub tree: Reference,
+    #[serde(deserialize_with = "required_tree")]
+    pub tree: Option<Reference>,
+}
+
+// A deliberate null is the journaled standby genesis. An omitted tree is corrupt,
+// never an older record shape or inferred empty namespace.
+fn required_tree<'de, D: serde::Deserializer<'de>>(
+    decoder: D,
+) -> Result<Option<Reference>, D::Error> {
+    Option::deserialize(decoder)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -285,4 +295,40 @@ pub(super) struct Birth {
     pub creation: [u8; 16],
     pub voters: Vec<record::Member>,
     pub learners: Vec<record::Member>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_tree_is_not_a_standby_record() {
+        let head = Head {
+            namespace: [1; 32],
+            genesis: [2; 32],
+            revision: 1,
+            tree: None,
+            operations: Some([3; 32]),
+            groups: None,
+            journal: [2; 32],
+            recovery: None,
+            import: None,
+        };
+        let mut value = serde_json::to_value(head).unwrap();
+        assert!(serde_json::from_value::<Head>(value.clone()).is_ok());
+        value.as_object_mut().unwrap().remove("tree");
+        assert!(serde_json::from_value::<Head>(value).is_err());
+        let journal = Journal {
+            namespace: [1; 32],
+            operation: [4; 16],
+            request: [5; 32],
+            revision: 1,
+            previous: None,
+            tree: None,
+        };
+        let mut value = serde_json::to_value(journal).unwrap();
+        assert!(serde_json::from_value::<Journal>(value.clone()).is_ok());
+        value.as_object_mut().unwrap().remove("tree");
+        assert!(serde_json::from_value::<Journal>(value).is_err());
+    }
 }

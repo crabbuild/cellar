@@ -108,6 +108,18 @@ Updates copy bounded tree paths and CAS one root, serializing namespace topology
 changes only. Independent namespaces can progress independently. The final load
 profile must measure this catalog write bottleneck.
 
+Managed cold setup may first publish an explicit standby genesis with a namespace
+pin, immutable journal and operation index, but no selected range tree. This
+durable zero-group state lets complete inventory precede boot capacity admission
+and the first managed birth. Missing metadata is never a standby observation.
+Standby serves no cells. The first complete range map requires permanent birth
+reservations and a CAS against the exact standby root. After selection, topology
+cannot return to standby; retries reconcile their original operation journal.
+Birth admission checks every initial voter against its current boot-bound
+capacity receipt. An Active descriptor alone is insufficient after an ordinary
+restart. Retained group ownership survives that restart; new placement requires
+the new boot to qualify and activate capacity again.
+
 Initially provision a bounded explicit set of non-overlapping ranges; an empty
 range record may remain unmaterialized until first enrollment. Lazy group birth
 uses the existing conditional creation and permanent member claims. A node move

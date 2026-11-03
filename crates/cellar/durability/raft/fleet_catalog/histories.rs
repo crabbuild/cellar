@@ -10,7 +10,7 @@ use crate::raft::cell_groups::{
 };
 use crate::raft::member_state::FleetGroupBinding;
 use cellar_logic::{
-    cell_group::{CellBound, CellId, CellRange, GroupHistory, RouteEpoch},
+    cell_group::{CellBound, CellId, CellRange, GroupHistory, GroupRoute, RouteEpoch},
     consensus::{MemberId, NodeId, ProposalId},
 };
 use serde::Deserialize;
@@ -382,6 +382,12 @@ impl FleetBirthAuthorization {
         &self.proposal.route().history
     }
 
+    /// Exact reserved metadata for the first range publication. Selection still
+    /// requires the directory CAS; this grants no member or quorum authority.
+    pub fn route(&self) -> &GroupRoute {
+        self.proposal.route()
+    }
+
     pub(crate) fn proposal(&self) -> CellGroupBirthRequest {
         self.proposal.clone()
     }
@@ -673,9 +679,14 @@ impl FleetCatalog {
                 return Err(FleetCatalogError::Conflict);
             }
             let mut history = authorization.history.clone();
-            let birth = directory
-                .materialize_fleet_group_birth(authorization)
+            let birth = self
+                .inner
+                .domain
+                .run(Box::pin(
+                    directory.materialize_fleet_group_birth(authorization),
+                ))
                 .await
+                .map_err(|_| FleetCatalogError::Closed)?
                 .map_err(catalog_error)?;
             if !history.check_birth(directory, &birth) {
                 return Err(FleetCatalogError::Conflict);
@@ -862,6 +873,18 @@ impl FleetCatalog {
                     {
                         return Err(FleetCatalogError::Conflict);
                     }
+                    // Active is a placement hint. An ordinary retained boot
+                    // invalidates the prior capacity receipt without erasing
+                    // that state or its existing group ownership.
+                    let target = NodeId::new(member.node)
+                        .map_err(|_| FleetCatalogError::Corrupt("birth capacity node"))?;
+                    if !self
+                        .capacity_from(snapshot, target)
+                        .await?
+                        .receive_replicas()
+                    {
+                        return Err(FleetCatalogError::Conflict);
+                    }
                 }
                 // This claim grants no birth authority. Confirming it before
                 // the root CAS closes races with other namespace catalogs that
@@ -870,9 +893,13 @@ impl FleetCatalog {
                 let proposal = directory
                     .prepare_fleet_group_birth(history.initial_placement()?, &owner)
                     .map_err(catalog_error)?;
-                directory
-                    .reserve_fleet_group_identity(&proposal, &owner)
+                self.inner
+                    .domain
+                    .run(Box::pin(
+                        directory.reserve_fleet_group_identity(&proposal, &owner),
+                    ))
                     .await
+                    .map_err(|_| FleetCatalogError::Closed)?
                     .map_err(catalog_error)?;
             }
         }

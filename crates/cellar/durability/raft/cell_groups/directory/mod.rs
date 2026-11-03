@@ -98,7 +98,7 @@ impl DirectoryView {
     }
 
     pub fn groups(&self) -> u32 {
-        self.head.tree.groups
+        self.head.tree.as_ref().map_or(0, |tree| tree.groups)
     }
 
     pub fn digest(&self) -> [u8; 32] {
@@ -135,7 +135,7 @@ impl DirectoryMutation {
 pub struct DirectoryPublication {
     operation: ProposalId,
     revision: u64,
-    tree: [u8; 32],
+    tree: Option<[u8; 32]>,
     journal: [u8; 32],
 }
 
@@ -148,7 +148,9 @@ impl DirectoryPublication {
         self.revision
     }
 
-    pub fn tree_digest(&self) -> [u8; 32] {
+    /// None confirms a standby genesis with no selected ranges. It grants no
+    /// cell route, birth, membership, capacity or serving authority.
+    pub fn tree_digest(&self) -> Option<[u8; 32]> {
         self.tree
     }
 
@@ -226,7 +228,37 @@ impl RangeDirectory {
         operation: ProposalId,
         ranges: &[GroupRoute],
     ) -> Result<DirectoryMutation, CatalogError> {
+        if ranges.is_empty() {
+            return Err(CatalogError::Invalid("empty initial range set"));
+        }
         self.request(operation, None, &[], ranges)
+    }
+
+    /// Explicitly initialize a new namespace before any range is selected.
+    /// Publish and retain this exact intent like any other topology mutation.
+    /// Inventory can then prove zero groups without treating absence as empty.
+    pub fn prepare_standby_initialization(
+        &self,
+        operation: ProposalId,
+    ) -> Result<DirectoryMutation, CatalogError> {
+        self.request(operation, None, &[], &[])
+    }
+
+    /// Select the first complete range map from an exact standby observation.
+    /// Every child still needs its permanent birth reservation before publication.
+    /// A concurrent initializer loses this CAS; retry the original intent after
+    /// an uncertain response rather than rebasing onto a later observation.
+    pub fn prepare_initialization_at(
+        &self,
+        standby: &DirectoryView,
+        operation: ProposalId,
+        ranges: &[GroupRoute],
+    ) -> Result<DirectoryMutation, CatalogError> {
+        self.check_view(standby)?;
+        if standby.head.tree.is_some() || ranges.is_empty() {
+            return Err(CatalogError::Conflict("not a standby directory"));
+        }
+        self.request(operation, Some(standby.digest), &[], ranges)
     }
 
     /// Prepare metadata for one exact contiguous replacement. The topology
@@ -279,19 +311,28 @@ impl RangeDirectory {
         if request.namespace != self.namespace.root_digest {
             return Err(CatalogError::Conflict("directory namespace"));
         }
-        if request.children.is_empty()
-            || request.children.len() > if request.expected.is_none() { 128 } else { 64 }
+        if request.children.is_empty() {
+            return if request.expected.is_none() && request.parents.is_empty() {
+                Ok(())
+            } else {
+                Err(CatalogError::Invalid("empty replacement range set"))
+            };
+        }
+        if request.children.len() > if request.expected.is_none() { 128 } else { 64 }
             || request.parents.len() > 64
         {
             return Err(CatalogError::Limit);
         }
         let children = self.union(&request.children)?;
-        let epoch = if request.expected.is_none() {
-            if !request.parents.is_empty() || children != CellRange::all() {
+        let epoch = if request.parents.is_empty() {
+            if children != CellRange::all() {
                 return Err(CatalogError::Invalid("initial range coverage"));
             }
             1
         } else {
+            if request.expected.is_none() {
+                return Err(CatalogError::Invalid("initial parent ranges"));
+            }
             if self.union(&request.parents)? != children {
                 return Err(CatalogError::Conflict("changed range union"));
             }
@@ -317,7 +358,6 @@ impl RangeDirectory {
             || head.genesis == [0; 32]
             || head.journal == [0; 32]
             || head.operations.is_none()
-            || head.groups.is_none()
         {
             return Err(CatalogError::Corrupt("directory head"));
         }
@@ -329,7 +369,17 @@ impl RangeDirectory {
         if let Some(recovery) = &head.recovery {
             recovery.check(self)?;
         }
-        head.tree.require_complete(self)
+        match &head.tree {
+            Some(tree) if head.groups.is_some() => tree.require_complete(self),
+            None if head.groups.is_none()
+                && ((head.revision == 1 && head.import.is_none())
+                    || (head.revision > 1 && head.import.is_some()))
+                && head.recovery.is_none() =>
+            {
+                Ok(())
+            }
+            _ => Err(CatalogError::Corrupt("directory range state")),
+        }
     }
 
     async fn head(&self) -> Result<Option<(DirectoryView, UpdateVersion)>, CatalogError> {
@@ -415,7 +465,12 @@ impl RangeDirectory {
         cell: &CellId,
     ) -> Result<GroupRoute, CatalogError> {
         self.check_view(view)?;
-        self.bounded(self.lookup_tree(&view.head.tree, cell)).await
+        let tree = view
+            .head
+            .tree
+            .as_ref()
+            .ok_or(CatalogError::Conflict("directory has no selected ranges"))?;
+        self.bounded(self.lookup_tree(tree, cell)).await
     }
 
     async fn confirmed(
@@ -440,7 +495,7 @@ impl RangeDirectory {
         Ok(Some(DirectoryPublication {
             operation: mutation.operation,
             revision: journal.revision,
-            tree: journal.tree.digest,
+            tree: journal.tree.as_ref().map(|tree| tree.digest),
             journal: id,
         }))
     }
@@ -454,7 +509,9 @@ impl RangeDirectory {
             return Err(CatalogError::Corrupt("directory journal hash"));
         }
         let journal: wire::Journal = record::decode(wire::JOURNAL, &bytes, wire::LIMIT)?;
-        journal.tree.require_complete(self)?;
+        if let Some(tree) = &journal.tree {
+            tree.require_complete(self)?;
+        }
         if journal.namespace != self.namespace.root_digest
             || journal.revision == 0
             || journal.revision > self.limits.max_mutations
@@ -540,13 +597,19 @@ impl RangeDirectory {
         } else {
             None
         };
+        if request.expected.is_some()
+            && request.parents.is_empty()
+            && base.is_none_or(|head| head.tree.is_some())
+        {
+            return Err(CatalogError::Conflict("directory already has ranges"));
+        }
         let revision = base
             .map_or(Some(1), |h| h.revision.checked_add(1))
             .ok_or(CatalogError::Limit)?;
         if revision > self.limits.max_mutations {
             return Err(CatalogError::Limit);
         }
-        let mut tree = base.map(|h| h.tree.clone());
+        let mut tree = base.and_then(|h| h.tree.clone());
         // A route can be lazy, but its exact cell-independent birth and global
         // group identity must be reserved before it can enter the directory.
         for child in &request.children {
@@ -571,8 +634,11 @@ impl RangeDirectory {
                 .await?;
             tree = Some(self.insert(tree, child.clone(), 0).await?);
         }
-        let tree = tree.ok_or(CatalogError::Invalid("empty directory"))?;
-        tree.require_complete(self)?;
+        if let Some(tree) = &tree {
+            tree.require_complete(self)?;
+        } else if revision != 1 || request.expected.is_some() {
+            return Err(CatalogError::Invalid("empty directory replacement"));
+        }
         let journal = wire::Journal {
             namespace: self.namespace.root_digest,
             operation: request.operation,

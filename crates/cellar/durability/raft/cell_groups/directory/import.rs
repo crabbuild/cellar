@@ -107,12 +107,44 @@ impl RangeDirectory {
                         .finish_cell_group_freeze(operation, digest)
                         .await;
                 }
-                view.head.import = Some(operation.bytes());
-                view.head.revision = view
+                let operation_key = hex::encode(operation.bytes());
+                if Index::new(self)
+                    .lookup(view.head.operations, &operation_key)
+                    .await?
+                    .is_some()
+                {
+                    return Err(CatalogError::Conflict("directory import operation reused"));
+                }
+                let revision = view
                     .head
                     .revision
                     .checked_add(1)
                     .ok_or(CatalogError::Limit)?;
+                let journal = wire::Journal {
+                    namespace: self.namespace.root_digest,
+                    operation: operation.bytes(),
+                    // The previous authenticated head is the exact freeze
+                    // input. Its record domain differs from a range request.
+                    request: view.digest,
+                    revision,
+                    previous: Some(view.head.journal),
+                    tree: view.head.tree.clone(),
+                };
+                let journal_bytes = record::encode(wire::JOURNAL, &journal, wire::LIMIT)?;
+                let journal_id = record::digest(&journal_bytes);
+                self.immutable("journal", journal_id, &journal_bytes)
+                    .await?;
+                view.head.operations = Index::new(self)
+                    .update(
+                        view.head.operations,
+                        &operation_key,
+                        Some(journal_id.to_vec()),
+                        0,
+                    )
+                    .await?;
+                view.head.import = Some(operation.bytes());
+                view.head.revision = revision;
+                view.head.journal = journal_id;
                 self.check_head(&view.head)?;
                 let bytes = record::encode(wire::HEAD, &view.head, wire::LIMIT)?;
                 let _ = self

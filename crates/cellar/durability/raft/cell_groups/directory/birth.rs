@@ -414,7 +414,7 @@ impl RangeDirectory {
         view: &DirectoryView,
         route: &GroupRoute,
     ) -> Result<(), CatalogError> {
-        let mut next = Some(view.head.tree.clone());
+        let mut next = view.head.tree.clone();
         for _ in 0..32 {
             let reference = next.take().ok_or(CatalogError::Fenced)?;
             let page = self.page(&reference).await?;

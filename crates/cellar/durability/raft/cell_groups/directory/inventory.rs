@@ -62,7 +62,7 @@ impl RangeDirectory {
         view: &DirectoryView,
         after: Option<&CellBound>,
     ) -> Result<Option<GroupRoute>, CatalogError> {
-        let mut next = Some(view.head.tree.clone());
+        let mut next = view.head.tree.clone();
         let mut candidate = None;
         for _ in 0..32 {
             let Some(reference) = next.take() else {
