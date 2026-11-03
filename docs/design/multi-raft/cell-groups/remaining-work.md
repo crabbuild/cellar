@@ -17,9 +17,10 @@ CG-01–06 and CG-08 have passed their recorded component gates. The implementat
 now has shared group owners, cell-specific SQLite histories and receipts, complete
 manifests/checkpoints, group archives/reclamation, fenced fresh-history recovery,
 indexed effects, bounded caches, canonical namespace/group startup and logical
-SDK handles. Managed group controls and source/boot checks are implemented in
-part; combined public orchestration remains unqualified. Shared follower reads,
-source-age policies and actual responder metadata advance that cutover. Bounded
+SDK handles. Managed boot, directory refresh, Node stop ownership and shared
+membership send fences now pass their recorded component cases. Full nonempty managed group
+orchestration, capacity/inventory bootstrap and the complete public gate remain
+unqualified. Shared follower reads, source-age policies and actual responder metadata advance that cutover. Bounded
 public replica preferences now run through one shared-controller invocation,
 including per-attempt deadlines, an untried observed leader fallback and physical
 SQL/transport retention. Both image forms pass the focused routing cases and the
@@ -39,16 +40,19 @@ part of the target.
 
 | Order | Deliverable | Required result |
 | --- | --- | --- |
-| 1 | Managed canonical startup and whole-group lifecycle (CG-07) | Finish node-directory/startup integration and qualify fresh/retained boots, ownership discovery, capacity, repair, drain, maintenance, stop/return/resume and accounting as complete groups with separate cell/image occupancy. Reuse CAS journals, permanent claims, exact boot fencing and physical disruption debt. Join entered work on failure/cancellation before releasing resources. |
+| 1 | Managed whole-group lifecycle and cold inventory bootstrap (CG-07) | Qualify the implemented boot/directory/Node stop owners with nonempty groups. Establish executable fresh-standby → range/inventory → capacity → managed birth ordering; then qualify ownership discovery, repair, drain, maintenance, stop/return/resume and accounting as complete groups with separate cell/image occupancy. Reuse CAS journals, permanent claims, exact boot fencing and physical disruption debt. Join entered work on failure/cancellation before releasing resources. |
 | 2 | Public SDK surface and executable consumers (CG-07) | Retain the implemented public counter, explicit namespace/archive provisioning and typed refusal/identity contracts. Port the original daemon/native/Axum fixtures and performance/fleet runners to namespace capabilities, physical group assignment and replicated cell enrollment. Retain every original HTTP/read/retry behavior and actual responder metadata. Exercise the implemented controller routing with one original deadline, invocation, input, token and global attempt budget; preserve namespace/process grants and fresh destination admission. |
 | 3 | Managed S3 learner activation and archive holds (CG-06/07) | Implement the currently refused exact-reference S3 path without peer fallback. Verify and retain the complete manifest/image/receipt closure; preserve local owner and uncertain outcomes through actual sync. Reauthorize the destination boot and catalog, attach the actual installed member, catch up and obtain fresh quorum before promotion/success. Complete safe archive-hold retirement. A seed receipt or S3 object alone is not activation authority. |
 | 4 | Public, build and backend qualification (CG-07 and MVP portions of CG-14/15/16) | Deliver the four remaining public cases below while retaining the SDK case; resolve public binary compilation, port the old inspection cancellation oracle to the managed shared protocol, and clear strict lint failures without suppressions. Run affected feature modes from SDK CI. Refresh same-source real RustFS recovery and replication/reclamation under bounded mixed load, retaining the exact binaries, ledgers, failures and resource/latency measurements. |
 
 The public counter and first SDK gate are qualified at their recorded local
-boundary. Managed boot/directory/stop ownership now blocks the next fleet and
-performance qualification, so it precedes those dependent consumer ports in the
-remaining order. The currently refused managed paths remain closed until actual
-authorization, permanent claims, resource accounting and joined service ownership
+boundary. Managed boot/directory/stop ownership is implemented at its recorded
+component boundary. Full nonempty managed orchestration and cold inventory/capacity
+bootstrap still block fleet and performance qualification, so they precede the
+dependent consumer ports. A successful metadata-only standby boot supplies no
+complete-inventory or capacity proof; an Active-node fixture cannot replace the
+original public lifecycle gate. The currently refused managed paths remain
+closed until actual authorization, permanent claims, resource accounting and joined service ownership
 are wired; removing guards or dropping consumer options is not a cutover.
 
 Public replica routing belongs in one controller-owned invocation. Local and

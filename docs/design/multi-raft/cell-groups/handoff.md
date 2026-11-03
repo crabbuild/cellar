@@ -4,6 +4,45 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Latest shared membership and managed ownership work
+
+The user-ordered merged-source checkpoint is published to draft PR #160 at
+2e400133 on origin/main 981a5417. This follow-up implements the shared
+finite Ready/send fence, exact physical message admission retention, committed
+configuration announcements and joined managed boot/directory/Node stop owners.
+The entered-socket regression reproduced a send-fence/unreachable-hint cycle;
+source-04 releases the source permit after physical exchange before advisory
+feedback, retaining each actual checkpoint producer independently.
+
+Source-04 passes full shared execution179/0/2, managed component3, membership9/0/1,
+wire20, host3, public SDK1, counter/effects builds, original effects retained smoke
+and five static checks. Full library1055/1/2 retains only the retired inspection
+protocol failure. Strict Clippy222/202dead remains a failing gate, with no newly
+unused methods; performance compilation still has27 errors. No release/MVP claim.
+
+Final review reproduced rejected advertised endpoints and an invalid log owner
+consuming a rooted boot. Source-06 validates node/disk before engine opening and
+all immutable descriptor fields before pin/boot mutation, preserves advertised
+addresses separately from bind addresses, and passes all five managed Node cases
+plus the membership selection (nine passed, one owned child fixture ignored).
+The final broader chain is terminal: 179 execution cases passed, two child
+fixtures ignored; library 1055 passed, one retired inspection-protocol failure
+and two ignored; wire 20, host three and public SDK one passed. Counter/effects
+builds, the original retained effects smoke and five static checks pass. The
+locked native-only cellar/cellar-python library check passes with default
+features disabled and no Python runtime. Strict Clippy retains 222 diagnostics,
+202 dead_code, with the same code/message/primary-file set as source-04.
+Component Cargo builds still fail on 27 performance-binary errors.
+Consult managed_fence_work in the ignored continuation for exact immutable
+artifacts, failed attempts, backups, publication and any remaining owned handles.
+
+Next feature priority: nonempty managed group lifecycle and legitimate cold
+range/inventory/capacity/birth bootstrap, then original consumers/inspection,
+exact-reference S3 learner activation, remaining public gates and current-source
+RustFS recovery/load. Active-node fixture input and metadata-only standby startup
+cannot establish that full gate. CG-09–16 remain required; keep PR draft and do
+not merge. Preserve eight untracked diagrams and exclude the requested MR JSONs.
+
 ## Latest merged-source qualification and requested next work
 
 Local merge 9df1389f contains counter checkpoint 41ab8b4d and origin/main

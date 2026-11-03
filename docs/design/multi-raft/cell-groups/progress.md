@@ -12,9 +12,114 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 final shared ownership qualification checkpoint
+
+Source-06 preserves the finite shared membership fence and physical send/hint
+fix from source-04. It additionally checks authorization node/disk against log
+options before namespace/engine opening, and validates the immutable node, disk,
+label and server-name descriptor before permanent node pins or boot mutations.
+Advertised addresses remain explicit and may differ from listener bind addresses.
+The existing registration matcher reuses that descriptor predicate while keeping
+its independent pinned-process/transport permission requirement.
+
+Both regressions fail on source-05: a wildcard listener with a loopback advertised
+endpoint is rejected, and a mismatched log owner consumes a rooted boot before
+startup refuses it. On source-06 all five actual-Node managed cases pass, including
+both image forms, fresh/retained ordinary boots, recreated-engine refusal,
+foreign-boot stop refusal, declaration and owner/descriptor mismatch before a
+rooted boot mutation, explicit advertised endpoints, periodic trust refresh and
+shutdown joining an entered catalog read. The membership selection remains nine
+passed, zero failed and one intentionally ignored owned child fixture.
+Source manifest SHA256:
+aa7327d2a3ae4f1244264cb6d59a179e250c7ab24119229efd638a966d080c1c.
+
+Source-04's full shared execution suite passes 179 cases with two owned child
+fixtures ignored. Normal library builds; twenty wire cases pass; full library is
+1055 passed, one retired-protocol inspection failure and two ignored. All three
+host cases, counter build/original public SDK process drill, effects build/original
+retained smoke and five static checks pass. Strict Clippy reports 222 diagnostics,
+including 202 dead_code, down from 234/214. Three newly grouped messages contain
+only residual methods from older groups; no method becomes newly unused. Package
+builds still fail on 27 unconverted performance-binary errors. Source-06 changes
+only the four recorded owner/endpoint/test files from that broad checkpoint.
+Its complete broader chain is now terminal: 179 shared execution cases pass with
+two owned child fixtures ignored; all earlier 181 names remain. Normal library
+builds, all twenty wire cases pass, and full library is 1055 passed, the same
+retired inspection-protocol failure, and two ignored. All three host cases,
+counter build/original public SDK process drill, effects build/original retained
+smoke, and all five static checks pass. Strict Clippy is unchanged from source-04:
+222 diagnostics, including 202 dead_code. Component Cargo commands still exit101
+on the same 27 unconverted performance errors despite emitting fresh executables.
+The failed source-05 regressions and source-03 socket repeats remain retained.
+The locked native-only library check also passes for cellar and cellar-python
+with default features disabled and PYO3_PYTHON pointing to a nonexistent runtime.
+This is a compile check, not the complete feature-off behavioral matrix.
+
+This qualifies the recorded local ownership boundaries, not the full managed
+lifecycle, optimized CI matrix, current RustFS backend or a release.
+
+## CG-07 shared membership and managed ownership implementation
+
+The follow-up on 2e400133 implements the shared owner's configuration send
+fence and canonical managed boot/directory/Node stop ownership. Capture
+CG-07-managed-fence-04 binds 2125 Rust inputs (manifest SHA256
+87c26e4e7757623a41454c57005a3611c0e1539c512fdf7894af39da8664533d). The merged origin/main remains
+981a5417d9359d1f992e2dbf214eec7d221b6777; the preceding published checkpoint and
+its independent qualification are recorded below.
+
+The original new shared regression fails before the fix: configuration Apply
+overtakes an owned prior runtime message. The shared owner now includes one
+pending Ready, freezes that finite boundary, joins prior physical sends, emits
+an exact persisted-term/index commit announcement and joins its deliveries before
+membership publication. Later heartbeat work cannot keep extending the boundary.
+The runtime's exact output admission survives a dropped Delivery waiter through
+ordinary SendRequest and checkpoint producer/transfer ownership.
+
+The socket regression then reproduced an ownership cycle twice: a completed
+failed send retained its output permit while awaiting an unreachable hint; that
+hint waited for an idle owner, which was blocked by the configuration fence.
+Source-04 ends the send fence after physical exchange and before advisory
+feedback. A checkpoint's independent producer retains its own admission through
+actual source exit. Transport metadata remains charged until its task exits.
+The held-event and entered-socket cases pass in both image forms, inspect both
+terminal commit announcements, and elect/apply another group while the first
+is fenced. Original joint-membership, sync, follower-quorum and crash cases pass.
+The selected membership result is nine passed, zero failed and one intentionally
+ignored owned child fixture, executed by the crash cases.
+
+Managed startup validates the actual compiled/declaration/rooted capability set,
+pins the physical engine, binds an ordinary or authorized maintenance boot,
+syncs its exact lifecycle guard, then publishes endpoints and attaches through
+managed permits. Retained route reconstruction uses durable current membership;
+joined members use the existing seed-receipt/permanent-claim permit. A declared
+standby may precede first range publication without fabricating an empty root.
+One separately budgeted directory service owns timed rooted reads and bounded
+peer batches, preserves its original deadlines, closes admission on superseded
+local authority and joins entered work on shutdown. Internal observers do not
+retain the last external SDK owner. Node receives its existing stop services from
+the actual bound Core authorization and probe signer rather than None.
+
+All three new actual-Node managed component cases pass: both image forms complete
+fresh/retained ordinary boots, refuse a recreated pinned engine before consuming
+a boot, and reject a foreign boot through the installed Node stop reporter.
+Declaration mismatch refuses before a rooted boot mutation. Independent timed
+trust refresh and shutdown joining an entered catalog read also pass. This does
+not qualify nonempty managed startup/repair/maintenance, capacity activation,
+complete inventory or the original managed_group_lifecycle public gate.
+
+Production cargo check passes. The source-04 broader checks are complete as
+recorded above; source-06 repeats them after the additional owner/endpoint
+regressions. The newest checkpoint
+governs the exact final source and validation boundary. The component Cargo builds
+still emit their current executables but fail the package gate on 27 unconverted
+performance-binary errors. Full public consumers, exact S3 learner activation,
+combined-source RustFS recovery/load and CG-09–16 remain required. Failed initial
+schema/endpoint/group-event fixture attempts and the physical ownership regression
+are retained, with no timeout/capacity/stack increases or production suppressions.
+
 ## CG-07 current-main qualification checkpoint
 
-Counter checkpoint 41ab8b4d is committed locally with the source-02 qualification
+Counter checkpoint 41ab8b4d is committed with the source-02 qualification
 below. While its checks ran, origin/main advanced to
 981a5417d9359d1f992e2dbf214eec7d221b6777 (PR #165). Merge 9df1389f includes that
 main plus the counter work. The three conflicts preserve the shared-only host
@@ -56,7 +161,7 @@ original deadlines, ownership reservations and destination/catalog authority.
 
 ## CG-07 public counter and provisioning in progress
 
-Unpublished work on fc4a8d31 ports the counter from two per-cell registrations to
+Counter checkpoint 41ab8b4d on fc4a8d31 ports the counter from two per-cell registrations to
 one physical group with independent logical histories, SQLite state and receipts.
 The node's log/runtime/controller capacities are explicitly one group. Fresh
 public namespace/archive provisioning persists the exact archive intent before
