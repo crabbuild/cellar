@@ -210,6 +210,10 @@ pub struct Slot {
     /// retiring slot is filtered out of every placement decision, so nothing
     /// can arrive afterwards. Entering one would be a bug in this module.
     worker: tokio::sync::Mutex<Option<Worker>>,
+    // Published only after the worker has actually been dropped. Slots are
+    // replaced rather than repopulated, so this physical reclamation proof is
+    // monotonic even while another maintenance pass holds the empty mutex.
+    reclaimed: AtomicBool,
     application_work: Arc<crate::host_services::ApplicationWork>,
     handler_budget: std::time::Duration,
     turn_scheduler: TurnScheduler,
@@ -397,6 +401,7 @@ impl Slot {
             id: 0,
             heap_id: next_heap_id(),
             worker: tokio::sync::Mutex::new(Some(worker)),
+            reclaimed: AtomicBool::new(false),
             application_work: crate::asyncrt::services().application_work_registry(),
             handler_budget: crate::engine_api::handler_budget(),
             turn_scheduler: TurnScheduler::default(),
@@ -432,6 +437,7 @@ impl Slot {
             id: 0,
             heap_id: HeapId::new(0),
             worker: tokio::sync::Mutex::new(None),
+            reclaimed: AtomicBool::new(true),
             handler_budget: crate::engine_api::handler_budget(),
             turn_scheduler: TurnScheduler::default(),
             queue_producers: Mutex::new(std::collections::HashMap::new()),
@@ -448,7 +454,7 @@ impl Slot {
         })
     }
 
-    #[cfg(cellar_internal_tests)]
+    #[cfg(any(test, cellar_internal_tests))]
     #[doc(hidden)]
     pub async fn hold_turn_for_test(&self) -> impl Drop + '_ {
         self.worker.lock().await
@@ -736,6 +742,7 @@ impl Pool {
             id,
             heap_id,
             worker: tokio::sync::Mutex::new(Some(worker)),
+            reclaimed: AtomicBool::new(false),
             application_work: self.application_work.clone(),
             handler_budget: self.handler_budget,
             turn_scheduler: TurnScheduler::default(),
@@ -939,7 +946,7 @@ impl Pool {
             .read()
             .expect("pool poisoned")
             .iter()
-            .all(|slot| slot.worker.try_lock().is_ok_and(|worker| worker.is_none()))
+            .all(|slot| slot.reclaimed.load(Ordering::Acquire))
     }
 
     fn retire_one(&self) -> bool {
@@ -970,7 +977,11 @@ impl Pool {
             if slot.worker_pins.load(Ordering::Acquire) != 0 {
                 continue;
             }
-            if worker.take().is_some() {
+            let retired = worker.take();
+            let was_live = retired.is_some();
+            drop(retired);
+            slot.reclaimed.store(true, Ordering::Release);
+            if was_live {
                 tracing::info!(isolate = %slot.heap_id, slot = slot.id, "isolate freed");
             }
         }
