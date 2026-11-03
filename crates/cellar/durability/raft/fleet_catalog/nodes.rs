@@ -497,11 +497,24 @@ impl FleetHostAuthorization {
         &self,
         peer: &crate::raft::transport_options::RaftPeerNode,
     ) -> bool {
-        self.permits_transport()
-            && peer.node == self.node
-            && peer.disk == self.disk
-            && peer.label == self.record.label
-            && peer.server_name == self.record.server_name
+        self.permits_transport() && self.check_boot_endpoint(peer).is_ok()
+    }
+
+    /// Validate the immutable host descriptor before claiming a new boot. The
+    /// process and advertised addresses belong to that boot; transport admission
+    /// independently requires a currently pinned, permitted process.
+    pub(crate) fn check_boot_endpoint(
+        &self,
+        peer: &crate::raft::transport_options::RaftPeerNode,
+    ) -> Result<()> {
+        if peer.node != self.node
+            || peer.disk != self.disk
+            || peer.label != self.record.label
+            || peer.server_name != self.record.server_name
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        Ok(())
     }
 
     pub fn node(&self) -> NodeId {

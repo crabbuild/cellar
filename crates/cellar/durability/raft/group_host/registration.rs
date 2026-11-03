@@ -13,17 +13,33 @@ pub(crate) async fn prepare(
     store: Arc<dyn object_store::ObjectStore>,
     keys: &VersionKeys,
 ) -> anyhow::Result<Prepared> {
-    // Managed authority must be converted as a whole-group protocol. Never
-    // bootstrap an old managed namespace through the unmanaged permit path.
-    anyhow::ensure!(
-        config.host.managed.is_none()
-            && config
+    config.host.validate()?;
+    if let Some(managed) = &config.host.managed {
+        anyhow::ensure!(
+            managed.authorization.node() == config.infrastructure.log.node
+                && managed.authorization.disk() == config.infrastructure.log.disk,
+            CatalogError::ManagedAdmissionRequired
+        );
+        // Validate the actual startup declarations, not just their duplicated
+        // copy inside managed options, before any namespace or boot mutation.
+        anyhow::ensure!(
+            config.namespaces.len() == managed.namespaces.len()
+                && config.namespaces.iter().all(|n| n.initialize.is_none()
+                    && managed
+                        .namespaces
+                        .iter()
+                        .any(|d| d.namespace == n.namespace && d.class == n.class)),
+            "managed startup declarations disagree with rooted capabilities"
+        );
+    } else {
+        anyhow::ensure!(
+            config
                 .namespaces
                 .iter()
                 .all(|n| n.namespace.managed_fleet.is_none()),
-        CatalogError::ManagedAdmissionRequired
-    );
-    config.host.validate()?;
+            CatalogError::ManagedAdmissionRequired
+        );
+    }
     config.infrastructure.transport.validate()?;
     config.shared.entries.validate()?;
     config
@@ -53,10 +69,8 @@ pub(crate) async fn prepare(
     // Until these consumers are converted they cannot silently start a legacy
     // placement/controller or publish a misleading managed node inventory.
     anyhow::ensure!(
-        config.host.controller.is_none()
-            && config.host.node_directory.is_none()
-            && config.host.inspection_origins.is_empty(),
-        "whole-group placement and node directory integration is required"
+        config.host.controller.is_none() && config.host.inspection_origins.is_empty(),
+        "whole-group placement and inspection integration is required"
     );
     let mut definitions = Vec::new();
     let mut seen = BTreeSet::new();
@@ -117,6 +131,19 @@ pub(crate) async fn prepare(
             .require_version_keys(keys, u64::try_from(crate::asyncrt::wall_ms())?)
             .await?;
         let directory = RangeDirectory::new(namespace, config.shared.directory)?;
+        let owner = directory.namespace().cell_group_owner().await?;
+        if let Some(managed) = &config.host.managed {
+            let bound = managed
+                .authorization
+                .stop_catalog()
+                .bind_namespace(directory.namespace_config().clone())?;
+            anyhow::ensure!(
+                owner == bound.managed_fleet,
+                CatalogError::ManagedAdmissionRequired
+            );
+        } else {
+            anyhow::ensure!(owner.is_none(), CatalogError::ManagedAdmissionRequired);
+        }
         if let Some(initialization) = registration.initialize {
             provisioning::initialize(
                 &directory,
@@ -125,8 +152,32 @@ pub(crate) async fn prepare(
             )
             .await?;
         }
-        directory.observe().await?;
+        // A declared managed standby may precede the first range publication.
+        // It attaches no group and invents no empty root or serving authority.
+        // Every explicit placement below still requires a selected full birth.
+        if config.host.managed.is_none() {
+            directory.observe().await?;
+        }
         namespaces.push(Namespace { directory, class });
+    }
+    if let Some(managed) = &config.host.managed {
+        let declarations = namespaces
+            .iter()
+            .map(|n| crate::raft::host::NamespaceRegistration {
+                namespace: n.directory.namespace().clone(),
+                class: n.class.clone(),
+            })
+            .collect::<Vec<_>>();
+        let timeout = config
+            .host
+            .node_directory
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("managed directory required"))?
+            .timeout_ms;
+        managed
+            .authorization
+            .check_declared_namespaces(&declarations, std::time::Duration::from_millis(timeout))
+            .await?;
     }
     let mut groups = Vec::new();
     let mut seen = BTreeSet::new();
@@ -149,9 +200,16 @@ pub(crate) async fn prepare(
             .await?;
         let mut members = Vec::new();
         for member in birth.voters().iter().chain(birth.learners()) {
-            let endpoint = peers
-                .get(&member.node)
-                .ok_or_else(|| anyhow::anyhow!("missing trusted group peer endpoint"))?;
+            let endpoint = match peers.get(&member.node) {
+                Some(peer) => peer,
+                None if config.host.managed.is_some()
+                    || config.infrastructure.log.mode
+                        == crate::raft::options::LogOpenMode::Resume =>
+                {
+                    continue
+                }
+                None => anyhow::bail!("missing trusted group peer endpoint"),
+            };
             members.push(super::super::transport::RaftPeer {
                 replica: ReplicaIdentity {
                     scope: assignment.history,
@@ -186,4 +244,98 @@ pub(crate) async fn prepare(
         query_origins: std::mem::take(&mut config.query_origins),
         command_origins: std::mem::take(&mut config.command_origins),
     })
+}
+
+/// Resolve the complete physical placement after managed discovery has accepted
+/// current process views, before genesis, attachment or route publication.
+pub(super) fn refresh_routes(
+    prepared: &mut Prepared,
+    log: &crate::raft::storage::ReplicaLog,
+) -> anyhow::Result<()> {
+    for assignment in &mut prepared.groups {
+        let retained = if assignment.placement == RaftGroupPlacement::Replica {
+            match log.cell_group(&assignment.birth.route().history) {
+                Ok(group) => Some(group),
+                Err(crate::raft::storage::LogError::NotFound) => None,
+                Err(error) => return Err(error.into()),
+            }
+        } else {
+            None
+        };
+        let members = if let Some(group) = &retained {
+            let cache = group.read()?;
+            let members = crate::raft::member_state::members(&cache.conf_state);
+            anyhow::ensure!(
+                members.contains(&group.identity().member.get()),
+                CatalogError::Fenced
+            );
+            members
+                .into_iter()
+                .map(|id| {
+                    let member = cellar_logic::consensus::MemberId::new(id)?;
+                    let node = if let Some((binding, _)) = cache.membership.joined(member)? {
+                        binding.node
+                    } else {
+                        assignment
+                            .birth
+                            .voters()
+                            .iter()
+                            .chain(assignment.birth.learners())
+                            .find(|m| m.member == member)
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "retained membership has no birth or joined binding"
+                                )
+                            })?
+                            .node
+                    };
+                    Ok((member, node))
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?
+        } else {
+            assignment
+                .birth
+                .voters()
+                .iter()
+                .chain(assignment.birth.learners())
+                .map(|m| (m.member, m.node))
+                .collect()
+        };
+        assignment.transport.peers = members
+            .into_iter()
+            .map(|(member, node)| {
+                let endpoint = prepared
+                    .peers
+                    .iter()
+                    .find(|peer| peer.node == node)
+                    .ok_or_else(|| anyhow::anyhow!("missing trusted group peer endpoint"))?;
+                Ok(super::super::transport::RaftPeer {
+                    replica: ReplicaIdentity {
+                        scope: assignment.birth.route().history,
+                        member,
+                        node: endpoint.node,
+                        disk: endpoint.disk,
+                        process: endpoint.process,
+                    },
+                    label: endpoint.label.clone(),
+                    server_name: endpoint.server_name.clone(),
+                    control_address: endpoint.control_address,
+                    data_address: endpoint.data_address,
+                    query_address: endpoint.query_address,
+                })
+            })
+            .collect::<anyhow::Result<_>>()?;
+        if let Some(group) = retained {
+            let membership = group.membership()?;
+            anyhow::ensure!(
+                assignment
+                    .transport
+                    .peers
+                    .iter()
+                    .all(|p| membership.permits_group(&p.replica)),
+                CatalogError::Fenced
+            );
+        }
+    }
+    Ok(())
 }

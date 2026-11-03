@@ -81,14 +81,24 @@ impl Startup<'_> {
         let transport = infrastructure.transport.clone();
         let result = self
             .domain
-            .run(crate::raft::group_host::start(
-                infrastructure,
-                prepared,
-                self.data_dir.join("raft-cells"),
-                config.host,
-                config.shared,
-                services.versions,
-            ))
+            .run(async {
+                let service = crate::raft::group_host::start(
+                    infrastructure,
+                    prepared,
+                    self.data_dir.join("raft-cells"),
+                    config.host,
+                    config.shared,
+                    services.versions,
+                )
+                .await?;
+                match service.fleet_stop_services() {
+                    Ok(stop) => Ok((service, stop)),
+                    Err(error) => {
+                        let _ = service.close().await;
+                        Err(anyhow::Error::new(error))
+                    }
+                }
+            })
             .await;
         let result = match result {
             Ok(result) => result,
@@ -99,7 +109,7 @@ impl Startup<'_> {
             transport.close().await;
             let _ = log.close().await;
         }
-        result.map(|service| (service, None))
+        result
     }
 
     pub(super) async fn infrastructure(

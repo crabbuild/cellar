@@ -49,14 +49,26 @@ pub(super) async fn recover(
     // Check complete trusted placement before creating genesis or page files.
     let mut peers = Vec::new();
     for member in birth.voters().iter().chain(birth.learners()) {
-        let node = config
-            .settings
-            .peers
-            .iter()
-            .find(|p| p.node == member.node)
-            .ok_or(CellGroupControllerError::Invalid(
-                "unconfigured birth member",
-            ))?;
+        let discovered;
+        let node = if matches!(&authority, Authority::Managed { .. }) {
+            discovered = transport
+                .observed_peer(member.node)
+                .map_err(CellGroupControllerError::Transport)?;
+            discovered
+                .as_ref()
+                .ok_or(CellGroupControllerError::Invalid(
+                    "undiscovered managed birth member",
+                ))?
+        } else {
+            config
+                .settings
+                .peers
+                .iter()
+                .find(|p| p.node == member.node)
+                .ok_or(CellGroupControllerError::Invalid(
+                    "unconfigured birth member",
+                ))?
+        };
         peers.push(RaftPeer {
             replica: ReplicaIdentity {
                 scope: route.history,

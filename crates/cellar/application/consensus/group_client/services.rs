@@ -13,6 +13,7 @@ use tokio::sync::{watch, Notify};
 pub(crate) enum ControlServiceKind {
     Movement,
     Restart,
+    Directory,
 }
 
 impl ControlServiceKind {
@@ -20,6 +21,7 @@ impl ControlServiceKind {
         match self {
             Self::Movement => 0,
             Self::Restart => 1,
+            Self::Directory => 2,
         }
     }
 }
@@ -33,7 +35,7 @@ struct Entry {
 struct State {
     closing: bool,
     next: u64,
-    slots: [Option<Entry>; 2],
+    slots: [Option<Entry>; 3],
 }
 
 pub(super) struct Services {
@@ -146,6 +148,39 @@ impl Services {
 }
 
 impl RaftCells {
+    /// Node installs its existing stop owner from the actual bound boot, after
+    /// startup has synced the lifecycle guard. No caller-provided preboot clone.
+    pub(crate) fn fleet_stop_services(
+        &self,
+    ) -> Result<Option<crate::raft::fleet_stop::Services>, FleetCatalogError> {
+        let core = &self.handle.core;
+        let Some(authorization) = &core.managed else {
+            return Ok(None);
+        };
+        let boot = authorization.boot_binding()?;
+        let signer = crate::asyncrt::services()
+            .peer_probe_signer()
+            .map_err(|_| FleetCatalogError::Closed)?;
+        if core
+            .log
+            .lifecycle_guard()
+            .map_err(|_| FleetCatalogError::Closed)?
+            .is_none_or(|guard| guard.boot != boot)
+            || boot.node != core.node.node.bytes()
+            || boot.disk != core.node.disk.bytes()
+            || boot.process != core.node.process.bytes()
+            || boot.engine != core.engine.bytes()
+            || boot.join_key != signer.public_key_bytes()
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        Ok(Some(crate::raft::fleet_stop::Services {
+            authorization: authorization.clone(),
+            log: core.log.clone(),
+            signer,
+        }))
+    }
+
     // Internal loops must not retain the last external SDK lifetime. An active
     // service is joined by the registry, independently of its public handle.
     pub(crate) fn internal_observer(&self) -> Self {

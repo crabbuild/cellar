@@ -67,11 +67,11 @@ pub(crate) use maintenance::{
     RestartActionContext, RestartLeadershipCommand, ResumeLeadershipCommand,
 };
 pub use namespaces::FleetInventory;
-pub(crate) use nodes::FleetTrustSnapshot;
 pub use nodes::{
     FleetHostAuthorization, FleetNodeEligibility, FleetNodeSpec, FleetNodeState,
     FleetRequestIdentity,
 };
+pub(crate) use nodes::{FleetTrustReader, FleetTrustSnapshot};
 pub use permits::{FleetGroupAuthorization, FleetPermitAuthorization};
 pub use placement::FleetReplicaSeparation;
 pub(crate) use resources::MovementServiceWork;

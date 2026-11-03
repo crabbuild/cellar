@@ -28,6 +28,26 @@ impl Registry {
 }
 
 impl RaftTransport {
+    pub(crate) fn local_label(&self) -> &str {
+        self.handle.0.auth.source()
+    }
+
+    /// Accepted physical metadata only. This grants neither group membership
+    /// nor application authority; route installation rechecks the current cut.
+    pub(crate) fn observed_peer(
+        &self,
+        node: NodeId,
+    ) -> Result<Option<RaftPeerNode>, TransportError> {
+        let state = &self.handle.0;
+        let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
+        state.admit(&registry)?;
+        let Some(view) = registry.node_views.get(&node) else {
+            return Ok(None);
+        };
+        registry.check_node_view(view.peer())?;
+        Ok(Some(view.peer().clone()))
+    }
+
     /// Refresh one explicitly configured physical node across all routes and
     /// permissions. This changes no group/member identity or configuration
     /// revision. A superseded local process is refused; its host must close and

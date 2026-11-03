@@ -3,6 +3,7 @@
 //! Canonical startup uses namespace capabilities and physical group placement.
 //! Logical cells are enrolled through the controller, never through node config.
 mod archive;
+mod directory;
 mod provisioning;
 mod registration;
 pub use provisioning::{RaftGroupArchiveInitialization, RaftNamespaceProvisioning};
@@ -159,9 +160,9 @@ impl Drop for Startup {
 
 pub(crate) async fn start(
     service: crate::daemon::NodeRaftService,
-    prepared: Prepared,
+    mut prepared: Prepared,
     directory: PathBuf,
-    options: super::host::RaftHostOptions,
+    mut options: super::host::RaftHostOptions,
     limits: CellGroupNodeLimits,
     keys: VersionKeys,
 ) -> anyhow::Result<RaftCells> {
@@ -183,6 +184,8 @@ pub(crate) async fn start(
     // This initialization owns several nested catalog/recovery futures. Keep
     // that state off callers' native stacks, including nested node startup.
     let result = Box::pin(async {
+        let discovery = directory::prepare(&mut prepared, &mut options, &log, &transport).await?;
+        registration::refresh_routes(&mut prepared, &log)?;
         let sql = CellGroupSqlPool::start(&log, limits.sql)?;
         startup.sql = Some(sql.clone());
         let checkpoint = limits
@@ -203,10 +206,53 @@ pub(crate) async fn start(
                 }
                 RaftGroupPlacement::Replica => {
                     let namespace = &prepared.namespaces[assignment.namespace];
-                    let permit = namespace
-                        .directory
-                        .bootstrap_group_member(&assignment.birth, &log)
-                        .await?;
+                    let retained = match log.cell_group(&assignment.birth.route().history) {
+                        Ok(group) => Some(group),
+                        Err(super::storage::LogError::NotFound) => None,
+                        Err(error) => return Err(error.into()),
+                    };
+                    let joined = retained
+                        .as_ref()
+                        .map(|group| {
+                            group
+                                .membership()?
+                                .joined(group.identity().member)
+                                .map(|binding| binding.map(|_| group.identity().member))
+                        })
+                        .transpose()?
+                        .flatten();
+                    let permit = if let Some(member) = joined {
+                        if let Some(managed) = &options.managed {
+                            namespace
+                                .directory
+                                .bootstrap_managed_joined_group_member(
+                                    &assignment.birth,
+                                    member,
+                                    &log,
+                                    &managed.authorization,
+                                )
+                                .await?
+                        } else {
+                            namespace
+                                .directory
+                                .bootstrap_joined_group_member(&assignment.birth, member, &log)
+                                .await?
+                        }
+                    } else if let Some(managed) = &options.managed {
+                        namespace
+                            .directory
+                            .bootstrap_managed_group_member(
+                                &assignment.birth,
+                                &log,
+                                &managed.authorization,
+                            )
+                            .await?
+                    } else {
+                        namespace
+                            .directory
+                            .bootstrap_group_member(&assignment.birth, &log)
+                            .await?
+                    };
                     let group = permit.group().clone();
                     let pages = ManifestPageStore::group_pages_path(
                         &directory,
@@ -359,7 +405,7 @@ pub(crate) async fn start(
             host,
             controller.clone(),
             runtime,
-            log,
+            log.clone(),
             admission,
             resources,
             transport.clone(),
@@ -382,6 +428,9 @@ pub(crate) async fn start(
         }
         for origin in prepared.command_origins {
             transport.grant_command_origin(origin)?;
+        }
+        if let Some(discovery) = discovery {
+            discovery.start(&service, log.clone(), transport.clone())?;
         }
         startup.service.take();
         startup.sql.take();

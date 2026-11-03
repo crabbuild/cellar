@@ -113,6 +113,44 @@ For example, an ingress can combine its complete process generation with a
 checked sequence to allocate query invocation IDs shared by native and Axum
 handlers. Identity metadata does not authorize a stale process to serve or restart.
 
+## Managed shared startup ownership
+
+Managed startup checks the actual namespace declarations against the compiled
+classes, rooted host capabilities and complete declared namespace registry. It
+opens existing namespace metadata; group birth and range publication remain
+separate operator protocols. An enrolled standby can boot before its first range
+is published, without inventing an empty directory or serving a cell. This is not
+capacity readiness, complete inventory or group activation.
+
+The host pins its physical engine before binding a boot. The ordinary boot CAS
+or retained maintenance rejoin protocol must settle, and the exact lifecycle
+guard must sync before endpoints are published or groups attach. Retained routes
+use durable current membership. Joined members still require their authenticated
+install receipt, permanent engine claim and current catalog/boot checks. Initial
+members use the managed initial-member permit. No metadata read grants a vote or
+current-term quorum authority.
+
+The log owner and immutable rooted node descriptor must match before a storage
+pin or boot mutation. Advertised control/data/query endpoints remain explicit
+configuration and may differ from listener bind addresses, including wildcard
+listeners. Endpoint discovery cannot substitute for those owner checks.
+
+One bounded directory service owns periodic rooted trust and endpoint refresh.
+Its independent catalog read turn cannot occupy the foreground mutation turn.
+Each batch retains one original deadline and at most eight observations; its
+metadata reservation remains owned until the worker exits. Missing observations
+preserve accepted routes. A superseded local boot or rooted conflict closes Raft
+admission. Shared shutdown signals this service and joins entered work before
+consensus and storage close. Internal observers do not retain the last external
+SDK lifetime.
+
+Node installs its existing stop reporter from that same bound authorization,
+synced guard and actual probe signer. A dropped stop waiter cannot cancel an
+admitted lifecycle update. Stop acceptance, metadata discovery and local producer
+quiescence remain distinct from joined-owner proof and safe disruption accounting.
+The complete managed lifecycle and cold capacity/inventory bootstrap require their
+own public qualification; these ownership contracts do not mark CG-07 complete.
+
 ## Receipt semantics
 
 For v1, use `(authenticated_client_id, sequence)` as the command ID, scoped to the cell and incarnation. Each client identity is non-reusable within that incarnation. The caller allocates increasing per-cell sequences and persists its pending command before sending; `CommandOptions` requires that explicit ID. Different client identities can submit concurrently; one identity submits its commands in sequence.
