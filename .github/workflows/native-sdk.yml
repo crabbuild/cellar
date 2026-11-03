@@ -365,6 +365,9 @@ jobs:
           if-no-files-found: ignore
       - name: Test Axum feature modes and generated contract
         run: |
+          cargo test -p cellar-axum --no-default-features --locked --no-run
+          # Keep compiler writeback outside the live one-second lease checks.
+          sync -f "${CARGO_TARGET_DIR:-$PWD/target}"
           cargo test -p cellar-axum --no-default-features --locked
           cargo check -p cellar-axum-counter --no-default-features --bins --locked
           cargo run -p cellar-axum-counter --bin export-openapi --locked -- "$RUNNER_TEMP/counter-openapi.json"
