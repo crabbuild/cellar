@@ -282,7 +282,14 @@ impl FleetCatalog {
                             deadline.remaining()?,
                             kind,
                         )
-                        .await?
+                        .await
+                        .map_err(|error| match error {
+                            // Provider I/O may fail after the terminal CAS has
+                            // committed. This turn cannot claim rollback; the
+                            // next turn must inspect the permanent receipt.
+                            FleetCatalogError::Storage(_) => FleetCatalogError::Unconfirmed,
+                            other => other,
+                        })?
                         .observed_revision();
                     return Ok(progress(phase, true, observed));
                 }

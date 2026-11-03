@@ -12,6 +12,60 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 managed peer replacement and drain checkpoint
+
+The follow-up on e8f9352d adds a four-Node managed lifecycle case and exposes
+`CellGroupControllerError` beside `CellGroupStartupError` through the public SDK.
+Callers can match the nested refusal without a verification import. Provider I/O
+during terminal settlement now returns Unconfirmed, because the CAS may have committed before its confirmation read failed. Corruption and
+authority errors retain their typed failures. Deadlines, resource ceilings and
+original test assertions are unchanged. The cold cluster/workload helper is shared with the existing retained-start case.
+
+Capture CG-07-managed-lifecycle-09 binds 2127 Rust inputs (manifest SHA256
+f699ac38509185457b41feeb04d8a51e6cad8ece1bf0021e260b254ce7ca2151).
+All eight managed cases pass in 48.58 seconds; the seven original names remain. In both image forms, a capacity-qualified spare
+receives a two-cell group through authenticated peer seeding, actual RawNode
+catch-up, joint consensus and terminal reservation settlement. A lost terminal
+reply reconciles through its permanent receipt. The removed member remains in
+physical inventory with its completed permit sequence and both retained cell
+images. Settlement grants no disk reclamation.
+
+The actual leader's Handoff shutdown reports one accepted/released group and no
+unavailable groups. Its surviving quorum accepts new writes. All three surviving
+disks then reopen through canonical initial/joined-member startup, preserving
+exact duplicate receipts, old-token reads, independent images and new writes.
+Reusing the old-boot learner permit refuses before submission without changing
+the fleet root. Cleanup joins entered owners even when replacement fails.
+
+Initial captures preserve Seeding Unconfirmed, the missing SDK error export,
+the inventory probe before rooted directory acknowledgement and the actual
+post-CAS confirmation loss escaping as Storage. The final case drops that
+terminal CAS reply and its confirmation read, observes Unconfirmed, and proves
+receipt reconciliation from a new invocation. Temporary diagnosis found `Unconfirmed(NotReady)` at promotion while the learner
+caught up; no seed failure or relaxed promotion check was required. Bounded
+fresh-cut reconciliation retains the same permit and debit. Diagnostic-only
+production edits are absent from the final source.
+
+The normal library build, 30 fleet catalog unit tests, six fleet-action wire
+tests, locked native-only cellar/cellar-python library check and all five static
+checks pass. Strict library Clippy retains the same 222 diagnostics, 202 dead_code,
+with no added or removed code/message/primary-file keys. Package compilation
+still fails on the same 27 performance-runner errors. The plan-validator suite
+has 35 passed, one failure and one error: the generated index/Purpose mismatch
+and reviewed source-anchor drift. Every relevant plan file and the first drifting
+source file is byte-identical to e8f9352d; neither baseline nor assertion was
+weakened. These checks remain failing gates. The earlier complete execution,
+public SDK and full-library results retain their e8f9352d source boundary.
+
+This is in-process loopback qualification with real TLS and SQLite, a conditional
+fixture catalog and explicit fixture deployment attestations. It is not real
+RustFS, independent-host, load, optimized CI or the complete public lifecycle
+gate. Catalog maintenance stop/return/resume, consumer/build/lint gates, managed
+S3 learner activation and current-source RustFS remain required. CG-07 stays
+IN_PROGRESS, CG-09–16 stay TODO and PR #160 remains draft. Final static/lint
+results and publication are retained in this capture's final-checks directory
+and the ignored managed_lifecycle_work continuation.
+
 ## CG-07 cold managed group qualification checkpoint
 
 The follow-up on b9be4de7 adds an explicit standby directory genesis with its

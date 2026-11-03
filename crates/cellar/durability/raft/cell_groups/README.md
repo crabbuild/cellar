@@ -2,9 +2,29 @@
 
 # Cell-group state and execution
 
-CG-02's storage boundary is qualified. The component supplies immutable manifest pages, their filesystem owner, complete-root
-preparation and atomic Raft Engine root publication. Production host admission
-is not yet wired to these contracts; a stored root is not quorum authority.
+This component owns physical-group manifests, execution, checkpoints and local
+recovery. Canonical SDK hosts bind declared namespaces and admitted groups to
+these owners. A stored root or local attachment is not fresh quorum authority.
+See the [delivery status](../../../../../docs/design/multi-raft/cell-groups/remaining-work.md)
+for the remaining public fleet and backend qualification gates.
+
+## Managed startup outcomes
+
+`cellar::sdk::consensus` exports `CellGroupStartupError` and its nested
+`CellGroupControllerError`. `Refused` means this invocation submitted no
+preparation. `Unconfirmed` can follow durable installation or attachment; retain
+the original history, permit and resource debit, and reconcile from fresh
+observations. Neither result resolves a prior lost reply. A locally installed
+learner must still catch up through Raft before promotion. Reopening a joined
+member uses its retained seed receipt and permanent member claim; its old-boot
+learner grant cannot initialize work on the new boot. The movement reconciler
+also reports provider I/O during terminal settlement as `Unconfirmed`: a failed
+confirmation read cannot undo an already committed root CAS. Reconcile the same
+reservation and verify its permanent receipt. Corruption and authority failures
+keep their typed errors. Settlement removes the active reservation while
+retained source storage remains charged.
+
+## Manifests
 
 A manifest is a persistent AVL tree ordered by the namespace routing digest and
 full cell ID. Each bounded page holds one cell leaf and at most two child

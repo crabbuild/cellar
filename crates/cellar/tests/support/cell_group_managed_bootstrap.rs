@@ -196,141 +196,180 @@ async fn managed_cold_capacity_group_and_retained_restart() -> Result<()> {
     Ok(())
 }
 
-async fn cold_group(rooted: bool) -> Result<()> {
-    let first = Fixture::with_class(rooted, counter_class()?).await?;
-    let second = peer_fixture(&first, 5).await?;
-    let third = peer_fixture(&first, 6).await?;
-    let fixtures = [first, second, third];
-    let f = &fixtures[0];
-    let namespace = f
-        .domain
-        .run(
-            Catalog::new(
-                f.store.clone(),
-                CatalogOptions {
-                    prefix: "managed/".into(),
-                    ..Default::default()
-                },
-            )?
-            .existing_namespace(f.declaration.namespace.clone()),
-        )
-        .await??;
-    let directory = RangeDirectory::new(namespace, DirectoryLimits::default())?;
-    let empty = directory.prepare_standby_initialization(ProposalId::new([120; 16])?)?;
-    f.domain.run(directory.publish(&empty)).await??;
-    let standby = f.domain.run(directory.observe()).await??;
-    let history = GroupHistory {
-        cluster: f.declaration.namespace.cluster,
-        namespace: f.declaration.namespace.namespace,
-        group: GroupId::new([3; 16])?,
-        incarnation: IncarnationId::new([7; 16])?,
-    };
-    let proposal = || -> Result<CellGroupBirthSpec> {
-        Ok(CellGroupBirthSpec {
-            history,
-            range: CellRange::all(),
-            epoch: RouteEpoch::new(1)?,
-            creation: ProposalId::new([150; 16])?,
-            voters: fixtures
-                .iter()
-                .enumerate()
-                .map(|(i, f)| {
-                    Ok(InitialMember {
-                        member: MemberId::new(i as u64 + 1)?,
-                        node: f.spec.node,
+struct ManagedCluster {
+    fixtures: Vec<Fixture>,
+    roots: Vec<tempfile::TempDir>,
+    nodes: Vec<Node>,
+    hosts: Vec<RaftCells>,
+    directory: RangeDirectory,
+    history: GroupHistory,
+}
+
+impl ManagedCluster {
+    async fn start(rooted: bool, spares: &[u8]) -> Result<Self> {
+        let first = Fixture::with_class(rooted, counter_class()?).await?;
+        let second = peer_fixture(&first, 5).await?;
+        let third = peer_fixture(&first, 6).await?;
+        let mut fixtures = vec![first, second, third];
+        for id in spares {
+            fixtures.push(peer_fixture(&fixtures[0], *id).await?);
+        }
+        let f = &fixtures[0];
+        let namespace = f
+            .domain
+            .run(
+                Catalog::new(
+                    f.store.clone(),
+                    CatalogOptions {
+                        prefix: "managed/".into(),
+                        ..Default::default()
+                    },
+                )?
+                .existing_namespace(f.declaration.namespace.clone()),
+            )
+            .await??;
+        let directory = RangeDirectory::new(namespace, DirectoryLimits::default())?;
+        let empty = directory.prepare_standby_initialization(ProposalId::new([120; 16])?)?;
+        f.domain.run(directory.publish(&empty)).await??;
+        let standby = f.domain.run(directory.observe()).await??;
+        let history = GroupHistory {
+            cluster: f.declaration.namespace.cluster,
+            namespace: f.declaration.namespace.namespace,
+            group: GroupId::new([3; 16])?,
+            incarnation: IncarnationId::new([7; 16])?,
+        };
+        let proposal = || -> Result<CellGroupBirthSpec> {
+            Ok(CellGroupBirthSpec {
+                history,
+                range: CellRange::all(),
+                epoch: RouteEpoch::new(1)?,
+                creation: ProposalId::new([150; 16])?,
+                voters: fixtures
+                    .iter()
+                    .take(3)
+                    .enumerate()
+                    .map(|(i, f)| {
+                        Ok(InitialMember {
+                            member: MemberId::new(i as u64 + 1)?,
+                            node: f.spec.node,
+                        })
                     })
-                })
-                .collect::<Result<_>>()?,
-            learners: vec![],
-        })
-    };
-    let roots = [
-        tempfile::tempdir()?,
-        tempfile::tempdir()?,
-        tempfile::tempdir()?,
-    ];
-    let mut nodes = Vec::new();
-    let mut hosts = Vec::new();
-    for (i, fixture) in fixtures.iter().enumerate() {
-        let node = start_node(
-            roots[i].path(),
-            fixture.application.clone(),
-            &fixture.spec.label,
-        )
-        .await?;
-        let (config, services) = fixture
-            .config(&node, LogOpenMode::Create, 24 + i as u8)
+                    .collect::<Result<_>>()?,
+                learners: vec![],
+            })
+        };
+        let roots = (0..fixtures.len())
+            .map(|_| tempfile::tempdir())
+            .collect::<std::io::Result<Vec<_>>>()?;
+        let mut nodes = Vec::new();
+        let mut hosts = Vec::new();
+        for (i, fixture) in fixtures.iter().enumerate() {
+            let node = start_node(
+                roots[i].path(),
+                fixture.application.clone(),
+                &fixture.spec.label,
+            )
             .await?;
-        let host = node.start_raft_cells(config, services).await?;
-        ensure!(host.observe_node(TIMEOUT).await?.node.groups == 0);
-        nodes.push(node);
-        hosts.push(host);
-    }
-    let cut = f.catalog.read(TIMEOUT).await?;
-    ensure!(matches!(
-        f.catalog
+            let (mut config, services) = fixture
+                .config(&node, LogOpenMode::Create, 24 + i as u8)
+                .await?;
+            if !spares.is_empty() {
+                config.shared.checkpoints = Some(CellGroupCheckpointLimits {
+                    max_sources: 2,
+                    max_retained_bytes: 32 * 1024 * 1024,
+                    max_cells: 32,
+                    max_transfer_bytes: 32 * 1024 * 1024,
+                    max_chunk_bytes: 4093,
+                });
+            }
+            let host = node.start_raft_cells(config, services).await?;
+            ensure!(host.observe_node(TIMEOUT).await?.node.groups == 0);
+            nodes.push(node);
+            hosts.push(host);
+        }
+        let cut = f.catalog.read(TIMEOUT).await?;
+        ensure!(matches!(
+            f.catalog
+                .reserve_birth(
+                    &cut,
+                    &request(59, cut.revision()),
+                    &directory,
+                    proposal()?,
+                    "Counter",
+                    TIMEOUT
+                )
+                .await,
+            Err(FleetCatalogError::Conflict)
+        ));
+        ensure!(f.catalog.read(TIMEOUT).await?.revision() == cut.revision());
+        for (i, fixture) in fixtures.iter().enumerate() {
+            admit_capacity(fixture, &hosts[i], &directory, 40 + 2 * i as u8).await?;
+        }
+        let cut = f.catalog.read(TIMEOUT).await?;
+        let reservation = f
+            .catalog
             .reserve_birth(
                 &cut,
-                &request(59, cut.revision()),
+                &request(60, cut.revision()),
                 &directory,
                 proposal()?,
                 "Counter",
-                TIMEOUT
+                TIMEOUT,
             )
-            .await,
-        Err(FleetCatalogError::Conflict)
-    ));
-    ensure!(f.catalog.read(TIMEOUT).await?.revision() == cut.revision());
-    for (i, fixture) in fixtures.iter().enumerate() {
-        admit_capacity(fixture, &hosts[i], &directory, 40 + 2 * i as u8).await?;
-    }
-    let cut = f.catalog.read(TIMEOUT).await?;
-    let reservation = f
-        .catalog
-        .reserve_birth(
-            &cut,
-            &request(60, cut.revision()),
-            &directory,
-            proposal()?,
-            "Counter",
-            TIMEOUT,
-        )
-        .await?;
-    let cut = f.catalog.read(TIMEOUT).await?;
-    ensure!(
-        f.catalog
-            .check_inventory(&cut, std::slice::from_ref(&directory), TIMEOUT)
-            .await?
-            .histories()
-            == 1,
-        "unselected reservation must retain its physical references"
-    );
-    let ranges = directory.prepare_initialization_at(
-        &standby,
-        ProposalId::new([121; 16])?,
-        std::slice::from_ref(reservation.authorization.route()),
-    )?;
-    f.domain.run(directory.publish(&ranges)).await??;
-    let cut = f.catalog.read(TIMEOUT).await?;
-    f.catalog
-        .confirm_birth(
-            &cut,
-            &request(61, cut.revision()),
-            &directory,
-            &reservation.authorization,
-            TIMEOUT,
-        )
-        .await?;
-    let cut = f.catalog.read(TIMEOUT).await?;
-    for host in &hosts {
-        for fixture in &fixtures {
-            inspect_current(host, fixture.spec.node, cut.revision()).await?;
-        }
-        let authorization = f.catalog.authorize_group(&cut, &history, TIMEOUT).await?;
-        host.activate_managed_initial_group(authorization, TIMEOUT)
             .await?;
+        let cut = f.catalog.read(TIMEOUT).await?;
+        ensure!(
+            f.catalog
+                .check_inventory(&cut, std::slice::from_ref(&directory), TIMEOUT)
+                .await?
+                .histories()
+                == 1,
+            "unselected reservation must retain its physical references"
+        );
+        let ranges = directory.prepare_initialization_at(
+            &standby,
+            ProposalId::new([121; 16])?,
+            std::slice::from_ref(reservation.authorization.route()),
+        )?;
+        f.domain.run(directory.publish(&ranges)).await??;
+        let cut = f.catalog.read(TIMEOUT).await?;
+        f.catalog
+            .confirm_birth(
+                &cut,
+                &request(61, cut.revision()),
+                &directory,
+                &reservation.authorization,
+                TIMEOUT,
+            )
+            .await?;
+        let cut = f.catalog.read(TIMEOUT).await?;
+        for host in hosts.iter().take(3) {
+            for fixture in &fixtures {
+                inspect_current(host, fixture.spec.node, cut.revision()).await?;
+            }
+            let authorization = f.catalog.authorize_group(&cut, &history, TIMEOUT).await?;
+            host.activate_managed_initial_group(authorization, TIMEOUT)
+                .await?;
+        }
+        Ok(Self {
+            fixtures,
+            roots,
+            nodes,
+            hosts,
+            directory,
+            history,
+        })
     }
-    let index = leader(&hosts, history).await?;
+}
+
+struct SeededCells {
+    cells: Vec<CellHistory>,
+    receipts: Vec<CommandReceipt>,
+    retry: u64,
+}
+
+async fn seed_cells(hosts: &[RaftCells], history: GroupHistory) -> Result<SeededCells> {
+    let index = leader(&hosts[..3], history).await?;
     let retry = u64::try_from(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
@@ -371,7 +410,7 @@ async fn cold_group(rooted: bool) -> Result<()> {
     }
     tokio::time::timeout(TIMEOUT, async {
         loop {
-            if hosts.iter().all(|host| {
+            if hosts.iter().take(3).all(|host| {
                 host.resource_usage().host.controller.groups == 1
                     && host.resource_usage().retained_manifest_cells == Some(2)
             }) {
@@ -381,6 +420,48 @@ async fn cold_group(rooted: bool) -> Result<()> {
         }
     })
     .await?;
+    Ok(SeededCells {
+        cells,
+        receipts,
+        retry,
+    })
+}
+
+async fn cold_group(rooted: bool) -> Result<()> {
+    let ManagedCluster {
+        fixtures,
+        roots,
+        nodes,
+        hosts,
+        directory,
+        history,
+    } = Box::pin(ManagedCluster::start(rooted, &[])).await?;
+    let f = &fixtures[0];
+    let proposal = || -> Result<CellGroupBirthSpec> {
+        Ok(CellGroupBirthSpec {
+            history,
+            range: CellRange::all(),
+            epoch: RouteEpoch::new(1)?,
+            creation: ProposalId::new([150; 16])?,
+            voters: fixtures
+                .iter()
+                .take(3)
+                .enumerate()
+                .map(|(i, f)| {
+                    Ok(InitialMember {
+                        member: MemberId::new(i as u64 + 1)?,
+                        node: f.spec.node,
+                    })
+                })
+                .collect::<Result<_>>()?,
+            learners: vec![],
+        })
+    };
+    let SeededCells {
+        cells,
+        receipts,
+        retry,
+    } = seed_cells(&hosts, history).await?;
     close_group_nodes(nodes, &hosts).await?;
     drop(hosts);
     let mut nodes = Vec::new();
@@ -521,3 +602,6 @@ async fn cold_group(rooted: bool) -> Result<()> {
     f.domain.shutdown().await;
     Ok(())
 }
+
+#[path = "cell_group_managed_lifecycle.rs"]
+mod lifecycle;

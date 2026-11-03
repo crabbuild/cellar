@@ -4,6 +4,41 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Latest managed peer replacement checkpoint
+
+The follow-up on e8f9352d exports the nested startup cause through the SDK and
+adds managed_group_replacement_and_joined_restart. All eight managed cases pass;
+all seven original cases remain. Both image forms qualify actual peer seeding,
+RawNode catch-up, joint finish, durable settlement replay, retained removed-member
+physical debt, actual leader handoff, survivor writes and canonical retained
+joined-member startup. Duplicate receipts, old tokens and new writes survive;
+the old target-boot grant refuses before submission with no root mutation.
+No runtime guard, timeout or quota was changed. The fault drill reproduces a
+committed terminal CAS with lost write/confirmation replies. Provider I/O from
+that settlement now becomes Unconfirmed at the movement reconciler boundary;
+the next invocation resolves its permanent receipt. Corruption/authority errors
+retain their typed failures. Initial promotion NotReady is also uncertain;
+reconcile the same admitted intent and retain its debit.
+
+Final checks pass the library build, 30 fleet unit and six wire cases, native-only
+library compilation and five static checks. Strict Clippy remains 222/202 dead_code
+with the same diagnostic keys; package compilation retains 27 performance errors.
+The added plan-validator run exposes two pre-existing failures: reviewed anchor
+drift and the generated index/Purpose mismatch. Their inputs match e8f9352d.
+Review the anchors and generator contract; never refresh hashes merely to pass.
+
+This remains a local TLS/SQLite component gate with fixture catalog/attestations.
+It does not complete managed_group_lifecycle. Next implement/qualify the rooted
+maintenance gate, readiness, owned stop, offline proof, retained return and
+fresh resume/capacity settlement for a joined member, including failure and
+cancellation ownership. Then port original fleet/performance consumers, repair
+the retired inspection oracle and strict lint/build gates, implement exact S3
+learner seeding/archive holds and refresh same-source RustFS recovery/load.
+CG-09–16 remain required. Keep the PR draft and goal active. Consult
+managed_lifecycle_work in both ignored continuations for captures, immutable
+artifacts, preservation, publication and any owned live handles. Preserve all
+eight user diagrams and exclude both requested MR progress basenames.
+
 ## Latest cold managed group checkpoint
 
 The follow-up on b9be4de7 implements explicit standby inventory and exact-root
