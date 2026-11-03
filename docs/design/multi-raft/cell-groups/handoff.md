@@ -4,6 +4,38 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Latest merged-source qualification and requested next work
+
+Local merge 9df1389f contains counter checkpoint 41ab8b4d and origin/main
+981a5417 (PR #165). Capture CG-07-public-counter-03 passes the rebuilt counter,
+original public SDK case, twenty query-wire cases, three namespace-host cases
+(both image forms), effects build/original retained smoke and all five static
+checks. Full normal library is 1055 passed, one failed and two ignored; the
+failure remains the retired inspection-cancellation protocol. Performance binary
+compilation and strict lint remain separate failing gates; see progress for
+final source-bound diagnostics. No current combined RustFS/CI matrix claim.
+
+The user requests finishing this qualification and updating draft PR #160 before
+implementing the shared membership fence, managed boot, owned directory refresh
+and Node stop services. The upstream fence changes the retired owner only; the
+shared runtime must retain prior messages through physical sends and freeze a
+finite Ready boundary before membership publication. Managed startup must bind
+and sync the exact boot before group attachment/publication, use managed group
+permits, join directory work on shutdown, and install Node's existing stop owner.
+Keep all original guards until their real replacements and tests exist. Preserve
+the remaining public cases, S3 learner activation and CG-09–16 scope.
+
+Newest state: local counter checkpoint41ab8b4d and merge9df1389f include newly
+fetched main981a5417 (PR165). PR160 remains at published fc4a8d31; do not describe
+the new merged source as published or qualified. Three merge conflicts are
+resolved without restoring the predecessor dispatcher or weakening assertions.
+Post-merge source03 qualification is next. Record/poll its exact owned handle;
+do not edit Rust while live. Source02/earlier evidence retains its original base.
+Audit the upstream membership-send fence against the separate CellGroupOwner
+Ready/effect/send ownership before qualifying managed moves. The next complete
+feature remains actual managed boot/directory/stop integration and dependent
+consumer ports; four original public gates and all backend/CG09–16 scope remain.
+
 Latest unpublished work on fc4a8d31 ports the public counter to one shared group
 and two independent cells per node, with explicit public namespace/archive setup,
 replicated enrollment and typed native/Axum projection. No production verification

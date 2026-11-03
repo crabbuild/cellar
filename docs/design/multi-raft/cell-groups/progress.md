@@ -12,6 +12,48 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 current-main qualification checkpoint
+
+Counter checkpoint 41ab8b4d is committed locally with the source-02 qualification
+below. While its checks ran, origin/main advanced to
+981a5417d9359d1f992e2dbf214eec7d221b6777 (PR #165). Merge 9df1389f includes that
+main plus the counter work. The three conflicts preserve the shared-only host
+configuration surface, upstream incompressible seed data with CellHistory
+callbacks, and every exact metrics assertion. The predecessor host dispatcher is
+not restored. Upstream shutdown, snapshot, pool and qualification changes remain.
+
+Merged-source capture CG-07-public-counter-03 binds Rust inputs to merge
+9df1389f (source manifest SHA256
+32adfacc6ad54f9760928487e2b5ab018c1cbef5c3a691792f42db89f86dc8b0).
+The counter builds and the original sdk_many_cells_share_group public case passes
+with the actual rebuilt counter (SHA256
+a5ebebc8086dcc17892bf706962a2539cb08589b20ebeabef58a581ba95453d8).
+All three replicas observe one physical group and two independent cells. The
+normal library builds: all twenty query-wire cases pass; full library has
+1055 passed, one failed and two ignored. All 1052 earlier test names remain,
+with six upstream additions. The sole failure is the retired-protocol inspection
+cancellation fixture. All three namespace-host cases pass across both image
+forms; the effects build and original two-process retained smoke pass using the
+SQLite development object store. Format, layout, native dependencies, docs and
+diff checks pass. Normal local profiles use opt-level zero and no internal test
+cfg; this does not qualify the optimized CI campaign or feature matrix.
+
+The public/host Cargo commands emit fresh component executables but still exit
+101 on 27 unconverted performance-binary errors. They are not package passes.
+Strict library Clippy fails with 234 diagnostics, including 214 dead_code.
+The one changed diagnostic reflects upstream renaming targets to yield_for_seed
+in snapshot transport; the remaining code/message/primary-file set is unchanged.
+All owned qualification jobs are terminal. Keep
+PR #160 a draft: the complete public target, managed orchestration, combined-source
+RustFS recovery/load and CG-09–16 remain unqualified.
+
+The upstream membership send-fence fix changes the retained legacy Replica.
+Audit/reproduce its applicability to CellGroupOwner before qualifying managed
+membership transitions: that owner has a separate Ready/effect/transport lifetime.
+Merging the old Replica fix alone does not establish the shared owner's finite
+configuration fence or final commit delivery to a removed peer. Preserve all
+original deadlines, ownership reservations and destination/catalog authority.
+
 ## CG-07 public counter and provisioning in progress
 
 Unpublished work on fc4a8d31 ports the counter from two per-cell registrations to
