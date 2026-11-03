@@ -3,7 +3,9 @@
 //! Canonical startup uses namespace capabilities and physical group placement.
 //! Logical cells are enrolled through the controller, never through node config.
 mod archive;
+mod provisioning;
 mod registration;
+pub use provisioning::{RaftGroupArchiveInitialization, RaftNamespaceProvisioning};
 mod resources;
 #[cfg(all(test, not(cellar_internal_tests)))]
 #[path = "../host_startup_tests.rs"]

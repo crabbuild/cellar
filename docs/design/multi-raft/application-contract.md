@@ -85,6 +85,34 @@ answer  = counter.query(Get, consistency=AtLeast(receipt.version_token))
 
 The framework wraps the command with its receipt transaction. Applications must not independently commit early. Errors and panics roll back private changes. The encoded result is bounded and stored with the mutation before LTX capture.
 
+## Namespace and archive setup
+
+`RaftNamespaceConfig` declares a compiled namespace capability; physical
+`RaftGroupAssignment` values declare complete group placement. Logical handles
+bind `CellHistory`, and `enroll` replicates the registered initializer under an
+explicit immutable creation ID. A handle does not create a Raft machine or infer
+a cell incarnation from a physical group.
+
+`RaftNamespaceProvisioning` is the public operator setup path. It runs catalog
+work on the supplied execution domain and shares the host's immutable range
+initializer. `initialize: Some(plan)` selects an explicit, retry-stable initial
+range plan; `None` only opens existing namespace/directory metadata. Managed
+namespaces still require their separate authority protocol and refuse this path.
+This setup creates no local member or serving capability.
+
+`prepare_archive` returns a one-use `RaftGroupArchiveInitialization`. Persist and
+sync its exact `encoded_intent()` before `commit`; uncertain completion requires
+retaining that intent and recovering rather than allocating another initializer.
+`open_archive` verifies only the catalog-bound identity and existing registry
+counters. Missing binding, identity or counters refuse; startup never replaces
+them. Neither a prepared intent nor an opened archive supplies a learner seed,
+fresh quorum, local reclamation proof or disaster fencing authority.
+
+`RaftCells::identity` exposes the immutable node/disk/process tuple as metadata.
+For example, an ingress can combine its complete process generation with a
+checked sequence to allocate query invocation IDs shared by native and Axum
+handlers. Identity metadata does not authorize a stale process to serve or restart.
+
 ## Receipt semantics
 
 For v1, use `(authenticated_client_id, sequence)` as the command ID, scoped to the cell and incarnation. Each client identity is non-reusable within that incarnation. The caller allocates increasing per-cell sequences and persists its pending command before sending; `CommandOptions` requires that explicit ID. Different client identities can submit concurrently; one identity submits its commands in sequence.
@@ -112,7 +140,7 @@ Persist `retry_until`/receipt retention policy. Capacity pressure cannot silentl
 | Outcome | Meaning and retry behavior |
 | --- | --- |
 | `NotLeader` | Redirect hint; server still validates authority after reroute |
-| `Unavailable` / `Overloaded` | Refused before proposal submission; retry within policy |
+| `Unavailable` / `Overloaded` | Availability refusal; inspect the command error's ambiguity flag before deciding whether submission may have occurred. Preserve the original ID and input. |
 | `StorageFull` | Private SQLite execution ran out of storage before proposal submission; free capacity before retrying the same identity. The private image is discarded and rebuilt; a failed write cannot establish a reusable transaction. |
 | `Ambiguous(command_id)` | Proposal may have committed; reconcile using the same ID |
 | `CommandConflict` | ID reused with different content; do not retry with altered content |
@@ -124,7 +152,14 @@ Persist `retry_until`/receipt retention policy. Capacity pressure cannot silentl
 | `ArchiveUnavailable` | S3 requirement not yet proven; a submitted command remains ambiguous |
 | `CorruptState` | Stop that replica's serving/proof role and recover through the protocol |
 
-`RaftCellHandle::command`, `query` and `status` admit synchronously before returning a future. Dropping the future cancels its waiter. An unpolled waiter does not suspend its deadline: the node checks expiry before starting queued private work and before submission. A readiness observation is a hint; every command still checks live authority and can be refused if it changed.
+`RaftCellHandle::command`, `query` and `receipt` admit synchronously before returning a future. Dropping the future cancels its waiter. An unpolled waiter does not suspend its deadline: the node checks expiry before starting queued private work and before submission. A readiness observation is a hint; every command still checks live authority and can be refused if it changed.
+
+`CellCommandError` preserves the original command ID, a conservative ambiguity
+flag and its typed cause. `CellDispatchError::refusal()` exposes a local or
+authenticated remote application refusal without importing verification interfaces.
+A refusal does not clear the enclosing command's ambiguity. HTTP projection must
+retain both the command identity/ambiguity and the cause; it cannot infer rollback
+from an availability or archive error.
 
 Cancellation before submission rolls back private work. Cancellation after submission cancels the waiter, not the consensus decision. Never convert a lost reply into a fresh mutation ID. Read retries retain their original deadline and consistency requirement. Cross-cell workflows remain application coordination.
 

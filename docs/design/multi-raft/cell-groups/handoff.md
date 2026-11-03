@@ -4,6 +4,32 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+Latest unpublished work on fc4a8d31 ports the public counter to one shared group
+and two independent cells per node, with explicit public namespace/archive setup,
+replicated enrollment and typed native/Axum projection. No production verification
+imports or per-cell registration remain in that executable. Its original smoke
+passes three full drills; the extra HTTP contract and missing-catalog guard pass.
+The native_cell_groups_public target now exists and passes the original
+sdk_many_cells_share_group case. The other four public cases remain missing;
+do not replace their managed/admin/feature-off oracles with the counter result.
+Source-02's overall native Cargo invocation still fails on twenty-seven old
+performance API errors despite emitting its fresh public test executable.
+Current-source checks: wire20 pass; host3 pass across both image forms; normal
+library build and original two-run effects smoke pass. Full library1049/1/2 retains
+only the old inspection-cancellation failure. Strict library Clippy234/214dead_code
+is unchanged by code/message/primary-file comparison. All five static checks pass.
+The next feature dependency is actual managed startup: registration refuses
+managed namespaces/node-directory options; Replica bootstrap is unmanaged; Node
+startup returns no Fleet stop services. Preserve capability digests, exact
+catalog/node/disk/process/storage-instance boot binding, synced lifecycle guards,
+permanent claims and fresh group authorization when wiring those owners. Do not
+make fleet/performance callers compile by dropping their managed behavior. Read
+public_counter_work in both ignored continuations for exact source/artifact hashes,
+retained setup failure, completed cases and owned live handles. Do not edit Rust
+while an owned build/test/format job remains live. No timeout/quota/stack increase
+or assertion weakening is permitted. This newest section governs over historical
+checkpoints below; the goal and CG-07 remain incomplete.
+
 PR #160 is the authorized draft checkpoint; do not merge. Preserve/exclude the
 user's eight diagram files and both MR progress basenames. Keep the canonical PR
 checkout and isolated effects checkout aligned after publication. All CG-01–16

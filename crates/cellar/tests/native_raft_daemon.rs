@@ -29,7 +29,7 @@ const SECRET: &str = "fixture-secret-raft-cli";
 fn child(root: PathBuf, mode: String) -> Result<()> {
     let class = counter::definition()?;
     let namespace = NamespaceId::new([2; 16])?;
-    let api = counter::CounterApi::new(SECRET.into(), namespace, &class)?;
+    let api = counter::CounterApi::new(SECRET.into(), ClusterId::new([1; 16])?, namespace, &class)?;
     let serving = api.clone();
     let prepared_root = root.clone();
     let verify_join = mode == "bind-fail";

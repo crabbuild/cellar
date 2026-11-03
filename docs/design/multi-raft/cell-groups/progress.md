@@ -12,6 +12,78 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 public counter and provisioning in progress
+
+Unpublished work on fc4a8d31 ports the counter from two per-cell registrations to
+one physical group with independent logical histories, SQLite state and receipts.
+The node's log/runtime/controller capacities are explicitly one group. Fresh
+public namespace/archive provisioning persists the exact archive intent before
+creating counters; retained setup opens only existing metadata. Missing catalog
+with retained voter disks refuses rather than reconstructing a namespace.
+The public provisioning facade reuses the host's immutable range initializer;
+it exposes no legacy catalog or verification-only interface and grants no serving
+or activation authority.
+
+The HTTP adapter uses CellVersionToken, one original query deadline/attempt bank,
+explicit one/two ingress authorization, full-process/checked-sequence query IDs,
+and actual replica metadata. Logical version fields and physical commit witness
+fields stay separate. Typed application refusals remain accessible without
+verification imports, and ambiguous command errors retain the original ID plus
+cause. Node drain precedes the unchanged final quiescence predicate. The original
+counter smoke and its assertions/timeouts are unchanged.
+
+The locked counter build passes at CG-07-public-counter-01. Three original smoke
+drills pass, each forcing late startup failure and then completing both retained
+process phases on all six HTTP endpoints. All replicas report one controller
+group and two manifest cells. One immediate repeat cannot bind the fixture's
+non-reusing port before process startup; no listener remains. The retained repeat
+wrapper checks the original documented free-port precondition, observes 29.10
+seconds of socket cleanup, then passes both repeats without altering the smoke.
+
+An additional real native/Axum contract run passes 581 requests, including
+seventeen invalid option sets per endpoint, duplicate recognized headers,
+authentication, the fixed cell allowlist, forged/cross-cell minima, contract
+validation before duplicate lookup, typed conflicts/sequence gaps and unchanged
+cell values/receipts. This covers counter ingress; admin and forged tenant/group
+acceptance remain unqualified. A separate missing-catalog refusal with three
+copied voter disks returns before creating a catalog or archive intent; every
+voter file hash is unchanged. This is a startup guard test, not disaster recovery.
+Counter executable SHA256:
+a6af26253a601a38298c29568fc008e2be92fa3c254e5b139ff4d0ccce5a6ad5.
+
+Source-02 creates native_cell_groups_public with the original
+sdk_many_cells_share_group case. The emitted fresh executable passes that exact
+case, retaining its process evidence and observed group/cell inventory. The
+remaining four original public cases are not stubbed or marked passed. Source-02
+changes only this new integration target's Rust inputs relative to source-01;
+production/example Rust is identical. Source manifest SHA256:
+e93ddd25b82771d7f1c8199567033eaa4cb734de95cec3c160161bd386f13104.
+Public test executable SHA256:
+9b2987f67f9fca1515311da94c7f3520eef3a2bb44d170bd6e6983b376765825.
+The overall Cargo command still exits 101 on twenty-seven unconverted performance
+binary errors; a fresh component executable is not a package pass.
+
+The normal library target builds; all twenty wire cases pass. Full library:
+1049 passed, one failed, two ignored. The sole failure remains
+inspection_revocation_and_process_refresh_cancel_an_admitted_inbound_call, whose
+fixture still sends the retired per-cell inspection protocol. All three current
+namespace-host cases pass across both image forms. The effects target builds and
+its original two-run retained smoke passes with the SQLite development store.
+Format, layout, dependency, documentation and diff checks pass. Strict library
+Clippy still reports 234 diagnostics, including 214 dead_code; code/message/primary
+file comparison finds no added or resolved diagnostic against host-fixed-09.
+No suppression, assertion weakening or timeout/capacity/stack increase is used to
+obtain a library/package pass.
+
+No current combined-source RustFS, full public target or package qualification is
+claimed. The next feature dependency is canonical managed startup: registration
+still refuses managed namespaces/node-directory options, Replica attachment uses
+only unmanaged bootstrap, and Node startup returns no Fleet stop services. Wire
+those owners to the existing exact-boot/group authorizations and synced lifecycle
+guard before qualifying managed/performance consumers. Keep every admission guard
+until its real replacement is active. Original public fixture ports, remaining
+consumers, S3 learner activation and all CG-09–16 scope remain required.
+
 ## CG-07 bounded replica routing checkpoint
 
 The shared controller now owns bounded public replica preferences: one to eight

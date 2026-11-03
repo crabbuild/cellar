@@ -99,8 +99,9 @@ pub use crate::raft::fleet_stop::{
     FleetBootBinding, FleetStopAcceptance, FleetStopAction, FleetStopRequest, VerifiedFleetClosure,
 };
 pub use crate::raft::group_host::{
-    CellGroupNodeArchiveOptions, CellGroupNodeLimits, RaftCellsConfig, RaftGroupAssignment,
-    RaftGroupPlacement, RaftNamespaceConfig, RaftNamespaceInitialization,
+    CellGroupNodeArchiveOptions, CellGroupNodeLimits, RaftCellsConfig,
+    RaftGroupArchiveInitialization, RaftGroupAssignment, RaftGroupPlacement, RaftNamespaceConfig,
+    RaftNamespaceInitialization, RaftNamespaceProvisioning,
 };
 pub use crate::raft::host::{
     FleetImageState, FleetMembershipConfiguration, FleetMembershipObservation, FleetPublishedCut,

@@ -2,8 +2,9 @@
 
 # Raft counter
 
-This development executable runs three embedded nodes with two independent
-three-voter groups, `Counter:one` and `Counter:two`. Each node serves native HTTP
+This development executable runs three embedded nodes with one shared
+three-voter group. `Counter:one` and `Counter:two` retain independent SQLite state,
+logical histories and command receipts inside that group. Each node serves native HTTP
 on ports 9901–9903 and an application-owned Axum router on ports 9911–9913.
 Both use the same registered synchronous commands, queries and node-owned
 dispatcher. Followers apply LTX and serve committed-image reads without
@@ -29,7 +30,15 @@ The development object-store adapter persists catalog roots and bootstrap claims
 in `catalog.sqlite`, including public version-key retention metadata. The
 development version-signing key is fixed for this local drill; production
 embeddings inject managed signing/verification keys through `RaftCellsServices`.
-Cell data and Raft logs persist in each node's directory.
+Fresh setup uses the public `RaftNamespaceProvisioning` API to publish one
+all-range group and persist/sync its one-use archive intent before creating
+archive counters. Node startup opens that exact namespace and group; replicated
+enrollment initializes each cell. Retained setup only opens existing catalog and
+archive metadata. Missing catalog with voter disks refuses before opening a new
+catalog, and predecessor per-cell directories are not migrated.
+Cell data and Raft logs persist in each node's directory. `inventory.json`
+records the observed controller group count and manifest cell count per node;
+startup requires one group and two cells on all three replicas.
 Keep all of these files for a normal restart. Losing a replica's disk requires
 membership repair; this example cannot reinitialize its old voting identity.
 
@@ -50,7 +59,9 @@ a mismatch returns 422 before business execution or duplicate receipt lookup.
 The command's normalized input is the signed 64-bit delta in big-endian bytes.
 HTTP request bodies do not contribute to this endpoint's command input.
 
-Before the Raft bindings are installed, authenticated requests return 503.
+The bearer authorizes only the fixed `one` and `two` cells; other names refuse
+before creating a handle. Before the Raft bindings are installed, authenticated
+requests return 503.
 Send a command to the current leader's port. A follower returns 503 with a
 `NotLeader` hint. A response containing `Ambiguous` retains the original command
 ID; the gateway does not retry or generate a new one. Read using an authenticated
@@ -58,7 +69,11 @@ ID; the gateway does not retry or generate a new one. Read using an authenticate
 Every successful command and query response includes `version_token`, an opaque
 authenticated observation bound to its exact cell history. Queries also report
 `served_by`, the actual serving Raft member ID; commands return `null` there.
-The value and group/incarnation/index/term describe the committed image or receipt.
+`incarnation`, `cell` and `sequence` describe the logical cell version.
+`group`, `group_incarnation`, `index` and `term` come from that version's actual
+commit witness. A physical group index is not a logical cell mutation counter;
+another cell can advance the shared log. A receipt can retain its original
+business result while a later verified image covers it.
 Keep the opaque token for minimum-version reads; numeric fields alone are not a
 portable proof. A token does not grant access without the bearer credential.
 
@@ -79,25 +94,25 @@ and send the GET to a follower. It waits for that version before reading or
 returns an error; it never silently serves an older image. `linearizable`
 requires a fresh ReadIndex proof and a live majority. Member routing preserves
 the requested consistency, token and input across attempts under one deadline.
-These development groups use member IDs 1–3. An invalid option combination or
+This development group uses member IDs 1–3. An invalid option combination or
 duplicate recognized header returns 400; a valid token from another cell/history
 returns 409. Signature/expiry failures return 503 without weakening consistency.
 POST rejects read-specific headers rather than silently ignoring them.
 
 The example uses Quorum command durability and the bucket's scoped conditional
 client for background archives. Programmatic SDK callers can request S3, which
-waits for a verified complete archive recovery set. Atomic Raft member recovery
-and disaster-restore admission remain later work; an archive image alone cannot
-activate a member. Ctrl-C closes the HTTP servers and joins the services and
-nodes. Retain replica disks while archive coverage or submitted work is unfinished.
+waits for a verified complete archive recovery set. An archive image alone cannot activate a member or fence old hosts; this
+development drill does not qualify learner repair or disaster recovery. Ctrl-C
+closes HTTP servers, lets Node seal admission/drain producers, then checks the
+joined Raft report for no unresolved local producers and no failed groups. Retain replica disks while archive coverage or submitted work is unfinished.
 
-The `native_axum_command_parity` integration case exercises real native and Axum
-listeners, direct SDK commands, duplicate receipts, conflicting inputs,
-authentication, contract mismatch, all three read modes and invalid read options.
-`public_multi_group_replication_and_leader_failover`
-exercises two groups across three nodes, follower image publication and leader
-replacement. These fixtures establish behavior within their test scope, not a
-production capacity or complete disaster-recovery qualification.
+The original `native_axum_command_parity` and
+`public_multi_group_replication_and_leader_failover` fixture ports remain CG-07
+work. They must retain direct SDK/HTTP parity, duplicate/conflicting receipts,
+authentication, contract mismatch, all read modes/options, multiple physical groups
+and leader replacement. The process drill below exercises the public counter
+path; it does not replace those gates or qualify production capacity, independent
+hosts or complete disaster recovery.
 
 Run the process restart drill against an already built binary with a new work
 directory (the script retains replica disks and logs and never prints its token):

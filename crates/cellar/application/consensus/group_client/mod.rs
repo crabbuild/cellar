@@ -282,6 +282,12 @@ impl RaftCells {
         Ok(())
     }
 
+    /// Immutable identity of this node's log owner. This is metadata, not a live
+    /// membership, serving, fencing or restart authorization.
+    pub fn identity(&self) -> NodeIdentity {
+        self.handle.core.node
+    }
+
     pub fn is_closed(&self) -> bool {
         self.handle.close.closing.load(Ordering::Acquire) || self.handle.core.host.is_closed()
     }

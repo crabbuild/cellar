@@ -73,6 +73,22 @@ pub enum CellDispatchError {
     Archive(Arc<CellGroupArchiveControlError>),
 }
 
+impl CellDispatchError {
+    /// A typed application refusal from local execution or an authenticated
+    /// remote reply. This does not resolve a command error's ambiguity: callers
+    /// must inspect `CellCommandError::ambiguous` and preserve its command ID.
+    pub fn refusal(&self) -> Option<&cellar_logic::consensus::CommandFailure> {
+        match self {
+            Self::Execution(ExecutionError::Refused(failure))
+            | Self::Transport(
+                crate::raft::transport::TransportError::Query(failure)
+                | crate::raft::transport::TransportError::Command(failure),
+            ) => Some(failure),
+            _ => None,
+        }
+    }
+}
+
 impl fmt::Display for CellDispatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "cell dispatch: {self:?}")

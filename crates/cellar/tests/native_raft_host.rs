@@ -855,7 +855,12 @@ async fn native_axum_command_parity() -> Result<()> {
     let schema = class.schema_digest();
     let namespace = NamespaceId::new([2; 16])?;
     let secret = "counter-test-authorization";
-    let api = counter_example::CounterApi::new(secret.into(), namespace, &class)?;
+    let api = counter_example::CounterApi::new(
+        secret.into(),
+        ClusterId::new([1; 16])?,
+        namespace,
+        &class,
+    )?;
     let application = counter_example::application(api.clone(), class)?;
     let node = public_node::node(root.path(), application.clone()).await?;
     let mut namespace_config = config(2, NamespaceMode::Raft, true);
@@ -1100,7 +1105,12 @@ async fn native_axum_nonmember_query_router_parity() -> Result<()> {
     let namespace = NamespaceId::new([2; 16])?;
     let secret = "counter-router-authorization";
     let class = counter_example::definition()?;
-    let api = counter_example::CounterApi::new(secret.into(), namespace, &class)?;
+    let api = counter_example::CounterApi::new(
+        secret.into(),
+        ClusterId::new([1; 16])?,
+        namespace,
+        &class,
+    )?;
     let source = public_node::Counter {
         schema: class.schema_digest(),
         increment: class.contract("Increment").unwrap(),

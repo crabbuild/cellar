@@ -3,9 +3,13 @@
 //! Shared business operations and HTTP normalization for both example hosts.
 use anyhow::{ensure, Result};
 use cellar::sdk::{consensus::*, Application, Invocation, Output, RaftClass, Registry};
+use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeSet,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
     time::Duration,
 };
 use subtle::ConstantTimeEq;
@@ -15,7 +19,9 @@ pub struct CounterApi {
     pub increment: OperationContract,
     pub get: OperationContract,
     secret: String,
+    cluster: ClusterId,
     namespace: NamespaceId,
+    next_query: AtomicU64,
 }
 
 pub struct Reply {
@@ -52,7 +58,7 @@ fn read_options(headers: &[(String, String)]) -> Result<QueryOptions> {
     let consistency = match header(headers, "x-read-consistency")?.unwrap_or("stale") {
         "stale" => QueryConsistency::Stale,
         "linearizable" => QueryConsistency::Linearizable,
-        "at-least" => QueryConsistency::AtLeast(VersionToken::from_encoded(
+        "at-least" => QueryConsistency::AtLeast(CellVersionToken::from_encoded(
             minimum.ok_or_else(|| anyhow::anyhow!("provide x-min-version"))?,
         )?),
         _ => anyhow::bail!("invalid read consistency"),
@@ -120,28 +126,66 @@ fn read_options(headers: &[(String, String)]) -> Result<QueryOptions> {
         consistency,
         timeout: Duration::from_millis(timeout_ms),
         stale_policy,
+        max_attempts: match &routing {
+            QueryRouting::Local => 1,
+            QueryRouting::Replicas {
+                members,
+                leader_fallback,
+                ..
+            } => (members.len() + usize::from(*leader_fallback)) as u8,
+        },
         routing,
+    })
+}
+
+pub fn history(cluster: ClusterId, namespace: NamespaceId, name: &str) -> Result<CellHistory> {
+    ensure!(
+        matches!(name, "one" | "two"),
+        "counter cell is not authorized"
+    );
+    Ok(CellHistory {
+        cluster,
+        namespace,
+        cell: CellId::new(format!("Counter:{name}"))?,
+        incarnation: IncarnationId::new([4; 16])?,
     })
 }
 
 pub fn definition() -> Result<RaftClass> {
     Ok(RaftClass::new("Counter", 1, [21; 32])?
+        .initializer([24; 32], |_, sql| {
+            sql.execute_batch(
+                "CREATE TABLE counter(value INTEGER NOT NULL); INSERT INTO counter VALUES(0)",
+            )?;
+            Ok(())
+        })?
         .command("Increment", [22; 32], |context, input| {
             let delta = i64::from_be_bytes(input.try_into()?);
-            context.sql().execute_batch("CREATE TABLE IF NOT EXISTS counter(value INTEGER NOT NULL); INSERT INTO counter SELECT 0 WHERE NOT EXISTS(SELECT 1 FROM counter)")?;
-            let value: i64 = context.sql().query_row("SELECT value FROM counter", [], |row| row.get(0))?;
-            let value = value.checked_add(delta).ok_or_else(|| anyhow::anyhow!("counter overflow"))?;
-            context.sql().execute("UPDATE counter SET value=?1", [value])?;
+            let value: i64 = context
+                .sql()
+                .query_row("SELECT value FROM counter", [], |row| row.get(0))?;
+            let value = value
+                .checked_add(delta)
+                .ok_or_else(|| anyhow::anyhow!("counter overflow"))?;
+            context
+                .sql()
+                .execute("UPDATE counter SET value=?1", [value])?;
             Ok(value.to_be_bytes().to_vec())
         })?
         .query("Get", [23; 32], |context, _| {
-            let value: i64 = context.query_row("SELECT value FROM counter", [], |row| row.get(0))?;
+            let value: i64 =
+                context.query_row("SELECT value FROM counter", [], |row| row.get(0))?;
             Ok(value.to_be_bytes().to_vec())
         })?)
 }
 
 impl CounterApi {
-    pub fn new(secret: String, namespace: NamespaceId, class: &RaftClass) -> Result<Arc<Self>> {
+    pub fn new(
+        secret: String,
+        cluster: ClusterId,
+        namespace: NamespaceId,
+        class: &RaftClass,
+    ) -> Result<Arc<Self>> {
         ensure!(
             secret.len() >= 16 && !secret.contains(['\r', '\n']),
             "use an HTTP bearer secret of at least 16 bytes"
@@ -151,11 +195,27 @@ impl CounterApi {
             increment: class.contract("Increment").unwrap(),
             get: class.contract("Get").unwrap(),
             secret,
+            cluster,
             namespace,
+            next_query: AtomicU64::new(1),
         }))
     }
 
-    /// The demo bearer grants access to its fixed namespace. Real applications
+    fn query_id(&self, owner: &RaftCells) -> Result<ProposalId> {
+        let sequence = self
+            .next_query
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
+                next.checked_add(1)
+            })
+            .map_err(|_| anyhow::anyhow!("query identity exhausted"))?;
+        let mut hash = Sha256::new();
+        hash.update(b"cellar-counter-query-1\0");
+        hash.update(owner.identity().process.bytes());
+        hash.update(sequence.to_be_bytes());
+        ProposalId::new(hash.finalize()[..16].try_into()?).map_err(Into::into)
+    }
+
+    /// The demo bearer grants access to its fixed namespace and two cells. Real applications
     /// must bind authenticated principals and allowed cells at their ingress.
     pub async fn request(&self, method: &str, url: &str, headers: &[(String, String)]) -> Reply {
         let text = |status, text: &str| Reply {
@@ -183,9 +243,9 @@ impl CounterApi {
             let name = url
                 .path()
                 .strip_prefix("/counters/")
-                .filter(|name| !name.is_empty() && !name.contains('/'))
+                .filter(|name| matches!(*name, "one" | "two"))
                 .ok_or_else(|| anyhow::anyhow!("use /counters/one or /counters/two"))?;
-            let cell = service.cell(self.namespace, &format!("Counter:{name}"))?;
+            let cell = service.cell(history(self.cluster, self.namespace, name)?)?;
             let mut contract = if method == "POST" {
                 self.increment.clone()
             } else {
@@ -240,47 +300,87 @@ impl CounterApi {
         };
         let result = match operation {
             Operation::Command(delta, options) => cell
-                .command(contract, delta.to_be_bytes().to_vec(), options)
+                .command(&contract, delta.to_be_bytes().to_vec(), options)
                 .await
-                .map(|receipt| (receipt.result, receipt.version, receipt.version_token, None)),
-            Operation::Query(options) => {
-                cell.query(contract, vec![], options).await.map(|result| {
+                .map(|receipt| {
                     (
-                        result.result,
-                        result.version,
-                        result.version_token,
-                        Some(result.served_by.get()),
+                        receipt.result,
+                        receipt.version,
+                        receipt.witness,
+                        receipt.version_token,
+                        None,
                     )
                 })
+                .map_err(|error| {
+                    failure_reply(&error.cause, error.ambiguous.then_some(error.command))
+                }),
+            Operation::Query(options) => {
+                let invocation = match self.query_id(&service) {
+                    Ok(invocation) => invocation,
+                    Err(_) => return text(503, "query identity unavailable"),
+                };
+                cell.query(invocation, &contract, vec![], options)
+                    .await
+                    .map(|result| {
+                        (
+                            result.result,
+                            result.version,
+                            result.witness,
+                            result.version_token,
+                            Some(result.served_by.get()),
+                        )
+                    })
+                    .map_err(|error| failure_reply(&error, None))
             }
         };
         match result {
-            Ok((value, version, token, served_by)) => {
+            Ok((value, version, witness, token, served_by)) => {
                 let Ok(value) = value.try_into().map(i64::from_be_bytes) else {
                     return text(500, "invalid counter result");
                 };
-                Reply { status: 200, body: serde_json::json!({ "value": value, "index": version.position.index.get(), "term": version.position.term.get(), "group": hex::encode(version.scope.group.bytes()), "incarnation": hex::encode(version.scope.incarnation.bytes()), "version_token": token.as_str(), "served_by": served_by }).to_string().into_bytes() }
+                Reply { status: 200, body: serde_json::json!({
+                    "value": value, "index": witness.position.index.get(), "term": witness.position.term.get(),
+                    "group": hex::encode(witness.group.group.bytes()), "group_incarnation": hex::encode(witness.group.incarnation.bytes()),
+                    "incarnation": hex::encode(version.history.incarnation.bytes()), "cell": version.history.cell.as_str(),
+                    "sequence": version.sequence.get(), "version_token": token.as_str(), "served_by": served_by
+                }).to_string().into_bytes() }
             }
-            Err(error) => {
-                let status = match error {
-                    CommandFailure::CommandConflict
-                    | CommandFailure::CommandExpired
-                    | CommandFailure::SequenceGap { .. }
-                    | CommandFailure::WrongIncarnation => 409,
-                    CommandFailure::UnsupportedCapability
-                    | CommandFailure::UnsupportedConsistency => 422,
-                    CommandFailure::CorruptState => 500,
-                    _ => 503,
-                };
-                // Preserve Ambiguous plus its original ID; no ingress retries a
-                // mutation or turns it into a fresh command identity.
-                Reply {
-                    status,
-                    body: format!("{error:?}").into_bytes(),
-                }
-            }
+            Err(reply) => reply,
         }
     }
+}
+
+fn failure_reply(error: &CellDispatchError, ambiguous: Option<CommandId>) -> Reply {
+    let failure = error.refusal().cloned().unwrap_or_else(|| match error {
+        CellDispatchError::Runtime(RuntimeError::NotLeader) => {
+            CommandFailure::NotLeader { leader: None }
+        }
+        CellDispatchError::Runtime(RuntimeError::Overloaded) => CommandFailure::Overloaded,
+        CellDispatchError::Version(VersionError::WrongHistory) => CommandFailure::WrongIncarnation,
+        CellDispatchError::Version(_) => CommandFailure::VersionUnavailable,
+        CellDispatchError::Registration(_) => CommandFailure::UnsupportedCapability,
+        _ => CommandFailure::Unavailable,
+    });
+    let status = match failure {
+        CommandFailure::CommandConflict
+        | CommandFailure::CommandExpired
+        | CommandFailure::SequenceGap { .. }
+        | CommandFailure::WrongIncarnation => 409,
+        CommandFailure::UnsupportedCapability | CommandFailure::UnsupportedConsistency => 422,
+        CommandFailure::CorruptState => 500,
+        _ => 503,
+    };
+    // A refusal can coexist with an unresolved original command. Preserve both
+    // its identity/ambiguity and typed cause; no error is a rollback proof.
+    let body = match ambiguous {
+        Some(command) => format!(
+            "{:?}; cause={failure:?}",
+            CommandFailure::Ambiguous { command }
+        ),
+        None => format!("{failure:?}"),
+    }
+    .into_bytes();
+    Reply { status, body }
 }
 
 pub fn application(api: Arc<CounterApi>, class: RaftClass) -> Result<Arc<dyn Application>> {

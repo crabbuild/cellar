@@ -118,19 +118,12 @@ pub(crate) async fn prepare(
             .await?;
         let directory = RangeDirectory::new(namespace, config.shared.directory)?;
         if let Some(initialization) = registration.initialize {
-            anyhow::ensure!(
-                !initialization.groups.is_empty()
-                    && initialization.groups.len() <= config.shared.directory.max_groups as usize,
-                "invalid initial range count"
-            );
-            let mut routes = Vec::new();
-            for spec in initialization.groups {
-                let request = directory.prepare_group_birth(spec)?;
-                directory.reserve_group_birth(&request).await?;
-                routes.push(request.route().clone());
-            }
-            let mutation = directory.prepare_initialization(initialization.operation, &routes)?;
-            directory.publish(&mutation).await?;
+            provisioning::initialize(
+                &directory,
+                initialization,
+                config.shared.directory.max_groups,
+            )
+            .await?;
         }
         directory.observe().await?;
         namespaces.push(Namespace { directory, class });

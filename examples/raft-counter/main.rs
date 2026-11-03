@@ -1,8 +1,9 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Three local nodes, two Raft cells, native HTTP and Axum over the same SDK.
+//! Three local nodes, one shared group, two cells and native/Axum HTTP.
 //! Usage: cellar-raft-counter DATA_DIR CA.der CERT.der KEY.der TOKEN_FILE
 #![allow(clippy::disallowed_methods)]
+mod configuration;
 mod counter;
 use anyhow::{ensure, Result};
 use cellar::engine_api::{Compat, WorkerConfigOptions};
@@ -62,6 +63,8 @@ async fn main() -> Result<()> {
             .map_err(|error| anyhow::anyhow!(error))?,
     )?;
     let secret = std::fs::read_to_string(&args[4])?.trim().to_owned();
+    let fresh = !root.join("catalog.sqlite").exists();
+    ensure!(!fresh || !(1..=3).any(|i| root.join(format!("raft-counter-{i}/raft")).exists()), "missing catalog with retained voter disks; retain disks and recover instead of initializing");
     let store = cellar::bucket::Bucket::open_dev(&root.join("catalog.sqlite"))?.raft_store();
     let namespace = NamespaceId::new([2; 16])?;
     let cluster = ClusterId::new([1; 16])?;
@@ -79,7 +82,7 @@ async fn main() -> Result<()> {
     for i in 0..3_u8 {
         let label = format!("raft-counter-{}", i + 1);
         let class = counter::definition()?;
-        let api = counter::CounterApi::new(secret.clone(), namespace, &class)?;
+        let api = counter::CounterApi::new(secret.clone(), cluster, namespace, &class)?;
         let application = counter::application(api.clone(), class)?;
         let public =
             tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 9901 + u16::from(i)))
@@ -160,40 +163,7 @@ async fn main() -> Result<()> {
         apis.push(api);
         applications.push(application);
     }
-    let mut config = NamespaceConfig::new(
-        cluster,
-        namespace,
-        NamespaceMode::Raft,
-        counter::definition()?.schema_digest(),
-    );
-    config.voters = VoterPolicy::ThreeVoters;
-    let registrations: Vec<_> = ["one", "two"]
-        .iter()
-        .enumerate()
-        .map(|(i, name)| RaftCellRegistration {
-            placement: cellar::sdk::consensus::RaftCellPlacement::Replica,
-            namespace: config.clone(),
-            class: "Counter".into(),
-            birth: BirthProposal {
-                scope: GroupScope {
-                    cluster,
-                    namespace,
-                    cell: format!("Counter:{name}"),
-                    group: GroupId::new([i as u8 + 5; 16]).unwrap(),
-                    incarnation: IncarnationId::new([4; 16]).unwrap(),
-                },
-                voters: peers
-                    .iter()
-                    .enumerate()
-                    .map(|(i, peer)| InitialMember {
-                        node: peer.node,
-                        member: MemberId::new(i as u64 + 1).unwrap(),
-                    })
-                    .collect(),
-                learners: vec![],
-            },
-        })
-        .collect();
+    configuration::prepare(&root, store.clone(), counter::definition()?.schema_digest(), &peers, fresh).await?;
     for (i, listeners) in listeners.into_iter().enumerate() {
         let log_dir = nodes[i].info().data_dir.join("raft");
         let mode = if log_dir.exists() {
@@ -206,15 +176,10 @@ async fn main() -> Result<()> {
                 RaftCellsConfig {
             query_origins: vec![],
                     infrastructure: NodeRaftConfig {
-                        log: ReplicaLogOptions::new(
-                            log_dir,
-                            peers[i].node,
-                            peers[i].disk,
-                            peers[i].process,
-                            mode,
-                        ),
+                        log: { let mut log = ReplicaLogOptions::new(log_dir, peers[i].node, peers[i].disk, peers[i].process, mode); log.max_groups = 1; log },
                         consensus: RaftRuntimeOptions {
                             tick_interval_ms: Some(50),
+                            max_groups: 1,
                             ..Default::default()
                         },
                         transport: TransportOptions::default(),
@@ -223,9 +188,12 @@ async fn main() -> Result<()> {
                         prefix: "demo/raft-counter".into(),
                         ..Default::default()
                     },
-                    cells: registrations.clone(),
+                    namespaces: vec![configuration::retained_namespace(counter::definition()?.schema_digest())?],
+                    groups: vec![RaftGroupAssignment { history: configuration::group(cluster, namespace)?, placement: RaftGroupPlacement::Replica }],
+                    command_origins: vec![],
                     peers: peers.clone(),
-                    host: RaftHostOptions::default(),
+                    host: RaftHostOptions { max_groups: 1, max_input_bytes: 64*1024, ..Default::default() },
+                    shared: configuration::limits(),
                 },
                 RaftCellsServices {
                     listeners,
@@ -237,11 +205,16 @@ async fn main() -> Result<()> {
                 },
             )
             .await?;
+        services.push(service);
+    }
+    configuration::enroll(&services, cluster, namespace).await?;
+    let inventory: Vec<_> = services.iter().map(|service| { let usage=service.resource_usage(); serde_json::json!({"groups":usage.host.controller.groups,"cells":usage.retained_manifest_cells}) }).collect();
+    std::fs::write(root.join("inventory.json"), serde_json::to_vec_pretty(&inventory)?)?;
+    for (i, service) in services.iter().enumerate() {
         *apis[i]
             .cells
             .lock()
             .map_err(|_| anyhow::anyhow!("counter binding poisoned"))? = Some(service.clone());
-        services.push(service);
         let listener =
             tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 9911 + i as u16)).await?;
         let router = counter::router(apis[i].clone());
@@ -254,7 +227,7 @@ async fn main() -> Result<()> {
                 .await
         }));
     }
-    cellar::note!("Raft counter: native ports 9901–9903; Axum ports 9911–9913; cells one/two. Ctrl-C joins all nodes. Three replicas share one machine; this is a development example.");
+    cellar::note!("Raft counter: native ports 9901–9903; Axum ports 9911–9913; one group with cells one/two. Ctrl-C joins all nodes. Three replicas share one machine; this is a development example.");
     tokio::signal::ctrl_c().await?;
         Ok::<(), anyhow::Error>(())
     }.await;
@@ -263,11 +236,11 @@ async fn main() -> Result<()> {
     for server in servers {
         failed |= !matches!(server.await, Ok(Ok(())));
     }
-    for service in services {
-        failed |= !matches!(service.close().await, Ok(report) if report.unfinished.is_empty());
-    }
     for node in nodes {
         failed |= node.shutdown(ShutdownMode::Preserve).await.is_err();
+    }
+    for service in services {
+        failed |= !matches!(service.close().await, Ok(report) if report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers && report.groups.iter().all(|group| !group.failed));
     }
     serving?;
     ensure!(
