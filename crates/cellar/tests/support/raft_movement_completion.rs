@@ -84,23 +84,47 @@ async fn replace(s: &Setup, from_s3: bool) -> Result<Replaced> {
     .await?;
     // Warm only actual physical observations. The terminal API must independently
     // obtain its own fresh quorum and complete physical probes afterward.
+    let seen = std::sync::Mutex::new((None, Vec::new()));
     s.f.domain
         .run(cellar::asyncrt::timeout(TIMEOUT, async {
             loop {
                 let cut = s.f.catalog.read(TIMEOUT).await?;
                 let mut complete = true;
+                seen.lock()
+                    .map_err(|_| anyhow::anyhow!("physical observations mutex"))?
+                    .1
+                    .clear();
                 for node in &s.nodes {
+                    seen.lock()
+                        .map_err(|_| anyhow::anyhow!("physical observations mutex"))?
+                        .0 = Some(node.spec.node);
                     let observed = node
                         .host
                         .inspect_peer_physical_inventory(node.spec.node, cut.revision(), TIMEOUT)
                         .await?;
-                    complete &= observed.view.seed_workers == 0
-                        && observed
+                    let history = if observed.view.seed_workers == 0 {
+                        observed
                             .inventory
                             .as_ref()
                             .unwrap()
                             .history(&request.resources.group)?
-                            .is_some_and(|h| h.completed_sequence() == 1);
+                    } else {
+                        None
+                    };
+                    let ready = observed.view.seed_workers == 0
+                        && history.is_some_and(|h| h.completed_sequence() == 1);
+                    complete &= ready;
+                    {
+                        let mut seen = seen
+                            .lock()
+                            .map_err(|_| anyhow::anyhow!("physical observations mutex"))?;
+                        seen.0 = None;
+                        seen.1.push((
+                            node.spec.node,
+                            observed.view.seed_workers,
+                            history.map(|h| (h.completed_sequence(), h.in_configuration())),
+                        ));
+                    }
                 }
                 if complete {
                     return Ok::<_, anyhow::Error>(());
@@ -108,7 +132,13 @@ async fn replace(s: &Setup, from_s3: bool) -> Result<Replaced> {
                 cellar::asyncrt::sleep(Duration::from_millis(10)).await;
             }
         }))
-        .await???;
+        .await?
+        .with_context(|| {
+            format!(
+                "warm terminal physical copies; observations {:?}",
+                seen.lock()
+            )
+        })??;
     Ok(Replaced {
         cells,
         target,
@@ -131,6 +161,44 @@ async fn completion(
             attestation: s.request(0, id, cut.revision()).await?.attestation,
         },
     ))
+}
+
+async fn lose_confirmation<F, Fut>(s: &Setup, mut operation: F) -> Result<()>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = std::result::Result<(), FleetCatalogError>>,
+{
+    s.f.store
+        .fail_fleet_confirmation
+        .store(true, Ordering::Release);
+    s.f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+            loop {
+                // Both callers retain their exact idempotent request. Stop at
+                // the injected post-CAS loss; an earlier physical-admission
+                // refusal does not establish that this fault was exercised.
+                let result = Box::pin(operation()).await;
+                if !s.f.store.fail_fleet_confirmation.load(Ordering::Acquire) {
+                    ensure!(
+                        result.is_err(),
+                        "injected confirmation loss returned success"
+                    );
+                    return Ok::<_, anyhow::Error>(());
+                }
+                match result {
+                    Err(
+                        FleetCatalogError::InventoryIncomplete
+                        | FleetCatalogError::Unconfirmed
+                        | FleetCatalogError::Overloaded,
+                    ) => (),
+                    other => anyhow::bail!("confirmation fault was not reached: {other:?}"),
+                }
+                cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+            }
+        }))
+        .await?
+        .context("reach injected fleet confirmation loss")??;
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -228,26 +296,31 @@ async fn fleet_movement_completion_reuses_slot_preserves_floor() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_movement_completion_lost_reply_survives_target_shutdown() -> Result<()> {
-    let s = Box::pin(Setup::new(true)).await?;
-    let r = replace(&s, false).await?;
-    let (cut, request) = completion(&s, &r.request, 230).await?;
-    s.f.store
-        .fail_fleet_confirmation
-        .store(true, Ordering::Release);
-    ensure!(s
-        .f
-        .catalog
-        .complete_movement(&cut, &request, &s.target, TIMEOUT)
+    let s = Box::pin(Setup::new(true))
         .await
-        .is_err());
+        .context("lost-reply setup")?;
+    let r = replace(&s, false).await.context("replace physical owner")?;
+    let (cut, request) = completion(&s, &r.request, 230)
+        .await
+        .context("completion request")?;
+    lose_confirmation(&s, || async {
+        s.f.catalog
+            .complete_movement(&cut, &request, &s.target, TIMEOUT)
+            .await
+            .map(|_| ())
+    })
+    .await?;
     let root = s.f.catalog.read(TIMEOUT).await?;
     ensure!(root.revision() == cut.revision() + 1);
-    joined(s.target_node).await?;
+    joined(s.target_node)
+        .await
+        .context("join completed target")?;
     let catalog = Fixture::open_catalog(&s.f.domain, s.f.store.clone())?;
     let current = catalog.read(TIMEOUT).await?;
     let receipt = catalog
         .complete_movement(&current, &request, &s.nodes[0].host, TIMEOUT)
-        .await?;
+        .await
+        .context("recover completion receipt")?;
     ensure!(receipt.applied_revision() == cut.revision() + 1);
     let mut changed = request;
     changed.attestation.used.memory_bytes += 1;

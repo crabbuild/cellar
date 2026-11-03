@@ -2,7 +2,7 @@
 
 //! Node authority remains durable and visible through every logical client.
 #![allow(clippy::disallowed_methods)]
-#[path = "../peer_faults/storage.rs"]
+#[path = "../../../qualification/durable_bucket.rs"]
 mod storage;
 
 use anyhow::{ensure, Result};

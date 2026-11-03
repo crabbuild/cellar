@@ -3,10 +3,7 @@
 use super::{application::Fixture, backend::Backend, trace::Trace};
 use crate::{application::Composite, crash::process::wait_groups_gone, fleet};
 use anyhow::{ensure, Context as _, Result};
-use cellar::{
-    bucket::Bucket,
-    sdk::{NodeOutcome, ShutdownMode},
-};
+use cellar::sdk::{NodeOutcome, ShutdownMode};
 use cellar_javascript::{BridgeUsage, JavaScriptApplication, Options};
 use serde_json::{json, Value};
 use std::{
@@ -214,7 +211,7 @@ async fn live_case(
         trace: trace.clone(),
         provider_class: backend.class(),
     });
-    let bucket = Bucket::open_dev(&path.join("fleet.sqlite"))?;
+    let bucket = crate::peer_faults::durable_fixture_bucket(path, &[OWNER, SOURCE])?;
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
         .build()?;
@@ -456,7 +453,7 @@ async fn recovered(
         trace,
         provider_class: backend.class(),
     });
-    let bucket = Bucket::open_dev(&path.join("fleet.sqlite"))?;
+    let bucket = crate::peer_faults::durable_fixture_bucket(path, &[OWNER, SOURCE])?;
     let (node, url) = fleet::start(&path.join("owner"), fixture, OWNER, bucket).await?;
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))

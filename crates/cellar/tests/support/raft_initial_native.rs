@@ -278,7 +278,7 @@ async fn activate(cells: &[RaftCellHandle], auth: &FleetGroupAuthorization) -> R
 }
 
 async fn primary(f: &Fixture, cells: &[RaftCellHandle]) -> Result<usize> {
-    Ok(f.domain
+    f.domain
         .run(cellar::asyncrt::timeout(TIMEOUT, async {
             loop {
                 for (i, cell) in cells.iter().enumerate() {
@@ -289,7 +289,8 @@ async fn primary(f: &Fixture, cells: &[RaftCellHandle]) -> Result<usize> {
                 cellar::asyncrt::sleep(Duration::from_millis(10)).await;
             }
         }))
-        .await??)
+        .await?
+        .context("command-ready primary deadline")
 }
 
 async fn write_read(

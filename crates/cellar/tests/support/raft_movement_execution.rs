@@ -62,7 +62,10 @@ async fn finish(
         .run(cellar::asyncrt::timeout(TIMEOUT * 4, async {
             let mut phases = Vec::new();
             let mut last_error = None;
-            for _ in 0..64 {
+            // Refused observations do not confirm a movement turn. Retain the
+            // 64 confirmed-turn limit and the original cohort deadline while
+            // waiting for bounded physical/transport work to finish.
+            while phases.len() < 64 {
                 let catalog = Fixture::open_catalog(&s.f.domain, s.f.store.clone())?;
                 let cut = match catalog.read(TIMEOUT).await {
                     Ok(cut) => cut,

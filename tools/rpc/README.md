@@ -1666,6 +1666,11 @@ The surviving caller runs in a separate process with a distinct node directory
 and the same development bucket. Peer calls use the production signed transport
 with fleet durability enabled.
 
+Both processes open the same `sqlite-full-per-node-key` namespace described
+above. The owner's and successor's authority records each use their canonical
+FULL-synchronous file, including after the owner is killed. Cell state, receipt
+recovery and the one-second lease retain their normal durability requirements.
+
 ```text
 before_handler
   admit RPC -> hold before business method -> SIGKILL owner
@@ -1801,6 +1806,9 @@ The suite runs all 16 caller/provider pairs at four boundaries across three
 authenticated nodes, reusing the native SDK's real log-transport and object-store fault gates.
 Distinct acknowledged warmup commands establish both replica members before
 any fault is armed. Lease renewal and reads remain independent of data proof.
+Proof and proof-wait fixtures use the shared canonical FULL-synchronous bucket:
+each node key has its own SQLite writer, while application data shares the
+ordinary durable data store. Lease CAS and ordinary reads see the same records.
 
 | Point | Original handler at the barrier | Coordinator action |
 | --- | --- | --- |

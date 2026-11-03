@@ -8,7 +8,7 @@ use crate::raft::completion::ApplyTicket;
 use crate::raft::snapshot::{PreparedSnapshot, SnapshotDownload, SnapshotLimits, SnapshotPackage};
 use cellar_logic::consensus::MemberId;
 use sha2::{Digest, Sha256};
-use std::sync::{atomic::AtomicBool, Weak};
+use std::sync::{atomic::AtomicU8, Weak};
 
 #[path = "snapshot_receive.rs"]
 mod receive;
@@ -102,6 +102,10 @@ impl SourceReservation {
     }
 }
 
+const SOURCE_OFFERED: u8 = 0;
+const SOURCE_STREAMING: u8 = 1;
+const SOURCE_FINISHED: u8 = 2;
+
 pub(super) struct Source {
     id: u64,
     route: Arc<GroupRoute>,
@@ -109,8 +113,30 @@ pub(super) struct Source {
     package: SnapshotPackage,
     digest: [u8; 32],
     expires: u64,
-    finished: AtomicBool,
+    phase: AtomicU8,
     _reservation: SourceReservation,
+}
+
+impl Source {
+    fn finish(&self) {
+        self.phase.store(SOURCE_FINISHED, Ordering::Release);
+    }
+
+    fn is_finished(&self) -> bool {
+        self.phase.load(Ordering::Acquire) == SOURCE_FINISHED
+    }
+
+    fn begin_pull(&self) -> bool {
+        matches!(
+            self.phase.compare_exchange(
+                SOURCE_OFFERED,
+                SOURCE_STREAMING,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ),
+            Ok(_) | Err(SOURCE_STREAMING)
+        )
+    }
 }
 
 pub(crate) struct SnapshotSource(Arc<Source>);
@@ -122,17 +148,31 @@ struct ActiveSource {
 
 impl Drop for ActiveSource {
     fn drop(&mut self) {
-        self.source.finished.store(true, Ordering::Release);
+        self.source.finish();
     }
 }
 
 impl SnapshotSource {
-    pub(crate) fn targets(&self, scope: &GroupScope, member: MemberId) -> bool {
-        self.0.peer.replica.scope == *scope && self.0.peer.replica.member == member
+    /// Yield an unused offer or supersede this learner's previous transfer.
+    /// Claiming a pull and yielding an offer are mutually exclusive. All Arc
+    /// owners still retain the physical reservation after cancellation.
+    pub(crate) fn yield_for_seed(&self, scope: &GroupScope, member: MemberId) -> bool {
+        if self.0.peer.replica.scope == *scope && self.0.peer.replica.member == member {
+            return true;
+        }
+        matches!(
+            self.0.phase.compare_exchange(
+                SOURCE_OFFERED,
+                SOURCE_FINISHED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ),
+            Ok(_) | Err(SOURCE_FINISHED)
+        )
     }
 
     pub(crate) fn cancel(self) {
-        self.0.finished.store(true, Ordering::Release);
+        self.0.finish();
     }
 
     pub fn id(&self) -> u64 {
@@ -140,7 +180,7 @@ impl SnapshotSource {
     }
 
     pub fn finished(&self, now: u64) -> bool {
-        self.0.finished.load(Ordering::Acquire) || now >= self.0.expires
+        self.0.is_finished() || now >= self.0.expires
     }
 
     pub fn matches(
@@ -276,7 +316,7 @@ impl RaftTransport {
                 .mono_ms()
                 .map_err(|_| TransportError::Closed)?
                 .saturating_add(state.options.snapshot_timeout_ms),
-            finished: AtomicBool::new(false),
+            phase: AtomicU8::new(SOURCE_OFFERED),
             _reservation: reservation,
         });
         // The host owns the body and expiry. The registry cannot extend either
@@ -288,7 +328,7 @@ impl RaftTransport {
         // Route replacement may race source construction. Publishing before
         // rechecking closes the gap with install/remove's invalidation pass.
         state.invalidate_snapshot_routes();
-        if source.finished.load(Ordering::Acquire) {
+        if source.is_finished() {
             return Err(TransportError::StalePeer);
         }
         Ok(SnapshotSource(source))
@@ -481,7 +521,7 @@ impl State {
             .and_then(|source| source.as_ref().and_then(Weak::upgrade));
         if let Some(source) = source {
             if !self.current_route(&source.peer.replica.scope, &source.route, &source.peer) {
-                source.finished.store(true, Ordering::Release);
+                source.finish();
             }
         }
     }
@@ -493,7 +533,7 @@ impl State {
                 .and_then(Weak::upgrade)
                 .filter(|source| source.id == id)
             {
-                source.finished.store(true, Ordering::Release);
+                source.finish();
             }
         }
     }
@@ -592,7 +632,7 @@ impl State {
             if selected
                 .as_ref()
                 .is_some_and(|old| !Arc::ptr_eq(&old.source, &lease))
-                || lease.finished.load(Ordering::Acquire)
+                || lease.is_finished()
                 || (frame::decimal(&request.lease)? != 0
                     && frame::decimal(&request.lease)? != lease.id)
                 || lease.peer.replica != recipient
@@ -614,6 +654,9 @@ impl State {
                 || !self.current_route(&source.scope, &lease.route, &lease.peer)
             {
                 return Err(TransportError::Identity);
+            }
+            if !lease.begin_pull() {
+                return Err(TransportError::StalePeer);
             }
             transfer.get_or_insert(request.transfer.clone());
             selected.get_or_insert_with(|| ActiveSource {
@@ -662,7 +705,7 @@ impl State {
             .await?;
             offset += body.len();
             if offset == lease.package.encoded_length() {
-                lease.finished.store(true, Ordering::Release);
+                lease.finish();
                 return Ok(());
             }
         }

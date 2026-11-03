@@ -449,6 +449,23 @@ async fn check_shared_worker_pool() -> Result<()> {
     .map_err(anyhow::Error::msg)?;
     pool.reap();
     assert!(pool.is_drained());
+    // A concurrent maintenance pass can inspect the now-empty worker mutex.
+    // Its lock must not revoke the completed physical reclamation proof.
+    let inspecting_freed = slot.hold_turn_for_test().await;
+    assert!(
+        pool.is_drained(),
+        "freed worker mutex contention revoked the pool drain proof"
+    );
+    drop(inspecting_freed);
+    let reused = pool.admit(false).map_err(|error| anyhow!("{error}"))?;
+    assert!(reused.slot().is_retiring());
+    assert!(
+        !pool.is_drained(),
+        "a reused slot inherited its predecessor's drain proof"
+    );
+    drop(reused);
+    pool.reap();
+    assert!(pool.is_drained());
     assert!(crate::pool::current_slot().is_none());
     assert!(installed_context().is_none());
     crate::host_tcp::tests::native_tls_application(|application| {

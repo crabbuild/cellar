@@ -13,7 +13,7 @@ use std::{
     sync::Arc,
 };
 
-pub(super) fn open(root: &std::path::Path, names: &[&str]) -> anyhow::Result<Bucket> {
+pub(crate) fn open(root: &std::path::Path, names: &[&str]) -> anyhow::Result<Bucket> {
     let bucket = Bucket::open_dev(&root.join("fleet.sqlite"))?;
     let mut nodes = BTreeMap::new();
     for name in names {

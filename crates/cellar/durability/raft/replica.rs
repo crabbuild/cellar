@@ -101,6 +101,11 @@ enum Phase {
     },
 }
 
+struct ConfigurationFence {
+    index: u64,
+    announced: bool,
+}
+
 pub(crate) struct Replica {
     pub log: GroupLog,
     node: RawNode<ConsensusStorage>,
@@ -108,6 +113,7 @@ pub(crate) struct Replica {
     pub write: Option<(WriteTicket, GroupWrite)>,
     outbound: VecDeque<RuntimeEventKind>,
     deliveries: Vec<std::sync::Weak<super::budget::Permit>>,
+    configuration_fence: Option<ConfigurationFence>,
     apply: VecDeque<Entry>,
     apply_ticket: Option<ApplyTicket>,
     finished_apply: Option<ApplyCompletion>,
@@ -173,6 +179,7 @@ impl Replica {
             write: None,
             outbound: VecDeque::new(),
             deliveries: Vec::new(),
+            configuration_fence: None,
             apply: VecDeque::new(),
             apply_ticket: None,
             finished_apply: None,
@@ -692,6 +699,59 @@ impl Replica {
         Ok(())
     }
 
+    fn announce_configuration(&mut self, index: u64) -> Result<(), RuntimeError> {
+        if self
+            .configuration_fence
+            .as_ref()
+            .is_some_and(|fence| fence.index == index && fence.announced)
+        {
+            return Ok(());
+        }
+        self.configuration_fence = Some(ConfigurationFence {
+            index,
+            announced: true,
+        });
+        if self.node.raft.state != StateRole::Leader {
+            return Ok(());
+        }
+        let hard = self.log.initial_state()?.hard_state;
+        // A concurrent term change cannot advertise an unpersisted promise.
+        if hard.term != self.node.raft.term || hard.vote != self.node.raft.vote {
+            return Ok(());
+        }
+        let entry = self
+            .apply
+            .front()
+            .filter(|entry| entry.index == index)
+            .ok_or_else(|| RuntimeError::Protocol("missing configuration apply".into()))?;
+        // A paused append stream can miss Raft's commit broadcast. Once this
+        // configuration removes that peer, ordinary routing cannot reach it.
+        // Announce this already committed entry once while the old binding is
+        // still valid. An empty Append requires the receiver to match its exact
+        // index/term; transport acceptance is never a durability proof. A lagging
+        // or unavailable copy still fails the catalog's physical closure check.
+        for (&member, _) in self.node.raft.prs().iter() {
+            if member == self.node.raft.id {
+                continue;
+            }
+            let mut message = Message {
+                from: self.node.raft.id,
+                to: member,
+                term: self.node.raft.term,
+                index,
+                log_term: entry.term,
+                commit: index,
+                ..Default::default()
+            };
+            message.set_msg_type(MessageType::MsgAppend);
+            self.outbound.push_back(RuntimeEventKind::Message {
+                replica: self.log.identity().clone(),
+                message,
+            });
+        }
+        Ok(())
+    }
+
     pub fn drive(
         &mut self,
         operations: &mut Operations,
@@ -935,6 +995,7 @@ impl Replica {
                 if let Some(entry) = self.apply.pop_front() {
                     self.apply_bytes -= entry_bytes(&entry);
                 }
+                self.configuration_fence = None;
                 self.apply_ticket = None;
                 self.phase = Phase::Idle;
                 Ok(true)
@@ -964,27 +1025,31 @@ impl Replica {
                     self.ready_bytes = 0;
                     return Ok(true);
                 }
-                // Drain the finite set of already-emitted sends before applying
-                // a committed configuration. Collecting another ordinary Ready
-                // here lets later heartbeats extend that fence indefinitely.
-                // An uninstalled snapshot retains its existing priority.
-                let configuration_pending = self
+                // Include one already-pending Ready in the send fence before
+                // membership revocation, then freeze that finite boundary.
+                // Later heartbeats cannot extend it. Snapshot priority and
+                // ordinary Ready admission limits remain unchanged.
+                let configuration_index = self
                     .apply
                     .front()
-                    .is_some_and(|entry| entry.get_entry_type() != EntryType::EntryNormal)
-                    && self.node.raft.raft_log.unstable_snapshot().is_none();
-                if configuration_pending {
-                    self.deliveries
-                        .retain(|delivery| delivery.strong_count() != 0);
-                    if !self.deliveries.is_empty() {
-                        return Ok(false);
-                    }
-                }
-                if !configuration_pending
+                    .filter(|entry| entry.get_entry_type() != EntryType::EntryNormal)
+                    .filter(|_| self.node.raft.raft_log.unstable_snapshot().is_none())
+                    .map(|entry| entry.index);
+                let fenced = self
+                    .configuration_fence
+                    .as_ref()
+                    .is_some_and(|fence| configuration_index == Some(fence.index));
+                if !fenced
                     && self.node.has_ready()
                     && ((can_collect && self.apply_bytes < options.max_group_apply_bytes)
                         || self.node.raft.raft_log.unstable_snapshot().is_some())
                 {
+                    if let Some(index) = configuration_index {
+                        self.configuration_fence = Some(ConfigurationFence {
+                            index,
+                            announced: false,
+                        });
+                    }
                     let ready = self.node.ready();
                     self.ready_bytes = ready_bytes(&ready);
                     if self.ready_bytes > options.max_ready_bytes {
@@ -1014,16 +1079,38 @@ impl Replica {
                     };
                     return Ok(true);
                 }
-                let Some(entry) = self.apply.front() else {
-                    return Ok(false);
-                };
-                if entry.get_entry_type() != EntryType::EntryNormal {
+                if let Some(index) = self
+                    .apply
+                    .front()
+                    .filter(|entry| entry.get_entry_type() != EntryType::EntryNormal)
+                    .map(|entry| entry.index)
+                {
+                    if self
+                        .configuration_fence
+                        .as_ref()
+                        .is_none_or(|fence| fence.index != index)
+                    {
+                        self.configuration_fence = Some(ConfigurationFence {
+                            index,
+                            announced: false,
+                        });
+                    }
                     self.deliveries
                         .retain(|delivery| delivery.strong_count() != 0);
                     if !self.deliveries.is_empty() {
                         return Ok(false);
                     }
+                    // The notification must not overtake an earlier Append on
+                    // another transport stream. Its own sends then join the
+                    // same finite fence before membership is revoked.
+                    self.announce_configuration(index)?;
+                    if !self.outbound.is_empty() {
+                        return Ok(true);
+                    }
                 }
+                let Some(entry) = self.apply.front() else {
+                    return Ok(false);
+                };
                 let position = entry_position(entry);
                 if entry.get_entry_type() == EntryType::EntryNormal && !entry.data.is_empty() {
                     if let Some(completed) = self.finished_apply.take() {
@@ -1138,6 +1225,7 @@ impl Replica {
             (!ready.snapshot().is_empty()).then_some(ready.snapshot().get_metadata().index);
         if snapshot_index.is_some() {
             self.apply.clear();
+            self.configuration_fence = None;
             self.apply_bytes = 0;
             self.apply_ticket = None;
             self.finished_apply = None;

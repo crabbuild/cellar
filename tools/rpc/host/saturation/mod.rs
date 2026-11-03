@@ -5,7 +5,7 @@ mod gate;
 mod matrix;
 
 use anyhow::{ensure, Context as _, Result};
-use cellar::{bucket::Bucket, sdk::*};
+use cellar::sdk::*;
 use serde_json::{json, Value};
 use std::{sync::Arc, time::Duration};
 
@@ -118,7 +118,10 @@ async fn request(client: &reqwest::Client, base: &str, path: &str) -> Result<Val
 async fn topology(app: Arc<Composite>, remote: bool, limit: Limit, side: Side) -> Result<Value> {
     app.audit.reset_after_node_drain();
     let directory = tempfile::tempdir()?;
-    let bucket = Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    // Saturate RPC resources without serializing independent node authority
+    // behind application-object writes. Every logical client still observes
+    // the same canonical FULL-synchronous records.
+    let bucket = crate::peer_faults::durable_fixture_bucket(directory.path(), &[SOURCE, OWNER])?;
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
         .build()?;

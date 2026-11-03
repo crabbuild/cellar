@@ -32,6 +32,32 @@ Run independent test cases serially, as CI does. Node fixtures own several
 concurrent runtimes and short leases; unrelated fixtures competing for the
 runner can expire those leases. Concurrency inside each fixture stays enabled.
 
+SDK CI runs the serial native campaign independently from Python ABI/package
+qualification in both Python threading modes. Each campaign retains the original
+commands, assertions and job ceiling; individual request and test deadlines stay
+unchanged. Native CI sets `CARGO_PROFILE_TEST_OPT_LEVEL=1`,
+`CARGO_PROFILE_TEST_DEBUG_ASSERTIONS=true` and
+`CARGO_PROFILE_TEST_OVERFLOW_CHECKS=true`. Use these same settings when
+reproducing its bounded native campaign locally.
+
+The packaged Node delivery restart campaign uses the same test-profile settings
+for its repeated cold-start fixture. Its 250 ms handler budget and all 100 fresh
+store/process cases remain unchanged. CI builds the test artifact before the
+campaign and flushes completed build output to keep compiler writeback out of
+the fixture's disk queue. Every fixture still performs its normal FULL syncs.
+The live RPC campaigns use the same build/writeback separation without changing
+their one-second node leases, per-request deadlines or runtime cleanup checks.
+Their disposable x64 Linux runners also bound ongoing dirty writeback to 4 MiB
+in the background and 16 MiB overall, with one-second expiry and 500 ms writeback
+intervals. This limits interference between buffered writes and FULL-sync
+commits; it does not disable syncs or filesystem barriers. An always-run cleanup
+step restores the runner's original writeback policy.
+
+The [shared durable fixture bucket](../tools/qualification/durable_bucket.rs)
+keeps node-record CAS independent of application-data writers using FULL-sync
+SQLite stores. Ordinary reads, CAS, listings and recovery use one coherent
+namespace, including the dense filesystem cold-recovery fixture.
+
 The allocator startup test uses a fresh process with allocator environment
 overrides removed. Linux must start background purging; macOS must leave that
 unsupported build default disabled. Forcing `background_thread:true` on macOS

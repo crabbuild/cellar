@@ -279,11 +279,24 @@ async fn resume_primary(
     service: FleetRestartService,
     host: RaftCells,
 ) -> Result<()> {
-    let target_id = host.observe_node(TIMEOUT).await?.node.identity.node;
+    let target_id = host
+        .observe_node(TIMEOUT)
+        .await
+        .context("observe returned node identity")?
+        .node
+        .identity
+        .node;
     let node = hex::encode(target_id.bytes());
     let reader = Fixture::open_catalog(&f.s.f.domain, f.s.f.store.clone())?;
-    let mut attestation = attestation(&f.s.f, &f.spare, &host).await?;
-    let mut profile = host.observe_node(TIMEOUT).await?.node.profile;
+    let mut attestation = attestation(&f.s.f, &f.spare, &host)
+        .await
+        .context("read returned node attestation")?;
+    let mut profile = host
+        .observe_node(TIMEOUT)
+        .await
+        .context("observe returned node profile")?
+        .node
+        .profile;
     profile.draining = false;
     attestation.profile_digest = fleet_capacity_profile_digest(&profile)?;
     // A new intended profile uses a new capacity revision. Reusing the old
@@ -327,7 +340,10 @@ async fn resume_primary(
         f.spare.clone(),
         None,
     )?;
-    controller.reconcile(TIMEOUT).await?;
+    controller
+        .reconcile(TIMEOUT)
+        .await
+        .context("initialize manual resume controller")?;
     let routes = Fixture::open_catalog(&f.s.f.domain, f.s.f.store.clone())?;
     f.s.f
         .domain
@@ -335,7 +351,9 @@ async fn resume_primary(
             TIMEOUT,
             refresh_routes_once(f, &routes),
         ))
-        .await???;
+        .await?
+        .context("initial resume route refresh deadline")?
+        .context("initial resume route refresh")?;
     let before = reader.read(TIMEOUT).await?.revision();
     let rejected = controller.reconcile(TIMEOUT).await;
     let error = rejected
@@ -363,13 +381,22 @@ async fn resume_primary(
         .run(cellar::asyncrt::timeout(TIMEOUT, async {
             let mut refreshed = None;
             loop {
-                let revision = routes.read(TIMEOUT).await?.revision();
+                let revision = routes
+                    .read(TIMEOUT)
+                    .await
+                    .context("read resume proof Root")?
+                    .revision();
                 if refreshed != Some(revision) {
-                    refreshed = Some(refresh_routes_once(f, &routes).await?);
+                    refreshed = Some(
+                        refresh_routes_once(f, &routes)
+                            .await
+                            .context("refresh resume proof routes")?,
+                    );
                 }
                 let progress = controller
                     .reconcile(TIMEOUT)
-                    .await?
+                    .await
+                    .context("advance manual resume controller")?
                     .context("owned resume operation")?;
                 {
                     let mut seen = seen.lock().map_err(|_| anyhow::anyhow!("progress mutex"))?;

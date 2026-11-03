@@ -29,7 +29,7 @@ struct Fault {
     stopped: bool,
     hold_response: bool,
     hold_after: Option<usize>,
-    hold_connection: Option<usize>,
+    hold_once: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -45,6 +45,7 @@ struct Proxy {
     active: Arc<AtomicUsize>,
     attempts: Arc<AtomicUsize>,
     held_response_bytes: Arc<AtomicUsize>,
+    held_connection: Arc<AtomicUsize>,
     task: Option<JoinHandle<Result<()>>>,
 }
 
@@ -57,6 +58,7 @@ impl Drop for HeldResponses {
         self.0.send_modify(|fault| {
             fault.hold_response = false;
             fault.hold_after = None;
+            fault.hold_once = false;
         });
     }
 }
@@ -75,6 +77,7 @@ async fn forward_responses(
     mut writer: impl AsyncWrite + Unpin,
     mut faults: watch::Receiver<Fault>,
     held: Arc<AtomicUsize>,
+    selected: Arc<AtomicUsize>,
     connection: usize,
 ) -> std::io::Result<()> {
     let mut buffer = [0; 16 * 1024];
@@ -88,7 +91,8 @@ async fn forward_responses(
         let mut counted = false;
         while offset < count {
             let mut fault = *faults.borrow_and_update();
-            if fault.hold_connection.is_some_and(|held| held != connection) {
+            let chosen = selected.load(Ordering::SeqCst);
+            if fault.hold_once && chosen != 0 && chosen != connection {
                 fault.hold_response = false;
                 fault.hold_after = None;
             }
@@ -100,6 +104,13 @@ async fn forward_responses(
                     .map_or(count - offset, |after| after.saturating_sub(forwarded))
             };
             if allowance == 0 {
+                if fault.hold_once
+                    && selected
+                        .compare_exchange(0, connection, Ordering::SeqCst, Ordering::SeqCst)
+                        .is_err_and(|chosen| chosen != connection)
+                {
+                    continue;
+                }
                 if !counted {
                     held.fetch_add(count - offset, Ordering::SeqCst);
                     counted = true;
@@ -133,7 +144,9 @@ impl Proxy {
         let active = Arc::new(AtomicUsize::new(0));
         let attempts = Arc::new(AtomicUsize::new(0));
         let held_response_bytes = Arc::new(AtomicUsize::new(0));
+        let held_connection = Arc::new(AtomicUsize::new(0));
         let held = held_response_bytes.clone();
+        let selected = held_connection.clone();
         let counted = active.clone();
         let attempted = attempts.clone();
         let task = tokio::spawn(async move {
@@ -146,10 +159,14 @@ impl Proxy {
                     done = connections.join_next(), if !connections.is_empty() => { if let Some(done) = done { done?; } }
                     accepted = listener.accept(), if connections.len() < 8 => {
                         let (mut source, _) = accepted?;
+                        // Match the native transport: fault injection must not
+                        // add Nagle/delayed-ACK stalls to small snapshot chunks.
+                        source.set_nodelay(true)?;
                         let connection=attempted.fetch_add(1, Ordering::SeqCst)+1;
                         if changes.borrow().blocked { continue; }
                         let cut = changes.clone();
                         let held = held.clone();
+                        let selected = selected.clone();
                         let active = counted.clone(); active.fetch_add(1, Ordering::SeqCst);
                         let guard = Active(active);
                         connections.spawn(async move {
@@ -162,14 +179,15 @@ impl Proxy {
                             cellar::asyncrt::select_biased! { "test fault transitions close sockets before more bytes are forwarded";
                                 _ = connection_cut(cut.clone()) => (),
                                 _ = async {
-                                    if let Ok(target) = TcpStream::connect(destination).await {
-                                        let (mut from_source, to_source) = source.split();
-                                        let (from_target, mut to_target) = target.into_split();
-                                        cellar::asyncrt::select! {
-                                            _ = tokio::io::copy(&mut from_source, &mut to_target) => (),
-                                            _ = forward_responses(from_target, to_source, cut, held, connection) => (),
-                                        }
+                                    let target = TcpStream::connect(destination).await?;
+                                    target.set_nodelay(true)?;
+                                    let (mut from_source, to_source) = source.split();
+                                    let (from_target, mut to_target) = target.into_split();
+                                    cellar::asyncrt::select! {
+                                        _ = tokio::io::copy(&mut from_source, &mut to_target) => (),
+                                        _ = forward_responses(from_target, to_source, cut, held, selected, connection) => (),
                                     }
+                                    Ok::<_, std::io::Error>(())
                                 } => (),
                             }
                         });
@@ -190,6 +208,7 @@ impl Proxy {
             active,
             attempts,
             held_response_bytes,
+            held_connection,
             task: Some(task),
         })
     }
@@ -1029,9 +1048,15 @@ impl Cluster {
             .find(|(s, t, lane, _)| *s == source && *t == target && *lane == Link::Data)
             .map(|(_, _, _, p)| p)
             .ok_or_else(|| anyhow::anyhow!("seed data link missing"))?;
+        proxy.held_connection.store(0, Ordering::SeqCst);
+        proxy.held_response_bytes.store(0, Ordering::SeqCst);
         proxy.state.send_modify(|fault| {
-            fault.hold_connection = Some(2);
-            fault.hold_after = Some(4096);
+            // Grant metadata is bounded to 64 KiB plus its header and TLS.
+            // The seed fixture carries a verified 256-KiB SQL payload, so a
+            // response beyond 128 KiB is a real partial bulk body. Select it
+            // once regardless of how many authorization connections preceded it.
+            fault.hold_once = true;
+            fault.hold_after = Some(128 * 1024);
         });
         Ok(proxy.held_response_bytes.clone())
     }
@@ -1044,7 +1069,10 @@ impl Cluster {
             .find(|(s, t, lane, _)| *s == source && *t == target && *lane == Link::Data)
             .map(|(_, _, _, proxy)| proxy)
             .ok_or_else(|| anyhow::anyhow!("data link not found"))?;
-        proxy.state.send_modify(|fault| fault.hold_response = true);
+        proxy.state.send_modify(|fault| {
+            fault.hold_response = true;
+            fault.hold_once = false;
+        });
         Ok(HeldResponses(proxy.state.clone()))
     }
 
@@ -1061,9 +1089,10 @@ impl Cluster {
             .find(|(s, t, lane, _)| *s == source && *t == target && *lane == Link::Data)
             .map(|(_, _, _, proxy)| proxy)
             .ok_or_else(|| anyhow::anyhow!("data link not found"))?;
-        proxy
-            .state
-            .send_modify(|fault| fault.hold_after = Some(after));
+        proxy.state.send_modify(|fault| {
+            fault.hold_after = Some(after);
+            fault.hold_once = false;
+        });
         Ok(HeldResponses(proxy.state.clone()))
     }
 

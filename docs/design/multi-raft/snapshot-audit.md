@@ -121,6 +121,8 @@ The [cancellation record](evidence/MR-10-abort-progress.json), [peer-admission r
 - The existing runtime persists the snapshot, applied marker, configuration and required HardState before emitting `SnapshotInstalled` or releasing dependent messages.
 - Physical completion also supplies an opaque verified reference bound to the exact ticket/digest/image; mechanical fixtures explicitly use no such capability.
 - `PreparedSnapshot` checks the durable engine snapshot and exact applied image before publication; sealing bytes or merely submitting a completion does not make state queryable.
+- After `SnapshotInstalled`, the runtime can accept another snapshot while the SQL owner is still publishing the preceding image. The host retains at most one next snapshot event, including its original runtime admission, until that publication completes. It starts no second download or installation before releasing the preceding publication owner.
+- An overlap before durable installation, a changed replica identity or a second deferred event still closes admission. Reads remain blocked by the incoming snapshot, and every installation and publication retains its exact ticket and image checks.
 
 - `ImageApplier` separately retains the durable snapshot generation and the latest applied generation.
 - Recovery validates/adopts both before retiring other inventory.

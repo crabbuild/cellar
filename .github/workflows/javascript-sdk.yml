@@ -17,6 +17,7 @@ on:
       - 'tools/javascript/**'
       - 'tools/sandbox/**'
       - 'tools/rpc/**'
+      - 'tools/qualification/**'
       - 'tools/cellar-rpc-codegen/**'
       - 'proto/**'
       - 'docs/design/named-typed-rpc/*.proto'
@@ -242,6 +243,11 @@ jobs:
         if: matrix.profile == 'packages'
         env:
           RUST_LOG: timing=debug,cellar::runtime=debug,store=debug
+          # Keep the existing handler deadlines and all debug/overflow checks.
+          # Optimize this repeated cold-restart artifact, as in native SDK CI.
+          CARGO_PROFILE_TEST_OPT_LEVEL: '1'
+          CARGO_PROFILE_TEST_DEBUG_ASSERTIONS: 'true'
+          CARGO_PROFILE_TEST_OVERFLOW_CHECKS: 'true'
         run: |
           cargo build --locked -p cellar-javascript --no-default-features --features node --bin cellar-node-example
           mkdir -p .cellar
@@ -254,6 +260,10 @@ jobs:
           .cellar/node-delivery/launch.sh --help
           export CELLAR_TEST_NODE_ENTRY="$PWD/.cellar/node-delivery/app/dist/app.js"
           export CELLAR_TEST_NODE_EXECUTABLE="$PWD/.cellar/node-delivery/bin/node"
+          cargo test --locked -p cellar-javascript --no-default-features --features node --test node_runtime --no-run
+          # Finish build writeback before measuring fresh FULL-sync fixtures.
+          # Keep their real fsyncs and the existing handler deadline unchanged.
+          sync -f "${CARGO_TARGET_DIR:-$PWD/target}"
           # Fresh stores and Node processes in every case. Stop at the first
           # failure; these repetitions never retry a failed request or test.
           for iteration in {1..100}; do

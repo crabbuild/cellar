@@ -2,6 +2,8 @@
 
 //! Full public node bootstrap on caller-owned executors and infrastructure.
 #![allow(clippy::disallowed_methods)]
+#[path = "../../../tools/qualification/durable_bucket.rs"]
+mod durable_bucket;
 #[allow(dead_code)]
 #[path = "support/html.rs"]
 mod fixture;

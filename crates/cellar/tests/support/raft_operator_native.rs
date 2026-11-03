@@ -507,7 +507,10 @@ async fn cancel() -> Result<()> {
     let mut waiting = op_args("wait", &begin.operation_id);
     waiting.extend(["--timeout-seconds".into(), "1".into()]);
     let (exit, timed_out) = server.cli(&waiting, "reader").await?;
-    ensure!(exit == 6 && timed_out["error"]["code"] == "wait_timeout");
+    ensure!(
+        exit == 6 && timed_out["error"]["code"] == "wait_timeout",
+        "CLI wait result {exit}: {timed_out}"
+    );
     ensure!(f.s.f.catalog.read(TIMEOUT).await?.revision() == before.revision());
     let current =
         f.s.f

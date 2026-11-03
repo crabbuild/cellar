@@ -41,7 +41,7 @@ mod faults;
 mod fault_tests;
 
 use anyhow::{ensure, Context as _, Result};
-use cellar::{bucket::Bucket, sdk::*};
+use cellar::sdk::*;
 use faults::{Gate, Peer, Release, Store};
 use futures_util::FutureExt as _;
 use serde_json::{json, Value};
@@ -230,7 +230,10 @@ async fn case(
     // captured evidence no longer needs live cursors into this bounded log.
     app.audit.reset_after_node_drain();
     let directory = tempfile::tempdir()?;
-    let bucket = Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    let bucket = crate::peer_faults::durable_fixture_bucket(
+        directory.path(),
+        &["proof-owner", "proof-ingress", "proof-replica"],
+    )?;
     let controls = Controls::default();
     let (mut owner, owner_url) = fleet::start_controlled(
         &directory.path().join("owner"),

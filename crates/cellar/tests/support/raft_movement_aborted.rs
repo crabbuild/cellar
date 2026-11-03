@@ -105,21 +105,25 @@ async fn fleet_aborted_movement_retains_seeded_history_and_recovers_receipt() ->
 }
 
 async fn retained_case() -> Result<()> {
-    let s = Box::pin(Setup::with_capacity(true, 2)).await?;
-    let started = start(&s, true).await?;
-    abort(&s, &started).await?;
-    warm_owners(&s, &started).await?;
-    write_read(&s.f, &started.cells, 2, 5, 12).await?;
-    let (cut, request) = completion(&s, &started.movement, 230).await?;
-    s.f.store
-        .fail_fleet_confirmation
-        .store(true, Ordering::Release);
-    ensure!(s
-        .f
-        .catalog
-        .settle_aborted_movement(&cut, &request, &s.target, TIMEOUT)
+    let s = Box::pin(Setup::with_capacity(true, 2))
         .await
-        .is_err());
+        .context("retained setup")?;
+    let started = start(&s, true).await.context("seed retained target")?;
+    abort(&s, &started).await.context("abort seeded target")?;
+    warm_owners(&s, &started)
+        .await
+        .context("warm aborted physical owners")?;
+    write_read(&s.f, &started.cells, 2, 5, 12)
+        .await
+        .context("SQL after abort")?;
+    let (cut, request) = completion(&s, &started.movement, 230).await?;
+    lose_confirmation(&s, || async {
+        s.f.catalog
+            .settle_aborted_movement(&cut, &request, &s.target, TIMEOUT)
+            .await
+            .map(|_| ())
+    })
+    .await?;
     ensure!(s.f.catalog.read(TIMEOUT).await?.revision() == cut.revision() + 1);
     let catalog = Fixture::open_catalog(&s.f.domain, s.f.store.clone())?;
     let current = catalog.read(TIMEOUT).await?;

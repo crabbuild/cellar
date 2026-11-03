@@ -241,7 +241,13 @@ async fn retained_routes_use_fresh_epoch_gates_without_pinning_the_installing_ev
                     crate::host_service::dispatch_fetch(Some(&target), call).await;
                 }
             });
-            assert_eq!(install(&runtime).await?.body, b"captured");
+            assert_eq!(
+                install(&runtime)
+                    .await
+                    .context("install retained route")?
+                    .body,
+                b"captured"
+            );
             let route = signals
                 .route
                 .lock()
@@ -255,13 +261,15 @@ async fn retained_routes_use_fresh_epoch_gates_without_pinning_the_installing_ev
                     crate::asyncrt::sleep(Duration::from_millis(1)).await;
                 }
             })
-            .await?;
+            .await
+            .context("installing event and IO did not release within 2s")?;
             for admitted in [true, false, true] {
                 let live = Arc::new(AtomicBool::new(true));
                 let future = dispatch(&route, live);
                 let call = crate::asyncrt::spawn(future);
                 let gate = crate::asyncrt::timeout(Duration::from_secs(2), gates.recv())
-                    .await?
+                    .await
+                    .context("fresh route gate exceeded 2s")?
                     .context("fresh gate missing")?;
                 check_gate(&gate);
                 let before = signals.first.load(Ordering::SeqCst);
@@ -283,7 +291,8 @@ async fn retained_routes_use_fresh_epoch_gates_without_pinning_the_installing_ev
             }
             let call = crate::asyncrt::spawn(dispatch(&route, Arc::new(AtomicBool::new(true))));
             let gate = crate::asyncrt::timeout(Duration::from_secs(2), gates.recv())
-                .await?
+                .await
+                .context("cancellation gate exceeded 2s")?
                 .context("cancellation gate missing")?;
             check_gate(&gate);
             call.abort();
@@ -299,7 +308,8 @@ async fn retained_routes_use_fresh_epoch_gates_without_pinning_the_installing_ev
             let live = Arc::new(AtomicBool::new(true));
             let call = crate::asyncrt::spawn(dispatch(&route, live.clone()));
             let gate = crate::asyncrt::timeout(Duration::from_secs(2), gates.recv())
-                .await?
+                .await
+                .context("retirement gate exceeded 2s")?
                 .context("retirement gate missing")?;
             live.store(false, Ordering::Release);
             gate.reply.send(Ok(())).unwrap();
@@ -312,8 +322,25 @@ async fn retained_routes_use_fresh_epoch_gates_without_pinning_the_installing_ev
             other.shutdown().await;
             assert!(foreign.is_err());
             assert!(gates.try_recv().is_err());
+            let old_service = runtime
+                .generation()
+                .service("persistent-route")
+                .context("old service missing")?;
+            let inspecting = old_service
+                .isolates
+                .admit(false)
+                .map_err(|error| anyhow::anyhow!("{error}"))?;
+            let freed_slot = inspecting.slot().clone();
+            drop(inspecting);
             runtime.adopt(generation(2, signals.clone())?);
             runtime.swap_out_cell("Root:retained", 7).await?;
+            assert!(
+                old_service.isolates.is_drained(),
+                "old stateless worker did not physically free before inspection"
+            );
+            // Another pool maintenance pass may hold this already-empty mutex
+            // at the generation tick. Physical reclamation remains complete.
+            let inspecting_freed = freed_slot.hold_turn_for_test().await;
             // Generation maintenance runs every 30 s in production. Exercise the
             // real reap boundary rather than manufacturing a missing route id.
             crate::asyncrt::timeout(Duration::from_secs(35), async {
@@ -325,10 +352,21 @@ async fn retained_routes_use_fresh_epoch_gates_without_pinning_the_installing_ev
                     crate::asyncrt::sleep(Duration::from_millis(10)).await;
                 }
             })
-            .await?;
+            .await
+            .with_context(|| {
+                format!(
+                    "generation 1 did not reap within 35s: {:?}",
+                    runtime
+                        .draining_generations()
+                        .iter()
+                        .map(|g| (g.id(), g.isolate_census()))
+                        .collect::<Vec<_>>()
+                )
+            })?;
             let call = crate::asyncrt::spawn(dispatch(&route, Arc::new(AtomicBool::new(true))));
             let gate = crate::asyncrt::timeout(Duration::from_secs(2), gates.recv())
-                .await?
+                .await
+                .context("expired generation gate exceeded 2s")?
                 .context("expired generation gate missing")?;
             check_gate(&gate);
             gate.reply.send(Ok(())).unwrap();
@@ -337,6 +375,7 @@ async fn retained_routes_use_fresh_epoch_gates_without_pinning_the_installing_ev
                 "retired route selected the current deployment"
             );
             assert_eq!(signals.second.load(Ordering::SeqCst), 0);
+            drop(inspecting_freed);
             forwarding.abort();
             let _ = forwarding.await;
             Ok::<_, anyhow::Error>(())

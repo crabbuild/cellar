@@ -94,18 +94,62 @@ async fn routed<F: Future>(f: &Scenario, future: F) -> Result<F::Output> {
     let catalog = Fixture::open_catalog(&f.s.f.domain, f.s.f.store.clone())?;
     f.s.f
         .domain
-        .run(cellar::asyncrt::timeout(TIMEOUT, async {
-            // A peer-probe retry must not prevent polling a completed CLI result.
-            // Both branches share this original deadline; no task is detached.
-            cellar::asyncrt::select! {
-                value = &mut future => Ok(value),
-                result = refresh_routes(f, &catalog) => {
-                    result?;
-                    Err(anyhow::anyhow!("route refresher stopped"))
-                },
-            }
-        }))
+        .run(cellar::asyncrt::timeout(
+            TIMEOUT,
+            cli_with_refresh(&mut future, refresh_routes(f, &catalog)),
+        ))
         .await??
+}
+
+async fn cli_with_refresh<F: Future, R: Future<Output = Result<()>>>(
+    future: F,
+    refresh: R,
+) -> Result<F::Output> {
+    cellar::asyncrt::select_biased! {
+        "a completed CLI result wins a simultaneous auxiliary route failure";
+        value = future => Ok(value),
+        result = refresh => {
+            result?;
+            Err(anyhow::anyhow!("route refresher stopped"))
+        },
+    }
+}
+
+#[tokio::test]
+async fn completed_cli_result_wins_a_ready_route_refresh_failure() -> Result<()> {
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            for _ in 0..16 {
+                let value = cli_with_refresh(std::future::ready(37), async {
+                    anyhow::bail!("route probe refused")
+                })
+                .await?;
+                ensure!(value == 37);
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await;
+    domain.shutdown().await;
+    result?
+}
+
+#[tokio::test]
+async fn pending_cli_does_not_hide_a_route_refresh_failure() -> Result<()> {
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let error = cli_with_refresh(std::future::pending::<()>(), async {
+                anyhow::bail!("route probe refused")
+            })
+            .await
+            .unwrap_err();
+            ensure!(error.to_string() == "route probe refused");
+            Ok::<_, anyhow::Error>(())
+        })
+        .await;
+    domain.shutdown().await;
+    result?
 }
 
 async fn view(server: &Server, operation: &str) -> Result<RaftFleetMaintenanceStatus> {
@@ -231,7 +275,9 @@ async fn owned() -> Result<()> {
         .await?;
     let (node, mut command, request) = prepare(&f, &server).await?;
     command.extend(["--wait".into(), "--timeout-seconds".into(), "5".into()]);
-    let (exit, value) = routed(&f, server.cli(&command, "maintainer")).await??;
+    let (exit, value) = routed(&f, server.cli(&command, "maintainer"))
+        .await
+        .with_context(|| format!("owned prepare wait; service {:?}", service.status()))??;
     ensure!(exit == 0, "maintenance prepare wait {exit}: {value}");
     let ready: RaftFleetMaintenanceStatus = serde_json::from_value(value)?;
     ready.validate()?;
@@ -254,7 +300,9 @@ async fn owned() -> Result<()> {
         "--timeout-seconds".into(),
         "5".into(),
     ]);
-    let (exit, value) = routed(&f, server.cli(&command, "canceller")).await??;
+    let (exit, value) = routed(&f, server.cli(&command, "canceller"))
+        .await
+        .with_context(|| format!("owned cancellation wait; service {:?}", service.status()))??;
     ensure!(exit == 0, "maintenance cancellation wait {exit}: {value}");
     let status: RaftFleetMaintenanceStatus = serde_json::from_value(value)?;
     status.validate()?;

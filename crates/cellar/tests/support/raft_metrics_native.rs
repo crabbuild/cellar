@@ -123,7 +123,18 @@ fn samples(text: &str) -> Result<BTreeSet<String>> {
             "duplicate or malformed sample"
         );
     }
-    ensure!(identities.len() == 111);
+    // Archive readiness added two fixed group gauges. Require their exact
+    // identities as well as the total; neither may replace an older series.
+    ensure!(identities.len() == 113);
+    for name in [
+        "cellar_raft_groups_archive_current",
+        "cellar_raft_groups_archive_unconfirmed",
+    ] {
+        ensure!(
+            identities.contains(name),
+            "missing archive readiness gauge: {name}"
+        );
+    }
     ensure!(text.contains("cellar_raft_extents_sample_available 0\n"));
     for identity in &identities {
         ensure!(

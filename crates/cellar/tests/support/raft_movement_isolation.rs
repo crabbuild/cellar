@@ -10,7 +10,11 @@ async fn isolate(
     node: NodeId,
     boot: FleetBootBinding,
 ) -> Result<FleetNodeIsolationRequest> {
-    let cut = s.f.catalog.read(TIMEOUT).await?;
+    let cut =
+        s.f.catalog
+            .read(TIMEOUT)
+            .await
+            .context("read exclusion Root")?;
     s.f.catalog
         .begin_evacuation(
             &cut,
@@ -19,7 +23,8 @@ async fn isolate(
             std::slice::from_ref(&s.namespace),
             TIMEOUT,
         )
-        .await?;
+        .await
+        .context("admit node exclusion before isolation")?;
     let cut = s.f.catalog.read(TIMEOUT).await?;
     let request = FleetNodeIsolationRequest {
         identity: Fixture::request(221, cut.revision()),
@@ -48,11 +53,15 @@ async fn isolate(
         .await
         .is_err());
     let reopened = Fixture::open_catalog(&s.f.domain, s.f.store.clone())?;
-    let root = reopened.read(TIMEOUT).await?;
+    let root = reopened
+        .read(TIMEOUT)
+        .await
+        .context("read Root after lost isolation confirmation")?;
     ensure!(root.revision() == cut.revision() + 1);
     let receipt = reopened
         .attest_node_isolation(&root, &request, TIMEOUT)
-        .await?;
+        .await
+        .context("reconcile exact node isolation receipt")?;
     ensure!(
         receipt.boot() == &request.attestation.boot
             && receipt.applied_revision() == root.revision()
@@ -145,7 +154,9 @@ async fn refresh(s: &Setup) -> Result<()> {
 async fn fleet_movement_isolated_obsolete_repairs_three_histories() -> Result<()> {
     // Three actual moves exceed the fleet's two-active-move book; each must
     // settle while the obsolete node stays offline and its engine is retained.
-    let mut s = Box::pin(Setup::with_histories(true, 3, 3)).await?;
+    let mut s = Box::pin(Setup::with_histories(true, 3, 3))
+        .await
+        .context("set up three isolated histories")?;
     let mut groups = Vec::new();
     for proposal in &s.proposals {
         let cut = s.f.catalog.read(TIMEOUT).await?;
@@ -187,7 +198,9 @@ async fn fleet_movement_isolated_obsolete_repairs_three_histories() -> Result<()
         .await
         .is_err());
     joined(stopped.node).await?;
-    let evidence = isolate(&s, stopped.spec.node, boot).await?;
+    let evidence = isolate(&s, stopped.spec.node, boot)
+        .await
+        .context("attest joined obsolete boot")?;
     // Even a saved startup capability cannot restart the retained engine.
     let retry_node = public_node::node_named(
         stopped.root.path(),
@@ -230,7 +243,8 @@ async fn fleet_movement_isolated_obsolete_repairs_three_histories() -> Result<()
                     std::slice::from_ref(&s.namespace),
                     TIMEOUT,
                 )
-                .await?;
+                .await
+                .with_context(|| format!("reserve isolated movement {index}"))?;
         let permit = accepted.authorization();
         let target = s
             .target
@@ -275,46 +289,58 @@ async fn fleet_movement_isolated_obsolete_repairs_three_histories() -> Result<()
         );
         cells.push(target);
         write_read(&s.f, &cells, 2, 5, 12).await?;
-        s.f.domain
-            .run(cellar::asyncrt::timeout(TIMEOUT, async {
-                loop {
-                    let cut = s.f.catalog.read(TIMEOUT).await?;
-                    let mut complete = true;
-                    for node in &s.nodes {
-                        let observed = node
-                            .host
-                            .inspect_peer_physical_inventory(
-                                node.spec.node,
-                                cut.revision(),
-                                TIMEOUT,
-                            )
-                            .await?;
-                        complete &= observed.view.seed_workers == 0
-                            && observed
-                                .inventory
-                                .as_ref()
-                                .unwrap()
-                                .history(scope)?
-                                .is_some_and(|h| h.completed_sequence() == 1);
-                    }
-                    if complete {
-                        return Ok::<_, anyhow::Error>(());
-                    }
-                    cellar::asyncrt::sleep(Duration::from_millis(10)).await;
-                }
-            }))
-            .await???;
         let (cut, completion) = completion(&s, &request, 231 + index as u8 * 2).await?;
         let done =
-            s.f.catalog
-                .complete_movement(&cut, &completion, &s.target, TIMEOUT)
-                .await?;
+            s.f.domain
+                .run(cellar::asyncrt::timeout(TIMEOUT, async {
+                    loop {
+                        let observed_cut = s.f.catalog.read(TIMEOUT).await?;
+                        let mut complete = true;
+                        for node in &s.nodes {
+                            let observed = node
+                                .host
+                                .inspect_peer_physical_inventory(
+                                    node.spec.node,
+                                    observed_cut.revision(),
+                                    TIMEOUT,
+                                )
+                                .await?;
+                            complete &= observed.view.seed_workers == 0
+                                && observed
+                                    .inventory
+                                    .as_ref()
+                                    .unwrap()
+                                    .history(scope)?
+                                    .is_some_and(|h| h.completed_sequence() == 1);
+                        }
+                        if complete {
+                            // A queued seed worker can start between the warm
+                            // inventory and the API's independent physical probe.
+                            // Reconcile this exact idempotent request within the
+                            // original readiness bound; only a real receipt ends it.
+                            match s
+                                .f
+                                .catalog
+                                .complete_movement(&cut, &completion, &s.target, TIMEOUT)
+                                .await
+                            {
+                                Ok(done) => return Ok(done),
+                                Err(FleetCatalogError::Unconfirmed) => {}
+                                Err(error) => return Err(anyhow::Error::from(error)),
+                            }
+                        }
+                        cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                    }
+                }))
+                .await?
+                .with_context(|| format!("complete isolated movement {index}"))??;
         ensure!(done.isolated_sources() == [stopped.spec.node.bytes()]);
         let root = s.f.catalog.read(TIMEOUT).await?;
         let replay =
             s.f.catalog
                 .complete_movement(&root, &completion, &s.target, TIMEOUT)
-                .await?;
+                .await
+                .with_context(|| format!("reconcile isolated movement {index}"))?;
         ensure!(
             replay.applied_revision() == done.applied_revision()
                 && replay.isolated_sources() == done.isolated_sources()
