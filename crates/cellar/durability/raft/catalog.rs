@@ -27,8 +27,8 @@ mod range_directory;
 pub(crate) use range_directory::RecoverySeedPermit;
 pub(crate) use range_directory::RouteCache;
 pub use range_directory::{
-    CellGroupArchiveBindingError, CellGroupBirth, CellGroupBirthRequest, CellGroupBirthSpec,
-    CellGroupBootstrapPermit, CellGroupDirectoryCursor, CellGroupDirectoryPage,
+    CellGroupArchiveBindingError, CellGroupBirth, CellGroupBirthDisposition, CellGroupBirthRequest,
+    CellGroupBirthSpec, CellGroupBootstrapPermit, CellGroupDirectoryCursor, CellGroupDirectoryPage,
     CellGroupDisasterFenceRequest, CellGroupRecoveryActivationAck,
     CellGroupRecoveryActivationPermit, CellGroupRecoveryError, CellGroupRecoveryRequest,
     CellRouteAttempt, CellRouteCacheUsage, CellRouteOperation, CellRouteRequest, CellRoutingError,
@@ -39,7 +39,9 @@ pub use range_directory::{
 
 #[path = "catalog_inventory/mod.rs"]
 mod inventory;
-pub(crate) use inventory::{BirthImportCut, ManagedBirthInventory};
+pub(crate) use inventory::groups::group_key as cell_group_import_key;
+pub(crate) use inventory::groups::CellGroupImportCut;
+pub use inventory::groups::FrozenCellGroupInventory;
 pub use inventory::{
     BirthInventoryCursor, BirthInventoryEntry, BirthInventoryPage, FrozenBirthInventory,
 };
@@ -63,6 +65,8 @@ pub enum CatalogError {
     BirthCancelled,
     BirthsFrozen,
     ManagedAdmissionRequired,
+    /// Preserve the owning fleet's conflict, pressure and uncertain outcome.
+    FleetAuthority(Box<super::fleet_catalog::FleetCatalogError>),
     LostStableState,
     Unconfirmed,
     Storage(object_store::Error),
@@ -80,7 +84,20 @@ impl fmt::Display for CatalogError {
     }
 }
 
-impl std::error::Error for CatalogError {}
+impl std::error::Error for CatalogError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::FleetAuthority(error) => Some(error.as_ref()),
+            _ => None,
+        }
+    }
+}
+
+impl From<super::fleet_catalog::FleetCatalogError> for CatalogError {
+    fn from(error: super::fleet_catalog::FleetCatalogError) -> Self {
+        Self::FleetAuthority(Box::new(error))
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct CatalogOptions {
@@ -494,34 +511,6 @@ impl NamespaceCatalog {
         log: &ReplicaLog,
     ) -> Result<BootstrapPermit, CatalogError> {
         self.bootstrap_initial(birth, log, None).await
-    }
-
-    pub(crate) async fn bootstrap_managed_member(
-        &self,
-        birth: &GroupBirth,
-        log: &ReplicaLog,
-        authorization: &super::fleet_catalog::FleetGroupAuthorization,
-    ) -> Result<BootstrapPermit, CatalogError> {
-        if !birth
-            .managed_owner()
-            .is_some_and(|owner| owner.fleet == authorization.binding().fleet())
-            || !authorization.check_birth(self, birth)
-            || birth.voters.len() != 3
-            || !birth.learners.is_empty()
-        {
-            return Err(CatalogError::Conflict(
-                "managed initial birth authorization",
-            ));
-        }
-        if !authorization.allows_managed_genesis() {
-            match log.group(birth.scope()) {
-                Ok(_) => (),
-                Err(LogError::NotFound) => return Err(CatalogError::ManagedAdmissionRequired),
-                Err(error) => return Err(CatalogError::Log(error)),
-            }
-        }
-        self.bootstrap_initial(birth, log, Some(authorization.binding()))
-            .await
     }
 
     async fn bootstrap_initial(

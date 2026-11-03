@@ -1,9 +1,9 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Bounded invocation ownership is independent of response-waiter lifetime.
+use super::admission::Retention;
 use super::calls::Delivery;
 use super::*;
-use crate::raft::budget::Permit;
 use crate::raft::cell_groups::{
     CellDispatchError, CellEnrollmentError, CellEnrollmentInvocation, CellSqlEnrollment,
     CellSqlOptions,
@@ -14,20 +14,20 @@ use tokio::sync::{mpsc, oneshot, watch};
 pub(super) struct Request {
     invocation: CellEnrollmentInvocation,
     options: CellSqlOptions,
-    reply: oneshot::Sender<Delivery<CellSqlEnrollment, CellEnrollmentError>>,
-    permit: Arc<Permit>,
+    reply: oneshot::Sender<Delivery<CellSqlEnrollment, CellEnrollmentError, Retention>>,
+    permit: Arc<Retention>,
 }
 
 pub(super) struct Completed {
     pub invocation: CellEnrollmentInvocation,
     pub error: Option<Arc<CellEnrollmentError>>,
-    _permit: Arc<Permit>,
+    _permit: Arc<Retention>,
 }
 
 /// Dropping or timing out this response never cancels the admitted enrollment.
 /// An unpolled reply retains node admission, including error-only replies.
 pub struct CellEnrollmentCall {
-    inner: calls::Call<ProposalId, CellSqlEnrollment, CellEnrollmentError>,
+    inner: calls::Call<ProposalId, CellSqlEnrollment, CellEnrollmentError, Retention>,
 }
 
 /// Admission did not transfer ownership. In particular, a rejected non-fresh
@@ -82,6 +82,9 @@ impl CellGroupController {
         let shared = &self.handle.0;
         let admitted = (|| {
             let (command, deadline) = invocation.controller_admission(&shared.domain)?;
+            let registration = shared
+                .registration()
+                .map_err(|reason| error(command, false, reason))?;
             if shared.closing.load(Ordering::Acquire) {
                 return Err(error(command, false, RuntimeError::Closed));
             }
@@ -94,9 +97,9 @@ impl CellGroupController {
                 .commands
                 .acquire(bytes)
                 .ok_or_else(|| error(command, false, RuntimeError::Overloaded))?;
-            Ok((command, deadline, permit))
+            Ok((command, deadline, permit, registration))
         })();
-        let (command, deadline, permit) = match admitted {
+        let (command, deadline, permit, mut registration) = match admitted {
             Ok(admitted) => admitted,
             Err(error) => {
                 return Err(CellEnrollmentAdmissionError {
@@ -112,7 +115,10 @@ impl CellGroupController {
                 invocation,
                 options,
                 reply,
-                permit: Arc::new(permit),
+                permit: Arc::new(Retention {
+                    _permit: permit,
+                    _work: registration.work.take(),
+                }),
             })))
             .map_err(|e| {
                 let (request, reason) = match e {

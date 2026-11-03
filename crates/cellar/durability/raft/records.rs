@@ -177,10 +177,10 @@ impl MappingRecord {
                         .as_ref()
                         .is_none_or(|root| root.route() != genesis.route())
                     || cache.applied.image.is_some()
-                    || cache.membership.fleet_status().is_some()
                 {
                     return Err(LogError::WrongIdentity);
                 }
+                cache.membership.validate_scope(&history)?;
                 if genesis.recovery_request().is_some() {
                     let current = cache
                         .group_manifest

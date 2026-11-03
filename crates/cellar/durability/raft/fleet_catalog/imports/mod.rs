@@ -1,12 +1,11 @@
-//! Resumable namespace import. The fleet root owns progress; namespace effects
+//! Resumable directory import. The fleet root owns progress; directory effects
 //! retain frozen references until every canonical history has a committed guard.
 use super::histories::{catalog_error, history_mutation, validate_request};
 use super::*;
 use crate::raft::catalog::{
-    BirthImportCut, BirthInventoryEntry, FrozenBirthInventory, ManagedBirthOwner, NamespaceCatalog,
-    VoterPolicy,
+    CellGroupImportCut, FrozenCellGroupInventory, ManagedBirthOwner, VoterPolicy,
 };
-use crate::raft::host::FleetMembershipObservation;
+use crate::raft::cell_groups::{CellGroupBirthRequest, CellGroupQuorumMembership, RangeDirectory};
 use cellar_logic::consensus::{NamespaceId, ProposalId};
 
 mod coverage;
@@ -55,34 +54,34 @@ impl FleetNamespaceImport {
     }
 }
 
-fn key(namespace: NamespaceId) -> String {
-    format!("namespace/{}", hex::encode(namespace.bytes()))
+fn key(directory: NamespaceId) -> String {
+    format!("namespace/{}", hex::encode(directory.bytes()))
 }
 
 impl FleetCatalog {
-    /// Root the exact frozen cut before attempting its exclusive namespace
+    /// Root the exact frozen cut before attempting its exclusive directory
     /// claim. Preparing/stopped imports grant no managed birth or maintenance.
     pub async fn begin_namespace_import(
         &self,
         snapshot: &FleetSnapshot,
         request: &FleetRequestIdentity,
-        namespace: &NamespaceCatalog,
-        frozen: &FrozenBirthInventory,
+        directory: &RangeDirectory,
+        frozen: &FrozenCellGroupInventory,
         timeout: Duration,
     ) -> Result<FleetCommit> {
         self.check_snapshot(snapshot)?;
         validate_request(request)?;
-        let cut = frozen.import_cut(namespace).map_err(catalog_error)?;
+        let cut = frozen.import_cut(directory).map_err(catalog_error)?;
         if request.operation != cut.operation
             || cut.count > HISTORY_LIMIT
-            || namespace.config().cluster.bytes() != self.inner.cluster
-            || namespace.config().voters != VoterPolicy::ThreeVoters
+            || directory.namespace_config().cluster.bytes() != self.inner.cluster
+            || directory.namespace_config().voters != VoterPolicy::ThreeVoters
         {
-            return Err(FleetCatalogError::Invalid("namespace import cut/scope"));
+            return Err(FleetCatalogError::Invalid("directory import cut/scope"));
         }
         let record = Record {
-            namespace: namespace.config().namespace.bytes(),
-            schema: namespace.config().schema_digest,
+            namespace: directory.namespace_config().namespace.bytes(),
+            schema: directory.namespace_config().schema_digest,
             catalog: self.birth_owner()?.catalog,
             cut,
             phase: FleetImportPhase::Preparing,
@@ -92,15 +91,19 @@ impl FleetCatalog {
             cursor: None,
             coverage: None,
         };
-        record.validate(self, namespace)?;
+        record.validate(self, directory)?;
         self.run(timeout, async {
-            self.require_namespace_declaration(snapshot, namespace, None)
+            directory
+                .import_directory_view(&record.cut)
+                .await
+                .map_err(catalog_error)?;
+            self.require_namespace_declaration(snapshot, directory.namespace(), None)
                 .await?;
             let mutation = history_mutation(
                 request,
                 vec![FleetChange {
                     table: FleetTable::Policy,
-                    key: key(namespace.config().namespace),
+                    key: key(directory.namespace_config().namespace),
                     value: Some(record.encode()?),
                 }],
             );
@@ -116,7 +119,7 @@ impl FleetCatalog {
                     .inner
                     .lookup(
                         snapshot.head.tables[FleetTable::Policy.slot()],
-                        &key(namespace.config().namespace),
+                        &key(directory.namespace_config().namespace),
                     )
                     .await?
                     .is_some()
@@ -131,13 +134,13 @@ impl FleetCatalog {
     pub async fn namespace_import(
         &self,
         snapshot: &FleetSnapshot,
-        namespace: &NamespaceCatalog,
+        directory: &RangeDirectory,
         timeout: Duration,
     ) -> Result<FleetNamespaceImport> {
         self.check_snapshot(snapshot)?;
         self.run(timeout, async {
             Ok(FleetNamespaceImport {
-                record: self.import_record(snapshot, namespace).await?,
+                record: self.import_record(snapshot, directory).await?,
             })
         })
         .await
@@ -148,14 +151,14 @@ impl FleetCatalog {
     pub async fn next_namespace_import_birth(
         &self,
         snapshot: &FleetSnapshot,
-        namespace: &NamespaceCatalog,
+        directory: &RangeDirectory,
         timeout: Duration,
-    ) -> Result<Option<BirthInventoryEntry>> {
+    ) -> Result<Option<CellGroupBirthRequest>> {
         self.check_snapshot(snapshot)?;
         self.run_import(
             timeout,
             Box::pin(async {
-                let record = self.import_record(snapshot, namespace).await?;
+                let record = self.import_record(snapshot, directory).await?;
                 if record.stopped {
                     return Err(FleetCatalogError::Conflict);
                 }
@@ -165,8 +168,14 @@ impl FleetCatalog {
                 ) {
                     return Ok(None);
                 }
-                Ok(namespace
-                    .import_birth_step(&record.cut, &self.birth_owner()?, record.cursor.as_deref())
+                Ok(directory
+                    .namespace()
+                    .cell_group_import_step(
+                        directory,
+                        &record.cut,
+                        &self.birth_owner()?,
+                        record.cursor.as_deref(),
+                    )
                     .await
                     .map_err(catalog_error)?
                     .entry)
@@ -182,8 +191,8 @@ impl FleetCatalog {
         &self,
         snapshot: &FleetSnapshot,
         request: &FleetRequestIdentity,
-        namespace: &NamespaceCatalog,
-        observation: Option<&FleetMembershipObservation>,
+        directory: &RangeDirectory,
+        observation: Option<&CellGroupQuorumMembership>,
         timeout: Duration,
     ) -> Result<FleetCommit> {
         self.check_snapshot(snapshot)?;
@@ -191,7 +200,7 @@ impl FleetCatalog {
         self.run_import(
             timeout,
             Box::pin(async {
-                let mut record = self.import_record(snapshot, namespace).await?;
+                let mut record = self.import_record(snapshot, directory).await?;
                 if request.operation != record.cut.operation || record.stopped {
                     return Err(FleetCatalogError::Conflict);
                 }
@@ -200,32 +209,27 @@ impl FleetCatalog {
                 }
                 let changes = match record.phase {
                     FleetImportPhase::Preparing => {
-                        namespace
-                            .claim_birth_import(&record.cut, &self.birth_owner()?)
+                        directory
+                            .namespace()
+                            .change_cell_group_import(&record.cut, &self.birth_owner()?, false)
                             .await
                             .map_err(catalog_error)?;
                         record.phase = FleetImportPhase::Inventory;
                         Vec::new()
                     }
                     FleetImportPhase::Inventory => {
-                        self.import_inventory_step(
-                            snapshot,
-                            request,
-                            namespace,
-                            &mut record,
-                            timeout,
-                        )
-                        .await?
+                        self.import_inventory_step(snapshot, request, directory, &mut record)
+                            .await?
                     }
                     FleetImportPhase::Coverage => {
-                        self.import_coverage_step(snapshot, namespace, &mut record, observation)
+                        self.import_coverage_step(snapshot, directory, &mut record, observation)
                             .await?
                     }
                     FleetImportPhase::Handoff => {
-                        self.verify_complete_import(snapshot, namespace, &record)
+                        self.verify_complete_import(snapshot, directory, &record)
                             .await?;
-                        namespace
-                            .finish_birth_import(&record.cut, &self.birth_owner()?)
+                        directory
+                            .finish_group_import(&record.cut, &self.birth_owner()?)
                             .await
                             .map_err(catalog_error)?;
                         record.phase = FleetImportPhase::Complete;
@@ -233,7 +237,7 @@ impl FleetCatalog {
                     }
                     FleetImportPhase::Complete => return Err(FleetCatalogError::Conflict),
                 };
-                self.commit_import_record(snapshot, request, namespace, record, changes)
+                self.commit_import_record(snapshot, request, directory, record, changes)
                     .await
             }),
         )
@@ -247,14 +251,14 @@ impl FleetCatalog {
         &self,
         snapshot: &FleetSnapshot,
         request: &FleetRequestIdentity,
-        namespace: &NamespaceCatalog,
+        directory: &RangeDirectory,
         stopped: bool,
         timeout: Duration,
     ) -> Result<FleetCommit> {
         self.check_snapshot(snapshot)?;
         validate_request(request)?;
         self.run(timeout, async {
-            let mut record = self.import_record(snapshot, namespace).await?;
+            let mut record = self.import_record(snapshot, directory).await?;
             if request.operation != record.cut.operation
                 || matches!(
                     record.phase,
@@ -264,7 +268,7 @@ impl FleetCatalog {
                 return Err(FleetCatalogError::Conflict);
             }
             record.stopped = stopped;
-            self.commit_import_record(snapshot, request, namespace, record, Vec::new())
+            self.commit_import_record(snapshot, request, directory, record, Vec::new())
                 .await
         })
         .await
@@ -276,7 +280,7 @@ impl FleetCatalog {
     pub async fn retry_namespace_import_request(
         &self,
         request: &FleetRequestIdentity,
-        namespace: &NamespaceCatalog,
+        directory: &RangeDirectory,
         timeout: Duration,
     ) -> Result<FleetCommit> {
         validate_request(request)?;
@@ -304,7 +308,8 @@ impl FleetCatalog {
                     .changes
                     .last()
                     .ok_or(FleetCatalogError::Corrupt("empty import retry"))?;
-                if last.table != FleetTable::Policy || last.key != key(namespace.config().namespace)
+                if last.table != FleetTable::Policy
+                    || last.key != key(directory.namespace_config().namespace)
                 {
                     return Err(FleetCatalogError::Conflict);
                 }
@@ -313,7 +318,7 @@ impl FleetCatalog {
                     last.value.as_deref().ok_or(FleetCatalogError::Conflict)?,
                     4096,
                 )?;
-                record.validate(self, namespace)?;
+                record.validate(self, directory)?;
                 if record.cut.operation != request.operation
                     || mutation.changes.len() > 4
                     || mutation
@@ -332,7 +337,7 @@ impl FleetCatalog {
                         .await?
                         .is_none()
                 {
-                    self.verify_complete_import(&current, namespace, &record)
+                    self.verify_complete_import(&current, directory, &record)
                         .await?;
                 }
                 self.commit_inner(&current, &mutation).await
@@ -344,18 +349,18 @@ impl FleetCatalog {
     async fn import_record(
         &self,
         snapshot: &FleetSnapshot,
-        namespace: &NamespaceCatalog,
+        directory: &RangeDirectory,
     ) -> Result<Record> {
         let bytes = self
             .inner
             .lookup(
                 snapshot.head.tables[FleetTable::Policy.slot()],
-                &key(namespace.config().namespace),
+                &key(directory.namespace_config().namespace),
             )
             .await?
             .ok_or(FleetCatalogError::Conflict)?;
         let record: Record = decode(records::KIND, &bytes, 4096)?;
-        record.validate(self, namespace)?;
+        record.validate(self, directory)?;
         Ok(record)
     }
 
@@ -363,14 +368,14 @@ impl FleetCatalog {
         &self,
         snapshot: &FleetSnapshot,
         request: &FleetRequestIdentity,
-        namespace: &NamespaceCatalog,
+        directory: &RangeDirectory,
         record: Record,
         mut changes: Vec<FleetChange>,
     ) -> Result<FleetCommit> {
-        record.validate(self, namespace)?;
+        record.validate(self, directory)?;
         changes.push(FleetChange {
             table: FleetTable::Policy,
-            key: key(namespace.config().namespace),
+            key: key(directory.namespace_config().namespace),
             value: Some(record.encode()?),
         });
         let mutation = history_mutation(request, changes);
@@ -399,20 +404,22 @@ impl FleetCatalog {
     pub(super) async fn managed_owner_for_birth(
         &self,
         snapshot: &FleetSnapshot,
-        namespace: &NamespaceCatalog,
+        directory: &RangeDirectory,
     ) -> Result<ManagedBirthOwner> {
         let owner = self.birth_owner()?;
-        if namespace.config().managed_fleet.is_some() {
-            if self.bind_namespace(namespace.config().clone())? != *namespace.config() {
+        if directory.namespace_config().managed_fleet.is_some() {
+            if self.bind_namespace(directory.namespace_config().clone())?
+                != *directory.namespace_config()
+            {
                 return Err(FleetCatalogError::Conflict);
             }
         } else {
-            let record = self.import_record(snapshot, namespace).await?;
+            let record = self.import_record(snapshot, directory).await?;
             if record.phase != FleetImportPhase::Complete || record.stopped {
                 return Err(FleetCatalogError::Conflict);
             }
-            namespace
-                .check_birth_import(&record.cut, &owner, true)
+            directory
+                .check_group_import(&record.cut, &owner, true)
                 .await
                 .map_err(catalog_error)?;
         }

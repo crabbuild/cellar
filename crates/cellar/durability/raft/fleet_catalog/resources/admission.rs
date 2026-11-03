@@ -5,7 +5,7 @@
 use super::records::{Book, Record, Reference, Request};
 use super::*;
 use crate::application::consensus::RaftCells;
-use crate::raft::catalog::NamespaceCatalog;
+use crate::raft::catalog::RangeDirectory;
 use crate::raft::host::RaftPeerNodeObservation;
 use cellar_logic::consensus::{
     ClusterId, DiskLineage, EngineInstanceId, IncarnationId, NodeIdentity, ProcessGeneration,
@@ -51,7 +51,7 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         request: &FleetResourceRequest,
         observer: &RaftCells,
-        namespaces: &[NamespaceCatalog],
+        namespaces: &[RangeDirectory],
         timeout: Duration,
     ) -> Result<FleetResourceAdmission> {
         self.reserve_resource_request(
@@ -70,7 +70,7 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         canonical: Request,
         observer: &RaftCells,
-        namespaces: &[NamespaceCatalog],
+        namespaces: &[RangeDirectory],
         options: AdmissionOptions,
         timeout: Duration,
     ) -> Result<FleetResourceAdmission> {
@@ -156,11 +156,7 @@ impl FleetCatalog {
                 .binding()
                 .scope()
                 .map_err(|_| FleetCatalogError::Corrupt("resource scope"))?;
-            if inventory
-                .history(&scope)
-                .map_err(|_| FleetCatalogError::Corrupt("resource destination scope"))?
-                .is_some()
-            {
+            if inventory.group_history(&scope).is_some() {
                 return Err(FleetCatalogError::Invalid("occupied resource destination"));
             }
             if *history.state() != FleetHistoryState::Live {
@@ -431,8 +427,7 @@ impl FleetCatalog {
                         .scope()
                         .map_err(|_| FleetCatalogError::Corrupt("resource genesis scope"))?;
                     let occupied = inventory
-                        .history(&scope)
-                        .map_err(|_| FleetCatalogError::Corrupt("resource genesis scope"))?
+                        .group_history(&scope)
                         .ok_or(resource_error(LedgerError::Incomplete))?;
                     if occupied.birth_digest() != history.birth_digest()
                         || !history.voters.iter().chain(&history.learners).any(|m| {

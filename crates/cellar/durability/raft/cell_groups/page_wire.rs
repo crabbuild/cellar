@@ -21,6 +21,8 @@ pub(super) struct PageRef {
     pub digest: [u8; 32],
     pub height: u8,
     pub cells: u32,
+    pub last_mutation_index: u64,
+    pub last_mutation_term: u64,
     // Required even when null: internal marker-1 hard cutover, no old reader.
     #[serde(deserialize_with = "required_due")]
     pub next_due_unix_millis: Option<u64>,
@@ -51,6 +53,10 @@ impl Page {
                 || child.height > limits.max_depth
                 || child.cells == 0
                 || child.cells > limits.max_cells
+                || child.last_mutation_index == 0
+                || child.last_mutation_term == 0
+                || child.last_mutation_index >= u64::MAX - 2
+                || child.last_mutation_term >= u64::MAX - 2
                 || child
                     .next_due_unix_millis
                     .is_some_and(|due| due > i64::MAX as u64)
@@ -72,10 +78,28 @@ impl Page {
         if height > limits.max_depth || cells > limits.max_cells {
             return Err(ManifestError::Limit);
         }
+        let mut latest = self.leaf.last_mutation;
+        for child in [self.left, self.right].into_iter().flatten() {
+            let next = LogPosition {
+                index: LogIndex::new(child.last_mutation_index),
+                term: Term::new(child.last_mutation_term),
+            };
+            if (next.index < latest.index && next.term > latest.term)
+                || (next.index > latest.index && next.term < latest.term)
+                || (next.index == latest.index && next.term != latest.term)
+            {
+                return Err(ManifestError::Invalid("subtree mutation order"));
+            }
+            if next.index > latest.index {
+                latest = next;
+            }
+        }
         Ok(PageRef {
             digest: digest(bytes),
             height,
             cells,
+            last_mutation_index: latest.index.get(),
+            last_mutation_term: latest.term.get(),
             next_due_unix_millis: [
                 self.leaf.effects.next_due_unix_millis(),
                 self.left.and_then(|p| p.next_due_unix_millis),

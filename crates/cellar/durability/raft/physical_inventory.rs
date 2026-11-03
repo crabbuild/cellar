@@ -158,7 +158,7 @@ pub(crate) fn scope_digest(scope: &GroupScope) -> Result<[u8; 32], LogError> {
     Ok(Sha256::digest(bytes).into())
 }
 
-fn group_digest(history: &GroupHistory) -> [u8; 32] {
+pub(crate) fn group_digest(history: &GroupHistory) -> [u8; 32] {
     let mut digest = Sha256::new();
     digest.update(b"cellar-cell-group-physical-history-1\0");
     digest.update(history.cluster.bytes());

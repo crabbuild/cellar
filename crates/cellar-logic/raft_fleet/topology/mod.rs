@@ -10,7 +10,8 @@ mod schedule;
 pub use balance::balance_topology;
 
 use super::{CapacityScope, LedgerError, LedgerSnapshot, ResourceLedger, Resources};
-use crate::consensus::{GroupScope, LogIndex, NodeId};
+use crate::cell_group::GroupHistory;
+use crate::consensus::{LogIndex, NodeId};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug)]
@@ -30,7 +31,7 @@ pub struct TopologyNode {
 
 #[derive(Clone, Debug)]
 pub struct TopologyGroup {
-    pub scope: GroupScope,
+    pub scope: GroupHistory,
     /// Initial stable RF3 revision. Re-read before each actual membership permit.
     pub revision: LogIndex,
     pub voters: [NodeId; 3],
@@ -44,7 +45,7 @@ pub struct TopologyGroup {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TopologyTarget {
-    pub group: GroupScope,
+    pub group: GroupHistory,
     pub voters: [NodeId; 3],
 }
 
@@ -69,7 +70,7 @@ pub struct TopologyPolicy {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReplicaMove {
-    pub group: GroupScope,
+    pub group: GroupHistory,
     pub source: CapacityScope,
     pub target: CapacityScope,
     /// Serial dependency: complete the preceding move's terminal proof first.
@@ -214,7 +215,7 @@ fn verify(model: &Model<'_>, work: &mut Work) -> Result<TopologyPreview, Topolog
             .iter()
             .zip(&model.desired)
             .map(|(group, voters)| TopologyTarget {
-                group: group.scope.clone(),
+                group: group.scope,
                 voters: voters.map(|n| view.nodes[n].ledger.scope.node.node),
             })
             .collect(),
@@ -298,18 +299,12 @@ impl<'a> Model<'a> {
         };
         model.groups.sort_by_key(|group| &group.scope);
         let mut histories = BTreeSet::new();
-        let mut cells = BTreeSet::new();
         let mut occupancy = vec![0_u64; view.nodes.len()];
         for group in &model.groups {
-            group
-                .scope
-                .validate()
-                .map_err(|_| TopologyError::InvalidInput)?;
             if group.scope.cluster != first.cluster
                 || group.revision.get() == 0
                 || group.revision.get() >= u64::MAX - 2
-                || !histories.insert(group.scope.group)
-                || !cells.insert((group.scope.namespace, &group.scope.cell))
+                || !histories.insert((group.scope.namespace, group.scope.group))
                 || group.resident.engine_slots != 1
                 || group.resident.durable_bytes == 0
                 || group.resident.memory_bytes == 0

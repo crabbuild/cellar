@@ -204,7 +204,7 @@ impl Worker {
                     match request {
                         requests::Request::Archive(request) => self.archives.request(*request, &self.shared),
                         requests::Request::S3(request) => self.archives.settle(*request),
-                        requests::Request::Provision(request) => self.provisioning.request(*request, &self.shared),
+                        requests::Request::Provision(request) => self.provisioning.request(*request, &self.shared, &self.transport),
                         requests::Request::Registration(request) => {
                             let group = request.registration.applier.history();
                             if self.roster.insert(group, request.registration.applier.clone()).is_some() {
@@ -305,6 +305,7 @@ impl Worker {
                             continue;
                         }
                     };
+                    let installed_checkpoint = matches!(&effect, CellGroupEffect::CheckpointInstalled { .. });
                     match effect {
                         CellGroupEffect::Message(message) => {
                             if let Err(error) = self.transport.submit_physical(&group, message.clone()) {
@@ -342,6 +343,15 @@ impl Worker {
                             self.pending.push_back(Pending { group, work: Work::Prepare(Box::new(work)), retry_at: now });
                         }
                         CellGroupEffect::Applied { manifest, .. } | CellGroupEffect::CheckpointInstalled { manifest } => {
+                            // Configuration apply sets its revision to this
+                            // entry's index. Ordinary cell writes do not scan routes.
+                            if installed_checkpoint || manifest.membership_revision() == manifest.position().index.get() {
+                                if let Err(error) = self.transport.reconcile_managed_physical(&group) {
+                                    if !matches!(error, TransportError::Overloaded | TransportError::UnknownGroup | TransportError::StalePeer | TransportError::Refused) {
+                                        return Err(CellGroupControllerError::Transport(error));
+                                    }
+                                }
+                            }
                             self.archives.applied(group, manifest.position().index);
                             self.effects.observe(group, manifest.position().index, manifest.root().next_due_unix_millis())?;
                             // Only this post-sync event advances the published count.

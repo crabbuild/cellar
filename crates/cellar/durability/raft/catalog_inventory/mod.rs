@@ -10,9 +10,9 @@ use object_store::{path::Path, PutMode, PutOptions, UpdateVersion};
 use std::{sync::Arc, time::Duration};
 
 mod current;
+pub(crate) mod groups;
 mod import;
 mod wire;
-pub(crate) use current::ManagedBirthInventory;
 pub(crate) use import::BirthImportCut;
 use wire::{Head, Mode, Pin};
 

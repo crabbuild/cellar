@@ -4,7 +4,6 @@
 //! The complete target history remains authenticated in each request/reply.
 
 use super::transport::TransportError;
-use crate::application::consensus::protocol::WireScope;
 use cellar_logic::cell_group::{CellHistory, CellId, GroupHistory};
 use cellar_logic::consensus::{
     ClusterId, DiskLineage, GroupId, IncarnationId, MemberId, NamespaceId, NodeId, NodeIdentity,
@@ -43,11 +42,10 @@ impl Endpoint {
     }
 }
 
-// Marker-1 hard cutover: no reader for the former untagged query history.
+// Marker-1 hard cutover: only physical-group plus logical-cell query histories.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "identity", deny_unknown_fields)]
 enum History {
-    Cell(WireScope),
     Shared {
         group: [[u8; 16]; 4],
         cell: String,
@@ -74,41 +72,6 @@ pub(super) struct QueryRoute {
 }
 
 impl QueryRoute {
-    pub fn new(
-        source: NodeIdentity,
-        source_label: &str,
-        target: &ReplicaIdentity,
-        target_label: &str,
-        schema: [u8; 32],
-    ) -> Result<Self, TransportError> {
-        let route = Self {
-            purpose: Purpose::Query,
-            scope: History::Cell(WireScope::from(&target.scope)),
-            schema,
-            source: Endpoint::new(source, source_label, None),
-            target: Endpoint::new(target.node_identity(), target_label, Some(target.member)),
-        };
-        route.decode()?;
-        Ok(route)
-    }
-
-    /// Request orientation only. A reversed response route is compared with
-    /// the exact outstanding request; it cannot decode as another request.
-    pub fn decode(&self) -> Result<(NodeIdentity, ReplicaIdentity), TransportError> {
-        if self.requires_command_grant() {
-            return Err(TransportError::Identity);
-        }
-        let History::Cell(scope) = &self.scope else {
-            return Err(TransportError::Identity);
-        };
-        let scope = scope
-            .clone()
-            .decode()
-            .map_err(|_| TransportError::Identity)?;
-        scope.validate().map_err(|_| TransportError::Identity)?;
-        self.endpoints(scope)
-    }
-
     fn endpoints<S>(&self, scope: S) -> Result<(NodeIdentity, ReplicaIdentity<S>), TransportError> {
         if self.source.member.is_some() || self.schema == [0; 32] {
             return Err(TransportError::Identity);
@@ -176,10 +139,7 @@ impl QueryRoute {
             group,
             cell,
             incarnation,
-        } = &self.scope
-        else {
-            return Err(TransportError::Identity);
-        };
+        } = &self.scope;
         let scope = GroupHistory {
             cluster: ClusterId::new(group[0]).map_err(|_| TransportError::Identity)?,
             namespace: NamespaceId::new(group[1]).map_err(|_| TransportError::Identity)?,
@@ -230,16 +190,8 @@ impl QueryRoute {
         self.is_command() || self.is_enrollment() || self.is_receipt()
     }
 
-    pub fn is_shared(&self) -> bool {
-        matches!(self.scope, History::Shared { .. })
-    }
-
     pub fn validate(&self) -> Result<(), TransportError> {
-        if self.is_shared() {
-            self.decode_shared()?;
-        } else {
-            self.decode()?;
-        }
+        self.decode_shared()?;
         Ok(())
     }
 

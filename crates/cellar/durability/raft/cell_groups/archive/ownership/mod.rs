@@ -122,6 +122,29 @@ impl CellGroupArchiveHold {
     pub fn marker(&self) -> &GroupManifest {
         &self.root.marker
     }
+
+    /// Descriptor shape only. Persistent registry membership must still be
+    /// checked by the owning registry before and after physical verification.
+    pub(crate) fn check_reference(&self) -> Result<()> {
+        self.root
+            .marker
+            .check()
+            .map_err(CellGroupCheckpointError::from)?;
+        if self.registry == [0; 32]
+            || self.allocation == [0; 32]
+            || self.id == 0
+            || self.id >= u64::MAX - 2
+            || self.root.object.registry != self.registry
+            || self.root.object.digest == [0; 32]
+            || self.root.object.generation < 2
+            || self.root.object.generation >= u64::MAX - 2
+            || self.root.object.length == 0
+            || self.root.object.length > 8192
+        {
+            return Err(CellGroupArchiveError::Invalid("archive hold descriptor"));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -152,6 +175,14 @@ pub struct CellGroupArchiveIntent {
 }
 
 impl CellGroupArchiveIntent {
+    pub(crate) fn acquire_marker(&self) -> Result<&GroupManifest> {
+        self.digest()?;
+        match &self.action {
+            Action::Acquire { root } => Ok(&root.marker),
+            _ => Err(CellGroupArchiveError::Invalid("acquire intent purpose")),
+        }
+    }
+
     fn digest(&self) -> Result<[u8; 32]> {
         if self.domain != INTENT_DOMAIN
             || self.registry == [0; 32]
@@ -175,6 +206,14 @@ pub(super) struct Pending {
 pub(super) enum Allocation {
     Upload(CellGroupArchiveUploadTicket),
     Hold(Box<CellGroupArchiveHold>),
+}
+
+/// A fresh registry observation, distinct from an unsuccessful mutation. Only
+/// Superseded proves that this allocation cannot still commit later.
+pub(crate) enum CellGroupArchiveAcquireOutcome {
+    Held(Box<CellGroupArchiveHold>),
+    Pending,
+    Superseded,
 }
 
 pub(super) struct Protection {
@@ -416,7 +455,7 @@ impl CellGroupArchiveRegistry {
                 let root = state
                     .selected
                     .clone()
-                    .ok_or(CellGroupArchiveError::Invalid("no selected archive"))?;
+                    .ok_or(CellGroupArchiveError::Unconfirmed)?;
                 self.intent(&state, Action::Acquire { root })
             })
             .await
@@ -438,6 +477,21 @@ impl CellGroupArchiveRegistry {
                     Allocation::Hold(hold) => Ok(*hold),
                     _ => Err(CellGroupArchiveError::Invalid("hold allocation purpose")),
                 }
+            })
+            .await
+            .map_err(|_| CellGroupArchiveError::Stopped)?
+    }
+
+    pub(crate) async fn acquire_outcome(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        intent: &CellGroupArchiveIntent,
+    ) -> Result<CellGroupArchiveAcquireOutcome> {
+        intent.acquire_marker()?;
+        domain
+            .run(async {
+                let _io = self.archive.admit()?;
+                self.load().await?.0.acquire_outcome(intent)
             })
             .await
             .map_err(|_| CellGroupArchiveError::Stopped)?

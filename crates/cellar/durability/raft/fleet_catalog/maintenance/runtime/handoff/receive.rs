@@ -103,13 +103,8 @@ impl FleetHostAuthorization {
                 .binding()
                 .scope()
                 .map_err(|_| FleetCatalogError::Corrupt("restart scope"))?;
-            let cell = gateway
-                .cell(scope.namespace, &scope.cell)
-                .map_err(failure)?;
-            if cell.scope() != &scope {
-                return Err(FleetCatalogError::Conflict);
-            }
-            let progress = cell
+            let group = gateway.group(scope).map_err(failure)?;
+            let progress = group
                 .replication_status_for(deadline.remaining()?)
                 .await
                 .map_err(failure)?;
@@ -243,20 +238,21 @@ impl FleetHostAuthorization {
                     .checked_add(budget)
                     .ok_or(FleetCatalogError::Limit)?,
             );
-            cell.restart_leadership(
-                RestartLeadershipCheck {
-                    deadline: evidence_deadline,
-                    expected_term: Term::new(command.term),
-                    expected_revision: LogIndex::new(command.revision),
-                    through: progress.committed,
-                    survivors,
-                    all_voters: false,
-                    transfer,
-                },
-                deadline.remaining()?,
-            )
-            .await
-            .map_err(failure)?;
+            group
+                .restart_leadership(
+                    RestartLeadershipCheck {
+                        deadline: evidence_deadline,
+                        expected_term: Term::new(command.term),
+                        expected_revision: LogIndex::new(command.revision),
+                        through: progress.committed,
+                        survivors,
+                        all_voters: false,
+                        transfer,
+                    },
+                    deadline.remaining()?,
+                )
+                .await
+                .map_err(failure)?;
             catalog
                 .run(deadline.remaining()?, basis.check_current(catalog))
                 .await?;
@@ -267,12 +263,15 @@ impl FleetHostAuthorization {
     }
 }
 
-fn failure(error: crate::application::consensus::CommandFailure) -> FleetCatalogError {
-    use crate::application::consensus::CommandFailure as C;
+fn failure(error: crate::raft::completion::RuntimeError) -> FleetCatalogError {
+    use crate::raft::completion::RuntimeError as R;
     match error {
-        C::Overloaded => FleetCatalogError::Overloaded,
-        C::CommandConflict => FleetCatalogError::Conflict,
-        C::CorruptState => FleetCatalogError::Corrupt("restart leadership host state"),
+        R::Overloaded => FleetCatalogError::Overloaded,
+        R::Invalid(_) | R::NotFound | R::StaleCompletion => FleetCatalogError::Conflict,
+        R::Protocol(_) | R::GroupQuarantined => {
+            FleetCatalogError::Corrupt("restart leadership host state")
+        }
+        R::Closed => FleetCatalogError::Closed,
         _ => FleetCatalogError::Unconfirmed,
     }
 }

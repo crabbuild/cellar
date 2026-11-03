@@ -3,6 +3,10 @@
 //! Pure bounded transitions. All allocating mutations reconcile their exact
 //! intent digest; retired revisions never reappear and generations never repeat.
 use super::*;
+
+#[cfg(test)]
+#[path = "state_tests.rs"]
+mod tests;
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -17,6 +21,21 @@ pub(super) struct State {
 }
 
 impl State {
+    pub fn acquire_outcome(
+        &self,
+        intent: &CellGroupArchiveIntent,
+    ) -> Result<CellGroupArchiveAcquireOutcome> {
+        intent.acquire_marker()?;
+        if let Some(Allocation::Hold(hold)) = self.reconcile(intent)? {
+            return Ok(CellGroupArchiveAcquireOutcome::Held(hold));
+        }
+        Ok(if self.revision >= intent.revision {
+            CellGroupArchiveAcquireOutcome::Superseded
+        } else {
+            CellGroupArchiveAcquireOutcome::Pending
+        })
+    }
+
     pub fn empty(identity: CellGroupArchiveCreation) -> Self {
         Self {
             domain: STATE_DOMAIN.into(),

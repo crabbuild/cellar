@@ -1,6 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Required repair selection; the host owns isolation and quorum provenance.
+use cellar_logic::cell_group::GroupHistory;
 use cellar_logic::{consensus::*, raft_fleet::*, raft_placement::PlacedMember};
 
 fn id(n: u8) -> NodeId {
@@ -22,10 +23,10 @@ fn fixture() -> (IsolatedRepairView, Vec<TopologyNode>, TopologyPolicy) {
         node: id(n),
         disk: DiskLineage::new([n + 10; 16]).unwrap(),
     };
-    let group = GroupScope {
+    let group = GroupHistory {
         cluster,
         namespace: NamespaceId::new([2; 16]).unwrap(),
-        cell: "Counter:repair".into(),
+
         group: GroupId::new([3; 16]).unwrap(),
         incarnation: IncarnationId::new([4; 16]).unwrap(),
     };
@@ -183,7 +184,7 @@ fn isolated_repair_refuses_unsettled_and_incomplete_ledgers() {
     let scope = n[2].ledger.scope;
     n[2].ledger.reservations.push(Reservation {
         id: ProposalId::new([6; 16]).unwrap(),
-        group: v.scope.clone(),
+        group: v.scope,
         scope,
         peak: bytes(1),
         materialized: None,
@@ -244,9 +245,8 @@ fn isolated_repair_refuses_overflow_instead_of_saturating_capacity() {
     );
 }
 
-fn unrelated(node: &TopologyNode, group: &GroupScope, id: u8) -> Reservation {
-    let mut other = group.clone();
-    other.cell = format!("Counter:unrelated-{id}");
+fn unrelated(node: &TopologyNode, group: &GroupHistory, id: u8) -> Reservation {
+    let mut other = *group;
     other.group = GroupId::new([id; 16]).unwrap();
     Reservation {
         id: ProposalId::new([id; 16]).unwrap(),

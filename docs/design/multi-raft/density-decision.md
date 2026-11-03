@@ -2,6 +2,8 @@
 
 # Shared cell groups: architecture decision
 
+Purpose: TiKV investigation and the decision to share physical Raft groups across whole cells.
+
 Status: selected replacement architecture; runtime conversion and qualification
 are pending. This document does not claim that Cellar supports shared groups yet.
 It supersedes one-cell-per-group as the target architecture, while the existing

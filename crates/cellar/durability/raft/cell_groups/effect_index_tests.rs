@@ -240,6 +240,8 @@ fn marker_one_references_require_nullable_due_summary() {
         digest: [1; 32],
         height: 1,
         cells: 1,
+        last_mutation_index: 1,
+        last_mutation_term: 1,
         next_due_unix_millis: None,
     };
     let mut value = serde_json::to_value(reference).unwrap();
@@ -253,10 +255,66 @@ fn marker_one_references_require_nullable_due_summary() {
         .unwrap()
         .remove("next_due_unix_millis");
     assert!(serde_json::from_value::<PageRef>(value).is_err());
+    for field in ["last_mutation_index", "last_mutation_term"] {
+        let mut value = serde_json::to_value(reference).unwrap();
+        value.as_object_mut().unwrap().remove(field);
+        assert!(serde_json::from_value::<PageRef>(value).is_err());
+    }
     let mut invalid = f.leaves[3].clone();
     invalid.effects.next_outbox_unix_millis = Some(i64::MAX as u64 + 1);
     invalid.effects.pending_outbox = 1;
     assert!(invalid.validate(f.tree.route()).is_err());
+}
+
+#[test]
+fn complete_manifest_authenticates_latest_mutation_across_other_cell_updates() {
+    let mut f = fixture(false);
+    let before = f.root;
+    assert_eq!(
+        before.last_mutation(),
+        Some(LogPosition {
+            index: LogIndex::new(2),
+            term: Term::new(1)
+        })
+    );
+    let mut changed = f.leaves[7].clone();
+    let old = changed.version.clone();
+    changed.version.sequence = MutationSequence::new(2).unwrap();
+    changed.version.image.txid = 2;
+    changed.version.image.commitment = CellImageCommitment::Materialized([11; 32]);
+    changed.last_mutation = LogPosition {
+        index: LogIndex::new(40),
+        term: Term::new(2),
+    };
+    changed.witness = CommitWitness {
+        group: f.tree.route().history,
+        position: changed.last_mutation,
+        proposal: ProposalId::new([12; 16]).unwrap(),
+    };
+    let after = f
+        .tree
+        .update(&mut f.store, before, changed.clone(), Some(&old))
+        .unwrap();
+    assert_eq!(after.cells(), 64);
+    assert_eq!(after.last_mutation(), Some(changed.last_mutation));
+    assert_eq!(before.last_mutation().unwrap().index.get(), 2);
+    let applied = LogPosition {
+        index: LogIndex::new(60),
+        term: Term::new(3),
+    };
+    f.tree.verify(&f.store, after, applied, |_| Ok(())).unwrap();
+    let mut forged = after;
+    forged.0.as_mut().unwrap().last_mutation_index = 39;
+    assert!(f
+        .tree
+        .verify(&f.store, forged, applied, |_| Ok(()))
+        .is_err());
+    let mut forged = after;
+    forged.0.as_mut().unwrap().last_mutation_term = 1;
+    assert!(f
+        .tree
+        .verify(&f.store, forged, applied, |_| Ok(()))
+        .is_err());
 }
 
 #[test]

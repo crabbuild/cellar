@@ -6,6 +6,10 @@ use serde::{Deserialize, Serialize};
 
 const DOMAIN: &str = "cellar-cell-group-checkpoint-1";
 
+#[cfg(test)]
+#[path = "header_tests.rs"]
+mod tests;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum Transition {
@@ -28,6 +32,14 @@ impl Header {
         conf: &ConfState,
         membership: GroupMembership,
     ) -> Result<Self> {
+        root.check()?;
+        membership.validate(conf, root.position().index.get())?;
+        membership.validate_scope(&root.route().history)?;
+        if root.membership_revision() != membership.revision().get() {
+            return Err(CellGroupCheckpointError::Invalid(
+                "checkpoint capture membership",
+            ));
+        }
         Ok(Self {
             domain: DOMAIN.into(),
             root,
@@ -55,6 +67,9 @@ impl Header {
         header
             .membership
             .validate(&header.configuration()?, header.root.position().index.get())?;
+        header
+            .membership
+            .validate_scope(&header.root.route().history)?;
         Ok(header)
     }
 

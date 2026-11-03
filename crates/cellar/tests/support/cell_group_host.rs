@@ -280,6 +280,13 @@ pub(crate) async fn many_cells(rooted: bool) -> Result<()> {
 }
 
 pub(crate) async fn query_shutdown(rooted: bool) -> Result<()> {
+    for expired in [false, true] {
+        held_query_shutdown(rooted, expired).await?;
+    }
+    Ok(())
+}
+
+async fn held_query_shutdown(rooted: bool, expired: bool) -> Result<()> {
     let (entered, started) = tokio::sync::oneshot::channel();
     let entered = Mutex::new(Some(entered));
     let (release, held) = std::sync::mpsc::sync_channel(1);
@@ -326,13 +333,35 @@ pub(crate) async fn query_shutdown(rooted: bool) -> Result<()> {
     );
     idle(&host).await?;
     let pool = f.appliers[&(0, route.history)].0.clone();
-    let call = handle.query(
-        query(&class, CellQueryConsistency::Linearizable)?,
-        routing(),
-    )?;
+    let mut limits = routing();
+    if expired {
+        limits.timeout = Duration::from_millis(600);
+    }
+    let call = handle.query(query(&class, CellQueryConsistency::Linearizable)?, limits)?;
     tokio::time::timeout(Duration::from_secs(5), started).await??;
     assert_eq!(host.usage().controller.retained_commands, 1);
-    drop(call);
+    if expired {
+        let error = call
+            .response()
+            .await
+            .err()
+            .context("original read deadline")?;
+        assert!(matches!(
+            error.as_ref(),
+            CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)
+        ));
+    } else {
+        drop(call);
+    }
+    assert_eq!(host.usage().controller.retained_commands, 1);
+    assert!(
+        f.cluster
+            .domain
+            .services()
+            .application_work()
+            .pending_events
+            > 0
+    );
     let refused = handle
         .command(command(&class, 1, retry_until)?, routing())
         .err()
@@ -357,6 +386,14 @@ pub(crate) async fn query_shutdown(rooted: bool) -> Result<()> {
     tokio::time::timeout(Duration::from_secs(5), host.close()).await??;
     assert_eq!(pool.usage()?.running_workers, 0);
     assert_eq!(host.usage().controller.retained_commands, 0);
+    assert_eq!(
+        f.cluster
+            .domain
+            .services()
+            .application_work()
+            .pending_events,
+        0
+    );
     for c in &controllers {
         c.close().await?;
     }

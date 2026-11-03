@@ -93,7 +93,7 @@ impl FleetCatalog {
     pub async fn start_restart_service(
         &self,
         observer: crate::application::consensus::RaftCells,
-        namespaces: Vec<NamespaceCatalog>,
+        namespaces: Vec<RangeDirectory>,
         evidence: Option<Arc<dyn FleetMovementEvidence>>,
         options: FleetRestartServiceOptions,
     ) -> Result<FleetRestartService> {
@@ -115,7 +115,12 @@ impl FleetCatalog {
         };
         let timeout = options.turn_timeout;
         let work = RestartServiceWork::new(
-            FleetRestartOperatorDriver::new(self.clone(), namespaces, observer.clone(), evidence)?,
+            FleetRestartOperatorDriver::new(
+                self.clone(),
+                namespaces,
+                observer.internal_observer(),
+                evidence,
+            )?,
             options,
             wait,
             done,

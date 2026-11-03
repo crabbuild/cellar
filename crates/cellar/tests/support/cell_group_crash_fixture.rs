@@ -121,8 +121,10 @@ pub(super) async fn restore_catalog(
     objects: Vec<(String, Vec<u8>)>,
     route: &GroupRoute,
     domain: &ExecutionDomain,
+    image_storage: RaftImageStorage,
 ) -> Result<(RangeDirectory, CellGroupBirth)> {
-    let (directory, birth, _) = restore_catalog_store(objects, route, domain).await?;
+    let (directory, birth, _) =
+        restore_catalog_store(objects, route, domain, image_storage).await?;
     Ok((directory, birth))
 }
 
@@ -130,6 +132,7 @@ pub(super) async fn restore_catalog_store(
     objects: Vec<(String, Vec<u8>)>,
     route: &GroupRoute,
     domain: &ExecutionDomain,
+    image_storage: RaftImageStorage,
 ) -> Result<(
     RangeDirectory,
     CellGroupBirth,
@@ -140,14 +143,14 @@ pub(super) async fn restore_catalog_store(
         store.put(&ObjectPath::from(name), bytes.into()).await?;
     }
     let catalog = Catalog::new(store.clone(), CatalogOptions::default())?;
-    let namespace = domain
-        .run(catalog.open_namespace(NamespaceConfig::new(
-            route.history.cluster,
-            route.history.namespace,
-            cellar_logic::NamespaceMode::Raft,
-            route.schema_digest,
-        )))
-        .await??;
+    let mut config = NamespaceConfig::new(
+        route.history.cluster,
+        route.history.namespace,
+        cellar_logic::NamespaceMode::Raft,
+        route.schema_digest,
+    );
+    config.image_storage = image_storage;
+    let namespace = domain.run(catalog.existing_namespace(config)).await??;
     let directory = RangeDirectory::new(namespace, DirectoryLimits::default())?;
     let birth = domain
         .run(directory.materialize_selected_group(route))

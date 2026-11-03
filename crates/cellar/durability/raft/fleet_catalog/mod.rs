@@ -1,7 +1,9 @@
 //! Bounded CAS coordination. These records never grant Raft membership or votes.
 //! A retained mutation journal resolves ambiguous writes after later revisions.
 
+mod archive_replay;
 mod boots;
+pub use archive_replay::{FleetGroupArchiveReplayOptions, FleetGroupArchiveVerifier};
 mod capacity;
 mod deadline;
 mod disruption;
@@ -65,11 +67,11 @@ pub(crate) use maintenance::{
     RestartActionContext, RestartLeadershipCommand, ResumeLeadershipCommand,
 };
 pub use namespaces::FleetInventory;
+pub(crate) use nodes::FleetTrustSnapshot;
 pub use nodes::{
     FleetHostAuthorization, FleetNodeEligibility, FleetNodeSpec, FleetNodeState,
     FleetRequestIdentity,
 };
-pub(crate) use nodes::{FleetTrustReader, FleetTrustSnapshot};
 pub use permits::{FleetGroupAuthorization, FleetPermitAuthorization};
 pub use placement::FleetReplicaSeparation;
 pub(crate) use resources::MovementServiceWork;
@@ -148,7 +150,25 @@ impl From<super::catalog::CatalogError> for FleetCatalogError {
             super::catalog::CatalogError::Corrupt(reason) => Self::Corrupt(reason),
             super::catalog::CatalogError::Limit => Self::Limit,
             super::catalog::CatalogError::Storage(error) => Self::Storage(error.into()),
+            super::catalog::CatalogError::FleetAuthority(error) => *error,
             _ => Self::Corrupt("index storage contract"),
+        }
+    }
+}
+
+impl From<crate::raft::cell_groups::CellGroupArchiveError> for FleetCatalogError {
+    fn from(error: crate::raft::cell_groups::CellGroupArchiveError) -> Self {
+        use crate::raft::cell_groups::CellGroupArchiveError;
+        match error {
+            CellGroupArchiveError::Invalid(reason) => Self::Invalid(reason),
+            CellGroupArchiveError::Limit => Self::Limit,
+            CellGroupArchiveError::Busy => Self::Overloaded,
+            CellGroupArchiveError::Conflict => Self::Conflict,
+            CellGroupArchiveError::Timeout
+            | CellGroupArchiveError::Expired
+            | CellGroupArchiveError::Unconfirmed => Self::Unconfirmed,
+            CellGroupArchiveError::Stopped => Self::Closed,
+            error => Self::Storage(error.into()),
         }
     }
 }

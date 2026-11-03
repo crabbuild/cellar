@@ -1,6 +1,57 @@
 use super::*;
 
 #[test]
+fn fleet_group_binding_refuses_cell_scoped_records() {
+    let (_, _, history, binding) = fixture();
+    let mut record = serde_json::to_value(&binding).unwrap();
+    assert!(record.get("cell").is_none());
+    record["cell"] = serde_json::json!("Counter:legacy");
+    assert!(serde_json::from_value::<FleetGroupBinding>(record).is_err());
+    let mut foreign = history;
+    foreign.incarnation = IncarnationId::new([91; 16]).unwrap();
+    let other =
+        FleetGroupBinding::new(IncarnationId::new([5; 16]).unwrap(), &foreign, [90; 32]).unwrap();
+    assert_ne!(binding.key().unwrap(), other.key().unwrap());
+    assert!(!binding.matches_scope(&foreign));
+}
+
+#[test]
+fn group_membership_retains_its_managed_guard_and_permit_sequence() {
+    let (state, conf, history, binding) = fixture();
+    let (permit, _) = permit(binding);
+    let mut change = ConfChangeV2::default();
+    state.bind_fleet_fence(&mut change, &conf, &permit).unwrap();
+    state.admit_group(&change, &conf, &history).unwrap();
+    let mut foreign = history;
+    foreign.group = GroupId::new([92; 16]).unwrap();
+    assert!(state.admit_group(&change, &conf, &foreign).is_err());
+    let next = state
+        .applied(&change, &conf, &conf, LogIndex::new(3))
+        .unwrap();
+    let restored: GroupMembership =
+        serde_json::from_slice(&serde_json::to_vec(&next).unwrap()).unwrap();
+    restored.validate_scope(&history).unwrap();
+    assert_eq!(restored.fleet_status().unwrap().consumed_sequence, 1);
+    assert!(restored
+        .bind_fleet_fence(&mut ConfChangeV2::default(), &conf, &permit)
+        .is_err());
+    let replica = cellar_logic::consensus::ReplicaIdentity {
+        scope: history,
+        member: MemberId::new(1).unwrap(),
+        node: NodeId::new([61; 16]).unwrap(),
+        disk: DiskLineage::new([62; 16]).unwrap(),
+        process: cellar_logic::consensus::ProcessGeneration::new([63; 16]).unwrap(),
+    };
+    assert!(restored.permits_group(&replica));
+    assert!(
+        !restored.permits_group(&cellar_logic::consensus::ReplicaIdentity {
+            scope: foreign,
+            ..replica
+        })
+    );
+}
+
+#[test]
 fn fleet_genesis_origin_is_explicit_and_cannot_be_retrofitted() {
     let (_, conf, scope, binding) = fixture();
     let genesis = GroupMembership::managed_initial(&conf, binding.clone()).unwrap();
@@ -59,11 +110,10 @@ fn fleet_genesis_fences_first_permit_before_any_business_write() {
     assert_ne!(unused.expected_revision(), permit.expected_revision());
 }
 
-fn fixture() -> (GroupMembership, ConfState, GroupScope, FleetGroupBinding) {
-    let scope = GroupScope {
+fn fixture() -> (GroupMembership, ConfState, GroupHistory, FleetGroupBinding) {
+    let scope = GroupHistory {
         cluster: ClusterId::new([1; 16]).unwrap(),
         namespace: NamespaceId::new([2; 16]).unwrap(),
-        cell: "Counter:fleet".into(),
         group: GroupId::new([3; 16]).unwrap(),
         incarnation: IncarnationId::new([4; 16]).unwrap(),
     };

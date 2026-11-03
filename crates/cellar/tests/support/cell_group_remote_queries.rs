@@ -63,16 +63,18 @@ pub(super) async fn invocation(
 
 pub(super) async fn gateways(
     fixture: &RuntimeCluster,
+    controllers: &[CellGroupController],
     class: Arc<RaftClass>,
 ) -> Result<Vec<CellQueryGateway>> {
     let mut gateways = Vec::new();
-    let group = fixture.cluster.birth.route().history;
     let cell = history(fixture.cluster.birth.route(), "query-options")?;
     for n in 0..3 {
         gateways.push(fixture.transports[n].install_cell_query_gateway(
             dispatcher(fixture, class.clone(), keys(190)?)?,
-            fixture.appliers[&(n, group)].0.clone(),
-            fixture.cell_options_at(&cell, n).await?,
+            controllers[n].clone(),
+            cellar::application::consensus::verification::cell_groups::CellGroupNamespaceStorage::new(
+                fixture.cell_options_at(&cell, n).await?,
+            )?,
         )?);
     }
     Ok(gateways)
@@ -110,23 +112,27 @@ pub(crate) async fn remote_queries() -> Result<()> {
         )?);
         let (mut fixture, route, a, b) = Box::pin(registered::setup(rooted, &class)).await?;
         let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
-        let mut gateways = gateways(&fixture, class.clone()).await?;
+        let mut gateways = gateways(&fixture, &controllers, class.clone()).await?;
         let dispatch = dispatcher(&fixture, class.clone(), keys(190)?)?;
         assert_eq!(gateways[0].namespace(), (a.cluster, a.namespace));
         let options = fixture.cell_options(&a).await?;
         assert!(matches!(
             fixture.transports[0].install_cell_query_gateway(
                 dispatch.clone(),
-                fixture.appliers[&(0, route.history)].0.clone(),
-                options.clone()
+                controllers[0].clone(),
+                cellar::application::consensus::verification::cell_groups::CellGroupNamespaceStorage::new(
+                    options.clone()
+                )?,
             ),
             Err(TransportError::Refused)
         ));
         assert!(matches!(
             fixture.transports[0].install_cell_query_gateway(
                 dispatch.clone(),
-                fixture.appliers[&(1, route.history)].0.clone(),
-                options.clone()
+                controllers[1].clone(),
+                cellar::application::consensus::verification::cell_groups::CellGroupNamespaceStorage::new(
+                    options.clone()
+                )?,
             ),
             Err(TransportError::Identity)
         ));
@@ -290,8 +296,8 @@ pub(crate) async fn remote_queries() -> Result<()> {
         assert_eq!(calls.load(Ordering::SeqCst), before);
         let replacement = fixture.transports[0].install_cell_query_gateway(
             dispatch.clone(),
-            fixture.appliers[&(0, route.history)].0.clone(),
-            options,
+            controllers[0].clone(),
+            cellar::application::consensus::verification::cell_groups::CellGroupNamespaceStorage::new(options)?,
         )?;
         absent.retry().await?;
         assert_eq!(
@@ -405,7 +411,7 @@ pub(crate) async fn remote_query_lifecycle(expire: bool) -> Result<()> {
         )?);
         let (mut fixture, route, a, _) = Box::pin(registered::setup(rooted, &class)).await?;
         let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
-        let mut gateways = gateways(&fixture, class.clone()).await?;
+        let mut gateways = gateways(&fixture, &controllers, class.clone()).await?;
         let dispatch = dispatcher(&fixture, class.clone(), keys(190)?)?;
         let timeout = if expire {
             Duration::from_millis(600)
@@ -496,4 +502,84 @@ pub(crate) async fn remote_query_lifecycle(expire: bool) -> Result<()> {
         fixture.close().await?;
     }
     Ok(())
+}
+
+/// The selected follower, not the ingress node, executes all three read modes
+/// over the actual authenticated query and consensus TLS lanes.
+pub(crate) async fn remote_follower_reads(rooted: bool) -> Result<()> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let count = calls.clone();
+    let class = Arc::new(RaftClass::new("Counter", 1, [81; 32])?.query(
+        "Get",
+        [82; 32],
+        move |context, input| {
+            count.fetch_add(1, Ordering::SeqCst);
+            let QueryVersion::Cell(observation) = context.version() else {
+                anyhow::bail!("physical group observation");
+            };
+            assert_eq!(context.identity(), &observation.version.history);
+            let value: i64 = context.query_row("SELECT n FROM value", [], |row| row.get(0))?;
+            let mut output = value.to_le_bytes().to_vec();
+            output.extend_from_slice(input);
+            Ok(output)
+        },
+    )?);
+    let (mut fixture, route, a, _) = Box::pin(registered::setup(rooted, &class)).await?;
+    let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
+    let gateways = gateways(&fixture, &controllers, class.clone()).await?;
+    let dispatch = dispatcher(&fixture, class.clone(), keys(190)?)?;
+    assert_eq!(
+        fixture.runtimes[2].status(route.history).await?.leader,
+        Some(1)
+    );
+    assert!(!fixture.runtimes[2].status(route.history).await?.ready);
+    let mut minimum: Option<CellVersionToken> = None;
+    let mut observation = None;
+    for index in 0..3_u8 {
+        let consistency = match index {
+            0 => CellQueryConsistency::Linearizable,
+            1 => CellQueryConsistency::RecentSource { max_age_ms: 5000 },
+            _ => CellQueryConsistency::AtLeast(minimum.clone().context("first token")?),
+        };
+        let mut query = dispatch.query(
+            a.clone(),
+            CellQueryRequest {
+                invocation: ProposalId::new([210 + index; 16])?,
+                contract: class.contract("Get").context("Get")?,
+                input: vec![index],
+                consistency,
+            },
+            CellRoutingLimits {
+                timeout: Duration::from_secs(5),
+                max_attempts: 1,
+            },
+            None,
+        )?;
+        query.begin().await?;
+        let response = query
+            .execute_remote(&fixture.transports[1], MemberId::new(3)?)
+            .await?;
+        let mut expected = 0_i64.to_le_bytes().to_vec();
+        expected.push(index);
+        assert_eq!(response.result(), expected);
+        assert_eq!(response.served_by(), MemberId::new(3)?);
+        assert_eq!(response.observation().version.history, a);
+        assert_eq!(response.observation().version.sequence.get(), 1);
+        if let Some(expected) = &observation {
+            assert_eq!(response.observation(), expected);
+        }
+        observation = Some(response.observation().clone());
+        minimum = Some(response.token().clone());
+        assert_eq!(fixture.transports[1].usage().query_items, 1);
+        drop(response);
+        assert_eq!(fixture.transports[1].usage().query_items, 0);
+        drop(query);
+        assert_eq!(dispatch.usage(), (0, 0));
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    for controller in controllers {
+        controller.close().await?;
+    }
+    drop(gateways);
+    fixture.close().await
 }

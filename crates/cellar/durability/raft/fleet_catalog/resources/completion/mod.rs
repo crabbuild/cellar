@@ -471,8 +471,7 @@ impl FleetCatalog {
                     .inventory
                     .as_ref()
                     .ok_or(FleetCatalogError::Unconfirmed)?
-                    .history(&scope)
-                    .map_err(|_| invalid())?
+                    .group_history(&scope)
                     .is_some(),
                 membership_revision: quorum.membership().membership_revision().get(),
                 barrier: quorum.membership().barrier().get(),

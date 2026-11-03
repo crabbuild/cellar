@@ -24,7 +24,9 @@ impl Remote {
         let gateway = h.fixture.transports[0].install_cell_command_gateway(
             dispatcher,
             h.controllers[0].clone(),
-            h.fixture.cell_options(&h.cell).await?,
+            cellar::application::consensus::verification::cell_groups::CellGroupNamespaceStorage::new(
+                h.fixture.cell_options(&h.cell).await?,
+            )?,
         )?;
         let router = super::super::query_origins::Router::start(&h.fixture).await?;
         router

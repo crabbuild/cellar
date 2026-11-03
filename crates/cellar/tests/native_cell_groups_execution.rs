@@ -182,6 +182,16 @@ async fn membership_group_configuration_waits_for_sync_and_joins_close() -> Resu
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn membership_quorum_waits_for_durable_floor_before_its_barrier() -> Result<()> {
+    runtime_fixture::membership_quorum_floor().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn membership_follower_quorum_preserves_group_root_without_leader_authority() -> Result<()> {
+    runtime_fixture::membership_quorum_followers().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn checkpoint_controller_compacts_materialized_groups_during_writes() -> Result<()> {
     runtime_fixture::automatic_checkpoints(false, false).await
 }
@@ -1391,4 +1401,34 @@ async fn retained_log_materialized_refuses_new_callbacks_and_reclaims() -> Resul
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn retained_log_extents_refuse_new_callbacks_and_reclaim() -> Result<()> {
     Box::pin(runtime_fixture::retained_log_admission(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_follower_linearizable_reads_bind_live_quorum() -> Result<()> {
+    Box::pin(runtime_fixture::follower_linearizable(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_follower_linearizable_reads_bind_live_quorum() -> Result<()> {
+    Box::pin(runtime_fixture::follower_linearizable(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_recent_source_reads_keep_physical_deadline() -> Result<()> {
+    Box::pin(runtime_fixture::recent_source_reads(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_recent_source_reads_keep_physical_deadline() -> Result<()> {
+    Box::pin(runtime_fixture::recent_source_reads(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn shared_remote_follower_reads_preserve_constraints() -> Result<()> {
+    Box::pin(runtime_fixture::remote_follower_reads(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_remote_follower_reads_preserve_constraints() -> Result<()> {
+    Box::pin(runtime_fixture::remote_follower_reads(true)).await
 }

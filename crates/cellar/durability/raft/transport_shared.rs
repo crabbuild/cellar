@@ -56,26 +56,28 @@ impl RaftTransport {
     /// Install already-authorized physical membership. This creates no group,
     /// grants no serving authority and changes no committed configuration.
     pub fn install_physical_group(&self, route: PhysicalRoute) -> Result<(), TransportError> {
-        self.install_physical(route, false).map(|_| ())
+        self.install_physical(route, false, None).map(|_| ())
     }
 
     pub(crate) fn register_physical_group(
         &self,
         route: PhysicalRoute,
     ) -> Result<PhysicalRegistration, TransportError> {
-        let route = self.install_physical(route, true)?;
+        let (route, owner) = self.install_physical(route, true, None)?;
         Ok(PhysicalRegistration {
             state: Arc::downgrade(&self.handle.0),
             route,
+            owner,
             checkpoint: None,
         })
     }
 
-    fn install_physical(
+    pub(super) fn install_physical(
         &self,
         route: PhysicalRoute,
         exclusive: bool,
-    ) -> Result<Arc<PhysicalRoute>, TransportError> {
+        refresh: Option<Arc<()>>,
+    ) -> Result<(Arc<PhysicalRoute>, Arc<()>), TransportError> {
         let state = &self.handle.0;
         let runtime = state.runtime.shared()?;
         let group = runtime
@@ -123,6 +125,15 @@ impl RaftTransport {
         }
         let mut registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
         state.admit(&registry)?;
+        if let Some(expected) = &refresh {
+            if !registry
+                .physical_owners
+                .get(&route.scope)
+                .is_some_and(|owner| Arc::ptr_eq(owner, expected))
+            {
+                return Err(TransportError::StalePeer);
+            }
+        }
         for peer in &route.peers {
             registry.check_node_view(&RaftPeerNode::from(peer))?;
         }
@@ -134,7 +145,11 @@ impl RaftTransport {
                 return Err(TransportError::Identity);
             }
             if **old == route {
-                return Ok(old.clone());
+                let owner = registry
+                    .physical_owners
+                    .get(&route.scope)
+                    .ok_or(TransportError::Closed)?;
+                return Ok((old.clone(), owner.clone()));
             }
             if old.revision >= route.revision || old.schema_digest != route.schema_digest {
                 return Err(TransportError::StalePeer);
@@ -183,7 +198,11 @@ impl RaftTransport {
         }
         let starts = state.prepare_pools(&mut registry, &physical)?;
         let route = Arc::new(route);
-        group_snapshots::revoke(&mut registry, &route.scope);
+        if refresh.is_none() {
+            group_snapshots::revoke(&mut registry, &route.scope);
+        }
+        let owner = refresh.unwrap_or_else(|| Arc::new(()));
+        registry.physical_owners.insert(route.scope, owner.clone());
         registry.physical_groups.insert(route.scope, route.clone());
         registry.prune_pools();
         drop(registry);
@@ -192,12 +211,155 @@ impl RaftTransport {
                 drop(PhysicalRegistration {
                     state: Arc::downgrade(state),
                     route,
+                    owner,
                     checkpoint: None,
                 });
             }
             return Err(error);
         }
-        Ok(route)
+        Ok((route, owner))
+    }
+
+    /// Refresh only advisory managed peer routes. Committed membership supplies
+    /// member/disk bindings; a current rooted node view supplies the endpoint.
+    /// Missing discovery keeps known voters usable and never removes Raft debt.
+    pub(crate) fn reconcile_managed_physical(
+        &self,
+        history: &GroupHistory,
+    ) -> Result<(), TransportError> {
+        let state = &self.handle.0;
+        let runtime = state.runtime.shared()?;
+        let (old, owner) = {
+            let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
+            state.admit(&registry)?;
+            (
+                registry
+                    .physical_groups
+                    .get(history)
+                    .cloned()
+                    .ok_or(TransportError::UnknownGroup)?,
+                registry
+                    .physical_owners
+                    .get(history)
+                    .cloned()
+                    .ok_or(TransportError::UnknownGroup)?,
+            )
+        };
+        let group = runtime
+            .log()
+            .cell_group(history)
+            .map_err(|_| TransportError::UnknownGroup)?;
+        // Never hold a group read guard while taking the registry lock. A queued
+        // writer can otherwise deadlock against registry->group authorization.
+        let (binding, members) = {
+            let cache = group
+                .read()
+                .map_err(|e| TransportError::Runtime(e.into()))?;
+            let Some(fleet) = cache.membership.fleet_status() else {
+                return Ok(());
+            };
+            let current = crate::raft::member_state::members(&cache.conf_state);
+            if current.len() == old.peers.len()
+                && old.peers.iter().all(|peer| {
+                    current.contains(&peer.replica.member.get())
+                        && cache.membership.permits_group(&peer.replica)
+                })
+            {
+                return Ok(());
+            }
+            if !current.contains(&group.identity().member.get()) {
+                return Err(TransportError::StalePeer);
+            }
+            let members = current
+                .into_iter()
+                .map(|id| {
+                    let member = cellar_logic::consensus::MemberId::new(id)
+                        .map_err(|_| TransportError::Identity)?;
+                    let joined = cache
+                        .membership
+                        .joined(member)
+                        .map_err(|e| TransportError::Runtime(e.into()))?;
+                    Ok((member, joined.map(|(binding, _)| binding)))
+                })
+                .collect::<Result<Vec<_>, TransportError>>()?;
+            (fleet.binding, members)
+        };
+        let peers = {
+            let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
+            state.admit(&registry)?;
+            if !registry
+                .physical_owners
+                .get(history)
+                .is_some_and(|current| Arc::ptr_eq(current, &owner))
+            {
+                return Err(TransportError::StalePeer);
+            }
+            // An advisory view by itself cannot expand a managed route. Until
+            // trust arrives, leave existing routing permissions unchanged.
+            let Some(trust) = &registry.fleet_trust else {
+                return Ok(());
+            };
+            if trust.fleet() != binding.fleet()
+                || trust.catalog() != binding.catalog()
+                || trust.cluster() != history.cluster
+            {
+                return Err(TransportError::Refused);
+            }
+            let mut peers = Vec::with_capacity(members.len());
+            for (member, joined) in members {
+                let prior = old.peers.iter().find(|peer| peer.replica.member == member);
+                let peer = if let Some(joined) = joined {
+                    let Some(view) = registry.node_views.get(&joined.node) else {
+                        continue;
+                    };
+                    let node = view.peer();
+                    if node.disk != joined.disk || registry.check_node_view(node).is_err() {
+                        continue;
+                    }
+                    RaftPeer {
+                        replica: ReplicaIdentity {
+                            scope: *history,
+                            member,
+                            node: node.node,
+                            disk: node.disk,
+                            process: node.process,
+                        },
+                        label: node.label.clone(),
+                        server_name: node.server_name.clone(),
+                        control_address: node.control_address,
+                        data_address: node.data_address,
+                        query_address: node.query_address,
+                    }
+                } else {
+                    // Initial member identities come from the authorized birth
+                    // route, never from guessing an ID from node discovery.
+                    let Some(prior) = prior else {
+                        continue;
+                    };
+                    prior.clone()
+                };
+                peers.push(peer);
+            }
+            peers
+        };
+        if peers == old.peers {
+            return Ok(());
+        }
+        let revision = old
+            .revision
+            .checked_add(1)
+            .ok_or(TransportError::StalePeer)?;
+        self.install_physical(
+            PhysicalRoute {
+                scope: *history,
+                schema_digest: old.schema_digest,
+                revision,
+                peers,
+            },
+            false,
+            Some(owner),
+        )?;
+        Ok(())
     }
 
     pub fn remove_physical_group(&self, history: &GroupHistory) -> Result<(), TransportError> {
@@ -207,6 +369,7 @@ impl RaftTransport {
         state.admit(&registry)?;
         group_snapshots::revoke(&mut registry, history);
         registry.physical_groups.remove(history);
+        registry.physical_owners.remove(history);
         registry.prune_pools();
         Ok(())
     }
@@ -218,9 +381,19 @@ impl RaftTransport {
         history: &GroupHistory,
         message: Message,
     ) -> Result<Delivery, TransportError> {
+        self.submit_physical_inner(history, message, true)
+    }
+
+    fn submit_physical_inner(
+        &self,
+        history: &GroupHistory,
+        message: Message,
+        discover: bool,
+    ) -> Result<Delivery, TransportError> {
         let state = &self.handle.0;
         let runtime = state.runtime.shared()?;
         if message.get_msg_type() == MessageType::MsgSnapshot {
+            self.reconcile_managed_physical(history)?;
             return self.submit_group_checkpoint(history, message);
         }
         let lane = frame::classify(&message)?;
@@ -243,14 +416,21 @@ impl RaftTransport {
         if message.from != local.member.get() {
             return Err(TransportError::Identity);
         }
-        let peer = route
+        let peer = match route
             .peers
             .iter()
             .find(|p| p.replica.member.get() == message.to)
-            // A committed learner can precede discovery of its process route.
-            // Treat that interval as unavailable delivery, not node corruption.
-            .ok_or(TransportError::StalePeer)?
-            .clone();
+        {
+            Some(peer) => peer.clone(),
+            None if discover => {
+                // Only a missing route needs discovery on ordinary traffic.
+                // Retry once, before allocating/charging a serialized frame.
+                drop(registry);
+                self.reconcile_managed_physical(history)?;
+                return self.submit_physical_inner(history, message, false);
+            }
+            None => return Err(TransportError::StalePeer),
+        };
         if peer.replica.node == local.node {
             return Err(TransportError::Identity);
         }
@@ -414,6 +594,7 @@ impl Registry {
 pub(crate) struct PhysicalRegistration {
     state: std::sync::Weak<State>,
     route: Arc<PhysicalRoute>,
+    owner: Arc<()>,
     pub(crate) checkpoint: Option<CellGroupCheckpointRegistration>,
 }
 
@@ -424,12 +605,13 @@ impl Drop for PhysicalRegistration {
         };
         if let Ok(mut registry) = state.registry.lock() {
             if registry
-                .physical_groups
+                .physical_owners
                 .get(&self.route.scope)
-                .is_some_and(|r| Arc::ptr_eq(r, &self.route))
+                .is_some_and(|owner| Arc::ptr_eq(owner, &self.owner))
             {
                 group_snapshots::revoke(&mut registry, &self.route.scope);
                 registry.physical_groups.remove(&self.route.scope);
+                registry.physical_owners.remove(&self.route.scope);
                 registry.prune_pools();
             }
         };

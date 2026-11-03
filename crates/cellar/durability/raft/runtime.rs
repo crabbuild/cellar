@@ -1158,29 +1158,13 @@ impl Worker {
                     // catalog cancellation CAS was lost. Read-only observation
                     // on a surviving leader needs no local quiescence.
                     let gate = match &action {
-                        GroupAction::RestartLeadership(check)
-                            if self
-                                .domain
-                                .mono_ms()
-                                .map_or(true, |now| now >= check.deadline) =>
-                        {
-                            Err(RuntimeError::Closed)
-                        }
-                        GroupAction::RestartLeadership(check) => match &check.transfer {
-                            Some((_, selector)) => self
-                                .log
-                                .lifecycle_guard()
-                                .map_err(RuntimeError::from)
-                                .and_then(|guard| {
-                                    if guard.as_ref().and_then(|g| g.quiescing()) == Some(selector)
-                                    {
-                                        Ok(())
-                                    } else {
-                                        Err(RuntimeError::NotReady)
-                                    }
-                                }),
-                            None => Ok(()),
-                        },
+                        GroupAction::RestartLeadership(check) => self
+                            .domain
+                            .mono_ms()
+                            .map_err(|_| RuntimeError::Closed)
+                            .and_then(|now| {
+                                super::restart_leadership::check_gate(&self.log, now, check)
+                            }),
                         _ => Ok(()),
                     };
                     let result = if new_read && pending_reads >= self.options.max_pending_reads {

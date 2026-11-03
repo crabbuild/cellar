@@ -139,6 +139,7 @@ struct ReceiveAdmission {
 }
 
 struct Exchange {
+    host: Option<crate::raft::fleet_catalog::FleetHostAuthorization>,
     state: Arc<State>,
     stream: Stream,
     exporter: [u8; 32],

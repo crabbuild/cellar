@@ -20,15 +20,21 @@ async fn assignment(
         incarnation: IncarnationId::new([number; 16])?,
     };
     let catalog = Catalog::new(store.clone(), CatalogOptions::default())?;
+    let mut namespace_config = NamespaceConfig::new(
+        scope.cluster,
+        scope.namespace,
+        cellar_logic::NamespaceMode::Raft,
+        old.schema_digest,
+    );
+    namespace_config.image_storage = if f.cluster.voters[0].extents.is_some() {
+        RaftImageStorage::Extents
+    } else {
+        RaftImageStorage::Materialized
+    };
     let namespace = f
         .cluster
         .domain
-        .run(catalog.open_namespace(NamespaceConfig::new(
-            scope.cluster,
-            scope.namespace,
-            cellar_logic::NamespaceMode::Raft,
-            old.schema_digest,
-        )))
+        .run(catalog.open_namespace(namespace_config))
         .await??;
     let directory = RangeDirectory::new(namespace, DirectoryLimits::default())?;
     let birth = directory.prepare_group_birth(CellGroupBirthSpec {
@@ -83,6 +89,7 @@ async fn settings(
     f: &RuntimeCluster,
     a: &CellHistory,
     node: usize,
+    directories: &[RangeDirectory],
 ) -> Result<CellGroupProvisioning> {
     let images = match f.cell_options_at(a, node).await? {
         CellSqlOptions::Materialized(o) => CellGroupApplyImages::Materialized {
@@ -107,7 +114,14 @@ async fn settings(
     Ok(CellGroupProvisioning {
         directory: f.cluster._root.path().join(format!("provision-{node}")),
         filesystem: Arc::new(DirectFileSystem),
-        images,
+        namespaces: directories
+            .iter()
+            .cloned()
+            .map(|directory| CellGroupProvisionNamespace {
+                directory,
+                images: images.clone(),
+            })
+            .collect(),
         manifest: ManifestLimits {
             max_cells: 32,
             max_depth: 16,
@@ -127,13 +141,14 @@ async fn settings(
 }
 
 fn pages_path(base: &std::path::Path, h: GroupHistory) -> std::path::PathBuf {
-    base.join(format!(
-        "{}-{}-{}-{}",
-        hex::encode(h.cluster.bytes()),
-        hex::encode(h.namespace.bytes()),
-        hex::encode(h.group.bytes()),
-        hex::encode(h.incarnation.bytes())
-    ))
+    // Independent expectation for the canonical startup layout. The restart
+    // drill below must reopen these selected pages, not a second empty store.
+    base.join("groups")
+        .join(hex::encode(h.cluster.bytes()))
+        .join(hex::encode(h.namespace.bytes()))
+        .join(hex::encode(h.group.bytes()))
+        .join(hex::encode(h.incarnation.bytes()))
+        .join("pages")
 }
 
 pub(crate) async fn provisioning_coalesces_and_serves() -> Result<()> {
@@ -146,9 +161,9 @@ pub(crate) async fn provisioning_coalesces_and_serves() -> Result<()> {
         let (directory, route, store) = assignment(&f, 31).await?;
         let (foreign, _, _) = assignment(&f, 31).await?;
         let (other, other_route, _) = assignment(&f, 41).await?;
-        let mut invalid = settings(&f, &a, 0).await?;
+        let mut invalid = settings(&f, &a, 0, &[directory.clone(), other.clone()]).await?;
         let directory_before = invalid.directory.clone();
-        match &mut invalid.images {
+        match &mut invalid.namespaces[0].images {
             CellGroupApplyImages::Extents {
                 cache_directory, ..
             } => *cache_directory = "relative-cache".into(),
@@ -164,12 +179,44 @@ pub(crate) async fn provisioning_coalesces_and_serves() -> Result<()> {
             !directory_before.exists(),
             "invalid configuration performs no filesystem work"
         );
+        let duplicate = settings(&f, &a, 0, &[directory.clone(), directory.clone()]).await?;
+        assert!(matches!(
+            controllers[0].configure_provisioning(duplicate),
+            Err(CellGroupControllerError::Invalid(_))
+        ));
+        let mut too_small = settings(&f, &a, 0, &[directory.clone(), other.clone()]).await?;
+        too_small.max_preparation_bytes = 1;
+        assert!(matches!(
+            controllers[0].configure_provisioning(too_small),
+            Err(CellGroupControllerError::Invalid(_))
+        ));
+        assert!(
+            !directory_before.exists(),
+            "invalid namespace profiles perform no filesystem work"
+        );
         for (node, c) in controllers.iter().enumerate() {
-            c.configure_provisioning(settings(&f, &a, node).await?)?;
+            c.configure_provisioning(
+                settings(&f, &a, node, &[directory.clone(), other.clone()]).await?,
+            )?;
         }
         assert!(controllers[0]
-            .configure_provisioning(settings(&f, &a, 0).await?)
+            .configure_provisioning(settings(&f, &a, 0, &[directory.clone(), other.clone()]).await?)
             .is_err());
+        let error = controllers[0]
+            .provision(foreign.clone(), route.clone())?
+            .response()
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error.as_ref(),
+            CellGroupControllerError::Invalid("unconfigured namespace owner")
+        ));
+        assert!(matches!(
+            f.cluster.voters[0].log.cell_group(&route.history),
+            Err(LogError::NotFound)
+        ));
+        assert_eq!(controllers[0].usage().preparation_bytes, 0);
+        assert!(controllers[0].usage().provision_configuration_bytes > 0);
         store.hold_group_head_reads.store(true, Ordering::Release);
         let first = controllers[0].provision(directory.clone(), route.clone())?;
         wait_for(async || Ok(store.active_group_head_reads.load(Ordering::Acquire) == 1)).await?;
@@ -283,7 +330,7 @@ pub(crate) async fn provisioning_retries_retained_owner() -> Result<()> {
         let (mut f, _, a, _) = Box::pin(registered::setup(rooted, &class)).await?;
         let controllers = controller::start_with_limits(&mut f, controller::limits()).await?;
         let (directory, route, store) = assignment(&f, 31).await?;
-        let mut options = settings(&f, &a, 0).await?;
+        let mut options = settings(&f, &a, 0, &[directory.clone()]).await?;
         let path = pages_path(&options.directory, route.history);
         let faults = physical::Faults::new(path.clone(), None);
         options.filesystem = Arc::new(physical::FaultFileSystem {
@@ -347,7 +394,7 @@ pub(crate) async fn provisioning_joins_cancelled_close() -> Result<()> {
         let (mut f, _, a, _) = Box::pin(registered::setup(rooted, &class)).await?;
         let controllers = controller::start_with_limits(&mut f, controller::limits()).await?;
         let (directory, route, _) = assignment(&f, 31).await?;
-        let mut options = settings(&f, &a, 0).await?;
+        let mut options = settings(&f, &a, 0, &[directory.clone()]).await?;
         let faults = physical::Faults::new(pages_path(&options.directory, route.history), None);
         let entered = Arc::new(AtomicBool::new(false));
         let reached = entered.clone();
@@ -408,7 +455,7 @@ pub(crate) async fn provisioning_recovers_selected_roots() -> Result<()> {
         let controllers = controller::start_with_limits(&mut f, controller::limits()).await?;
         let (directory, route, _) = assignment(&f, 31).await?;
         for (n, c) in controllers.iter().enumerate() {
-            c.configure_provisioning(settings(&f, &a, n).await?)?;
+            c.configure_provisioning(settings(&f, &a, n, &[directory.clone()]).await?)?;
             c.provision(directory.clone(), route.clone())?
                 .response()
                 .await?;
@@ -528,7 +575,7 @@ async fn reopen_and_verify(
         )
         .await?;
         assert_eq!(c.usage().groups, 0);
-        let options = settings(f, cell, n).await?;
+        let options = settings(f, cell, n, &[directory.clone()]).await?;
         let marker = f.cluster.voters[n]
             .log
             .cell_group(&route.history)?
@@ -612,7 +659,7 @@ pub(crate) async fn provisioning_refusals_preserve_healthy_group() -> Result<()>
             let (mut f, _, a, _) = Box::pin(registered::setup(rooted, &class)).await?;
             let controllers = controller::start_with_limits(&mut f, controller::limits()).await?;
             let (directory, route, _) = assignment(&f, 31).await?;
-            let mut options = settings(&f, &a, 0).await?;
+            let mut options = settings(&f, &a, 0, &[directory.clone()]).await?;
             let incorrect_endpoint = std::net::TcpListener::bind("127.0.0.1:0")?;
             if missing_member {
                 options.peers.pop();

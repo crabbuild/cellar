@@ -392,7 +392,28 @@ async fn cached_accounting_refuses_a_poisoned_group_cache() -> anyhow::Result<()
             .await?
     );
     let result = retained.observe(&group, LogIndex::new(0));
-    log.close().await?;
+    let closed = log.close().await;
+    assert!(
+        matches!(closed, Err(LogError::Corrupt(_))),
+        "poisoned cache must not report a healthy engine close: {closed:?}"
+    );
+    assert!(matches!(log.storage_instance(), Err(LogError::Closed)));
+    // A typed corruption error still joins physical engine teardown. Reopen
+    // before shutting down the domain or dropping retained old group handles.
+    let mut resumed = options(root.path());
+    resumed.mode = LogOpenMode::Resume;
+    resumed.process = ProcessGeneration::new([9; 16])?;
+    let reopened = domain
+        .run(ReplicaLog::open(
+            resumed,
+            Arc::new(cellar_ltx::DirectFileSystem),
+        ))
+        .await??;
+    assert_eq!(
+        reopened.group(&bootstrap(1).scope)?.identity().process,
+        ProcessGeneration::new([9; 16])?
+    );
+    reopened.close().await?;
     domain.shutdown().await;
     assert!(matches!(result, Err(LogError::Corrupt(_))));
     Ok(())

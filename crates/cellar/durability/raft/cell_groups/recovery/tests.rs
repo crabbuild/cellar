@@ -364,6 +364,8 @@ async fn recovery_pending_root_denies_stale_and_execution_authorities() -> anyho
                     applied: marker.position(),
                     barrier: None,
                     leader: None,
+                    source: None,
+                    source_deadline: None,
                 },
                 100,
                 node.acquire(4096).unwrap(),

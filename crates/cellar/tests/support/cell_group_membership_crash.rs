@@ -13,6 +13,7 @@ use std::path::Path;
 #[serde(deny_unknown_fields)]
 struct Oracle {
     rooted: bool,
+    image_storage: RaftImageStorage,
     joint: bool,
     source_directory: String,
     expected: GroupManifest,
@@ -97,6 +98,7 @@ pub(crate) async fn membership_process_fixture() -> Result<()> {
         &root.join("oracle.json"),
         &serde_json::to_vec(&Oracle {
             rooted,
+            image_storage: fixture.cluster.directory.namespace_config().image_storage,
             joint: cut == "joint",
             source_directory,
             expected,
@@ -162,7 +164,8 @@ async fn recover(root: &Path, rooted: bool, joint: bool) -> Result<()> {
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
     let route = oracle.expected.route().clone();
     let (directory, birth) =
-        crash_fixture::restore_catalog(oracle.objects, &route, &domain).await?;
+        crash_fixture::restore_catalog(oracle.objects, &route, &domain, oracle.image_storage)
+            .await?;
     let mut nodes = Vec::new();
     let mut peers = Vec::new();
     for n in 1..=3u8 {

@@ -27,9 +27,10 @@ impl RaftCellsConfig {
         options: super::RaftExtentOptions,
     ) -> anyhow::Result<Self> {
         anyhow::ensure!(
-            self.cells
+            self.namespaces
                 .iter()
-                .all(|cell| cell.namespace.image_storage == super::RaftImageStorage::Extents),
+                .all(|namespace| namespace.namespace.image_storage
+                    == super::RaftImageStorage::Extents),
             "extent image policy requires extent namespaces"
         );
         self.host.extents = Some(options);

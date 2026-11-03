@@ -16,6 +16,9 @@ use runtime_adapter::TransportRuntime;
 mod group_snapshots;
 #[path = "transport_shared.rs"]
 mod shared;
+#[cfg(all(test, not(cellar_internal_tests)))]
+#[path = "transport_shared_fixture.rs"]
+mod shared_fixture;
 use super::transport_frame::{self as frame, Disposition, FrameHead, RequestHeader, Route};
 use super::transport_options::{NamespaceQueryOrigin, RaftPeerNode, RaftTls, TransportOptions};
 use crate::asyncrt::DomainToken;
@@ -303,6 +306,9 @@ struct Registry {
     tasks: usize,
     groups: BTreeMap<GroupScope, Arc<GroupRoute>>,
     physical_groups: BTreeMap<GroupHistory, Arc<GroupRoute<GroupHistory>>>,
+    // One bounded lifecycle token per physical route. Advisory process/member
+    // refreshes keep it; explicit replacement/removal starts another lifetime.
+    physical_owners: BTreeMap<GroupHistory, Arc<()>>,
     group_checkpoint_pool: Option<crate::raft::cell_groups::CellGroupCheckpointPool>,
     group_checkpoints: BTreeMap<GroupHistory, std::sync::Weak<group_snapshots::Endpoint>>,
     query_groups: BTreeMap<GroupScope, Arc<GroupRoute>>,
@@ -370,6 +376,8 @@ struct State {
     cell_query_gateways:
         Mutex<BTreeMap<(ClusterId, NamespaceId), std::sync::Weak<cell_queries::Gateway>>>,
     query_gateway: Mutex<Option<std::sync::Weak<crate::application::consensus::client::Handle>>>,
+    fleet_gateway:
+        Mutex<Option<std::sync::Weak<crate::application::consensus::group_client::Handle>>>,
     registry: Mutex<Registry>,
     outgoing: Banks,
     incoming: Banks,
@@ -528,6 +536,7 @@ impl RaftTransport {
             local_data,
             local_query,
             query_gateway: Mutex::new(None),
+            fleet_gateway: Mutex::new(None),
             cell_command_gateways: Mutex::new(BTreeMap::new()),
             cell_query_gateways: Mutex::new(BTreeMap::new()),
             registry: Mutex::new(Registry {
@@ -535,6 +544,7 @@ impl RaftTransport {
                 tasks: 0,
                 groups: BTreeMap::new(),
                 physical_groups: BTreeMap::new(),
+                physical_owners: BTreeMap::new(),
                 group_checkpoint_pool: None,
                 group_checkpoints: BTreeMap::new(),
                 query_groups: BTreeMap::new(),
@@ -1068,6 +1078,9 @@ impl State {
         if let Ok(mut gateway) = self.query_gateway.lock() {
             gateway.take();
         }
+        if let Ok(mut gateway) = self.fleet_gateway.lock() {
+            gateway.take();
+        }
         if let Ok(mut gateways) = self.cell_command_gateways.lock() {
             gateways.clear();
         }
@@ -1330,22 +1343,6 @@ impl State {
                 Ok(())
             })
             .await?;
-            if &prefix[..4] == inspections::REQUEST_MAGIC {
-                if lane != Lane::Control
-                    || sequence != 0
-                    || !self.inspection_enabled.load(Ordering::Acquire)
-                {
-                    return Err(TransportError::Protocol);
-                }
-                let exporter = stream
-                    .get_ref()
-                    .1
-                    .export_keying_material([0; 32], inspections::EXPORT_LABEL, None)
-                    .map_err(|error| TransportError::Tls(error.to_string()))?;
-                return self
-                    .receive_inspection(&mut stream, &exporter, prefix)
-                    .await;
-            }
             if &prefix[..4] == node_inspections::REQUEST_MAGIC {
                 if lane != Lane::Control
                     || sequence != 0
@@ -1409,17 +1406,6 @@ impl State {
                 return self
                     .receive_fleet_inspection(&mut stream, &exporter, prefix)
                     .await;
-            }
-            if &prefix[..4] == seeds::REQUEST_MAGIC {
-                if lane != Lane::Data || sequence != 0 {
-                    return Err(TransportError::Protocol);
-                }
-                let exporter = stream
-                    .get_ref()
-                    .1
-                    .export_keying_material([0; 32], seeds::EXPORT_LABEL, None)
-                    .map_err(|error| TransportError::Tls(error.to_string()))?;
-                return self.receive_seed(&mut stream, &exporter, prefix).await;
             }
             if &prefix[..4] == group_snapshots::seed::REQUEST_MAGIC {
                 if lane != Lane::Data || sequence != 0 {

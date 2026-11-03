@@ -47,6 +47,48 @@ pub(crate) struct Received {
 }
 
 impl RaftTransport {
+    pub(crate) fn install_group_fleet_gateway(
+        &self,
+        cells: &RaftCells,
+    ) -> Result<(), TransportError> {
+        let state = &self.handle.0;
+        let mut gateway = state
+            .fleet_gateway
+            .lock()
+            .map_err(|_| TransportError::Closed)?;
+        let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
+        state.admit(&registry)?;
+        if gateway
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+            .is_some()
+            || cells.is_closed()
+            || !cells.handle.domain.same_owner(&state.domain)
+            || !cells.uses_transport(self)
+        {
+            return Err(TransportError::Refused);
+        }
+        *gateway = Some(Arc::downgrade(&cells.handle));
+        Ok(())
+    }
+
+    /// Read the exact complete trust cut already installed in this transport.
+    /// A separate catalog refresh cannot acknowledge installed routing state.
+    pub(crate) fn installed_fleet_node(
+        &self,
+        node: NodeId,
+    ) -> Result<crate::raft::fleet_catalog::FleetHostAuthorization, TransportError> {
+        let state = &self.handle.0;
+        let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
+        state.admit(&registry)?;
+        registry
+            .fleet_trust
+            .as_ref()
+            .and_then(|trust| trust.node(node))
+            .cloned()
+            .ok_or(TransportError::Refused)
+    }
+
     pub(crate) fn inspect_fleet_node(
         &self,
         node: NodeId,
@@ -459,7 +501,7 @@ impl State {
             .checked_add(request.timeout_ms)
             .ok_or(TransportError::Limit)?;
         let handle = self
-            .query_gateway
+            .fleet_gateway
             .lock()
             .map_err(|_| TransportError::Closed)?
             .as_ref()
@@ -471,7 +513,7 @@ impl State {
                 .filter(|ms| *ms > 0)
                 .ok_or(TransportError::Timeout)?;
             let result = if request.physical {
-                match (RaftCells { handle })
+                match RaftCells::from_internal_handle(handle)
                     .observe_physical_node(std::time::Duration::from_millis(remaining))
                     .await
                 {
@@ -482,7 +524,7 @@ impl State {
                     Err(error) => Err(error),
                 }
             } else {
-                match (RaftCells { handle })
+                match RaftCells::from_internal_handle(handle)
                     .observe_node(std::time::Duration::from_millis(remaining))
                     .await
                 {

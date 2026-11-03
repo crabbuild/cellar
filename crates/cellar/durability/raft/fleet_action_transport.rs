@@ -387,11 +387,11 @@ impl State {
             stream.read_exact(&mut bytes).await?;
             let command = request.decode_body(&bytes)?;
             self.authorize_node_inspection(&request.route)?;
-            let handle = self.query_gateway.lock().map_err(|_| TransportError::Closed)?
+            let handle = self.fleet_gateway.lock().map_err(|_| TransportError::Closed)?
                 .as_ref().and_then(|handle| handle.upgrade()).ok_or(TransportError::Refused)?;
             let remaining = deadline.checked_sub(self.domain.mono_ms().map_err(|_| TransportError::Closed)?)
                 .filter(|ms| *ms > 0).ok_or(TransportError::Timeout)?;
-            let work = RaftCells { handle }.execute_local_fleet_action(command, request.origin.clone(),
+            let work = RaftCells::from_internal_handle(handle).execute_local_fleet_action(command, request.origin.clone(),
                 request.route.minimum_revision()?, std::time::Duration::from_millis(remaining));
             let mut extra = [0; 1];
             let result = crate::asyncrt::select_biased! { "disconnect cancels the waiter, not committed movement";

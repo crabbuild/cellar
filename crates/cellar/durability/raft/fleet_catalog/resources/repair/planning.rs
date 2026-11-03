@@ -170,11 +170,7 @@ impl Planning<'_, '_> {
                 .inventory
                 .as_ref()
                 .ok_or(FleetCatalogError::InventoryIncomplete)?;
-            if inventory
-                .history(&context.group)
-                .map_err(|_| FleetCatalogError::Corrupt("isolated repair physical scope"))?
-                .is_some()
-            {
+            if inventory.group_history(&context.group).is_some() {
                 occupied.insert(node);
             }
             let observed_ms = catalog
@@ -203,10 +199,8 @@ impl Planning<'_, '_> {
             if let Some(initializing) = inventory.initializing() {
                 let mut attributed = false;
                 for reservation in &charged.reservations {
-                    attributed |=
-                        crate::raft::physical_inventory::scope_digest(&reservation.group).map_err(
-                            |_| FleetCatalogError::Corrupt("isolated repair initializer scope"),
-                        )? == initializing;
+                    attributed |= crate::raft::physical_inventory::group_digest(&reservation.group)
+                        == initializing;
                 }
                 if !attributed {
                     if group.voters.contains_key(&node) {

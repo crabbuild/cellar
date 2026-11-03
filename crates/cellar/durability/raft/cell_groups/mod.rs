@@ -16,6 +16,7 @@ pub use crate::raft::transport::{
 
 mod apply;
 mod archive;
+pub(crate) use archive::CellGroupArchiveAcquireOutcome;
 pub(crate) mod archive_compaction;
 pub use archive::{
     CellGroupArchive, CellGroupArchiveCheckpointReceiver, CellGroupArchiveCollectionLimits,
@@ -28,6 +29,7 @@ pub use archive::{
     CellGroupArchiveUploadedTail, CellGroupArchiveUsage, PreparedCellGroupArchiveCheckpoint,
     PreparedCellGroupArchiveCreation, PreparedCellGroupArchivePublication,
     VerifiedCellGroupArchiveCheckpoint, VerifiedCellGroupArchiveRecovery,
+    VerifiedFleetGroupArchiveCoverage,
 };
 pub(crate) mod checkpoint;
 pub use checkpoint::{
@@ -43,8 +45,9 @@ pub use controller::{
     CellGroupArchiveCall, CellGroupArchiveControlError, CellGroupArchiveRegistration,
     CellGroupArchiveStatus, CellGroupCheckpointPolicy, CellGroupController,
     CellGroupControllerError, CellGroupControllerLimits, CellGroupControllerUsage,
-    CellGroupEffectRegistration, CellGroupProvisionCall, CellGroupProvisioning,
-    CellGroupRegistration, CellGroupRegistrationCall, CellGroupRegistrationError, CellQueryCall,
+    CellGroupEffectRegistration, CellGroupProvisionCall, CellGroupProvisionLimits,
+    CellGroupProvisionNamespace, CellGroupProvisioning, CellGroupRegistration,
+    CellGroupRegistrationCall, CellGroupRegistrationError, CellQueryCall,
 };
 mod dispatch;
 mod host;
@@ -79,7 +82,9 @@ pub(crate) mod membership;
 pub use membership::CellGroupMembershipChange;
 mod log_admission;
 pub(crate) mod log_retention;
+mod membership_observation;
 mod owner;
+pub use membership_observation::CellGroupQuorumMembership;
 mod page_store;
 mod page_wire;
 mod pins;
@@ -115,14 +120,14 @@ pub use manifest::{
 pub use page_store::{ManifestPageStore, ManifestReclaimReport, ManifestStoreUsage};
 
 pub use crate::raft::catalog::{
-    CellGroupArchiveBindingError, CellGroupBirth, CellGroupBirthRequest, CellGroupBirthSpec,
-    CellGroupBootstrapPermit, CellGroupDirectoryCursor, CellGroupDirectoryPage,
+    CellGroupArchiveBindingError, CellGroupBirth, CellGroupBirthDisposition, CellGroupBirthRequest,
+    CellGroupBirthSpec, CellGroupBootstrapPermit, CellGroupDirectoryCursor, CellGroupDirectoryPage,
     CellGroupDisasterFenceRequest, CellGroupRecoveryActivationAck,
     CellGroupRecoveryActivationPermit, CellGroupRecoveryError, CellGroupRecoveryRequest,
     CellRouteAttempt, CellRouteCacheUsage, CellRouteOperation, CellRouteRequest, CellRoutingError,
     CellRoutingFailure, CellRoutingLimits, CellRoutingSession, DirectoryLimits, DirectoryMutation,
-    DirectoryPublication, DirectoryView, FencedCellGroupRecovery, PreparedCellGroupArchiveBinding,
-    RangeDirectory, ResolvedCellRoute,
+    DirectoryPublication, DirectoryView, FencedCellGroupRecovery, FrozenCellGroupInventory,
+    PreparedCellGroupArchiveBinding, RangeDirectory, ResolvedCellRoute,
 };
 pub use enrollment::{
     decide_enrollment, EnrollmentDecision, EnrollmentError, EnrollmentPhase, EnrollmentRecord,

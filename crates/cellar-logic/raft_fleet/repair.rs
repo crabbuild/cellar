@@ -3,12 +3,42 @@
 //! One required replacement after the adapter proves exact-boot isolation.
 //! Selection grants no membership, health, reservation or release authority.
 use super::{ResourceLedger, Resources, TopologyError, TopologyNode, TopologyPolicy};
-use crate::consensus::{GroupScope, LogIndex, MemberId, NodeId};
-use crate::raft_placement::{PlacedMember, RepairPlacement};
+use crate::cell_group::GroupHistory;
+use crate::consensus::{LogIndex, MemberId, NodeId};
+use crate::raft_placement::PlacedMember;
 use std::collections::BTreeSet;
 
+/// A physical-group replacement proposal. It grants no membership or isolation
+/// authority. Every cell in this history moves under the same revision fence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GroupRepairPlacement {
+    pub scope: GroupHistory,
+    pub policy_revision: u64,
+    pub expected_revision: LogIndex,
+    pub obsolete: MemberId,
+    pub replacement: PlacedMember,
+}
+
+// Stable load tie-break for a complete physical history. Cell identities never
+// enter placement scoring; the adapter accounts their combined resource peak.
+fn rank_group(history: &GroupHistory, node: NodeId) -> u64 {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for bytes in [
+        history.cluster.bytes(),
+        history.namespace.bytes(),
+        history.group.bytes(),
+        history.incarnation.bytes(),
+        node.bytes(),
+    ] {
+        for byte in bytes {
+            hash = (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3);
+        }
+    }
+    hash
+}
+
 pub struct IsolatedRepairView {
-    pub scope: GroupScope,
+    pub scope: GroupHistory,
     pub revision: LogIndex,
     pub high_water: u64,
     pub voters: [PlacedMember; 3],
@@ -49,7 +79,7 @@ pub fn select_isolated_repair(
     nodes: &[TopologyNode],
     policy: TopologyPolicy,
     now_ms: u64,
-) -> Result<RepairPlacement, TopologyError> {
+) -> Result<GroupRepairPlacement, TopologyError> {
     if policy.revision == 0 || policy.max_work == 0 || policy.max_work > 50_000_000 {
         return Err(TopologyError::InvalidPolicy);
     }
@@ -59,8 +89,7 @@ pub fn select_isolated_repair(
     if policy.max_work < nodes.len() as u64 * 2 {
         return Err(TopologyError::SearchExhausted);
     }
-    if view.scope.validate().is_err()
-        || view.revision.get() == 0
+    if view.revision.get() == 0
         || view.revision.get() >= u64::MAX - 2
         || !label(&view.failed_host)
         || view.peak.engine_slots != 1
@@ -191,9 +220,8 @@ pub fn select_isolated_repair(
         (an * bd)
             .cmp(&(bn * ad))
             .then_with(|| {
-                crate::raft_placement::rank(&view.scope, b.ledger.scope.node.node).cmp(
-                    &crate::raft_placement::rank(&view.scope, a.ledger.scope.node.node),
-                )
+                rank_group(&view.scope, b.ledger.scope.node.node)
+                    .cmp(&rank_group(&view.scope, a.ledger.scope.node.node))
             })
             .then_with(|| a.ledger.scope.node.node.cmp(&b.ledger.scope.node.node))
     });
@@ -206,8 +234,8 @@ pub fn select_isolated_repair(
         .iter()
         .find(|v| v.node == view.failed)
         .ok_or(TopologyError::InvalidInput)?;
-    Ok(RepairPlacement {
-        scope: view.scope.clone(),
+    Ok(GroupRepairPlacement {
+        scope: view.scope,
         policy_revision: policy.revision,
         expected_revision: view.revision,
         obsolete: obsolete.member,

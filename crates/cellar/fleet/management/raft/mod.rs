@@ -12,7 +12,7 @@ mod nodes;
 mod records;
 use crate::application::consensus::RaftCells;
 use crate::asyncrt::{DomainToken, ExecutionDomain};
-use crate::raft::catalog::NamespaceCatalog;
+use crate::raft::catalog::RangeDirectory;
 use crate::raft::fleet_catalog::{
     FleetCatalog, FleetCatalogError, FleetCursor, FleetRequestIdentity, FleetTopologyIntentRequest,
     FleetTopologyOperation, FleetTopologyPhase, FleetTopologyPolicy,
@@ -46,7 +46,7 @@ type Result<T> = std::result::Result<T, RaftFleetFailure>;
 pub struct RaftFleetControl {
     catalog: FleetCatalog,
     catalog_id: String,
-    namespaces: Arc<[NamespaceCatalog]>,
+    namespaces: Arc<[RangeDirectory]>,
     domain: DomainToken,
     node_observer: Option<RaftCells>,
     removal_verification: Option<Arc<lifecycle::verification::Verification>>,
@@ -56,7 +56,7 @@ impl RaftFleetControl {
     pub fn new(
         domain: &ExecutionDomain,
         catalog: FleetCatalog,
-        namespaces: Vec<NamespaceCatalog>,
+        namespaces: Vec<RangeDirectory>,
     ) -> Result<Self> {
         if namespaces.len() > 64 {
             return Err(RaftFleetFailure::invalid("too many managed namespaces"));
@@ -233,7 +233,6 @@ impl RaftFleetControl {
                 namespace: hex::encode(m.group.namespace.bytes()),
                 group: hex::encode(m.group.group.bytes()),
                 incarnation: hex::encode(m.group.incarnation.bytes()),
-                cell: m.group.cell,
                 source: hex::encode(m.source.bytes()),
                 target: hex::encode(m.target.bytes()),
                 admitted_revision: m.admitted_revision,

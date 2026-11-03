@@ -24,6 +24,96 @@ struct Fixture {
     limits: DirectoryLimits,
 }
 
+pub(super) async fn group_import_freeze() -> Result<()> {
+    let f = Fixture::new(DirectoryLimits::default()).await?;
+    let mut selected = ranges(3);
+    f.reserve(&mut selected).await?;
+    let genesis = f
+        .directory
+        .prepare_initialization(operation(71000), &selected)?;
+    f.run(f.directory.publish(&genesis)).await?;
+    let before = f.run(f.directory.observe()).await?;
+    let mut children = split(&selected[1], 71001);
+    f.reserve(&mut children).await?;
+    let stale =
+        f.directory
+            .prepare_replacement(&before, operation(71002), &selected[1..2], &children)?;
+    let pending =
+        f.directory
+            .prepare_group_birth(birth_spec(&assigned(71003, CellRange::all(), 2)))?;
+    f.run(f.directory.reserve_group_birth(&pending)).await?;
+    let delayed =
+        f.directory
+            .prepare_group_birth(birth_spec(&assigned(71004, CellRange::all(), 2)))?;
+    f.store
+        .birth_inventory_cas_hang
+        .store(true, Ordering::Release);
+    f.store
+        .hold_next_birth_inventory_cas
+        .store(true, Ordering::Release);
+    let writer = f.run(f.directory.reserve_group_birth(&delayed));
+    let freezer = async {
+        let reached = tokio::time::timeout(Duration::from_secs(5), async {
+            while !f.store.birth_inventory_cas_waiting.load(Ordering::Acquire) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await;
+        // Lose the reply after the actual namespace freeze CAS. The original
+        // operation must reconcile; no successful CAS is synthesized.
+        f.store
+            .fail_birth_inventory_after
+            .store(true, Ordering::Release);
+        let frozen = if reached.is_ok() {
+            f.run(f.directory.freeze_group_births(operation(71005)))
+                .await
+        } else {
+            Err(CatalogError::Unconfirmed)
+        };
+        f.store
+            .birth_inventory_cas_hang
+            .store(false, Ordering::Release);
+        f.store.birth_inventory_cas_resume.notify_waiters();
+        frozen
+    };
+    let (delayed_result, frozen) = tokio::join!(writer, freezer);
+    anyhow::ensure!(matches!(delayed_result, Err(CatalogError::BirthsFrozen)));
+    let frozen = frozen?;
+    anyhow::ensure!(frozen.len() == 6 && !frozen.is_empty());
+    anyhow::ensure!(frozen.operation() == operation(71005));
+    anyhow::ensure!(matches!(
+        f.run(f.directory.publish(&stale)).await,
+        Err(CatalogError::BirthsFrozen)
+    ));
+    let new = f
+        .directory
+        .prepare_group_birth(birth_spec(&assigned(71006, CellRange::all(), 2)))?;
+    anyhow::ensure!(matches!(
+        f.run(f.directory.reserve_group_birth(&new)).await,
+        Err(CatalogError::BirthsFrozen)
+    ));
+    anyhow::ensure!(matches!(
+        f.run(f.directory.freeze_group_births(operation(71007)))
+            .await,
+        Err(CatalogError::Conflict(_))
+    ));
+    let after = f.run(f.directory.observe()).await?;
+    anyhow::ensure!(after.digest() != before.digest() && after.groups() == 3);
+    for route in &selected {
+        // Lazy selected births remain live; no cell is chosen to stand in for
+        // the physical group. Their voters still need real bootstrap/quorum.
+        let birth = f.run(f.directory.materialize_selected_group(route)).await?;
+        anyhow::ensure!(birth.route() == route);
+    }
+    let reopened = f.reopen().await?;
+    let retried = f
+        .run(reopened.freeze_group_births(operation(71005)))
+        .await?;
+    anyhow::ensure!(retried.len() == frozen.len() && retried.operation() == frozen.operation());
+    anyhow::ensure!(f.store.listing_calls.load(Ordering::Acquire) == 0);
+    Ok(())
+}
+
 impl Fixture {
     async fn new(limits: DirectoryLimits) -> Result<Self> {
         Self::with_schema(limits, route().schema_digest).await
@@ -632,6 +722,23 @@ pub async fn birth_recovery() -> Result<()> {
     assert_eq!(retry.route(), request.route());
     let birth = f.run(restarted.materialize_group_birth(&retry)).await?;
     assert_eq!(birth.route(), route);
+    let selected = f
+        .run(restarted.materialize_selected_history(route.history))
+        .await?;
+    assert_eq!(selected.route(), route);
+    let mut wrong = route.history;
+    wrong.incarnation = IncarnationId::new([77; 16])?;
+    assert!(matches!(
+        f.run(restarted.materialize_selected_history(wrong)).await,
+        Err(CatalogError::Fenced)
+    ));
+    wrong = route.history;
+    wrong.namespace = NamespaceId::new([77; 16])?;
+    assert!(matches!(
+        f.run(restarted.materialize_selected_history(wrong)).await,
+        Err(CatalogError::Conflict(_))
+    ));
+
     assert_eq!(birth.creation(), request.creation());
     assert_eq!(birth.voters(), request.voters());
     assert!(birth.learners().is_empty());
@@ -675,6 +782,11 @@ pub async fn birth_recovery() -> Result<()> {
     ));
     assert!(matches!(
         f.run(restarted.materialize_group_birth(&retry)).await,
+        Err(CatalogError::Fenced)
+    ));
+    assert!(matches!(
+        f.run(restarted.materialize_selected_history(route.history))
+            .await,
         Err(CatalogError::Fenced)
     ));
     assert_eq!(

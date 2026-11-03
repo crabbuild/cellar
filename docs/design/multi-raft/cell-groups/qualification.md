@@ -2,6 +2,8 @@
 
 # Qualification and evidence contract
 
+Purpose: Failure oracles, workload profiles and evidence required for release.
+
 Status: proposed workload contracts and release gates, not measured results.
 `profiles.json` freezes candidate requirements. Change a missed target only through
 an explicit reviewed profile revision, retaining the old run and its failure.

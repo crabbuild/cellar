@@ -21,6 +21,14 @@ pub(crate) struct GroupRoster {
 }
 
 impl GroupRoster {
+    pub(super) fn producers_quiesced(&self) -> bool {
+        self.groups.lock().is_ok_and(|groups| {
+            groups
+                .values()
+                .all(|state| matches!(state, GroupState::Active))
+        })
+    }
+
     pub(super) fn new(groups: impl Iterator<Item = GroupHistory>, limit: usize) -> Arc<Self> {
         Arc::new(Self {
             groups: Mutex::new(groups.map(|g| (g, GroupState::Active)).collect()),
@@ -220,6 +228,34 @@ pub(super) struct Completed {
 }
 
 impl CellGroupController {
+    /// One locked roster cut. Failed attachments remain registered physical
+    /// debt; pending slots are separate from attached histories.
+    pub(crate) fn registration_inventory(
+        &self,
+    ) -> Result<(Vec<GroupHistory>, usize, usize), RuntimeError> {
+        let groups = self
+            .handle
+            .0
+            .groups
+            .groups
+            .lock()
+            .map_err(|_| RuntimeError::Closed)?;
+        let mut attached = Vec::with_capacity(groups.len());
+        let mut pending = 0;
+        let mut quarantined = 0;
+        for (history, state) in groups.iter() {
+            match state {
+                GroupState::Pending => pending += 1,
+                GroupState::Active => attached.push(*history),
+                GroupState::Quarantined(_) => {
+                    attached.push(*history);
+                    quarantined += 1;
+                }
+            }
+        }
+        Ok((attached, pending, quarantined))
+    }
+
     /// Atomically reserve the controller slot and transfer attachment ownership.
     /// Admission failure returns all prepared owners without starting attachment.
     pub fn register(

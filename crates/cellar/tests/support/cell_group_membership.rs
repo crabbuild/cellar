@@ -87,6 +87,35 @@ pub(crate) async fn membership_lifecycle(rooted: bool) -> Result<()> {
     fixture.runtimes[0].campaign(second).await?;
     controller::wait_for(async || Ok(fixture.runtimes[0].status(second).await?.ready)).await?;
     let group = fixture.cluster.voters[0].log.cell_group(&route.history)?;
+    // Administrative observations address the physical group, with no chosen
+    // cell. Every invocation obtains its own current-term ReadIndex barrier.
+    let deadline = fixture
+        .cluster
+        .domain
+        .run(async { cellar::asyncrt::mono_ms() + 10_000 })
+        .await?;
+    let observation = fixture.runtimes[0]
+        .quorum_membership(route.history, deadline)
+        .await?;
+    assert_eq!(observation.replica().scope, route.history);
+    assert_eq!(observation.root().route(), &route);
+    assert_eq!(observation.configuration().voters, vec![1, 2, 3]);
+    assert!(observation.barrier().index.get() > 0);
+    assert!(observation.root().position().index >= observation.barrier().index);
+    assert!(observation.membership().revision() <= observation.barrier().index);
+    assert!(fixture.runtimes[0].usage().read_pins.items > 0);
+    drop(observation);
+    let expired = fixture
+        .cluster
+        .domain
+        .run(async { cellar::asyncrt::mono_ms() })
+        .await?;
+    assert!(matches!(
+        fixture.runtimes[0]
+            .quorum_membership(route.history, expired)
+            .await,
+        Err(RuntimeError::DeadlineExceeded)
+    ));
     let original = fixture.runtimes[0]
         .execution_authority(route.history, a.clone())
         .await?;
@@ -111,6 +140,21 @@ pub(crate) async fn membership_lifecycle(rooted: bool) -> Result<()> {
         .is_err());
     assert_eq!(group.last_index()?, last);
     let entered = configure(&fixture, &route, demote, &[]).await?;
+    let deadline = fixture
+        .cluster
+        .domain
+        .run(async { cellar::asyncrt::mono_ms() + 10_000 })
+        .await?;
+    let observation = fixture.runtimes[0]
+        .quorum_membership(route.history, deadline)
+        .await?;
+    assert_eq!(observation.membership().revision(), entered.position.index);
+    assert!(observation.barrier().index >= entered.position.index);
+    assert_eq!(observation.configuration().voters, vec![1, 2]);
+    assert_eq!(observation.configuration().voters_outgoing, vec![1, 2, 3]);
+    assert_eq!(observation.configuration().learners_next, vec![3]);
+    assert_eq!(observation.root().root(), root);
+    drop(observation);
     for voter in &fixture.cluster.voters {
         let log = voter.log.cell_group(&route.history)?;
         let conf = log.initial_state()?.conf_state;
@@ -289,6 +333,36 @@ pub(crate) async fn membership_lifecycle(rooted: bool) -> Result<()> {
         original.cell()
     );
 
+    let progress = fixture.runtimes[0]
+        .replication_status(route.history)
+        .await?;
+    assert_eq!(progress.replica.scope, route.history);
+    assert_eq!(progress.replica.member, MemberId::new(1)?);
+    for (term, revision) in [
+        (
+            Term::new(progress.term.get() + 1),
+            progress.membership_revision,
+        ),
+        (
+            progress.term,
+            LogIndex::new(progress.membership_revision.get() + 1),
+        ),
+    ] {
+        assert!(matches!(
+            fixture.runtimes[0]
+                .transfer_leadership(
+                    route.history,
+                    cellar::application::consensus::LeadershipTransfer {
+                        target: MemberId::new(2)?,
+                        expected_term: term,
+                        expected_revision: revision
+                    }
+                )
+                .await,
+            Err(RuntimeError::Invalid(_))
+        ));
+    }
+
     // Move leadership using the real TimeoutNow protocol. The fixture does
     // not advance election ticks or inject votes to manufacture this handoff.
     assert!(fixture.runtimes[0]
@@ -464,6 +538,169 @@ pub(crate) async fn membership_sync() -> Result<()> {
             accepted.position.index.get()
         );
         assert_eq!(group.initial_state()?.conf_state.learners_next, vec![3]);
+        fixture.close().await?;
+    }
+    Ok(())
+}
+
+pub(crate) async fn membership_quorum_floor() -> Result<()> {
+    for rooted in [false, true] {
+        let class = RaftClass::new("Counter", 1, [81; 32])?;
+        let (mut fixture, route, _, _) = Box::pin(registered::setup(rooted, &class)).await?;
+        fixture.connect_tcp().await?;
+        let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
+        let runtime = fixture.runtimes[0].clone();
+        controller::wait_for(async || Ok(runtime.status(route.history).await?.ready)).await?;
+        let group = fixture.cluster.voters[0].log.cell_group(&route.history)?;
+        let before = group.group_manifest()?.context("before")?;
+        let request = CellGroupMembershipChange::new(
+            &route,
+            &group.membership()?,
+            change(
+                3,
+                ConfChangeType::AddLearnerNode,
+                ConfChangeTransition::Explicit,
+            ),
+            &[],
+        )?;
+        let gate = fixture.cluster.voters[0].gate.clone();
+        let release = gate.arm(fault::HOLD_SYNC);
+        let accepted = runtime.configure(route.history, request).await?;
+        tokio::time::timeout(Duration::from_secs(5), gate.entered.notified()).await?;
+        assert_eq!(group.group_manifest()?.as_ref(), Some(&before));
+        let deadline = fixture
+            .cluster
+            .domain
+            .run(async { cellar::asyncrt::mono_ms() + 10_000 })
+            .await?;
+        let read =
+            runtime.quorum_membership_after(route.history, accepted.position.index, deadline);
+        tokio::pin!(read);
+        assert!(tokio::time::timeout(Duration::from_millis(30), &mut read)
+            .await
+            .is_err());
+        assert!(runtime.usage().read_pins.items > 0);
+        drop(release);
+        let observed = tokio::time::timeout(Duration::from_secs(10), &mut read).await??;
+        assert_eq!(observed.membership().revision(), accepted.position.index);
+        assert!(observed.barrier().index >= accepted.position.index);
+        assert!(observed.root().position().index >= observed.barrier().index);
+        assert_eq!(observed.configuration().learners_next, vec![3]);
+        drop(observed);
+        controller::wait_for(async || Ok(runtime.usage().read_pins.items == 0)).await?;
+        let unreachable = LogIndex::new(accepted.position.index.get() + 10_000);
+        let deadline = fixture
+            .cluster
+            .domain
+            .run(async { cellar::asyncrt::mono_ms() + 30 })
+            .await?;
+        assert!(matches!(
+            runtime
+                .quorum_membership_after(route.history, unreachable, deadline)
+                .await,
+            Err(RuntimeError::DeadlineExceeded)
+        ));
+        controller::wait_for(async || Ok(runtime.usage().read_pins.items == 0)).await?;
+        for controller in controllers {
+            controller.close().await?;
+        }
+        fixture.close().await?;
+    }
+    Ok(())
+}
+
+pub(crate) async fn membership_quorum_followers() -> Result<()> {
+    use raft::prelude::{Entry, Message, MessageType};
+    for rooted in [false, true] {
+        let class = RaftClass::new("Counter", 1, [81; 32])?;
+        let (mut fixture, route, cell, _) = Box::pin(registered::setup(rooted, &class)).await?;
+        fixture.connect_tcp().await?;
+        let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
+        controller::wait_for(async || Ok(fixture.runtimes[0].status(route.history).await?.ready))
+            .await?;
+        let accepted = configure_at(
+            &fixture,
+            0,
+            &route,
+            change(
+                3,
+                ConfChangeType::AddLearnerNode,
+                ConfChangeTransition::Explicit,
+            ),
+            &[],
+        )
+        .await?;
+        let expected = fixture.cluster.voters[0]
+            .log
+            .cell_group(&route.history)?
+            .group_manifest()?
+            .context("selected group")?;
+        assert_eq!(expected.root().cells(), 2);
+
+        let mut context = b"cellar-group-membership-read-1\0".to_vec();
+        context.extend_from_slice(&2u64.to_be_bytes());
+        context.extend_from_slice(&[97; 16]);
+        context.extend_from_slice(&1u64.to_be_bytes());
+        let status = fixture.runtimes[1].status(route.history).await?;
+        let forged = Message {
+            msg_type: MessageType::MsgReadIndexResp,
+            from: 3,
+            to: 2,
+            term: status.term.get(),
+            index: expected.position().index.get(),
+            entries: vec![Entry {
+                data: context.into(),
+                ..Default::default()
+            }]
+            .into(),
+            ..Default::default()
+        };
+        assert!(matches!(
+            fixture.runtimes[1].step(route.history, forged).await,
+            Err(RuntimeError::Invalid(_))
+        ));
+
+        for node in 0..3 {
+            let runtime = &fixture.runtimes[node];
+            let deadline = fixture
+                .cluster
+                .domain
+                .run(async { cellar::asyncrt::mono_ms() + 10_000 })
+                .await?;
+            let observed = runtime
+                .quorum_membership_after(route.history, accepted.position.index, deadline)
+                .await?;
+            assert_eq!(observed.replica().member.get(), node as u64 + 1);
+            assert_eq!(
+                observed.engine(),
+                fixture.cluster.voters[node].log.storage_instance()?
+            );
+            assert_eq!(observed.root(), &expected);
+            assert!(observed.barrier().index >= accepted.position.index);
+            assert_eq!(observed.barrier().term, observed.status().term);
+            assert_eq!(observed.status().leader, Some(1));
+            assert_eq!(observed.configuration().learners_next, vec![3]);
+            if node != 0 {
+                assert!(!observed.status().ready);
+                // A metadata barrier cannot become local leader/execution or
+                // membership-transfer authority on either follower.
+                assert!(matches!(
+                    runtime.replication_status(route.history).await,
+                    Err(RuntimeError::NotLeader)
+                ));
+                assert!(matches!(
+                    runtime
+                        .execution_authority(route.history, cell.clone())
+                        .await,
+                    Err(RuntimeError::NotLeader)
+                ));
+            }
+            drop(observed);
+            controller::wait_for(async || Ok(runtime.usage().read_pins.items == 0)).await?;
+        }
+        for controller in controllers {
+            controller.close().await?;
+        }
         fixture.close().await?;
     }
     Ok(())

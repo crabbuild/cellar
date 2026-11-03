@@ -15,11 +15,7 @@ use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use futures_util::future::BoxFuture;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{
-    fmt,
-    sync::{Arc, Weak},
-    time::Duration,
-};
+use std::{fmt, sync::Arc, time::Duration};
 
 #[cfg(all(test, not(cellar_internal_tests)))]
 #[path = "effect_delivery_tests.rs"]
@@ -569,8 +565,7 @@ pub struct RaftNativeEffectSink {
 
 #[derive(Clone)]
 struct NativeEndpoint {
-    handle: Weak<crate::application::consensus::client::Handle>,
-    scope: CellHistory,
+    handle: crate::application::consensus::group_client::WeakCellHandle,
 }
 
 impl RaftNativeEffectSink {
@@ -591,13 +586,10 @@ impl RaftNativeEffectSink {
         Ok(Arc::new(Self {
             endpoints: endpoints
                 .into_iter()
-                .map(|endpoint| {
-                    Ok(NativeEndpoint {
-                        handle: Arc::downgrade(&endpoint.handle),
-                        scope: CellHistory::try_from(endpoint.scope())?,
-                    })
+                .map(|endpoint| NativeEndpoint {
+                    handle: endpoint.downgrade(),
                 })
-                .collect::<Result<Vec<_>>>()?,
+                .collect(),
             timeout,
             retry_window_ms,
         }))
@@ -619,21 +611,12 @@ impl RaftEffectSink for RaftNativeEffectSink {
                 .ok_or(CommandFailure::Unavailable)?;
             let mut last = CommandFailure::Unavailable;
             for hint in endpoints {
-                let Some(handle) = hint.handle.upgrade() else {
-                    continue;
+                let endpoint = match hint.handle.upgrade() {
+                    Ok(Some(endpoint)) => endpoint,
+                    Ok(None) | Err(_) => continue,
                 };
-                let binding = match handle
-                    .bindings
-                    .get(&(hint.scope.namespace, hint.scope.cell.as_str().to_owned()))
-                {
-                    Ok(binding) => binding,
-                    Err(CommandFailure::Unavailable) => continue,
-                    Err(error) => return Err(error),
-                };
-                let endpoint = RaftCellHandle { handle, binding };
-                if CellHistory::try_from(endpoint.scope()).as_ref().ok()
-                    != Some(request.inner.target.scope())
-                    || endpoint.binding.class.definition_digest() != request.inner.target.definition
+                if endpoint.history() != request.inner.target.scope()
+                    || endpoint.definition_digest() != request.inner.target.definition
                 {
                     continue;
                 }
@@ -645,11 +628,12 @@ impl RaftEffectSink for RaftNativeEffectSink {
                 options.durability = request.inner.target.durability;
                 match endpoint
                     .command(
-                        request.inner.target.contract.clone(),
+                        &request.inner.target.contract,
                         request.inner.bytes.clone(),
                         options,
                     )
                     .await
+                    .map_err(|error| native_command_failure(&error))
                 {
                     Ok(receipt) => {
                         request
@@ -671,5 +655,30 @@ impl RaftEffectSink for RaftNativeEffectSink {
             }
             Err(last)
         })
+    }
+}
+
+fn native_command_failure(error: &crate::raft::cell_groups::CellCommandError) -> CommandFailure {
+    use crate::raft::{
+        cell_groups::CellDispatchError, completion::RuntimeError, execution::ExecutionError,
+    };
+    if let CellDispatchError::Execution(ExecutionError::Refused(failure)) = error.cause.as_ref() {
+        return failure.clone();
+    }
+    if error.ambiguous {
+        return CommandFailure::Ambiguous {
+            command: error.command,
+        };
+    }
+    match error.cause.as_ref() {
+        CellDispatchError::Runtime(RuntimeError::NotLeader) => {
+            CommandFailure::NotLeader { leader: None }
+        }
+        CellDispatchError::Runtime(RuntimeError::Overloaded) => CommandFailure::Overloaded,
+        CellDispatchError::Registration(_) => CommandFailure::UnsupportedCapability,
+        CellDispatchError::Version(crate::raft::version::VersionError::WrongHistory) => {
+            CommandFailure::WrongIncarnation
+        }
+        _ => CommandFailure::Unavailable,
     }
 }

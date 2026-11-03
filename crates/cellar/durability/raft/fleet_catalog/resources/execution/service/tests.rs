@@ -10,10 +10,9 @@ use cellar_logic::consensus::{
 fn pending(id: u8) -> FleetPendingMovement {
     FleetPendingMovement {
         reservation: [id; 16],
-        group: GroupScope {
+        group: GroupHistory {
             cluster: ClusterId::new([1; 16]).unwrap(),
             namespace: NamespaceId::new([2; 16]).unwrap(),
-            cell: format!("Counter:{id}"),
             group: GroupId::new([id; 16]).unwrap(),
             incarnation: IncarnationId::new([3; 16]).unwrap(),
         },

@@ -2,6 +2,8 @@
 
 # Implementation order
 
+Purpose: Dependency order and status of the sixteen cell-group implementation tasks.
+
 Generated from `tasks.json`; print again with `plan.py index` after status changes.
 Every implementation task is pending until source-bound evidence passes.
 

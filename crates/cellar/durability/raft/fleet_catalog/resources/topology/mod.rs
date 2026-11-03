@@ -7,7 +7,7 @@ mod membership;
 
 use super::*;
 use crate::application::consensus::RaftCells;
-use crate::raft::catalog::NamespaceCatalog;
+use crate::raft::catalog::RangeDirectory;
 use crate::raft::host::RaftPeerNodeObservation;
 use crate::raft::member_state::{JoiningMember, RepairPlan};
 use cellar_logic::consensus::{MemberId, ProposalId};
@@ -40,7 +40,7 @@ pub struct FleetTopologyNodeResources {
 /// values are not measurements of image size or estimated command throughput.
 #[derive(Clone, Debug)]
 pub struct FleetTopologyHistoryResources {
-    pub group: GroupScope,
+    pub group: GroupHistory,
     pub resident: FleetResourceBounds,
     pub peak: FleetResourceBounds,
 }
@@ -183,7 +183,7 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         request: &FleetTopologyRequest,
         observer: &RaftCells,
-        namespaces: &[NamespaceCatalog],
+        namespaces: &[RangeDirectory],
         timeout: Duration,
     ) -> Result<FleetTopologyVerification> {
         self.check_snapshot(snapshot)?;
@@ -499,8 +499,7 @@ impl FleetTopologyVerification {
                         .inventory
                         .as_ref()
                         .ok_or(FleetCatalogError::InventoryIncomplete)?
-                        .history(&scope)
-                        .map_err(|_| FleetCatalogError::Corrupt("topology physical scope"))?
+                        .group_history(&scope)
                         .is_some()
                     {
                         occupied.push(node.host.node());

@@ -54,6 +54,10 @@ impl Drop for CellLease {
 }
 
 impl Admission {
+    pub fn limits(&self) -> CellSqlLimits {
+        self.limits
+    }
+
     pub fn new(limits: CellSqlLimits, lease: Arc<crate::raft::storage::SqlPoolLease>) -> Arc<Self> {
         Arc::new(Self {
             lease,

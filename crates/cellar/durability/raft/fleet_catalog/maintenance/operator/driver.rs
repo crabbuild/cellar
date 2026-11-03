@@ -52,7 +52,7 @@ pub struct FleetRestartOperatorProgress {
 /// controller retains Root work; a recreated driver repeats ephemeral proof.
 pub struct FleetRestartOperatorDriver {
     pub(super) catalog: FleetCatalog,
-    pub(super) namespaces: Vec<NamespaceCatalog>,
+    pub(super) namespaces: Vec<RangeDirectory>,
     pub(super) observer: RaftCells,
     pub(super) evidence: Option<Arc<dyn FleetMovementEvidence>>,
     session: Mutex<Option<Session>>,
@@ -107,7 +107,7 @@ impl Stage {
 impl FleetRestartOperatorDriver {
     pub fn new(
         catalog: FleetCatalog,
-        namespaces: Vec<NamespaceCatalog>,
+        namespaces: Vec<RangeDirectory>,
         observer: RaftCells,
         evidence: Option<Arc<dyn FleetMovementEvidence>>,
     ) -> Result<Self> {

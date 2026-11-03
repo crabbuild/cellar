@@ -360,6 +360,15 @@ impl fmt::Debug for FleetHostAuthorization {
 }
 
 impl FleetHostAuthorization {
+    pub(crate) fn same_boot_owner(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.catalog.inner, &other.catalog.inner)
+            && self
+                .boot_binding()
+                .ok()
+                .zip(other.boot_binding().ok())
+                .is_some_and(|(left, right)| left == right)
+    }
+
     pub(crate) fn is_isolated(&self) -> bool {
         self.record.isolation.is_some()
     }
@@ -555,7 +564,7 @@ impl FleetHostAuthorization {
 
     pub(crate) async fn group_authorization(
         &self,
-        scope: &cellar_logic::consensus::GroupScope,
+        scope: &cellar_logic::cell_group::GroupHistory,
         timeout: Duration,
     ) -> Result<FleetGroupAuthorization> {
         self.group_authorization_at_least(scope, 0, timeout).await
@@ -563,7 +572,7 @@ impl FleetHostAuthorization {
 
     pub(crate) async fn group_authorization_at_least(
         &self,
-        scope: &cellar_logic::consensus::GroupScope,
+        scope: &cellar_logic::cell_group::GroupHistory,
         minimum_revision: u64,
         timeout: Duration,
     ) -> Result<FleetGroupAuthorization> {

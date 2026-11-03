@@ -3,6 +3,7 @@
 //! Pure resource-accounting boundary. These tests do not qualify catalog CAS,
 //! physical observations, membership execution or fleet performance.
 
+use cellar_logic::cell_group::GroupHistory;
 use cellar_logic::{consensus::*, raft_fleet::*};
 
 fn resources(slots: u64, disk: u64, memory: u64) -> Resources {
@@ -41,10 +42,10 @@ fn sample(sequence: u64, physical: Resources) -> PhysicalSample {
 fn reservation(id: u8, peak: Resources) -> Reservation {
     Reservation {
         id: ProposalId::new([id; 16]).unwrap(),
-        group: GroupScope {
+        group: GroupHistory {
             cluster: scope().cluster,
             namespace: NamespaceId::new([9; 16]).unwrap(),
-            cell: format!("Counter:{id}"),
+
             group: GroupId::new([id; 16]).unwrap(),
             incarnation: IncarnationId::new([10; 16]).unwrap(),
         },
@@ -437,4 +438,25 @@ fn malformed_inputs_and_bounded_inventory_refuse() {
         ResourceLedger::restore(state),
         Err(LedgerError::Limit)
     ));
+}
+
+#[test]
+fn group_incarnation_cannot_reuse_a_reservation_or_erase_old_replica_debt() {
+    let mut ledger = ResourceLedger::restore(snapshot()).unwrap();
+    let first = reservation(11, resources(1, 100, 50));
+    ledger.reserve(first.clone(), 100).unwrap();
+    let mut fresh = first.clone();
+    fresh.group.incarnation = IncarnationId::new([79; 16]).unwrap();
+    assert_eq!(
+        ledger.reserve(fresh.clone(), 100),
+        Err(LedgerError::PayloadConflict)
+    );
+    assert_eq!(ledger.charge(100).unwrap().unmaterialized, first.peak);
+    fresh.id = ProposalId::new([12; 16]).unwrap();
+    ledger.reserve(fresh, 100).unwrap();
+    assert_eq!(
+        ledger.charge(100).unwrap().unmaterialized,
+        resources(2, 200, 100)
+    );
+    assert_eq!(ledger.snapshot().reservations.len(), 2);
 }

@@ -23,7 +23,6 @@ use std::{collections::BTreeMap, fmt, sync::Arc};
 
 pub(crate) mod bundle;
 mod configuration;
-mod coverage;
 mod physical;
 mod publication;
 mod replay;
@@ -40,8 +39,6 @@ pub use retention::{
 };
 pub use rooted::{RootArchiveReference, RootArchiveSnapshot};
 pub use verifier::ArchiveVerifier;
-
-pub use coverage::VerifiedArchiveCoverage;
 
 const READ_WINDOW: usize = 4;
 

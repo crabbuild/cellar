@@ -7,6 +7,7 @@ mod apply;
 pub(in crate::raft::host_sql) use apply::ApplyRequest;
 pub use apply::CellGroupPreparedApply;
 mod query;
+pub(crate) use query::ReadRetention;
 mod worker;
 pub use query::{CellSqlEffectScan, CellSqlQueryResult, CellSqlReceiptLookup};
 
@@ -35,7 +36,7 @@ use std::sync::{
 use tokio::sync::{oneshot, Notify};
 pub(super) use worker::{Cells, Request};
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, serde::Serialize)]
 pub struct CellSqlLimits {
     pub workers: usize,
     pub queue_per_worker: usize,
@@ -330,7 +331,10 @@ pub enum CellSqlReconciliation {
     Refused(CommandFailure),
 }
 
+#[derive(Clone, Copy, Debug, serde::Serialize)]
 pub struct CellSqlUsage {
+    pub limits: CellSqlLimits,
+    pub closing: bool,
     /// Independent progress budget; not included in SQL producer retention.
     pub apply_retained_bytes: usize,
     pub apply_retained_operations: usize,
@@ -459,6 +463,8 @@ impl CellGroupSqlPool {
         let resources = self.inner.resources.capture().ok_or_else(unavailable)?;
         let (apply_retained_bytes, apply_retained_operations) = self.inner.apply_admission.usage();
         Ok(CellSqlUsage {
+            limits: self.inner.admission.limits(),
+            closing: self.inner.closing.load(Ordering::Acquire),
             apply_retained_bytes,
             apply_retained_operations,
             active_cells,

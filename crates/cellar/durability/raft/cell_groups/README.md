@@ -495,8 +495,58 @@ output resources without quarantining a group whose SQL producer already closed.
 
 Shared log-engine I/O/corruption/closure and lost shared SQL worker replies still
 close the node. Unknown events and controller ownership violations fail closed.
-Request-driven group provisioning, configuration lifecycle and public SDK
-integration remain unfinished. See the delivery package for qualification status.
+Initial-member provisioning and canonical startup use the same physical page
+inventory under the configured node directory:
+`groups/<cluster>/<namespace>/<group>/<incarnation>/pages`. Their common path
+belongs to `ManifestPageStore`; both take its exclusive lock and recover the
+engine-selected root. Independent archive replay uses its own node base with the
+same layout. A restart must refuse a missing selected page rather than open a
+second empty inventory. Provisioning fault/restart fixtures target this canonical
+path for both image backends. No previous flat-path reader or migration is added.
+
+Provisioning binds immutable `CellGroupProvisionNamespace` profiles to exact
+`RangeDirectory` owners and the declared image representation. Canonical startup
+clones its node image inventories into these profiles. Duplicate namespaces,
+foreign directory owners and mismatched backends refuse; a request cannot select
+another image store. Profile caches and fixed peer metadata count once against
+the configured preparation-byte total. Every namespace then shares the remaining
+preparation bank and parallel worker limit. `provision_configuration_bytes`
+reports retained configuration separately from active preparations.
+
+`activate_managed_initial_group` uses the rooted group birth and actual initial
+voter identity. It refreshes catalog authorization and checks the exact synced
+boot before submission and again after local attachment. The controller retains
+preparation, selected pages, roster and transport ownership when a waiter leaves;
+retries reuse prepared owners. Entered physical work is joined even after its
+invocation expires. An attached retry revalidates under the same shared budget
+without reopening pages or attaching consensus again; it does not adopt another
+registration's physical lifecycle. Shared-engine uncertainty still closes the
+node. An attachment receipt describes the persisted fleet guard; it supplies no
+fresh quorum, seed, serving or physical-release authority. Quorum readiness is
+checked independently by the existing Raft owner.
+
+Managed group repair controls take both the rooted physical history and its
+exact admitted permit. They inspect a fresh quorum, preserve the complete plan,
+consume/advance only the matching permit and revision, and observe durable apply
+behind a new quorum before reporting success. Beginning placement checks the
+installed trust revision, original target boot and physical-host separation over
+all current occupants, including members omitted from advisory routing. Promotion
+still uses actual RawNode catch-up; seed receipts and route discovery cannot
+substitute for progress. Lost configuration replies remain unconfirmed.
+
+After committed configuration changes, managed routing can resolve newly joined
+member/disk bindings through rooted node views. Missing discovery leaves known
+voters usable; it grants no initialization, vote, quorum or release authority.
+Ordinary cell writes do not scan routes. Ordinary frames retry discovery once
+only for an unknown destination; checkpoint sends also reconcile before capture.
+Advisory refresh preserves the physical registration and checkpoint factory,
+while each transfer pins an exact route generation. Old stream generations still
+refuse. Per-chunk validation allocates no new endpoint. Explicit replacement or
+removal revokes the old factory; an old registration cannot remove its successor.
+All work retains the existing peer queues, admission and physical join owners.
+
+Managed learner activation and full managed canonical startup remain unfinished.
+See the delivery package for qualification status.
 
 
 ### Retained entry admission
@@ -594,3 +644,64 @@ before send, retains the receiver's S3 policy, and independently restores the fi
 complete image/receipt closure. It has an explicit local RustFS variant without a
 memory fallback. Current results and remaining qualification are recorded in the
 [implementation progress](../../../../../docs/design/multi-raft/cell-groups/progress.md).
+
+Managed peer learner activation enters the same retained provisioning manager as
+initial group startup. An exact original-boot permit selects the joining member;
+the authenticated seed exchange independently checks that same permit and obtains
+a fresh source quorum grant. The manager saves the recovered page/applier owner
+before starting installation and retains it after an unknown result. A durable
+seed receipt resumes through the permanent joined claim and selected physical
+closure; a staged mapping cannot bootstrap genesis. The parallel preparation
+permit spans recovery and installation. Attachment remains separate from learner
+promotion and application serving.
+
+The SDK and movement receiver now use this whole-group peer path. S3 learner
+activation currently refuses before submission: exact-reference archive transfer
+has not yet been integrated. These new managed paths have no executed native or
+RustFS qualification while the ordinary library still has legacy consumers to
+remove.
+
+The canonical group host now joins physical cleanup before an explicit startup
+error returns and withholds physical routes until all local group roots have
+attached. Its cancellation guard retains the same cleanup on the execution
+domain. The two existing startup regressions now use real shared groups, engines
+and TLS endpoints; their original lock-release and incomplete-inventory traffic
+oracles remain. Their execution is not yet qualified.
+
+Canonical archive startup creates and syncs its node-owned archive spool directory
+on the execution domain before registering an archive job. Materialized checkpoint
+receivers open anonymous files there under the existing shared scratch admission;
+they do not create a missing caller-supplied parent. Missing image data and failed
+scratch preparation still refuse S3 admission rather than changing durability.
+
+A provisioning retry may reuse its retained, completely verified selected root
+without scanning or syncing it again. Reuse checks the same live engine and page
+owners, exact selected marker, settled publication and complete checkpoint pins.
+Pending or quarantined retention refuses; marker equality cannot resolve an
+uncertain write. Changed durable selection recovers on the same page owner.
+
+A peer seed requires a live source grant through the engine's pre-fence admission
+check. After actual engine persistence succeeds, local completion checks the
+receiving engine/member/disk/process, managed boot, transport shutdown, original
+deadline and fresh catalog bootstrap. A later source restart does not revoke that
+completed installation. Neither its receipt nor bootstrap establishes fresh
+quorum or serving authority; an expired completion is refused even when cold
+recovery later finds the installed root.
+
+Shared linearizable cell reads may be selected on followers after their own safe
+ReadIndex round. Their private forwarded context binds the authenticated origin
+member, process-local nonce and sequence, separately from membership metadata and
+leader-local seed/execution contexts. Selection waits for complete local apply
+through the correlated barrier. SQL rechecks the selected history, live member,
+term and source generation; a later term/leader change or shutdown revokes the
+retained proof. This changes read availability, not leader-only mutation or seed
+admission. SQL results describe the actual selecting replica.
+
+Recent-source reads use an explicit age bound for the observed current source.
+A stale-term message or catalog refresh cannot renew that observation. The selected
+proof retains its original source expiry through queued and entered SQL work;
+fresh later traffic cannot extend it. SDK stale reads use the injected host source
+age by default; disconnected historical reads require explicit selection. Neither
+policy supplies a quorum proof. The default request deadline and physical query
+retention still apply. Public replica-candidate routing and counter/performance
+entrypoint conversion remain separate, unfinished CG-07 work.

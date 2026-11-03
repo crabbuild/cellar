@@ -205,7 +205,7 @@ mod tests {
         let outcome = NodeOutcome::Stopped(ShutdownReport {
             raft: Some(Box::new(
                 crate::application::consensus::RaftNodeShutdownReport {
-                    result: Err(crate::application::consensus::CommandFailure::Unavailable),
+                    result: Err(crate::application::consensus::CommandFailure::Unavailable.into()),
                     startup_incomplete: true,
                     drain: None,
                 },

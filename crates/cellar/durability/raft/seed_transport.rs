@@ -69,7 +69,6 @@ impl SourceSeed {
 }
 
 use super::snapshots::{read_bulk_head, Wire};
-use crate::application::consensus::RaftCells;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
@@ -575,117 +574,6 @@ impl State {
             .sleep_until(deadline)
             .map_err(|_| TransportError::Closed)?;
         crate::asyncrt::select! {_=timer=>Err(TransportError::Timeout),result=self.bounded(None,future)=>result}
-    }
-
-    pub(super) async fn receive_seed<S: AsyncRead + AsyncWrite + Unpin>(
-        &self,
-        stream: &mut S,
-        exporter: &[u8; 32],
-        prefix: [u8; frame::PREFIX],
-    ) -> Result<(), TransportError> {
-        let metadata = Arc::new(
-            self.seed_metadata
-                .acquire(META_BYTES)
-                .ok_or(TransportError::Overloaded)?,
-        );
-        let head = self
-            .bounded(
-                None,
-                read_bulk_head(stream, Some(prefix), REQUEST_MAGIC, 0, &self.options),
-            )
-            .await?;
-        let wire = Wire {
-            auth: &self.auth,
-            exporter,
-            options: &self.options,
-            max_body: SNAPSHOT_META_BYTES,
-        };
-        let request: SeedRequest = wire.decode(REQUEST_MAGIC, REQUEST_PURPOSE, &head, None)?;
-        if frame::decimal(&request.nonce)? == 0
-            || request.timeout_ms == 0
-            || request.timeout_ms > 3_600_000
-        {
-            return Err(TransportError::Protocol);
-        }
-        self.authorize_route(&request.route)?;
-        let (joining, source) = request.route.decode()?;
-        let group = self
-            .runtime
-            .log()
-            .group(&source.scope)
-            .map_err(|_| TransportError::UnknownGroup)?;
-        if !group
-            .read()
-            .map_err(|e| TransportError::Runtime(e.into()))?
-            .conf_state
-            .learners
-            .contains(&joining.member.get())
-        {
-            return Err(TransportError::Refused);
-        }
-        let handle = self
-            .query_gateway
-            .lock()
-            .map_err(|_| TransportError::Closed)?
-            .as_ref()
-            .and_then(|h| h.upgrade())
-            .ok_or(TransportError::Refused)?;
-        let gateway = RaftCells { handle };
-        let cell = gateway
-            .cell(source.scope.namespace, &source.scope.cell)
-            .map_err(|_| TransportError::Refused)?;
-        if cell.scope() != &source.scope
-            || cell.binding.class.schema_digest() != request.route.schema()
-        {
-            return Err(TransportError::Identity);
-        }
-        let deadline = self
-            .domain
-            .mono_ms()
-            .map_err(|_| TransportError::Closed)?
-            .saturating_add(request.timeout_ms);
-        let seed = cell.prepare_seed(
-            joining,
-            request.kind,
-            metadata.clone(),
-            std::time::Duration::from_millis(request.timeout_ms),
-        );
-        let mut extra = [0; 1];
-        let result=self.seed_until(deadline,async {
-            crate::asyncrt::select! {result=seed=>Ok(result),read=stream.read(&mut extra)=>{let _=read?;Err(TransportError::Closed)}}
-        }).await?;
-        self.authorize_route(&request.route)?;
-        let (status, barrier, lease, body) = match result {
-            Ok(seed) if seed.kind() == request.kind => {
-                (0, seed.barrier.get(), seed.lease(), seed.body()?)
-            }
-            Ok(_) => return Err(TransportError::Protocol),
-            Err(crate::application::consensus::CommandFailure::Overloaded) => (1, 0, 0, vec![]),
-            Err(_) => (2, 0, 0, vec![]),
-        };
-        let reply = SeedReply {
-            route: request.route.reversed(),
-            request: head.tag,
-            nonce: request.nonce,
-            status,
-            kind: request.kind,
-            barrier: barrier.to_string(),
-            lease: lease.to_string(),
-            digest: Sha256::digest(&body).into(),
-        };
-        let response = wire.encode(RESPONSE_MAGIC, RESPONSE_PURPOSE, &head.tag, &reply, &body)?;
-        let result = self
-            .seed_io(deadline, async {
-                write_head(stream, &response).await?;
-                stream.write_all(&body).await?;
-                stream.flush().await?;
-                Ok(())
-            })
-            .await;
-        if result.is_err() && lease != 0 {
-            self.finish_seed_source(lease);
-        }
-        result
     }
 }
 

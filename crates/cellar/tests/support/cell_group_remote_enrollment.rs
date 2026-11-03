@@ -68,7 +68,9 @@ pub(crate) async fn remote_enrollment() -> Result<()> {
         let gateway = fixture.transports[0].install_cell_command_gateway(
             dispatch.clone(),
             controllers[0].clone(),
-            fixture.cell_options(&cell).await?,
+            cellar::application::consensus::verification::cell_groups::CellGroupNamespaceStorage::new(
+                fixture.cell_options(&cell).await?,
+            )?,
         )?;
         let router = Router::start(&fixture).await?;
         router
@@ -98,7 +100,9 @@ pub(crate) async fn remote_enrollment() -> Result<()> {
         let follower_gateway = fixture.transports[1].install_cell_command_gateway(
             dispatch.clone(),
             controllers[1].clone(),
-            fixture.cell_options_at(&cell, 1).await?,
+            cellar::application::consensus::verification::cell_groups::CellGroupNamespaceStorage::new(
+                fixture.cell_options_at(&cell, 1).await?,
+            )?,
         )?;
         let mut follower = invocation(&dispatch, &cell, 215, Duration::from_secs(15)).await?;
         let error = follower
@@ -264,7 +268,9 @@ pub(crate) async fn remote_enrollment_lifecycle(mode: u8) -> Result<()> {
         let gateway = fixture.transports[0].install_cell_command_gateway(
             dispatch.clone(),
             controllers[0].clone(),
-            fixture.cell_options(&cell).await?,
+            cellar::application::consensus::verification::cell_groups::CellGroupNamespaceStorage::new(
+                fixture.cell_options(&cell).await?,
+            )?,
         )?;
         let router = Router::start(&fixture).await?;
         router

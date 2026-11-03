@@ -68,7 +68,8 @@ pub use movement::{FleetMovementAdmission, FleetMovementRequest};
 
 use super::*;
 use crate::raft::fleet_stop::BootBinding;
-use cellar_logic::consensus::{GroupScope, NodeId};
+use cellar_logic::cell_group::GroupHistory;
+use cellar_logic::consensus::NodeId;
 use cellar_logic::raft_fleet::{LedgerError, Resources};
 use serde::Deserialize;
 
@@ -140,7 +141,7 @@ impl FleetResourceAttestation {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FleetResourceRequest {
     pub identity: FleetRequestIdentity,
-    pub group: GroupScope,
+    pub group: GroupHistory,
     pub attestation: FleetResourceAttestation,
     /// Conservative incremental learner bound, including seed, image, tail
     /// and worker obligations. Actual host admission can still refuse it.

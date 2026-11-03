@@ -75,11 +75,57 @@ pub struct RaftCloseReport {
 /// joining the complete domain. Missing startup/close proof remains explicit.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RaftNodeShutdownReport {
-    pub result: Result<RaftCloseReport, CommandFailure>,
+    pub result:
+        Result<crate::application::consensus::group_client::RaftCloseReport, RaftNodeShutdownError>,
     pub startup_incomplete: bool,
     /// Best-effort handoff under the original Node shutdown deadline. Missing
     /// evidence is not a graceful drain, even when physical closure succeeded.
     pub drain: Option<Result<RaftDrainReport, CommandFailure>>,
+}
+
+/// Preserve the joined closure failure, including both controller and log
+/// failures. Cloned waiters share one failure identity; admission errors remain
+/// comparable by value. This error never resolves an individual mutation.
+#[derive(Clone, Debug)]
+pub enum RaftNodeShutdownError {
+    Admission(CommandFailure),
+    Closure(Arc<crate::application::consensus::group_client::RaftCloseError>),
+}
+
+impl From<CommandFailure> for RaftNodeShutdownError {
+    fn from(error: CommandFailure) -> Self {
+        Self::Admission(error)
+    }
+}
+
+impl PartialEq for RaftNodeShutdownError {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Admission(a), Self::Admission(b)) => a == b,
+            (Self::Closure(a), Self::Closure(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for RaftNodeShutdownError {}
+
+impl std::fmt::Display for RaftNodeShutdownError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Admission(error) => std::fmt::Display::fmt(error, f),
+            Self::Closure(error) => std::fmt::Display::fmt(error, f),
+        }
+    }
+}
+
+impl std::error::Error for RaftNodeShutdownError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(match self {
+            Self::Admission(error) => error,
+            Self::Closure(error) => error.as_ref(),
+        })
+    }
 }
 
 /// Each registered local replica receives at most one bounded handoff turn.
@@ -101,7 +147,7 @@ impl RaftNodeShutdownReport {
     pub(crate) fn cli_summary(&self) -> serde_json::Value {
         match &self.result {
             Ok(report) => {
-                serde_json::json!({"owners_closed":true,"startup_incomplete":self.startup_incomplete,"groups":report.groups_total,"omitted_group_details":report.omitted_groups,"groups_with_archive_lag":report.groups_with_archive_lag,"groups_with_unknown_archive":report.groups_with_unknown_archive,"unfinished_commands":report.unfinished.len(),"retain_replica_disks":true,"handoff":self.drain.as_ref().map(|result|match result {Ok(drain)=>serde_json::json!({"groups_examined":drain.groups_examined,"attempts":drain.handoff_attempts,"accepted":drain.handoffs_accepted,"leadership_released":drain.leadership_released,"unavailable_groups":drain.unavailable_groups,"deadline_elapsed":drain.deadline_elapsed}),Err(error)=>serde_json::json!({"error":error.to_string()})})})
+                serde_json::json!({"owners_closed":true,"startup_incomplete":self.startup_incomplete,"groups":report.groups_total,"omitted_group_details":report.omitted_groups,"groups_with_archive_lag":report.groups_with_archive_lag,"groups_with_unknown_archive":report.groups_with_unknown_archive,"mutation_outcomes":report.mutation_outcomes,"retained_calls_at_shutdown":report.retained_calls_at_shutdown,"retain_replica_disks":true,"handoff":self.drain.as_ref().map(|result|match result {Ok(drain)=>serde_json::json!({"groups_examined":drain.groups_examined,"attempts":drain.handoff_attempts,"accepted":drain.handoffs_accepted,"leadership_released":drain.leadership_released,"unavailable_groups":drain.unavailable_groups,"deadline_elapsed":drain.deadline_elapsed}),Err(error)=>serde_json::json!({"error":error.to_string()})})})
             }
             Err(error) => {
                 serde_json::json!({"owners_closed":false,"startup_incomplete":self.startup_incomplete,"error":error.to_string(),"retain_replica_disks":true})
@@ -258,7 +304,10 @@ impl NodeLifecycle {
 
     pub(crate) fn resource_usage(
         &self,
-    ) -> Result<Option<crate::application::consensus::RaftResourceUsage>, CommandFailure> {
+    ) -> Result<
+        Option<crate::application::consensus::group_client::CellGroupResourceUsage>,
+        CommandFailure,
+    > {
         Ok(self
             .sample_service()?
             .map(|service| service.resource_usage()))
@@ -312,7 +361,7 @@ impl NodeLifecycle {
                 Ok(state) => state,
                 Err(_) => {
                     return Some(RaftNodeShutdownReport {
-                        result: Err(CommandFailure::Unavailable),
+                        result: Err(CommandFailure::Unavailable.into()),
                         startup_incomplete: true,
                         drain: None,
                     })
@@ -333,13 +382,16 @@ impl NodeLifecycle {
                     None => None,
                 };
                 RaftNodeShutdownReport {
-                    result: service.close().await,
+                    result: service
+                        .close()
+                        .await
+                        .map_err(RaftNodeShutdownError::Closure),
                     startup_incomplete: false,
                     drain,
                 }
             }
             None => RaftNodeShutdownReport {
-                result: Err(CommandFailure::Unavailable),
+                result: Err(CommandFailure::Unavailable.into()),
                 startup_incomplete: true,
                 drain: None,
             },

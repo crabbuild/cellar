@@ -16,6 +16,11 @@ mod directory;
 mod fault;
 
 #[tokio::test]
+async fn group_import_freeze_retains_pending_and_fences_topology() -> anyhow::Result<()> {
+    directory::group_import_freeze().await
+}
+
+#[tokio::test]
 async fn directory_inventory_pages_bind_the_exact_topology_cut() -> anyhow::Result<()> {
     directory::inventory_pages().await
 }

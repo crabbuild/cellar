@@ -17,7 +17,7 @@ pub struct CellGroupBirthSpec {
 
 /// Persist the canonical request before reserving its global group ID. Retrying
 /// must keep these bytes, including placement, creation identity and incarnation.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CellGroupBirthRequest {
     bytes: Vec<u8>,
     route: GroupRoute,
@@ -57,6 +57,10 @@ pub struct CellGroupBirth {
 }
 
 impl CellGroupBirth {
+    pub fn encode(&self) -> &[u8] {
+        self.request.encode()
+    }
+
     pub fn route(&self) -> &GroupRoute {
         self.request.route()
     }
@@ -75,6 +79,55 @@ impl CellGroupBirth {
 }
 
 impl RangeDirectory {
+    /// Resolve a physical placement by its complete history. The permanent
+    /// reservation only supplies candidate metadata: directory selection is
+    /// rechecked before materializing it, and bootstrap still requires a permit.
+    pub async fn materialize_selected_history(
+        &self,
+        history: GroupHistory,
+    ) -> Result<CellGroupBirth, CatalogError> {
+        if history.cluster != self.namespace.config.cluster
+            || history.namespace != self.namespace.config.namespace
+        {
+            return Err(CatalogError::Conflict("group placement namespace"));
+        }
+        let request = self
+            .bounded(async {
+                let key = Path::from(format!(
+                    "{}groups/{}",
+                    self.namespace.inner.prefix,
+                    hex::encode(history.group.bytes())
+                ));
+                let (bytes, _) = self
+                    .namespace
+                    .inner
+                    .read_versioned_bounded(&key, wire::LIMIT)
+                    .await?
+                    .ok_or(CatalogError::Corrupt("missing group birth reservation"))?;
+                let reservation: wire::BirthReservation =
+                    record::decode(wire::GROUP_BIRTH_RESERVATION, &bytes, wire::LIMIT)?;
+                if reservation.recovery == Some([0; 32]) {
+                    return Err(CatalogError::Corrupt("recovery reservation identity"));
+                }
+                let request = self.decode_group_birth(&reservation.birth)?;
+                if request.route().history != history {
+                    return Err(CatalogError::Fenced);
+                }
+                Ok(request)
+            })
+            .await?;
+        if self.namespace.cell_group_owner().await?.is_some() {
+            let birth = CellGroupBirth {
+                request,
+                owner: self.namespace.inner.owner.clone(),
+            };
+            self.require_current_group_birth(&birth).await?;
+            Ok(birth)
+        } else {
+            self.materialize_group_birth(&request).await
+        }
+    }
+
     /// Recover the immutable reservation for an already selected range. This
     /// never chooses placement or allocates another group in response to a cell.
     pub async fn materialize_selected_group(
@@ -103,9 +156,33 @@ impl RangeDirectory {
 
     pub fn prepare_group_birth(
         &self,
-        mut spec: CellGroupBirthSpec,
+        spec: CellGroupBirthSpec,
     ) -> Result<CellGroupBirthRequest, CatalogError> {
         self.unmanaged_birth()?;
+        self.prepare_birth(spec)
+    }
+
+    pub(crate) fn prepare_fleet_group_birth(
+        &self,
+        spec: CellGroupBirthSpec,
+        owner: &crate::raft::catalog::ManagedBirthOwner,
+    ) -> Result<CellGroupBirthRequest, CatalogError> {
+        if self
+            .namespace
+            .config
+            .managed_fleet
+            .as_ref()
+            .is_some_and(|configured| configured != owner)
+        {
+            return Err(CatalogError::ManagedAdmissionRequired);
+        }
+        self.prepare_birth(spec)
+    }
+
+    fn prepare_birth(
+        &self,
+        mut spec: CellGroupBirthSpec,
+    ) -> Result<CellGroupBirthRequest, CatalogError> {
         if spec.history.cluster != self.namespace.config.cluster
             || spec.history.namespace != self.namespace.config.namespace
         {
@@ -145,7 +222,6 @@ impl RangeDirectory {
     }
 
     pub fn decode_group_birth(&self, bytes: &[u8]) -> Result<CellGroupBirthRequest, CatalogError> {
-        self.unmanaged_birth()?;
         let value: wire::Birth = record::decode(wire::GROUP_BIRTH, bytes, wire::LIMIT)?;
         if value.namespace != self.namespace.root_digest {
             return Err(CatalogError::Conflict("group birth namespace"));
@@ -205,6 +281,29 @@ impl RangeDirectory {
         &self,
         request: &CellGroupBirthRequest,
     ) -> Result<(), CatalogError> {
+        self.unmanaged_birth()?;
+        self.reserve_birth_record(
+            request,
+            &wire::BirthReservation {
+                birth: request.encode().to_vec(),
+                recovery: None,
+            },
+        )
+        .await?;
+        self.bounded(self.namespace.admit_cell_group(request)).await
+    }
+
+    /// A provisional permanent identity claim precedes the fleet root CAS.
+    /// Losing that CAS retains this claim; it grants no materialization,
+    /// bootstrap or quorum authority without the rooted birth capability.
+    pub(crate) async fn reserve_fleet_group_identity(
+        &self,
+        request: &CellGroupBirthRequest,
+        owner: &crate::raft::catalog::ManagedBirthOwner,
+    ) -> Result<(), CatalogError> {
+        if self.namespace.cell_group_owner().await?.as_ref() != Some(owner) {
+            return Err(CatalogError::ManagedAdmissionRequired);
+        }
         self.reserve_birth_record(
             request,
             &wire::BirthReservation {
@@ -268,6 +367,11 @@ impl RangeDirectory {
         let (request, recovery) = self.birth_reservation(route).await?;
         if recovery.is_some() {
             return Err(CatalogError::Fenced);
+        }
+        if self.namespace.config.managed_fleet.is_none()
+            && self.namespace.cell_group_owner().await?.is_none()
+        {
+            self.namespace.verify_cell_group_intent(&request).await?;
         }
         Ok(request)
     }
@@ -336,6 +440,40 @@ impl RangeDirectory {
         &self,
         request: &CellGroupBirthRequest,
     ) -> Result<CellGroupBirth, CatalogError> {
+        self.unmanaged_birth()?;
+        self.namespace.require_cell_group_unmanaged().await?;
+        self.materialize_birth(request).await
+    }
+
+    /// Only a rooted fleet reservation can create managed birth metadata.
+    /// Materialization supplies no voter, quorum or application authority.
+    pub async fn materialize_fleet_group_birth(
+        &self,
+        authorization: &crate::raft::fleet_catalog::FleetBirthAuthorization,
+    ) -> Result<CellGroupBirth, CatalogError> {
+        authorization.check_namespace(&self.namespace)?;
+        if self.namespace.cell_group_owner().await?.as_ref() != Some(authorization.owner()) {
+            return Err(CatalogError::ManagedAdmissionRequired);
+        }
+        let request = authorization.proposal();
+        let decoded = self.decode_group_birth(request.encode())?;
+        if decoded.encode() != request.encode() {
+            return Err(CatalogError::Conflict("managed group birth request"));
+        }
+        self.materialize_birth(&request).await
+    }
+
+    pub(super) async fn materialize_import_birth(
+        &self,
+        request: &CellGroupBirthRequest,
+    ) -> Result<CellGroupBirth, CatalogError> {
+        self.materialize_birth(request).await
+    }
+
+    async fn materialize_birth(
+        &self,
+        request: &CellGroupBirthRequest,
+    ) -> Result<CellGroupBirth, CatalogError> {
         self.decode_group_birth(request.encode())?;
         self.bounded(async {
             self.selected_birth_route(request.route()).await?;
@@ -349,8 +487,11 @@ impl RangeDirectory {
                     wire::LIMIT,
                 )
                 .await?;
-            if observed != request.encode() {
-                return Err(CatalogError::Conflict("selected group birth"));
+            match self.decode_group_disposition(request, &observed)? {
+                CellGroupBirthDisposition::Live(_) => (),
+                CellGroupBirthDisposition::Cancelled { .. } => {
+                    return Err(CatalogError::BirthCancelled)
+                }
             }
             self.selected_birth_route(request.route()).await?;
             Ok(CellGroupBirth {

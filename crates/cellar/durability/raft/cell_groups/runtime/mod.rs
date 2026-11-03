@@ -30,7 +30,7 @@ const SNAPSHOT_HINT_SLOTS: usize = 256;
 /// Advisory admission counters. Different lanes may be observed at different
 /// moments; these values neither reserve capacity nor establish durability or
 /// serving authority.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct CellGroupAdmissionUsage {
     pub items: usize,
     pub bytes: usize,
@@ -39,7 +39,7 @@ pub struct CellGroupAdmissionUsage {
 }
 
 impl CellGroupAdmissionUsage {
-    fn read(budget: &Budget) -> Self {
+    pub(crate) fn read(budget: &Budget) -> Self {
         let (bytes, items) = budget.usage();
         let (max_bytes, max_items) = budget.capacity();
         Self {
@@ -52,7 +52,7 @@ impl CellGroupAdmissionUsage {
 }
 
 /// Node-wide request/pin admission, retained through each lane's owned work.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct CellGroupRuntimeUsage {
     pub ordinary: CellGroupAdmissionUsage,
     /// Eight slots and max_ready_bytes of request metadata, independently of
@@ -132,6 +132,8 @@ enum Command {
     Quarantine,
     Campaign,
     TransferLeader(u64),
+    TransferLeadership(crate::raft::completion::LeadershipTransfer),
+    RestartLeadership(Box<crate::raft::completion::RestartLeadershipCheck>),
     Configure(CellGroupMembershipChange),
     ActivateRecovery(Box<CellGroupRecoveryActivationPermit>),
     Execution(cellar_logic::cell_group::CellHistory),
@@ -160,6 +162,7 @@ enum Command {
     Apply(CellGroupTicket, Box<PreparedGroupManifest>),
     CaptureCheckpoint(CellGroupCheckpointPool),
     Status,
+    ReplicationStatus,
     Tick,
 }
 
@@ -175,8 +178,10 @@ enum Response {
     EnrollmentState(Box<CellEnrollmentState>),
     Reconciliation(Box<CellReconciliationAuthority>),
     Status(CellGroupStatus),
+    ReplicationStatus(crate::raft::completion::ReplicationStatus<GroupHistory>),
     Read(Box<CellReadAuthority>),
     Seed(Box<CellGroupSeedAuthority>),
+    Membership(Box<CellGroupQuorumMembership>),
     CheckpointSource(Box<Result<CellGroupCheckpoint, CellGroupCheckpointError>>),
 }
 
@@ -215,6 +220,10 @@ impl CellGroupRuntime {
 
     pub(crate) fn log(&self) -> &ReplicaLog {
         &self.inner.log
+    }
+
+    pub(crate) fn limits(&self) -> &RaftRuntimeOptions {
+        &self.inner.options
     }
 
     pub(crate) fn claim_transport(&self) -> Result<TransportClaim, RuntimeError> {
@@ -536,10 +545,11 @@ impl CellGroupRuntime {
         {
             return Err(RuntimeError::DeadlineExceeded);
         }
+        let bytes = kind.reservation_bytes();
         let reservation = self
             .inner
             .read_pins
-            .acquire(4096)
+            .acquire(bytes)
             .ok_or(RuntimeError::Overloaded)?;
         let request = reads::ReadRequest {
             kind,
@@ -552,10 +562,51 @@ impl CellGroupRuntime {
             .sleep_until(deadline)
             .map_err(|_| RuntimeError::Closed)?;
         crate::asyncrt::select! {
-            result = self.call(Some(history), Command::Read(Box::new(request)), 4096) => {
+            result = self.call(Some(history), Command::Read(Box::new(request)), bytes) => {
                 result
             }
             _ = timer => Err(RuntimeError::DeadlineExceeded),
+        }
+    }
+
+    /// Observe one actual physical configuration after a fresh safe ReadIndex
+    /// and contiguous durable apply, without selecting an application cell.
+    /// A follower forwards the metadata request to its current leader and waits
+    /// for its own durable apply. No leader/execution authority is returned.
+    pub async fn quorum_membership(
+        &self,
+        history: GroupHistory,
+        deadline: u64,
+    ) -> Result<CellGroupQuorumMembership, RuntimeError> {
+        self.quorum_membership_after(history, cellar_logic::consensus::LogIndex::new(0), deadline)
+            .await
+    }
+
+    /// Wait for this durable apply floor before issuing the fresh safe ReadIndex.
+    /// Admission of a configuration proposal alone cannot satisfy this read.
+    pub async fn quorum_membership_after(
+        &self,
+        history: GroupHistory,
+        minimum: cellar_logic::consensus::LogIndex,
+        deadline: u64,
+    ) -> Result<CellGroupQuorumMembership, RuntimeError> {
+        let response = self
+            .select_authority(history, reads::ReadKind::Membership { minimum }, deadline)
+            .await?;
+        if self
+            .inner
+            .domain
+            .mono_ms()
+            .map_err(|_| RuntimeError::Closed)?
+            >= deadline
+        {
+            return Err(RuntimeError::DeadlineExceeded);
+        }
+        match response {
+            Response::Membership(observation) => Ok(*observation),
+            _ => Err(RuntimeError::Protocol(
+                "group quorum membership reply".into(),
+            )),
         }
     }
 
@@ -892,6 +943,45 @@ impl CellGroupRuntime {
             Response::Status(status) => Ok(status),
             _ => Err(RuntimeError::Protocol("status reply".into())),
         }
+    }
+
+    pub async fn replication_status(
+        &self,
+        history: GroupHistory,
+    ) -> Result<crate::raft::completion::ReplicationStatus<GroupHistory>, RuntimeError> {
+        match self
+            .call(Some(history), Command::ReplicationStatus, 4096)
+            .await?
+        {
+            Response::ReplicationStatus(status) => Ok(status),
+            _ => Err(RuntimeError::Protocol(
+                "group replication status reply".into(),
+            )),
+        }
+    }
+
+    pub async fn transfer_leadership(
+        &self,
+        history: GroupHistory,
+        transfer: crate::raft::completion::LeadershipTransfer,
+    ) -> Result<(), RuntimeError> {
+        self.call(Some(history), Command::TransferLeadership(transfer), 4096)
+            .await
+            .map(|_| ())
+    }
+
+    pub(crate) async fn restart_leadership(
+        &self,
+        history: GroupHistory,
+        check: crate::raft::completion::RestartLeadershipCheck,
+    ) -> Result<(), RuntimeError> {
+        self.call(
+            Some(history),
+            Command::RestartLeadership(Box::new(check)),
+            4096,
+        )
+        .await
+        .map(|_| ())
     }
 
     /// Capture the owner's exact durable applied cut on the existing worker.

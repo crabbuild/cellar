@@ -14,7 +14,8 @@ fn closed() -> RaftStopProof {
             omitted_group_details: 999_999,
             groups_with_archive_lag: 800_000,
             groups_with_unknown_archive: 100_000,
-            unfinished_commands: 0,
+            mutation_outcomes: MutationOutcomes::NoUnresolvedLocalProducers,
+            retained_calls_at_shutdown: 0,
         },
         handoff: RaftStopHandoff::Observed {
             groups_examined: 10,
@@ -61,7 +62,8 @@ fn raft_stop_refuses_incomplete_work_and_unknown_handoff() {
     }
     let mut proof = closed();
     if let RaftStopProof::Closed { owners, .. } = &mut proof {
-        owners.unfinished_commands = 1;
+        owners.mutation_outcomes = MutationOutcomes::Unobserved;
+        owners.retained_calls_at_shutdown = 8;
     }
     assert!(!proof.complete());
     let mut proof = closed();
@@ -86,6 +88,12 @@ fn raft_stop_refuses_incomplete_work_and_unknown_handoff() {
 #[test]
 fn raft_stop_refuses_fabricated_identity_counts_and_fields() {
     let valid = serde_json::to_value(closed()).unwrap();
+    let mut invalid = valid.clone();
+    invalid["owners"]["retained_calls_at_shutdown"] = serde_json::json!(8);
+    assert!(serde_json::from_value::<RaftStopProof>(invalid)
+        .unwrap()
+        .validate()
+        .is_err());
     for key in ["node", "disk", "process", "engine"] {
         let mut invalid = valid.clone();
         invalid["owners"][key] = serde_json::json!(vec![0; 16]);
@@ -115,4 +123,37 @@ fn raft_stop_refuses_fabricated_identity_counts_and_fields() {
     invalid["retain_replica_disks"] = serde_json::json!(false);
     assert!(serde_json::from_value::<RaftStopProof>(invalid).is_err());
     assert!(serde_json::from_str::<RaftStopProof>("{}").is_err());
+}
+
+#[test]
+fn shared_group_stop_never_infers_outcomes_from_call_count() {
+    for count in [0, 1, 8, 1_000_000] {
+        let mut proof = closed();
+        if let RaftStopProof::Closed { owners, .. } = &mut proof {
+            owners.groups = 1;
+            owners.omitted_group_details = 0;
+            owners.groups_with_archive_lag = 0;
+            owners.groups_with_unknown_archive = 1;
+            owners.retained_calls_at_shutdown = count;
+            owners.mutation_outcomes = MutationOutcomes::Unobserved;
+        }
+        if let RaftStopProof::Closed { handoff, .. } = &mut proof {
+            *handoff = RaftStopHandoff::Observed {
+                groups_examined: 1,
+                attempts: 0,
+                accepted: 0,
+                leadership_released: 0,
+                unavailable_groups: 1,
+                deadline_elapsed: false,
+            };
+        }
+        assert!(proof.validate().is_ok());
+        assert!(!proof.complete());
+        let mut value = serde_json::to_value(proof).unwrap();
+        value["owners"]
+            .as_object_mut()
+            .unwrap()
+            .remove("mutation_outcomes");
+        assert!(serde_json::from_value::<RaftStopProof>(value).is_err());
+    }
 }

@@ -3,7 +3,7 @@
 use super::histories::{history_mutation, validate_request};
 use super::nodes::{NodeRecord, NODE_KIND};
 use super::*;
-use crate::raft::catalog::NamespaceCatalog;
+use crate::raft::catalog::RangeDirectory;
 use crate::raft::fleet_stop::BootBinding;
 use cellar_logic::consensus::{DiskLineage, EngineInstanceId, NodeId, ProposalId};
 use serde::Deserialize;
@@ -291,7 +291,7 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         request: &FleetRequestIdentity,
         node: NodeId,
-        namespaces: &[NamespaceCatalog],
+        namespaces: &[RangeDirectory],
         timeout: Duration,
     ) -> Result<FleetCommit> {
         self.check_snapshot(snapshot)?;
@@ -323,7 +323,7 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         request: &FleetRequestIdentity,
         node: NodeId,
-        namespaces: &[NamespaceCatalog],
+        namespaces: &[RangeDirectory],
         timeout: Duration,
     ) -> Result<FleetCommit> {
         self.check_snapshot(snapshot)?;
@@ -352,7 +352,7 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         request: &FleetRequestIdentity,
         failure: (BootBinding, u64),
-        namespaces: &[NamespaceCatalog],
+        namespaces: &[RangeDirectory],
         timeout: Duration,
     ) -> Result<FleetCommit> {
         self.check_snapshot(snapshot)?;
@@ -384,7 +384,7 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         request: &FleetRequestIdentity,
         node: NodeId,
-        namespaces: &[NamespaceCatalog],
+        namespaces: &[RangeDirectory],
         mode: AdmissionMode,
     ) -> Result<FleetCommit> {
         let current = self.inner.current().await?;

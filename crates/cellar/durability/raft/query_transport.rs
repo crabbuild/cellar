@@ -4,56 +4,15 @@
 //! occupy the control or LTX connection required to establish its barrier.
 
 use super::*;
-use crate::application::consensus::{client, CommandFailure, QueryResult, VersionKeys};
+use crate::application::consensus::client;
 use crate::raft::query_identity::QueryRoute;
-use crate::raft::query_wire::{self as wire, QueryCall};
-use cellar_logic::consensus::{MemberId, NodeIdentity};
+use crate::raft::query_wire as wire;
+use cellar_logic::consensus::NodeIdentity;
 use sha2::{Digest, Sha256};
 
-pub(crate) struct QueryResponse {
-    pub value: Result<QueryResult, CommandFailure>,
-    _node: Permit,
-    _peer: Permit,
-}
-
-pub(crate) struct QueryDelivery {
-    result: Option<oneshot::Receiver<Result<QueryResponse, TransportError>>>,
-    cancel: watch::Sender<bool>,
-}
-
-impl QueryDelivery {
-    pub async fn receive(mut self) -> Result<QueryResponse, TransportError> {
-        self.result
-            .take()
-            .ok_or(TransportError::Closed)?
-            .await
-            .map_err(|_| TransportError::Closed)?
-    }
-}
-
-impl Drop for QueryDelivery {
-    fn drop(&mut self) {
-        self.cancel.send_replace(true);
-    }
-}
-
 pub(super) enum SendQuery {
-    Legacy(Box<LegacySendQuery>),
     Shared(Box<super::cell_queries::SendCellQuery>),
     Write(Box<super::cell_commands::SendCellWrite>),
-}
-
-pub(super) struct LegacySendQuery {
-    scope: GroupScope,
-    route: Arc<GroupRoute>,
-    peer: RaftPeer,
-    call: QueryCall,
-    deadline: u64,
-    keys: VersionKeys,
-    cancel: watch::Receiver<bool>,
-    reply: oneshot::Sender<Result<QueryResponse, TransportError>>,
-    node: Permit,
-    peer_bytes: Permit,
 }
 
 pub(super) struct OriginGrant {
@@ -267,98 +226,6 @@ impl RaftTransport {
         *gateway = Some(Arc::downgrade(&handle));
         Ok(())
     }
-
-    pub(in crate::raft) fn query(
-        &self,
-        scope: &GroupScope,
-        member: MemberId,
-        call: QueryCall,
-        keys: VersionKeys,
-        deadline: u64,
-    ) -> Result<QueryDelivery, TransportError> {
-        let state = &self.handle.0;
-        let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
-        state.admit(&registry)?;
-        if state.domain.mono_ms().map_err(|_| TransportError::Closed)? >= deadline {
-            return Err(TransportError::Timeout);
-        }
-        let route = registry
-            .groups
-            .get(scope)
-            .or_else(|| registry.query_groups.get(scope))
-            .ok_or(TransportError::UnknownGroup)?
-            .clone();
-        let local_node = state.runtime.log().limits().node;
-        let peer = route
-            .peers
-            .iter()
-            .find(|p| p.replica.member == member && p.replica.node != local_node)
-            .ok_or(TransportError::Identity)?
-            .clone();
-        let pool = registry
-            .pools
-            .get(&peer.replica.node)
-            .ok_or(TransportError::StalePeer)?
-            .clone();
-        drop(registry);
-        let charge = reservation(
-            call.input
-                .len()
-                .checked_add(4096)
-                .ok_or(TransportError::Limit)?,
-            &state.options,
-        )?;
-        let node = state
-            .outgoing
-            .query
-            .acquire(charge)
-            .ok_or(TransportError::Overloaded)?;
-        let peer_bytes = pool
-            .outgoing
-            .query
-            .acquire(charge)
-            .ok_or(TransportError::Overloaded)?;
-        // Validate/size the bounded representation before queueing, but retain
-        // only captured inputs. The sender encodes again with remaining time.
-        drop(call.encode(state.options.max_query_request_bytes)?);
-        let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
-        state.admit(&registry)?;
-        if !registry
-            .groups
-            .get(scope)
-            .or_else(|| registry.query_groups.get(scope))
-            .is_some_and(|r| Arc::ptr_eq(r, &route))
-            || !registry
-                .pools
-                .get(&peer.replica.node)
-                .is_some_and(|p| Arc::ptr_eq(p, &pool))
-        {
-            return Err(TransportError::StalePeer);
-        }
-        let (reply, result) = oneshot::channel();
-        let (cancel, cancelled) = watch::channel(false);
-        pool.query
-            .try_send(SendQuery::Legacy(Box::new(LegacySendQuery {
-                scope: scope.clone(),
-                route,
-                peer,
-                call,
-                deadline,
-                keys,
-                cancel: cancelled,
-                reply,
-                node,
-                peer_bytes,
-            })))
-            .map_err(|e| match e {
-                mpsc::error::TrySendError::Full(_) => TransportError::Overloaded,
-                mpsc::error::TrySendError::Closed(_) => TransportError::Closed,
-            })?;
-        Ok(QueryDelivery {
-            result: Some(result),
-            cancel,
-        })
-    }
 }
 
 pub(super) fn reservation(
@@ -398,63 +265,11 @@ impl State {
         if wire.requires_command_grant() {
             return self.authorize_cell_command(wire);
         }
-        if wire.is_shared() {
-            return self.authorize_cell_query(wire);
-        }
-        let (source, target) = wire.decode()?;
-        let registry = self.registry.lock().map_err(|_| TransportError::Closed)?;
-        self.admit(&registry)?;
-        let route = registry
-            .groups
-            .get(&target.scope)
-            .ok_or(TransportError::UnknownGroup)?;
-        let group = self
-            .runtime
-            .log()
-            .group(&target.scope)
-            .map_err(|_| TransportError::UnknownGroup)?;
-        if *group.identity() != target
-            || wire.target_label() != self.auth.source()
-            || wire.schema() != route.schema_digest
-        {
-            return Err(TransportError::StalePeer);
-        }
-        let member_peer = route.peers.iter().find(|peer| {
-            peer.replica.node_identity() == source && peer.label == wire.source_label()
-        });
-        let cache = group
-            .read()
-            .map_err(|error| TransportError::Runtime(error.into()))?;
-        if !cache.membership.permits(&target) {
-            return Err(TransportError::StalePeer);
-        }
-        let conf = &cache.conf_state;
-        let present = |member| {
-            conf.voters
-                .iter()
-                .chain(&conf.voters_outgoing)
-                .chain(&conf.learners)
-                .chain(&conf.learners_next)
-                .any(|id| *id == member)
-        };
-        if !present(target.member.get()) {
-            return Err(TransportError::StalePeer);
-        }
-        let implicit = member_peer.filter(|peer| {
-            present(peer.replica.member.get()) && cache.membership.permits(&peer.replica)
-        });
-        self.authorize_query_origin(
-            &registry,
-            target.scope.cluster,
-            target.scope.namespace,
-            source,
-            wire.source_label(),
-            implicit,
-        )
+        self.authorize_cell_query(wire)
     }
 
-    /// Shared and temporary legacy queries have exactly the same read-only
-    /// origin grant, process binding, revocation and peer-pool permission path.
+    /// Every cell read uses the same read-only origin grant, process binding,
+    /// revocation and peer-pool permission path.
     pub(super) fn authorize_query_origin<S>(
         &self,
         registry: &Registry,
@@ -493,28 +308,6 @@ impl State {
             .cloned()
             .ok_or(TransportError::Refused)?;
         Ok((pool, permission))
-    }
-
-    fn current_query_route(
-        &self,
-        scope: &GroupScope,
-        route: &Arc<GroupRoute>,
-        peer: &RaftPeer,
-    ) -> bool {
-        if self.runtime.log().group(scope).is_ok() {
-            return self.current_route(scope, route, peer);
-        }
-        self.registry.lock().is_ok_and(|registry| {
-            self.admit(&registry).is_ok()
-                && registry
-                    .query_groups
-                    .get(scope)
-                    .is_some_and(|view| Arc::ptr_eq(view, route))
-                && registry
-                    .pools
-                    .get(&peer.replica.node)
-                    .is_some_and(|pool| pool.peer.same_host(peer))
-        })
     }
 
     pub(super) async fn query_until<T>(
@@ -725,30 +518,6 @@ impl State {
             }
             let request = crate::asyncrt::select! { _ = stop.changed() => return, _ = peer_stop.changed() => return, request = requests.recv() => match request { Some(request) => request, None => return } };
             let failed = match request {
-                SendQuery::Legacy(mut request) => {
-                    let result = self
-                        .query_until(
-                            &pool,
-                            request.deadline,
-                            request.cancel.clone(),
-                            None,
-                            self.send_legacy_query(&mut request, &mut connection),
-                        )
-                        .await;
-                    let failed = result.is_err();
-                    let LegacySendQuery {
-                        reply,
-                        node,
-                        peer_bytes,
-                        ..
-                    } = *request;
-                    let _ = reply.send(result.map(|value| QueryResponse {
-                        value,
-                        _node: node,
-                        _peer: peer_bytes,
-                    }));
-                    failed
-                }
                 SendQuery::Write(request) => {
                     self.send_cell_write(&pool, *request, &mut connection).await
                 }
@@ -761,56 +530,6 @@ impl State {
                 self.failed.fetch_add(1, Ordering::Relaxed);
             }
         }
-    }
-
-    async fn send_legacy_query(
-        &self,
-        request: &mut LegacySendQuery,
-        connection: &mut Option<QueryConnection>,
-    ) -> Result<Result<QueryResult, CommandFailure>, TransportError> {
-        if !self.current_query_route(&request.scope, &request.route, &request.peer) {
-            return Err(TransportError::StalePeer);
-        }
-        let remaining = request
-            .deadline
-            .checked_sub(self.domain.mono_ms().map_err(|_| TransportError::Closed)?)
-            .filter(|ms| *ms > 0)
-            .ok_or(TransportError::Timeout)?;
-        request.call.options.timeout = request
-            .call
-            .options
-            .timeout
-            .min(std::time::Duration::from_millis(remaining));
-        let body = request.call.encode(self.options.max_query_request_bytes)?;
-        let local = self.runtime.log().limits();
-        let route = QueryRoute::new(
-            NodeIdentity {
-                node: local.node,
-                disk: local.disk,
-                process: local.process,
-            },
-            self.auth.source(),
-            &request.peer.replica,
-            &request.peer.label,
-            request.route.schema_digest,
-        )?;
-        let body = self
-            .exchange_query(connection, &RaftPeerNode::from(&request.peer), route, body)
-            .await?;
-        if !self.current_query_route(&request.scope, &request.route, &request.peer) {
-            return Err(TransportError::StalePeer);
-        }
-        let now =
-            u64::try_from(crate::asyncrt::wall_ms()).map_err(|_| TransportError::Authentication)?;
-        wire::decode_result(
-            &body,
-            &request.scope,
-            request.route.schema_digest,
-            &request.keys,
-            now,
-            self.options.max_query_response_bytes,
-            request.peer.replica.member,
-        )
     }
 
     pub(super) async fn exchange_query(

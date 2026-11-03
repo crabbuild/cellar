@@ -125,6 +125,7 @@ pub(super) async fn registration_minimum(
         route.schema_digest,
     );
     config.minimum_durability = minimum;
+    config.image_storage = fixture.cluster.directory.namespace_config().image_storage;
     let namespace = fixture
         .cluster
         .domain

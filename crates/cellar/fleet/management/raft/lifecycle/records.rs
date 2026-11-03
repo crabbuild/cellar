@@ -240,7 +240,6 @@ pub struct RaftFleetEvacuationDebt {
     pub namespace: String,
     pub group: String,
     pub incarnation: String,
-    pub cell: String,
     pub target: String,
     pub peak_engine_slots: u32,
     pub peak_durable_bytes: u64,

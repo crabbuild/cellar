@@ -5,20 +5,20 @@ use super::*;
 use crate::raft::budget::Permit;
 use tokio::sync::oneshot;
 
-pub(super) struct Delivery<T, E> {
+pub(super) struct Delivery<T, E, P = Permit> {
     pub result: Result<T, Arc<E>>,
-    pub _permit: Arc<Permit>,
+    pub _permit: Arc<P>,
 }
 
-pub(super) struct Call<I, T, E> {
-    pub receiver: oneshot::Receiver<Delivery<T, E>>,
+pub(super) struct Call<I, T, E, P = Permit> {
+    pub receiver: oneshot::Receiver<Delivery<T, E, P>>,
     pub identity: I,
     pub deadline: u64,
     pub domain: crate::asyncrt::DomainToken,
     pub failure: fn(I, RuntimeError) -> E,
 }
 
-impl<I: Copy, T, E> Call<I, T, E> {
+impl<I: Copy, T, E, P> Call<I, T, E, P> {
     pub async fn response(self) -> Result<T, Arc<E>> {
         let failure = |reason| Arc::new((self.failure)(self.identity, reason));
         let now = self

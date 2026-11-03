@@ -9,6 +9,8 @@ use crate::raft::cell_groups::{
 use std::sync::Weak;
 mod codec;
 mod receive;
+#[cfg(all(test, not(cellar_internal_tests)))]
+mod route_tests;
 pub(crate) mod seed;
 mod send;
 mod workers;
@@ -19,7 +21,9 @@ pub use seed::{CellGroupSeedError, CellGroupSeedSession};
 pub(super) struct Endpoint {
     applier: CellGroupApplier,
     route: Arc<GroupRoute<GroupHistory>>,
-    active: AtomicBool,
+    active: Arc<AtomicBool>,
+    owner: Arc<()>,
+    registration: Arc<()>,
 }
 
 /// Retain with the group's controller registration. Dropping this handle revokes
@@ -104,10 +108,17 @@ impl RaftTransport {
         if registry.group_checkpoints.len() >= state.options.max_groups {
             return Err(TransportError::Overloaded);
         }
+        let owner = registry
+            .physical_owners
+            .get(&history)
+            .cloned()
+            .ok_or(TransportError::UnknownGroup)?;
         let endpoint = Arc::new(Endpoint {
             applier,
             route,
-            active: AtomicBool::new(true),
+            active: Arc::new(AtomicBool::new(true)),
+            owner,
+            registration: Arc::new(()),
         });
         registry
             .group_checkpoints
@@ -137,13 +148,30 @@ impl State {
             .ok_or(TransportError::Refused)?;
         if !endpoint.active.load(Ordering::Acquire)
             || !registry
-                .physical_groups
+                .physical_owners
                 .get(history)
-                .is_some_and(|route| Arc::ptr_eq(route, &endpoint.route))
+                .is_some_and(|owner| Arc::ptr_eq(owner, &endpoint.owner))
         {
             return Err(TransportError::StalePeer);
         }
-        Ok((endpoint, pool))
+        let route = registry
+            .physical_groups
+            .get(history)
+            .ok_or(TransportError::UnknownGroup)?;
+        // Keep one factory/physical owner across advisory refreshes, while each
+        // admitted stream captures one exact immutable route generation.
+        let selected = if Arc::ptr_eq(route, &endpoint.route) {
+            endpoint
+        } else {
+            Arc::new(Endpoint {
+                applier: endpoint.applier.clone(),
+                route: route.clone(),
+                active: endpoint.active.clone(),
+                owner: endpoint.owner.clone(),
+                registration: endpoint.registration.clone(),
+            })
+        };
+        Ok((selected, pool))
     }
 
     fn checkpoint_current(
@@ -152,9 +180,29 @@ impl State {
         wire: &Route,
     ) -> Result<Arc<Pool>, TransportError> {
         let (_, target) = wire.decode_group()?;
-        let (current, _) = self.checkpoint_endpoint(&target.scope)?;
-        if !Arc::ptr_eq(&current, endpoint) {
-            return Err(TransportError::StalePeer);
+        {
+            let registry = self.registry.lock().map_err(|_| TransportError::Closed)?;
+            self.admit(&registry)?;
+            let current = registry
+                .group_checkpoints
+                .get(&target.scope)
+                .and_then(Weak::upgrade)
+                .ok_or(TransportError::Refused)?;
+            // Per-chunk validation allocates no selected endpoint or route.
+            // Drop this guard before peer authorization takes the registry lock.
+            if !endpoint.active.load(Ordering::Acquire)
+                || !Arc::ptr_eq(&current.registration, &endpoint.registration)
+                || !registry
+                    .physical_owners
+                    .get(&target.scope)
+                    .is_some_and(|owner| Arc::ptr_eq(owner, &endpoint.owner))
+                || !registry
+                    .physical_groups
+                    .get(&target.scope)
+                    .is_some_and(|route| Arc::ptr_eq(route, &endpoint.route))
+            {
+                return Err(TransportError::StalePeer);
+            }
         }
         self.authorize_physical(wire)
     }

@@ -47,6 +47,17 @@ pub struct CellGroupMembershipChange {
 }
 
 impl CellGroupMembershipChange {
+    fn wrap(route: &GroupRoute, mut change: ConfChangeV2) -> Result<Self, LogError> {
+        let intent = Intent {
+            domain: "cellar-cell-group-membership-1".into(),
+            route: binding(route)?,
+            intent: String::from_utf8(change.context.to_vec()).map_err(|_| invalid())?,
+        };
+        change.context = serde_json::to_vec(&intent).map_err(|_| invalid())?.into();
+        validate(&change, route)?;
+        Ok(Self { change })
+    }
+
     pub fn new(
         route: &GroupRoute,
         membership: &GroupMembership,
@@ -57,14 +68,81 @@ impl CellGroupMembershipChange {
             return Err(invalid());
         }
         membership.bind_change(&mut change, joins)?;
-        let intent = Intent {
-            domain: "cellar-cell-group-membership-1".into(),
-            route: binding(route)?,
-            intent: String::from_utf8(change.context.to_vec()).map_err(|_| invalid())?,
-        };
-        change.context = serde_json::to_vec(&intent).map_err(|_| invalid())?.into();
-        validate(&change, route)?;
-        Ok(Self { change })
+        Self::wrap(route, change)
+    }
+
+    /// Enrollment requires the exact catalog capability. A serialized binding
+    /// is descriptive and cannot authorize an unmanaged group to join a fleet.
+    pub fn fleet_enrollment(
+        route: &GroupRoute,
+        membership: &GroupMembership,
+        conf: &ConfState,
+        authorization: &crate::raft::fleet_catalog::FleetGroupAuthorization,
+    ) -> Result<Self, LogError> {
+        if !authorization.matches_scope(&route.history)
+            || authorization.history_digests() != (route.birth_digest, route.schema_digest)
+        {
+            return Err(invalid());
+        }
+        let mut change = ConfChangeV2::default();
+        membership.bind_fleet_enrollment(&mut change, conf, authorization.binding())?;
+        Self::wrap(route, change)
+    }
+
+    /// Consume the next catalog-selected permit without changing membership.
+    /// Completion must be observed after durable apply; admission is not a fence.
+    pub fn fleet_fence(
+        route: &GroupRoute,
+        membership: &GroupMembership,
+        conf: &ConfState,
+        authorization: &crate::raft::fleet_catalog::FleetPermitAuthorization,
+    ) -> Result<Self, LogError> {
+        if !authorization.matches_scope(&route.history) {
+            return Err(invalid());
+        }
+        let mut change = ConfChangeV2::default();
+        membership.bind_fleet_fence(&mut change, conf, authorization.permit())?;
+        Self::wrap(route, change)
+    }
+
+    /// Start one whole-group learner repair under its rooted physical debt.
+    /// The owning RawNode additionally checks readiness and actual catch-up.
+    pub fn managed_repair_start(
+        route: &GroupRoute,
+        membership: &GroupMembership,
+        conf: &ConfState,
+        plan: &crate::raft::member_state::RepairPlan,
+        authorization: &crate::raft::fleet_catalog::FleetPermitAuthorization,
+    ) -> Result<Self, LogError> {
+        if !authorization.matches_scope(&route.history)
+            || authorization.target_boot().is_none_or(|boot| {
+                boot.node != plan.replacement.node.bytes()
+                    || boot.disk != plan.replacement.disk.bytes()
+                    || boot.validate().is_err()
+            })
+        {
+            return Err(invalid());
+        }
+        let mut change = ConfChangeV2::default();
+        membership.bind_managed_repair_start(&mut change, conf, plan, authorization.permit())?;
+        Self::wrap(route, change)
+    }
+
+    /// Continue the same consumed permit through joint consensus or abort.
+    pub fn managed_repair_step(
+        route: &GroupRoute,
+        membership: &GroupMembership,
+        conf: &ConfState,
+        id: cellar_logic::consensus::ProposalId,
+        step: crate::raft::member_state::RepairStep,
+        authorization: &crate::raft::fleet_catalog::FleetPermitAuthorization,
+    ) -> Result<Self, LogError> {
+        if !authorization.matches_scope(&route.history) {
+            return Err(invalid());
+        }
+        let mut change = ConfChangeV2::default();
+        membership.bind_managed_repair_step(&mut change, conf, id, step, authorization.permit())?;
+        Self::wrap(route, change)
     }
 
     pub(crate) fn bytes(&self) -> usize {
@@ -227,7 +305,7 @@ pub(crate) fn transition(
     if change.context.is_empty() && (before.voters_outgoing.is_empty() || !before.auto_leave) {
         return Err(invalid());
     }
-    membership.admit_group(&change, before)?;
+    membership.admit_group(&change, before, &route.history)?;
     let mut tracker = ProgressTracker::new(1);
     restore_configuration(&mut tracker, 1, before).map_err(|_| invalid())?;
     let mut changer = Changer::new(&tracker);

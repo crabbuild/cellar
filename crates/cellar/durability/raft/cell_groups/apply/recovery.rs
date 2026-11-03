@@ -47,6 +47,34 @@ impl CellGroupApplier {
         Ok(self.recover_roots(&mut owner)?.0)
     }
 
+    /// A retry may retain the exact complete closure. Reuse only with the same
+    /// live page/engine owners and settled selected/checkpoint retention. A
+    /// changed durable selection is recovered on this owner as before.
+    pub(in crate::raft::cell_groups) fn recover_or_reuse_selected(
+        &self,
+        previous: &PreparedGroupManifest,
+    ) -> Result<PreparedGroupManifest, ExecutionError> {
+        let mut owner = self
+            .storage
+            .lock()
+            .map_err(|_| ExecutionError::Invalid("poisoned recovery owner"))?;
+        owner.pages.require_live().map_err(storage)?;
+        if !self.belongs_to_engine(&previous.engine_owner)
+            || self.history() != previous.marker().route().history
+            || !Arc::ptr_eq(&owner.pages.owner, &previous.page_owner)
+        {
+            return Err(ExecutionError::Invalid("retained recovery owner"));
+        }
+        if self.group.group_manifest().map_err(storage)?.as_ref() == Some(previous.marker()) {
+            previous.require_selected(&self.group).map_err(storage)?;
+            if self.group.group_manifest().map_err(storage)?.as_ref() != Some(previous.marker()) {
+                return Err(ExecutionError::Busy);
+            }
+            return Ok(previous.clone());
+        }
+        Ok(self.recover_roots(&mut owner)?.0)
+    }
+
     pub(in crate::raft::cell_groups) fn recover_roots(
         &self,
         owner: &mut Storage,

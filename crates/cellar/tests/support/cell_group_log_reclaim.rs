@@ -395,14 +395,22 @@ async fn run(rooted: bool, store: Arc<dyn object_store::ObjectStore>) -> Result<
                 Ok(Sha256::digest(input).to_vec())
             })?,
     );
-    let cluster = Box::pin(Cluster::with_store_log_limits(
+    let cluster = Box::pin(Cluster::with_store_birth(
         RaftRuntimeOptions::default(),
         tempfile::tempdir()?,
         Arc::new(DirectFileSystem),
         class.schema_digest(),
         store,
-        Durability::Quorum,
-        log_limits(),
+        ClusterBirthOptions {
+            group: GroupId::new([3; 16])?,
+            image_storage: if rooted {
+                RaftImageStorage::Extents
+            } else {
+                RaftImageStorage::Materialized
+            },
+            minimum: Durability::Quorum,
+            log: log_limits(),
+        },
     ))
     .await?;
     let (mut fixture, route, a, b) = Box::pin(registered::setup_cluster(

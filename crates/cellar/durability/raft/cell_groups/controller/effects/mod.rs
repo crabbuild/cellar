@@ -289,12 +289,27 @@ impl Manager {
             else {
                 continue;
             };
+            // Serialize work visibility with the public maintenance/drain
+            // barrier before scheduling a scan or invoking an effect adapter.
+            let mut admission = match shared.registration() {
+                Ok(admission) => admission,
+                Err(_) if shared.application_paused() || shared.closing.load(Ordering::Acquire) => {
+                    return Ok(())
+                }
+                Err(error) => return Err(error.into()),
+            };
+            if shared.application_paused() {
+                return Ok(());
+            }
+            let work = admission.work.take();
             let group = *group;
             let after = self.cells.get(&group).cloned();
             let registration = registration.clone();
+            drop(admission);
             let shared = shared.clone();
             shared.active_effects.store(1, Ordering::Release);
             self.jobs.push(Box::pin(async move {
+                let _work = work;
                 let mut cell = None;
                 let result = std::panic::AssertUnwindSafe(turn::run(
                     group,

@@ -13,6 +13,44 @@ impl RaftTransport {
         birth: CellGroupBirth,
         deadline: u64,
     ) -> Result<CellGroupSeedSession, CellGroupSeedError> {
+        self.prepare_seed(local, source, directory, birth, deadline, None, None)
+            .await
+    }
+
+    /// Seed an admitted managed learner under this exact installed physical
+    /// boot. A fresh catalog reservation and live quorum grant are both required.
+    pub async fn prepare_managed_group_seed(
+        &self,
+        local: ReplicaIdentity<GroupHistory>,
+        source: RaftPeer<GroupHistory>,
+        directory: RangeDirectory,
+        birth: CellGroupBirth,
+        deadline: u64,
+        host: crate::raft::fleet_catalog::FleetHostAuthorization,
+        expected: crate::raft::fleet_catalog::FleetPermitAuthorization,
+    ) -> Result<CellGroupSeedSession, CellGroupSeedError> {
+        self.prepare_seed(
+            local,
+            source,
+            directory,
+            birth,
+            deadline,
+            Some(host),
+            Some(expected),
+        )
+        .await
+    }
+
+    async fn prepare_seed(
+        &self,
+        local: ReplicaIdentity<GroupHistory>,
+        source: RaftPeer<GroupHistory>,
+        directory: RangeDirectory,
+        birth: CellGroupBirth,
+        deadline: u64,
+        host: Option<crate::raft::fleet_catalog::FleetHostAuthorization>,
+        expected: Option<crate::raft::fleet_catalog::FleetPermitAuthorization>,
+    ) -> Result<CellGroupSeedSession, CellGroupSeedError> {
         let state = self.handle.0.clone();
         let log = state.runtime.shared()?.log().clone();
         let options = log.limits();
@@ -46,6 +84,36 @@ impl RaftTransport {
         });
         // Refuse before remote or local mutations if the node has no receiver pool.
         let pool = self.group_checkpoint_pool()?;
+        let managed = if let Some(host) = &host {
+            let authorization = state
+                .seed_process_until(&process, deadline, async {
+                    Ok::<_, TransportError>(
+                        directory
+                            .authorize_group_learner_seed(
+                                &birth,
+                                &log,
+                                &local,
+                                &source.replica,
+                                host,
+                                deadline,
+                            )
+                            .await,
+                    )
+                })
+                .await??;
+            if expected.as_ref().is_none_or(|expected| {
+                expected.permit() != authorization.permit()
+                    || expected.target_boot() != authorization.target_boot()
+            }) {
+                return Err(TransportError::Refused.into());
+            }
+            Some(grant::Managed {
+                authorization,
+                boot: host.boot_binding().map_err(CatalogError::from)?,
+            })
+        } else {
+            None
+        };
         let now = state.domain.mono_ms().map_err(|_| TransportError::Closed)?;
         let timeout_ms = deadline
             .checked_sub(now)
@@ -57,7 +125,7 @@ impl RaftTransport {
             .map_err(|_| TransportError::Closed)?
             .checked_add(1)
             .ok_or(TransportError::Closed)?;
-        let request = Request {
+        let mut request = Request {
             route: Route::new_group(
                 &local,
                 state.auth.source(),
@@ -87,6 +155,10 @@ impl RaftTransport {
             .1
             .export_keying_material([0; 32], EXPORT_LABEL, None)
             .map_err(|e| TransportError::Tls(e.to_string()))?;
+        request.timeout_ms = deadline
+            .checked_sub(state.domain.mono_ms().map_err(|_| TransportError::Closed)?)
+            .filter(|ms| *ms > 0)
+            .ok_or(TransportError::Timeout)?;
         let wire = snapshots::Wire {
             auth: &state.auth,
             exporter: &exporter,
@@ -132,7 +204,14 @@ impl RaftTransport {
             return Err(TransportError::Protocol.into());
         }
         let root = checkpoint::seed_marker(&snapshot, &local, barrier)?;
+        checkpoint::seed_profile(
+            &snapshot,
+            managed.as_ref().map(|m| m.authorization.permit()),
+        )?;
+        checkpoint::seed_source(&snapshot, &source.replica)?;
         let grant = Arc::new(Grant {
+            source: source.replica.clone(),
+            managed,
             local,
             root,
             snapshot,
@@ -145,10 +224,35 @@ impl RaftTransport {
             _request: Arc::new(guard),
         });
         let group = state
-            .domain
-            .run(directory.stage_group_learner(&birth, &log, grant.clone()))
-            .await
-            .map_err(|_| TransportError::Closed)??;
+            .seed_process_until(&grant.process, deadline, async {
+                Ok::<_, TransportError>(
+                    state
+                        .domain
+                        .run(async {
+                            match &host {
+                                Some(host) => {
+                                    directory
+                                        .stage_managed_group_learner(
+                                            &birth,
+                                            &log,
+                                            grant.clone(),
+                                            host,
+                                        )
+                                        .await
+                                }
+                                None => {
+                                    directory
+                                        .stage_group_learner(&birth, &log, grant.clone())
+                                        .await
+                                }
+                            }
+                        })
+                        .await
+                        .map_err(|_| TransportError::Closed)?,
+                )
+            })
+            .await??;
+        grant.check_log(&log)?;
         group
             .consensus_claimed
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -158,6 +262,7 @@ impl RaftTransport {
         let (command, ready) = oneshot::channel();
         let (response, result) = oneshot::channel();
         let exchange = Exchange {
+            host,
             state: state.clone(),
             stream,
             exporter,

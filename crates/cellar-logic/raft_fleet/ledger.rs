@@ -3,9 +3,8 @@
 //! Conservative accounting before a membership move. Serving roles are not
 //! physical resources: a retired source still occupies its engine and disk.
 
-use crate::consensus::{
-    ClusterId, EngineInstanceId, GroupScope, IncarnationId, NodeIdentity, ProposalId,
-};
+use crate::cell_group::GroupHistory;
+use crate::consensus::{ClusterId, EngineInstanceId, IncarnationId, NodeIdentity, ProposalId};
 use std::collections::{BTreeMap, BTreeSet};
 
 const MAX_RESERVATIONS: usize = 4096;
@@ -153,7 +152,9 @@ pub struct Materialization {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reservation {
     pub id: ProposalId,
-    pub group: GroupScope,
+    /// One physical replica, regardless of its cell count. All of its retained
+    /// images and staging work remain charged in peak/materialized resources.
+    pub group: GroupHistory,
     pub scope: CapacityScope,
     /// Increment beyond starting physical occupancy, including temporary work.
     pub peak: Resources,
@@ -163,9 +164,6 @@ pub struct Reservation {
 impl Reservation {
     fn validate(&self, scope: CapacityScope) -> Result<(), LedgerError> {
         self.scope.validate()?;
-        self.group
-            .validate()
-            .map_err(|_| LedgerError::InvalidReservation)?;
         if !scope.same_engine(self.scope)
             || self.group.cluster != scope.cluster
             || self.peak == Resources::default()

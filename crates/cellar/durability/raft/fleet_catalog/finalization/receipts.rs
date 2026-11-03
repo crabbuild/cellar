@@ -4,8 +4,10 @@
 //! from these records; the runtime must independently establish every proof.
 use super::super::evacuation::ActiveEvacuation;
 use super::super::*;
-use crate::raft::archive::{ArchiveReference, VerifiedArchiveCoverage};
-use crate::raft::host::{FleetImageState, FleetPublishedCut};
+use crate::raft::cell_groups::{
+    CellGroupArchiveHold, GroupManifest, VerifiedFleetGroupArchiveCoverage,
+};
+use crate::raft::host::FleetPublishedCut;
 use crate::raft::manifest::Position;
 use cellar_logic::consensus::{DiskLineage, EngineInstanceId, NodeId, ProcessGeneration};
 use serde::Deserialize;
@@ -13,6 +15,11 @@ use std::collections::BTreeSet;
 
 const CANDIDATE_KIND: u8 = 55;
 const ENTRY_KIND: u8 = 56;
+const LIVE_KIND: u8 = 59;
+#[cfg(test)]
+#[path = "receipts_tests.rs"]
+mod tests;
+
 const ENTRY_LIMIT: usize = 4096;
 const APPEND_LIMIT: usize = 16;
 const BASIS_TABLES: [FleetTable; 4] = [
@@ -218,21 +225,15 @@ impl Basis {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(in crate::raft::fleet_catalog) struct Publication {
-    pub(super) applied: Position,
-    pub(super) revision: u64,
-    #[serde(deserialize_with = "nullable")]
-    image_position: Option<Position>,
-    #[serde(deserialize_with = "nullable")]
-    image: Option<FleetImageState>,
+    root: GroupManifest,
+    configuration_digest: [u8; 32],
 }
 
 impl From<&FleetPublishedCut> for Publication {
     fn from(cut: &FleetPublishedCut) -> Self {
         Self {
-            applied: cut.applied().into(),
-            revision: cut.membership_revision().get(),
-            image_position: cut.image().map(|image| image.position().into()),
-            image: cut.image().map(|image| image.state()),
+            root: cut.root().clone(),
+            configuration_digest: cut.configuration_digest(),
         }
     }
 }
@@ -241,94 +242,42 @@ impl Publication {
     pub(in crate::raft::fleet_catalog) fn applied_position(
         &self,
     ) -> Result<cellar_logic::consensus::LogPosition> {
-        self.applied
-            .decode()
-            .map_err(|_| FleetCatalogError::Corrupt("receipt publication position"))
+        self.root
+            .check()
+            .map_err(|_| FleetCatalogError::Corrupt("receipt group root"))?;
+        Ok(self.root.position())
     }
 
     pub(in crate::raft::fleet_catalog) fn configuration_revision(
         &self,
     ) -> Result<cellar_logic::consensus::LogIndex> {
-        if self.revision == 0 || self.revision >= u64::MAX - 2 {
-            return Err(FleetCatalogError::Corrupt("receipt configuration revision"));
-        }
-        Ok(cellar_logic::consensus::LogIndex::new(self.revision))
+        self.root
+            .check()
+            .map_err(|_| FleetCatalogError::Corrupt("receipt configuration root"))?;
+        Ok(cellar_logic::consensus::LogIndex::new(
+            self.root.membership_revision(),
+        ))
     }
 
     pub(super) fn restore(&self, current: &FleetPublishedCut) -> Result<FleetPublishedCut> {
-        validate_image(self.applied, self.image_position, self.image)?;
-        let image = match (self.image_position, self.image) {
-            (Some(position), Some(image)) => Some(
-                crate::raft::host::FleetPublishedImage::new_state(
-                    position
-                        .decode()
-                        .map_err(|_| FleetCatalogError::Corrupt("receipt publication"))?,
-                    image,
-                )
-                .map_err(|_| FleetCatalogError::Corrupt("receipt image"))?,
-            ),
-            (None, None) => None,
-            _ => return Err(FleetCatalogError::Corrupt("receipt image binding")),
-        };
         current
-            .checked_prefix(
-                self.applied
-                    .decode()
-                    .map_err(|_| FleetCatalogError::Corrupt("receipt position"))?,
-                cellar_logic::consensus::LogIndex::new(self.revision),
-                image,
-            )
+            .checked_prefix(self.root.clone(), self.configuration_digest)
             .map_err(|_| FleetCatalogError::Unconfirmed)
-    }
-}
-
-fn validate_image(
-    position: Position,
-    origin: Option<Position>,
-    image: Option<FleetImageState>,
-) -> Result<()> {
-    position
-        .decode()
-        .map_err(|_| FleetCatalogError::Corrupt("receipt position"))?;
-    match (origin, image) {
-        (None, None) => Ok(()),
-        (Some(origin), Some(image)) => {
-            origin
-                .decode()
-                .map_err(|_| FleetCatalogError::Corrupt("receipt publication"))?;
-            image
-                .validate()
-                .map_err(|_| FleetCatalogError::Corrupt("receipt image"))?;
-            if origin.index > position.index
-                || origin.term > position.term
-                || origin.index == position.index && origin.term != position.term
-            {
-                return Err(FleetCatalogError::Corrupt("receipt publication prefix"));
-            }
-            Ok(())
-        }
-        _ => Err(FleetCatalogError::Corrupt("receipt image binding")),
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Archive {
-    reference: ArchiveReference,
-    position: Position,
-    #[serde(deserialize_with = "nullable")]
-    image_position: Option<Position>,
-    #[serde(deserialize_with = "nullable")]
-    image: Option<FleetImageState>,
+    hold: CellGroupArchiveHold,
+    configuration_digest: [u8; 32],
 }
 
-impl From<&VerifiedArchiveCoverage> for Archive {
-    fn from(proof: &VerifiedArchiveCoverage) -> Self {
+impl From<&VerifiedFleetGroupArchiveCoverage> for Archive {
+    fn from(proof: &VerifiedFleetGroupArchiveCoverage) -> Self {
         Self {
-            reference: proof.reference().clone(),
-            position: proof.position().into(),
-            image_position: proof.image_position().map(Into::into),
-            image: proof.image_state(),
+            hold: proof.hold().clone(),
+            configuration_digest: proof.configuration_digest(),
         }
     }
 }
@@ -384,40 +333,24 @@ impl Entry {
                     archive,
                     survivors,
                 } = live.as_ref();
-                validate_image(fixed.applied, fixed.image_position, fixed.image)?;
-                validate_image(archive.position, archive.image_position, archive.image)?;
-                let selected = archive
-                    .reference
-                    .position()
-                    .map_err(|_| FleetCatalogError::Corrupt("receipt archive reference"))?;
-                if Position::from(selected) != archive.position
-                    || fixed.revision == 0
-                    || archive.position.index < fixed.applied.index
-                    || archive.position.term < fixed.applied.term
-                    || archive.position.index == fixed.applied.index
-                        && archive.position.term != fixed.applied.term
+                fixed
+                    .root
+                    .check()
+                    .and_then(|()| archive.hold.marker().check())
+                    .map_err(|_| FleetCatalogError::Corrupt("receipt complete group root"))?;
+                archive
+                    .hold
+                    .check_reference()
+                    .map_err(|_| FleetCatalogError::Corrupt("receipt archive hold"))?;
+                if fixed.configuration_digest == [0; 32]
+                    || fixed.configuration_digest != archive.configuration_digest
+                    || fixed.root.route().history.cluster.bytes() != basis.cluster
+                    || !crate::raft::host::group_prefix(archive.hold.marker(), &fixed.root)
+                        .map_err(|_| FleetCatalogError::Corrupt("receipt archive group prefix"))?
                 {
-                    return Err(FleetCatalogError::Corrupt("receipt archive cut"));
+                    return Err(FleetCatalogError::Corrupt("receipt archive group cut"));
                 }
-                if fixed
-                    .image
-                    .as_ref()
-                    .zip(archive.image.as_ref())
-                    .is_some_and(|(a, b)| !a.same_representation(b))
-                {
-                    return Err(FleetCatalogError::Corrupt(
-                        "receipt image commitment domain",
-                    ));
-                }
-                if fixed.image.is_some() && archive.image.is_none()
-                    || archive.image.is_some()
-                        && archive.image != fixed.image
-                        && archive
-                            .image_position
-                            .is_none_or(|origin| origin.index <= fixed.applied.index)
-                {
-                    return Err(FleetCatalogError::Corrupt("receipt archive publication"));
-                }
+                let fixed_position = fixed.root.position();
                 let mut nodes = BTreeSet::new();
                 let mut members = BTreeSet::new();
                 let mut hosts = BTreeSet::new();
@@ -442,10 +375,10 @@ impl Entry {
                         || survivor.publication_digest == [0; 32]
                         || !nodes.insert(survivor.node)
                         || !members.insert(survivor.member)
-                        || survivor.applied.index < fixed.applied.index
-                        || survivor.applied.term < fixed.applied.term
-                        || survivor.applied.index == fixed.applied.index
-                            && survivor.applied.term != fixed.applied.term
+                        || survivor.applied.index < fixed_position.index.get()
+                        || survivor.applied.term < fixed_position.term.get()
+                        || survivor.applied.index == fixed_position.index.get()
+                            && survivor.applied.term != fixed_position.term.get()
                     {
                         return Err(FleetCatalogError::Corrupt("receipt survivor"));
                     }
@@ -457,6 +390,50 @@ impl Entry {
                 Ok(())
             }
         }
+    }
+}
+
+// Index values stay within the original 4 KiB bound. Complete roots and
+// persistent archive holds live in one independently hashed bounded object.
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
+enum StoredEvidence {
+    Live { object: [u8; 32] },
+    Cancelled { operation: [u8; 16] },
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredEntry {
+    history: [u8; 32],
+    record: [u8; 32],
+    evidence: StoredEvidence,
+}
+
+impl Entry {
+    fn stored(&self) -> Result<(Vec<u8>, Option<([u8; 32], Vec<u8>)>)> {
+        let (evidence, object) = match &self.evidence {
+            Evidence::Cancelled { operation } => (
+                StoredEvidence::Cancelled {
+                    operation: *operation,
+                },
+                None,
+            ),
+            Evidence::Live(live) => {
+                let bytes = encode(LIVE_KIND, live, PAGE_LIMIT)?;
+                let digest = hash(&bytes);
+                (
+                    StoredEvidence::Live { object: digest },
+                    Some((digest, bytes)),
+                )
+            }
+        };
+        let stored = StoredEntry {
+            history: self.history,
+            record: self.record,
+            evidence,
+        };
+        Ok((encode(ENTRY_KIND, &stored, ENTRY_LIMIT)?, object))
     }
 }
 
@@ -493,12 +470,31 @@ impl Book {
         if entries.is_empty() || entries.len() > APPEND_LIMIT {
             return Err(FleetCatalogError::Limit);
         }
-        let mut index = self.index;
-        let mut count = self.count;
+        let mut prepared = Vec::with_capacity(entries.len());
+        let mut bytes_total = 0usize;
         for entry in entries {
             entry.validate(&self.basis)?;
-            let key = hex::encode(entry.history);
-            let bytes = encode(ENTRY_KIND, entry, ENTRY_LIMIT)?;
+            let (stored, object) = entry.stored()?;
+            bytes_total = bytes_total
+                .checked_add(stored.len())
+                .and_then(|n| n.checked_add(object.as_ref().map_or(0, |(_, bytes)| bytes.len())))
+                .filter(|n| *n <= APPEND_LIMIT * ENTRY_LIMIT)
+                .ok_or(FleetCatalogError::Limit)?;
+            prepared.push((hex::encode(entry.history), stored, object));
+        }
+        let mut index = self.index;
+        let mut count = self.count;
+        for (key, bytes, object) in prepared {
+            if let Some((digest, payload)) = object {
+                catalog
+                    .inner
+                    .create_exact(
+                        &format!("receipt-live/{}", hex::encode(digest)),
+                        &payload,
+                        PAGE_LIMIT,
+                    )
+                    .await?;
+            }
             if let Some(previous) = catalog.inner.lookup(index, &key).await? {
                 if previous != bytes {
                     return Err(FleetCatalogError::PayloadConflict);
@@ -549,7 +545,33 @@ impl Candidate {
         let Some(bytes) = catalog.inner.lookup(self.index, key).await? else {
             return Ok(None);
         };
-        let entry: Entry = decode(ENTRY_KIND, &bytes, ENTRY_LIMIT)?;
+        let stored: StoredEntry = decode(ENTRY_KIND, &bytes, ENTRY_LIMIT)?;
+        let evidence = match stored.evidence {
+            StoredEvidence::Cancelled { operation } => Evidence::Cancelled { operation },
+            StoredEvidence::Live { object } => {
+                if object == [0; 32] {
+                    return Err(FleetCatalogError::Corrupt("receipt live object"));
+                }
+                let (live, _) = catalog
+                    .inner
+                    .read::<Box<LiveEvidence>>(
+                        &format!("receipt-live/{}", hex::encode(object)),
+                        LIVE_KIND,
+                        PAGE_LIMIT,
+                    )
+                    .await?
+                    .ok_or(FleetCatalogError::Corrupt("missing receipt live object"))?;
+                if hash(&encode(LIVE_KIND, &live, PAGE_LIMIT)?) != object {
+                    return Err(FleetCatalogError::Corrupt("receipt live object digest"));
+                }
+                Evidence::Live(live)
+            }
+        };
+        let entry = Entry {
+            history: stored.history,
+            record: stored.record,
+            evidence,
+        };
         entry.validate(&self.basis)?;
         if hex::encode(entry.history) != key {
             return Err(FleetCatalogError::Corrupt("receipt entry key"));

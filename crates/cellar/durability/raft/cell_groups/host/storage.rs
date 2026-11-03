@@ -33,7 +33,7 @@ impl CellGroupNamespaceStorage {
         Ok(Self { options, bytes })
     }
 
-    pub(super) fn validate_namespace(
+    pub(crate) fn validate_namespace(
         &self,
         config: &crate::raft::catalog::NamespaceConfig,
     ) -> Result<(), CellDispatchError> {
@@ -55,7 +55,7 @@ impl CellGroupNamespaceStorage {
         self.bytes
     }
 
-    pub(super) fn for_cell(&self, history: &CellHistory) -> CellSqlOptions {
+    pub(crate) fn for_cell(&self, history: &CellHistory) -> CellSqlOptions {
         let key = hex::encode(super::super::cell_image_history_digest(history));
         let mut options = self.options.clone();
         match &mut options {

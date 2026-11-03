@@ -1,9 +1,9 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Read callbacks share the node queue and SQL owner, independently of waiters.
+use super::admission::Retention;
 use super::calls::Delivery;
 use super::*;
-use crate::raft::budget::Permit;
 use crate::raft::cell_groups::{
     CellDispatchError, CellQueryInvocation, CellQueryResponse, CellSqlOptions,
 };
@@ -13,14 +13,14 @@ use tokio::sync::oneshot;
 pub(super) struct Request {
     invocation: CellQueryInvocation,
     options: CellSqlOptions,
-    reply: oneshot::Sender<Delivery<CellQueryResponse, CellDispatchError>>,
-    permit: Arc<Permit>,
+    reply: oneshot::Sender<Delivery<CellQueryResponse, CellDispatchError, Retention>>,
+    permit: Arc<Retention>,
 }
 
 /// Dropping or expiring the response does not cancel an admitted query callback.
 /// Its physical connection and reservation remain owned until the callback exits.
 pub struct CellQueryCall {
-    inner: calls::Call<ProposalId, CellQueryResponse, CellDispatchError>,
+    inner: calls::Call<ProposalId, CellQueryResponse, CellDispatchError, Retention>,
 }
 
 impl CellQueryCall {
@@ -39,6 +39,7 @@ impl CellGroupController {
     ) -> Result<CellQueryCall, CellDispatchError> {
         let shared = &self.handle.0;
         let (identity, deadline, bytes) = invocation.controller_admission(&shared.domain)?;
+        let mut registration = shared.registration().map_err(CellDispatchError::Runtime)?;
         if shared.closing.load(Ordering::Acquire) {
             return Err(CellDispatchError::Runtime(RuntimeError::Closed));
         }
@@ -56,7 +57,10 @@ impl CellGroupController {
                 invocation,
                 options,
                 reply,
-                permit: Arc::new(permit),
+                permit: Arc::new(Retention {
+                    _permit: permit,
+                    _work: registration.work.take(),
+                }),
             })))
             .map_err(|error| {
                 CellDispatchError::Runtime(match error {
@@ -100,7 +104,16 @@ pub(super) async fn drive(
         {
             return Err(CellDispatchError::Runtime(RuntimeError::NotFound));
         }
-        invocation.execute(&runtime, &sql, options).await
+        invocation
+            .execute_retained(
+                &runtime,
+                &sql,
+                options,
+                Some(crate::raft::host_sql::cell_groups::ReadRetention::new(
+                    permit.clone(),
+                )),
+            )
+            .await
     }
     .await
     .map_err(Arc::new);

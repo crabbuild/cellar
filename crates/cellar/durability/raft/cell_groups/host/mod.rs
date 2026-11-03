@@ -20,7 +20,7 @@ use std::{
     collections::BTreeMap,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
 
@@ -40,14 +40,14 @@ pub struct CellGroupHostLimits {
 struct Binding {
     dispatcher: CellGroupDispatcher,
     class: Arc<RaftClass>,
-    storage: CellGroupNamespaceStorage,
+    storage: Mutex<Option<CellGroupNamespaceStorage>>,
     _admission: Permit,
 }
 
 struct Inner {
     controller: CellGroupController,
     domain: crate::asyncrt::DomainToken,
-    namespaces: BTreeMap<(ClusterId, NamespaceId), Arc<Binding>>,
+    namespaces: Arc<BTreeMap<(ClusterId, NamespaceId), Arc<Binding>>>,
     budget: Arc<Budget>,
     closed: AtomicBool,
 }
@@ -60,7 +60,7 @@ pub struct CellGroupHost {
     inner: Arc<Inner>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Serialize)]
 pub struct CellGroupHostUsage {
     pub namespaces: usize,
     pub namespace_bytes: usize,
@@ -117,11 +117,17 @@ impl CellGroupHost {
                 Arc::new(Binding {
                     dispatcher,
                     class,
-                    storage: registration.storage,
+                    storage: Mutex::new(Some(registration.storage)),
                     _admission: admission,
                 }),
             );
         }
+        let namespaces = Arc::new(namespaces);
+        controller
+            .own_host_resources(Arc::new(HostResources {
+                namespaces: namespaces.clone(),
+            }))
+            .map_err(CellDispatchError::Runtime)?;
         Ok(Self {
             inner: Arc::new(Inner {
                 controller,
@@ -150,6 +156,19 @@ impl CellGroupHost {
         })
     }
 
+    /// Namespace capability lookup only; supplies no group placement or startup authority.
+    pub(crate) fn directory(
+        &self,
+        history: cellar_logic::cell_group::GroupHistory,
+    ) -> Result<RangeDirectory, CellDispatchError> {
+        self.inner.check_open()?;
+        self.inner
+            .namespaces
+            .get(&(history.cluster, history.namespace))
+            .map(|binding| binding.dispatcher.directory())
+            .ok_or(CellDispatchError::Runtime(RuntimeError::NotFound))
+    }
+
     pub fn is_closed(&self) -> bool {
         self.inner.closed.load(Ordering::Acquire)
             || self.inner.domain.mono_ms().is_err()
@@ -170,6 +189,43 @@ impl CellGroupHost {
     pub async fn close(&self) -> Result<(), CellGroupControllerError> {
         self.inner.closed.store(true, Ordering::Release);
         self.inner.controller.close().await
+    }
+}
+
+/// Registered exactly once with the controller's physical join owner. This
+/// retains no public controller handle and cannot prevent last-handle shutdown.
+pub(in crate::raft::cell_groups) struct HostResources {
+    namespaces: Arc<BTreeMap<(ClusterId, NamespaceId), Arc<Binding>>>,
+}
+
+impl HostResources {
+    pub(in crate::raft::cell_groups) fn release(&self) -> Result<(), CellGroupControllerError> {
+        let mut released = Ok(());
+        for binding in self.namespaces.values() {
+            match binding.storage.lock() {
+                Ok(mut storage) => {
+                    storage.take();
+                }
+                Err(error) => {
+                    error.into_inner().take();
+                    released = Err(CellGroupControllerError::Invalid(
+                        "namespace resource owner poisoned",
+                    ));
+                }
+            }
+        }
+        released
+    }
+}
+
+impl Binding {
+    fn options(&self, history: &CellHistory) -> Result<CellSqlOptions, CellDispatchError> {
+        self.storage
+            .lock()
+            .map_err(|_| CellDispatchError::Runtime(RuntimeError::Closed))?
+            .as_ref()
+            .map(|storage| storage.for_cell(history))
+            .ok_or(CellDispatchError::Runtime(RuntimeError::Closed))
     }
 }
 
@@ -201,6 +257,10 @@ pub struct CellGroupCellHandle {
 }
 
 impl CellGroupCellHandle {
+    pub(crate) fn definition_digest(&self) -> [u8; 32] {
+        self.binding.class.definition_digest()
+    }
+
     pub fn history(&self) -> &CellHistory {
         &self.history
     }
@@ -227,12 +287,20 @@ impl CellGroupCellHandle {
             ambiguous: false,
             cause: Box::new(cause),
         })?;
+        let options = self
+            .binding
+            .options(&self.history)
+            .map_err(|cause| CellCommandError {
+                command: request.id,
+                ambiguous: false,
+                cause: Box::new(cause),
+            })?;
         self.host.controller.dispatch_command(
             &self.binding.dispatcher,
             self.history.clone(),
             request,
             limits,
-            self.binding.storage.for_cell(&self.history),
+            options,
         )
     }
 
@@ -249,7 +317,7 @@ impl CellGroupCellHandle {
                 .query(self.history.clone(), request, limits, None)?;
         self.host
             .controller
-            .query(invocation, self.binding.storage.for_cell(&self.history))
+            .query(invocation, self.binding.options(&self.history)?)
     }
 
     pub fn enroll(
@@ -266,15 +334,24 @@ impl CellGroupCellHandle {
                 cause: Box::new(cause),
             })
         });
+        let creation = request.creation;
         let invocation =
             self.binding
                 .dispatcher
                 .enroll(self.history.clone(), request, limits, None);
         let host = self.host.clone();
-        let options = self.binding.storage.for_cell(&self.history);
+        let binding = self.binding.clone();
+        let history = self.history.clone();
         async move {
             opened?;
             let invocation = invocation.await.map_err(Arc::new)?;
+            let options = binding.options(&history).map_err(|cause| {
+                Arc::new(CellEnrollmentError {
+                    creation,
+                    ambiguous: false,
+                    cause: Box::new(cause),
+                })
+            })?;
             let call = host
                 .controller
                 .enroll(invocation, options)
@@ -297,8 +374,10 @@ impl CellGroupCellHandle {
                 .lookup_receipt(self.history.clone(), request, limits, None)
         });
         let host = self.host.clone();
-        let options = self.binding.storage.for_cell(&self.history);
+        let binding = self.binding.clone();
+        let history = self.history.clone();
         async move {
+            let options = binding.options(&history).map_err(Arc::new)?;
             host.controller
                 .lookup_receipt(invocation.map_err(Arc::new)?, options)
                 .await

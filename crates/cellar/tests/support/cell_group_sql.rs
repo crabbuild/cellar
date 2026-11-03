@@ -496,7 +496,10 @@ pub(super) async fn submission_rejections(rooted: bool) -> Result<()> {
 #[path = "cell_group_sql_reads.rs"]
 mod reads;
 
-pub(crate) use reads::{coherent as coherent_reads, lifecycle as query_lifecycle};
+pub(crate) use reads::{
+    coherent as coherent_reads, follower_linearizable, lifecycle as query_lifecycle,
+    recent_source_reads,
+};
 
 #[path = "cell_group_sql_apply.rs"]
 pub(super) mod apply;
@@ -589,7 +592,7 @@ pub(crate) use controller_enrollment::{
 
 #[path = "cell_group_remote_queries.rs"]
 mod remote_queries;
-pub(crate) use remote_queries::{remote_queries, remote_query_lifecycle};
+pub(crate) use remote_queries::{remote_follower_reads, remote_queries, remote_query_lifecycle};
 
 #[path = "cell_group_query_origins.rs"]
 mod query_origins;
@@ -650,7 +653,9 @@ pub(crate) use checkpoint_fairness::concurrent_checkpoints;
 
 #[path = "cell_group_membership.rs"]
 mod membership;
-pub(crate) use membership::{membership_lifecycle, membership_sync};
+pub(crate) use membership::{
+    membership_lifecycle, membership_quorum_floor, membership_quorum_followers, membership_sync,
+};
 
 #[path = "cell_group_seed.rs"]
 mod seed;

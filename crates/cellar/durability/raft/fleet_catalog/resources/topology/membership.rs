@@ -43,10 +43,7 @@ impl FleetTopologyVerification {
                 .chain(&history.learners)
                 .any(|m| m.node == input.host.node().bytes())
                 || voters.contains_key(&input.host.node()))
-                && inventory
-                    .history(&scope)
-                    .map_err(|_| FleetCatalogError::Corrupt("topology genesis"))?
-                    .is_none()
+                && inventory.group_history(&scope).is_none()
             {
                 return Err(FleetCatalogError::InventoryIncomplete);
             }
@@ -83,9 +80,7 @@ impl FleetTopologyVerification {
             )?;
             let proof = sample.membership();
             let actual = proof.configuration();
-            let published = sample
-                .published_cut()
-                .ok_or(FleetCatalogError::Unconfirmed)?;
+            let published = sample.published_cut();
             let current = sample
                 .node()
                 .current_enrollment
@@ -165,9 +160,7 @@ impl FleetTopologyVerification {
                     .inventory
                     .as_ref()
                     .ok_or(FleetCatalogError::InventoryIncomplete)?;
-                let physical = inventory
-                    .history(&scope)
-                    .map_err(|_| FleetCatalogError::Corrupt("topology physical binding"))?;
+                let physical = inventory.group_history(&scope);
                 if (history
                     .voters
                     .iter()

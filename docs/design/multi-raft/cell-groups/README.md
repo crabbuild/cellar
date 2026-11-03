@@ -2,24 +2,20 @@
 
 # Cell group delivery package
 
-Status: executable design and implementation plan delivered on 2026-10-29.
-CG-01 through CG-06 have passed their current scoped native evidence gates at
-e32115aa. The unchanged gate refresh passes 123 commands: 110 exact native cases,
-nineteen pure-logic tests and the shared repository checks. Fresh retained records
-replace the unavailable historical raw artifacts. CG-06's complete archive,
-local reclamation and fresh-history recovery boundary also passes both actual
-Docker/RustFS all-voter-disks-deleted drills with permanent launch revocation,
-fresh-quorum activation, exact receipts, new writes and retained restart.
-CG-08 due effects and safe cache lifetimes now pass the complete native gate and
-same-source/executable RustFS case. CG-07 SDK/fleet cutover has started in the spare checkout and remains unqualified. See the latest [progress](progress.md) and [handoff](handoff.md).
-CG-07 synchronous shared-command admission now passes its focused native and lint
-checkpoint, preserving the original deadline and node-owned producer lifetime.
-The namespace-host component also passes its ten-command native/lint checkpoint,
-including eight cells in one group and physical query shutdown in both image forms.
-The production SDK/fleet has not yet cut over; topology, hibernation, managed S3
-recovery and deployment/release qualification remain tracked in later tasks.
-See [implementation progress](progress.md) and the generated task index.
-Package validation alone does not qualify implementation or a release.
+Purpose: Shared cell-group delivery status, execution commands and completion boundaries.
+
+Status: executable design and implementation plan delivered on 2026-10-29;
+end-to-end implementation remains in progress. CG-01–06 and CG-08 have passed
+recorded component gates. CG-07 canonical SDK/fleet cutover is IN_PROGRESS;
+CG-09–16 remain required. PR #160 is a draft checkpoint until its public/build
+and current-source backend gates pass.
+
+Start with [remaining work and priorities](remaining-work.md) for the MVP order
+and merge criteria. [Progress](progress.md) records source-scoped validation;
+[handoff](handoff.md) identifies the current implementation and continuation.
+Historical Docker/RustFS results cover their recorded local component boundaries,
+including all-voter-disk loss and effects. They do not qualify the latest combined
+SDK/fleet runtime, independent hosts, sustained load or release readiness.
 
 This delivery is the executable design and implementation plan. End-to-end
 implementation and hard cutover remain tracked as separate task and release gates. See the [executor handoff](handoff.md) for the current

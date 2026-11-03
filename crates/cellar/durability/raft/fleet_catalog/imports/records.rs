@@ -19,7 +19,7 @@ pub(super) struct Record {
     pub namespace: [u8; 16],
     pub schema: [u8; 32],
     pub catalog: [u8; 32],
-    pub cut: BirthImportCut,
+    pub cut: CellGroupImportCut,
     pub phase: FleetImportPhase,
     pub stopped: bool,
     pub inventoried: u64,
@@ -37,12 +37,14 @@ fn required_nullable<'de, T: Deserialize<'de>, D: serde::Deserializer<'de>>(
 }
 
 impl Record {
-    pub fn validate(&self, catalog: &FleetCatalog, namespace: &NamespaceCatalog) -> Result<()> {
-        self.cut.validate(namespace).map_err(catalog_error)?;
-        if self.namespace != namespace.config().namespace.bytes()
-            || namespace.config().cluster.bytes() != catalog.inner.cluster
-            || namespace.config().voters != VoterPolicy::ThreeVoters
-            || self.schema != namespace.config().schema_digest
+    pub fn validate(&self, catalog: &FleetCatalog, directory: &RangeDirectory) -> Result<()> {
+        self.cut
+            .validate(directory.namespace())
+            .map_err(catalog_error)?;
+        if self.namespace != directory.namespace_config().namespace.bytes()
+            || directory.namespace_config().cluster.bytes() != catalog.inner.cluster
+            || directory.namespace_config().voters != VoterPolicy::ThreeVoters
+            || self.schema != directory.namespace_config().schema_digest
             || self.catalog != catalog.birth_owner()?.catalog
             || self.cut.count > HISTORY_LIMIT
             || self.inventoried > self.cut.count
@@ -55,7 +57,7 @@ impl Record {
                         .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
             })
         {
-            return Err(FleetCatalogError::Corrupt("namespace import record"));
+            return Err(FleetCatalogError::Corrupt("directory import record"));
         }
         let valid = match self.phase {
             FleetImportPhase::Preparing => {
@@ -84,7 +86,7 @@ impl Record {
         };
         if !valid {
             return Err(FleetCatalogError::Corrupt(
-                "namespace import phase/progress",
+                "directory import phase/progress",
             ));
         }
         Ok(())

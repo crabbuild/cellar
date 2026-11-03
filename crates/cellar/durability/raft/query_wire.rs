@@ -8,14 +8,12 @@ use super::transport::TransportError;
 use super::transport_frame::{FrameHead, PREFIX};
 use super::transport_options::TransportOptions;
 use crate::application::consensus::{
-    CommandFailure, OperationContract, OperationKind, QueryConsistency, QueryOptions, QueryResult,
-    QueryRouting, StaleReadPolicy, VersionKeys, VersionToken,
+    CommandFailure, OperationContract, OperationKind, VersionKeys,
 };
 use crate::peer_auth::PeerAuth;
-use cellar_logic::consensus::{Durability, GroupScope, MemberId};
+use cellar_logic::consensus::{Durability, MemberId};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::time::Duration;
 
 #[path = "query_cell_wire.rs"]
 pub(super) mod cell;
@@ -44,176 +42,6 @@ fn read_durability(body: &mut Reader<'_>) -> Result<Durability, TransportError> 
 pub(super) const EXPORT_LABEL: &[u8] = b"EXPORTER-cellar-raft-query-1";
 const REQUEST: &[u8] = b"cellar-raft-query-request-1";
 const RESPONSE: &[u8] = b"cellar-raft-query-response-1";
-const MAX_TOKEN: usize = 1878;
-
-pub(super) struct QueryCall {
-    pub contract: OperationContract,
-    pub input: Vec<u8>,
-    pub options: QueryOptions,
-}
-
-impl QueryCall {
-    pub fn encode(&self, limit: usize) -> Result<Vec<u8>, TransportError> {
-        if self.contract.kind != OperationKind::Query
-            || self.contract.operation.is_empty()
-            || self.contract.operation.len() > 128
-            || self.contract.operation.chars().any(char::is_control)
-            || self.options.timeout.as_millis() == 0
-            || self.options.timeout > Duration::from_secs(3600)
-            || !matches!(self.options.routing, QueryRouting::Local)
-        {
-            return Err(TransportError::Protocol);
-        }
-        let mut body = b"CLRQRQ01".to_vec();
-        string(&mut body, &self.contract.operation)?;
-        body.extend_from_slice(&self.contract.digest);
-        match &self.options.consistency {
-            QueryConsistency::Stale => body.push(0),
-            QueryConsistency::AtLeast(token) => {
-                body.push(1);
-                string(&mut body, token.as_str())?;
-            }
-            QueryConsistency::Linearizable => body.push(2),
-        }
-        body.push(match self.options.stale_policy {
-            StaleReadPolicy::RecentSource => 0,
-            StaleReadPolicy::DisconnectedHistorical => 1,
-        });
-        body.extend_from_slice(&(self.options.timeout.as_millis() as u64).to_be_bytes());
-        let length = u32::try_from(self.input.len()).map_err(|_| TransportError::Limit)?;
-        if body
-            .len()
-            .checked_add(4)
-            .and_then(|n| n.checked_add(self.input.len()))
-            .is_none_or(|n| n > limit)
-        {
-            return Err(TransportError::Limit);
-        }
-        body.extend_from_slice(&length.to_be_bytes());
-        body.extend_from_slice(&self.input);
-        Ok(body)
-    }
-
-    pub fn decode(bytes: &[u8], limit: usize) -> Result<Self, TransportError> {
-        if bytes.len() > limit {
-            return Err(TransportError::Limit);
-        }
-        let mut body = Reader(bytes);
-        if body.take(8)? != b"CLRQRQ01" {
-            return Err(TransportError::Protocol);
-        }
-        let operation = body.string(128)?;
-        if operation.is_empty() || operation.chars().any(char::is_control) {
-            return Err(TransportError::Protocol);
-        }
-        let contract = OperationContract {
-            operation,
-            kind: OperationKind::Query,
-            digest: body.array()?,
-        };
-        let consistency = match body.byte()? {
-            0 => QueryConsistency::Stale,
-            1 => QueryConsistency::AtLeast(
-                VersionToken::from_encoded(&body.string(MAX_TOKEN)?)
-                    .map_err(|_| TransportError::Protocol)?,
-            ),
-            2 => QueryConsistency::Linearizable,
-            _ => return Err(TransportError::Protocol),
-        };
-        let stale_policy = match body.byte()? {
-            0 => StaleReadPolicy::RecentSource,
-            1 => StaleReadPolicy::DisconnectedHistorical,
-            _ => return Err(TransportError::Protocol),
-        };
-        let millis = u64::from_be_bytes(body.array()?);
-        if millis == 0 || millis > 3_600_000 {
-            return Err(TransportError::Protocol);
-        }
-        let length = u32::from_be_bytes(body.array()?) as usize;
-        let input = body.take(length)?.to_vec();
-        if !body.0.is_empty() {
-            return Err(TransportError::Protocol);
-        }
-        Ok(Self {
-            contract,
-            input,
-            options: QueryOptions {
-                consistency,
-                stale_policy,
-                timeout: Duration::from_millis(millis),
-                routing: QueryRouting::Local,
-            },
-        })
-    }
-}
-
-pub(super) fn encode_result(
-    result: &Result<QueryResult, CommandFailure>,
-    limit: usize,
-) -> Result<Vec<u8>, TransportError> {
-    let mut body = b"CLRQRS01".to_vec();
-    match result {
-        Ok(result) => {
-            body.push(0);
-            string(&mut body, result.version_token.as_str())?;
-            let length = u32::try_from(result.result.len()).map_err(|_| TransportError::Limit)?;
-            if body
-                .len()
-                .checked_add(4)
-                .and_then(|n| n.checked_add(result.result.len()))
-                .is_none_or(|n| n > limit)
-            {
-                return Err(TransportError::Limit);
-            }
-            body.extend_from_slice(&length.to_be_bytes());
-            body.extend_from_slice(&result.result);
-        }
-        Err(failure) => body.push(failure_code(failure)),
-    }
-    if body.len() > limit {
-        return Err(TransportError::Limit);
-    }
-    Ok(body)
-}
-
-pub(super) fn decode_result(
-    bytes: &[u8],
-    scope: &GroupScope,
-    schema: [u8; 32],
-    keys: &VersionKeys,
-    now_ms: u64,
-    limit: usize,
-    served_by: MemberId,
-) -> Result<Result<QueryResult, CommandFailure>, TransportError> {
-    if bytes.len() > limit {
-        return Err(TransportError::Limit);
-    }
-    let mut body = Reader(bytes);
-    if body.take(8)? != b"CLRQRS01" {
-        return Err(TransportError::Protocol);
-    }
-    let result = match body.byte()? {
-        0 => {
-            let version_token = VersionToken::from_encoded(&body.string(MAX_TOKEN)?)
-                .map_err(|_| TransportError::Authentication)?;
-            let version = keys
-                .verify(&version_token, scope, schema, now_ms)
-                .map_err(|_| TransportError::Authentication)?;
-            let length = u32::from_be_bytes(body.array()?) as usize;
-            Ok(QueryResult {
-                result: body.take(length)?.to_vec(),
-                version,
-                version_token,
-                served_by,
-            })
-        }
-        status => Err(decode_failure(status)?),
-    };
-    if !body.0.is_empty() {
-        return Err(TransportError::Protocol);
-    }
-    Ok(result)
-}
 
 fn failure_code(failure: &CommandFailure) -> u8 {
     match failure {

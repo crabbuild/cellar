@@ -42,6 +42,13 @@ impl CellQueryCall {
         body.extend_from_slice(&request.contract.digest);
         match &request.consistency {
             CellQueryConsistency::Stale => body.push(0),
+            CellQueryConsistency::RecentSource { max_age_ms } => {
+                if !(1..=3_600_000).contains(max_age_ms) {
+                    return Err(TransportError::Protocol);
+                }
+                body.push(3);
+                body.extend_from_slice(&max_age_ms.to_be_bytes());
+            }
             CellQueryConsistency::Linearizable => body.push(1),
             CellQueryConsistency::AtLeast(token) => {
                 body.push(2);
@@ -93,6 +100,13 @@ impl CellQueryCall {
                 CellVersionToken::from_encoded(&body.string(4096)?)
                     .map_err(|_| TransportError::Authentication)?,
             ),
+            3 => {
+                let max_age_ms = u64::from_be_bytes(body.array()?);
+                if !(1..=3_600_000).contains(&max_age_ms) {
+                    return Err(TransportError::Protocol);
+                }
+                CellQueryConsistency::RecentSource { max_age_ms }
+            }
             _ => return Err(TransportError::Protocol),
         };
         let timeout_ms = u64::from_be_bytes(body.array()?);

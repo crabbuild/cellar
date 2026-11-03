@@ -2,6 +2,8 @@
 
 # Cell-group implementation progress
 
+Purpose: Source-pinned cell-group implementation checkpoints and qualification limits.
+
 The executable design and implementation plan is delivered. Remaining
 end-to-end implementation and hard cutover work is specified in the
 [executor handoff](handoff.md).
@@ -9,6 +11,1143 @@ CG-01 through CG-06 and CG-08 have passed their scoped native gates.
 CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
+
+## CG-07 shared reads and PR #160 MVP scope
+
+PR #160 publishes the canonical shared SDK/fleet work as a draft checkpoint.
+[Remaining work and priorities](remaining-work.md) orders the MVP deliverables
+and names the original public merge gates. CG-07 and the end-to-end goal remain
+incomplete; all CG-09–16 requirements remain in scope.
+
+The counter port exposed missing public read behavior. Two real follower/SQLite
+cases reproduce NotReady before production changes in
+CG-07-shared-read-follower-before-01, in both image forms. Core-fixed-01 adds
+origin-bound safe ReadIndex forwarding in a separate private context domain.
+Selection requires current-term quorum and contiguous local apply through the
+correlated barrier. Source generations revoke retained follower proofs on a
+term/leader change, failure or shutdown. Seed and metadata contexts retain their
+own admission rules; read proofs confer no mutation or seed authority.
+
+Recent-source reads now have an explicit age constraint in the SDK and wire.
+Only valid current-term leader traffic refreshes follower source observations.
+The captured expiry caps the physical SQL deadline, including entered callbacks;
+later traffic cannot renew an old proof. Default SDK stale reads use the injected
+host setting; disconnected historical reads require explicit selection. Results
+expose the actual selecting member and node. Namespace/process grants, bounded
+attempts, original invocation identity and joined physical cleanup remain enforced.
+
+The source-age fixture initially pumped fresh leader traffic while selecting its
+first proof. Tagged probes reproduced that race; fixed-03 selects the non-barrier
+proof directly, preserving every expiry assertion and deadline. Forty repetitions
+pass, twenty per image form. Debug probes are removed. Fixed-04 adds actual TLS
+follower queries with minimum-version, linearizable and recent-source constraints,
+exact observations/responder metadata and transport-permit release. These are
+three engines in one process, not independent-host qualification.
+
+Fixed-04's full execution run has 172 passed, one failed and two ignored. Its only
+failure is an older router oracle expecting an authorized follower linearizable
+read to refuse. Fixed-05 updates that oracle to check exact successful follower
+and leader observations, callback counts and released permits, retaining namespace/
+process denial, global retry bounds and the router's absence of local replicas.
+All fifteen focused cases pass on fixed-05. The complete native execution suite passes: 173 passed, zero failed and two
+ignored, in 408.03 seconds on the normal default stack.
+Source manifest SHA256:
+64fa92f41bb3e29fb7873ebf0ae5a532ba4c007049c6e1ae47ffcb6039e2f565.
+
+Core-fixed-01's unit and effects targets build. Its full library suite has 1048
+passed, one failed and two ignored; the failed inspection-cancellation fixture
+still sends the retired per-cell protocol. The original two-run effects smoke
+passes using the SQLite development object store. Strict library Clippy fails
+with 234 diagnostics, including 214 dead_code. Production and example Rust are
+unchanged through fixed-05; only integration fixtures changed after core-fixed-01.
+Format, layout, native dependency, documentation and diff checks pass at fixed-04;
+publication checks cover the final documentation and router fixture separately.
+
+The overall fixed-05 native Cargo command fails on 34 unconverted performance-
+binary API errors despite emitting the fresh native executable used above. Counter
+and performance consumer ports, public replica routing, managed directory/startup,
+exact-reference S3 learner activation and all five public acceptance cases remain
+open. No full-package, strict Clippy, current-source managed RustFS/DR/load, release
+or MVP pass is claimed. Historical real RustFS results retain their earlier scope.
+
+## CG-07 retained preparation and completed seed installation
+
+The preceding gateway/backend checkpoint (CG-07-gateway-backend-fixed-03) passes
+all 21 targeted cases and has 164 passed, three failed and two ignored in the
+full native execution suite. Its normal unit-test target and effects executable
+build. The original two-run effects smoke and 39 focused lifecycle cases pass on
+that same source. Format, layout, native dependency, documentation and diff checks
+pass. This effects smoke uses the local SQLite-backed development object store;
+it is not current RustFS or managed disaster-recovery qualification.
+
+The three remaining native failures are reproduced independently in
+CG-07-seed-retained-probe-01. Tagged boundary probes show that seed persistence
+succeeds before a post-sync source watch rejects completion in both image forms.
+The retained-owner retry adds exactly one sync of the same page directory. These
+probes have been removed and the original assertions remain unchanged.
+
+CG-07-seed-retained-fixed-01 separates source liveness before submission from
+local completion after successful engine persistence. The queued engine still
+checks the complete grant and exact managed boot before entering its fence.
+After successful persistence, completion retains destination engine/member/disk/
+process identity, current boot, shutdown and original deadline checks, followed
+by fresh catalog bootstrap. It no longer requires the source process to remain
+alive after the bytes and receipt have been durably installed. This grants no
+quorum or serving authority. Sync errors remain uncertain and fail closed.
+
+Provisioning retries now reuse an already verified physical closure only with
+the same live page and engine owners, exact selected marker, complete checkpoint
+retention and no pending/quarantined publication. A changed selection recovers
+on the retained applier. Marker equality cannot clear uncertainty. The original
+LOCK and no-additional-sync assertions remain. The seed persistence cases also
+hold an entered fence through its unchanged original deadline and require a
+refused late response while cold recovery preserves the actual synced root.
+
+Fixed-01 builds the normal unit target and effects executable; its original
+retained-disk smoke passes both runs. The full ordinary library suite has 1048
+passed, one failed and two ignored. Its remaining inspection-cancellation test
+still sends the retired per-cell protocol and must be ported to the actual shared
+managed protocol. Format, layout, native dependency, docs and diff checks pass.
+Strict library Clippy reports the same 235 diagnostics (215 dead_code); none have
+a primary span in the six production files changed for these two fixes.
+
+The new expiry cut initially held work past the fixture peer's unchanged
+five-second disconnect guard. Fixed-02 gives only that new case a two-second
+operation deadline; all other cases retain their original ten-second deadline.
+It passes retained-owner reuse and both complete seed-persistence cases, including
+all queued/entered revocation, expiry, pre/post-sync error and cold-reopen cuts.
+Production/library and example Rust match fixed-01 byte for byte; only the new
+expiry fixture deadline changes. The complete native execution suite now passes:
+167 passed, zero failed and two ignored, in 452.06 seconds on the normal default
+stack. Its three focused regressions also pass. Capture source manifest SHA256:
+1a60ff1d210b4f7c3432fabc6f4a669a88539d71271bf6faaed391f6e07c29d6.
+The overall native Cargo command still fails on fifteen unconverted counter-binary
+API errors even when it emits this fresh native test executable. No full-package,
+strict Clippy, managed/RustFS, load or release pass is claimed. All owned jobs are
+terminal; the WIP, source inputs, immutable executables and passing/failed evidence
+are preserved in the checkout-specific target's qualification-evidence directory.
+CG-07 and the end-to-end goal remain incomplete; CG-09 through CG-16 are required.
+
+The next critical MVP work is the public counter/performance and actual shared
+managed inspection cutover, followed by canonical managed directory/startup and
+exact-reference S3 learner activation. Preserve all original public acceptance
+behaviors, then refresh real Docker-fenced RustFS recovery and replication/
+reclamation under load on the combined source before publication.
+
+## CG-07 canonical S3 scratch ownership and gateway backend declarations
+
+Canonical S3 enrollment's Image(Io(NotFound)) failure is now diagnosed and fixed.
+The checkpoint receiver's anonymous materialized image spool required a parent
+that canonical startup never created. An unchanged source-12 executable reproduced
+it on fresh data. Creating only the three archive-spools parents made both original
+smoke runs pass. A tagged image-reader probe emitted no failed-image path, and is
+removed; cellar-ltx generation.rs is restored byte for byte to its prior source.
+Canonical archive startup now creates and syncs this node-owned directory on its
+execution domain before registering any archive owner. S3 proof, scratch quotas,
+original timeouts and all physical receipt/fencing checks remain.
+
+The fix also exposed intermittent typed Execution(Busy) in the finite effects
+example. Its caller now backs off only busy/overload under the same command ID,
+contract, input and original deadline, including ambiguous outcomes. It does not
+claim rollback or create a fresh business command. CG-07-canonical-s3-fixed-02
+builds the normal library unit target and effects binary. The original two-run
+retained-disk smoke passes, and three additional original two-run trials pass:
+eight retained runs total with executable SHA256
+4106a1a1c819f1335e62dffa91417646498bbf19821778baa8e18d69d3797995.
+Capture source manifest SHA256:
+231fa577c83a1d06ccfe1694e6e8a0e45ef5d259988684b9dc45b21f4e59cce1.
+This is the public SDK/effects path with a SQLite-backed development object store,
+not RustFS, managed fleet, zero-quorum recovery or a load envelope. All 39 prior
+focused boundary cases also pass with the scratch fix (fixed-01); the subsequent
+fixed-02 change is example retry policy only.
+
+The sixteen native gateway failures were caused by extent fixture setup declaring
+a materialized namespace. Registered, custom-retention, effects and reclamation
+fixtures now declare the actual backend at birth. Archive reopen forwards the
+same immutable backend; a new fixture assertion refuses a contradictory setup.
+The read-only RangeDirectory namespace configuration accessor is public for
+embedding resources; it neither refreshes routing nor grants startup authority.
+Production schema/backend/domain/runtime identity guards remain unchanged.
+
+A standalone original gateway case reproduces on the immutable source-11 binary.
+CG-07-gateway-backend-fixed-01 emits a fresh native execution test artifact while
+its overall Cargo command still fails on fifteen old counter binary API errors.
+All sixteen original failing gateway cases now pass, retaining every original
+assertion and both backend variants. Source manifest SHA256:
+a0460dd39dc55b4401073c370110c64198ded0030dbfb40ece11ecb07018497e.
+The later fixed-03 full shared execution suite has 164 passed, three failed and
+two ignored; its 21 targeted cases pass. Retained-owner retry, seed revocation and the
+old library inspection cancellation test remain open until new evidence proves
+otherwise. No combined/full-package or strict Clippy pass is claimed.
+
+Next fix remaining owner/seed regressions, port public counter/performance callers
+and managed shared-protocol cancellation, finish managed node-directory/startup
+and exact-reference S3 learner activation, then all five original public gates.
+Current-source real Docker-fenced RustFS qualification, persistent hold retirement,
+CG-09 through CG-16 and combined load/release gates remain required. The full goal
+is still incomplete and this WIP remains unpublished.
+
+## CG-07 predecessor retirement and executable qualification
+
+The unpublished cutover now compiles the production library and its ordinary
+unit-test target. The previous 32 integration errors are resolved by removing
+the predecessor per-cell host dispatcher, its managed birth/registration API
+and inbound per-cell seed/inspection dispatch. Used host options, observation
+contracts and storage-policy regression assertions remain. Unreachable
+predecessor helpers still require the CG-16 deletion sweep; no warning
+suppression or compatibility dispatcher was added.
+
+Canonical startup now joins physical infrastructure on explicit failure even
+with retained caller handles. Cancellation schedules the same owned cleanup.
+Peer/query routes are installed only after every local root attaches and the
+retained inventory is checked. Both existing startup tests use real shared-group
+engines, directory births and TLS peers. A default-stack overflow in permanent
+claim revalidation was reproduced, traced through the macOS crash stack and
+fixed by boxing catalog work before constructing nested timeout futures, with
+an additional heap boundary around canonical initialization. Startup boxing
+alone was insufficient (test-05); the catalog boundary fixes the original test
+(test-07), and both original tests pass without diagnostic probes (test-11).
+No stack limit, timeout, resource ceiling or assertion was relaxed.
+
+The existing poisoned-accounting regression requires close to return its
+corruption error, retains old handles, and reopens the physical engine before
+dropping them. This verifies release while preserving the corruption oracle.
+The old storage-family tests do not prove managed startup or serving authority.
+
+The effects executable now builds with explicit namespace capabilities/group
+placement, separate logical cell histories, enrollment initializers and public
+request/error values. Development provisioning persists one-use archive intents
+before committing counters; retained startup only opens them. A fresh harmless
+S3 command after observed settlement replaces the advisory archive-position wait.
+This executable is not yet qualified: its local SQLite-backed object-store smoke
+first refused missing initializers (test-11), then, after that fix, failed S3
+enrollment during checkpoint capture with Image(Io(NotFound)) (test-12).
+The failed run's voter disks, catalog, creation intents and logs are retained.
+Do not reduce durability or recreate archive counters to pass this case.
+
+Current evidence:
+
+- CG-07-legacy-retirement-test-11 retains 4730 source inputs (manifest SHA256
+  a48f8733addb9559a02e1b4e61398b7432edfc304393afb5034aeb731326aa70).
+  All 39 focused cases pass, including both startup tests, 30 host policy cases,
+  four low-level storage genesis, two route-lifetime and one query-auth case.
+- The full ordinary library suite has 1048 passed, one failed and two ignored.
+  The failure sends the retired per-cell inspection protocol; its cancellation
+  oracle must be ported to the real shared managed protocol, not suppressed.
+- A fresh native execution artifact was emitted before Cargo failed on 15 old-API
+  counter executable errors. The compiler event (fresh:false), source hashes and
+  immutable executable are retained. Its full suite has 148 passed, 19 failed and
+  two ignored. Sixteen failures stop at gateway Identity validation; the other
+  failures are retained-page-owner retry and seed persistence WrongIdentity in
+  both image modes. These are open regressions, not passing qualification.
+- Test-12 changes only example initializers. Library and native-fixture Rust
+  sources match test-11 byte for byte. The normal locked unit build and effects
+  executable build pass. It retains 4730 inputs (manifest SHA256
+  af3055a1e8692bf0a384f2c31d1baaf6a65a13c1a070c10f6701c47116b12e16).
+  Format, layout, native dependency, documentation and diff checks pass.
+  Strict library Clippy fails with 235 diagnostics (215 dead_code and 20 other
+  lints); the complete classification is in static/clippy-audit.json. No Clippy
+  or combined release pass is claimed.
+
+Next resolve canonical S3 enrollment's missing checkpoint image using the actual
+smoke repro. Diagnose gateway identity without weakening namespace/backend/domain
+checks; existing extent fixtures may advertise a materialized namespace. Preserve
+all owner reuse and seed revocation assertions. Port the counter example to many
+cells in one explicit group, then the remaining executable consumers. Complete
+managed node-directory/startup integration, exact-reference S3 learner transfer
+and all five original CG-07 public gates. Refresh real Docker-fenced RustFS
+qualification on current source before publication. CG-09 through CG-16 and final
+combined/load gates remain required. No new RustFS backend or recovery drill ran
+in this checkpoint; historical scoped CG-06 evidence remains separate.
+
+## CG-07 controller-owned managed peer learner activation
+
+The Activate movement receiver now selects its physical history and enters the
+same node provisioning manager as initial startup. Its public SDK call uses the
+installed execution domain, original bounded deadline, exact namespace owner,
+rooted birth and current physical boot. Pre-submission refusals remain distinct
+from outcomes after controller submission. Its returned local membership receipt
+is descriptive; promotion still requires actual catch-up and fresh quorum.
+
+Managed staging compares the expected permit and target boot with the fresh
+catalog admission before creating a mapping. The source exchange still requires
+its own fresh-quorum grant. Source endpoints come from rooted trust and current
+node views. After complete checkpoint verification and persistence, attachment
+uses actual committed membership and physical bindings, without a cell alias.
+S3 learner activation explicitly refuses before submission; the exact-reference
+archive transfer remains unimplemented and never falls back to a peer.
+
+The manager saves the applier/page owner before installation. Cancelled, expired
+or lost replies retain that physical preparation and its capacity. The parallel
+permit spans recovery and transfer. A completed install whose response was lost
+is resumed using the durable seed receipt and permanent claim, with selected-root
+recovery on the same page owner. It is not seeded again or given blank genesis.
+Entered work is joined before closing transport/runtime dependencies. Retries
+coalesce only for the same directory, route, boot, exact permit and source.
+
+Locked library capture CG-07-managed-learner-advance-01 reports 32 remaining
+legacy errors, removing all four errors in the Activate receiver. No new primary
+error or non-vendor warning appears in the delivered learner implementation.
+This does not establish successful runtime compilation or execution. The capture
+contains 4728 source inputs (manifest SHA256
+a4291efcce24441e5ebd48cea89ad3dae028a3dec322396b254b4b663492bea9).
+No managed lifecycle, native race, backend or load test ran on this source.
+Final format, module layout, native dependency, documentation and diff checks
+passed. All owned compiler and static-check processes are terminal.
+
+Next remove the remaining legacy host/catalog/seed/inspection consumers while
+retaining common physical deadline/process/shutdown services. Finish managed
+node-directory/startup and exact-reference S3 learner transfer, then execute all
+five original CG-07 public cases and the real RustFS recovery drill on current
+source. Persistent archive hold retirement, CG-09–16 and the complete release
+matrix remain open. The complete goal remains active and WIP is unpublished.
+
+## CG-07 managed group repair controls and peer-route lifetimes
+
+Begin, Promote and Finish movement consumers now call physical RaftGroupHandle
+repair APIs. The controls require the rooted group and exact admitted permit,
+check immutable birth/schema, actual current occupants and target boot/trust/
+physical-host separation, then use ordinary configuration proposals. Exact
+permit/plan/phase and expected revision govern retries; aborted/fenced/later
+permits cannot masquerade as progress. Successful mutation requires durable
+apply and a fresh post-apply quorum, with original deadline and closure checks.
+Actual RawNode readiness and catch-up enforcement is unchanged. Abort is also a
+real group control. Learner Activate still uses its old consumer and remains a
+required conversion; no S3 fallback or fabricated cell alias is added.
+
+Managed advisory routing can resolve committed joining-member/disk bindings
+through rooted node views. It changes no configuration or serving authority.
+Discovery lag leaves known voters usable and unresolved peers unavailable;
+initial identities are taken from the authorized birth route, not guessed from
+node IDs. Ordinary cell apply does not scan routes. Reconciliation runs after
+configuration apply/checkpoint install and ordinary frames retry once for an
+unknown target, before frame allocation/admission. Existing queue, peer, snapshot
+and physical worker limits are unchanged.
+
+A bounded per-group lifetime token separates physical registration from advisory
+route generations. Refresh and node-view changes retain the existing checkpoint
+factory. Each transfer still captures an exact immutable route and rejects old
+generations; per-chunk checking allocates no selected endpoint. Explicit route
+replacement/removal revokes the old factory, and a stale refresh or old guard
+cannot adopt/remove its successor. Group/cache guards are released before the
+registry lock, and peer authorization runs after its validation guard drops.
+These are implementation invariants, not executed qualification claims.
+
+Two new registration/generation regressions use parked real synced engines,
+filesystem stores and transport/TLS listeners. They cover factory continuity,
+old selection rejection, physical-owner cleanup and explicit successor retention.
+They do not establish a fresh quorum, an active network checkpoint stream or
+RustFS behavior. The existing query authentication test body is byte-identical;
+only its shared fixture moved to a sibling file, retaining embedded TLS paths.
+
+Final library capture CG-07-managed-routing-advance-04 has the same 36 inherited
+errors as the prior goal turn, including four old activation errors. No primary
+error or non-vendor warning is added by the delivered route/repair code. The
+intermediate control build's five type/import errors were corrected; its real
+stream is retained with the other captures. Final source includes 4726 inputs
+(manifest SHA256
+bfdbc3c3ff638d7cfd20b8034626e825e33c9fd09e3e9be78beb8713e6f14053),
+with every captured Rust input matching at closure. The standard locked unit-test
+compile (--lib --no-run) also stopped at the same 36 ordinary-library errors
+before test modules compiled. No tests ran. All builds use the required restored
+workspace-volume target. No managed/native/backend/load qualification follows,
+and the WIP remains unpublished with the full goal incomplete.
+Final format, module layout, native dependency, documentation and diff checks
+all passed. All owned compile and static-check processes are terminal.
+
+Next finish controller-owned managed peer/S3 learner staging, complete-image/
+receipt install and registration using the existing immutable namespace profiles.
+Preserve exact-reference S3 semantics and original fencing/retained debt. Then
+remove remaining legacy host/catalog/seed/inspection consumers, retain common
+physical transport deadline/process services, finish node-directory/managed
+startup and all five original CG-07 public cases. Qualify these controls, trusted
+route discovery and both regression modules using actual native/race/RustFS
+harnesses. Persistent archive hold retirement, CG-09–16 and the full release
+matrix remain required.
+
+## CG-07 controller-owned managed genesis and namespace profiles
+
+The restart-genesis receiver now calls activate_managed_initial_group on the
+canonical SDK, replacing its retired cell lookup/registration/activation path.
+The invocation enters its installed execution domain for catalog I/O, even if
+polled on another runtime. It uses the exact registered namespace capability, actual rooted
+Live birth, admitted initial voter and last-synced local boot. It reauthorizes
+before submission and after attachment, checks the selected root and actual
+membership, and returns a descriptive persisted fleet guard. That receipt grants
+no fresh quorum, seed, serving or physical-release authority. Existing quorum
+readiness and permanence/lost-disk checks remain separate and unchanged.
+
+The controller owns managed initial preparation, applier, selected pages, roster
+reservation and transport attachment. Running attempts retain their original
+deadline; another waiter cannot extend it. A completed attempt can be retried
+with a fresh invocation while reusing its retained physical owner. Entered work
+is joined after cancellation/expiry. Real late attachment remains registered,
+but delivery cannot report late success. Both queued delivery and consuming an
+unread successful reply check its original deadline; managed admission retains
+the existing 60-second maximum. An attached retry performs fresh boot/catalog
+checks under shared preparation/parallel admission without reopening its page
+store, reattaching consensus or adopting another registration's lifecycle.
+Current roster/quarantine and shared-engine fatal-error checks remain in force.
+Typed startup refusal and unconfirmed outcomes stay distinct; catalog pressure,
+conflict, corruption and owning causes are preserved at the receiving boundary.
+
+Provisioning now has immutable CellGroupProvisionNamespace profiles. Each binds
+an exact directory owner and declared image backend; duplicate namespaces,
+foreign owners and representation mismatches refuse. Canonical startup clones
+its single node image inventories into these profiles and configures explicit
+CellGroupProvisionLimits. All namespaces share one preparation bank and parallel
+limit. Fixed peer metadata and advertised directory-cache capacities are charged
+once against the same total byte ceiling, then subtracted from available active
+preparation capacity. No resource limit is enlarged. Usage/metrics expose that
+configuration retention separately, and existing joined shutdown drops it after
+physical work has joined.
+
+Existing provisioning fixtures register their actual namespace owners and image
+representation for both backends. Their coalescing, pressure, retained-owner,
+joined-cancellation, missing-page restart and healthy-group assertions remain.
+Additional checks refuse duplicate profiles, insufficient configuration budget
+and an unconfigured foreign owner before its first materialization. These test
+modules have not compiled or executed while the runtime library fails. They
+provide no managed lifecycle, sync, quorum or backend qualification yet.
+
+The first two locked workspace-volume library builds reduce errors from 40 to
+36, removing all four retired genesis receiver errors without new primary
+startup/provision/profile diagnostics or non-vendor warnings. The final reviewed
+capture is CG-07-managed-genesis-advance-04, also terminal with the same 36
+remaining errors. All four real compiler streams and formatter results are
+retained. The final 4723 source inputs have manifest SHA256
+25b5a30439963dea58e34d16208b4f2572f37d6fa257c1c35dc2c8afca4ae3c6;
+all captured Rust inputs match at this validation point. Static review records
+11 unchanged native invariant owners, including permanent claims, serialized
+boot checks, RawNode catch-up, complete-root attachment and common physical
+transport cancellation. This is not executed qualification. The restored
+workspace-volume target is used for all four captures. Formatting, module
+layout, native dependency isolation, documentation and diff checks pass. All
+owned validation processes are terminal. Static assertion review retains all
+43 original provisioning assertions (with explicit profile arguments) and seven
+additional refusals; the tests are still uncompiled and unexecuted. Latest
+origin/main is an ancestor of the working branch. Canonical managed startup
+remains gated and unqualified WIP is not published.
+
+Next finish controller-owned managed learner activation, exact-reference S3
+restore, real group repair begin/advance and trusted replacement peer routes.
+Retire the remaining old host/catalog/seed/inspection consumers while retaining
+common physical transport deadline/process services. Installed node-directory
+ownership, managed startup sequencing and all five original CG-07 public cases
+remain open, followed by current-source native/race/RustFS qualification, explicit
+archive hold retirement, CG-09–16 and the complete release matrix.
+
+## CG-07 shared physical page path for provisioning and restart
+
+Canonical startup, controller provisioning and independent archive replay now
+use ManifestPageStore::group_pages_path. Serving owners use the same configured
+node base and groups/<cluster>/<namespace>/<group>/<incarnation>/pages inventory.
+The archive verifier retains its independent base. This removes provisioning's
+flat path, which could reopen a different page store after canonical restart.
+The ordinary exclusive lock, selected-root validation and failure behavior stay
+unchanged; no flat-path reader or migration is added.
+
+The existing provisioning fault and restart fixtures now independently expect
+that canonical directory. Static comparison confirms every test body and
+assertion outside the path helper is byte-identical, including missing-page
+refusal, retained-owner retry and joined cancellation. Both materialized and
+extent cases remain. These tests have not executed or compiled while the runtime
+library fails; static retention is not physical recovery qualification.
+
+The workspace-volume locked build is terminal with the same 40 error-message/path
+pairs as the managed-seed capture, with no primary diagnostic or non-vendor
+warning in this change. CG-07-provision-path-advance-01 captures 4722 source inputs
+(manifest SHA256
+87cdfd5273f790446ac1753f5593bdfe88d3e5ee8f0a6fb2a095298e5496bad3).
+All captured Rust inputs match at this validation point. Formatting, module
+layout, native dependency isolation, documentation and diff checks pass. All
+owned validation processes are terminal. The new layout and managed peer-seed
+implementation remain unqualified and unpublished.
+
+Next configure immutable namespace-bound provisioning profiles using shared node
+image admissions, wire controller-owned managed learner activation/registration,
+and add real group repair/genesis consumers. Remove remaining legacy callers
+while retaining shared transport deadline/process services. Managed canonical
+startup, all five original CG-07 gates, physical race tests, fresh RustFS, explicit
+archive hold retirement, CG-09–16 and the release matrix remain required.
+
+## CG-07 managed complete-group peer seed admission and fencing
+
+The shared transport now has prepare_managed_group_seed, using the same complete
+checkpoint stream, receiver pools and retained engine work as unmanaged seeding.
+The destination must have a fresh active physical reservation for its exact boot.
+The selected source must be a rooted seed owner with the exact current member,
+node, disk and process boot, and a voter in the authenticated checkpoint. The
+source descriptor must carry this exact consumed permit/repair in Seeding phase.
+Subsequent authorization cannot regress its original catalog revision. Catalog and handshake time are deducted before forwarding the remaining original
+timeout. Review also put catalog preflight, staging and joined-permit delivery
+under the existing transport deadline, process revocation and shutdown wrapper.
+Namespace ownership reads count inside directory operation bounds. Queued engine
+work retains its grant even after the metadata waiter times out.
+
+Managed staging and installation retain the permanent member/engine claim and
+check the exact last-synced local boot in the serialized storage worker. A queued
+quiescence, stop or fence refuses further installation. Once accepted, physical
+work remains owned through actual sync; expiry/close afterward suppresses late
+success without erasing a durable receipt. Managed joined-member bootstrap and
+permit revalidation require that receipt, the permanent claim, the rooted Live
+group and the current exact boot. An old active permit is not restart authority.
+Unmanaged joined/seed entry points also check actual namespace ownership.
+
+The staged base preserves the source's real enrollment origin. Genesis guards
+remain genesis guards; an imported group's committed enrollment is installed by
+ordinary snapshot successor validation. Normal membership successors, recovery
+lineage, checkpoint encoding and RawNode promotion checks are unchanged, as
+recorded in static source review. A staged learner remains outside the birth
+configuration and cannot acquire startup/serving authority from this projection.
+No marker bump, old reader, cell alias, no-op action or resource increase is added.
+
+The previous goal turn removed the legacy query path and reduced the diagnostic
+to 40 errors. All three managed-seed captures also report 40. The reviewed final
+CG-07-managed-seed-advance-03 includes deadline composition and has the same error-message/path multiset as the query
+capture, with no primary error or non-vendor warning in the new seed, storage,
+joined-bootstrap or source-authorization code. Its 4722 source inputs are bound
+by manifest SHA256
+7746dd2c6a4902499291d91f15f3bbcb09bebb1bbc534b16ec5985cf09efa0d5;
+all captured Rust inputs matched at that validation point. The first capture used the temporary target.
+Workspace-volume writes are now restored; the reviewed build and follow-up checks
+return to the normal checkout-specific target required by AGENTS.md.
+Formatting, module layout, native dependency isolation, documentation and diff
+checks pass for the final capture; all owned validation processes are terminal.
+
+Five new profile/origin/boot-guard regressions remain unexecuted while the library
+fails. Their metadata/guard fixtures grant no catalog, sync, quorum or installation
+proof. No new runtime, Clippy, managed lifecycle or RustFS qualification is claimed.
+This implements the lower managed peer-seed boundary; SDK/controller-owned learner
+activation and managed canonical startup are still gated. Next wire this path into
+the existing provision/registration owner, add group repair begin/advance and
+managed genesis consumers, finish managed S3 learner restore and remove old
+seed/inspection/host callers. All five original CG-07 cases, physical race/native/
+RustFS qualification, explicit hold retirement, CG-09–16 and the release matrix
+remain required. Unqualified WIP is not published and the goal stays incomplete.
+
+## CG-07 query hard cutover and retained authentication
+
+The retired per-cell SDK no longer admits business queries. Its query options,
+routing/result types, pending query operation, host execution branch and remote
+routing loop are removed. The old query_route module and request/reply body codec
+are deleted. QueryRoute accepts only a physical-group plus logical-cell identity;
+the Cell history variant and its reader are gone. Current cell queries, commands,
+enrollments and receipt lookups keep their separate purpose-bound bodies on the
+same authenticated peer query lane. Marker 1 remains unchanged, with no old reader,
+translation, production switch or increased resource bound.
+
+The common framing/MAC helpers, exchange, origin-grant validator and deadline/
+cancellation/revocation controller are byte-identical to their baseline regions.
+This is recorded as static source review, not executed security qualification.
+Existing query codec oracles now use logical cell tokens and physical group routes,
+preserving channel/exporter, digest, sequence, response correlation, process,
+non-voting origin, bounds and typed-failure checks. The original grant test moves
+to real synced shared engines and start_shared transport with all 18 assertions
+retained: namespace/process isolation, tombstone pressure, in-flight revocation,
+regrant refusal and physical pool retention/retirement. Its parked runtimes grant
+no serving or quorum proof. A new regression supplies complete superseded route,
+request and reply inputs and requires refusal. These tests remain unexecuted.
+
+The previous goal turn implemented shared fleet actions and restart readiness,
+reducing the locked library diagnostic from 90 to 65 errors. The first check
+reports 40 errors; the reviewed, formatted final capture
+CG-07-query-cutover-advance-03 also reports 40, with no primary error or non-vendor
+warning in the converted query code. Review restored exact token equality in a
+ported wire oracle before the final capture; the tests remain unexecuted. All
+three sequential captures and their real streams are retained. Two remaining
+host.rs errors concern unchanged predecessor startup service types, rather than
+query execution. Its 4719 source inputs are retained (manifest SHA256
+86d951269719dd948dcd2e0849eb9efa7c0d0d63fde87edb2fcf501b21db56dc),
+and every captured Rust input still matches. Formatting, module layout, native
+dependency isolation, documentation and diff checks pass; all owned validation
+jobs are terminal. The system-disk target remains
+checkout-specific and ignored because the normal workspace-volume probe still
+returns EPERM. No other checkout artifacts were reused or cleaned.
+
+This is hard-cutover implementation progress, not runtime qualification. No new
+runtime tests, Clippy or RustFS drill ran while the canonical library fails.
+Earlier core/native/backend records retain their original source scope. Remaining
+legacy SDK/Axum/read examples and low-level SQL fixtures must be converted without
+weakening their behavioral oracles. Complete-group managed repair/learner seeding,
+registration/genesis, old seed/inspection callers, installed directory ownership
+and managed startup are the critical next work. All five original CG-07 public
+gates, explicit persistent hold retirement, refreshed native/backend qualification,
+CG-09 through CG-16 and the complete release matrix remain open.
+
+## CG-07 shared fleet actions and restart readiness
+
+Fleet movement/restart action dispatch now uses the installed shared SDK gateway.
+Local execution checks the exact synced boot and installed runtime owner; remote
+execution retains the existing authenticated action lane, rooted receiver checks
+and exact target. Invocation captures its original deadline and control admission
+before polling, with the existing 128 KiB reservation. Internal observers do not
+retain the external SDK lifetime. Late delivery or an interrupted entered action
+remains unconfirmed; it does not establish rollback. Quiescing hosts can perform
+their restart handoff, while fenced/stopped boots refuse action admission.
+
+Restart handoff and resume callers now address complete GroupHistory values. The
+actual group owner checks term, membership revision, stable RF3 configuration,
+committed floor and each required survivor's matched/active progress before a
+transfer. The runtime rechecks the exact synced quiescence selector after queueing
+and tightens its evidence expiry to the original call deadline. The shared and
+remaining legacy owners use one extracted predicate, preserving the existing
+checks and actual caught-up leadership transfer. Replication metadata alone
+grants no quorum, health or seed authority. Restart progress reports carry the
+physical history. The obsolete per-cell fleet action dispatch modules are removed.
+
+The first locked library check reports 70 errors, down from the prior 90. The
+reviewed final source fixes five remaining restart-report type mismatches and
+reports 65 errors. There is no primary diagnostic in the new action, shared-owner,
+restart-gate or converted handoff/resume paths. All 4719 captured source inputs
+are retained in CG-07-group-actions-advance-02 (manifest SHA256
+248e011a2bdaa4ec19a2f93ee2b80cae44f14da43d06b70517bf76684edd6f40),
+and every captured Rust input still matches. This is compiler progress, not runtime
+qualification. Four new readiness/identity/quiescence regressions are unexecuted
+while the library fails. No new runtime tests, Clippy or RustFS qualification ran.
+The previous 96 enabled pure-core test results remain scoped to their capture.
+Formatting, module layout, native dependency isolation, documentation and diff
+checks pass. All owned build/formatter/check jobs are terminal.
+
+After the user cleaned the workspace volume, a new lock open and independent
+checkout-specific probes still returned EPERM there. The failed formatter attempt
+is retained. The existing repository formatter completed directly; the final
+locked rebuild used a fresh ignored checkout-specific target on the system disk.
+No other checkout's artifacts were reused or cleaned. The capture's environment
+record documents this temporary deviation from the normal workspace-volume rule.
+
+The next critical cutover removes the old query routing/body codec while preserving
+the authenticated framing, node/process and grant/revocation checks shared by
+cell queries, commands, enrollments and receipts. Complete-group learner seeding
+already has authenticated grants and joined-member bootstrap; managed repair,
+registration/genesis and activation must use those real owners. Installed directory
+ownership, managed startup and all five original CG-07 public cases remain open.
+Persistent hold retirement, refreshed native/backend gates and CG-09 through CG-16
+are still required. No unqualified runtime changes are published.
+
+## CG-07 physical-group resource, repair and topology decisions
+
+The pure fleet reservation ledger, topology view/targets/moves and isolated-repair
+view/results now identify complete GroupHistory values. Cell names no longer enter
+these models. A physical replica still costs one engine slot; its combined image,
+staging and memory footprint stays charged under the unchanged resource rules.
+Resource reservations retain exact namespace, group and incarnation identity.
+Old-incarnation reservations cannot be reused or silently erased by a new history.
+Topology rejects two current incarnations of one namespace/group ID, while equal
+opaque group IDs in different namespaces remain distinct. The isolated repair
+result is GroupRepairPlacement, carrying the same revision/member fences for every
+cell. Its deterministic tie-break uses physical history, with no cell alias.
+
+The Docker failure-recovery adapter now supplies complete RangeDirectory handles.
+Before sampling isolated-repair resources it checks current rooted group
+authorization. This neither infers failure from absence nor grants membership,
+release, recovery or deletion authority. Existing physical debt, exact boot,
+capacity/domain checks, work bounds and RF3 assertions remain unchanged.
+
+The previous goal turn made implementation progress on complete-group replay and
+persistent acquire journals, reducing the captured library diagnostic to 100
+errors with static checks passing. This turn changes the authoritative group
+models. Its first test compilation caught a missing BTreeSet import in a new
+regression; that failed attempt is retained. The corrected capture passes all 96
+enabled cellar-logic tests and strict all-target Clippy. Three new executed
+regressions cover namespace-qualified group IDs, conflicting current incarnations
+and retained old-incarnation debt. No existing planner oracle was weakened.
+
+The eight executed pure-core binaries are retained and hashed on the workspace
+volume. Capture .cellar/cell-groups-evidence/CG-07-group-model-advance-02/ binds
+4718 source inputs (manifest SHA256
+e974a366a32ad5982c07d1de70ae79f250934d69c8e9b98cd9319c14a1691b62).
+The locked runtime check now reports 90 errors, down from 100, with no primary
+error or warning in the converted fleet models or Docker adapter. All captured
+Rust inputs still match. Pure-core results do not qualify public SDK/fleet startup,
+Docker isolation, RustFS or managed lifecycle execution. The library and all five
+original CG-07 public gates still need to pass. Formatting, layout, dependency,
+documentation and diff checks pass; all owned validation jobs are terminal.
+
+Investigation confirms that the old per-cell query transport shares framing with
+logical-cell queries, commands, enrollments and receipts. Keep that authenticated
+shared infrastructure while removing legacy query routing/codecs/host consumers.
+Then finish group-native learner/restart/leadership control RPCs, installed node
+directory ownership and managed startup. Explicit persistent hold retirement after
+fencing/joining, old fixture cutover and refreshed native/backend gates remain
+required. CG-09 through CG-16 and the complete feature-off/load/crash/release matrix
+remain open. No unqualified runtime changes are published.
+
+## CG-07 managed complete-group replay and durable acquire ownership
+
+Automatic failed-node removal and management lifecycle verification now use one
+shared FleetGroupArchiveVerifier contract. It opens the exact namespace-owned
+physical group archive, selects survivor candidates from rooted fleet membership,
+freezes the complete quorum-proven cut, acquires independent persistent retention
+and restores the full checkpoint plus contiguous tail. The former per-cell birth,
+cell archive and single-image verifier factories are removed from both callers.
+Public configuration now supplies explicit private materialized/extent image
+inventories, page bounds and node-shared archive/checkpoint/tail/scratch pools.
+
+An acquire journal is keyed by the exact verification basis and pending group,
+independently of later business writes. Before the registry sees a mutation, the
+fleet catalog conditionally stores the complete intent and observes its winner.
+Concurrent controllers send only that persisted winner. Restart restores its
+original fixed cut even before a live receipt was appended. Unknown responses
+retain the same allocation; a fresh registry read must prove its revision was
+consumed without its hold before a conditional journal successor is prepared.
+An independently confirmed hold still reconciles after unrelated allocations.
+Each method retains its original deadline and rechecks rooted basis before and
+after work. No publisher-owned hold, new allocation on timeout, one-cell alias,
+format bump or compatibility reader is used.
+
+Receiver admission now precedes the blocking page-inventory scan. The existing
+checkpoint byte/item bank reserves receiver workspace plus bounded page inventory
+metadata. Its reservation follows the entered worker, receiver and recovered
+closure; cancellation cannot release it while physical work still owns it.
+Pressure and limit failures remain typed. No configured quotas are increased.
+Persistent holds are deliberately not released on drop or timeout. Explicit
+terminal retirement still needs a fence for every user and joined physical work;
+the existing per-registry hold ceiling is unchanged.
+
+The previous goal turn completed the captured 112-error integration diagnostic,
+static checks and preservation of the prior complete-root work. This turn changes
+the authoritative implementation. Formatting passes. The locked library check
+now reports 100 errors, down from 112; no primary error or warning is reported in
+the new verifier, acquire journal, admission code or converted lifecycle callers.
+This is a failing compiler diagnostic, not qualification of those modules.
+The capture under .cellar/cell-groups-evidence/CG-07-managed-archive-advance-01/
+binds 4718 source inputs (manifest SHA256
+87c1ddfc914865321c39cd67a7aff912c55044180340fb7fd7811bb85e1d4d3b).
+All captured Rust inputs still match. A dependency-check attempt lacked Cargo on
+PATH; its failing stderr is retained separately. With the required toolchain
+environment, format/layout, native dependency isolation, documentation and diff
+checks all pass. All owned formatter, compiler and static jobs are terminal.
+No tests or Clippy ran because the library still fails. Origin was fetched and remains
+81cbbc2f72f302751dd471cf06cf51394146ac63, with the branch zero commits behind.
+Five new regressions cover lost-response allocation reconciliation, consumed
+revision and foreign-purpose refusal, and receiver inventory pressure/lifetimes.
+They remain unexecuted while the canonical library fails. No native, managed,
+RustFS, load or release qualification is claimed for this work.
+
+Next finish the remaining group-native topology/repair consumers, authenticated
+learner/restart/leadership RPCs and installed node-directory owner, and convert
+legacy query/seed/host consumers without restoring the one-cell runtime. Managed
+startup and all five original CG-07 public cases remain required, including the
+hard cutover of old verifier fixtures. Then qualify explicit hold retirement and
+refresh complete native/backend gates for the changed marker-1 root shape.
+CG-09 through CG-16 and the combined feature-off/load/crash/release matrix remain
+open; the original end-to-end goal is not complete.
+
+## CG-07 complete-group fleet publication and archive receipts
+
+Fleet membership RPCs now use the shared SDK gateway and actual physical group
+owner. Both local and remote paths reauthorize the exact rooted fleet history,
+retain the original deadline and use fresh safe ReadIndex plus durable apply.
+The body carries the complete GroupManifest, full membership/configuration and
+same-owner progress. No cell, SQL image alias or per-cell query is selected.
+Published cuts contain a complete root and exact membership commitment; the
+zero-cell root is explicit and missing publication cannot construct a cut.
+Configuration set order is canonicalized without changing joint roles. Delivery
+age extends once through the original SDK invocation. Metadata descriptors move
+their membership ledger into the returned proof rather than cloning it across
+response retention; complete RPC/capture work reserves the existing 1 MiB
+physical metadata envelope from the unchanged configured control bank.
+
+Manifest page references now authenticate the maximum physical cell mutation
+position throughout each subtree. Updates recompute it along existing AVL paths;
+metadata reads obtain it directly from the selected root without scanning cells.
+Full tree verification recomputes the summary from actual pages and leaves.
+Complete-root prefix comparison distinguishes metadata-only progress from later
+cell changes, rejects a conflicting root at the same position, and rejects a
+changed root whose latest mutation predates the fixed cut. It also checks exact
+route, configuration commitment and recovery lineage. Physical group positions
+remain distinct from logical cell versions and original receipt witnesses.
+
+Fleet archive coverage now independently restores every checkpoint dependency
+and replays the contiguous group tail under an exact persistent archive hold.
+It compares the complete root and configuration commitment. A locator or uploaded
+single image cannot supply this proof. The caller must own the hold and replay
+receiver, preserve its original deadline, and retain entered physical work.
+The fleet verifier suppresses late delivery and keeps pressure, timeout and
+conflict failures distinct. This proof supplies no current health, membership,
+write acknowledgement or physical release authority.
+
+Receipt index rows retain their original 4 KiB bound. Complete live evidence is
+stored in an immutable, content-hashed object under the existing catalog page
+bound; one append batch retains the original aggregate encoded-byte ceiling.
+Readers require the exact object/hash and revalidate the full root/hold shape.
+Orphan objects or index pages grant no receipt. Marker-1 readers refuse the old
+inline/single-image shape; no fallback reader, format bump or resource quota
+increase is added. The superseded per-cell fleet observation requests, read
+variant and host RPC implementation are removed. Other legacy adapters remain
+in the unfinished cutover.
+
+The previous goal turn made progress on physical node inventory and follower
+quorum metadata, with a captured 124-error library diagnostic. This turn changes
+the authoritative implementation. The first locked check reports 120 errors;
+the second and final checks each report 112, with no primary diagnostic in the
+new group metadata, complete-root coverage, manifest-summary or receipt modules.
+The final check includes configuration-order review and captures 4714 source
+inputs (manifest SHA256
+fb11c46a225c6859ef9ac482740721b2efbea260fa4dbf762265e4d907ec008b).
+Every captured Rust input still matches the current source. This is a failing
+compiler diagnostic, not qualification of those modules. Captures and actual
+streams are under
+.cellar/cell-groups-evidence/CG-07-fleet-root-advance-01/, -02/ and -03/.
+New codec, complete-root prefix, authenticated subtree mutation and bounded
+receipt-shape regressions are unexecuted while the canonical library fails.
+No native, managed, RustFS, load or release qualification is claimed. Existing
+CG-06/08 backend results remain scoped to their original artifacts; the new
+marker-1 manifest shape requires fresh qualification before publication.
+Formatting, module layout, native dependency isolation, documentation and diff
+checks all pass. No new tests or Clippy ran because the library still fails.
+The final compiler owner and watcher, all formatter jobs and the static runner
+are terminal; no owned build or backend job remains live.
+
+Critical next work is the managed verifier's owned archive-hold intent journal
+and complete replay-receiver integration in both automatic removal and management
+control. Do not borrow a publisher's disposable hold or retry an uncertain acquire
+with a new allocation. Then finish group-native placement/repair models,
+learner/restart/leadership RPCs, installed node-directory ownership and managed
+startup. All five original CG-07 acceptance cases, CG-09 through CG-16 and the
+combined feature-off/load/crash/release matrix remain required.
+
+## CG-07 physical SDK inventory and follower quorum metadata
+
+The SDK now obtains local and authenticated remote node observations from the
+shared controller and actual cell-group engine catalog. A complete engine scan
+retains unattached/quarantined histories and checks that the roster and durable
+slot count did not change during capture. Pending attachment/provisioning debt is
+reported independently of durable slots; a zero engine count cannot erase it.
+Startup bounds come from the actual controller/runtime/log capacities. Current
+fleet enrollment is the exact trust cut installed in the transport, not a separate
+catalog refresh. The SDK keeps original invocation deadlines and response
+reservations; internal metadata observers do not retain external node lifetime.
+
+The transport has a weak gateway to the real shared SDK and validates its runtime
+and execution-domain owner. Node probes no longer upgrade an old cell gateway or
+invent a cell identity. The marker-1 node body requires the new
+pending_group_registrations field and refuses the old single-history spelling.
+Its new regression preserves concurrent debt independently of empty disk slots,
+refuses the old body and checks scalar overflow. Local profile observation can
+now be configured; managed startup, node-directory publication and mutation
+controllers remain gated until their whole-group protocols are complete.
+
+Review found that the prior shared metadata reader required a local leader,
+which cannot supply the three voter observations required by fleet recovery.
+Metadata-only safe ReadIndex now forwards from followers. Its distinct context
+binds the origin member and fresh invocation nonce; incoming requests must match
+that authenticated member and responses must come from the current leader.
+Execution/seed contexts remain local. Selection waits for the actual local
+durable apply/root/configuration, records same-owner progress and rejects a term
+change. The original byte/item/deadline banks and leader-only execution readiness
+are unchanged. A new three-engine TCP regression covers both image forms, two
+cells, joint configuration on every voter, forged nonleader replies, released
+read banks and continued refusal of follower execution/transfer authority.
+
+The prior goal turn only reverified CG-06 status and is classified as no progress
+for the full cutover. This turn changes the authoritative implementation. The
+first locked diagnostic reports 124 remaining errors, down from 157. The
+second locked diagnostic also reports 124 after the follower metadata changes,
+with no primary diagnostic in the new inventory/read-owner/gateway modules. All
+captured Rust bytes remain unchanged. Captures and real
+streams are under .cellar/cell-groups-evidence/CG-07-node-inventory-advance-01/ and
+-02/. Format check, layout (2026 Rust files), native dependency isolation (496 reachable
+packages), documentation links and whitespace checks all pass. No new regression
+has executed while the canonical library is failing. No managed runtime, RustFS,
+load, or release qualification is claimed here.
+
+Critical next work is the authenticated whole-group fleet observation/publication
+body and complete-root archive/removal proofs. Then finish repair/learner and
+restart/leadership RPCs, installed node-directory ownership and managed startup,
+and run all five original CG-07 acceptance cases. CG-09 through CG-16 and the
+combined feature-off/release matrix remain required. Existing CG-06/08 backend
+evidence stays scoped to its previously qualified source artifacts.
+
+## CG-07 physical SDK controls and joined service ownership
+
+Local SDK group handles now expose guarded fleet enrollment, exact permit
+fencing and fresh physical membership observation. Configuration admission is
+not completion: the call waits for its durable apply floor, then obtains a fresh
+safe ReadIndex under the original invocation deadline. Exact already committed
+guards/fences reconcile through a new observation. Refused means this invocation
+submitted no configuration; an error after a possible send remains Unconfirmed.
+It never authorizes automatic retry, reservation release or node removal.
+
+The bounded read owner can defer its quorum barrier until the requested minimum
+is durably applied, without choosing an application cell. If a later configuration
+overtakes a pending barrier, the same invocation re-arms within its original
+reservation and deadline. A held minimum consumes the existing fixed node/group
+read banks and does not busy-poll or enlarge a quota. The new native regression
+holds actual engine sync, checks non-completion and retained admission, then
+requires the real current configuration and quorum barrier in both image forms.
+It also checks an unreachable floor's deadline and release of its reservations.
+
+The new SDK has a fixed two-slot control-service registry sharing the configured
+control byte/item bank. Movement/restart workers hold their registration through
+actual destructor completion; independent done signals occur after retained
+worker fields are dropped. Cancelling a close waiter keeps admission closed and
+does not erase the live worker. Node closure signals and joins these services
+before controller/transport/storage shutdown. Internal observers retain metadata
+without retaining the final external SDK lifetime, so a service cannot self-own
+an otherwise abandoned node. Actual control admission is included in SDK resource
+observations. Service startup refreshes the installed host and checks its exact
+node/disk/engine/process boot and synced lifecycle guard; managed canonical
+startup remains gated while the remaining consumers are unconverted.
+
+The previous goal turn made progress: physical namespace import and inventory
+interfaces advanced, with an unchanged-source library diagnostic of 174 errors
+and full preservation of 136 changed/new files and all eight user diagrams.
+Current source is local and unqualified. The first sequential locked library
+check reports 165 remaining errors; the final captured check reports 157, with no direct diagnostic in the new SDK,
+read-owner or service-worker modules. Actual transport is now retained by the
+new SDK, which submits persisted exact-boot lifecycle requests on the existing
+authenticated stop/fence lane. It captures deadline and control admission before
+returning the waiter; the receiver independently owns admitted guard mutations.
+No local business group is required. A lost/expired reply remains Unconfirmed.
+Formatting passes over 2025 Rust files; native dependency isolation passes with
+496 reachable packages. Source captures and actual streams are retained under
+.cellar/cell-groups-evidence/CG-07-physical-controls-advance-01/ and -02/. The new native and
+service-lifetime regressions remain unrun until the canonical library compiles.
+No RustFS, sustained-load, managed runtime or release qualification is claimed.
+
+Reflection: connect the physical SDK/control RPC and inspection owners, convert
+whole-group archive/restart/removal verification and occupancy, and finish managed
+canonical startup. Then run all five original CG-07 acceptance cases and the full
+affected feature matrix. CG-07 remains IN_PROGRESS; CG-09 through CG-16 and final
+combined qualification remain required.
+
+## CG-07 physical-group import and lifecycle inventory cutover
+
+The new import path accepts RangeDirectory and an opaque frozen physical-group
+inventory. Shared birth reservation now enters the namespace's CAS admission
+index before topology publication. Admission freeze arbitrates against disaster
+recovery, then a second CAS locks the directory. The exact locked head is retained
+by digest. Delayed admissions and stale topology writers cannot enter that cut;
+unknown responses retain the same operation and permanent identity claims.
+
+Inventory settles every physical birth, including unselected pending groups.
+Cancellation competes with materialization at one immutable decision key and
+retains the group identity and fleet/node references. Selected lazy births stay
+live; absent voter disks do not authorize imported genesis. Coverage consumes a
+fresh cell-independent quorum membership capability and verifies the exact birth,
+guard, stable RF3 roles, node storage pins and permanent group member/engine
+claims. Handoff independently walks every frozen selected range and requires
+its exact admission and coverage witness, in addition to the complete intent set.
+The adopted owner is checked by actual managed birth/bootstrap effects. Topology
+unlock advances the head again, so a predecessor expected head cannot reappear.
+
+Restart birth settlement now uses physical group decisions and exact opaque
+fleet reservations. Maintenance, capacity, evacuation, resource and platform
+interfaces retain RangeDirectory handles. Standalone management connection takes
+explicit group directory limits; movement/debt projections no longer contain a
+cell field. The marker-1 protocol adds group-import-1 with a hard cutover.
+
+All of this remains local and unqualified. The first sequential locked library
+check reports 194 remaining integration errors, including one new joined-method
+name mismatch corrected after the check ended. Its two unused predecessor
+re-exports were also removed. The new native regression holds an actual admission
+CAS while freeze wins, drops a freeze reply, and asserts exact inventory count,
+stale topology refusal and retained reopen without object listing. It has not
+executed: the canonical library still fails compilation. The follow-up check and
+its exact source capture are under CG-07-group-import-advance-02. That check
+ends with 177 remaining errors and no own-crate warning. The new admission,
+freeze, import and inventory modules emit no direct diagnostics. Resource,
+movement, topology, repair and service models were then converted to GroupHistory;
+the final capture is CG-07-group-import-advance-03. None of these diagnostics
+qualifies the canonical runtime or replaces the earlier directory pager checkpoint.
+
+Review found that several admitted candidates can share a logical range and
+epoch. The fleet range-debt key now includes physical group/incarnation identity;
+the directory retains exclusive selected-range ownership. A new invariant test
+covers distinct pending keys at the same range/epoch. The third sequential check
+reported 174 errors with no own warning before that fix; the final reviewed
+source capture is CG-07-group-import-advance-04. The final locked library check reports 174 remaining integration errors;
+all captured Rust bytes remain unchanged. The new admission, freeze, import and
+inventory modules emit no direct diagnostic, which is not qualification. Both
+new regressions remain unexecuted until the canonical library builds.
+
+Reflection: finish the physical SDK/control RPC owners and complete-group archive
+verification used by movement, restart and removal. Then enable managed canonical
+startup and run all five original CG-07 public acceptance cases. Existing per-cell
+host/query/control consumers still need removal or conversion. CG-07 remains
+IN_PROGRESS, and CG-09 through CG-16 and the combined release matrix remain open.
+
+## CG-07 group-native managed authority work
+
+Unqualified cutover work now removes the application cell from FleetGroupBinding.
+Fleet histories carry the exact physical GroupHistory, range, route epoch and
+original creation identity. Range reservations and permanent group IDs retain
+the existing rooted CAS journal, node references and unknown-outcome behavior.
+Namespace/class declarations are checked explicitly, without deriving a class
+from a synthetic group cell. The marker stays 1; the protocol identity adds
+cell-group-fleet-1 and earlier cell-bearing bindings refuse decoding.
+
+Managed group genesis now writes its configuration-owned fleet guard in the
+first engine sync. Existing bare histories refuse retrofitting. Imported histories
+can only resume an existing matching guard. Catalog bootstrap checks the exact
+host/node/disk/engine/process boot, and the engine worker rechecks the synced
+lifecycle guard before creating or resuming a managed group. Quiescence, accepted
+stop and fencing block this work; a matching durable resume can reopen admission.
+Membership envelopes retain full route binding and guarded permit sequencing
+through enrollment, fence, learner repair and joint-consensus steps. Checkpoint
+capture/decoding checks the guard's physical history.
+
+The shared runtime has a new cell-independent quorum membership observation.
+It sends a fresh safe ReadIndex, waits for contiguous durable apply, and selects
+one coherent configuration behind that barrier. Node/group metadata reservations
+are acquired before cloning membership and remain charged through response
+retention. The SDK captures the original observation deadline before polling.
+This metadata grants no eligibility, archive, deletion or release lease.
+
+Fleet inventory now traverses physical range pages and checks both directions:
+each selected route needs a rooted history, and every retained reservation must
+keep its exact namespace/birth/node references, including pending births outside
+the selected tree. Import and cancellation require complete group-native terminal
+proofs; a predecessor cell inventory or a caller-supplied Cancelled value refuses.
+The additive range pager passes its separate primary checkpoint at 66d5ea6a.
+It bounds each response, pins its continuation to an immutable directory cut,
+and uses authenticated tree paths without listing object-store keys.
+
+The first managed-authority library diagnostic ended with 202 errors in unconverted
+consumers. It overlapped an owned formatter; pre/post-format snapshots and the
+complete output are retained as diagnostic only. No new core authority module
+emitted a diagnostic in that run, which is not qualification. The successive
+sequential library checks report 205, then 198, then 198 remaining integration
+errors. The last run includes typed fleet-authority failures, a definite refusal
+for missing imported genesis without quarantining an otherwise healthy engine,
+and public execution-domain clocks in the new external native assertions.
+All new core assertions remain unexecuted. CG-07 remains IN_PROGRESS and
+managed canonical startup remains closed until its real consumers are converted.
+
+Scope addition: native_cell_groups_catalog.rs and its existing directory fixture
+cover the physical inventory pager; no original CG-07 case or oracle is replaced.
+The first pager build caught a missing catalog re-export before any test executed;
+that failure is retained. The corrected checkpoint passes all seven commands:
+the exact new case, nineteen catalog cases, strict all-target Clippy, formatting,
+layout, native dependencies and docs. No case is ignored. Native record SHA256:
+8061d03d7902d21f291fb82b16bcf04c91d20716465ef5292eecd7c754dcd91a;
+executable SHA256: 43f6e2f3654ca92b623b3960c04bbd443a17128a1391728f35c725bdb20b8d48.
+The six-file source snapshot, exact executable and actual streams are retained
+and independently backed up. Both checkouts share runtime base 66d5ea6a with all
+92 preserved WIP files and eight diagrams unchanged across that fast-forward.
+The reviewed source-baseline document passes all four post-gate checks and is
+published with this component on PR 160 through c54307c5. Both checkouts now
+share that head; managed cutover changes remain local and unqualified.
+Records live under .cellar/cell-groups-evidence/CG-07-managed-group-advance-01/
+through -04/ in the spare checkout, and CG-07-directory-inventory-01/ and
+CG-07-directory-inventory-fixed-02/ in the primary checkout. These are metadata
+fixture results, with no new RustFS, managed runtime, load or release qualification.
+
+Reflection: finish group-native import/cancellation and physical inspection/RPC
+consumers, connect the actual movement/restart owners and managed canonical
+startup, then qualify the original five public SDK/ingress/lifecycle cases.
+The full cutover, CG-09–16 and final combined release/load/crash matrix remain open.
+
+## CG-07 whole-group shutdown, drain and resource ownership
+
+The spare cutover now connects Node shutdown to the logical SDK's physical close
+owner. The bounded close report contains whole GroupHistory replicas, complete
+aggregate group/archive counts and separate unavailable coverage. Retained calls
+are not interpreted as one unfinished command per group. Producer quiescence is
+observed only behind sealed public admission, an idle application-work registry,
+healthy group/provisioning state and idle physical SQL. Unobserved outcomes never
+become a clean stop because a counter happens to be zero. Controller, inventory
+and engine close failures remain distinct, and no report grants disk deletion.
+
+Shared owners expose real replication progress and recheck term, membership
+revision, stable incoming voters, recent activity and catch-up on leadership
+transfer. Node drain gives each physical group one bounded turn under the original
+absolute shutdown deadline. Offered attempts, owner acceptance and observed
+successor leadership remain separate observations, including timeout races.
+No cell receives a worker or timer. Stale-term/revision assertions were added to
+the real membership fixture; they are not yet executed in the uncompiled cutover.
+
+Resource observations now describe shared namespace/controller/runtime/SQL
+admissions and actual capacities. Serving and independent archive-verifier image
+stores have separate passive accounting; cached manifest counts are metadata,
+not serving authority. The SDK implementation is split by responsibility under
+application/consensus/group_client/. The controller's existing join owner releases
+namespace image resources even when a close waiter is cancelled. Unpolled
+enrollment and receipt futures defer cloning those physical resources.
+
+A retained-closed-metadata regression exposed cached manifest pins surviving
+physical engine closure. Both image forms fail at 5e7aadb6 with directory-lock
+refusal. The minimal cache/storage fix releases only derived pins after the
+closed fence and physical engine join, before terminal completion; independent
+readers retain their own pins. Both regressions pass with the fix. Its twelve
+checks also pass full execution (165, two fixture ignores), archive data (29,
+five RustFS ignores), effects (ten, one RustFS ignore), namespace host (three)
+and controller-archive suites, plus all-target strict Clippy and repository checks.
+The first controller target invocation used an incorrect name and was rejected
+before execution; the corrected target passes. Actual streams and five executable
+copies are retained under
+.cellar/cell-groups-evidence/CG-07-closed-manifest-pins-fixed-01/ in the primary
+checkout and its workspace-volume backup. This fix is committed at 51d136fb
+and published on PR 160 through 110b7a4e, including the reviewed baseline.
+Both checkouts share that base; every preserved WIP file and all eight user
+diagrams match their pre-sync hashes. It does not qualify the new Node/SDK/fleet
+pipeline or another RustFS drill.
+
+The cutover's latest locked library check still fails with 114 unconverted fleet,
+query-wire and predecessor-host integration errors. Its new Node shutdown,
+resource and transfer modules emit no diagnostics in that run, which is not an
+executable qualification. The earlier missing import and recursive cleanup-type
+graph were corrected without increasing recursion, stack, quotas or deadlines.
+Layout, native dependency and documentation checks pass after the lifecycle
+changes. The new lifecycle/stop-proof assertions remain unrun. CG-07 stays IN_PROGRESS;
+finish whole-group fleet authority and public routing/ingress, convert their real
+consumers, then run all five original acceptance cases. CG-09–16 and the final
+combined release matrix remain required.
+
+## CG-07 canonical startup and logical SDK cutover work
+
+CG-07 remains IN_PROGRESS. The unpublished spare checkout now replaces the
+canonical startup's per-cell birth loop with namespace capabilities, an explicit
+initial range plan and whole-group assignments. Assignments resolve permanent
+group reservations and recheck directory selection before bootstrap. Startup
+recovers complete selected roots through the existing appliers before attaching
+shared owners, and refuses retained groups missing from its placement inventory.
+There is no legacy/shared startup flag. The published PR checkpoint is
+110b7a4e; this incomplete cutover has not been pushed.
+
+The new SDK uses logical CellHistory, CellVersion and CommitWitness values and
+separates administrative group handles. It owns joined closure independently of
+response cancellation and explicitly reports unobserved mutation outcomes rather
+than manufacturing clean shutdown or deletion proof. Materialized and extent
+namespaces share node image inventories and SQL workers; independent archive
+verification uses separate shared inventories. Startup opens only existing
+namespace-owned archive bindings and refuses missing identities or counters.
+
+Public admission and application-work registration now share the Node's short
+maintenance/drain barrier. Commands, enrollments and queries retain their work
+leases through queued ownership, unresolved completion and undelivered replies.
+Remote query ingress is being moved onto the same controller queue. Gateway
+private paths derive from logical history; namespace/schema and exact controller
+ownership remain checked. Native effect endpoints now use weak logical handles
+instead of looking up per-cell physical bindings.
+
+Inspection found a further query-expiry gap: async timeout can precede physical
+callback completion. The new work transfers upstream admission into that SQL
+reader and tracks its physical lifetime separately. The held-query fixture now
+also exercises an expired response, global admission retention, work visibility,
+cancelled close and release after callback exit. Directory regressions additionally
+cover history-based placement lookup, wrong namespace/incarnation and a superseded
+range. These new assertions have not run while the canonical library is broken.
+
+The first locked library check failed with 132 compiler errors. They primarily
+identify unconverted fleet, maintenance, query-wire, resource and shutdown
+consumers of the old SDK types. A second check after the physical-query and
+native-effect changes failed with 117 errors; the effect adapter's fourteen
+old-handle errors are removed. Neither run qualifies a build or executable.
+The retained streams, source manifests and new
+source copies are under
+`.cellar/cell-groups-evidence/CG-07-canonical-startup-advance-01/`.
+This is diagnostic evidence, not qualification. Subsequent runtime edits require
+another check and all five original CG-07 acceptance cases. Managed namespaces
+currently refuse with ManagedAdmissionRequired before catalog writes; whole-group
+managed lifecycle is unfinished. No CG task status or release gate was relaxed.
+
+The next critical work is actual Node shutdown/resource/drain conversion and
+whole-group fleet authority, followed by public remote routing and ingress,
+canonical native fixtures, Axum/admin/CLI/examples and the unchanged CG-07 gate.
+CG-09 through CG-16 remain required for the end-to-end hard cutover.
 
 ## CG-07 namespace host component
 

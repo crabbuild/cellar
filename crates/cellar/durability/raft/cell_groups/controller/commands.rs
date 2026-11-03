@@ -1,9 +1,10 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Bounded invocation ownership is independent of response-waiter lifetime.
+use super::admission::Retention;
 use super::calls::Delivery;
 use super::*;
-use crate::raft::budget::{Budget, Permit};
+use crate::raft::budget::Budget;
 use crate::raft::cell_groups::{
     CellCommandError, CellCommandInvocation, CellCommandRequest, CellCommandResponse,
     CellDispatchError, CellGroupDispatcher, CellRoutingLimits, CellSqlOptions, PendingCellCommand,
@@ -19,20 +20,20 @@ enum Invocation {
 pub(super) struct Request {
     invocation: Invocation,
     options: CellSqlOptions,
-    reply: oneshot::Sender<Delivery<CellCommandResponse, CellCommandError>>,
-    permit: Arc<Permit>,
+    reply: oneshot::Sender<Delivery<CellCommandResponse, CellCommandError, Retention>>,
+    permit: Arc<Retention>,
 }
 
 pub(super) struct Completed {
     pub invocation: Option<CellCommandInvocation>,
     pub error: Option<Arc<CellCommandError>>,
-    _permit: Arc<Permit>,
+    _permit: Arc<Retention>,
 }
 
 /// Dropping or timing out this response never cancels the admitted command.
 /// An unpolled reply retains node admission, including error-only replies.
 pub struct CellCommandCall {
-    inner: calls::Call<CommandId, CellCommandResponse, CellCommandError>,
+    inner: calls::Call<CommandId, CellCommandResponse, CellCommandError, Retention>,
 }
 
 /// Admission did not transfer ownership. In particular, a rejected non-fresh
@@ -113,6 +114,9 @@ impl CellGroupController {
     ) -> Result<CellCommandCall, CellCommandError> {
         let shared = &self.handle.0;
         let command = request.id;
+        let mut registration = shared
+            .registration()
+            .map_err(|reason| error(command, false, reason))?;
         if shared.closing.load(Ordering::Acquire) {
             return Err(error(command, false, RuntimeError::Closed));
         }
@@ -133,7 +137,10 @@ impl CellGroupController {
                 invocation: Invocation::Pending(Box::new(pending)),
                 options,
                 reply,
-                permit: Arc::new(permit),
+                permit: Arc::new(Retention {
+                    _permit: permit,
+                    _work: registration.work.take(),
+                }),
             })))
             .map_err(|e| {
                 error(
@@ -164,6 +171,9 @@ pub(super) fn admit(
 ) -> Result<CellCommandCall, CellCommandAdmissionError> {
     let admitted = (|| {
         let (command, deadline, bytes) = invocation.controller_admission(&shared.domain)?;
+        let registration = shared
+            .registration()
+            .map_err(|reason| error(command, false, reason))?;
         if shared.closing.load(Ordering::Acquire) {
             return Err(error(command, false, RuntimeError::Closed));
         }
@@ -174,9 +184,9 @@ pub(super) fn admit(
             .commands
             .acquire(bytes)
             .ok_or_else(|| error(command, false, RuntimeError::Overloaded))?;
-        Ok((command, deadline, permit))
+        Ok((command, deadline, permit, registration))
     })();
-    let (command, deadline, permit) = match admitted {
+    let (command, deadline, permit, mut registration) = match admitted {
         Ok(admitted) => admitted,
         Err(error) => {
             return Err(CellCommandAdmissionError {
@@ -192,7 +202,10 @@ pub(super) fn admit(
             invocation: Invocation::Ready(Box::new(invocation)),
             options,
             reply,
-            permit: Arc::new(permit),
+            permit: Arc::new(Retention {
+                _permit: permit,
+                _work: registration.work.take(),
+            }),
         })))
         .map_err(|e| {
             let (request, reason) = match e {

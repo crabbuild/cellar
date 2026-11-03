@@ -1,12 +1,9 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Request-owned read constraints. A fresh ReadIndex result is correlated to
-//! one invocation; a cached commit watermark can never replace that barrier.
+//! Internal SQL minimum checks and the remaining seed barrier owner. Business
+//! reads are admitted only through the shared physical-group controller.
 
 use crate::application::consensus::client::Request;
-use crate::application::consensus::{
-    OperationContract, QueryConsistency, QueryOptions, StaleReadPolicy,
-};
 use cellar_logic::consensus::{CommandFailure, CommittedVersion, GroupScope, LogIndex, Term};
 
 pub(crate) type ReadId = [u8; 32];
@@ -48,8 +45,6 @@ impl Minimum {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Phase {
-    Source,
-    Probing,
     StartBarrier,
     CheckingLeader,
     Barrier,
@@ -57,28 +52,13 @@ pub(crate) enum Phase {
     Executing,
 }
 
-pub(crate) enum ReadOperation {
-    Fleet {
-        authorization: crate::raft::fleet_catalog::FleetGroupAuthorization,
-        charge: crate::raft::budget::Permit,
-    },
-    Query {
-        contract: OperationContract,
-        input: Vec<u8>,
-    },
-    Seed {
-        target: cellar_logic::consensus::ReplicaIdentity,
-        kind: crate::raft::transport::seeds::SeedKind,
-        charge: std::sync::Arc<crate::raft::budget::Permit>,
-    },
-}
-
 pub(crate) struct PendingRead {
     pub request: Request,
-    pub operation: ReadOperation,
-    pub minimum: Option<Minimum>,
+    pub target: cellar_logic::consensus::ReplicaIdentity,
+    pub kind: crate::raft::transport::seeds::SeedKind,
+    pub charge: std::sync::Arc<crate::raft::budget::Permit>,
+    pub minimum: Option<LogIndex>,
     pub phase: Phase,
-    pub source_deadline: Option<u64>,
     pub retry_at: u64,
     pub leader: Option<(Term, Option<u64>, bool)>,
     pub checking_leader: bool,
@@ -89,81 +69,19 @@ pub(crate) struct PendingRead {
 }
 
 impl PendingRead {
-    pub fn fleet(
-        request: Request,
-        authorization: crate::raft::fleet_catalog::FleetGroupAuthorization,
-        charge: crate::raft::budget::Permit,
-    ) -> Self {
-        Self::with_options(
-            request,
-            ReadOperation::Fleet {
-                authorization,
-                charge,
-            },
-            &QueryOptions {
-                consistency: QueryConsistency::Linearizable,
-                ..Default::default()
-            },
-            None,
-        )
-    }
-
-    pub fn new(
-        request: Request,
-        contract: OperationContract,
-        input: Vec<u8>,
-        options: &QueryOptions,
-        minimum: Option<CommittedVersion>,
-    ) -> Self {
-        Self::with_options(
-            request,
-            ReadOperation::Query { contract, input },
-            options,
-            minimum,
-        )
-    }
-
     pub fn seed(
         request: Request,
         target: cellar_logic::consensus::ReplicaIdentity,
         kind: crate::raft::transport::seeds::SeedKind,
         charge: std::sync::Arc<crate::raft::budget::Permit>,
     ) -> Self {
-        Self::with_options(
-            request,
-            ReadOperation::Seed {
-                target,
-                kind,
-                charge,
-            },
-            &QueryOptions {
-                consistency: QueryConsistency::Linearizable,
-                ..Default::default()
-            },
-            None,
-        )
-    }
-
-    fn with_options(
-        request: Request,
-        operation: ReadOperation,
-        options: &QueryOptions,
-        minimum: Option<CommittedVersion>,
-    ) -> Self {
-        let (phase, minimum) = match options.consistency {
-            QueryConsistency::Linearizable => (Phase::StartBarrier, None),
-            QueryConsistency::AtLeast(_) => (Phase::Image, minimum.map(Minimum::Version)),
-            QueryConsistency::Stale if options.stale_policy == StaleReadPolicy::RecentSource => {
-                (Phase::Source, Some(Minimum::Any))
-            }
-            QueryConsistency::Stale => (Phase::Image, Some(Minimum::Any)),
-        };
         Self {
             request,
-            operation,
-            minimum,
-            phase,
-            source_deadline: None,
+            target,
+            kind,
+            charge,
+            minimum: None,
+            phase: Phase::StartBarrier,
             retry_at: 0,
             leader: None,
             checking_leader: false,
@@ -176,8 +94,5 @@ impl PendingRead {
 
     pub fn expired(&self) -> bool {
         self.request.control.cancelled()
-            || self
-                .source_deadline
-                .is_some_and(|deadline| !self.request.control.before(deadline))
     }
 }

@@ -543,6 +543,14 @@ pub(super) async fn revoke_source(
     peer: &RaftPeer<GroupHistory>,
     route: &GroupRoute,
 ) -> Result<ReplicaLog> {
+    let namespace = fixture.cluster.directory.namespace_config();
+    anyhow::ensure!(
+        route.history.cluster == namespace.cluster
+            && route.history.namespace == namespace.namespace
+            && route.schema_digest == namespace.schema_digest
+            && peer.replica.scope == route.history,
+        "source revocation route is outside the fixture namespace",
+    );
     controllers.remove(0).close().await?;
     let new_process = ProcessGeneration::new([99; 16])?;
     let options = ReplicaLogOptions::new(
@@ -567,12 +575,7 @@ pub(super) async fn revoke_source(
         .run(async {
             let catalog = Catalog::new(fixture.cluster.store.clone(), CatalogOptions::default())?;
             let namespace = catalog
-                .open_namespace(NamespaceConfig::new(
-                    route.history.cluster,
-                    route.history.namespace,
-                    cellar_logic::NamespaceMode::Raft,
-                    route.schema_digest,
-                ))
+                .existing_namespace(fixture.cluster.directory.namespace_config().clone())
                 .await?;
             let registration = namespace
                 .register_node_storage(&restarted, Duration::from_secs(5))

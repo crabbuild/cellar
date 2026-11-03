@@ -60,6 +60,36 @@ pub struct ManifestReclaimReport {
 }
 
 impl ManifestPageStore {
+    /// Startup and controller provisioning must lock the same page inventory.
+    /// Archive replay uses its independent node base with this same layout.
+    pub(crate) fn group_pages_path(
+        base: &Path,
+        history: cellar_logic::cell_group::GroupHistory,
+    ) -> PathBuf {
+        base.join("groups")
+            .join(hex::encode(history.cluster.bytes()))
+            .join(hex::encode(history.namespace.bytes()))
+            .join(hex::encode(history.group.bytes()))
+            .join(hex::encode(history.incarnation.bytes()))
+            .join("pages")
+    }
+
+    pub(crate) fn validate_limits(
+        max_pages: usize,
+        max_bytes: u64,
+        max_retained_roots: usize,
+    ) -> Result<(), ManifestError> {
+        if max_pages == 0
+            || max_pages > 4_000_000
+            || max_bytes == 0
+            || max_bytes > 64 * 1024 * 1024 * 1024
+            || !(2..=4096).contains(&max_retained_roots)
+        {
+            return Err(ManifestError::Limit);
+        }
+        Ok(())
+    }
+
     pub(super) fn require_live(&self) -> Result<(), ManifestError> {
         if self.quarantined {
             return Err(ManifestError::Quarantined);
@@ -74,14 +104,7 @@ impl ManifestPageStore {
         max_bytes: u64,
         max_retained_roots: usize,
     ) -> Result<Self, ManifestError> {
-        if max_pages == 0
-            || max_pages > 4_000_000
-            || max_bytes == 0
-            || max_bytes > 64 * 1024 * 1024 * 1024
-            || !(2..=4096).contains(&max_retained_roots)
-        {
-            return Err(ManifestError::Limit);
-        }
+        Self::validate_limits(max_pages, max_bytes, max_retained_roots)?;
         cellar_ltx::host::create_dir_all_durable(filesystem.as_ref(), directory)?;
         let lock = filesystem.lock_file(&directory.join("LOCK"))?;
         let mut store = Self {

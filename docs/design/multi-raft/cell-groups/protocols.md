@@ -2,6 +2,8 @@
 
 # Durable protocols and crash cuts
 
+Purpose: Durable enrollment, apply, topology, hibernation and disaster-recovery protocols.
+
 Status: required target behavior. Names below are contracts to implement.
 The [design](design.md) defines identity, partitioning and storage. A catalog
 record is never a vote, a majority proof or infrastructure fencing evidence.

@@ -200,11 +200,11 @@ impl<T: Target> State<T> {
         scratch: ScratchPool,
         directory: PathBuf,
     ) -> Result<Self> {
-        if !directory.is_absolute() || directory.as_os_str().len() > 4096 {
-            return Err(CellGroupCheckpointError::Invalid(
-                "receive scratch directory",
-            ));
-        }
+        let reservation = Self::reserve(pool, 0)?;
+        Self::with_reservation(pool, target, scratch, directory, reservation)
+    }
+
+    pub(super) fn reserve(pool: &CellGroupCheckpointPool, extra_bytes: usize) -> Result<Permit> {
         let cells = pool.limits.max_cells as usize;
         let extents = usize::try_from(pool.limits.max_transfer_bytes.div_ceil(EXTENT_BYTES))
             .map_err(|_| CellGroupCheckpointError::Limit)?;
@@ -213,11 +213,25 @@ impl<T: Target> State<T> {
             .and_then(|n| n.checked_add(cells.checked_mul(4096)?))
             .and_then(|n| n.checked_add(extents.checked_mul(2048)?))
             .and_then(|n| n.checked_add(RECEIVE_WORKSPACE))
+            .and_then(|n| n.checked_add(extra_bytes))
             .ok_or(CellGroupCheckpointError::Limit)?;
-        let reservation = pool
-            .budget
+        pool.budget
             .acquire(bytes)
-            .ok_or(CellGroupCheckpointError::Busy)?;
+            .ok_or(CellGroupCheckpointError::Busy)
+    }
+
+    pub(super) fn with_reservation(
+        pool: &CellGroupCheckpointPool,
+        target: T,
+        scratch: ScratchPool,
+        directory: PathBuf,
+        reservation: Permit,
+    ) -> Result<Self> {
+        if !directory.is_absolute() || directory.as_os_str().len() > 4096 {
+            return Err(CellGroupCheckpointError::Invalid(
+                "receive scratch directory",
+            ));
+        }
         target.require_live()?;
         target
             .storage()

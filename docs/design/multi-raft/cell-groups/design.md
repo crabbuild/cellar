@@ -2,6 +2,8 @@
 
 # Cell group design
 
+Purpose: Physical group consensus over independent SQLite cells, identities and hard cutover.
+
 Status: target contract for CG-01 through CG-16; implementation in progress.
 See [implementation progress](progress.md); no runtime cutover is qualified yet.
 Cellar baseline: `1be27d234d4674d4d014785c60cecbfe394bdab9`.

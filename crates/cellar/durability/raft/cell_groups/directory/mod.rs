@@ -21,6 +21,8 @@ mod archive;
 pub use archive::{CellGroupArchiveBindingError, PreparedCellGroupArchiveBinding};
 mod birth;
 mod bootstrap;
+mod import;
+pub use import::CellGroupBirthDisposition;
 mod inventory;
 pub use inventory::{CellGroupDirectoryCursor, CellGroupDirectoryPage};
 mod recovery;
@@ -45,7 +47,8 @@ pub use routing::{
     CellRoutingLimits, CellRoutingSession, ResolvedCellRoute,
 };
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DirectoryLimits {
     pub max_groups: u32,
     pub max_mutations: u64,
@@ -71,6 +74,14 @@ pub struct RangeDirectory {
     namespace: NamespaceCatalog,
     limits: DirectoryLimits,
     cache: Arc<Mutex<store::Cache>>,
+}
+
+impl RangeDirectory {
+    /// Namespace identity for the owning fleet's rooted declarations. This
+    /// exposes metadata inside the host, never an application-cell birth API.
+    pub(crate) fn namespace(&self) -> &NamespaceCatalog {
+        &self.namespace
+    }
 }
 
 /// A pinned catalog observation, not authority or an automatic freshness claim.
@@ -151,7 +162,9 @@ impl RangeDirectory {
         self.limits.max_cache_bytes
     }
 
-    pub(crate) fn namespace_config(&self) -> &crate::raft::catalog::NamespaceConfig {
+    /// Immutable namespace properties for binding schema and image resources.
+    /// This does not refresh routing metadata or grant member admission.
+    pub fn namespace_config(&self) -> &crate::raft::catalog::NamespaceConfig {
         self.namespace.config()
     }
 
@@ -308,6 +321,11 @@ impl RangeDirectory {
         {
             return Err(CatalogError::Corrupt("directory head"));
         }
+        if head.import.is_some_and(|id| ProposalId::new(id).is_err())
+            || (head.import.is_some() && head.recovery.is_some())
+        {
+            return Err(CatalogError::Corrupt("directory import fence"));
+        }
         if let Some(recovery) = &head.recovery {
             recovery.check(self)?;
         }
@@ -369,16 +387,20 @@ impl RangeDirectory {
         Ok((view, version))
     }
 
-    async fn bounded<T>(
+    fn bounded<T>(
         &self,
         work: impl std::future::Future<Output = Result<T, CatalogError>>,
-    ) -> Result<T, CatalogError> {
-        crate::asyncrt::timeout(
-            Duration::from_millis(self.limits.operation_timeout_ms),
-            work,
-        )
-        .await
-        .map_err(|_| CatalogError::Unconfirmed)?
+    ) -> impl std::future::Future<Output = Result<T, CatalogError>> {
+        let duration = Duration::from_millis(self.limits.operation_timeout_ms);
+        // Bootstrap revalidation nests catalog operations during attachment.
+        // Box before constructing the timeout future so each wrapper retains
+        // only a pointer instead of copying the complete nested operation.
+        let work = Box::pin(work);
+        async move {
+            crate::asyncrt::timeout(duration, work)
+                .await
+                .map_err(|_| CatalogError::Unconfirmed)?
+        }
     }
 
     pub async fn observe(&self) -> Result<DirectoryView, CatalogError> {
@@ -490,6 +512,9 @@ impl RangeDirectory {
             head
         };
         if let Some((view, _)) = &current {
+            if view.head.import.is_some() {
+                return Err(CatalogError::BirthsFrozen);
+            }
             if let Some(publication) = self.confirmed(&view.head, mutation).await? {
                 if request.expected.is_some() {
                     return Ok(publication);
@@ -576,6 +601,7 @@ impl RangeDirectory {
             groups,
             journal: id,
             recovery: recovery.map(|grant| grant.published_lock(id)).transpose()?,
+            import: None,
         };
         self.check_head(&head)?;
         let bytes = record::encode(wire::HEAD, &head, wire::LIMIT)?;

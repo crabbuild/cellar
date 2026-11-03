@@ -73,14 +73,16 @@ pub(crate) async fn remote_commands() -> Result<()> {
             fixture.transports[0].install_cell_command_gateway(
                 dispatch.clone(),
                 controllers[1].clone(),
-                options.clone()
+                cellar::application::consensus::verification::cell_groups::CellGroupNamespaceStorage::new(
+                    options.clone()
+                )?,
             ),
             Err(TransportError::Identity)
         ));
         let gateway = fixture.transports[0].install_cell_command_gateway(
             dispatch.clone(),
             controllers[0].clone(),
-            options,
+            cellar::application::consensus::verification::cell_groups::CellGroupNamespaceStorage::new(options)?,
         )?;
         let router = Router::start(&fixture).await?;
         router
@@ -151,7 +153,9 @@ pub(crate) async fn remote_commands() -> Result<()> {
         let follower_gateway = fixture.transports[1].install_cell_command_gateway(
             dispatch.clone(),
             controllers[1].clone(),
-            fixture.cell_options_at(&a, 1).await?,
+            cellar::application::consensus::verification::cell_groups::CellGroupNamespaceStorage::new(
+                fixture.cell_options_at(&a, 1).await?,
+            )?,
         )?;
         let mut follower = invocation(&dispatch, &class, &a, retry_until, b"once").await?;
         let refusal = follower
@@ -253,7 +257,9 @@ pub(crate) async fn remote_command_lifecycle(revoke: bool) -> Result<()> {
         let gateway = fixture.transports[0].install_cell_command_gateway(
             dispatch.clone(),
             controllers[0].clone(),
-            fixture.cell_options(&a).await?,
+            cellar::application::consensus::verification::cell_groups::CellGroupNamespaceStorage::new(
+                fixture.cell_options(&a).await?,
+            )?,
         )?;
         let router = Router::start(&fixture).await?;
         router

@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Bounded stop observations, without per-group identities or deletion authority.
-use crate::application::consensus::RaftNodeShutdownReport;
+use crate::application::consensus::{MutationOutcomes, RaftNodeShutdownReport};
 use anyhow::{ensure, Result};
 use serde::{Deserialize, Serialize};
 
@@ -34,7 +34,10 @@ pub struct RaftStopOwners {
     pub omitted_group_details: usize,
     pub groups_with_archive_lag: usize,
     pub groups_with_unknown_archive: usize,
-    pub unfinished_commands: usize,
+    pub mutation_outcomes: MutationOutcomes,
+    /// Calls, including queries, retained when public admission was sealed.
+    /// This is not a count of unresolved business mutations.
+    pub retained_calls_at_shutdown: usize,
 }
 
 /// Accepted transfer requests and observed old-leader releases are separate.
@@ -84,7 +87,8 @@ impl From<&RaftNodeShutdownReport> for RaftStopProof {
                 omitted_group_details: owners.omitted_groups,
                 groups_with_archive_lag: owners.groups_with_archive_lag,
                 groups_with_unknown_archive: owners.groups_with_unknown_archive,
-                unfinished_commands: owners.unfinished.len(),
+                mutation_outcomes: owners.mutation_outcomes,
+                retained_calls_at_shutdown: owners.retained_calls_at_shutdown,
             },
             handoff,
         }
@@ -105,11 +109,8 @@ impl RaftStopProof {
             );
             ensure!(
                 owners.omitted_group_details <= owners.groups
-                    && owners.groups_with_unknown_archive <= owners.omitted_group_details
-                    && owners.unfinished_commands
-                        <= owners
-                            .groups
-                            .saturating_sub(owners.groups_with_unknown_archive)
+                    && (owners.mutation_outcomes != MutationOutcomes::NoUnresolvedLocalProducers
+                        || owners.retained_calls_at_shutdown == 0)
                     && owners
                         .groups_with_archive_lag
                         .checked_add(owners.groups_with_unknown_archive)
@@ -126,10 +127,7 @@ impl RaftStopProof {
             } = handoff
             {
                 ensure!(
-                    *groups_examined
-                        <= owners
-                            .groups
-                            .saturating_sub(owners.groups_with_unknown_archive)
+                    *groups_examined <= owners.groups
                         && *unavailable_groups <= *groups_examined
                         && *accepted <= *groups_examined
                         && *accepted <= *attempts
@@ -156,7 +154,7 @@ impl RaftStopProof {
                             deadline_elapsed: false,
                             ..
                         },
-                } => owners.unfinished_commands == 0,
+                } => owners.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers,
                 _ => false,
             }
     }

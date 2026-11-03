@@ -14,6 +14,7 @@ use std::path::Path;
 #[serde(deny_unknown_fields)]
 struct Oracle {
     rooted: bool,
+    image_storage: RaftImageStorage,
     source_root: std::path::PathBuf,
     cut: String,
     staged: GroupManifest,
@@ -150,6 +151,7 @@ pub(crate) async fn seed_process_fixture() -> Result<()> {
         &root.join("oracle.json"),
         &serde_json::to_vec(&Oracle {
             rooted,
+            image_storage: fixture.cluster.directory.namespace_config().image_storage,
             source_root: fixture.cluster._root.path().to_path_buf(),
             cut: cut.clone(),
             staged,
@@ -276,7 +278,8 @@ async fn recover(root: &Path, rooted: bool, cut: &str) -> Result<()> {
     let local = seed_install::target(route.history)?;
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
     let (directory, birth) =
-        crash_fixture::restore_catalog(oracle.objects, &route, &domain).await?;
+        crash_fixture::restore_catalog(oracle.objects, &route, &domain, oracle.image_storage)
+            .await?;
     let base = root.join("learner");
     let log = domain
         .run(ReplicaLog::open(

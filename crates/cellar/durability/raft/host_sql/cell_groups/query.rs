@@ -30,7 +30,23 @@ enum Callback {
     },
 }
 
+/// Keeps upstream admission alive on the physical reader after async timeout.
+/// The SQL owner does not interpret or release that admission early.
+pub(crate) struct ReadRetention {
+    _owner: Arc<dyn Send + Sync>,
+}
+
+impl ReadRetention {
+    pub(crate) fn new<T: Send + Sync + 'static>(owner: Arc<T>) -> Self {
+        Self { _owner: owner }
+    }
+}
+
 pub(super) struct Query {
+    _retention: Option<ReadRetention>,
+    // SQL can outlive both its response deadline and the controller's reply.
+    // Node drain must still observe the physical callback until it exits.
+    _work: crate::host_services::ApplicationWorkGuard,
     options: CellSqlOptions,
     authority: CellReadAuthority,
     callback: Callback,
@@ -57,11 +73,18 @@ impl CellSqlEffectScan {
 
 pub struct CellSqlQueryResult {
     result: Vec<u8>,
+    replica: cellar_logic::consensus::ReplicaIdentity<cellar_logic::cell_group::GroupHistory>,
     observation: crate::raft::version::CellVersionObservation,
     _bytes: Arc<Bytes>,
 }
 
 impl CellSqlQueryResult {
+    pub fn replica(
+        &self,
+    ) -> &cellar_logic::consensus::ReplicaIdentity<cellar_logic::cell_group::GroupHistory> {
+        &self.replica
+    }
+
     pub fn result(&self) -> &[u8] {
         &self.result
     }
@@ -199,8 +222,21 @@ impl CellGroupSqlPool {
         options: CellSqlOptions,
         authority: CellReadAuthority,
         class: Arc<crate::application::consensus::RaftClass>,
+        contract: crate::application::consensus::OperationContract,
+        input: Vec<u8>,
+    ) -> Result<CellSqlQueryResult, ExecutionError> {
+        self.query_registered_retained(options, authority, class, contract, input, None)
+            .await
+    }
+
+    pub(crate) async fn query_registered_retained(
+        &self,
+        options: CellSqlOptions,
+        authority: CellReadAuthority,
+        class: Arc<crate::application::consensus::RaftClass>,
         mut contract: crate::application::consensus::OperationContract,
         input: Vec<u8>,
+        retention: Option<ReadRetention>,
     ) -> Result<CellSqlQueryResult, ExecutionError> {
         if contract.operation.len() > 128 {
             return Err(ExecutionError::Registration(
@@ -212,7 +248,7 @@ impl CellGroupSqlPool {
             return Err(overloaded());
         }
         match self
-            .query_callback(
+            .query_callback_retained(
                 options,
                 authority,
                 Callback::Registered {
@@ -220,6 +256,7 @@ impl CellGroupSqlPool {
                     contract,
                     input: input.into_boxed_slice(),
                 },
+                retention,
             )
             .await?
         {
@@ -273,6 +310,17 @@ impl CellGroupSqlPool {
         authority: CellReadAuthority,
         callback: Callback,
     ) -> Result<CellSqlOutcome, ExecutionError> {
+        self.query_callback_retained(options, authority, callback, None)
+            .await
+    }
+
+    async fn query_callback_retained(
+        &self,
+        options: CellSqlOptions,
+        authority: CellReadAuthority,
+        callback: Callback,
+        retention: Option<ReadRetention>,
+    ) -> Result<CellSqlOutcome, ExecutionError> {
         self.admit()?;
         let domain = &self.inner.workers[0].domain;
         if !authority.belongs_to_engine(&self.inner.engine_owner)
@@ -301,7 +349,17 @@ impl CellGroupSqlPool {
         let deadline = authority.deadline();
         let cancelled = Arc::new(AtomicBool::new(false));
         let _cancel = Cancel(cancelled.clone());
+        let work = domain
+            .run(async {
+                crate::asyncrt::services()
+                    .application_work_registry()
+                    .enter()
+            })
+            .await
+            .map_err(|_| unavailable())?;
         let query = Query {
+            _retention: retention,
+            _work: work,
             options,
             authority,
             callback,
@@ -480,6 +538,7 @@ pub(super) fn run(
         return Err(overloaded());
     }
     drop(database);
+    let replica = query.authority.replica().clone();
     drop(query.authority);
     Bytes::shrink(&mut query.bytes, result.retained_bytes() + 4096)?;
     Ok(match result {
@@ -489,6 +548,7 @@ pub(super) fn run(
         }),
         Output::Query(result) => CellSqlOutcome::Queried(CellSqlQueryResult {
             result,
+            replica,
             observation,
             _bytes: query.bytes,
         }),

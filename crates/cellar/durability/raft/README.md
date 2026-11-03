@@ -727,7 +727,9 @@ pinned until the callback joins and its private mutations are discarded. A new
 term and applied startup barrier are required to reconcile an unresolved
 submission. Closing records unfinished identity and refuses further output.
 `Node::start_raft_cells` installs registered groups in the node's execution
-domain. `host.rs` owns serial command producers and effect dispatch;
+domain. `group_host/mod.rs` owns canonical namespace/group startup; the shared controller
+owns serial group apply and bounded cell command producers. `host.rs` retains
+physical configuration and observation values;
 `host_sql/mod.rs` owns SQLite/image resources in a fixed node-wide blocking pool.
 Its private `images` module selects physical command/read adapters beneath the
 shared controller. The extent branch is exercised by the worker integration
@@ -893,70 +895,44 @@ After submission, the producer remains owned through consensus and publication.
 A newer committed/published term barrier can retire old uncertainty even on a
 follower, after disposing of its private shadow; that grants no write authority.
 
-MR-08's local read controller holds each request's original deadline and byte/item
-permit while waiting for an image. `AtLeast` verifies an opaque signed token
-before comparing history positions. `Linearizable` uses fresh safe ReadIndex
-contexts, waits for actual image publication, and never treats a runtime status
-or cached commit position as a barrier. A checked role/term change or lost reply
-can resubmit the invocation's barrier under the same deadline. Retries wait four
-host polling intervals, clamped to 100–1000 ms, and still require a safe ReadIndex
-result. Status and submission generations prevent late replies from regressing
-an executing query.
+The shared cell-group query controller fixes each invocation's original deadline
+and bounded attempt count. `Stale`, `AtLeast` and `Linearizable` are distinct
+contracts. `AtLeast` authenticates a CellVersionToken and compares the logical
+cell's version, rather than an unrelated group's log index. `Linearizable` uses
+a fresh safe ReadIndex barrier and waits for its actual applied root. Runtime
+status and cached commit positions cannot substitute for that barrier.
 
-The SQL owner captures the durable applied marker with its exact immutable pin.
-Protocol-only entries can cover that pin; an unrelated newer image cannot relabel
-it. Queries retain the pin through callback completion, and their result metadata
-names that captured cut. The default Stale policy requires a recent observed
-source; `DisconnectedHistorical` explicitly permits an older verified image
-without a time bound. This policy observation is never used for strong reads.
-SQL progress hooks observe an atomic cancellation flag raised by the node's
-deadline controller, including for an unpolled waiter. Native Rust callbacks
-remain trusted/cooperative and are joined before resource release.
-Completed responses retain their byte admission until consumed or dropped;
-unpolled response channels cannot reuse capacity merely because SQL finished.
+The SQL owner retains the selected cell's exact immutable image through callback
+completion. Returned observations separate CellVersion from its physical
+CommitWitness, and protocol-only entries cannot relabel a different image.
+The public SDK's QueryResult names the serving NodeIdentity. The lower transport
+retains the authenticated responding member as part of its own delivery result.
+Completed responses retain their byte admission until consumed or dropped.
+Native callbacks remain cooperative and are joined before resource release.
 
-`RaftCellsServices::versions` injects managed signing/verification keys. Ed25519
-tokens use bounded canonical marker-1 framing and bind full history, schema and
-log position. Namespace startup reconciles public-key retention metadata through
-conditional updates and exact reads; configuration cannot silently drop a live
-verifier on restart. The catalog supplies no new trust roots or consensus
-authority. Key rotation and token lifetime are described in the
+RaftCellsServices::versions injects managed Ed25519 signing/verification keys.
+The bounded canonical marker-1 cell token binds logical history, schema, version,
+commit witness, issuance and expiry. Namespace startup reconciles verifier
+retention through conditional updates and exact reads. The registry supplies no
+new trust roots or consensus authority. See the
 [application contract](../../../../docs/design/multi-raft/application-contract.md).
-`QueryRouting::Replicas` tries up to eight distinct configured members in priority
-order, with one optional untried leader hint. The caller supplies a bounded
-per-attempt timeout; every attempt keeps the same contract, captured input,
-consistency/token and stale policy under the invocation's original deadline.
-Forwarding does not require query code on the origin voter. The destination
-still requires a matching query definition before execution. `served_by` names
-the actual responding member, independently of the history token.
 
-`NodeRaftListeners::query` and `RaftPeer::query_address` provide the separate
-query endpoint. A peer has one bounded query queue/connection alongside its
-control and LTX connections. A shared pool owns the physical RaftPeerNode
-endpoint; it retains no group or member identity. Each consensus request still
-carries and validates its own full member route. Query MAC domains, exporter
-label and marker-1 framing are independent of consensus frames. Requests/replies bind full route,
-schema, sequence, request tag and payload digest. The receiver forces local
-query execution; it cannot recursively route. The sender deducts queued and
-handshake time before sending a remaining timeout, while the origin separately
-enforces its deadline. Closing the connection cancels the destination waiter.
-Request/response representations remain charged through delivery.
+The separate peer query listener has its own bounded queue, connection and byte
+banks alongside control and LTX traffic. The same authenticated framing carries
+cell queries, commands, enrollments and receipt lookups, with distinct purposes.
+MAC domains, TLS exporter, schema, sequence, exact reversed response route,
+request tag and payload digest remain checked. A route binds the physical group,
+logical cell and exact node/disk/process endpoints. Namespace read permission
+never grants command, enrollment, receipt mutation or consensus authority.
 
-Query headers use a distinct route representation: the caller carries its
-node/disk/process identity and label, with no Raft member ID. The target carries
-its complete replica/history identity. The response reverses that exact route;
-its orientation cannot be reused as a request. Consensus headers retain their
-separate member-bearing routes and validators. This is a marker-1 hard cutover
-for experimental query peers; incompatible headers are refused without an old
-reader or translation path.
-
-Each `RaftCellRegistration` selects `RaftCellPlacement::Replica` or
-`QueryRouter { leader_hint }`. A query router reads an existing namespace and
-birth record, verifies the expected history/initial placement, and installs
-discovery without creating a local member or SQLite image. It cannot reinterpret
-existing member storage as a query-only binding. Its SDK handle rejects commands,
-local reads and local status; use explicit `QueryRouting::Replicas`. The optional
-hint is discovery only and cannot supply a read proof.
+The receiver executes a selected cell query locally. It cannot recursively route
+the request. Queued/handshake time consumes the sender's original deadline before
+it transmits the remaining timeout. Connection closure cancels the waiter while
+entered physical work keeps its owner and admission until it completes.
+The retired QueryRouting/QueryRouter SDK path, per-cell query wire bodies and
+Cell history reader are removed. Marker 1 remains unchanged; old peers refuse.
+Public SDK/fleet startup qualification is tracked in the
+[cell-group progress record](../../../../docs/design/multi-raft/cell-groups/progress.md).
 
 `RaftCellsConfig::query_origins` supplies trusted `NamespaceQueryOrigin` grants
 for exact cluster/namespace/node/disk/process endpoints. A receiving replica
@@ -975,10 +951,9 @@ supplies current trusted grants on restart; durable control-plane distribution
 belongs to the placement/operations controllers. Routing-only views and peer
 pools are bounded and never initialize a voter or learner. The
 [read audit](../../../../docs/design/multi-raft/read-audit.md) retains qualification
-scope and remaining delivery work. The counter's native
-and Axum HTTP paths expose consistency, tokens and bounded member options, and
-their executable restart drill includes remote strong reads and cross-cell refusal.
-These paths do not claim completion of MR-08 or the full delivery scope.
+scope and remaining delivery work for its captured source. Older counter/Axum
+and restart-drill fixtures still need the shared SDK cutover; their former member
+routing APIs no longer describe the canonical query contract.
 
 Fresh status checks precede staging, submission and successful output. Transient
 protocol Ready work defers preflight or duplicate-receipt settlement under the
@@ -1918,3 +1893,55 @@ after that join. Complete-group snapshot streaming, shared query RPC routing and
 production controller ownership of apply/command settlement remain unfinished.
 The TLS fixtures still drive runtime events themselves; they do not qualify
 controller ownership after an ingress caller disconnects.
+
+### Managed complete-group peer seeding
+
+`RaftTransport::prepare_managed_group_seed` requires the destination's rooted
+FleetHostAuthorization and a fresh active physical learner reservation. It uses
+the existing complete-group TLS seed exchange, receiver pools and original
+invocation deadline. The authenticated source checkpoint must carry the exact
+consumed permit in Seeding phase and the same repair plan. The source must be a
+catalog-selected seed owner with the exact current disk/process boot and a voter
+in the authenticated checkpoint. Revalidation cannot regress the catalog revision.
+Catalog-read and handshake time are deducted before transmitting the remaining
+source timeout. Catalog preflight, staging and joined-permit delivery share the
+original transport deadline and process/shutdown cancellation. Queued engine
+work retains its grant independently of a timed-out metadata waiter.
+Unmanaged seed calls
+refuse managed source metadata and managed namespace ownership.
+
+Staging retains the permanent member/node/disk/engine claim. The staged learner
+is absent from the birth configuration and has no startup or serving authority.
+Its base preserves the source's actual enrollment origin: a guard installed at
+genesis remains a genesis guard; an imported group retains its later committed
+enrollment through ordinary snapshot successor validation. Neither path can
+retrofit a different origin or drop an installed fleet guard.
+
+The seed grant carries the exact local boot. The serialized engine worker checks
+its last synced lifecycle guard when staging and immediately before the install
+fence. Quiescence, stop acceptance and fencing refuse further installation.
+Actual accepted engine work keeps its owner through sync; late/closed delivery
+cannot erase an already persisted install receipt or report late startup success.
+
+`RangeDirectory::bootstrap_managed_joined_group_member` requires that durable
+receipt, its permanent engine claim, the current rooted Live group and the exact
+running local boot. This supports reconciliation after a lost install response
+and restart after repair completion without replaying a saved active permit.
+The returned permit repeats these checks before attachment. Fresh quorum and
+application activation remain separate requirements. SDK/fleet startup, S3-based
+managed learner recovery and native/backend qualification remain tracked in the
+[cell-group progress record](../../../../docs/design/multi-raft/cell-groups/progress.md).
+
+Canonical startup prepares every selected local group root before publishing
+physical routes. An explicit startup error joins controller/transport/SQL/runtime
+and engine cleanup before returning, including actual storage-lock release.
+Cancellation schedules that same cleanup on the owning execution domain. The
+predecessor per-cell dispatcher is no longer compiled. Its used option/observation
+contracts and enabled storage-policy regressions remain while the final legacy
+verification sweep is incomplete.
+
+Old inbound per-cell seed and per-cell inspection RPC dispatch is removed. New
+shared checkpoint seeding and physical-node/group inspection keep their existing
+deadline, process, shutdown and bounded socket helpers. Retained outbound test
+utilities do not provide an inbound compatibility reader. The library compiles;
+unit/native and complete managed startup qualification are still in progress.

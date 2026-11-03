@@ -202,16 +202,15 @@ impl FleetIsolatedRepairEvidence for FleetDockerResources {
             self.isolation
                 .run(timeout, async {
                     context
-                        .group
-                        .validate()
-                        .map_err(|_| FleetCatalogError::Invalid("Docker repair scope"))?;
-                    context
                         .failed_boot
                         .validate()
                         .map_err(|_| FleetCatalogError::Invalid("Docker repair boot"))?;
                     let catalog = &self.isolation.inner.catalog;
                     let deadline = Deadline::new(catalog, timeout)?;
                     let cut = catalog.read(deadline.remaining()?).await?;
+                    catalog
+                        .authorize_group(&cut, &context.group, deadline.remaining()?)
+                        .await?;
                     let nodes = catalog
                         .run(deadline.remaining()?, catalog.node_records(&cut))
                         .await?;
@@ -234,7 +233,7 @@ impl FleetIsolatedRepairEvidence for FleetDockerResources {
                     }
                     Ok(FleetIsolatedRepairInputs {
                         history: FleetTopologyHistoryResources {
-                            group: context.group.clone(),
+                            group: context.group,
                             resident: self.policy.resident,
                             peak: self.policy.peak,
                         },

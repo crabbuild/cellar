@@ -7,13 +7,48 @@ use crate::raft::cell_groups::{CellGroupApplyImages, ManifestLimits, ManifestPin
 use crate::raft::{budget::Budget, transport_options::RaftPeerNode};
 use std::path::PathBuf;
 
+/// Node-shared dynamic preparation ceilings; no namespace gets its own bank.
+#[derive(Clone, Copy, Debug)]
+pub struct CellGroupProvisionLimits {
+    pub max_preparations: usize,
+    pub max_preparation_bytes: usize,
+    pub max_parallel_preparations: usize,
+    pub max_waiters: usize,
+    pub peer_revision: u64,
+}
+
+impl CellGroupProvisionLimits {
+    pub(crate) fn validate(&self, max_groups: usize) -> Result<(), CellGroupControllerError> {
+        if self.max_preparations == 0
+            || self.max_preparations > max_groups
+            || self.max_preparation_bytes == 0
+            || self.max_parallel_preparations == 0
+            || self.max_parallel_preparations > self.max_preparations.min(256)
+            || !(1..=65_536).contains(&self.max_waiters)
+            || self.peer_revision == 0
+        {
+            return Err(CellGroupControllerError::Invalid(
+                "group provisioning limits",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Immutable namespace image resources. Directory identity is checked before
+/// catalog reads or physical preparation; a matching name is not ownership.
+pub struct CellGroupProvisionNamespace {
+    pub directory: RangeDirectory,
+    pub images: CellGroupApplyImages,
+}
+
 /// Resources for initial members of already assigned ranges. Managed fleet
 /// admission is not inferred from this configuration. Image stores retain their
 /// own quotas; page inventory and recovery work have additional bounds here.
 pub struct CellGroupProvisioning {
     pub directory: PathBuf,
     pub filesystem: Arc<dyn cellar_ltx::FileSystem>,
-    pub images: CellGroupApplyImages,
+    pub namespaces: Vec<CellGroupProvisionNamespace>,
     pub manifest: ManifestLimits,
     pub entries: GroupEntryLimits,
     pub max_effect_rows: u32,
@@ -36,6 +71,7 @@ pub(in super::super) struct Config {
     pub waiters: Arc<Budget>,
     pub parallel: Arc<tokio::sync::Semaphore>,
     pub bytes: usize,
+    pub configuration_bytes: usize,
 }
 
 impl Config {
@@ -46,17 +82,59 @@ impl Config {
         let invalid = || CellGroupControllerError::Invalid("group provisioning configuration");
         settings.manifest.validate().map_err(|_| invalid())?;
         settings.entries.validate().map_err(|_| invalid())?;
-        settings.images.validate().map_err(apply_error)?;
-        if let CellGroupApplyImages::Extents {
-            cache_directory, ..
-        } = &mut settings.images
-        {
-            if !cache_directory.is_absolute() || cache_directory.as_os_str().len() > 4096 {
+        if settings.namespaces.is_empty() || settings.namespaces.len() > 4096 {
+            return Err(invalid());
+        }
+        let mut namespaces = std::collections::BTreeSet::new();
+        // Trusted endpoints and fixed configuration metadata remain retained
+        // even when no preparation is active. Keep them in the same total.
+        let mut configuration_bytes = 2 * 1024 * 1024_usize;
+        let mut image_bytes = 0;
+        for profile in &mut settings.namespaces {
+            let namespace = profile.directory.namespace_config();
+            if !namespaces.insert((namespace.cluster, namespace.namespace))
+                || !matches!(
+                    (&profile.images, namespace.image_storage),
+                    (
+                        CellGroupApplyImages::Materialized { .. },
+                        crate::raft::catalog::RaftImageStorage::Materialized
+                    ) | (
+                        CellGroupApplyImages::Extents { .. },
+                        crate::raft::catalog::RaftImageStorage::Extents
+                    )
+                )
+            {
                 return Err(invalid());
             }
-            *cache_directory = std::mem::take(cache_directory)
-                .into_boxed_path()
-                .into_path_buf();
+            profile.images.validate().map_err(apply_error)?;
+            let mut metadata = profile
+                .directory
+                .cache_capacity_bytes()
+                .checked_add(8192)
+                .ok_or_else(invalid)?;
+            if let CellGroupApplyImages::Extents {
+                cache_directory, ..
+            } = &mut profile.images
+            {
+                if !cache_directory.is_absolute()
+                    || cache_directory.as_os_str().len() > 4096
+                    || cache_directory
+                        .components()
+                        .any(|p| matches!(p, std::path::Component::ParentDir))
+                {
+                    return Err(invalid());
+                }
+                metadata = metadata
+                    .checked_add(cache_directory.as_os_str().len() * 2)
+                    .ok_or_else(invalid)?;
+                *cache_directory = std::mem::take(cache_directory)
+                    .into_boxed_path()
+                    .into_path_buf();
+            }
+            configuration_bytes = configuration_bytes
+                .checked_add(metadata)
+                .ok_or_else(invalid)?;
+            image_bytes = image_bytes.max(profile.images.memory_bound());
         }
         if !settings.directory.is_absolute()
             || settings.directory.as_os_str().len() > 4096
@@ -119,22 +197,52 @@ impl Config {
                         * crate::raft::cell_groups::page_wire::MAX_PAGE_BYTES,
                 )
             })
-            .and_then(|n| n.checked_add(settings.images.memory_bound()))
+            .and_then(|n| n.checked_add(image_bytes))
             .and_then(|n| n.checked_add(2 * 1024 * 1024))
             .ok_or_else(invalid)?;
-        if settings.max_preparation_bytes < bytes {
+        // Immutable namespace handles keep their advertised directory caches alive.
+        // Charge those once against the existing total, leaving one shared bank
+        // for every namespace's physical preparations. No per-namespace banks.
+        let available = settings
+            .max_preparation_bytes
+            .checked_sub(configuration_bytes)
+            .ok_or_else(invalid)?;
+        if available < bytes {
             return Err(invalid());
         }
         settings.directory = settings.directory.into_boxed_path().into_path_buf();
         settings.peers = settings.peers.into_boxed_slice().into_vec();
+        settings.namespaces = settings.namespaces.into_boxed_slice().into_vec();
         Ok(Self {
-            preparations: Budget::new(settings.max_preparation_bytes, settings.max_preparations),
+            preparations: Budget::new(available, settings.max_preparations),
             waiters: Budget::new(settings.max_waiters * WAITER_BYTES, settings.max_waiters),
             parallel: Arc::new(tokio::sync::Semaphore::new(
                 settings.max_parallel_preparations,
             )),
             bytes,
+            configuration_bytes,
             settings,
         })
+    }
+
+    pub fn images(
+        &self,
+        directory: &RangeDirectory,
+    ) -> Result<CellGroupApplyImages, CellGroupControllerError> {
+        self.profile(directory)
+            .map(|profile| profile.images.clone())
+    }
+
+    pub fn profile(
+        &self,
+        directory: &RangeDirectory,
+    ) -> Result<&CellGroupProvisionNamespace, CellGroupControllerError> {
+        self.settings
+            .namespaces
+            .iter()
+            .find(|profile| profile.directory.same_owner(directory))
+            .ok_or(CellGroupControllerError::Invalid(
+                "unconfigured namespace owner",
+            ))
     }
 }

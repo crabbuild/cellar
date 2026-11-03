@@ -46,6 +46,7 @@ pub struct CellDispatchLimits {
 #[derive(Clone, Debug)]
 pub enum CellQueryConsistency {
     Stale,
+    RecentSource { max_age_ms: u64 },
     AtLeast(CellVersionToken),
     Linearizable,
 }
@@ -93,6 +94,10 @@ pub struct CellGroupDispatcher {
 }
 
 impl CellGroupDispatcher {
+    pub(in crate::raft::cell_groups) fn directory(&self) -> RangeDirectory {
+        self.directory.clone()
+    }
+
     pub(crate) fn host_binding(
         &self,
     ) -> Result<
@@ -140,6 +145,17 @@ impl CellGroupDispatcher {
         keys: VersionKeys,
         limits: CellDispatchLimits,
     ) -> Result<Self, CellDispatchError> {
+        let domain = domain.services().domain_token().ok_or_else(closed)?;
+        Self::from_domain(domain, directory, class, keys, limits)
+    }
+
+    pub(crate) fn from_domain(
+        domain: DomainToken,
+        directory: RangeDirectory,
+        class: Arc<RaftClass>,
+        keys: VersionKeys,
+        limits: CellDispatchLimits,
+    ) -> Result<Self, CellDispatchError> {
         if class.schema_digest() != directory.namespace_config().schema_digest {
             return Err(CellDispatchError::Registration(
                 RegistrationError::ContractMismatch,
@@ -155,7 +171,6 @@ impl CellGroupDispatcher {
         {
             return Err(CellDispatchError::Invalid("invocation limits"));
         }
-        let domain = domain.services().domain_token().ok_or_else(closed)?;
         let routes = Arc::new(
             crate::raft::catalog::RouteCache::new(
                 directory.clone(),
@@ -255,6 +270,11 @@ impl CellGroupDispatcher {
         {
             return Err(CellDispatchError::Runtime(RuntimeError::Overloaded));
         }
+        if matches!(&request.consistency, CellQueryConsistency::RecentSource { max_age_ms }
+            if !(1..=3_600_000).contains(max_age_ms))
+        {
+            return Err(CellDispatchError::Invalid("stale source age"));
+        }
         if request.contract.kind != OperationKind::Query {
             return Err(CellDispatchError::Registration(
                 RegistrationError::KindMismatch,
@@ -295,6 +315,7 @@ impl CellGroupDispatcher {
             request,
             session,
             attempt: None,
+            remote_route: None,
             dispatched: false,
             _admission: admission,
         })
@@ -308,6 +329,7 @@ pub struct CellQueryInvocation {
     request: CellQueryRequest,
     session: CellRoutingSession,
     attempt: Option<CellRouteAttempt>,
+    remote_route: Option<RemoteMutationRoute>,
     dispatched: bool,
     _admission: Permit,
 }
@@ -336,17 +358,29 @@ impl CellQueryInvocation {
         Ok((self.request.invocation, deadline, bytes))
     }
 
+    pub(crate) fn bind_remote_route(&mut self, route: RemoteMutationRoute) {
+        self.remote_route = Some(route);
+    }
+
     pub fn attempt(&self) -> Option<&CellRouteAttempt> {
         self.attempt.as_ref()
     }
 
     pub async fn begin(&mut self) -> Result<(), CellDispatchError> {
         self.dispatched = true;
-        let attempt = self
-            .session
-            .begin()
-            .await
-            .map_err(CellDispatchError::Routing)?;
+        let attempt = if self.remote_route.is_some() {
+            self.session.begin_current().await
+        } else {
+            self.session.begin().await
+        }
+        .map_err(CellDispatchError::Routing)?;
+        if self
+            .remote_route
+            .as_ref()
+            .is_some_and(|route| !route.matches(attempt.route()))
+        {
+            return Err(CellDispatchError::Invalid("remote query destination route"));
+        }
         self.attempt = Some(attempt);
         self.dispatched = false;
         Ok(())
@@ -407,6 +441,16 @@ impl CellQueryInvocation {
         sql: &CellGroupSqlPool,
         options: CellSqlOptions,
     ) -> Result<CellQueryResponse, CellDispatchError> {
+        self.execute_retained(runtime, sql, options, None).await
+    }
+
+    pub(crate) async fn execute_retained(
+        &mut self,
+        runtime: &CellGroupRuntime,
+        sql: &CellGroupSqlPool,
+        options: CellSqlOptions,
+        retention: Option<crate::raft::host_sql::cell_groups::ReadRetention>,
+    ) -> Result<CellQueryResponse, CellDispatchError> {
         let attempt = self
             .attempt
             .as_ref()
@@ -426,7 +470,7 @@ impl CellQueryInvocation {
             .sleep_until(attempt.deadline_ms())
             .map_err(|_| closed())?;
         crate::asyncrt::select! {
-            result = self.execute_at(attempt, runtime, sql, options) => {
+            result = self.execute_at(attempt, runtime, sql, options, retention) => {
                 let result = result?;
                 self.session.validate_attempt(attempt).map_err(CellDispatchError::Routing)?;
                 Ok(result)
@@ -526,11 +570,17 @@ impl CellQueryInvocation {
         runtime: &CellGroupRuntime,
         sql: &CellGroupSqlPool,
         options: CellSqlOptions,
+        retention: Option<crate::raft::host_sql::cell_groups::ReadRetention>,
     ) -> Result<CellQueryResponse, CellDispatchError> {
         let cell = &attempt.request().cell;
         let schema = self.dispatcher.class.schema_digest();
         let consistency = match &self.request.consistency {
             CellQueryConsistency::Stale => CellReadConsistency::Stale,
+            CellQueryConsistency::RecentSource { max_age_ms } => {
+                CellReadConsistency::RecentSource {
+                    max_age_ms: *max_age_ms,
+                }
+            }
             CellQueryConsistency::Linearizable => CellReadConsistency::Linearizable,
             CellQueryConsistency::AtLeast(token) => {
                 let observation = self
@@ -554,12 +604,13 @@ impl CellQueryInvocation {
             return Err(CellDispatchError::Invalid("destination route binding"));
         }
         let selected = sql
-            .query_registered(
+            .query_registered_retained(
                 options,
                 authority,
                 self.dispatcher.class.clone(),
                 self.request.contract.clone(),
                 self.request.input.clone(),
+                retention,
             )
             .await
             .map_err(CellDispatchError::Execution)?;
@@ -597,6 +648,12 @@ impl CellQueryResponse {
     pub fn token(&self) -> &CellVersionToken {
         &self.token
     }
+
+    pub fn replica(
+        &self,
+    ) -> &cellar_logic::consensus::ReplicaIdentity<cellar_logic::cell_group::GroupHistory> {
+        self.selected.replica()
+    }
 }
 
 fn closed() -> CellDispatchError {
@@ -621,6 +678,10 @@ fn fingerprint(
     hash.update(&request.input);
     match &request.consistency {
         CellQueryConsistency::Stale => hash.update([0]),
+        CellQueryConsistency::RecentSource { max_age_ms } => {
+            hash.update([3]);
+            hash.update(max_age_ms.to_be_bytes());
+        }
         CellQueryConsistency::Linearizable => hash.update([1]),
         CellQueryConsistency::AtLeast(token) => {
             hash.update([2]);

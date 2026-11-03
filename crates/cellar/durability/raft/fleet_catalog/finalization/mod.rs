@@ -2,6 +2,7 @@
 
 //! Bounded receipt material for inventory-consuming terminal verification.
 //! Stored descriptors grant no completion or disruption-release authority.
+mod archive_holds;
 mod cancellation;
 mod fencing;
 pub(super) mod receipts;
@@ -19,8 +20,11 @@ pub use terminal::{
 
 use super::*;
 use crate::application::consensus::RaftCells;
-use crate::raft::archive::{ArchiveReference, ArchiveVerifier, CellArchive};
-use crate::raft::catalog::NamespaceCatalog;
+use crate::raft::catalog::RangeDirectory;
+use crate::raft::cell_groups::{
+    CellGroupArchiveCheckpointReceiver, CellGroupArchiveHold, CellGroupArchiveRegistry,
+    CellGroupArchiveTailPool,
+};
 use crate::raft::host::FleetPublishedCut;
 use cellar_logic::consensus::{NodeId, ProposalId};
 use receipts::{Basis, Book, Candidate, Entry, Evidence, LiveEvidence};
@@ -28,9 +32,10 @@ use receipts::{Basis, Book, Candidate, Entry, Evidence, LiveEvidence};
 /// Services and the exact immutable archive selected for one history. Scratch
 /// storage and recovery-memory admission remain owned by the embedding runtime.
 pub struct FleetEvacuationArchive<'a> {
-    pub archive: &'a CellArchive,
-    pub reference: &'a ArchiveReference,
-    pub verifier: &'a ArchiveVerifier,
+    pub registry: &'a CellGroupArchiveRegistry,
+    pub hold: &'a CellGroupArchiveHold,
+    pub tails: &'a CellGroupArchiveTailPool,
+    pub receiver: CellGroupArchiveCheckpointReceiver,
 }
 
 /// A bounded, complete-inventory walk that owns its authenticated quorum calls
@@ -107,7 +112,7 @@ impl FleetCatalog {
         &self,
         snapshot: &FleetSnapshot,
         operation: ProposalId,
-        namespaces: &[NamespaceCatalog],
+        namespaces: &[RangeDirectory],
         timeout: Duration,
     ) -> Result<FleetEvacuationVerification> {
         self.check_snapshot(snapshot)?;
@@ -327,13 +332,12 @@ impl FleetEvacuationVerification {
             .try_into()
             .map_err(|_| FleetCatalogError::Corrupt("receipt observation count"))?;
         let observations: [crate::raft::host::RaftPeerFleetMembershipObservation; 3] = observations;
-        let current = observations[0]
-            .published_cut()
-            .ok_or(FleetCatalogError::Unconfirmed)?;
+        let current = observations[0].published_cut();
         let (fixed, survivors) = catalog
             .run(deadline.remaining()?, async {
                 self.book.basis.check_current(&catalog).await?;
                 let mut fixed = current.clone();
+                let mut from_prior = false;
                 if let Some(prior) = &self.prior {
                     let (pending, _) = self
                         .pending
@@ -342,12 +346,24 @@ impl FleetEvacuationVerification {
                     if let Some(entry) = prior.entry(&catalog, &pending.key).await? {
                         if entry.record == hash(&pending.value) {
                             if let Evidence::Live(live) = entry.evidence {
-                                if live.fixed.revision == current.membership_revision().get() {
+                                if live.fixed.configuration_revision()?
+                                    == current.membership_revision()
+                                {
                                     fixed = live.fixed.restore(current)?;
+                                    from_prior = true;
                                 }
                             }
                         }
                     }
+                }
+                if let Some(saved) = self.archive_fixed(current).await? {
+                    if from_prior
+                        && (saved.root() != fixed.root()
+                            || saved.configuration_digest() != fixed.configuration_digest())
+                    {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                    fixed = saved;
                 }
                 let survivors =
                     survivors::verify(&catalog, &self.snapshot, history, &observations, &fixed)
@@ -383,17 +399,20 @@ impl FleetEvacuationVerification {
             .freeze_live(observer, nodes, deadline.remaining()?)
             .await?;
         let coverage = catalog
-            .inner
-            .domain
-            .run(archive.archive.verify_published_at(
-                archive.reference,
-                &fixed,
-                archive.verifier,
-                deadline.remaining()?,
-            ))
-            .await
-            .map_err(|_| FleetCatalogError::Closed)?
-            .map_err(|error| FleetCatalogError::Storage(error.into()))?;
+            .run(deadline.remaining()?, async {
+                archive
+                    .registry
+                    .verify_fleet_published_at(
+                        &catalog.inner.domain,
+                        archive.tails,
+                        archive.hold,
+                        &fixed,
+                        archive.receiver,
+                    )
+                    .await
+                    .map_err(FleetCatalogError::from)
+            })
+            .await?;
         deadline.remaining()?;
         if !coverage
             .covers(&fixed)

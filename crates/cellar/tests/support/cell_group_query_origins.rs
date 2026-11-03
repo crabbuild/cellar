@@ -117,7 +117,7 @@ pub(crate) async fn nonmember_queries() -> Result<()> {
         )?);
         let (mut fixture, route, a, b) = Box::pin(registered::setup(rooted, &class)).await?;
         let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
-        let owners = gateways(&fixture, class.clone()).await?;
+        let owners = gateways(&fixture, &controllers, class.clone()).await?;
         let router = Router::start(&fixture).await?;
         let discovery = fixture.tcp_route(route.history)?;
         router
@@ -211,6 +211,25 @@ pub(crate) async fn nonmember_queries() -> Result<()> {
             .is_err());
         drop(denied);
         assert_eq!(calls.load(Ordering::SeqCst), 0);
+        let mut denied_strong = invocation(
+            &dispatch,
+            &class,
+            &a,
+            CellQueryConsistency::Linearizable,
+            Duration::from_secs(5),
+            b"",
+        )
+        .await?;
+        assert!(denied_strong
+            .execute_remote(&router.transport, MemberId::new(2)?)
+            .await
+            .is_err());
+        drop(denied_strong);
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "strong reads also require the exact namespace/process grant"
+        );
         router.grant(&fixture, 2)?;
         let mut query = invocation(
             &dispatch,
@@ -222,15 +241,19 @@ pub(crate) async fn nonmember_queries() -> Result<()> {
         )
         .await?;
         let first_attempt = query.attempt().context("first strong attempt")?.clone();
-        assert!(matches!(
-            query
-                .execute_remote(&router.transport, MemberId::new(2)?)
-                .await,
-            Err(CellDispatchError::Transport(TransportError::Query(
-                CommandFailure::VersionUnavailable
-            )))
-        ));
-        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        // A granted follower obtains its own correlated quorum read. This
+        // router still has no local replica and cannot supply that authority.
+        let follower = query
+            .execute_remote(&router.transport, MemberId::new(2)?)
+            .await?;
+        assert_eq!(follower.result(), a.cell.as_str().as_bytes());
+        assert_eq!(follower.observation().version.history, a);
+        assert_eq!(follower.served_by(), MemberId::new(2)?);
+        let follower_observation = follower.observation().clone();
+        assert_eq!(router.transport.usage().query_items, 1);
+        drop(follower);
+        assert_eq!(router.transport.usage().query_items, 0);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
         query.retry().await?;
         assert_eq!(
             query.attempt().context("leader retry")?.deadline_ms(),
@@ -242,6 +265,9 @@ pub(crate) async fn nonmember_queries() -> Result<()> {
             .await?;
         assert_eq!(reply.result(), a.cell.as_str().as_bytes());
         assert_eq!(reply.observation().version.history, a);
+        assert_eq!(reply.observation(), &follower_observation);
+        assert_eq!(reply.served_by(), MemberId::new(1)?);
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
         let token = reply.token().clone();
         assert_eq!(router.transport.usage().query_items, 1);
         drop(reply);
@@ -267,7 +293,7 @@ pub(crate) async fn nonmember_queries() -> Result<()> {
                 cell.cell.as_str().as_bytes()
             );
         }
-        assert_eq!(calls.load(Ordering::SeqCst), 3);
+        assert_eq!(calls.load(Ordering::SeqCst), 4);
         // All discovery routes share the same three physical peer pools and
         // bounded route admission. They never allocate local group storage.
         let mut second = discovery.clone();
@@ -359,7 +385,7 @@ pub(crate) async fn nonmember_query_revocation(replace_route: bool) -> Result<()
         )?);
         let (mut fixture, route, a, _) = Box::pin(registered::setup(rooted, &class)).await?;
         let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
-        let owners = gateways(&fixture, class.clone()).await?;
+        let owners = gateways(&fixture, &controllers, class.clone()).await?;
         let router = Router::start(&fixture).await?;
         let mut discovery = fixture.tcp_route(route.history)?;
         router

@@ -187,11 +187,7 @@ impl FleetRestartResumeVerification {
                 .binding()
                 .scope()
                 .map_err(|_| FleetCatalogError::Corrupt("resume scope"))?;
-            let physical = self
-                .inventory
-                .history(&group)
-                .map_err(|_| FleetCatalogError::Conflict)?
-                .copied();
+            let physical = self.inventory.group_history(&group).copied();
             let target = NodeId::new(self.cut.node.node)
                 .map_err(|_| FleetCatalogError::Corrupt("resume target"))?;
             let key = history

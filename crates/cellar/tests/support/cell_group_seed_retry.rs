@@ -149,8 +149,13 @@ async fn retry(root: &Path, rooted: bool, cut: &str) -> Result<()> {
     }
     let route = oracle.expected.route().clone();
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
-    let (directory, birth, store) =
-        crash_fixture::restore_catalog_store(oracle.objects.clone(), &route, &domain).await?;
+    let (directory, birth, store) = crash_fixture::restore_catalog_store(
+        oracle.objects.clone(),
+        &route,
+        &domain,
+        oracle.image_storage,
+    )
+    .await?;
     let mut f = Box::pin(restore_source(
         root,
         &oracle,

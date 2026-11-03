@@ -60,7 +60,7 @@ pub struct FleetMovementProgress {
 #[derive(Clone, Debug)]
 pub struct FleetPendingMovement {
     pub reservation: [u8; 16],
-    pub group: GroupScope,
+    pub group: GroupHistory,
     pub plan: crate::raft::member_state::RepairPlan,
 }
 
@@ -69,7 +69,7 @@ pub struct FleetPendingMovement {
 #[derive(Clone, Debug)]
 pub struct FleetPendingReservation {
     pub reservation: [u8; 16],
-    pub group: cellar_logic::consensus::GroupScope,
+    pub group: cellar_logic::cell_group::GroupHistory,
     pub target: cellar_logic::consensus::NodeId,
     pub boot: crate::raft::fleet_stop::FleetBootBinding,
     pub peak: FleetResourceBounds,

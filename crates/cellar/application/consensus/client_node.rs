@@ -3,10 +3,6 @@
 use super::*;
 
 pub(crate) enum NodeKind {
-    StartRestartService(Box<crate::raft::fleet_catalog::RestartServiceWork>),
-    StartMovementService(Box<crate::raft::fleet_catalog::MovementServiceWork>),
-    PeerFleetAction(Box<super::PeerFleetActionCall>),
-    LocalFleetAction(Box<super::LocalFleetActionCall>),
     Drain,
     Observe,
     ObservePhysical,
@@ -15,21 +11,9 @@ pub(crate) enum NodeKind {
         minimum_revision: u64,
         physical: bool,
     },
-    InspectPeerFleet(Box<PeerFleetRequest>),
     PeerFleetStop(Box<PeerStopRequest>),
-    ObserveFleet {
-        history: Box<crate::raft::fleet_inspection_wire::History>,
-        minimum_revision: u64,
-    },
-    RegisterHistory(Box<crate::raft::fleet_catalog::FleetGroupAuthorization>),
     ControllerStatus,
     SetControllerEnabled(bool),
-}
-
-pub(crate) struct PeerFleetRequest {
-    pub node: cellar_logic::consensus::NodeId,
-    pub minimum_revision: u64,
-    pub authorization: crate::raft::fleet_catalog::FleetGroupAuthorization,
 }
 
 pub(crate) struct PeerStopRequest {
@@ -113,99 +97,6 @@ impl RaftCells {
             match result {
                 Response::PeerFleetStop(result) => result.map(|accepted| *accepted),
                 _ => Err(FleetCatalogError::Unconfirmed),
-            }
-        })
-    }
-
-    /// Obtain a fresh safe-ReadIndex observation from an enrolled group. A local
-    /// target uses the same guarded quorum observer without a loopback RPC.
-    /// The origin may have zero local groups. Both endpoints must install the
-    /// requested catalog cut; the target independently authorizes this exact
-    /// history. This creates no query, seeding or membership-mutation grant.
-    /// Retaining a response does not establish current absence or removal proof.
-    pub fn observe_peer_fleet_membership(
-        &self,
-        node: cellar_logic::consensus::NodeId,
-        authorization: crate::raft::fleet_catalog::FleetGroupAuthorization,
-        minimum_revision: u64,
-        timeout: Duration,
-    ) -> Pin<
-        Box<
-            dyn Future<
-                    Output = Result<
-                        super::super::RaftPeerFleetMembershipObservation,
-                        super::super::InspectionError,
-                    >,
-                > + Send,
-        >,
-    > {
-        use super::super::InspectionError;
-        if minimum_revision == 0
-            || minimum_revision >= u64::MAX - 2
-            || timeout.is_zero()
-            || timeout > Duration::from_secs(60)
-        {
-            return Box::pin(async { Err(InspectionError::Refused) });
-        }
-        let domain = self.handle.domain.clone();
-        let started = match domain.mono_ms() {
-            Ok(started) => started,
-            Err(_) => return Box::pin(async { Err(InspectionError::Unavailable) }),
-        };
-        let call = self.node_call(
-            NodeKind::InspectPeerFleet(Box::new(PeerFleetRequest {
-                node,
-                minimum_revision,
-                authorization,
-            })),
-            timeout,
-        );
-        Box::pin(async move {
-            let response = call.await.map_err(|error| match error {
-                CommandFailure::Overloaded => InspectionError::Overloaded,
-                CommandFailure::UnsupportedCapability => InspectionError::Refused,
-                _ => InspectionError::Unavailable,
-            })?;
-            let Response::PeerFleetObservation(result) = response else {
-                return Err(InspectionError::Unavailable);
-            };
-            let mut observed = result?;
-            let age = domain
-                .mono_ms()
-                .ok()
-                .and_then(|now| now.checked_sub(started))
-                .ok_or(InspectionError::Unavailable)?;
-            observed.record_delivery_age(age)?;
-            Ok(*observed)
-        })
-    }
-
-    pub(crate) fn observe_local_fleet_membership(
-        &self,
-        history: crate::raft::fleet_inspection_wire::History,
-        minimum_revision: u64,
-        timeout: Duration,
-    ) -> Pin<
-        Box<
-            dyn Future<
-                    Output = Result<
-                        Box<crate::raft::fleet_inspection_wire::LocalObservation>,
-                        CommandFailure,
-                    >,
-                > + Send,
-        >,
-    > {
-        let call = self.node_call(
-            NodeKind::ObserveFleet {
-                history: Box::new(history),
-                minimum_revision,
-            },
-            timeout,
-        );
-        Box::pin(async move {
-            match call.await? {
-                Response::LocalFleetObservation(result) => Ok(result),
-                _ => Err(CommandFailure::CorruptState),
             }
         })
     }
@@ -329,38 +220,6 @@ impl RaftCells {
         Box::pin(async move {
             match response.await? {
                 Response::PhysicalNode(observation) => Ok(*observation),
-                _ => Err(CommandFailure::CorruptState),
-            }
-        })
-    }
-
-    /// Register dormant metadata for an already enrolled history under this
-    /// host's declared class. This creates no member, image or voting authority.
-    /// A lost response can race publication; retry the same authorization.
-    pub fn register_managed_history(
-        &self,
-        authorization: crate::raft::fleet_catalog::FleetGroupAuthorization,
-        timeout: Duration,
-    ) -> Pin<Box<dyn Future<Output = Result<RaftCellHandle, CommandFailure>> + Send>> {
-        if timeout > Duration::from_secs(60) {
-            return Box::pin(async { Err(CommandFailure::UnsupportedCapability) });
-        }
-        let scope = authorization
-            .binding()
-            .scope()
-            .map_err(|_| CommandFailure::CommandConflict);
-        let response = self.node_call(NodeKind::RegisterHistory(Box::new(authorization)), timeout);
-        let host = self.clone();
-        Box::pin(async move {
-            let scope = scope?;
-            match response.await? {
-                Response::HistoryRegistered => {
-                    let cell = host.cell(scope.namespace, &scope.cell)?;
-                    if cell.binding.scope != scope {
-                        return Err(CommandFailure::CommandConflict);
-                    }
-                    Ok(cell)
-                }
                 _ => Err(CommandFailure::CorruptState),
             }
         })

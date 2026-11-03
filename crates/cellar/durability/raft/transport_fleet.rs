@@ -20,6 +20,38 @@ impl Registry {
 }
 
 impl RaftTransport {
+    /// Resolve an endpoint only from an installed rooted trust cut and its
+    /// authenticated current node view. Discovery supplies no membership grant.
+    pub(crate) fn managed_group_peer(
+        &self,
+        scope: &GroupHistory,
+        node: NodeId,
+        minimum_revision: u64,
+    ) -> Result<RaftPeerNode, TransportError> {
+        let state = &self.handle.0;
+        let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
+        state.admit(&registry)?;
+        let trust = registry
+            .fleet_trust
+            .as_ref()
+            .ok_or(TransportError::Refused)?;
+        if trust.cluster() != scope.cluster || trust.revision() < minimum_revision {
+            return Err(TransportError::StalePeer);
+        }
+        let view = registry
+            .node_views
+            .get(&node)
+            .ok_or(TransportError::StalePeer)?;
+        let enrolled = trust.node(node).ok_or(TransportError::Refused)?;
+        if view.cluster() != scope.cluster
+            || enrolled.storage_instance() != Some(view.storage_instance())
+            || !enrolled.matches_peer(view.peer())
+        {
+            return Err(TransportError::StalePeer);
+        }
+        Ok(view.peer().clone())
+    }
+
     /// Routing may omit a permanently quarantined member. Its Raft vote and
     /// physical placement still belong to the durable configuration until a
     /// quorum commits removal. Missing discovery alone is never sufficient.
@@ -40,13 +72,17 @@ impl RaftTransport {
     /// Check a rooted admission against current trust and actual durable
     /// configuration. Exclusion may continue the exact reserved destination
     /// boot; it cannot substitute another process or admit fresh placement.
-    pub(crate) fn check_fleet_placement(
+    pub(crate) fn check_fleet_placement<S>(
         &self,
-        scope: &GroupScope,
+        scope: &S,
         members: &[NodeId],
         target: &JoiningMember,
         authorization: &FleetPermitAuthorization,
-    ) -> Result<(), TransportError> {
+    ) -> Result<(), TransportError>
+    where
+        for<'a> GroupHistory: From<&'a S>,
+    {
+        let scope = GroupHistory::from(scope);
         let state = &self.handle.0;
         let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
         state.admit(&registry)?;
@@ -77,7 +113,7 @@ impl RaftTransport {
         if !destination.permits_transport()
             || (!destination.eligibility().receive_replicas && !continuing)
             || destination.boot_binding().ok().as_ref() != Some(original_boot)
-            || !authorization.matches_scope(scope)
+            || !authorization.matches_scope::<GroupHistory>(&scope)
             || destination.storage_instance().is_none()
         {
             return Err(TransportError::StalePeer);

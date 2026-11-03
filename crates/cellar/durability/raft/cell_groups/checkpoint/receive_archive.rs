@@ -9,6 +9,10 @@ use cellar_logic::cell_group::GroupRoute;
 use cellar_ltx::stream_snapshot::ScratchPool;
 use std::{path::PathBuf, sync::Mutex};
 
+#[cfg(test)]
+#[path = "receive_archive_tests.rs"]
+mod tests;
+
 impl Target for CellGroupArchiveStore {
     fn storage(&self) -> &Arc<Mutex<super::super::apply::Storage>> {
         &self.storage
@@ -44,6 +48,22 @@ impl Target for CellGroupArchiveStore {
 }
 
 impl CellGroupCheckpointPool {
+    /// Reserve before opening/scanning an independently owned page inventory.
+    /// Includes worst-case inventory and directory metadata in this same bank.
+    pub(crate) fn prepare_archive_receive(
+        &self,
+        max_pages: usize,
+    ) -> Result<super::PreparedArchiveReceive> {
+        let bytes = max_pages
+            .checked_mul(512)
+            .and_then(|n| n.checked_add(16384))
+            .ok_or(CellGroupCheckpointError::Limit)?;
+        Ok(PreparedArchiveReceive {
+            pool: self.clone(),
+            reservation: State::<CellGroupArchiveStore>::reserve(self, bytes)?,
+        })
+    }
+
     /// Receive into private data stores, without a Raft mapping, surviving voter
     /// disk or applied-cut observation. Shares the node's source/receiver quota.
     pub fn receive_archive(
@@ -54,6 +74,28 @@ impl CellGroupCheckpointPool {
     ) -> Result<CellGroupArchiveCheckpointReceiver> {
         Ok(CellGroupArchiveCheckpointReceiver(State::new(
             self, store, scratch, directory,
+        )?))
+    }
+}
+
+pub(crate) struct PreparedArchiveReceive {
+    pool: CellGroupCheckpointPool,
+    reservation: Permit,
+}
+
+impl PreparedArchiveReceive {
+    pub(crate) fn receive(
+        self,
+        store: CellGroupArchiveStore,
+        scratch: ScratchPool,
+        directory: PathBuf,
+    ) -> Result<CellGroupArchiveCheckpointReceiver> {
+        Ok(CellGroupArchiveCheckpointReceiver(State::with_reservation(
+            &self.pool,
+            store,
+            scratch,
+            directory,
+            self.reservation,
         )?))
     }
 }

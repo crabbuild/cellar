@@ -316,7 +316,7 @@ impl IsolatedRepairService {
             .and_then(|n| n.checked_add(nodes.checked_mul(512 * 1024)?))
             .ok_or(FleetCatalogError::Limit)?;
         let _memory =
-            super::topology::reserve_collection_memory(&observer.handle.control_budget, bytes, 0)?;
+            super::topology::reserve_collection_memory(observer.control_budget(), bytes, 0)?;
         let group = Group {
             history,
             voters,
@@ -366,7 +366,7 @@ impl IsolatedRepairService {
 
     fn block(
         &self,
-        group: GroupScope,
+        group: GroupHistory,
         error: &FleetCatalogError,
         status: &watch::Sender<FleetMovementServiceStatus>,
     ) {

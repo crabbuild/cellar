@@ -380,9 +380,7 @@ pub(in crate::raft::fleet_catalog::maintenance) fn observe_current_voting<'a>(
         if observations.len() != 3 {
             return Err(FleetCatalogError::InventoryIncomplete);
         }
-        let fixed = observations[0]
-            .published_cut()
-            .ok_or(FleetCatalogError::Unconfirmed)?;
+        let fixed = observations[0].published_cut();
         let result = catalog
             .run(deadline.remaining()?, async {
                 let first = observations[0].membership();
@@ -415,9 +413,7 @@ pub(in crate::raft::fleet_catalog::maintenance) fn observe_current_voting<'a>(
                         state,
                         replica.node == target && paused,
                     )?;
-                    let cut = observed
-                        .published_cut()
-                        .ok_or(FleetCatalogError::Unconfirmed)?;
+                    let cut = observed.published_cut();
                     let member = observed
                         .progress()
                         .member
@@ -476,7 +472,7 @@ pub(in crate::raft::fleet_catalog::maintenance) fn observe_current_voting<'a>(
                         ),
                         epoch: auth.epoch(),
                         member: replica.member.get(),
-                        publication: hash(&encode(57, &Publication::from(cut), records::LIMIT)?),
+                        publication: hash(&encode(57, &Publication::from(cut), PAGE_LIMIT)?),
                         leader_load: observed
                             .progress()
                             .leader_load

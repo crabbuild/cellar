@@ -10,7 +10,7 @@ mod records;
 
 use super::*;
 use crate::application::consensus::RaftCells;
-use crate::raft::catalog::NamespaceCatalog;
+use crate::raft::catalog::RangeDirectory;
 use cellar_logic::consensus::ProposalId;
 use records::{Definition, IntentRecord, Policy};
 use std::collections::BTreeSet;
@@ -60,7 +60,7 @@ pub struct FleetTopologyOperation {
 #[derive(Clone, Debug)]
 pub struct FleetTopologyMovementEntry {
     pub reservation: [u8; 16],
-    pub group: GroupScope,
+    pub group: GroupHistory,
     pub source: NodeId,
     pub target: NodeId,
     pub admitted_revision: u64,

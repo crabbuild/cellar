@@ -115,11 +115,8 @@ impl FleetTopologyVerification {
         let live = self
             .groups
             .iter()
-            .map(|group| {
-                crate::raft::physical_inventory::scope_digest(&group.resources.group)
-                    .map_err(|_| FleetCatalogError::Corrupt("topology scope digest"))
-            })
-            .collect::<Result<BTreeSet<_>>>()?;
+            .map(|group| crate::raft::physical_inventory::group_digest(&group.resources.group))
+            .collect::<BTreeSet<_>>();
         for node in &self.nodes {
             let original = node
                 .physical

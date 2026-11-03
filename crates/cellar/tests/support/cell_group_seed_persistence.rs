@@ -13,6 +13,7 @@ enum Cut {
     StreamingRevocation,
     QueuedRevocation,
     EnteredRevocation,
+    EnteredExpiry,
     SyncError,
     AfterSyncError,
 }
@@ -25,6 +26,7 @@ pub(crate) async fn seed_persistence(rooted: bool) -> Result<()> {
     for cut in [
         Cut::QueuedRevocation,
         Cut::EnteredRevocation,
+        Cut::EnteredExpiry,
         Cut::SyncError,
         Cut::AfterSyncError,
     ] {
@@ -108,12 +110,23 @@ async fn run(rooted: bool, cut: Cut) -> Result<()> {
         captured,
         seed_receiver::Fault::Valid,
     ))?;
+    // The expiry cut must complete inside the existing peer's five-second
+    // disconnect guard. Other cuts keep their original ten-second budget.
+    let deadline = reads::deadline(
+        &fixture,
+        if cut == Cut::EnteredExpiry {
+            2000
+        } else {
+            10_000
+        },
+    )
+    .await?;
     let session = Box::pin(transport.prepare_group_seed(
         local.clone(),
         peer.clone(),
         fixture.cluster.directory.clone(),
         fixture.cluster.birth.clone(),
-        reads::deadline(&fixture, 10_000).await?,
+        deadline,
     ))
     .await?;
     let group = session.group().clone();
@@ -144,7 +157,7 @@ async fn run(rooted: bool, cut: Cut) -> Result<()> {
 
     let release = gate.arm(match cut {
         Cut::StreamingRevocation => fault::HOLD_DEPENDENCY_PREFIX,
-        Cut::QueuedRevocation | Cut::EnteredRevocation => fault::HOLD_SYNC,
+        Cut::QueuedRevocation | Cut::EnteredRevocation | Cut::EnteredExpiry => fault::HOLD_SYNC,
         Cut::SyncError => fault::FAIL_SYNC,
         Cut::AfterSyncError => fault::FAIL_AFTER_SYNC,
     });
@@ -171,7 +184,10 @@ async fn run(rooted: bool, cut: Cut) -> Result<()> {
     let mut early_result = None;
     if matches!(
         cut,
-        Cut::StreamingRevocation | Cut::QueuedRevocation | Cut::EnteredRevocation
+        Cut::StreamingRevocation
+            | Cut::QueuedRevocation
+            | Cut::EnteredRevocation
+            | Cut::EnteredExpiry
     ) {
         if cut == Cut::QueuedRevocation {
             controller::wait_for(async || Ok(queued(&log)? == 1)).await?;
@@ -194,10 +210,20 @@ async fn run(rooted: bool, cut: Cut) -> Result<()> {
                 .is_err(),
             "no receipt before the engine fence"
         );
-        restarted_source = Some(
-            seed_receiver::revoke_source(&fixture, &mut controllers, &transport, &peer, &route)
-                .await?,
-        );
+        if cut == Cut::EnteredExpiry {
+            // Keep the actual fence held through the original operation deadline.
+            // Its eventual durable result must not grant a late bootstrap reply.
+            fixture
+                .cluster
+                .domain
+                .run(async { cellar::asyncrt::sleep_until(deadline).await })
+                .await?;
+        } else {
+            restarted_source = Some(
+                seed_receiver::revoke_source(&fixture, &mut controllers, &transport, &peer, &route)
+                    .await?,
+            );
+        }
         if cut == Cut::StreamingRevocation {
             assert!(
                 gate.dependency_cut
@@ -258,6 +284,19 @@ async fn run(rooted: bool, cut: Cut) -> Result<()> {
             let (_permit, installed) = result?;
             assert_eq!(installed.marker(), &expected);
             assert!(installed.pin_cell(&a.cell).is_some() && installed.pin_cell(&b.cell).is_some());
+        }
+        Cut::EnteredExpiry => {
+            assert!(
+                matches!(
+                    result,
+                    Err(CellGroupSeedError::Log(LogError::WrongIdentity))
+                        | Err(CellGroupSeedError::Transport(TransportError::Timeout))
+                ),
+                "completed sync cannot extend the original deadline: {:?}",
+                result.err()
+            );
+            assert_eq!(group.group_manifest()?.as_ref(), Some(&expected));
+            assert_eq!(group.checkpoint_manifest()?.as_ref(), Some(&expected));
         }
         Cut::SyncError | Cut::AfterSyncError => assert!(
             matches!(result, Err(CellGroupSeedError::Log(LogError::Io(_)))),
@@ -348,7 +387,9 @@ async fn run(rooted: bool, cut: Cut) -> Result<()> {
     let selected = group.group_manifest()?.context("reopened root")?;
     match cut {
         Cut::StreamingRevocation | Cut::QueuedRevocation => assert_eq!(selected, staged),
-        Cut::EnteredRevocation | Cut::AfterSyncError => assert_eq!(selected, expected),
+        Cut::EnteredRevocation | Cut::EnteredExpiry | Cut::AfterSyncError => {
+            assert_eq!(selected, expected)
+        }
         Cut::SyncError => assert!(selected == staged || selected == expected),
     }
     let (pages, images) = seed_install::stores(&base, rooted)

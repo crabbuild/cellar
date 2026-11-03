@@ -232,6 +232,16 @@ impl Worker {
             reply(request, group.owner.status().map(Response::Status));
             return;
         }
+        if matches!(request.command, Command::ReplicationStatus) {
+            reply(
+                request,
+                group
+                    .owner
+                    .replication_status()
+                    .map(Response::ReplicationStatus),
+            );
+            return;
+        }
         if let Command::CaptureCheckpoint(pool) = &request.command {
             let source = group.owner.capture_checkpoint(pool);
             reply(request, Ok(Response::CheckpointSource(Box::new(source))));
@@ -430,6 +440,21 @@ impl Worker {
                                 Command::TransferLeader(member) => {
                                     group.owner.transfer_leader(member).map(|()| Response::Unit)
                                 }
+                                Command::TransferLeadership(transfer) => group
+                                    .owner
+                                    .transfer_leadership(transfer)
+                                    .map(|()| Response::Unit),
+                                Command::RestartLeadership(check) => self
+                                    .domain
+                                    .mono_ms()
+                                    .map_err(|_| RuntimeError::Closed)
+                                    .and_then(|now| {
+                                        crate::raft::restart_leadership::check_gate(
+                                            &self.log, now, &check,
+                                        )
+                                    })
+                                    .and_then(|()| group.owner.restart_leadership(*check))
+                                    .map(|()| Response::Unit),
                                 Command::Campaign => {
                                     group.owner.campaign().map(|()| Response::Unit)
                                 }
@@ -712,24 +737,67 @@ impl Worker {
             }
             let mut made = self.progress()? | self.start_batch()? | self.flush();
             let now = self.domain.mono_ms().map_err(|_| RuntimeError::Closed)?;
-            made |=
-                self.cell_reads
-                    .progress(now, &self.domain, |history, request, term, barrier| {
-                        let group = self.groups.get(&history).ok_or(RuntimeError::NotFound)?;
-                        if let Some(error) = &group.failed {
-                            return Err(error.clone());
-                        }
-                        match &request.kind {
-                            reads::ReadKind::Cell(cell, consistency) => group
+            made |= self.cell_reads.progress(
+                now,
+                &self.domain,
+                |history, request, term, barrier, context| {
+                    let group = self
+                        .groups
+                        .get_mut(&history)
+                        .ok_or(RuntimeError::NotFound)?;
+                    if let Some(error) = &group.failed {
+                        return Err(error.clone());
+                    }
+                    match &request.kind {
+                        reads::ReadKind::Cell(cell, consistency) => {
+                            if matches!(consistency, CellReadConsistency::Linearizable)
+                                && term.is_none()
+                            {
+                                group.owner.read_forwarded_cell_index(context.to_vec())?;
+                                *term = Some(group.owner.status()?.term);
+                                *barrier = None;
+                            }
+                            group
                                 .owner
-                                .select_read(cell, consistency, term, barrier)
-                                .map(reads::Selection::Cell),
-                            reads::ReadKind::Seed(target) => group
-                                .owner
-                                .select_seed(target, term, barrier)
-                                .map(reads::Selection::Seed),
+                                .select_read(cell, consistency, *term, *barrier)
+                                .map(reads::Selection::Cell)
                         }
-                    });
+                        reads::ReadKind::Seed(target) => group
+                            .owner
+                            .select_seed(target, *term, *barrier)
+                            .map(reads::Selection::Seed),
+                        reads::ReadKind::Membership { minimum } => {
+                            let status = group.owner.status()?;
+                            if term.is_some_and(|observed| observed != status.term) {
+                                return Err(RuntimeError::NotLeader);
+                            }
+                            if status.applied.index < *minimum
+                                || !group.owner.membership_read_ready()?
+                            {
+                                return Err(RuntimeError::NotReady);
+                            }
+                            if barrier.is_some_and(|index| {
+                                group.owner.manifest().marker().membership_revision() > index.get()
+                            }) {
+                                // A configuration overtook this read's barrier.
+                                // Re-arm within the same invocation, reservation
+                                // and original deadline; never spin a new call.
+                                *term = None;
+                                *barrier = None;
+                            }
+                            if term.is_none() {
+                                group.owner.read_membership_index(context.to_vec())?;
+                                *term = Some(status.term);
+                                return Err(RuntimeError::NotReady);
+                            }
+                            group
+                                .owner
+                                .select_membership(*minimum, *term, *barrier)
+                                .map(reads::Selection::Membership)
+                        }
+                    }
+                },
+            );
             let deadline = if self.retry_at > now {
                 tick_at.min(self.retry_at)
             } else {

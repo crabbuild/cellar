@@ -17,7 +17,7 @@ mod stop;
 use super::evacuation::CanonicalRequest;
 use super::histories::validate_request;
 use super::*;
-use crate::raft::catalog::NamespaceCatalog;
+use crate::raft::catalog::RangeDirectory;
 use cellar_logic::consensus::{NodeId, ProcessGeneration, ProposalId};
 pub use gate::{FleetRestartGateAdmission, FleetRestartGateRequest};
 pub use gate_cancel::FleetRestartGateCancelRequest;
@@ -125,7 +125,7 @@ impl FleetCatalog {
         &self,
         snapshot: &FleetSnapshot,
         request: &FleetRestartRequest,
-        namespaces: &[NamespaceCatalog],
+        namespaces: &[RangeDirectory],
         timeout: Duration,
     ) -> Result<FleetCommit> {
         self.check_snapshot(snapshot)?;

@@ -137,9 +137,7 @@ pub(super) async fn refresh_terminal(
                     let observations: [RaftPeerFleetMembershipObservation; 3] = observations
                         .try_into()
                         .map_err(|_| FleetCatalogError::Corrupt("terminal survivor count"))?;
-                    let current = observations[0]
-                        .published_cut()
-                        .ok_or(FleetCatalogError::Unconfirmed)?;
+                    let current = observations[0].published_cut();
                     let fixed = live.fixed.restore(current)?;
                     catalog
                         .run(deadline.remaining()?, async {
@@ -212,9 +210,7 @@ pub(super) async fn verify(
         let proof = observed.membership();
         let replica = proof.replica();
         let node = observed.node();
-        let cut = observed
-            .published_cut()
-            .ok_or(FleetCatalogError::Unconfirmed)?;
+        let cut = observed.published_cut();
         let record = records
             .iter()
             .find(|record| record.node == replica.node.bytes())
@@ -295,7 +291,7 @@ pub(super) async fn verify(
             epoch: auth.epoch(),
             member: replica.member.get(),
             applied: proof.applied().into(),
-            publication_digest: hash(&encode(57, &Publication::from(cut), 4096)?),
+            publication_digest: hash(&encode(57, &Publication::from(cut), PAGE_LIMIT)?),
         });
     }
     if snapshot.replica_separation() == FleetReplicaSeparation::PhysicalHosts && hosts.len() != 3 {

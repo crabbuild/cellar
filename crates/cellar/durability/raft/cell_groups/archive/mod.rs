@@ -21,7 +21,9 @@ pub(super) use execution::ControllerExecution;
 
 mod checkpoint;
 mod data_store;
+mod fleet;
 pub use data_store::CellGroupArchiveStore;
+pub use fleet::VerifiedFleetGroupArchiveCoverage;
 mod collection;
 mod graph;
 mod objects;
@@ -34,6 +36,7 @@ pub use upload::{
     CellGroupArchiveUpload, CellGroupArchiveUploadLimits, CellGroupArchiveUploadPool,
 };
 mod ownership;
+pub(crate) use ownership::CellGroupArchiveAcquireOutcome;
 pub use ownership::{
     CellGroupArchiveCreation, CellGroupArchiveHold, CellGroupArchiveIntent,
     CellGroupArchiveRegistry, CellGroupArchiveUploadTicket, PreparedCellGroupArchiveCreation,

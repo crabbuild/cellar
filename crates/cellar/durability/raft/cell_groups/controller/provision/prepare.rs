@@ -11,22 +11,41 @@ pub(super) struct Prepared {
     pub current: PreparedGroupManifest,
 }
 
+pub(super) enum Recovery {
+    Ready(CellGroupRegistration),
+    Seed(learner::Staged),
+}
+
 pub(super) async fn recover(
     directory: RangeDirectory,
     route: GroupRoute,
     config: Arc<Config>,
     runtime: CellGroupRuntime,
+    transport: RaftTransport,
+    authority: Authority,
     existing: Option<Prepared>,
-) -> Result<CellGroupRegistration, CellGroupControllerError> {
+) -> Result<Recovery, CellGroupControllerError> {
+    authority.check_live(&runtime)?;
+    let images = config.images(&directory)?;
     let _parallel = config
         .parallel
-        .acquire()
+        .clone()
+        .acquire_owned()
         .await
         .map_err(|_| CellGroupControllerError::Closed)?;
-    let birth = directory
-        .materialize_selected_group(&route)
-        .await
-        .map_err(catalog_error)?;
+    let birth = resolve(&directory, &route, &runtime, &authority).await?;
+    if let Authority::Managed {
+        host,
+        deadline,
+        learner: Some(admission),
+    } = &authority
+    {
+        return learner::recover(
+            &directory, &birth, &config, &runtime, &transport, host, admission, *deadline,
+            existing, _parallel,
+        )
+        .await;
+    }
     // Check complete trusted placement before creating genesis or page files.
     let mut peers = Vec::new();
     for member in birth.voters().iter().chain(birth.learners()) {
@@ -53,53 +72,10 @@ pub(super) async fn recover(
             query_address: node.query_address,
         });
     }
-    let permit = directory
-        .bootstrap_group_member(&birth, runtime.log())
-        .await
-        .map_err(catalog_error)?;
-    let prepared = match existing {
-        Some(prepared) => prepared,
-        None => {
-            let config = config.clone();
-            let group = permit.group().clone();
-            runtime
-                .log()
-                .domain()
-                .blocking(move || {
-                    let settings = &config.settings;
-                    let history = group.identity().scope;
-                    let path = settings.directory.join(format!(
-                        "{}-{}-{}-{}",
-                        hex::encode(history.cluster.bytes()),
-                        hex::encode(history.namespace.bytes()),
-                        hex::encode(history.group.bytes()),
-                        hex::encode(history.incarnation.bytes())
-                    ));
-                    let pages = ManifestPageStore::open(
-                        &path,
-                        settings.filesystem.clone(),
-                        settings.max_pages,
-                        settings.max_page_bytes,
-                        settings.max_retained_roots,
-                    )
-                    .map_err(crate::raft::execution::storage)?;
-                    let (applier, current) = CellGroupApplier::recover(
-                        group,
-                        pages,
-                        settings.images.clone(),
-                        settings.manifest,
-                        settings.entries,
-                        settings.max_effect_rows,
-                    )?;
-                    Ok::<_, ExecutionError>(Prepared { applier, current })
-                })
-                .map_err(|_| CellGroupControllerError::Closed)?
-                .await
-                .map_err(|_| CellGroupControllerError::Closed)?
-                .map_err(apply_error)?
-        }
-    };
-    Ok(CellGroupRegistration {
+    let permit = bootstrap(&directory, &birth, &runtime, &authority).await?;
+    let prepared =
+        recover_pages(&config, &runtime, permit.group().clone(), images, existing).await?;
+    Ok(Recovery::Ready(CellGroupRegistration {
         permit,
         current: prepared.current,
         applier: prepared.applier,
@@ -109,5 +85,146 @@ pub(super) async fn recover(
             revision: config.settings.peer_revision,
             peers,
         },
-    })
+    }))
+}
+
+async fn resolve(
+    directory: &RangeDirectory,
+    route: &GroupRoute,
+    runtime: &CellGroupRuntime,
+    authority: &Authority,
+) -> Result<crate::raft::cell_groups::CellGroupBirth, CellGroupControllerError> {
+    authority.check_live(runtime)?;
+    if let Authority::Managed { host, .. } = authority {
+        let boot = host
+            .boot_binding()
+            .map_err(CatalogError::from)
+            .map_err(catalog_error)?;
+        let owner = directory
+            .namespace()
+            .cell_group_owner()
+            .await
+            .map_err(catalog_error)?;
+        if owner.is_none_or(|o| o.fleet != host.fleet() || o.catalog != boot.catalog) {
+            return Err(catalog_error(CatalogError::ManagedAdmissionRequired));
+        }
+        authority.check_live(runtime)?;
+    }
+    let birth = match authority {
+        Authority::Initial => directory.materialize_selected_group(route).await,
+        Authority::Managed { .. } => directory.materialize_selected_history(route.history).await,
+    }
+    .map_err(catalog_error)?;
+    if birth.route() != route {
+        return Err(CellGroupControllerError::Invalid("provision birth route"));
+    }
+    authority.check_live(runtime)?;
+    Ok(birth)
+}
+
+async fn bootstrap(
+    directory: &RangeDirectory,
+    birth: &crate::raft::cell_groups::CellGroupBirth,
+    runtime: &CellGroupRuntime,
+    authority: &Authority,
+) -> Result<crate::raft::cell_groups::CellGroupBootstrapPermit, CellGroupControllerError> {
+    authority.check_live(runtime)?;
+    let permit = match authority {
+        Authority::Initial => directory.bootstrap_group_member(birth, runtime.log()).await,
+        Authority::Managed {
+            host,
+            learner: Some(admission),
+            ..
+        } => {
+            directory
+                .bootstrap_managed_joined_group_member(birth, admission.member, runtime.log(), host)
+                .await
+        }
+        Authority::Managed {
+            host,
+            learner: None,
+            ..
+        } => {
+            directory
+                .bootstrap_managed_group_member(birth, runtime.log(), host)
+                .await
+        }
+    }
+    .map_err(catalog_error)?;
+    authority.check_live(runtime)?;
+    Ok(permit)
+}
+
+pub(super) async fn recover_pages(
+    config: &Arc<Config>,
+    runtime: &CellGroupRuntime,
+    group: crate::raft::cache::GroupLog<cellar_logic::cell_group::GroupHistory>,
+    images: crate::raft::cell_groups::CellGroupApplyImages,
+    existing: Option<Prepared>,
+) -> Result<Prepared, CellGroupControllerError> {
+    let config = config.clone();
+    runtime
+        .log()
+        .domain()
+        .blocking(move || {
+            if let Some(mut prepared) = existing {
+                // Reuse the retained complete closure only while its exact
+                // selection/owners are live and publication is settled. A lost
+                // response with a changed selection recovers on this same owner.
+                prepared.current = prepared
+                    .applier
+                    .recover_or_reuse_selected(&prepared.current)?;
+                return Ok(prepared);
+            }
+            let settings = &config.settings;
+            let path =
+                ManifestPageStore::group_pages_path(&settings.directory, group.identity().scope);
+            let pages = ManifestPageStore::open(
+                &path,
+                settings.filesystem.clone(),
+                settings.max_pages,
+                settings.max_page_bytes,
+                settings.max_retained_roots,
+            )
+            .map_err(crate::raft::execution::storage)?;
+            let (applier, current) = CellGroupApplier::recover(
+                group,
+                pages,
+                images,
+                settings.manifest,
+                settings.entries,
+                settings.max_effect_rows,
+            )?;
+            Ok::<_, ExecutionError>(Prepared { applier, current })
+        })
+        .map_err(|_| CellGroupControllerError::Closed)?
+        .await
+        .map_err(|_| CellGroupControllerError::Closed)?
+        .map_err(apply_error)
+}
+
+/// An attached retry rechecks catalog/boot authority without opening a second
+/// page owner or trying to attach its already claimed consensus slot again.
+pub(super) async fn validate(
+    directory: RangeDirectory,
+    route: &GroupRoute,
+    config: Arc<Config>,
+    runtime: CellGroupRuntime,
+    authority: Authority,
+) -> Result<(), CellGroupControllerError> {
+    let _parallel = config
+        .parallel
+        .acquire()
+        .await
+        .map_err(|_| CellGroupControllerError::Closed)?;
+    let birth = resolve(&directory, route, &runtime, &authority).await?;
+    let permit = bootstrap(&directory, &birth, &runtime, &authority).await?;
+    if let Authority::Managed {
+        learner: Some(admission),
+        ..
+    } = &authority
+    {
+        admission.check_installed(permit.group())?;
+    }
+    Ok(())
 }

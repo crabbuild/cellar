@@ -137,7 +137,10 @@ impl GroupMembership {
             .any(|binding| binding.disk == disk.bytes())
     }
 
-    pub(crate) fn permits(&self, replica: &cellar_logic::consensus::ReplicaIdentity) -> bool {
+    pub(crate) fn permits<S>(&self, replica: &cellar_logic::consensus::ReplicaIdentity<S>) -> bool
+    where
+        for<'a> cellar_logic::cell_group::GroupHistory: From<&'a S>,
+    {
         if self.validate_scope(&replica.scope).is_err() {
             return false;
         }
@@ -148,7 +151,7 @@ impl GroupMembership {
         &self,
         replica: &cellar_logic::consensus::ReplicaIdentity<cellar_logic::cell_group::GroupHistory>,
     ) -> bool {
-        self.fleet.is_none() && self.permits_binding(replica)
+        self.validate_scope(&replica.scope).is_ok() && self.permits_binding(replica)
     }
 
     fn permits_binding<S>(&self, replica: &cellar_logic::consensus::ReplicaIdentity<S>) -> bool {
@@ -314,16 +317,13 @@ impl GroupMembership {
         &self,
         change: &ConfChangeV2,
         conf: &ConfState,
+        history: &cellar_logic::cell_group::GroupHistory,
     ) -> Result<(), LogError> {
         let intent = self.intent(change)?;
-        if self.fleet.is_some()
-            || self.repair.is_some()
-            || intent.fleet.is_some()
-            || intent.repair.is_some()
-        {
+        if self.fleet.is_none() && (self.repair.is_some() || intent.repair.is_some()) {
             return Err(invalid());
         }
-        self.admit(change, conf)
+        self.admit_scoped(change, conf, history)
     }
 
     pub(crate) fn admit(&self, change: &ConfChangeV2, conf: &ConfState) -> Result<(), LogError> {

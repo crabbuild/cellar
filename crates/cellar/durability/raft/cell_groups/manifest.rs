@@ -64,7 +64,7 @@ impl Default for ManifestLimits {
 }
 
 impl ManifestLimits {
-    pub(super) fn validate(self) -> Result<(), ManifestError> {
+    pub(crate) fn validate(self) -> Result<(), ManifestError> {
         if self.max_cells == 0
             || self.max_cells > 1_000_000
             || self.max_depth == 0
@@ -217,6 +217,16 @@ impl ManifestRoot {
 
     pub fn digest(self) -> Option<[u8; 32]> {
         self.0.map(|p| p.digest)
+    }
+
+    /// Maximum physical installation position across the authenticated subtree.
+    /// Metadata-only apply leaves this unchanged. Complete-root verification
+    /// checks it against the actual pages and each cell's original mutation.
+    pub fn last_mutation(self) -> Option<LogPosition> {
+        self.0.map(|p| LogPosition {
+            index: cellar_logic::consensus::LogIndex::new(p.last_mutation_index),
+            term: cellar_logic::consensus::Term::new(p.last_mutation_term),
+        })
     }
 }
 

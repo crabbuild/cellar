@@ -2,16 +2,15 @@
 
 //! Shared cell reads reuse the peer query lane; namespace grants remain read-only.
 use super::*;
-use crate::application::consensus::{CommandFailure, RaftCells};
+use crate::application::consensus::CommandFailure;
 use crate::raft::cell_groups::{
-    CellDispatchError, CellGroupDispatcher, CellGroupRuntime, CellGroupSqlPool, CellQueryResponse,
-    CellRoutingLimits, CellSqlOptions,
+    CellDispatchError, CellGroupController, CellGroupDispatcher, CellGroupNamespaceStorage,
+    CellQueryResponse, CellRoutingLimits,
 };
 use crate::raft::query_identity::QueryRoute;
 use crate::raft::query_wire::{
     self as wire,
     cell::{CellQueryCall, CellQueryValue},
-    QueryCall,
 };
 use crate::raft::version::{CellVersionObservation, CellVersionToken, VersionKeys};
 use cellar_logic::{
@@ -42,10 +41,9 @@ impl Drop for Registration {
 
 pub(super) struct Gateway {
     accepting: AtomicBool,
-    runtime: CellGroupRuntime,
-    sql: CellGroupSqlPool,
+    controller: CellGroupController,
     dispatcher: CellGroupDispatcher,
-    options: CellSqlOptions,
+    storage: CellGroupNamespaceStorage,
 }
 
 /// Retains the same node/peer query admission through consumption of the result.
@@ -104,17 +102,20 @@ impl RaftTransport {
     pub fn install_cell_query_gateway(
         &self,
         dispatcher: CellGroupDispatcher,
-        sql: CellGroupSqlPool,
-        options: CellSqlOptions,
+        controller: CellGroupController,
+        storage: CellGroupNamespaceStorage,
     ) -> Result<CellQueryGateway, TransportError> {
         let state = &self.handle.0;
         let runtime = state.runtime.shared()?;
-        if !dispatcher.uses_domain(&state.domain)
-            || !sql.uses_domain(&state.domain)
-            || !sql.belongs_to_engine(&runtime.log().owner())
-        {
+        if !dispatcher.uses_domain(&state.domain) || !controller.belongs_to(runtime) {
             return Err(TransportError::Identity);
         }
+        let (namespace, _, _) = dispatcher
+            .host_binding()
+            .map_err(|_| TransportError::Identity)?;
+        storage
+            .validate_namespace(&namespace)
+            .map_err(|_| TransportError::Identity)?;
         let key = dispatcher.namespace();
         let mut gateways = state
             .cell_query_gateways
@@ -131,10 +132,9 @@ impl RaftTransport {
         }
         let inner = Arc::new(Gateway {
             accepting: AtomicBool::new(true),
-            runtime: runtime.clone(),
-            sql,
+            controller,
             dispatcher,
-            options,
+            storage,
         });
         gateways.insert(key, Arc::downgrade(&inner));
         Ok(CellQueryGateway {
@@ -341,7 +341,7 @@ impl State {
             )
             .await;
         // A fully authenticated application refusal consumed a complete reply;
-        // retain the peer connection just as the legacy query lane does.
+        // retain the peer connection for the next authenticated request.
         let failed = matches!(&result, Err(error) if !matches!(error, TransportError::Query(_)));
         let _ = request
             .reply
@@ -355,7 +355,6 @@ impl State {
 }
 
 pub(super) enum IncomingCall {
-    Legacy(QueryCall),
     Shared(CellQueryCall),
     Command(crate::raft::query_wire::command::CellCommandCall),
     Enrollment(crate::raft::query_wire::enrollment::CellEnrollmentCall),
@@ -383,16 +382,11 @@ impl IncomingCall {
                 crate::raft::query_wire::command::CellCommandCall::decode(bytes, limit)?,
             ));
         }
-        if route.is_shared() {
-            Ok(Self::Shared(CellQueryCall::decode(bytes, limit)?))
-        } else {
-            Ok(Self::Legacy(QueryCall::decode(bytes, limit)?))
-        }
+        Ok(Self::Shared(CellQueryCall::decode(bytes, limit)?))
     }
 
     pub(super) fn timeout_ms(&self) -> u64 {
         match self {
-            Self::Legacy(call) => call.options.timeout.as_millis() as u64,
             Self::Shared(call) => call.timeout_ms,
             Self::Command(call) => call.timeout_ms,
             Self::Enrollment(call) => call.timeout_ms,
@@ -409,30 +403,6 @@ impl IncomingCall {
             Self::Command(call) => state.execute_cell_command(route, call).await,
             Self::Enrollment(call) => state.execute_cell_enrollment(route, call).await,
             Self::Receipt(call) => state.execute_cell_receipt(route, call).await,
-            Self::Legacy(call) => {
-                let (_, target) = route.decode()?;
-                let handle = state
-                    .query_gateway
-                    .lock()
-                    .map_err(|_| TransportError::Closed)?
-                    .as_ref()
-                    .and_then(|h| h.upgrade())
-                    .ok_or(TransportError::Refused)?;
-                let cell = RaftCells { handle }
-                    .cell(target.scope.namespace, &target.scope.cell)
-                    .map_err(|_| TransportError::Refused)?;
-                if cell.scope() != &target.scope
-                    || cell.binding.class.schema_digest() != route.schema()
-                {
-                    return Err(TransportError::StalePeer);
-                }
-                let result = cell.query(call.contract, call.input, call.options).await;
-                if result.as_ref().is_ok_and(|v| v.served_by != target.member) {
-                    return Err(TransportError::Identity);
-                }
-                wire::encode_result(&result, state.options.max_query_response_bytes)
-                    .map(super::query_replies::Reply::plain)
-            }
             Self::Shared(call) => {
                 let (_, target, cell) = route.decode_shared()?;
                 let gateway = state
@@ -448,7 +418,7 @@ impl IncomingCall {
                 let result = gateway
                     .execute(call, target.scope, cell, route.schema())
                     .await
-                    .map_err(query_failure);
+                    .map_err(|e| query_failure(&e));
                 wire::cell::encode_cell_result(&result, state.options.max_query_response_bytes)
                     .map(super::query_replies::Reply::plain)
             }
@@ -463,40 +433,34 @@ impl Gateway {
         group: GroupHistory,
         cell: CellHistory,
         schema: [u8; 32],
-    ) -> Result<CellQueryResponse, CellDispatchError> {
-        let epoch = call.route_epoch;
-        let birth = call.birth_digest;
-        let mut query = self.dispatcher.query(
-            cell,
-            call.request,
-            CellRoutingLimits {
-                timeout: Duration::from_millis(call.timeout_ms),
-                max_attempts: 1,
-            },
-            None,
-        )?;
-        query.begin_current().await?;
-        let selected = query
-            .attempt()
-            .ok_or(CellDispatchError::Invalid("missing query route"))?
-            .route();
-        if selected.history != group
-            || selected.schema_digest != schema
-            || selected.epoch.get() != epoch
-            || selected.birth_digest != birth
-        {
-            return Err(CellDispatchError::Invalid("remote query route"));
-        }
-        query
-            .execute(&self.runtime, &self.sql, self.options.clone())
-            .await
+    ) -> Result<CellQueryResponse, Arc<CellDispatchError>> {
+        let options = self.storage.for_cell(&cell);
+        let queued = (|| {
+            let mut query = self.dispatcher.query(
+                cell,
+                call.request,
+                CellRoutingLimits {
+                    timeout: Duration::from_millis(call.timeout_ms),
+                    max_attempts: 1,
+                },
+                None,
+            )?;
+            query.bind_remote_route(crate::raft::cell_groups::RemoteMutationRoute {
+                group,
+                schema,
+                epoch: call.route_epoch,
+                birth: call.birth_digest,
+            });
+            self.controller.query(query, options)
+        })();
+        queued.map_err(Arc::new)?.response().await
     }
 }
 
-fn query_failure(error: CellDispatchError) -> CommandFailure {
+fn query_failure(error: &CellDispatchError) -> CommandFailure {
     use crate::raft::{execution::ExecutionError, version::VersionError};
     match error {
-        CellDispatchError::Execution(ExecutionError::Refused(failure)) => failure,
+        CellDispatchError::Execution(ExecutionError::Refused(failure)) => failure.clone(),
         CellDispatchError::Runtime(RuntimeError::Overloaded) => CommandFailure::Overloaded,
         CellDispatchError::Runtime(RuntimeError::DeadlineExceeded | RuntimeError::NotReady) => {
             CommandFailure::VersionUnavailable

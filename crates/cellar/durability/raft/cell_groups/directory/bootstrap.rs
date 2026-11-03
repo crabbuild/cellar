@@ -27,7 +27,9 @@ pub struct CellGroupBootstrapPermit {
 
 enum BootstrapOrigin {
     Initial,
+    Managed(Box<crate::raft::fleet_catalog::FleetHostAuthorization>),
     Joined,
+    ManagedJoined(Box<crate::raft::fleet_catalog::FleetHostAuthorization>),
     Recovery(Box<recovery::RecoveryStartup>),
 }
 
@@ -67,9 +69,24 @@ impl CellGroupBootstrapPermit {
                 .bootstrap_group_member(&self.birth, &self.log)
                 .await
                 .map(|_| ()),
+            BootstrapOrigin::Managed(host) => self
+                .directory
+                .bootstrap_managed_group_member(&self.birth, &self.log, host)
+                .await
+                .map(|_| ()),
             BootstrapOrigin::Joined => self
                 .directory
                 .bootstrap_joined_group_member(&self.birth, self.group.identity().member, &self.log)
+                .await
+                .map(|_| ()),
+            BootstrapOrigin::ManagedJoined(host) => self
+                .directory
+                .bootstrap_managed_joined_group_member(
+                    &self.birth,
+                    self.group.identity().member,
+                    &self.log,
+                    host,
+                )
                 .await
                 .map(|_| ()),
             BootstrapOrigin::Recovery(startup) => self
@@ -110,6 +127,35 @@ pub(super) fn check_member(group: &GroupLog<GroupHistory>) -> Result<(), Catalog
 }
 
 impl RangeDirectory {
+    pub(crate) async fn verify_group_import_member_claim(
+        &self,
+        birth: &CellGroupBirth,
+        member: MemberId,
+        host: &crate::raft::fleet_catalog::FleetHostAuthorization,
+    ) -> Result<(), CatalogError> {
+        let history = birth.route().history;
+        let bytes = self
+            .namespace
+            .inner
+            .read_versioned_bounded(&self.group_claim_key(history, member), wire::LIMIT)
+            .await?
+            .ok_or(CatalogError::Conflict("missing group import member claim"))?
+            .0;
+        let claim: Claim = record::decode(wire::GROUP_CLAIM, &bytes, wire::LIMIT)?;
+        if claim.namespace != self.namespace.root_digest
+            || claim.group != history.group.bytes()
+            || claim.incarnation != history.incarnation.bytes()
+            || claim.birth != birth.route().birth_digest
+            || claim.member != member.get()
+            || claim.node != host.node().bytes()
+            || claim.disk != host.disk().bytes()
+            || Some(claim.engine) != host.storage_instance().map(|id| id.bytes())
+        {
+            return Err(CatalogError::Conflict("group import member claim identity"));
+        }
+        Ok(())
+    }
+
     fn group_claim_key(&self, history: GroupHistory, member: MemberId) -> Path {
         self.key(&format!(
             "claims/{}/{}/{:016x}",
@@ -129,6 +175,78 @@ impl RangeDirectory {
     ) -> Result<CellGroupBootstrapPermit, CatalogError> {
         self.unmanaged_birth()?;
         self.bounded(async {
+            self.namespace.require_cell_group_unmanaged().await?;
+            self.bootstrap_initial_group_member(birth, log, None).await
+        })
+        .await
+    }
+
+    /// Recheck the exact running node/engine boot and the rooted Live group on
+    /// every startup and attachment. A saved birth or binding is insufficient.
+    pub async fn bootstrap_managed_group_member(
+        &self,
+        birth: &CellGroupBirth,
+        log: &ReplicaLog,
+        host: &crate::raft::fleet_catalog::FleetHostAuthorization,
+    ) -> Result<CellGroupBootstrapPermit, CatalogError> {
+        self.bounded(async {
+            self.require_managed_group_boot(log, host).await?;
+            self.bootstrap_initial_group_member(birth, log, Some(host))
+                .await
+        })
+        .await
+    }
+
+    pub(super) async fn require_managed_group_boot(
+        &self,
+        log: &ReplicaLog,
+        host: &crate::raft::fleet_catalog::FleetHostAuthorization,
+    ) -> Result<crate::raft::fleet_stop::BootBinding, CatalogError> {
+        let owner = self
+            .namespace
+            .cell_group_owner()
+            .await?
+            .ok_or(CatalogError::ManagedAdmissionRequired)?;
+        let boot = host.boot_binding().map_err(CatalogError::from)?;
+        if owner.fleet != host.fleet()
+            || owner.catalog != boot.catalog
+            || host.cluster() != self.namespace.config.cluster
+            || host.node() != log.limits().node
+            || host.disk() != log.limits().disk
+            || host.storage_instance() != Some(log.storage_instance().map_err(CatalogError::Log)?)
+            || boot.process != log.limits().process.bytes()
+            || log
+                .lifecycle_guard()
+                .map_err(CatalogError::Log)?
+                .is_none_or(|guard| !guard.admits_group_start(&boot))
+        {
+            return Err(CatalogError::ManagedAdmissionRequired);
+        }
+        Ok(boot)
+    }
+
+    async fn bootstrap_initial_group_member(
+        &self,
+        birth: &CellGroupBirth,
+        log: &ReplicaLog,
+        host: Option<&crate::raft::fleet_catalog::FleetHostAuthorization>,
+    ) -> Result<CellGroupBootstrapPermit, CatalogError> {
+        self.bounded(async {
+            let authorization = if let Some(host) = host {
+                let authorization = host
+                    .group_authorization(
+                        &birth.route().history,
+                        Duration::from_millis(self.limits.operation_timeout_ms),
+                    )
+                    .await
+                    .map_err(CatalogError::from)?;
+                if !authorization.check_birth(self, birth) {
+                    return Err(CatalogError::ManagedAdmissionRequired);
+                }
+                Some(authorization)
+            } else {
+                None
+            };
             self.require_current_group_birth(birth).await?;
             self.require_ordinary_birth_reservation(birth.route())
                 .await?;
@@ -173,18 +291,34 @@ impl RangeDirectory {
             if remote.is_some() && local.is_none() {
                 return Err(CatalogError::LostStableState);
             }
+            if local.is_none()
+                && authorization
+                    .as_ref()
+                    .is_some_and(|authority| !authority.allows_managed_genesis())
+            {
+                return Err(CatalogError::ManagedAdmissionRequired);
+            }
             // The worker creates the complete empty root with genesis and only
             // returns after actual engine sync. Existing mappings must match
             // the original route, membership and birth, even after later apply.
-            let group = log
-                .create_cell_group(CellGroupBootstrap {
-                    route: birth.route().clone(),
-                    member: selected.member,
-                    voters: birth.voters().iter().map(|m| m.member).collect(),
-                    learners: birth.learners().iter().map(|m| m.member).collect(),
-                })
-                .await
-                .map_err(CatalogError::Log)?;
+            let bootstrap = CellGroupBootstrap {
+                route: birth.route().clone(),
+                member: selected.member,
+                voters: birth.voters().iter().map(|m| m.member).collect(),
+                learners: birth.learners().iter().map(|m| m.member).collect(),
+            };
+            let group = match &authorization {
+                Some(authorization) => {
+                    let boot = host
+                        .ok_or(CatalogError::ManagedAdmissionRequired)?
+                        .boot_binding()
+                        .map_err(CatalogError::from)?;
+                    log.create_managed_cell_group(bootstrap, authorization, &boot)
+                        .await
+                }
+                None => log.create_cell_group(bootstrap).await,
+            }
+            .map_err(CatalogError::Log)?;
             check_member(&group)?;
             let observed = self
                 .namespace
@@ -196,12 +330,25 @@ impl RangeDirectory {
             }
             self.require_current_group_birth(birth).await?;
             check_member(&group)?;
+            if let Some(host) = host {
+                let boot = host.boot_binding().map_err(CatalogError::from)?;
+                if log
+                    .lifecycle_guard()
+                    .map_err(CatalogError::Log)?
+                    .is_none_or(|guard| !guard.admits_group_start(&boot))
+                {
+                    return Err(CatalogError::Fenced);
+                }
+            }
             Ok(CellGroupBootstrapPermit {
                 group,
                 birth: birth.clone(),
                 directory: self.clone(),
                 log: log.clone(),
-                origin: BootstrapOrigin::Initial,
+                origin: match host {
+                    Some(host) => BootstrapOrigin::Managed(Box::new(host.clone())),
+                    None => BootstrapOrigin::Initial,
+                },
             })
         })
         .await

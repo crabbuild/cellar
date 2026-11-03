@@ -2,8 +2,14 @@
 
 //! A startup error owns infrastructure until actual file-lock release.
 #![allow(clippy::disallowed_methods)]
-use super::storage_fault as fault;
 use super::*;
+use crate::raft::storage_fault as fault;
+use crate::raft::{
+    catalog::{Catalog, CatalogOptions, InitialMember, NamespaceConfig},
+    completion::RuntimeError,
+    transport::{GroupRoute as PhysicalRoute, RaftPeer, RaftTransport},
+    transport_options::RaftPeerNode,
+};
 use crate::raft::{
     options::{LogOpenMode, RaftRuntimeOptions, ReplicaLogOptions},
     storage::ReplicaLog,
@@ -11,6 +17,12 @@ use crate::raft::{
     version::{VersionKeys, VersionSigningKey},
 };
 use anyhow::Context as _;
+use cellar_logic::{
+    cell_group::{CellId, CellRange, GroupHistory, RouteEpoch},
+    consensus::*,
+};
+use std::collections::BTreeMap;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -32,7 +44,7 @@ async fn failed_preflight_joins_infrastructure_with_retained_handles() -> anyhow
         ))
         .await??;
     let (runtime, events) =
-        RaftRuntime::start_parked(log.clone(), RaftRuntimeOptions::default()).await?;
+        CellGroupRuntime::start(log.clone(), RaftRuntimeOptions::default()).await?;
     let tls = RaftTls::new(
         vec![include_bytes!("../../transport/tcp/fixtures/ca.der")
             .to_vec()
@@ -45,7 +57,7 @@ async fn failed_preflight_joins_infrastructure_with_retained_handles() -> anyhow
         )
         .into(),
     )?;
-    let transport = RaftTransport::start(
+    let transport = RaftTransport::start_shared(
         runtime.clone(),
         Arc::new(crate::peer_auth::PeerAuth::new([8; 32], "startup")?),
         tls,
@@ -64,15 +76,16 @@ async fn failed_preflight_joins_infrastructure_with_retained_handles() -> anyhow
     let release = gate.arm(fault::HOLD_LOCK_DROP);
     let mut startup = Box::pin(domain.run(start(
         service,
-        Registrations {
-            cells: vec![],
+        Prepared {
             namespaces: vec![],
+            groups: vec![],
             peers: vec![],
-            origins: vec![],
+            query_origins: vec![],
+            command_origins: vec![],
         },
         root.path().join("cells"),
-        "startup".into(),
-        RaftHostOptions::default(),
+        test_support::host_options(),
+        test_support::limits(),
         VersionKeys::new(
             VersionSigningKey::new([31; 32], u64::MAX)?,
             vec![],
@@ -102,7 +115,7 @@ async fn failed_preflight_joins_infrastructure_with_retained_handles() -> anyhow
     }?;
     let admission_closed = matches!(
         log.storage_instance(),
-        Err(super::super::storage::LogError::Closed)
+        Err(crate::raft::storage::LogError::Closed)
     );
     if !returned_early {
         // This is deliberately before cleanup through the retained handles.
@@ -144,8 +157,8 @@ struct StartupNode {
     root: tempfile::TempDir,
     domain: crate::asyncrt::ExecutionDomain,
     log: ReplicaLog,
-    runtime: RaftRuntime,
-    events: Option<RuntimeEvents>,
+    runtime: CellGroupRuntime,
+    events: Option<CellGroupRuntimeEvents>,
     transport: RaftTransport,
 }
 
@@ -165,7 +178,7 @@ impl StartupNode {
                 Arc::new(cellar_ltx::DirectFileSystem),
             ))
             .await??;
-        let (runtime, events) = RaftRuntime::start_parked(
+        let (runtime, events) = CellGroupRuntime::start(
             log.clone(),
             RaftRuntimeOptions {
                 max_requests: 1,
@@ -187,7 +200,7 @@ impl StartupNode {
             )
             .into(),
         )?;
-        let transport = RaftTransport::start(
+        let transport = RaftTransport::start_shared(
             runtime.clone(),
             Arc::new(crate::peer_auth::PeerAuth::new(
                 [8; 32],
@@ -275,65 +288,141 @@ async fn peer_traffic_waits_until_all_local_groups_attach() -> anyhow::Result<()
             class.schema_digest(),
         ))
         .await?;
-    let mut births = Vec::new();
-    for id in 1..=2 {
-        births.push(
-            namespace
-                .resolve_birth(BirthProposal {
-                    scope: GroupScope {
-                        cluster: namespace.config().cluster,
-                        namespace: namespace.config().namespace,
-                        cell: format!("Counter:startup-{id}"),
-                        group: GroupId::new([id; 16])?,
-                        incarnation: IncarnationId::new([9; 16])?,
-                    },
-                    voters: (1..=3)
-                        .map(|member| {
-                            Ok(InitialMember {
-                                member: MemberId::new(member)?,
-                                node: NodeId::new([member as u8; 16])?,
-                            })
-                        })
-                        .collect::<anyhow::Result<_>>()?,
-                    learners: vec![],
+    let directory = RangeDirectory::new(namespace.clone(), DirectoryLimits::default())?;
+    let key = crate::application::consensus::cell_routing_key(
+        namespace.config().namespace,
+        &CellId::new("Counter:startup-boundary").map_err(|_| anyhow::anyhow!("cell id"))?,
+    );
+    let (a, b) = CellRange::all()
+        .split(key)
+        .map_err(|_| anyhow::anyhow!("ranges"))?;
+    let mut requests = Vec::new();
+    for (id, range) in [(1, a), (2, b)] {
+        let request = directory.prepare_group_birth(CellGroupBirthSpec {
+            history: GroupHistory {
+                cluster: namespace.config().cluster,
+                namespace: namespace.config().namespace,
+                group: GroupId::new([id; 16])?,
+                incarnation: IncarnationId::new([9; 16])?,
+            },
+            range,
+            epoch: RouteEpoch::new(1).map_err(|_| anyhow::anyhow!("epoch"))?,
+            creation: ProposalId::new([id; 16])?,
+            voters: (1..=3)
+                .map(|member| {
+                    Ok(InitialMember {
+                        member: MemberId::new(member)?,
+                        node: NodeId::new([member as u8; 16])?,
+                    })
                 })
-                .await?,
+                .collect::<anyhow::Result<_>>()?,
+            learners: vec![],
+        })?;
+        local
+            .domain
+            .run(directory.reserve_group_birth(&request))
+            .await??;
+        requests.push(request);
+    }
+    let initialization = directory.prepare_initialization(
+        ProposalId::new([33; 16])?,
+        &requests
+            .iter()
+            .map(|r| r.route().clone())
+            .collect::<Vec<_>>(),
+    )?;
+    local
+        .domain
+        .run(directory.publish(&initialization))
+        .await??;
+    let mut births = Vec::new();
+    for request in requests {
+        births.push(
+            local
+                .domain
+                .run(directory.materialize_selected_history(request.route().history))
+                .await??,
         );
     }
-    let first = births[0].scope().clone();
-    let second = births[1].scope().clone();
-    namespace
-        .bootstrap_member(&births[0], &remote.log)
-        .await?
-        .attach(&remote.runtime)
-        .await
-        .context("attach remote startup member")?;
-    remote.transport.install_group(membership::route(
-        &remote.log.group(&first)?,
-        &births[0],
-        &peers,
-        class.schema_digest(),
-        "node-2",
-        &remote.transport,
-    )?)?;
+    let first = births[0].route().history;
+    let second = births[1].route().history;
+    let assignment = |birth: &CellGroupBirth| -> anyhow::Result<Assignment> {
+        Ok(Assignment {
+            namespace: 0,
+            placement: RaftGroupPlacement::Replica,
+            birth: birth.clone(),
+            transport: PhysicalRoute {
+                scope: birth.route().history,
+                schema_digest: birth.route().schema_digest,
+                revision: birth.route().epoch.get(),
+                peers: birth
+                    .voters()
+                    .iter()
+                    .map(|member| {
+                        let peer = &peers[&member.node];
+                        RaftPeer {
+                            replica: ReplicaIdentity {
+                                scope: birth.route().history,
+                                member: member.member,
+                                node: peer.node,
+                                disk: peer.disk,
+                                process: peer.process,
+                            },
+                            label: peer.label.clone(),
+                            server_name: peer.server_name.clone(),
+                            control_address: peer.control_address,
+                            data_address: peer.data_address,
+                            query_address: peer.query_address,
+                        }
+                    })
+                    .collect(),
+            },
+        })
+    };
+    let mut remote = remote;
+    let remote_prepared = Prepared {
+        namespaces: vec![Namespace {
+            directory: directory.clone(),
+            class: class.clone(),
+        }],
+        groups: vec![assignment(&births[0])?],
+        peers: peers.values().cloned().collect(),
+        query_origins: vec![],
+        command_origins: vec![],
+    };
+    let remote_service = remote.service();
+    let remote_host = remote
+        .domain
+        .run(start(
+            remote_service,
+            remote_prepared,
+            remote.root.path().join("cells"),
+            test_support::host_options(),
+            test_support::limits(),
+            VersionKeys::new(
+                VersionSigningKey::new([31; 32], u64::MAX)?,
+                vec![],
+                Duration::from_secs(86400),
+            )?,
+        ))
+        .await??;
     // Hold the second local member's permanent claim after the first member
     // has attached. Its real peer keeps sending while no host drains events.
     store.hold_nth_claim.store(2, Ordering::Release);
     store.claim_hang.store(true, Ordering::Release);
     let release = ReleaseClaim(store.clone());
-    let registrations = Registrations {
-        cells: births
-            .into_iter()
-            .map(|birth| Registration {
-                placement: RaftCellPlacement::Replica,
-                namespace: namespace.clone(),
-                birth,
-                class: class.clone(),
-            })
-            .collect(),
+    let registrations = Prepared {
+        namespaces: vec![Namespace {
+            directory: directory.clone(),
+            class: class.clone(),
+        }],
+        groups: births
+            .iter()
+            .map(assignment)
+            .collect::<anyhow::Result<_>>()?,
         peers: peers.into_values().collect(),
-        namespaces: vec![],
-        origins: vec![],
+        query_origins: vec![],
+        command_origins: vec![],
     };
     let service = local.service();
     let directory = local.root.path().join("cells");
@@ -344,8 +433,8 @@ async fn peer_traffic_waits_until_all_local_groups_attach() -> anyhow::Result<()
                 service,
                 registrations,
                 directory,
-                "node-1".into(),
-                RaftHostOptions::default(),
+                test_support::host_options(),
+                test_support::limits(),
                 VersionKeys::new(
                     VersionSigningKey::new([31; 32], u64::MAX)?,
                     vec![],
@@ -368,7 +457,10 @@ async fn peer_traffic_waits_until_all_local_groups_attach() -> anyhow::Result<()
             responses.push(
                 tokio::time::timeout(
                     Duration::from_secs(3),
-                    remote.transport.submit(&first, message)?.accepted(),
+                    remote
+                        .transport
+                        .submit_physical(&first, message)?
+                        .accepted(),
                 )
                 .await?,
             );
@@ -390,13 +482,13 @@ async fn peer_traffic_waits_until_all_local_groups_attach() -> anyhow::Result<()
             .as_ref()
             .map_err(|error| anyhow::anyhow!("startup failed: {error:#}"))?;
         for scope in [&first, &second] {
-            anyhow::ensure!(host.cell(scope.namespace, &scope.cell).is_ok());
+            anyhow::ensure!(host.group(*scope).is_ok());
             // The active host's background inspection shares this fixture's
             // single request slot. Read-only overload is temporary contention,
             // not evidence that startup failed to attach the group.
             tokio::time::timeout(Duration::from_secs(3), async {
                 loop {
-                    match local.runtime.status(scope).await {
+                    match local.runtime.status(*scope).await {
                         Err(RuntimeError::Overloaded) => {
                             tokio::time::sleep(Duration::from_millis(10)).await;
                         }
@@ -405,8 +497,8 @@ async fn peer_traffic_waits_until_all_local_groups_attach() -> anyhow::Result<()
                 }
             })
             .await
-            .with_context(|| format!("startup status deadline for {}", scope.cell))?
-            .with_context(|| format!("inspect attached startup group {}", scope.cell))?;
+            .with_context(|| format!("startup status deadline for {:?}", scope.group))?
+            .with_context(|| format!("inspect attached startup group {:?}", scope.group))?;
         }
         let mut message = Message {
             from: 2,
@@ -419,7 +511,7 @@ async fn peer_traffic_waits_until_all_local_groups_attach() -> anyhow::Result<()
             // The active host's one-item runtime queue also serves inspection.
             // Retry only explicit refusal and still require successful admission.
             loop {
-                let result = match remote.transport.submit(&first, message.clone()) {
+                let result = match remote.transport.submit_physical(&first, message.clone()) {
                     Ok(delivery) => delivery.accepted().await,
                     Err(error) => Err(error),
                 };
@@ -438,6 +530,7 @@ async fn peer_traffic_waits_until_all_local_groups_attach() -> anyhow::Result<()
     if let Ok(host) = started {
         host.close().await?;
     }
+    remote_host.close().await?;
     remote.close().await?;
     third.close().await?;
     local.close().await?;

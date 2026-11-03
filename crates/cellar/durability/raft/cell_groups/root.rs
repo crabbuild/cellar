@@ -107,6 +107,12 @@ impl GroupManifest {
                 || root.cells > 1_000_000
                 || root.height == 0
                 || root.height > 32
+                || root.last_mutation_index == 0
+                || root.last_mutation_term == 0
+                || root.last_mutation_index > self.position.index.get()
+                || root.last_mutation_term > self.position.term.get()
+                || root.last_mutation_index == self.position.index.get()
+                    && root.last_mutation_term != self.position.term.get()
                 || root
                     .next_due_unix_millis
                     .is_some_and(|due| due > i64::MAX as u64)
@@ -231,6 +237,13 @@ impl PreparedGroupManifest {
     ) -> Option<(&CellManifestLeaf, CellImagePin)> {
         let after = after.map(|cell| cell_routing_key(self.marker.route.history.namespace, cell));
         self.images.next_due(now_unix_millis, after.as_ref())
+    }
+
+    pub(super) fn require_selected<S>(
+        &self,
+        group: &crate::raft::cache::GroupLog<S>,
+    ) -> Result<(), ManifestError> {
+        self.retention.require_selected(group, &self.marker)
     }
 
     pub(crate) fn require_checkpoint<S>(

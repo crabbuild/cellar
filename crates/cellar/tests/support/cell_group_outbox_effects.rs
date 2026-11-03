@@ -320,7 +320,11 @@ async fn run_image(
         class.schema_digest(),
         store,
         ClusterBirthOptions {
-            image_storage: RaftImageStorage::Materialized,
+            image_storage: if rooted {
+                RaftImageStorage::Extents
+            } else {
+                RaftImageStorage::Materialized
+            },
             group,
             minimum,
             log: ClusterLogLimits::default(),

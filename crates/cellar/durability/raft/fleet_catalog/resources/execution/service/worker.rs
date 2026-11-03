@@ -2,9 +2,10 @@
 
 //! The node job set polls and joins this worker, including on physical closure.
 use super::*;
-use crate::raft::budget::Permit;
+use crate::application::consensus::group_client::{
+    ControlServiceCompletion, ControlServiceKind, ControlServiceLease,
+};
 use crate::raft::fleet_catalog::deadline::Deadline;
-use std::sync::atomic::Ordering;
 
 pub(crate) struct MovementServiceWork {
     catalog: FleetCatalog,
@@ -12,16 +13,15 @@ pub(crate) struct MovementServiceWork {
     evidence: Arc<dyn FleetMovementEvidence>,
     options: FleetMovementServiceOptions,
     stop: watch::Receiver<bool>,
-    done: watch::Sender<bool>,
     status: watch::Sender<FleetMovementServiceStatus>,
     schedule: schedule::Schedule,
-    admitted: bool,
-    memory: Option<Permit>,
     node_stop: Option<watch::Receiver<bool>>,
     topology: Option<super::topology::TopologyService>,
     detection: Option<super::detection::Detection>,
     isolated: Option<super::isolated::IsolatedRepairService>,
     recovery: Option<super::recovery::Recovery>,
+    _registration: Option<ControlServiceLease>,
+    _completion: ControlServiceCompletion,
 }
 
 impl MovementServiceWork {
@@ -36,20 +36,19 @@ impl MovementServiceWork {
     ) -> Self {
         Self {
             catalog,
-            observer,
+            observer: observer.internal_observer(),
             evidence,
             options,
             stop,
-            done,
             status,
             schedule: schedule::Schedule::default(),
-            admitted: false,
-            memory: None,
             node_stop: None,
             topology: None,
             detection: None,
             isolated: None,
             recovery: None,
+            _registration: None,
+            _completion: ControlServiceCompletion::new(done),
         }
     }
 
@@ -93,29 +92,15 @@ impl MovementServiceWork {
         if host.catalog.birth_owner()? != self.catalog.birth_owner()? {
             return Err(FleetCatalogError::Invalid("movement service fleet"));
         }
-        if self.observer.handle.closing.load(Ordering::Acquire)
+        if self.observer.is_closed()
             || self.observer.handle.admission.is_draining()
             || *self.stop.borrow()
         {
             return Err(FleetCatalogError::Closed);
         }
-        let mut slot = self
+        let registration = self
             .observer
-            .handle
-            .fleet_movement_service
-            .lock()
-            .map_err(|_| FleetCatalogError::Closed)?;
-        if slot.is_some() {
-            return Err(FleetCatalogError::Overloaded);
-        }
-        // A retained service plus one bounded catalog turn. Transport/physical
-        // work separately acquires its existing request, seed and image pools.
-        let memory = self
-            .observer
-            .handle
-            .control_budget
-            .acquire(2 * ROOT_LIMIT)
-            .ok_or(FleetCatalogError::Overloaded)?;
+            .register_control_service(ControlServiceKind::Movement, 2 * ROOT_LIMIT)?;
         // Use the enrolled node's installed client, never a caller's alternate
         // backend with the same descriptive fleet identity. Periodic I/O has a
         // private turn under the node's domain, so it cannot occupy foreground
@@ -131,20 +116,17 @@ impl MovementServiceWork {
                 turn: Mutex::new(()),
             }),
         };
-        let (stop, wait) = watch::channel(false);
-        *slot = Some(stop);
-        self.memory = Some(memory);
+        self.node_stop = Some(registration.stop_receiver());
+        self._registration = Some(registration);
         if let Some(detection) = &mut self.detection {
             detection.set_origin(host.node());
         }
         if let Some(recovery) = &mut self.recovery {
             recovery.detection.set_origin(host.node());
         }
-        self.admitted = true;
         self.status.send_modify(|status| status.running = true);
         // Keep public cancellation and node drain independent. The node-owned
         // receiver is selected for the worker's entire lifetime, including I/O.
-        self.node_stop = Some(wait);
         Ok(())
     }
 
@@ -169,9 +151,7 @@ impl MovementServiceWork {
                 Ok(now) => now,
                 Err(_) => return,
             };
-            if self.observer.handle.closing.load(Ordering::Acquire)
-                || self.observer.handle.admission.is_draining()
-            {
+            if self.observer.is_closed() || self.observer.handle.admission.is_draining() {
                 return;
             }
             self.status
@@ -398,13 +378,6 @@ impl MovementServiceWork {
 
 impl Drop for MovementServiceWork {
     fn drop(&mut self) {
-        if self.admitted {
-            if let Ok(mut slot) = self.observer.handle.fleet_movement_service.lock() {
-                slot.take();
-            }
-        }
-        self.memory.take();
         self.status.send_modify(|status| status.running = false);
-        self.done.send_replace(true);
     }
 }

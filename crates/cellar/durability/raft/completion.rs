@@ -147,8 +147,8 @@ pub(crate) struct RestartLeadershipCheck {
 /// Leader-local replication observations. These are neither apply nor quorum
 /// proofs; the owner rechecks actual progress when accepting a transfer.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ReplicationStatus {
-    pub replica: ReplicaIdentity,
+pub struct ReplicationStatus<S = cellar_logic::consensus::GroupScope> {
+    pub replica: ReplicaIdentity<S>,
     pub term: Term,
     pub membership_revision: LogIndex,
     pub committed: LogIndex,

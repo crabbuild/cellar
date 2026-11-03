@@ -298,7 +298,7 @@ impl FleetCatalog {
             .ok_or(FleetCatalogError::Unconfirmed)?;
         let history = self.history_inner(snapshot, &row.request.group).await?;
         let scope = history.binding().scope().map_err(|_| invalid())?;
-        let physical = inventory.history(&scope).map_err(|_| invalid())?;
+        let physical = inventory.group_history(&scope);
         let matches = match (role, physical) {
             (PhysicalRole::EmptyTarget, None) => true,
             (PhysicalRole::AbortedTarget { .. }, None) => true,

@@ -526,6 +526,15 @@ impl RaftClass {
             self.initializer.is_none(),
             "registered initializers require the shared cell-group controller"
         );
+        self.validate_shared_host(host)
+    }
+
+    /// Shared groups support initializers. All other declared capabilities
+    /// retain the same execution, receipt, scheduler and archive bounds.
+    pub(crate) fn validate_shared_host(
+        &self,
+        host: &crate::raft::host::RaftHostOptions,
+    ) -> anyhow::Result<()> {
         if let Some(outbox) = &self.outbox {
             anyhow::ensure!(host.effects.is_some_and(|options|options.metadata_bytes>=512*1024)
                 && host.max_input_bytes>=32*1024

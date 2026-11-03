@@ -10,6 +10,7 @@ struct Entry {
     directory: RangeDirectory,
     route: GroupRoute,
     config: Arc<Config>,
+    authority: Authority,
     reservation: registration::Reservation,
     permit: Option<Permit>,
     prepared: Option<prepare::Prepared>,
@@ -21,18 +22,26 @@ struct Entry {
 pub(in super::super) enum Completed {
     Prepared(
         GroupHistory,
-        Result<Box<CellGroupRegistration>, CellGroupControllerError>,
+        Result<Box<prepare::Recovery>, CellGroupControllerError>,
     ),
     Attached(
         GroupHistory,
         Result<PhysicalRegistration, CellGroupControllerError>,
+    ),
+    Checked(
+        GroupHistory,
+        Result<(), CellGroupControllerError>,
+        Waiter,
+        Permit,
     ),
 }
 
 impl Completed {
     pub(in super::super) fn group(&self) -> GroupHistory {
         match self {
-            Self::Prepared(group, _) | Self::Attached(group, _) => *group,
+            Self::Prepared(group, _) | Self::Attached(group, _) | Self::Checked(group, _, _, _) => {
+                *group
+            }
         }
     }
 }
@@ -52,11 +61,12 @@ impl Manager {
         self.jobs.next().await
     }
 
-    pub fn request(&mut self, request: Request, shared: &Shared) {
+    pub fn request(&mut self, request: Request, shared: &Shared, transport: &RaftTransport) {
         let Request {
             directory,
             route,
             config,
+            authority,
             waiter,
         } = request;
         let group = route.history;
@@ -68,7 +78,10 @@ impl Manager {
             }
         };
         if let Some(entry) = self.entries.get_mut(&group) {
-            if !entry.directory.same_owner(&directory) || entry.route != route {
+            if !entry.directory.same_owner(&directory)
+                || entry.route != route
+                || !entry.authority.same_owner(&authority)
+            {
                 waiter.finish(Err(CellGroupControllerError::Invalid(
                     "conflicting provision binding",
                 )));
@@ -77,17 +90,30 @@ impl Manager {
             if entry.active {
                 // This owner already attached the exact assignment. No network
                 // read or fresh quorum claim is implied by this idempotent reply.
-                waiter.finish(if ready {
-                    Ok(())
+                if !ready {
+                    waiter.finish(Err(RuntimeError::NotFound.into()));
+                    return;
+                }
+                if matches!(authority, Authority::Initial) {
+                    waiter.finish(Ok(()));
                 } else {
-                    Err(RuntimeError::NotFound.into())
-                });
+                    self.validate_attached(directory, route, config, authority, waiter, shared);
+                }
                 return;
             }
             entry.waiters.push(waiter);
             if !entry.running {
-                self.launch(group, shared.runtime.clone());
+                // A completed attempt may be retried with a fresh invocation
+                // deadline. A still-entered attempt never extends its deadline.
+                entry.authority = authority;
+                self.launch(group, shared.runtime.clone(), transport.clone());
             }
+            return;
+        }
+        if ready && matches!(authority, Authority::Managed { .. }) {
+            // Observe an existing controller-owned attachment without adopting
+            // its applier, roster reservation or physical route lifecycle.
+            self.validate_attached(directory, route, config, authority, waiter, shared);
             return;
         }
         let admitted = (|| {
@@ -115,6 +141,7 @@ impl Manager {
                 directory,
                 route,
                 config,
+                authority,
                 reservation,
                 permit: Some(permit),
                 prepared: None,
@@ -123,22 +150,54 @@ impl Manager {
                 active: false,
             },
         );
-        self.launch(group, shared.runtime.clone());
+        self.launch(group, shared.runtime.clone(), transport.clone());
     }
 
-    fn launch(&mut self, group: GroupHistory, runtime: CellGroupRuntime) {
+    fn validate_attached(
+        &mut self,
+        directory: RangeDirectory,
+        route: GroupRoute,
+        config: Arc<Config>,
+        authority: Authority,
+        waiter: Waiter,
+        shared: &Shared,
+    ) {
+        let permit = config.profile(&directory).and_then(|_| {
+            config
+                .preparations
+                .acquire(config.bytes)
+                .ok_or(RuntimeError::Overloaded.into())
+        });
+        let permit = match permit {
+            Ok(permit) => permit,
+            Err(error) => {
+                waiter.finish(Err(error));
+                return;
+            }
+        };
+        let runtime = shared.runtime.clone();
+        self.jobs.push(Box::pin(async move {
+            let result = prepare::validate(directory, &route, config, runtime, authority).await;
+            Completed::Checked(route.history, result, waiter, permit)
+        }));
+    }
+
+    fn launch(&mut self, group: GroupHistory, runtime: CellGroupRuntime, transport: RaftTransport) {
         let entry = self.entries.get_mut(&group).expect("provision entry");
         entry.running = true;
         let directory = entry.directory.clone();
         let route = entry.route.clone();
         let config = entry.config.clone();
         let prepared = entry.prepared.clone();
+        let authority = entry.authority.clone();
         self.jobs.push(Box::pin(async move {
             Completed::Prepared(
                 group,
-                prepare::recover(directory, route, config, runtime, prepared)
-                    .await
-                    .map(Box::new),
+                prepare::recover(
+                    directory, route, config, runtime, transport, authority, prepared,
+                )
+                .await
+                .map(Box::new),
             )
         }));
     }
@@ -153,6 +212,29 @@ impl Manager {
     ) -> Result<(), CellGroupControllerError> {
         match done {
             Completed::Prepared(group, Ok(input)) => {
+                let input = match *input {
+                    prepare::Recovery::Seed(staged) => {
+                        let entry = self.entries.get_mut(&group).expect("staged entry");
+                        // Save the physical owner before entering transfer. Even
+                        // a lost/expired install reply must retain these pins.
+                        entry.prepared = Some(staged.prepared.clone());
+                        if let Err(error) = entry.authority.check_live(&shared.runtime) {
+                            return self.failed(group, error);
+                        }
+                        self.jobs.push(Box::pin(async move {
+                            Completed::Prepared(
+                                group,
+                                staged
+                                    .install()
+                                    .await
+                                    .map(prepare::Recovery::Ready)
+                                    .map(Box::new),
+                            )
+                        }));
+                        return Ok(());
+                    }
+                    prepare::Recovery::Ready(input) => input,
+                };
                 let entry = self.entries.get_mut(&group).expect("prepared entry");
                 // Save the owners before polling attachment: early Raft events
                 // must see the applier, and a catalog refusal must retain pins.
@@ -160,13 +242,16 @@ impl Manager {
                     applier: input.applier.clone(),
                     current: input.current.clone(),
                 });
+                if let Err(error) = entry.authority.check_live(&shared.runtime) {
+                    return self.failed(group, error);
+                }
                 roster.insert(group, input.applier.clone());
                 let runtime = shared.runtime.clone();
                 let transport = transport.clone();
                 self.jobs.push(Box::pin(async move {
                     Completed::Attached(
                         group,
-                        registration::attach(*input, runtime, transport).await,
+                        registration::attach(input, runtime, transport).await,
                     )
                 }));
                 Ok(())
@@ -186,13 +271,35 @@ impl Manager {
                     entry.running = false;
                     entry.prepared = None;
                     entry.permit = None;
+                    // Attachment can have finished after the caller expired.
+                    // Keep the real active slot/route, but suppress late success.
+                    let result = entry.authority.check_live(&shared.runtime);
                     for waiter in std::mem::take(&mut entry.waiters) {
-                        waiter.finish(Ok(()));
+                        waiter.finish(result.clone());
                     }
                     Ok(())
                 }
                 Err(error) => self.failed(group, error),
             },
+            Completed::Checked(group, result, waiter, _permit) => {
+                let result = result.and_then(|()| {
+                    if shared.groups.contains(&group)? {
+                        Ok(())
+                    } else {
+                        Err(RuntimeError::NotFound.into())
+                    }
+                });
+                let fatal = result
+                    .as_ref()
+                    .err()
+                    .filter(|error| failure::node_wide(error))
+                    .cloned();
+                waiter.finish(result);
+                match fatal {
+                    Some(error) => Err(error),
+                    None => Ok(()),
+                }
+            }
         }
     }
 
@@ -250,13 +357,17 @@ impl Manager {
         // blocking recovery and attachment before releasing dependencies.
         while let Some(done) = self.jobs.next().await {
             if let Completed::Prepared(group, Ok(input)) = done {
+                let prepared = match *input {
+                    prepare::Recovery::Ready(input) => prepare::Prepared {
+                        applier: input.applier,
+                        current: input.current,
+                    },
+                    prepare::Recovery::Seed(staged) => staged.prepared,
+                };
                 self.entries
                     .get_mut(&group)
                     .expect("closing entry")
-                    .prepared = Some(prepare::Prepared {
-                    applier: input.applier,
-                    current: input.current,
-                });
+                    .prepared = Some(prepared);
             }
         }
         for entry in self.entries.values_mut() {

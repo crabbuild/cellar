@@ -295,7 +295,7 @@ impl Driver {
         let mut options = client::CommandOptions::new(scan.next, retry_until);
         options.durability = due.minimum();
         options.timeout = std::time::Duration::from_millis(owner.options.operation_timeout_ms);
-        let local = crate::application::consensus::RaftCellHandle {
+        let local = crate::application::consensus::client::RaftCellHandle {
             handle: self.local.clone(),
             binding,
         };

@@ -263,7 +263,9 @@ pub(crate) async fn s3_receipt_minimums(rooted: bool, store: Arc<dyn ObjectStore
             let gateway = h.fixture.transports[0].install_cell_command_gateway(
                 h.dispatcher.clone(),
                 h.controllers[0].clone(),
-                h.fixture.cell_options(&h.cell).await?,
+                cellar::application::consensus::verification::cell_groups::CellGroupNamespaceStorage::new(
+                    h.fixture.cell_options(&h.cell).await?,
+                )?,
             )?;
             let router = super::super::query_origins::Router::start(&h.fixture).await?;
             router

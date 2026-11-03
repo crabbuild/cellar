@@ -91,7 +91,9 @@ pub(crate) async fn receipt_lookup_ingress() -> Result<()> {
         let gateway = fixture.transports[0].install_cell_command_gateway(
             dispatch.clone(),
             controllers[0].clone(),
-            fixture.cell_options(&a).await?,
+            cellar::application::consensus::verification::cell_groups::CellGroupNamespaceStorage::new(
+                fixture.cell_options(&a).await?,
+            )?,
         )?;
         let router = Router::start(&fixture).await?;
         router
@@ -402,7 +404,9 @@ pub(crate) async fn receipt_lookup_cancelled() -> Result<()> {
         let gateway = fixture.transports[0].install_cell_command_gateway(
             dispatch.clone(),
             controllers[0].clone(),
-            fixture.cell_options(&a).await?,
+            cellar::application::consensus::verification::cell_groups::CellGroupNamespaceStorage::new(
+                fixture.cell_options(&a).await?,
+            )?,
         )?;
         let router = Router::start(&fixture).await?;
         router

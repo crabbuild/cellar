@@ -856,7 +856,7 @@ pub(super) async fn submission_rejections(rooted: bool) -> Result<()> {
     sql::submission_rejections(rooted).await
 }
 
-pub(super) use sql::{coherent_reads, query_lifecycle};
+pub(super) use sql::{coherent_reads, follower_linearizable, query_lifecycle, recent_source_reads};
 
 pub(super) use sql::apply_images;
 
@@ -880,7 +880,7 @@ pub(super) use sql::{
     enrollment_requires_registration, owned_enrollment, owned_enrollment_failure,
 };
 
-pub(super) use sql::{remote_queries, remote_query_lifecycle};
+pub(super) use sql::{remote_follower_reads, remote_queries, remote_query_lifecycle};
 
 pub(super) use sql::{nonmember_queries, nonmember_query_revocation};
 
@@ -913,7 +913,9 @@ pub(super) use sql::{
     automatic_checkpoints, checkpoint_during_apply, controller_checkpoint_shutdown,
 };
 
-pub(super) use sql::{membership_lifecycle, membership_sync};
+pub(super) use sql::{
+    membership_lifecycle, membership_quorum_floor, membership_quorum_followers, membership_sync,
+};
 
 pub(super) use sql::{seed_minority, seed_source};
 

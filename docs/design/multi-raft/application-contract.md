@@ -169,29 +169,31 @@ Keep separate command and query contract digests. A follower can hold the correc
 
 Perform current authentication and authorization at ingress and destination. Authorization derived from a stale database image is itself stale; operations requiring latest revocation checks must use a fresh authoritative check. Version tokens prove requested history, not access permission.
 
-- The current SDK exposes a diagnostic `CommittedVersion` in `version` and an opaque authenticated observation in `version_token`.
-- `AtLeast` accepts the opaque token and validates it on the destination before any index comparison.
-- Tokens bind cluster, namespace, cell, group, incarnation, application digest, index, term, issuance and expiry.
-- They survive ordinary leadership changes; cross-history comparisons fail.
-- The returned position names the cut captured with the pinned image, including verified protocol-only coverage of that image.
+The canonical shared SDK query result carries CellVersion, CommitWitness,
+CellVersionToken and the serving NodeIdentity. The logical version remains
+separate from physical group term/index. Tokens authenticate the complete logical
+history, schema, version, witness, issuance and expiry. They prove no access
+permission. AtLeast validates the token before comparing the selected cell's
+version; another history or schema refuses. Linearizable needs a fresh safe
+ReadIndex and the corresponding applied root. Stale supplies neither a quorum
+barrier nor a wall-clock age promise.
 
-- `QueryOptions::routing` defaults to local execution.
-- `QueryRouting::Replicas` accepts up to eight distinct member IDs in priority order, a per-attempt timeout between one millisecond and sixty seconds, and an explicit leader-fallback flag.
-- The total query deadline is fixed on initial admission.
-- Each attempt preserves its contract/input, consistency/token and stale policy.
-- A fallback uses an untried leader hint and obtains the same read proof at its destination.
-- `QueryResult::served_by` reports the responding member.
-- A forwarding origin need not have compatible query code; the destination must check it before execution.
+QueryOptions supplies consistency, timeout and a bounded max_attempts value. The
+invocation's original deadline is fixed before returning its waiter; retries keep
+the same contract, captured input and requested token. QueryRouting::Replicas and
+the per-cell QueryRouter registration path are retired. Group discovery supplies
+no member, image, read barrier or write authority. Complete public SDK, ingress
+and managed lifecycle qualification remains tracked by the
+[cell-group implementation record](cell-groups/progress.md).
 
-- Each `RaftCellRegistration` explicitly selects `RaftCellPlacement::Replica` or `QueryRouter { leader_hint }`.
-- A routing-only binding requires an existing namespace/birth and cannot create a member or SQLite image.
-- It rejects command, local-query and local-status calls; choose explicit replica routing.
-- Its optional leader hint is discovery metadata and never supplies a read barrier.
-- `RaftCellsConfig::query_origins` installs trusted namespace read grants for exact cluster/namespace/node/disk/process endpoints.
-- These grants do not authorize Raft messages or change membership.
-- Live revocation cancels old query waits; revision tombstones prevent stale updates/regrants from reviving those requests.
-- The embedding supplies trusted grants on restart; MR-11 distributes current process views and implements bounded dynamic placement.
-- See the [read audit](read-audit.md) for scope and [counter HTTP contract](https://github.com/crabbuild/cellar/blob/8f18c29a0f28977eb8a4cae51848982ad7d43739/examples/raft-counter/README.md) for the native/Axum consistency, token and bounded-routing headers.
+RaftCellsConfig::query_origins installs trusted namespace read grants for exact
+cluster/namespace/node/disk/process endpoints. Every authenticated cell route
+binds a physical group and a separate logical cell. A grant does not authorize
+Raft messages, commands, enrollment or receipt mutations. Revocation cancels old
+query waits; revision tombstones prevent stale updates or regrants from reviving
+those requests. The embedding supplies trusted grants on restart. The
+[read audit](read-audit.md) retains historical qualification scope; its old SDK
+fixtures must be converted before they can qualify the shared runtime.
 
 - `RaftCellsServices::versions` supplies explicit managed Ed25519 signing and verification keys.
 - Configured token lifetime is between one millisecond and seven days.

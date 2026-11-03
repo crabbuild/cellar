@@ -1,15 +1,17 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 use super::*;
-use crate::application::consensus::{CommittedVersion, VersionSigningKey};
+use crate::application::consensus::VersionSigningKey;
+use crate::raft::cell_groups::CellQueryConsistency;
+use cellar_logic::cell_group::{CellHistory, CellId, GroupHistory};
 use cellar_logic::consensus::*;
+use std::time::Duration;
 
-fn identity(member: u64) -> ReplicaIdentity {
+fn identity(member: u64) -> ReplicaIdentity<GroupHistory> {
     ReplicaIdentity {
-        scope: GroupScope {
+        scope: GroupHistory {
             cluster: ClusterId::new([1; 16]).unwrap(),
             namespace: NamespaceId::new([2; 16]).unwrap(),
-            cell: "Counter:one".into(),
             group: GroupId::new([3; 16]).unwrap(),
             incarnation: IncarnationId::new([4; 16]).unwrap(),
         },
@@ -20,12 +22,22 @@ fn identity(member: u64) -> ReplicaIdentity {
     }
 }
 
+fn cell_history() -> CellHistory {
+    CellHistory {
+        cluster: identity(1).scope.cluster,
+        namespace: identity(1).scope.namespace,
+        cell: CellId::new("Counter:one").unwrap(),
+        incarnation: IncarnationId::new([5; 16]).unwrap(),
+    }
+}
+
 fn route() -> Route {
-    Route::new(
+    Route::new_shared(
         identity(1).node_identity(),
         "node-1",
         &identity(2),
         "node-2",
+        &cell_history(),
         [9; 32],
     )
     .unwrap()
@@ -40,62 +52,94 @@ fn keys() -> VersionKeys {
     .unwrap()
 }
 
-fn call(consistency: QueryConsistency) -> QueryCall {
-    QueryCall {
-        contract: OperationContract {
-            operation: "Get".into(),
-            kind: OperationKind::Query,
-            digest: [11; 32],
-        },
-        input: vec![1, 2, 3],
-        options: QueryOptions {
-            consistency,
-            timeout: Duration::from_millis(500),
-            ..Default::default()
-        },
+fn result_bytes() -> Vec<u8> {
+    let token = keys()
+        .issue_cell(&cell_observation(), [9; 32], 1000)
+        .unwrap();
+    let mut bytes = b"CLGCQS01\0".to_vec();
+    string(&mut bytes, token.as_str()).unwrap();
+    bytes.extend_from_slice(&3u32.to_be_bytes());
+    bytes.extend_from_slice(&[8, 7, 6]);
+    bytes
+}
+
+// Canonical superseded values are test inputs, never production readers.
+fn legacy_scope() -> GroupScope {
+    let group = identity(1).scope;
+    GroupScope {
+        cluster: group.cluster,
+        namespace: group.namespace,
+        cell: "Counter:one".into(),
+        group: group.group,
+        incarnation: group.incarnation,
     }
 }
 
-fn result() -> QueryResult {
-    let version = CommittedVersion {
-        scope: identity(1).scope,
-        position: LogPosition {
-            index: LogIndex::new(7),
-            term: Term::new(2),
-        },
-    };
-    QueryResult {
-        version_token: keys().issue(&version, [9; 32], 1000).unwrap(),
-        result: vec![8, 7, 6],
-        version,
-        served_by: MemberId::new(2).unwrap(),
-    }
+fn legacy_route() -> serde_json::Value {
+    let mut value = serde_json::to_value(route()).unwrap();
+    value["scope"] = serde_json::json!({
+        "kind": "Cell",
+        "identity": crate::application::consensus::protocol::WireScope::from(&legacy_scope()),
+    });
+    value
+}
+
+fn legacy_request() -> Vec<u8> {
+    let mut body = b"CLRQRQ01".to_vec();
+    string(&mut body, "Get").unwrap();
+    body.extend_from_slice(&[11; 32]);
+    body.extend_from_slice(&[0, 0]); // Stale, RecentSource.
+    body.extend_from_slice(&500u64.to_be_bytes());
+    body.extend_from_slice(&3u32.to_be_bytes());
+    body.extend_from_slice(&[1, 2, 3]);
+    body
+}
+
+fn legacy_reply() -> Vec<u8> {
+    let token = keys()
+        .issue(
+            &CommittedVersion {
+                scope: legacy_scope(),
+                position: LogPosition {
+                    index: LogIndex::new(7),
+                    term: Term::new(2),
+                },
+            },
+            [9; 32],
+            1000,
+        )
+        .unwrap();
+    let mut body = b"CLRQRS01\0".to_vec();
+    string(&mut body, token.as_str()).unwrap();
+    body.extend_from_slice(&3u32.to_be_bytes());
+    body.extend_from_slice(&[8, 7, 6]);
+    body
 }
 
 #[test]
 fn query_wire_preserves_explicit_constraints() {
+    let token = keys()
+        .issue_cell(&cell_observation(), [9; 32], 1000)
+        .unwrap();
     for consistency in [
-        QueryConsistency::Stale,
-        QueryConsistency::AtLeast(result().version_token),
-        QueryConsistency::Linearizable,
+        CellQueryConsistency::Stale,
+        CellQueryConsistency::RecentSource { max_age_ms: 5000 },
+        CellQueryConsistency::AtLeast(token),
+        CellQueryConsistency::Linearizable,
     ] {
-        for stale_policy in [
-            StaleReadPolicy::RecentSource,
-            StaleReadPolicy::DisconnectedHistorical,
-        ] {
-            let mut call = call(consistency.clone());
-            call.options.stale_policy = stale_policy;
-            let bytes = call.encode(4096).unwrap();
-            let decoded = QueryCall::decode(&bytes, 4096).unwrap();
-            assert_eq!(decoded.contract, call.contract);
-            assert_eq!(decoded.input, call.input);
-            assert_eq!(decoded.options.consistency, consistency);
-            assert_eq!(decoded.options.timeout, call.options.timeout);
-            assert_eq!(decoded.options.stale_policy, stale_policy);
-            let mut trailing = bytes;
-            trailing.push(0);
-            assert!(QueryCall::decode(&trailing, 4096).is_err());
-        }
+        let call = cell_call(consistency);
+        let bytes = call.encode(4096).unwrap();
+        let decoded = cell::CellQueryCall::decode(&bytes, 4096).unwrap();
+        assert_eq!(decoded.encode(4096).unwrap(), bytes);
+        assert_eq!(decoded.request.contract, call.request.contract);
+        assert_eq!(decoded.request.input, call.request.input);
+        assert_eq!(decoded.request.invocation, call.request.invocation);
+        assert_eq!(decoded.timeout_ms, call.timeout_ms);
+        assert_eq!(decoded.route_epoch, call.route_epoch);
+        assert_eq!(decoded.birth_digest, call.birth_digest);
+        let mut trailing = bytes;
+        trailing.push(0);
+        assert!(cell::CellQueryCall::decode(&trailing, 4096).is_err());
     }
 }
 
@@ -103,7 +147,9 @@ fn query_wire_preserves_explicit_constraints() {
 fn query_wire_binds_channel_request_route_and_payload() {
     let auth = PeerAuth::new([17; 32], "node-1").unwrap();
     let options = TransportOptions::default();
-    let body = call(QueryConsistency::Linearizable).encode(4096).unwrap();
+    let body = cell_call(CellQueryConsistency::Linearizable)
+        .encode(4096)
+        .unwrap();
     let request = RequestHead::new(route(), 7, &body);
     let head = request_head(&auth, &[3; 32], &request, &body, &options).unwrap();
     assert!(read_request(&head, &auth, &[3; 32], &options).is_ok());
@@ -113,8 +159,7 @@ fn query_wire_binds_channel_request_route_and_payload() {
         modified[index] ^= 1;
         assert!(request.verify_body(&modified).is_err());
     }
-    let value = result();
-    let reply = encode_result(&Ok(value.clone()), 4096).unwrap();
+    let reply = result_bytes();
     let response = response_head(&auth, &[3; 32], &request, &head.tag, &reply, &options).unwrap();
     assert_eq!(
         read_response(&response, &auth, &[3; 32], &request, &head.tag, &options).unwrap(),
@@ -122,21 +167,21 @@ fn query_wire_binds_channel_request_route_and_payload() {
     );
     assert!(read_response(&response, &auth, &[4; 32], &request, &head.tag, &options).is_err());
     assert!(read_response(&response, &auth, &[3; 32], &request, &[5; 32], &options).is_err());
-    let other_request = RequestHead::new(route(), 8, &body);
     assert!(read_response(
         &response,
         &auth,
         &[3; 32],
-        &other_request,
+        &RequestHead::new(route(), 8, &body),
         &head.tag,
         &options
     )
     .is_err());
-    let other_route = Route::new(
+    let other_route = Route::new_shared(
         identity(1).node_identity(),
         "node-1",
         &identity(3),
         "node-3",
+        &cell_history(),
         [9; 32],
     )
     .unwrap();
@@ -149,42 +194,28 @@ fn query_wire_binds_channel_request_route_and_payload() {
         &options
     )
     .is_err());
-    assert_eq!(
-        decode_result(
-            &reply,
-            &value.version.scope,
-            [9; 32],
-            &keys(),
-            1000,
-            4096,
-            MemberId::new(2).unwrap()
-        )
+    let member = MemberId::new(2).unwrap();
+    let cell = cell_history();
+    let value = cell::decode_cell_result(&reply, &cell, [9; 32], &keys(), 1000, 4096, member)
         .unwrap()
-        .unwrap(),
-        value
+        .unwrap();
+    assert_eq!(value.observation, cell_observation());
+    assert_eq!(
+        value.token,
+        keys()
+            .issue_cell(&cell_observation(), [9; 32], 1000)
+            .unwrap()
     );
-    assert!(decode_result(
-        &reply,
-        &value.version.scope,
-        [10; 32],
-        &keys(),
-        1000,
-        4096,
-        MemberId::new(2).unwrap()
-    )
-    .is_err());
-    let mut wrong = value.version.scope.clone();
+    assert_eq!(value.result, [8, 7, 6]);
+    assert_eq!(value.served_by, member);
+    assert!(
+        cell::decode_cell_result(&reply, &cell, [10; 32], &keys(), 1000, 4096, member).is_err()
+    );
+    let mut wrong = cell;
     wrong.incarnation = IncarnationId::new([99; 16]).unwrap();
-    assert!(decode_result(
-        &reply,
-        &wrong,
-        [9; 32],
-        &keys(),
-        1000,
-        4096,
-        MemberId::new(2).unwrap()
-    )
-    .is_err());
+    assert!(
+        cell::decode_cell_result(&reply, &wrong, [9; 32], &keys(), 1000, 4096, member).is_err()
+    );
 }
 
 #[test]
@@ -195,14 +226,23 @@ fn query_origin_binds_node_process_without_voting_identity() {
         process: ProcessGeneration::new([93; 16]).unwrap(),
     };
     let target = identity(2);
-    let route = Route::new(origin, "ingress", &target, "node-2", [9; 32]).unwrap();
-    assert_eq!(route.decode().unwrap(), (origin, target.clone()));
-    assert!(route.reversed().decode().is_err());
+    let route = Route::new_shared(
+        origin,
+        "ingress",
+        &target,
+        "node-2",
+        &cell_history(),
+        [9; 32],
+    )
+    .unwrap();
+    assert_eq!(
+        route.decode_shared().unwrap(),
+        (origin, target.clone(), cell_history())
+    );
+    assert!(route.reversed().decode_shared().is_err());
     let encoded = serde_json::to_value(&route).unwrap();
     assert!(encoded["source"]["member"].is_null());
     assert_eq!(encoded["target"]["member"], "2");
-    // Even an authenticated query origin cannot reuse its route as the
-    // member-bearing route required for a consensus message.
     assert!(
         serde_json::from_value::<crate::raft::transport_frame::Route>(encoded.clone()).is_err()
     );
@@ -216,31 +256,33 @@ fn query_origin_binds_node_process_without_voting_identity() {
         modified["target"]["member"] = member;
         assert!(serde_json::from_value::<Route>(modified)
             .unwrap()
-            .decode()
+            .decode_shared()
             .is_err());
     }
     let mut voting_origin = encoded.clone();
     voting_origin["source"]["member"] = serde_json::json!("1");
     assert!(serde_json::from_value::<Route>(voting_origin)
         .unwrap()
-        .decode()
+        .decode_shared()
         .is_err());
     for endpoint in ["source", "target"] {
         for field in ["node", "disk", "process"] {
             let mut modified = encoded.clone();
-            modified[endpoint][field] = serde_json::to_value([0_u8; 16]).unwrap();
+            modified[endpoint][field] = serde_json::to_value([0u8; 16]).unwrap();
             assert!(serde_json::from_value::<Route>(modified)
                 .unwrap()
-                .decode()
+                .decode_shared()
                 .is_err());
         }
     }
     let auth = PeerAuth::new([17; 32], "ingress").unwrap();
     let options = TransportOptions::default();
-    let body = call(QueryConsistency::Linearizable).encode(4096).unwrap();
+    let body = cell_call(CellQueryConsistency::Linearizable)
+        .encode(4096)
+        .unwrap();
     let request = RequestHead::new(route, 7, &body);
     let head = request_head(&auth, &[3; 32], &request, &body, &options).unwrap();
-    let reply = encode_result(&Ok(result()), 4096).unwrap();
+    let reply = result_bytes();
     let response = response_head(&auth, &[3; 32], &request, &head.tag, &reply, &options).unwrap();
     let mut changed_origins = Vec::new();
     for field in 0..3 {
@@ -255,7 +297,7 @@ fn query_origin_binds_node_process_without_voting_identity() {
     changed_origins.push((origin, "other-ingress"));
     for (changed, label) in changed_origins {
         let other = RequestHead::new(
-            Route::new(changed, label, &target, "node-2", [9; 32]).unwrap(),
+            Route::new_shared(changed, label, &target, "node-2", &cell_history(), [9; 32]).unwrap(),
             7,
             &body,
         );
@@ -267,7 +309,7 @@ fn query_origin_binds_node_process_without_voting_identity() {
 fn query_wire_refuses_size_replay_and_consensus_domain_confusion() {
     let auth = PeerAuth::new([17; 32], "node-1").unwrap();
     let options = TransportOptions::default();
-    let body = call(QueryConsistency::Stale).encode(4096).unwrap();
+    let body = cell_call(CellQueryConsistency::Stale).encode(4096).unwrap();
     assert!(request_head(
         &auth,
         &[3; 32],
@@ -304,14 +346,14 @@ fn query_wire_refuses_size_replay_and_consensus_domain_confusion() {
     prefix = head.prefix;
     prefix[12..].copy_from_slice(&u64::MAX.to_be_bytes());
     assert!(parse_prefix(&prefix, &options, false).is_err());
-    let mut call = call(QueryConsistency::Stale);
-    call.options.timeout = Duration::ZERO;
+    let mut call = cell_call(CellQueryConsistency::Stale);
+    call.timeout_ms = 0;
     assert!(call.encode(4096).is_err());
-    call.options.timeout = Duration::from_millis(500);
-    call.contract.kind = OperationKind::Command;
+    call.timeout_ms = 500;
+    call.request.contract.kind = OperationKind::Command;
     assert!(call.encode(4096).is_err());
-    call.contract.kind = OperationKind::Query;
-    call.input = vec![0; 4096];
+    call.request.contract.kind = OperationKind::Query;
+    call.request.input = vec![0; 4096];
     assert!(call.encode(4096).is_err());
 }
 
@@ -327,23 +369,13 @@ fn query_wire_failures_remain_typed() {
         CommandFailure::StorageFull,
         CommandFailure::Unavailable,
     ] {
-        let bytes = encode_result(&Err(failure.clone()), 4096).unwrap();
-        assert_eq!(
-            decode_result(
-                &bytes,
-                &identity(1).scope,
-                [9; 32],
-                &keys(),
-                1000,
-                4096,
-                MemberId::new(2).unwrap()
-            )
-            .unwrap(),
-            Err(failure)
+        let bytes = cell::encode_cell_result(&Err(failure.clone()), 4096).unwrap();
+        assert!(
+            matches!(cell::decode_cell_result(&bytes, &cell_history(), [9; 32], &keys(), 1000, 4096, MemberId::new(2).unwrap()).unwrap(), Err(actual) if actual == failure)
         );
-        assert!(decode_result(
+        assert!(cell::decode_cell_result(
             &bytes,
-            &identity(1).scope,
+            &cell_history(),
             [9; 32],
             &keys(),
             1000,
@@ -354,11 +386,27 @@ fn query_wire_failures_remain_typed() {
     }
 }
 
+#[test]
+fn query_hard_cutover_refuses_legacy_route_request_and_reply() {
+    assert!(serde_json::from_value::<Route>(legacy_route()).is_err());
+    assert!(cell::CellQueryCall::decode(&legacy_request(), 4096).is_err());
+    assert!(cell::decode_cell_result(
+        &legacy_reply(),
+        &cell_history(),
+        [9; 32],
+        &keys(),
+        1000,
+        4096,
+        MemberId::new(2).unwrap()
+    )
+    .is_err());
+}
+
 fn cell_observation() -> crate::raft::version::CellVersionObservation {
     use cellar_logic::cell_group::*;
     crate::raft::version::CellVersionObservation {
         version: CellVersion {
-            history: CellHistory::try_from(&identity(1).scope).unwrap(),
+            history: cell_history(),
             sequence: MutationSequence::new(7).unwrap(),
             image: CellImage {
                 epoch: 1,
@@ -368,7 +416,7 @@ fn cell_observation() -> crate::raft::version::CellVersionObservation {
             },
         },
         witness: CommitWitness {
-            group: GroupHistory::from(&identity(1).scope),
+            group: identity(1).scope,
             position: LogPosition {
                 index: LogIndex::new(100),
                 term: Term::new(9),
@@ -382,7 +430,11 @@ fn cell_call(consistency: crate::raft::cell_groups::CellQueryConsistency) -> cel
     cell::CellQueryCall {
         request: crate::raft::cell_groups::CellQueryRequest {
             invocation: ProposalId::new([91; 16]).unwrap(),
-            contract: call(QueryConsistency::Stale).contract,
+            contract: OperationContract {
+                operation: "Get".into(),
+                kind: OperationKind::Query,
+                digest: [11; 32],
+            },
             input: vec![1, 2, 3],
             consistency,
         },
@@ -416,17 +468,12 @@ fn shared_query_wire_preserves_cell_constraints_and_refuses_other_payloads() {
         for end in 0..bytes.len() {
             assert!(cell::CellQueryCall::decode(&bytes[..end], 4096).is_err());
         }
-        assert!(QueryCall::decode(&bytes, 4096).is_err());
         let mut trailing = bytes.clone();
         trailing.push(0);
         assert!(cell::CellQueryCall::decode(&trailing, 4096).is_err());
         assert!(cell::CellQueryCall::decode(&bytes, bytes.len() - 1).is_err());
     }
-    assert!(cell::CellQueryCall::decode(
-        &call(QueryConsistency::Stale).encode(4096).unwrap(),
-        4096
-    )
-    .is_err());
+    assert!(cell::CellQueryCall::decode(&legacy_request(), 4096).is_err());
     let mut call = cell_call(CellQueryConsistency::Stale);
     call.request.contract.kind = OperationKind::Command;
     assert!(call.encode(4096).is_err());
@@ -444,10 +491,10 @@ fn shared_query_wire_preserves_cell_constraints_and_refuses_other_payloads() {
 #[test]
 fn shared_query_route_binds_physical_group_logical_cell_and_process() {
     use crate::raft::cell_groups::CellQueryConsistency;
-    use cellar_logic::cell_group::{CellId, GroupHistory};
+    use cellar_logic::cell_group::CellId;
     let old = identity(2);
     let target = ReplicaIdentity {
-        scope: GroupHistory::from(&old.scope),
+        scope: old.scope,
         node: old.node,
         disk: old.disk,
         process: old.process,
@@ -460,12 +507,8 @@ fn shared_query_route_binds_physical_group_logical_cell_and_process() {
         route.decode_shared().unwrap(),
         (source, target.clone(), cell.clone())
     );
-    assert!(route.decode().is_err());
     assert!(route.reversed().decode_shared().is_err());
-    assert!(Route::new(source, "node-1", &old, "node-2", [9; 32])
-        .unwrap()
-        .decode_shared()
-        .is_err());
+    assert!(serde_json::from_value::<Route>(legacy_route()).is_err());
     let value = serde_json::to_value(&route).unwrap();
     assert!(value["source"]["member"].is_null());
     assert!(serde_json::from_value::<crate::raft::transport_frame::Route>(value.clone()).is_err());
@@ -593,14 +636,14 @@ fn shared_query_result_authenticates_cell_progress_not_group_log_index() {
         member
     )
     .is_err());
-    assert!(decode_result(
-        &bytes,
-        &identity(1).scope,
+    assert!(cell::decode_cell_result(
+        &legacy_reply(),
+        &observation.version.history,
         [9; 32],
         &keys(),
         1000,
         4096,
-        member
+        member,
     )
     .is_err());
     for end in 0..bytes.len() {
@@ -693,10 +736,9 @@ fn shared_command_wire_preserves_inputs_and_refuses_query_payloads() {
 
 #[test]
 fn shared_command_purpose_is_authenticated_and_cannot_reuse_read_reply() {
-    use cellar_logic::cell_group::GroupHistory;
     let old = identity(2);
     let target = ReplicaIdentity {
-        scope: GroupHistory::from(&old.scope),
+        scope: old.scope,
         member: old.member,
         node: old.node,
         disk: old.disk,
@@ -987,7 +1029,7 @@ fn shared_enrollment_wire_preserves_captured_identity_and_inputs() {
 fn shared_enrollment_purpose_cannot_be_reinterpreted_as_command_or_read() {
     let old = identity(2);
     let target = ReplicaIdentity {
-        scope: cellar_logic::cell_group::GroupHistory::from(&old.scope),
+        scope: old.scope,
         member: old.member,
         node: old.node,
         disk: old.disk,
@@ -1300,7 +1342,7 @@ fn shared_receipt_reply_distinguishes_unknown_from_empty_committed_result() {
 fn shared_receipt_purpose_cannot_authorize_mutation() {
     let old = identity(2);
     let target = ReplicaIdentity {
-        scope: cellar_logic::cell_group::GroupHistory::from(&old.scope),
+        scope: old.scope,
         member: old.member,
         node: old.node,
         disk: old.disk,

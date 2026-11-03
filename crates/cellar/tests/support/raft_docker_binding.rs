@@ -4,6 +4,7 @@
 //! provisioning boundary. This does not claim container shutdown evidence.
 use super::*;
 use anyhow::Context;
+use cellar::application::consensus::verification::cell_groups::RangeDirectory;
 use cellar::docker::{ContainerId, Docker};
 use object_store::ObjectStore;
 use serde_json::json;
@@ -36,7 +37,10 @@ async fn binding(local_observer: bool) -> Result<()> {
         catalog.clone(),
         Docker::new(&socket),
         "native-binding",
-        vec![capacity_tests::namespace(&f).await?],
+        vec![RangeDirectory::new(
+            capacity_tests::namespace(&f).await?,
+            Default::default(),
+        )?],
     )?;
     let node = NodeId::new(boot.node)?;
     let container = ContainerId::new(id)?;
@@ -107,7 +111,10 @@ async fn binding(local_observer: bool) -> Result<()> {
         Fixture::open_catalog(&f.domain, f.store.clone())?,
         Docker::new(&socket),
         "native-binding",
-        vec![capacity_tests::namespace(&f).await?],
+        vec![RangeDirectory::new(
+            capacity_tests::namespace(&f).await?,
+            Default::default(),
+        )?],
     )?;
     reopened
         .bind_node(node, &container, TIMEOUT)

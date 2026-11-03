@@ -158,14 +158,25 @@ impl Harness {
         let (mut fixture, route, cell, _) = if let Some(Resources::Retention(retention)) = resources
         {
             let filesystem = Arc::new(DirectFileSystem);
-            let cluster = Box::pin(Cluster::with_store_retention(
+            let cluster = Box::pin(Cluster::with_store_birth(
                 RaftRuntimeOptions::default(),
                 tempfile::tempdir()?,
                 filesystem.clone(),
                 class.schema_digest(),
                 store,
-                minimum,
-                retention,
+                ClusterBirthOptions {
+                    group: GroupId::new([3; 16])?,
+                    image_storage: if rooted {
+                        RaftImageStorage::Extents
+                    } else {
+                        RaftImageStorage::Materialized
+                    },
+                    minimum,
+                    log: ClusterLogLimits {
+                        retention,
+                        ..Default::default()
+                    },
+                },
             ))
             .await?;
             Box::pin(registered::setup_cluster(rooted, cluster, filesystem)).await?
@@ -177,7 +188,11 @@ impl Harness {
                 class.schema_digest(),
                 store,
                 ClusterBirthOptions {
-                    image_storage: RaftImageStorage::Materialized,
+                    image_storage: if rooted {
+                        RaftImageStorage::Extents
+                    } else {
+                        RaftImageStorage::Materialized
+                    },
                     group: GroupId::new([3; 16])?,
                     minimum,
                     log: ClusterLogLimits::default(),

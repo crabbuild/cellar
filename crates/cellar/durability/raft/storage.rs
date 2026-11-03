@@ -261,6 +261,12 @@ struct Request {
     _permit: Permit,
 }
 
+struct ManagedCells {
+    binding: super::member_state::FleetGroupBinding,
+    allow_genesis: bool,
+    boot: super::fleet_stop::BootBinding,
+}
+
 enum Work {
     NodeFence(Reply<u64>),
     Lifecycle(Box<LifecycleUpdate>, Reply<Guard>),
@@ -272,6 +278,7 @@ enum Work {
     CreateCells(
         CellGroupBootstrap,
         Option<Arc<super::transport::CellGroupSeedGrant>>,
+        Option<Box<ManagedCells>>,
         Reply<GroupLog<GroupHistory>>,
     ),
     RecoverCells(
@@ -675,8 +682,10 @@ impl ReplicaLog {
         bootstrap: CellGroupBootstrap,
     ) -> Result<GroupLog<GroupHistory>, LogError> {
         bootstrap.configuration()?;
-        self.request(16 * 1024, |reply| Work::CreateCells(bootstrap, None, reply))
-            .await
+        self.request(16 * 1024, |reply| {
+            Work::CreateCells(bootstrap, None, None, reply)
+        })
+        .await
     }
 
     pub(crate) async fn stage_cell_group(
@@ -686,7 +695,52 @@ impl ReplicaLog {
     ) -> Result<GroupLog<GroupHistory>, LogError> {
         grant.check_log(self)?;
         self.request(96 * 1024, |reply| {
-            Work::CreateCells(bootstrap, Some(grant), reply)
+            Work::CreateCells(bootstrap, Some(grant), None, reply)
+        })
+        .await
+    }
+
+    /// The catalog-selected initial membership and fleet guard are persisted
+    /// in the same first engine sync. An existing unguarded history refuses.
+    pub(crate) async fn create_managed_cell_group(
+        &self,
+        bootstrap: CellGroupBootstrap,
+        authorization: &super::fleet_catalog::FleetGroupAuthorization,
+        boot: &super::fleet_stop::BootBinding,
+    ) -> Result<GroupLog<GroupHistory>, LogError> {
+        let conf = bootstrap.configuration()?;
+        if !authorization.matches_scope(&bootstrap.route.history)
+            || authorization.history_digests()
+                != (bootstrap.route.birth_digest, bootstrap.route.schema_digest)
+        {
+            return Err(LogError::WrongIdentity);
+        }
+        let binding = authorization.binding().clone();
+        boot.validate()?;
+        if boot.fleet != binding.fleet()
+            || boot.catalog != binding.catalog()
+            || boot.node != self.limits().node.bytes()
+            || boot.disk != self.limits().disk.bytes()
+            || boot.engine != self.storage_instance()?.bytes()
+            || boot.process != self.limits().process.bytes()
+            || self
+                .lifecycle_guard()?
+                .is_none_or(|guard| !guard.admits_group_start(boot))
+        {
+            return Err(LogError::WrongIdentity);
+        }
+        super::member_state::GroupMembership::managed_initial(&conf, binding.clone())?;
+        self.request(24 * 1024, |reply| {
+            Work::CreateCells(
+                bootstrap,
+                None,
+                Some(Box::new(ManagedCells {
+                    binding,
+                    allow_genesis: authorization.allows_managed_genesis(),
+                    boot: boot.clone(),
+                })),
+                reply,
+            )
         })
         .await
     }
@@ -1421,7 +1475,19 @@ impl Worker {
         &mut self,
         bootstrap: CellGroupBootstrap,
         seed: Option<&super::transport::CellGroupSeedGrant>,
+        managed: Option<ManagedCells>,
     ) -> Result<GroupLog<GroupHistory>, LogError> {
+        if seed.is_some() && managed.is_some() {
+            return Err(LogError::WrongIdentity);
+        }
+        if managed.as_ref().is_some_and(|managed| {
+            self.lifecycle
+                .guard
+                .as_ref()
+                .is_none_or(|guard| !guard.admits_group_start(&managed.boot))
+        }) {
+            return Err(LogError::WrongIdentity);
+        }
         let conf = if let Some(seed) = seed {
             seed.check(
                 &self.owner,
@@ -1434,6 +1500,7 @@ impl Worker {
                     member: bootstrap.member,
                 },
             )?;
+            seed.check_lifecycle(self.lifecycle.guard.as_ref())?;
             seed.initial_configuration(&bootstrap)?
         } else {
             bootstrap.configuration()?
@@ -1449,10 +1516,57 @@ impl Worker {
             if self.mappings.get(&group.key) != Some(&expected) {
                 return Err(LogError::WrongIdentity);
             }
+            let cache = group.read()?;
+            let binding = managed
+                .as_ref()
+                .map(|m| &m.binding)
+                .or_else(|| seed.and_then(|grant| grant.managed_binding()));
+            let staged = seed
+                .map(|seed| seed.initial_membership(&conf))
+                .transpose()?;
+            match (binding, cache.membership.fleet_status()) {
+                (Some(binding), Some(status)) if binding == &status.binding => {
+                    if seed.is_none()
+                        && (!super::member_state::members(&cache.conf_state)
+                            .contains(&bootstrap.member.get())
+                            || !cache.membership.permits_group(group.identity()))
+                    {
+                        return Err(LogError::WrongIdentity);
+                    }
+                }
+                (Some(_), None)
+                    if staged.as_ref() == Some(&cache.membership)
+                        && cache.group_seed.is_none()
+                        && cache.applied.position.index.get() == 1
+                        && cache.group_manifest.as_ref().is_some_and(|root| {
+                            root.root().cells() == 0 && root.position().index.get() == 1
+                        }) =>
+                {
+                    ()
+                }
+                (None, None) => (),
+                _ => return Err(LogError::WrongIdentity),
+            }
             return Ok(group.clone());
         }
         let mapping = MappingRecord::new_cells(self.root.next_key, &bootstrap, &conf)?;
-        let mut cache = genesis(conf);
+        let mut cache = genesis(conf.clone());
+        if let Some(managed) = managed {
+            if !managed.allow_genesis {
+                return Err(LogError::WrongIdentity);
+            }
+            let binding = managed.binding;
+            if !binding.matches_scope(&bootstrap.route.history) {
+                return Err(LogError::WrongIdentity);
+            }
+            cache.membership =
+                super::member_state::GroupMembership::managed_initial(&conf, binding)?;
+        }
+        if let Some(seed) = seed {
+            // Preserve the source's real genesis/enrollment origin. The learner
+            // remains outside this birth configuration until authenticated install.
+            cache.membership = seed.initial_membership(&conf)?;
+        }
         cache.group_manifest = Some(
             super::cell_groups::GroupManifest::genesis(bootstrap.route)
                 .map_err(|error| LogError::Invalid(error.to_string()))?,
@@ -1740,6 +1854,7 @@ impl Worker {
                     self.mappings[&write.group.key].history()?,
                     write.group.identity(),
                 )?;
+                grant.check_lifecycle(self.lifecycle.guard.as_ref())?;
             }
         }
         for publication in &mut publications {
@@ -1899,8 +2014,8 @@ impl Worker {
                     let _ = reply.send(result);
                     fatal
                 }
-                Work::CreateCells(bootstrap, seed, reply) => {
-                    let result = self.create_cells(bootstrap, seed.as_deref());
+                Work::CreateCells(bootstrap, seed, binding, reply) => {
+                    let result = self.create_cells(bootstrap, seed.as_deref(), binding.map(|b| *b));
                     let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
                     if fatal.is_some() {
                         self.closed.store(true, Ordering::Release);

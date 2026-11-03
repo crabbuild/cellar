@@ -3,8 +3,8 @@
 //! Explicit bounded controller turns; durable roots own ambiguous work.
 use super::*;
 use crate::application::consensus::RaftCells;
-use crate::raft::catalog::NamespaceCatalog;
-use cellar_logic::consensus::GroupScope;
+use crate::raft::catalog::RangeDirectory;
+use cellar_logic::cell_group::GroupHistory;
 use rand::RngCore;
 use std::pin::Pin;
 
@@ -22,7 +22,7 @@ pub enum FleetRestartBirthResolution {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FleetRestartBirthAction {
     pub admission: [u8; 16],
-    pub group: GroupScope,
+    pub group: GroupHistory,
     pub resolution: FleetRestartBirthResolution,
 }
 
@@ -31,11 +31,11 @@ pub struct FleetRestartBirthAction {
 pub enum FleetRestartSettlementBlocker {
     ResourceOnly {
         reservation: [u8; 16],
-        group: GroupScope,
+        group: GroupHistory,
     },
     MovementServicesUnavailable {
         reservation: [u8; 16],
-        group: GroupScope,
+        group: GroupHistory,
     },
 }
 
@@ -46,7 +46,7 @@ pub enum FleetRestartSettlementProgress {
     Birth {
         admission: [u8; 16],
         resolution: FleetRestartBirthResolution,
-        group: GroupScope,
+        group: GroupHistory,
         state: FleetHistoryState,
         applied_revision: u64,
         observed_revision: u64,
@@ -86,7 +86,7 @@ impl FleetCatalog {
         &'a self,
         operation: ProposalId,
         resolution: FleetRestartBirthResolution,
-        namespaces: &'a [NamespaceCatalog],
+        namespaces: &'a [RangeDirectory],
         observer: Option<&'a RaftCells>,
         evidence: Option<&'a dyn FleetMovementEvidence>,
         timeout: Duration,
@@ -115,7 +115,7 @@ impl FleetCatalog {
             } else if let Some(scope) = work.next_birth {
                 let namespace = namespaces
                     .iter()
-                    .find(|n| n.config().namespace == scope.namespace)
+                    .find(|n| n.namespace_config().namespace == scope.namespace)
                     .ok_or(FleetCatalogError::InventoryIncomplete)?;
                 self.recover_birth_reservation(&snapshot, namespace, &scope, deadline.remaining()?)
                     .await?;
@@ -177,36 +177,38 @@ impl FleetCatalog {
                 .await?;
             let namespace = namespaces
                 .iter()
-                .find(|n| n.config().namespace == scope.namespace)
+                .find(|n| n.namespace_config().namespace == scope.namespace)
                 .ok_or(FleetCatalogError::InventoryIncomplete)?;
             let authorization = self
                 .recover_birth_reservation(&snapshot, namespace, &scope, deadline.remaining()?)
                 .await?;
             let namespace_timeout = deadline.remaining()?;
             let decision = async {
-                use crate::raft::catalog::{BirthDisposition, CatalogError};
+                use crate::raft::catalog::{CatalogError, CellGroupBirthDisposition};
                 match action.resolution {
                     FleetRestartBirthResolution::Cancel => {
                         namespace
-                            .cancel_managed_birth(
+                            .cancel_fleet_group_birth(
                                 &authorization,
                                 ProposalId::new(action.request.id)
                                     .map_err(|_| CatalogError::Corrupt("restart birth ID"))?,
-                                namespace_timeout,
                             )
                             .await
                     }
                     FleetRestartBirthResolution::Finish => {
-                        if let Some(winner) = namespace.birth_disposition(&scope.cell).await? {
+                        if let Some(winner) = namespace
+                            .group_birth_disposition(&authorization.proposal())
+                            .await?
+                        {
                             return Ok(winner);
                         }
                         match namespace
-                            .resolve_managed_birth(&authorization, namespace_timeout)
+                            .materialize_fleet_group_birth(&authorization)
                             .await
                         {
-                            Ok(birth) => Ok(BirthDisposition::Live(birth)),
+                            Ok(birth) => Ok(CellGroupBirthDisposition::Live(birth)),
                             Err(CatalogError::BirthCancelled) => namespace
-                                .birth_disposition(&scope.cell)
+                                .group_birth_disposition(&authorization.proposal())
                                 .await?
                                 .ok_or(CatalogError::Unconfirmed),
                             Err(error) => Err(error),

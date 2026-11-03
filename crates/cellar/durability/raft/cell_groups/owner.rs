@@ -19,7 +19,7 @@ use crate::raft::{
 use ::raft::{prelude::*, Config, LightReady, RawNode, Ready, StateRole, Storage};
 use cellar_logic::{
     cell_group::*,
-    consensus::{LogIndex, LogPosition, OperationId, ReplicaIdentity, Term},
+    consensus::{LogIndex, LogPosition, MemberId, OperationId, ReplicaIdentity, Term},
 };
 use protobuf::Message as _;
 use std::{
@@ -180,6 +180,9 @@ enum Phase {
 pub struct CellGroupOwner {
     log_admission: super::log_admission::LogAdmission,
     leader_term: Arc<AtomicU64>,
+    source_epoch: Arc<AtomicU64>,
+    source_identity: (u64, u64),
+    source_observed: Option<(u64, u64, u64)>,
     lease: Arc<Lease>,
     log: ReplicaLog,
     group: GroupLog<GroupHistory>,
@@ -269,6 +272,9 @@ impl CellGroupOwner {
         Ok(Self {
             log_admission: Default::default(),
             leader_term: Arc::new(AtomicU64::new(0)),
+            source_epoch: Arc::new(AtomicU64::new(1)),
+            source_identity: (0, 0),
+            source_observed: None,
             lease,
             log: permit.log().clone(),
             group,
@@ -309,11 +315,27 @@ impl CellGroupOwner {
 
     pub(super) fn revoke_execution(&mut self) {
         self.leader_term.store(0, Ordering::Release);
+        self.source_epoch.store(0, Ordering::Release);
         self.proposals.clear();
         self.recovery_activation = None;
     }
 
     fn refresh_execution_fence(&mut self) {
+        let source = (self.node.raft.term, self.node.raft.leader_id);
+        if source != self.source_identity {
+            self.source_identity = source;
+            self.source_observed = None;
+            if self
+                .source_epoch
+                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |epoch| {
+                    (epoch != 0).then(|| epoch.checked_add(1)).flatten()
+                })
+                .is_err()
+            {
+                // Exhaustion or revocation never rearms an old read capability.
+                self.source_epoch.store(0, Ordering::Release);
+            }
+        }
         let term = if self.node.raft.state == StateRole::Leader
             && self.node.raft.lead_transferee.is_none()
             && self
@@ -404,18 +426,59 @@ impl CellGroupOwner {
     ) -> Result<super::read_authority::ReadSelection, RuntimeError> {
         self.require_application_active()?;
         let status = self.status()?;
+        let mut source = None;
+        let mut source_deadline = None;
         let leader = if matches!(consistency, super::CellReadConsistency::Linearizable) {
-            if self.node.raft.state != StateRole::Leader || Some(status.term) != term {
+            if term.is_none() {
+                return Err(RuntimeError::NotReady);
+            }
+            if Some(status.term) != term {
                 return Err(RuntimeError::NotLeader);
             }
             let index = barrier.ok_or(RuntimeError::NotReady)?;
-            if !status.ready || status.applied.index < index {
+            if status.applied.index < index {
                 return Err(RuntimeError::NotReady);
             }
-            Some((status.term, self.leader_term.clone()))
+            if self.node.raft.state == StateRole::Leader {
+                if !status.ready {
+                    return Err(RuntimeError::NotReady);
+                }
+                Some((status.term, self.leader_term.clone()))
+            } else if self.node.raft.state == StateRole::Follower && self.membership_read_ready()? {
+                source = Some(self.read_source_epoch(status.term)?);
+                None
+            } else {
+                return Err(RuntimeError::NotLeader);
+            }
         } else {
             None
         };
+        if let super::CellReadConsistency::RecentSource { max_age_ms } = consistency {
+            if !(1..=3_600_000).contains(max_age_ms) {
+                return Err(RuntimeError::Invalid("stale source age".into()));
+            }
+            let now = self
+                .log
+                .domain()
+                .mono_ms()
+                .map_err(|_| RuntimeError::Closed)?;
+            let observed = if self.node.raft.state == StateRole::Leader
+                && self.current.marker().position().term == status.term
+            {
+                Some(now)
+            } else {
+                self.source_observed
+                    .filter(|(member, term, _)| {
+                        *member == self.node.raft.leader_id && *term == status.term.get()
+                    })
+                    .map(|(_, _, at)| at)
+            };
+            source_deadline = Some(
+                crate::raft::query::recent_source_deadline(observed, now, *max_age_ms)
+                    .ok_or(RuntimeError::NotReady)?,
+            );
+            source = Some(self.read_source_epoch(status.term)?);
+        }
         let (leaf, image) = self
             .current
             .pin_cell(&cell.cell)
@@ -442,7 +505,17 @@ impl CellGroupOwner {
                 .zip(barrier)
                 .map(|(term, index)| LogPosition { term, index }),
             leader,
+            source,
+            source_deadline,
         })
+    }
+
+    fn read_source_epoch(&self, term: Term) -> Result<(Term, u64, Arc<AtomicU64>), RuntimeError> {
+        let epoch = self.source_epoch.load(Ordering::Acquire);
+        if epoch == 0 || self.group.read()?.hard_state.term != term.get() {
+            return Err(RuntimeError::NotReady);
+        }
+        Ok((term, epoch, self.source_epoch.clone()))
     }
 
     pub(super) fn check_seed_target(
@@ -451,6 +524,60 @@ impl CellGroupOwner {
     ) -> Result<(), RuntimeError> {
         self.live()?;
         super::seed_authority::check_target(&self.group, target).map(|_| ())
+    }
+
+    pub(super) fn select_membership(
+        &self,
+        minimum: LogIndex,
+        term: Option<Term>,
+        barrier: Option<LogIndex>,
+    ) -> Result<super::membership_observation::MembershipSelection, RuntimeError> {
+        self.require_application_active()?;
+        let status = self.status()?;
+        if Some(status.term) != term {
+            return Err(RuntimeError::NotLeader);
+        }
+        let index = barrier.ok_or(RuntimeError::NotReady)?;
+        if !self.membership_read_ready()?
+            || status.applied.index < index
+            || status.applied.index < minimum
+        {
+            return Err(RuntimeError::NotReady);
+        }
+        let cache = self.group.read()?;
+        let root = self.current.marker();
+        if cache.group_manifest.as_ref() != Some(root)
+            || root.membership_revision() != cache.membership.revision().get()
+            || cache.membership.revision() > index
+        {
+            return Err(RuntimeError::NotReady);
+        }
+        cache
+            .membership
+            .validate(&cache.conf_state, root.position().index.get())?;
+        cache.membership.validate_scope(&root.route().history)?;
+        let bytes = cache
+            .membership
+            .reserved_bytes()
+            .checked_add(cache.conf_state.compute_size() as usize)
+            .and_then(|n| n.checked_add(serde_json::to_vec(root).ok()?.len()))
+            .and_then(|n| n.checked_add(4096))
+            .ok_or(RuntimeError::Overloaded)?;
+        if bytes > super::membership_observation::MEMBERSHIP_BYTES {
+            return Err(RuntimeError::Overloaded);
+        }
+        Ok(super::membership_observation::MembershipSelection {
+            replica: self.group.identity().clone(),
+            engine: self.log.storage_instance()?,
+            root: root.clone(),
+            barrier: LogPosition {
+                term: status.term,
+                index,
+            },
+            membership: cache.membership.clone(),
+            configuration: cache.conf_state.clone(),
+            status,
+        })
     }
 
     pub(super) fn select_seed(
@@ -523,6 +650,42 @@ impl CellGroupOwner {
             applied: self.current.marker().position(),
             committed: LogIndex::new(cache.hard_state.commit),
             ready: self.current.marker().is_active() && self.protocol_ready(&cache),
+        })
+    }
+
+    /// Observe the real leader's progress tracker. This is advisory; transfer
+    /// admission rechecks the same owner against the caller's term and revision.
+    pub fn replication_status(
+        &self,
+    ) -> Result<crate::raft::completion::ReplicationStatus<GroupHistory>, RuntimeError> {
+        use crate::raft::completion::{MemberProgress, ReplicationStatus};
+        self.live()?;
+        if self.node.raft.state != StateRole::Leader {
+            return Err(RuntimeError::NotLeader);
+        }
+        let cache = self.group.read()?;
+        let mut members = self
+            .node
+            .raft
+            .prs()
+            .iter()
+            .map(|(&id, progress)| {
+                Ok(MemberProgress {
+                    member: MemberId::new(id).map_err(|e| RuntimeError::Protocol(e.to_string()))?,
+                    matched: LogIndex::new(progress.matched),
+                    voter: cache.conf_state.voters.contains(&id)
+                        || cache.conf_state.voters_outgoing.contains(&id),
+                    recent_active: progress.recent_active,
+                })
+            })
+            .collect::<Result<Vec<_>, RuntimeError>>()?;
+        members.sort_by_key(|member| member.member);
+        Ok(ReplicationStatus {
+            replica: self.group.identity().clone(),
+            term: Term::new(self.node.raft.term),
+            membership_revision: cache.membership.revision(),
+            committed: LogIndex::new(self.node.raft.raft_log.committed),
+            members,
         })
     }
 
@@ -648,28 +811,73 @@ impl CellGroupOwner {
     /// Admit a handoff to a caught-up incoming voter. Completion is observed
     /// through leadership status; admission alone cannot prove an election.
     pub fn transfer_leader(&mut self, member: u64) -> Result<(), RuntimeError> {
+        let progress = self.replication_status()?;
+        self.transfer_leadership(crate::raft::completion::LeadershipTransfer {
+            target: MemberId::new(member).map_err(|e| RuntimeError::Invalid(e.to_string()))?,
+            expected_term: progress.term,
+            expected_revision: progress.membership_revision,
+        })
+    }
+
+    /// Recheck whole-group matched progress immediately before restart
+    /// handoff/observation. The runtime separately checks the synced stop gate.
+    pub(crate) fn restart_leadership(
+        &mut self,
+        check: crate::raft::completion::RestartLeadershipCheck,
+    ) -> Result<(), RuntimeError> {
+        let progress = self.replication_status()?;
+        let cache = self.group.read()?;
+        let transfer = crate::raft::restart_leadership::check_progress(
+            &progress,
+            &cache.conf_state,
+            &check,
+            self.node.raft.pending_conf_index > self.node.raft.raft_log.applied,
+            self.node.raft.lead_transferee.is_some(),
+        )?;
+        drop(cache);
+        if let Some(transfer) = transfer {
+            self.transfer_leadership(transfer)?;
+        }
+        Ok(())
+    }
+
+    pub fn transfer_leadership(
+        &mut self,
+        transfer: crate::raft::completion::LeadershipTransfer,
+    ) -> Result<(), RuntimeError> {
         self.live()?;
         if self.node.raft.state != StateRole::Leader {
             return Err(RuntimeError::NotLeader);
         }
         let status = self.status()?;
         let cache = self.group.read()?;
-        if member == self.node.raft.id || !cache.conf_state.voters.contains(&member) {
+        let member = transfer.target.get();
+        if transfer.expected_term != status.term
+            || transfer.expected_revision != cache.membership.revision()
+            || member == self.node.raft.id
+            || !cache.conf_state.voters.contains(&member)
+        {
             return Err(RuntimeError::Invalid(
                 "leadership target is not another incoming voter".into(),
             ));
         }
         if !status.ready
+            || !cache.conf_state.voters_outgoing.is_empty()
+            || self.node.raft.lead_transferee.is_some()
+            || cache.membership.repair_status()?.is_some_and(|repair| {
+                matches!(
+                    repair.phase,
+                    crate::raft::member_state::RepairPhase::Seeding
+                        | crate::raft::member_state::RepairPhase::Joint
+                )
+            })
             || status.applied.index != status.committed
             || !self.apply.is_empty()
             || self.applying.is_some()
             || self.node.raft.pending_conf_index > self.node.raft.raft_log.applied
-            || self
-                .node
-                .raft
-                .prs()
-                .get(member)
-                .is_none_or(|p| p.matched < self.node.raft.raft_log.last_index())
+            || self.node.raft.prs().get(member).is_none_or(|p| {
+                !p.recent_active || p.matched < self.node.raft.raft_log.last_index()
+            })
         {
             return Err(RuntimeError::NotReady);
         }
@@ -894,10 +1102,24 @@ impl CellGroupOwner {
                 .log_admission
                 .election(&self.group, &self.node, admission)?;
         }
+        let (from, term, kind) = (message.from, message.term, message.get_msg_type());
         let result = self.node.step(message);
         self.refresh_execution_fence();
         self.finish_log_admission(admission)?;
         result?;
+        if matches!(kind, MessageType::MsgAppend | MessageType::MsgHeartbeat)
+            && from == self.node.raft.leader_id
+            && term == self.node.raft.term
+        {
+            self.source_observed = Some((
+                from,
+                term,
+                self.log
+                    .domain()
+                    .mono_ms()
+                    .map_err(|_| RuntimeError::Closed)?,
+            ));
+        }
         Ok(())
     }
 
@@ -1156,6 +1378,63 @@ impl CellGroupOwner {
         }
         if context.is_empty() || context.len() > 4096 {
             return Err(RuntimeError::Invalid("read context".into()));
+        }
+        if self.node.raft.read_only.pending_read_count() >= self.options.max_pending_reads {
+            return Err(RuntimeError::Overloaded);
+        }
+        self.node.read_index(context);
+        Ok(())
+    }
+
+    /// Business reads have their own authenticated forwarding context; seed
+    /// contexts remain leader-local and cannot enter this path.
+    pub(super) fn read_forwarded_cell_index(
+        &mut self,
+        context: Vec<u8>,
+    ) -> Result<(), RuntimeError> {
+        if super::runtime::reads::cell_origin(&context) != Some(self.membership_read_origin()) {
+            return Err(RuntimeError::Invalid("cell read origin".into()));
+        }
+        if !self.membership_read_ready()?
+            || (self.node.raft.state == StateRole::Leader && !self.status()?.ready)
+        {
+            return Err(RuntimeError::NotReady);
+        }
+        if self.node.raft.read_only.pending_read_count() >= self.options.max_pending_reads {
+            return Err(RuntimeError::Overloaded);
+        }
+        self.node.read_index(context);
+        Ok(())
+    }
+
+    pub(super) fn membership_read_origin(&self) -> u64 {
+        self.group.identity().member.get()
+    }
+
+    /// Safe forwarding requires an active coherent member and known leader.
+    /// This does not change leader-only mutation or seed readiness.
+    pub(super) fn membership_read_ready(&self) -> Result<bool, RuntimeError> {
+        self.require_application_active()?;
+        let cache = self.group.read()?;
+        Ok(matches!(
+            self.node.raft.state,
+            StateRole::Leader | StateRole::Follower
+        ) && self.node.raft.leader_id != 0
+            && self.node.raft.term > 0
+            && self.phase.is_none()
+            && self.checkpoint.is_none()
+            && cache.hard_state.term == self.node.raft.term
+            && cache.group_manifest.as_ref() == Some(self.current.marker())
+            && cache.membership.permits_group(self.group.identity()))
+    }
+
+    pub(super) fn read_membership_index(&mut self, context: Vec<u8>) -> Result<(), RuntimeError> {
+        if super::runtime::reads::membership_origin(&context) != Some(self.membership_read_origin())
+        {
+            return Err(RuntimeError::Invalid("membership read origin".into()));
+        }
+        if !self.membership_read_ready()? {
+            return Err(RuntimeError::NotReady);
         }
         if self.node.raft.read_only.pending_read_count() >= self.options.max_pending_reads {
             return Err(RuntimeError::Overloaded);
@@ -1892,13 +2171,27 @@ impl CellGroupOwner {
                 let entry = &message.entries[0];
                 if entry.data.is_empty()
                     || entry.data.len() > 4096
-                    || super::runtime::reads::reserved_context(&entry.data)
                     || entry.index != 0
                     || entry.term != 0
                     || !entry.context.is_empty()
                     || entry.get_entry_type() != EntryType::EntryNormal
                 {
                     return Err(invalid());
+                }
+                if super::runtime::reads::reserved_context(&entry.data) {
+                    let origin = super::runtime::reads::membership_origin(&entry.data)
+                        .or_else(|| super::runtime::reads::cell_origin(&entry.data))
+                        .ok_or_else(invalid)?;
+                    // Seed/private execution contexts remain local. Forwarded
+                    // cell/metadata requests bind their authenticated origin;
+                    // replies come only from this follower's current leader.
+                    if (kind == MessageType::MsgReadIndex && origin != message.from)
+                        || (kind == MessageType::MsgReadIndexResp
+                            && (origin != self.group.identity().member.get()
+                                || message.from != self.node.raft.leader_id))
+                    {
+                        return Err(invalid());
+                    }
                 }
                 if kind == MessageType::MsgReadIndex
                     && self.node.raft.read_only.pending_read_count()
@@ -1917,5 +2210,6 @@ impl CellGroupOwner {
 impl Drop for CellGroupOwner {
     fn drop(&mut self) {
         self.leader_term.store(0, Ordering::Release);
+        self.source_epoch.store(0, Ordering::Release);
     }
 }

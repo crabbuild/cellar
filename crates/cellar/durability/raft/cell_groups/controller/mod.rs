@@ -3,6 +3,7 @@
 //! Owns registered groups' consensus events, transport dispatch and physical apply.
 //! Admitted command ownership survives response cancellation and expiry.
 
+mod admission;
 mod archive;
 pub(crate) use archive::settlement::{
     Client as S3Client, LookupPrepared as S3LookupPrepared, OutputProof as S3OutputProof,
@@ -23,7 +24,10 @@ pub use effects::CellGroupEffectRegistration;
 mod failure;
 mod provision;
 mod registration;
-pub use provision::{CellGroupProvisionCall, CellGroupProvisioning};
+pub use provision::{
+    CellGroupProvisionCall, CellGroupProvisionLimits, CellGroupProvisionNamespace,
+    CellGroupProvisioning,
+};
 mod requests;
 pub use enrollments::{CellEnrollmentAdmissionError, CellEnrollmentCall};
 pub(crate) use registration::GroupRoster;
@@ -43,7 +47,7 @@ use futures_util::FutureExt;
 use std::collections::BTreeMap;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
-    Arc, Mutex,
+    Arc, Mutex, OnceLock,
 };
 use tokio::sync::Notify;
 
@@ -92,8 +96,10 @@ impl From<RuntimeError> for CellGroupControllerError {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Serialize)]
 pub struct CellGroupControllerUsage {
+    pub ordinary: super::CellGroupAdmissionUsage,
+    pub archive_settlement: super::CellGroupAdmissionUsage,
     pub groups: usize,
     pub pending_registrations: usize,
     /// Retained failed groups still consume the registration capacity.
@@ -113,6 +119,8 @@ pub struct CellGroupControllerUsage {
     pub command_bytes: usize,
     pub retained_preparations: usize,
     pub preparation_bytes: usize,
+    /// Immutable namespace/directory metadata charged to provisioning's total.
+    pub provision_configuration_bytes: usize,
     pub provision_waiters: usize,
     /// Independent archive-settlement admission, bounded by max_commands and
     /// max_command_bytes. This lane cannot recursively consume command slots.
@@ -126,6 +134,11 @@ pub struct CellGroupControllerUsage {
 }
 
 struct Shared {
+    admission_configuration: Mutex<()>,
+    public: OnceLock<admission::Public>,
+    // One-shot physical release is opaque to break the ownership type graph:
+    // bindings contain weak archive clients back to this same shared owner.
+    host_resources: Mutex<Option<Box<dyn FnOnce() -> Result<(), CellGroupControllerError> + Send>>>,
     runtime: CellGroupRuntime,
     sql: crate::raft::host_sql::cell_groups::WeakCellGroupSqlPool,
     groups: Arc<GroupRoster>,
@@ -206,8 +219,32 @@ pub struct CellGroupController {
 }
 
 impl CellGroupController {
+    pub(crate) fn limits(&self) -> CellGroupControllerLimits {
+        self.handle.0.limits
+    }
+
     pub(crate) fn belongs_to(&self, runtime: &CellGroupRuntime) -> bool {
         self.handle.0.runtime.same_owner(runtime)
+    }
+
+    pub(in crate::raft::cell_groups) fn own_host_resources(
+        &self,
+        resources: Arc<super::host::HostResources>,
+    ) -> Result<(), RuntimeError> {
+        let mut slot = self
+            .handle
+            .0
+            .host_resources
+            .lock()
+            .map_err(|_| RuntimeError::Closed)?;
+        if self.handle.0.closing.load(Ordering::Acquire) {
+            return Err(RuntimeError::Closed);
+        }
+        if slot.is_some() {
+            return Err(RuntimeError::AlreadyAttached);
+        }
+        *slot = Some(Box::new(move || resources.release()));
+        Ok(())
     }
 
     /// Consume the exclusive event receiver after validating exact engine and
@@ -256,6 +293,9 @@ impl CellGroupController {
         let domain = runtime.log().domain();
         let (requests, receiver) = tokio::sync::mpsc::channel(limits.max_commands);
         let shared = Arc::new(Shared {
+            admission_configuration: Mutex::new(()),
+            public: OnceLock::new(),
+            host_resources: Mutex::new(None),
             runtime: runtime.clone(),
             sql: sql.downgrade(),
             groups: GroupRoster::new(roster.keys().copied(), limits.max_groups),
@@ -324,7 +364,20 @@ impl CellGroupController {
                 shared.active_checkpoints.store(0, Ordering::Release);
                 shared.active_apply.store(0, Ordering::Release);
                 shared.pending_apply.store(0, Ordering::Release);
-                shared.complete(result.and(joined));
+                // Resource release belongs to this joined owner, never the
+                // lifetime of an async close waiter or a retained cell handle.
+                let released = match shared.host_resources.lock() {
+                    Ok(mut slot) => slot.take().map_or(Ok(()), |release| release()),
+                    Err(error) => {
+                        if let Some(release) = error.into_inner().take() {
+                            let _ = release();
+                        }
+                        Err(CellGroupControllerError::Invalid(
+                            "host resource owner poisoned",
+                        ))
+                    }
+                };
+                shared.complete(result.and(joined).and(released));
             })
             .map_err(|_| CellGroupControllerError::Closed)?;
         Ok(handle)
@@ -343,22 +396,35 @@ impl CellGroupController {
         let shared = &self.handle.0;
         let (command_bytes, retained_commands) = shared.commands.usage();
         let (s3_bytes, retained_s3) = shared.s3.usage();
-        let (preparation_bytes, retained_preparations, provision_waiters) = shared
+        let (
+            preparation_bytes,
+            retained_preparations,
+            provision_waiters,
+            provision_configuration_bytes,
+        ) = shared
             .provisioning
             .lock()
             .ok()
             .and_then(|slot| {
                 slot.as_ref().map(|config| {
                     let (bytes, items) = config.preparations.usage();
-                    (bytes, items, config.waiters.usage().1)
+                    (
+                        bytes,
+                        items,
+                        config.waiters.usage().1,
+                        config.configuration_bytes,
+                    )
                 })
             })
             .unwrap_or_default();
         CellGroupControllerUsage {
+            ordinary: super::CellGroupAdmissionUsage::read(&shared.commands),
+            archive_settlement: super::CellGroupAdmissionUsage::read(&shared.s3),
             active_effects: shared.active_effects.load(Ordering::Acquire),
             effect_turns: shared.effect_turns.load(Ordering::Relaxed),
             effect_retries: shared.effect_retries.load(Ordering::Relaxed),
             preparation_bytes,
+            provision_configuration_bytes,
             retained_preparations,
             provision_waiters,
             groups: shared.groups.len(),
@@ -399,9 +465,13 @@ impl CellGroupController {
         options: super::CellSqlOptions,
     ) -> Result<super::CellReceiptResponse, super::CellDispatchError> {
         let shared = &self.handle.0;
-        if shared.closing.load(Ordering::Acquire) {
-            return Err(super::CellDispatchError::Runtime(RuntimeError::Closed));
-        }
+        let work = {
+            let mut registration = shared
+                .registration()
+                .map_err(super::CellDispatchError::Runtime)?;
+            registration.work.take()
+        };
+        let _work = work;
         invocation.begin().await?;
         let attempt = invocation
             .attempt()

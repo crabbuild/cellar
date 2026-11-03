@@ -2,7 +2,7 @@
 
 //! Durable failure exclusion precedes a retryable trusted platform effect.
 use super::*;
-use crate::raft::catalog::NamespaceCatalog;
+use crate::raft::catalog::RangeDirectory;
 use crate::raft::fleet_catalog::deadline::Deadline;
 use crate::raft::fleet_catalog::disruption::Disruption;
 use crate::raft::fleet_stop::BootBinding;
@@ -42,7 +42,7 @@ pub trait FleetFailureRecoveryPlatform: Send + Sync {
     fn namespaces<'a>(
         &'a self,
         timeout: Duration,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<NamespaceCatalog>>> + Send + 'a>>;
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<RangeDirectory>>> + Send + 'a>>;
 
     fn isolate<'a>(
         &'a self,

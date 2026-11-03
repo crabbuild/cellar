@@ -4,7 +4,6 @@
 //! archive is never a substitute for this request's live-quorum authorization.
 
 use super::*;
-use crate::raft::query::ReadOperation;
 use crate::raft::transport::seeds::SourceSeed;
 
 pub(super) fn valid_target(
@@ -102,11 +101,8 @@ impl Driver {
         let Some(mut read) = self.reads.remove(&id) else {
             return;
         };
-        let ReadOperation::Seed { target, .. } = &read.operation else {
-            reply(&mut read.request, Err(CommandFailure::CorruptState));
-            return;
-        };
-        let Some(Minimum::ReadIndex(barrier)) = read.minimum.clone() else {
+        let target = &read.target;
+        let Some(barrier) = read.minimum else {
             reply(&mut read.request, Err(CommandFailure::CorruptState));
             return;
         };
@@ -170,15 +166,13 @@ impl Driver {
             return;
         };
         let scope = read.request.scope.clone();
-        let ReadOperation::Seed { target, kind, .. } = &read.operation else {
+        let target = &read.target;
+        let kind = read.kind;
+        let Some(barrier) = read.minimum.as_ref() else {
             self.finish_read(&id, Err(CommandFailure::CorruptState));
             return;
         };
-        let Some(Minimum::ReadIndex(barrier)) = read.minimum.as_ref() else {
-            self.finish_read(&id, Err(CommandFailure::CorruptState));
-            return;
-        };
-        if *kind != crate::raft::transport::seeds::SeedKind::S3
+        if kind != crate::raft::transport::seeds::SeedKind::S3
             || read.expired()
             || self
                 .cells

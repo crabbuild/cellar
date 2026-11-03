@@ -1,24 +1,24 @@
-//! Quorum metadata binds one rooted history to one authenticated node route.
-//! The body reuses the bounded node and membership inspection codecs.
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+//! Authenticated fresh quorum metadata for a complete physical group. The body
+//! never chooses a cell image and cannot be decoded as an ordinary inspection.
+use super::cell_groups::{CellGroupQuorumMembership, CellGroupStatus, GroupManifest};
 use super::fleet_catalog::FleetGroupAuthorization;
 use super::host::{FleetMembershipObservation, FleetPublishedCut, RaftHostObservation};
-use super::inspection::{CellInspection, InspectionSnapshot};
-use super::member_state::FleetGroupBinding;
+use super::inspection::{GroupInspection, LeaderLoad, MemberInspection};
+use super::member_state::{FleetGroupBinding, GroupMembership};
 use super::transport::TransportError;
 use super::{inspection_wire, node_inspection_wire};
-use cellar_logic::consensus::{GroupScope, LogIndex};
+use cellar_logic::{
+    cell_group::GroupHistory,
+    consensus::{EngineInstanceId, LogIndex, LogPosition, MemberId, ReplicaIdentity, Term},
+};
+use raft::prelude::ConfState;
 use serde::{Deserialize, Serialize};
 
-#[path = "fleet_cut_wire.rs"]
-mod publication;
-
-pub(crate) const MAX_BODY: usize =
-    20 + node_inspection_wire::MAX_BODY + inspection_wire::MAX_BODY + publication::MAX_BODY;
-pub(crate) const RESPONSE_BYTES: usize = 128 * 1024;
-
-#[cfg(test)]
-#[path = "fleet_inspection_wire_tests.rs"]
-mod tests;
+pub(crate) const MAX_BODY: usize = 12 + node_inspection_wire::MAX_BODY + inspection_wire::MAX_BODY;
+pub(crate) const RESPONSE_BYTES: usize = super::physical_inventory::RESPONSE_BYTES;
+const DOMAIN: &str = "cellar-fleet-group-quorum-1";
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -38,7 +38,7 @@ impl History {
         }
     }
 
-    pub(crate) fn scope(&self) -> Result<GroupScope, TransportError> {
+    pub(crate) fn scope(&self) -> Result<GroupHistory, TransportError> {
         if self.birth == [0; 32] || self.schema == [0; 32] {
             return Err(TransportError::Identity);
         }
@@ -50,33 +50,90 @@ impl History {
     }
 }
 
+#[derive(Clone)]
+pub(crate) struct GroupSnapshot {
+    pub replica: ReplicaIdentity<GroupHistory>,
+    pub engine: EngineInstanceId,
+    pub root: GroupManifest,
+    pub barrier: LogPosition,
+    pub membership: GroupMembership,
+    pub configuration: ConfState,
+    pub status: CellGroupStatus,
+    pub load: Option<LeaderLoad>,
+}
+
+impl GroupSnapshot {
+    pub(crate) fn capture(selected: &CellGroupQuorumMembership) -> Self {
+        Self {
+            replica: selected.replica().clone(),
+            engine: selected.engine(),
+            root: selected.root().clone(),
+            barrier: selected.barrier(),
+            membership: selected.membership().clone(),
+            configuration: selected.configuration().clone(),
+            status: selected.status().clone(),
+            load: None,
+        }
+    }
+
+    pub(crate) fn validate(&self) -> Result<(), TransportError> {
+        self.root.check().map_err(|_| TransportError::Protocol)?;
+        self.membership
+            .validate(&self.configuration, self.root.position().index.get())
+            .map_err(|_| TransportError::Protocol)?;
+        self.membership
+            .validate_scope(&self.replica.scope)
+            .map_err(|_| TransportError::Identity)?;
+        let fleet = self
+            .membership
+            .fleet_status()
+            .ok_or(TransportError::Identity)?;
+        let leader = self
+            .status
+            .leader
+            .and_then(|id| MemberId::new(id).ok())
+            .ok_or(TransportError::Protocol)?;
+        if self.root.route().history != self.replica.scope
+            || !fleet.binding.matches_scope(&self.replica.scope)
+            || self.root.membership_revision() != self.membership.revision().get()
+            || self.barrier.index.get() == 0
+            || self.barrier.term.get() == 0
+            || self.barrier.index < self.membership.revision()
+            || self.root.position().index < self.barrier.index
+            || self.root.position().term != self.barrier.term
+            || self.status.term != self.barrier.term
+            || self.status.applied != self.root.position()
+            || self.status.committed < self.root.position().index
+            || !self.membership.permits_group(&self.replica)
+            || !(self.configuration.voters.contains(&leader.get())
+                || self.configuration.voters_outgoing.contains(&leader.get()))
+            || self.status.ready && self.status.leader != Some(self.replica.member.get())
+            || !self.root.is_active()
+        {
+            return Err(TransportError::Identity);
+        }
+        Ok(())
+    }
+}
+
 pub(crate) struct LocalObservation {
     pub node: Box<RaftHostObservation>,
-    pub snapshot: Box<InspectionSnapshot>,
-    pub barrier: LogIndex,
+    pub snapshot: GroupSnapshot,
 }
 
 impl LocalObservation {
-    fn validate(&self) -> Result<(), TransportError> {
+    pub(crate) fn validate(&self) -> Result<(), TransportError> {
         node_inspection_wire::validate(&self.node)?;
-        self.snapshot
-            .validate()
-            .map_err(|_| TransportError::Protocol)?;
-        let view = &self.snapshot.view;
-        if view.node.identity != self.node.node.identity
-            || view.node.storage_instance != self.node.node.storage_instance
-            || self.barrier.get() == 0
-            || self.snapshot.publication.is_none()
-            || view
-                .member
-                .as_ref()
-                .is_none_or(|m| m.applied.index < self.barrier)
-            || self
-                .snapshot
-                .membership
-                .as_ref()
-                .and_then(|m| m.fleet_status())
-                .is_none()
+        self.snapshot.validate()?;
+        let s = &self.snapshot;
+        if s.replica.node != self.node.node.identity.node
+            || s.replica.disk != self.node.node.identity.disk
+            || s.replica.process != self.node.node.identity.process
+            || s.engine != self.node.node.storage_instance
+            || s.load.as_ref().is_some_and(|load| {
+                load.capacity != self.node.node.profile.leader_capacity
+                    || load.leaders > self.node.node.groups
+            })
         {
             return Err(TransportError::Identity);
         }
@@ -87,97 +144,192 @@ impl LocalObservation {
         self,
         authorization: &FleetGroupAuthorization,
         sample_age_ms: u64,
-    ) -> Result<super::host::RaftPeerFleetMembershipObservation, TransportError> {
+    ) -> Result<RaftPeerFleetMembershipObservation, TransportError> {
         self.validate()?;
-        let membership = FleetMembershipObservation::from_quorum_snapshot(
-            &self.snapshot,
-            authorization,
-            self.barrier,
-        )
-        .map_err(|_| TransportError::Identity)?;
-        let published = FleetPublishedCut::capture(
-            &membership,
-            self.node.node.storage_instance,
-            self.snapshot
-                .publication
-                .as_ref()
-                .ok_or(TransportError::Protocol)?,
-        );
-        Ok(super::host::RaftPeerFleetMembershipObservation::new(
-            *self.node,
+        let s = self.snapshot;
+        let progress = GroupInspection {
+            history: s.replica.scope,
+            schema_digest: s.root.route().schema_digest,
+            birth_digest: s.root.route().birth_digest,
+            node: self.node.node.clone(),
+            member: Some(MemberInspection {
+                member: s.replica.member,
+                term: s.status.term,
+                leader: s
+                    .status
+                    .leader
+                    .map(|id| MemberId::new(id).map_err(|_| TransportError::Protocol))
+                    .transpose()?,
+                is_leader: s.status.leader == Some(s.replica.member.get()),
+                membership_revision: s.membership.revision(),
+                member_high_water: s.membership.high_water(),
+                committed: s.status.committed,
+                applied: s.status.applied,
+                published: Some(s.root.position()),
+                repair: s
+                    .membership
+                    .repair_status()
+                    .map_err(|_| TransportError::Protocol)?,
+                sample_age_ms: 0,
+            }),
+            leader_load: s.load.clone(),
+        };
+        let engine = s.engine;
+        let membership = FleetMembershipObservation::from_quorum_group(s, authorization)
+            .map_err(|_| TransportError::Identity)?;
+        let published = FleetPublishedCut::capture_group(&membership, engine);
+        let mut observed = RaftPeerFleetMembershipObservation {
+            node: *self.node,
             membership,
-            self.snapshot.view,
+            progress,
             published,
-            sample_age_ms,
-        ))
+            sample_age_ms: 0,
+        };
+        observed
+            .record_delivery_age(sample_age_ms)
+            .map_err(|_| TransportError::Limit)?;
+        Ok(observed)
     }
+}
+
+fn nullable<'de, T: Deserialize<'de>, D: serde::Deserializer<'de>>(
+    decoder: D,
+) -> Result<Option<T>, D::Error> {
+    Option::deserialize(decoder)
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Body {
+    domain: String,
+    root: GroupManifest,
+    member: String,
+    barrier_index: String,
+    barrier_term: String,
+    committed: String,
+    #[serde(deserialize_with = "nullable")]
+    leader: Option<String>,
+    ready: bool,
+    membership: GroupMembership,
+    configuration: Vec<u8>,
+    #[serde(deserialize_with = "nullable")]
+    load: Option<Load>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Load {
+    leaders: u32,
+    capacity: u32,
+    age: u64,
 }
 
 pub(crate) fn encode(observation: &LocalObservation) -> Result<Vec<u8>, TransportError> {
     observation.validate()?;
     let node = node_inspection_wire::encode(&observation.node)?;
-    let group = inspection_wire::encode(&observation.snapshot)?;
-    let mut bytes = Vec::with_capacity(20 + node.len() + group.len());
-    bytes.extend_from_slice(&1_u32.to_be_bytes());
-    bytes.extend_from_slice(&(node.len() as u32).to_be_bytes());
-    bytes.extend_from_slice(&(group.len() as u32).to_be_bytes());
-    bytes.extend_from_slice(&observation.barrier.get().to_be_bytes());
+    let s = &observation.snapshot;
+    let group = serde_json::to_vec(&Body {
+        domain: DOMAIN.into(),
+        root: s.root.clone(),
+        member: s.replica.member.get().to_string(),
+        barrier_index: s.barrier.index.get().to_string(),
+        barrier_term: s.barrier.term.get().to_string(),
+        committed: s.status.committed.get().to_string(),
+        leader: s.status.leader.map(|id| id.to_string()),
+        ready: s.status.ready,
+        membership: s.membership.clone(),
+        configuration: super::manifest::encode_conf(&s.configuration)
+            .map_err(|_| TransportError::Protocol)?,
+        load: s.load.as_ref().map(|l| Load {
+            leaders: l.leaders,
+            capacity: l.capacity,
+            age: l.sample_age_ms,
+        }),
+    })
+    .map_err(|_| TransportError::Protocol)?;
+    if group.len() > inspection_wire::MAX_BODY {
+        return Err(TransportError::Limit);
+    }
+    let mut bytes = Vec::with_capacity(12 + node.len() + group.len());
+    for word in [1, node.len() as u32, group.len() as u32] {
+        bytes.extend_from_slice(&word.to_be_bytes());
+    }
     bytes.extend_from_slice(&node);
     bytes.extend_from_slice(&group);
-    bytes.extend_from_slice(&publication::encode(
-        observation
-            .snapshot
-            .publication
-            .as_ref()
-            .ok_or(TransportError::Protocol)?,
-    ));
     Ok(bytes)
 }
 
 pub(crate) fn decode(bytes: &[u8]) -> Result<LocalObservation, TransportError> {
-    if bytes.len() < 20 || bytes.len() > MAX_BODY {
+    if bytes.len() < 12 || bytes.len() > MAX_BODY {
         return Err(TransportError::Limit);
     }
-    // The fixed prefix is checked above before reading any word or lengths.
-    let word = |start| {
-        u32::from_be_bytes([
-            bytes[start],
-            bytes[start + 1],
-            bytes[start + 2],
-            bytes[start + 3],
-        ])
-    };
-    let node = word(4) as usize;
-    let group = word(8) as usize;
+    let word = |i| u32::from_be_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]);
+    let (node_len, group_len) = (word(4) as usize, word(8) as usize);
     if word(0) != 1
-        || node > node_inspection_wire::MAX_BODY
-        || group > inspection_wire::MAX_BODY
-        || 20 + node + group >= bytes.len()
-        || bytes.len() - (20 + node + group) > publication::MAX_BODY
+        || node_len > node_inspection_wire::MAX_BODY
+        || group_len > inspection_wire::MAX_BODY
+        || 12 + node_len + group_len != bytes.len()
     {
         return Err(TransportError::Protocol);
     }
-    let mut snapshot = inspection_wire::decode(&bytes[20 + node..20 + node + group])?;
-    snapshot.publication = Some(publication::decode(&bytes[20 + node + group..])?);
-    let observation = LocalObservation {
-        node: node_inspection_wire::decode(&bytes[20..20 + node])?,
-        snapshot,
-        barrier: LogIndex::new(u64::from_be_bytes([
-            bytes[12], bytes[13], bytes[14], bytes[15], bytes[16], bytes[17], bytes[18], bytes[19],
-        ])),
+    let node = node_inspection_wire::decode(&bytes[12..12 + node_len])?;
+    let body: Body =
+        serde_json::from_slice(&bytes[12 + node_len..]).map_err(|_| TransportError::Protocol)?;
+    if body.domain != DOMAIN || body.configuration.len() > 4096 {
+        return Err(TransportError::Protocol);
+    }
+    let positive = |value: &str| {
+        let n = super::transport_frame::decimal(value)?;
+        if n == 0 || n >= u64::MAX - 2 {
+            return Err(TransportError::Protocol);
+        }
+        Ok(n)
     };
+    let barrier = LogPosition {
+        index: LogIndex::new(positive(&body.barrier_index)?),
+        term: Term::new(positive(&body.barrier_term)?),
+    };
+    let leader = body.leader.as_deref().map(positive).transpose()?;
+    let snapshot = GroupSnapshot {
+        replica: ReplicaIdentity {
+            scope: body.root.route().history,
+            member: MemberId::new(positive(&body.member)?).map_err(|_| TransportError::Identity)?,
+            node: node.node.identity.node,
+            disk: node.node.identity.disk,
+            process: node.node.identity.process,
+        },
+        engine: node.node.storage_instance,
+        status: CellGroupStatus {
+            term: barrier.term,
+            leader,
+            applied: body.root.position(),
+            committed: LogIndex::new(positive(&body.committed)?),
+            ready: body.ready,
+        },
+        root: body.root,
+        barrier,
+        membership: body.membership,
+        configuration: super::manifest::decode_conf(&body.configuration)
+            .map_err(|_| TransportError::Protocol)?,
+        load: body.load.map(|l| LeaderLoad {
+            leaders: l.leaders,
+            capacity: l.capacity,
+            sample_age_ms: l.age,
+        }),
+    };
+    let observation = LocalObservation { node, snapshot };
     observation.validate()?;
     Ok(observation)
 }
 
-/// Opaque authenticated result. Keeping it does not extend its freshness or
-/// confer placement, reservation-release or removal authority.
+/// Opaque result from the purpose-specific authenticated safe-ReadIndex lane.
+/// Retaining it neither extends freshness nor permits mutation or reclamation.
 #[derive(Clone, Debug)]
 pub struct RaftPeerFleetMembershipObservation {
     node: RaftHostObservation,
     membership: FleetMembershipObservation,
-    progress: CellInspection,
-    published: Option<FleetPublishedCut>,
+    progress: GroupInspection,
+    published: FleetPublishedCut,
     sample_age_ms: u64,
 }
 
@@ -187,36 +339,22 @@ impl RaftPeerFleetMembershipObservation {
         age: u64,
     ) -> Result<(), super::inspection::InspectionError> {
         use super::inspection::InspectionError;
-        self.sample_age_ms = self.sample_age_ms.max(age);
+        let next = self.sample_age_ms.max(age);
+        let additional = next - self.sample_age_ms;
         if let Some(member) = &mut self.progress.member {
             member.sample_age_ms = member
                 .sample_age_ms
-                .checked_add(self.sample_age_ms)
+                .checked_add(additional)
                 .ok_or(InspectionError::Unavailable)?;
         }
         if let Some(load) = &mut self.progress.leader_load {
             load.sample_age_ms = load
                 .sample_age_ms
-                .checked_add(self.sample_age_ms)
+                .checked_add(additional)
                 .ok_or(InspectionError::Unavailable)?;
         }
+        self.sample_age_ms = next;
         Ok(())
-    }
-
-    pub(crate) fn new(
-        node: RaftHostObservation,
-        membership: FleetMembershipObservation,
-        progress: CellInspection,
-        published: Option<FleetPublishedCut>,
-        sample_age_ms: u64,
-    ) -> Self {
-        Self {
-            node,
-            membership,
-            progress,
-            published,
-            sample_age_ms,
-        }
     }
 
     pub fn node(&self) -> &RaftHostObservation {
@@ -227,20 +365,20 @@ impl RaftPeerFleetMembershipObservation {
         &self.membership
     }
 
-    pub fn progress(&self) -> &CellInspection {
+    pub fn progress(&self) -> &GroupInspection {
         &self.progress
     }
 
-    /// A fixed data/configuration cut only when publication matched durable
-    /// apply at capture. None means publication is pending; an empty cut is an
-    /// explicit Some value whose image() is None. Neither supplies archive or
-    /// current-health proof.
-    pub fn published_cut(&self) -> Option<&FleetPublishedCut> {
-        self.published.as_ref()
+    /// Atomic complete-root publication. The zero-cell root is explicit.
+    pub fn published_cut(&self) -> &FleetPublishedCut {
+        &self.published
     }
 
-    /// Whole invocation through SDK delivery, including retained reply time.
     pub fn sample_age_ms(&self) -> u64 {
         self.sample_age_ms
     }
 }
+
+#[cfg(test)]
+#[path = "fleet_inspection_wire_tests.rs"]
+mod tests;

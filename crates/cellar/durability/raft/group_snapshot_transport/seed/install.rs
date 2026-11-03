@@ -127,6 +127,25 @@ impl Exchange {
         if prepared.snapshot() != self.grant.snapshot() {
             return Err(TransportError::Authentication.into());
         }
+        if let Some(host) = &self.host {
+            let current = state
+                .seed_process_until(&self.grant.process, self.grant.deadline, async {
+                    Ok::<_, TransportError>(
+                        self.directory
+                            .authorize_group_learner_seed(
+                                &self.birth,
+                                log,
+                                self.grant.local(),
+                                self.grant.source(),
+                                host,
+                                self.grant.deadline,
+                            )
+                            .await,
+                    )
+                })
+                .await??;
+            self.grant.check_authorization(&current)?;
+        }
         let current = prepared.manifest().clone();
         let mut write = GroupWrite::new(&self.group);
         let metadata = prepared.snapshot().get_metadata();
@@ -142,10 +161,37 @@ impl Exchange {
         // actual persistence finishes. Caller cancellation/transport close cannot
         // turn an in-flight fence into an unowned or successful empty bootstrap.
         log.persist_cells(self.operation, vec![write]).await?;
-        let permit = self
-            .directory
-            .bootstrap_joined_group_member(&self.birth, self.grant.local.member, log)
-            .await?;
+        self.grant.check_target_log(log)?;
+        // The engine checked source liveness immediately before entering its
+        // fence. A later source restart cannot revoke that completed durable
+        // result. Still require this destination's exact live boot, transport,
+        // original deadline, and freshly authorized catalog bootstrap.
+        let permit = state
+            .seed_until(self.grant.deadline, async {
+                Ok::<_, TransportError>(match &self.host {
+                    Some(host) => {
+                        self.directory
+                            .bootstrap_managed_joined_group_member(
+                                &self.birth,
+                                self.grant.local.member,
+                                log,
+                                host,
+                            )
+                            .await
+                    }
+                    None => {
+                        self.directory
+                            .bootstrap_joined_group_member(
+                                &self.birth,
+                                self.grant.local.member,
+                                log,
+                            )
+                            .await
+                    }
+                })
+            })
+            .await??;
+        self.grant.check_target_log(log)?;
         drop(self.lease);
         Ok((permit, current))
     }

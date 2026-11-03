@@ -17,6 +17,10 @@ use std::sync::{
 pub enum CellReadConsistency {
     /// Explicitly allows a locally committed older image, including on followers.
     Stale,
+    /// A bounded-age observation of the current source; never a quorum proof.
+    RecentSource {
+        max_age_ms: u64,
+    },
     /// The dispatcher must first authenticate the version and its schema/lineage.
     AtLeast(CellVersion),
     Linearizable,
@@ -30,6 +34,8 @@ pub(super) struct ReadSelection {
     pub applied: LogPosition,
     pub barrier: Option<LogPosition>,
     pub leader: Option<(Term, Arc<AtomicU64>)>,
+    pub source: Option<(Term, u64, Arc<AtomicU64>)>,
+    pub source_deadline: Option<u64>,
 }
 
 /// Consumed by one SQL query. The image and its admission cannot be cloned out
@@ -56,6 +62,9 @@ impl CellReadAuthority {
         if !node.grow_to(bytes) || !group.grow_to(bytes) {
             return Err(RuntimeError::Overloaded);
         }
+        let deadline = selection
+            .source_deadline
+            .map_or(deadline, |source| deadline.min(source));
         Ok(Self {
             selection,
             deadline,
@@ -66,6 +75,10 @@ impl CellReadAuthority {
 
     pub fn cell(&self) -> &CellManifestLeaf {
         &self.selection.cell
+    }
+
+    pub fn replica(&self) -> &cellar_logic::consensus::ReplicaIdentity<GroupHistory> {
+        self.selection.group.identity()
     }
 
     pub fn route(&self) -> &GroupRoute {
@@ -103,6 +116,11 @@ impl CellReadAuthority {
             .as_ref()
             .is_none_or(|m| m.route() != &s.route || !m.is_active())
             || !cache.membership.permits_group(s.group.identity())
+            || s.source.as_ref().is_some_and(|(term, epoch, source)| {
+                cache.hard_state.term != term.get()
+                    || *epoch == 0
+                    || source.load(Ordering::Acquire) != *epoch
+            })
             || s.leader.as_ref().is_some_and(|(term, leader)| {
                 cache.hard_state.term != term.get()
                     || leader.load(Ordering::Acquire) != term.get()

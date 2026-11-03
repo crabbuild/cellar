@@ -12,9 +12,34 @@ use cellar_logic::{
 use std::{collections::BTreeMap, sync::Weak};
 
 const PREFIX: &[u8] = b"cellar-cell-read-1\0";
+const CELL_FORWARD_PREFIX: &[u8] = b"cellar-cell-forward-read-1\0";
+const MEMBERSHIP_PREFIX: &[u8] = b"cellar-group-membership-read-1\0";
 
 pub(in crate::raft::cell_groups) fn reserved_context(context: &[u8]) -> bool {
     context.starts_with(PREFIX)
+        || context.starts_with(MEMBERSHIP_PREFIX)
+        || context.starts_with(CELL_FORWARD_PREFIX)
+}
+
+/// Forwarded metadata reads have a separate namespace from local execution
+/// authority. Bind the exact origin member as well as this invocation's nonce.
+pub(in crate::raft::cell_groups) fn membership_origin(context: &[u8]) -> Option<u64> {
+    forwarded_origin(context, MEMBERSHIP_PREFIX)
+}
+
+pub(in crate::raft::cell_groups) fn cell_origin(context: &[u8]) -> Option<u64> {
+    forwarded_origin(context, CELL_FORWARD_PREFIX)
+}
+
+fn forwarded_origin(context: &[u8], prefix: &[u8]) -> Option<u64> {
+    let rest = context.strip_prefix(prefix)?;
+    if rest.len() != 32 {
+        return None;
+    }
+    let member = u64::from_be_bytes(rest[..8].try_into().ok()?);
+    let sequence = u64::from_be_bytes(rest[24..].try_into().ok()?);
+    cellar_logic::consensus::MemberId::new(member).ok()?;
+    (sequence > 0).then_some(member)
 }
 
 pub(super) struct ReadRequest {
@@ -26,13 +51,23 @@ pub(super) struct ReadRequest {
 pub(super) enum ReadKind {
     Cell(CellHistory, CellReadConsistency),
     Seed(cellar_logic::consensus::ReplicaIdentity<GroupHistory>),
+    Membership { minimum: LogIndex },
 }
 
 impl ReadKind {
+    pub fn reservation_bytes(&self) -> usize {
+        match self {
+            Self::Membership { .. } => super::super::membership_observation::MEMBERSHIP_BYTES,
+            _ => 4096,
+        }
+    }
+
     pub fn linearizable(&self) -> bool {
         matches!(
             self,
-            Self::Seed(_) | Self::Cell(_, CellReadConsistency::Linearizable)
+            Self::Seed(_)
+                | Self::Membership { .. }
+                | Self::Cell(_, CellReadConsistency::Linearizable)
         )
     }
 }
@@ -40,6 +75,7 @@ impl ReadKind {
 pub(super) enum Selection {
     Cell(ReadSelection),
     Seed(SeedSelection),
+    Membership(super::super::membership_observation::MembershipSelection),
 }
 
 struct Pending {
@@ -102,6 +138,7 @@ impl Reads {
                     }
                 }
                 ReadKind::Seed(target) => owner.check_seed_target(target)?,
+                ReadKind::Membership { .. } => (),
             }
             // A pending recovery is an admission refusal, not a read barrier
             // that may occupy the ordinary wait queue until its deadline.
@@ -112,22 +149,61 @@ impl Reads {
                 .get(&history)
                 .and_then(Weak::upgrade)
                 .unwrap_or_else(|| Budget::new(self.max_bytes, self.max_items));
-            let group = budget.acquire(4096).ok_or(RuntimeError::Overloaded)?;
+            let group = budget
+                .acquire(request.kind.reservation_bytes())
+                .ok_or(RuntimeError::Overloaded)?;
             self.groups.insert(history, Arc::downgrade(&budget));
             self.sequence = self
                 .sequence
                 .checked_add(1)
                 .ok_or(RuntimeError::Overloaded)?;
-            let mut context = PREFIX.to_vec();
+            let membership = matches!(request.kind, ReadKind::Membership { .. });
+            let cell_read = matches!(
+                request.kind,
+                ReadKind::Cell(_, CellReadConsistency::Linearizable)
+            );
+            let mut context = if membership || cell_read {
+                let mut context = if membership {
+                    MEMBERSHIP_PREFIX
+                } else {
+                    CELL_FORWARD_PREFIX
+                }
+                .to_vec();
+                context.extend_from_slice(&owner.membership_read_origin().to_be_bytes());
+                context
+            } else {
+                PREFIX.to_vec()
+            };
             context.extend_from_slice(&self.nonce);
             context.extend_from_slice(&self.sequence.to_be_bytes());
             let term = if request.kind.linearizable() {
                 let status = owner.status()?;
-                if !status.ready {
-                    return Err(RuntimeError::NotReady);
+                if matches!(request.kind, ReadKind::Membership { minimum } if status.applied.index < minimum)
+                {
+                    // The configuration proposal is only admitted. Start this
+                    // invocation's quorum barrier after its durable apply floor.
+                    None
+                } else {
+                    if membership {
+                        match owner.read_membership_index(context.clone()) {
+                            Ok(()) => Some(status.term),
+                            Err(RuntimeError::NotReady) => None,
+                            Err(error) => return Err(error),
+                        }
+                    } else if cell_read {
+                        match owner.read_forwarded_cell_index(context.clone()) {
+                            Ok(()) => Some(status.term),
+                            Err(RuntimeError::NotReady) => None,
+                            Err(error) => return Err(error),
+                        }
+                    } else {
+                        if !status.ready {
+                            return Err(RuntimeError::NotReady);
+                        }
+                        owner.read_cell_index(context.clone())?;
+                        Some(status.term)
+                    }
                 }
-                owner.read_cell_index(context.clone())?;
-                Some(status.term)
             } else {
                 None
             };
@@ -172,8 +248,9 @@ impl Reads {
         mut select: impl FnMut(
             GroupHistory,
             &ReadRequest,
-            Option<Term>,
-            Option<LogIndex>,
+            &mut Option<Term>,
+            &mut Option<LogIndex>,
+            &[u8],
         ) -> Result<Selection, RuntimeError>,
     ) -> bool {
         let mut made = false;
@@ -187,17 +264,22 @@ impl Reads {
             }
         });
         let mut finished = Vec::new();
-        for (context, pending) in &self.pending {
+        for (context, pending) in &mut self.pending {
+            let before = (pending.term, pending.barrier);
             let result = if now >= pending.request.deadline {
                 Err(RuntimeError::DeadlineExceeded)
             } else {
                 select(
                     pending.history,
                     &pending.request,
-                    pending.term,
-                    pending.barrier,
+                    &mut pending.term,
+                    &mut pending.barrier,
+                    context,
                 )
             };
+            // A newly issued barrier must drive the owner's Ready work even
+            // when selection still waits. Waiting without a state change sleeps.
+            made |= before != (pending.term, pending.barrier);
             if !matches!(result, Err(RuntimeError::NotReady)) {
                 finished.push((context.clone(), result));
             }
@@ -223,6 +305,12 @@ impl Reads {
                     pending.group,
                 )
                 .map(|authority| Response::Seed(Box::new(authority))),
+                Selection::Membership(selection) => CellGroupQuorumMembership::new(
+                    selection,
+                    pending.request.reservation,
+                    pending.group,
+                )
+                .map(|observation| Response::Membership(Box::new(observation))),
             });
             let _ = pending.reply.send(result);
             made = true;

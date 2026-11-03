@@ -391,3 +391,187 @@ pub(crate) async fn lifecycle(rooted: bool) -> Result<()> {
     assert_eq!(pool.usage()?.running_workers, 0);
     fixture.close().await
 }
+
+/// A follower must obtain its own correlated quorum barrier, apply through it,
+/// and retain only that invocation's authority across SQL work.
+pub(crate) async fn follower_linearizable(rooted: bool) -> Result<()> {
+    let (mut fixture, route, a, _) = enrolled_sql_cells(rooted).await?;
+    let pool = pool(&fixture, 1)?;
+    let options = fixture.cell_options_at(&a, 1).await?;
+    let authority = selected(&mut fixture, 1, &a, CellReadConsistency::Linearizable).await?;
+    let barrier = authority.barrier().context("follower correlated barrier")?;
+    assert!(authority.applied().index >= barrier.index);
+    assert_eq!(authority.cell().version.history, a);
+    let output = value(&pool, options.clone(), authority).await?;
+    assert_eq!(
+        output.replica(),
+        fixture.cluster.voters[1]
+            .log
+            .cell_group(&route.history)?
+            .identity()
+    );
+    drop(output);
+
+    // No response from a live quorum: a previous successful read cannot be reused.
+    assert!(matches!(
+        fixture.runtimes[1]
+            .read_authority(
+                route.history,
+                a.clone(),
+                CellReadConsistency::Linearizable,
+                deadline(&fixture, 50).await?,
+            )
+            .await,
+        Err(RuntimeError::DeadlineExceeded)
+    ));
+    fixture.drive(None).await?;
+
+    let mut forged = b"cellar-cell-forward-read-1\0".to_vec();
+    forged.extend_from_slice(&3_u64.to_be_bytes());
+    forged.extend_from_slice(&[41; 16]);
+    forged.extend_from_slice(&1_u64.to_be_bytes());
+    let term = fixture.runtimes[0].status(route.history).await?.term.get();
+    let message = Message {
+        msg_type: MessageType::MsgReadIndex,
+        from: 2,
+        to: 1,
+        term,
+        entries: vec![Entry {
+            data: forged.into(),
+            ..Default::default()
+        }]
+        .into(),
+        ..Default::default()
+    };
+    assert!(
+        fixture.runtimes[0]
+            .step(route.history, message)
+            .await
+            .is_err(),
+        "forwarded read context must name its authenticated origin"
+    );
+    assert!(
+        fixture.runtimes[0]
+            .read_index(
+                route.history,
+                b"cellar-cell-forward-read-1\0forged".to_vec(),
+            )
+            .await
+            .is_err(),
+        "public contexts cannot enter the private cell-read namespace"
+    );
+
+    let retained = selected(&mut fixture, 1, &a, CellReadConsistency::Linearizable).await?;
+    super::reconciliation::transfer(&mut fixture, 0, 2).await?;
+    assert!(pool
+        .query(options, retained, |_, _| panic!(
+            "revoked follower authority"
+        ))
+        .await
+        .is_err());
+    pool.close().await?;
+    fixture.close().await
+}
+
+/// Source-age bounds follow the physical query pin, including entered callbacks.
+pub(crate) async fn recent_source_reads(rooted: bool) -> Result<()> {
+    let (mut fixture, route, a, _) = enrolled_sql_cells(rooted).await?;
+    let pool = pool(&fixture, 1)?;
+    let options = fixture.cell_options_at(&a, 1).await?;
+    // A fresh actual leader heartbeat, not an advisory catalog refresh.
+    for _ in 0..2 {
+        fixture.runtimes[0].tick().await?;
+        fixture.drive(None).await?;
+    }
+    // This read needs no network round. The generic selected() helper pumps
+    // peer traffic concurrently and may admit another heartbeat after capture.
+    let authority = fixture.runtimes[1]
+        .read_authority(
+            route.history,
+            a.clone(),
+            CellReadConsistency::RecentSource { max_age_ms: 100 },
+            deadline(&fixture, 5000).await?,
+        )
+        .await?;
+    let expiry = authority.deadline();
+    let (entered, started) = tokio::sync::oneshot::channel();
+    let (release, blocked) = std::sync::mpsc::sync_channel(1);
+    let reader = pool.clone();
+    let held_options = options.clone();
+    let pending = fixture.cluster.domain.spawn(async move {
+        reader
+            .query(held_options, authority, move |db, _| {
+                let _ = entered.send(());
+                blocked.recv_timeout(Duration::from_secs(5))?;
+                let value: i64 = db.query_row("SELECT n FROM value", [], |row| row.get(0))?;
+                Ok(value.to_le_bytes().to_vec())
+            })
+            .await
+    })?;
+    tokio::time::timeout(Duration::from_secs(5), started).await??;
+    fixture
+        .cluster
+        .domain
+        .run(async { cellar::asyncrt::sleep_until(expiry).await })
+        .await?;
+    assert!(
+        pending.await?.is_err(),
+        "old source observation cannot authorize a late reply"
+    );
+    assert_eq!(
+        pool.usage()?.retained_operations,
+        1,
+        "expired waiter retains entered physical SQL"
+    );
+    release.send(())?;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while pool.usage()?.retained_operations != 0 {
+            tokio::task::yield_now().await;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await??;
+    // A stale-term heartbeat cannot refresh the current source observation.
+    let term = fixture.runtimes[1].status(route.history).await?.term.get();
+    assert!(term > 1);
+    fixture.runtimes[1]
+        .step(
+            route.history,
+            Message {
+                msg_type: MessageType::MsgHeartbeat,
+                from: 1,
+                to: 2,
+                term: term - 1,
+                ..Default::default()
+            },
+        )
+        .await?;
+    assert!(matches!(
+        fixture.runtimes[1]
+            .read_authority(
+                route.history,
+                a.clone(),
+                CellReadConsistency::RecentSource { max_age_ms: 100 },
+                deadline(&fixture, 30).await?
+            )
+            .await,
+        Err(RuntimeError::DeadlineExceeded)
+    ));
+    // Historical reads are a separate explicit policy, never the fallback above.
+    let authority = selected(&mut fixture, 1, &a, CellReadConsistency::Stale).await?;
+    drop(value(&pool, options.clone(), authority).await?);
+    for _ in 0..2 {
+        fixture.runtimes[0].tick().await?;
+        fixture.drive(None).await?;
+    }
+    let authority = selected(
+        &mut fixture,
+        1,
+        &a,
+        CellReadConsistency::RecentSource { max_age_ms: 1000 },
+    )
+    .await?;
+    drop(value(&pool, options, authority).await?);
+    pool.close().await?;
+    fixture.close().await
+}

@@ -172,7 +172,7 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         request: &FleetMovementRequest,
         observer: &RaftCells,
-        namespaces: &[crate::raft::catalog::NamespaceCatalog],
+        namespaces: &[crate::raft::catalog::RangeDirectory],
         timeout: Duration,
     ) -> Result<FleetMovementAdmission> {
         self.reserve_movement_inner(snapshot, request, observer, namespaces, false, timeout)
@@ -184,7 +184,7 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         request: &FleetMovementRequest,
         observer: &RaftCells,
-        namespaces: &[crate::raft::catalog::NamespaceCatalog],
+        namespaces: &[crate::raft::catalog::RangeDirectory],
         topology: bool,
         timeout: Duration,
     ) -> Result<FleetMovementAdmission> {

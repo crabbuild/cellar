@@ -133,6 +133,19 @@ pub struct CellInspection {
     pub leader_load: Option<LeaderLoad>,
 }
 
+/// Progress captured with one physical group's complete quorum-selected root.
+/// This never substitutes a business cell identity or grants leader authority.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GroupInspection {
+    pub history: cellar_logic::cell_group::GroupHistory,
+    pub schema_digest: [u8; 32],
+    pub birth_digest: [u8; 32],
+    pub node: NodeInspection,
+    pub member: Option<MemberInspection>,
+    /// None means no complete node-wide leadership scan was captured.
+    pub leader_load: Option<LeaderLoad>,
+}
+
 // The transport uses the validated ledger/configuration pair to encode a strict
 // bounded response. The public SDK returns only the observation above.
 #[derive(Clone, Debug)]

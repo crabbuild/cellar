@@ -59,9 +59,7 @@ pub(in crate::raft::fleet_catalog::maintenance::runtime) async fn next(
                 .as_ref(),
             None => verification.inventory.as_ref(),
         };
-        let slot = inventory
-            .history(&scope)
-            .map_err(|_| FleetCatalogError::Conflict)?;
+        let slot = inventory.group_history(&scope);
         if let Some(slot) = slot {
             check_slot(history, member, *slot)?;
             let unregistered = physical
@@ -121,8 +119,7 @@ pub(in crate::raft::fleet_catalog::maintenance::runtime) async fn next(
             )
             .await?;
             let slot = actual
-                .history(&scope)
-                .map_err(|_| FleetCatalogError::Conflict)?
+                .group_history(&scope)
                 .ok_or(FleetCatalogError::Unconfirmed)?;
             check_slot(history, member, *slot)?;
             refresh_target(verification, history, &voters, actual)?;
@@ -132,8 +129,7 @@ pub(in crate::raft::fleet_catalog::maintenance::runtime) async fn next(
                 .inventory
                 .as_ref()
                 .ok_or(FleetCatalogError::InventoryIncomplete)?
-                .history(&scope)
-                .map_err(|_| FleetCatalogError::Conflict)?
+                .group_history(&scope)
                 .copied()
                 .ok_or(FleetCatalogError::Unconfirmed)?;
             check_slot(history, member, slot)?;
@@ -184,8 +180,7 @@ fn refresh_target(
         .map_err(|_| FleetCatalogError::Corrupt("genesis maintenance node"))?;
     let member = *voters.get(&main).ok_or(FleetCatalogError::Conflict)?;
     let slot = actual
-        .history(&scope)
-        .map_err(|_| FleetCatalogError::Conflict)?
+        .group_history(&scope)
         .copied()
         .ok_or(FleetCatalogError::Conflict)?;
     check_slot(history, member, slot)?;

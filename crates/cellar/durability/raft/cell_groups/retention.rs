@@ -251,6 +251,35 @@ impl RootRetentions {
         })
     }
 
+    /// Validate an already verified physical closure without rebuilding it.
+    /// Marker equality alone cannot clear pending or uncertain publication.
+    pub(super) fn require_selected<S>(
+        &self,
+        group: &GroupLog<S>,
+        marker: &GroupManifest,
+    ) -> Result<(), ManifestError> {
+        let checkpoint = group
+            .checkpoint_manifest()
+            .map_err(|_| ManifestError::Invalid("closed engine"))?;
+        let state = self.state()?;
+        let selected = state
+            .groups
+            .get(&key(marker))
+            .ok_or(ManifestError::Invalid("selected root not recovered"))?;
+        if !Arc::ptr_eq(&selected.engine, &group.owner)
+            || group.closed.load(Ordering::Acquire)
+            || selected.closed.load(Ordering::Acquire)
+            || selected.pending.is_some()
+            || selected.pending_checkpoint
+            || selected.current.as_ref().map(|root| &root.marker) != Some(marker)
+            || selected.expected_checkpoint != checkpoint
+            || selected.checkpoint.as_ref().map(|root| &root.marker) != checkpoint.as_ref()
+        {
+            return Err(ManifestError::Conflict);
+        }
+        Ok(())
+    }
+
     pub(super) fn require_checkpoint<S>(&self, group: &GroupLog<S>) -> Result<(), ManifestError> {
         let expected = group
             .checkpoint_manifest()

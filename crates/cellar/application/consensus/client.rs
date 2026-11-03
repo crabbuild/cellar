@@ -23,9 +23,6 @@ use tokio::sync::{mpsc, oneshot, Notify};
 #[path = "client_fleet.rs"]
 mod fleet;
 pub(crate) use fleet::FleetRequest;
-#[path = "client_execution.rs"]
-mod execution;
-pub(crate) use execution::{LocalFleetActionCall, PeerFleetActionCall};
 
 #[path = "client_bindings.rs"]
 mod bindings;
@@ -33,8 +30,7 @@ mod bindings;
 mod node;
 pub(crate) use bindings::Bindings;
 use node::send_failure;
-pub(crate) use node::{ControlRequest, NodeKind, NodeRequest};
-pub(crate) use node::{PeerFleetRequest, PeerStopRequest};
+pub(crate) use node::{ControlRequest, NodeKind};
 
 /// A compare-and-set admission request for a preconfigured fresh learner.
 #[derive(Clone, Debug)]
@@ -91,64 +87,6 @@ pub struct CommandReceipt {
     pub version: CommittedVersion,
     pub version_token: VersionToken,
     pub durability: Durability,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum QueryConsistency {
-    Stale,
-    AtLeast(VersionToken),
-    Linearizable,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum StaleReadPolicy {
-    /// Refuse after the configured deadline for observing a current source.
-    #[default]
-    RecentSource,
-    /// Permit a verified historical image during disconnection. This supplies
-    /// no wall-clock staleness bound and does not strengthen its consistency.
-    DisconnectedHistorical,
-}
-
-#[derive(Clone, Debug, Default)]
-pub enum QueryRouting {
-    #[default]
-    Local,
-    /// Try at most eight distinct members in priority order, then optionally
-    /// one untried leader hint. Each attempt retains the same consistency,
-    /// token and captured input under the original invocation deadline.
-    Replicas {
-        members: Vec<MemberId>,
-        attempt_timeout: Duration,
-        leader_fallback: bool,
-    },
-}
-
-#[derive(Clone, Debug)]
-pub struct QueryOptions {
-    pub consistency: QueryConsistency,
-    pub timeout: Duration,
-    pub stale_policy: StaleReadPolicy,
-    pub routing: QueryRouting,
-}
-
-impl Default for QueryOptions {
-    fn default() -> Self {
-        Self {
-            consistency: QueryConsistency::Stale,
-            timeout: Duration::from_secs(5),
-            stale_policy: StaleReadPolicy::RecentSource,
-            routing: QueryRouting::Local,
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct QueryResult {
-    pub result: Vec<u8>,
-    pub version: CommittedVersion,
-    pub version_token: VersionToken,
-    pub served_by: MemberId,
 }
 
 /// Discovery/readiness observation, never a grant of mutation authority.
@@ -747,31 +685,6 @@ impl RaftCellHandle {
         }
     }
 
-    /// Queue a read immediately; the returned version names its pinned image.
-    /// Dropping the returned future cancels the waiter.
-    pub fn query(
-        &self,
-        contract: OperationContract,
-        input: Vec<u8>,
-        options: QueryOptions,
-    ) -> impl Future<Output = Result<QueryResult, CommandFailure>> + Send + 'static {
-        let timeout = options.timeout;
-        let call = self.call(
-            Kind::Query {
-                contract,
-                input,
-                options,
-            },
-            timeout,
-        );
-        async move {
-            match call.await? {
-                Response::Query(result) => Ok(result),
-                _ => Err(CommandFailure::CorruptState),
-            }
-        }
-    }
-
     /// Queue a readiness observation immediately. Readiness may change before
     /// a subsequent command; the observation grants no write authority.
     pub fn status(
@@ -897,50 +810,6 @@ impl RaftCellHandle {
                         return Err(CommandFailure::Overloaded);
                     }
                 }
-                Kind::Query {
-                    contract,
-                    input,
-                    options,
-                } => {
-                    if matches!(options.routing, QueryRouting::Local) {
-                        if self.binding.member().is_none() {
-                            return Err(CommandFailure::UnsupportedCapability);
-                        }
-                        self.validate(contract, OperationKind::Query, input)?;
-                    } else {
-                        // A voter may forward a query whose implementation is
-                        // only installed on another replica. Destination code
-                        // compatibility remains mandatory before execution.
-                        if contract.kind != OperationKind::Query
-                            || contract.digest == [0; 32]
-                            || super::class::validate_name(&contract.operation).is_err()
-                        {
-                            return Err(CommandFailure::UnsupportedCapability);
-                        }
-                        if input.len() > self.handle.max_input_bytes {
-                            return Err(CommandFailure::Overloaded);
-                        }
-                    }
-                    if let QueryRouting::Replicas {
-                        members,
-                        attempt_timeout,
-                        ..
-                    } = &options.routing
-                    {
-                        if members.is_empty()
-                            || members.len() > 8
-                            || members
-                                .iter()
-                                .collect::<std::collections::BTreeSet<_>>()
-                                .len()
-                                != members.len()
-                            || attempt_timeout.as_millis() == 0
-                            || *attempt_timeout > Duration::from_secs(60)
-                        {
-                            return Err(CommandFailure::UnsupportedConsistency);
-                        }
-                    }
-                }
                 Kind::Inspect => (),
                 Kind::InspectPeer(_) => {
                     if timeout > Duration::from_secs(60) {
@@ -983,14 +852,6 @@ impl RaftCellHandle {
                     if self.binding.member().is_none()
                         || timeout > Duration::from_secs(60)
                         || !action.matches_scope(&self.binding.scope)
-                    {
-                        return Err(CommandFailure::UnsupportedCapability);
-                    }
-                }
-                Kind::ObserveFleet(authorization) => {
-                    if self.binding.member().is_none()
-                        || timeout > Duration::from_secs(60)
-                        || !authorization.matches_scope(&self.binding.scope)
                     {
                         return Err(CommandFailure::UnsupportedCapability);
                     }
@@ -1108,7 +969,6 @@ pub(crate) enum Kind {
     ActivateInitial(Box<crate::raft::fleet_catalog::FleetGroupAuthorization>),
     Fleet(Box<FleetRequest>),
     FleetStatus,
-    ObserveFleet(Box<crate::raft::fleet_catalog::FleetGroupAuthorization>),
     ActivateManaged {
         authorization: Box<crate::raft::fleet_catalog::FleetPermitAuthorization>,
         activation: LearnerActivation,
@@ -1148,24 +1008,17 @@ pub(crate) enum Kind {
         input: Vec<u8>,
         options: CommandOptions,
     },
-    Query {
-        contract: OperationContract,
-        input: Vec<u8>,
-        options: QueryOptions,
-    },
     Status,
 }
 
 impl Kind {
     fn is_control(&self) -> bool {
-        !matches!(self, Self::Command { .. } | Self::Query { .. })
+        !matches!(self, Self::Command { .. })
     }
 
     fn bytes(&self) -> usize {
         4096 + match self {
-            Self::Command { input, .. }
-            | Self::SystemCommand { input, .. }
-            | Self::Query { input, .. } => input.len(),
+            Self::Command { input, .. } | Self::SystemCommand { input, .. } => input.len(),
             Self::Inspect
             | Self::InspectPeer(_)
             | Self::Status
@@ -1181,7 +1034,6 @@ impl Kind {
             | Self::ActivateInitial(_)
             | Self::Fleet(_)
             | Self::FleetStatus
-            | Self::ObserveFleet(_)
             | Self::RepairStatus => 0,
         }
     }
@@ -1191,7 +1043,7 @@ impl Kind {
             Self::Command { options, .. } | Self::SystemCommand { options, .. } => {
                 CancelFailure::Command(options.id)
             }
-            Self::Query { .. } | Self::Seed { .. } => CancelFailure::Query,
+            Self::Seed { .. } => CancelFailure::Seed,
             Self::Inspect
             | Self::InspectPeer(_)
             | Self::Status
@@ -1206,7 +1058,6 @@ impl Kind {
             | Self::ActivateInitial(_)
             | Self::Fleet(_)
             | Self::FleetStatus
-            | Self::ObserveFleet(_)
             | Self::RepairStatus => CancelFailure::Status,
         }
     }
@@ -1214,7 +1065,7 @@ impl Kind {
 
 enum CancelFailure {
     Command(CommandId),
-    Query,
+    Seed,
     Status,
 }
 
@@ -1223,30 +1074,23 @@ impl CancelFailure {
         let submitted = control.cancel();
         match self {
             Self::Command(id) if submitted => CommandFailure::Ambiguous { command: *id },
-            Self::Query => CommandFailure::VersionUnavailable,
+            Self::Seed => CommandFailure::VersionUnavailable,
             _ => CommandFailure::Unavailable,
         }
     }
 }
 
 pub(crate) enum Response {
-    FleetExecutionAction(Result<(), crate::raft::fleet_catalog::FleetCatalogError>),
     PeerFleetStop(
         Result<
             Box<crate::raft::fleet_stop::FleetStopAcceptance>,
             crate::raft::fleet_catalog::FleetCatalogError,
         >,
     ),
-    PeerFleetObservation(
-        Result<Box<super::RaftPeerFleetMembershipObservation>, super::InspectionError>,
-    ),
-    LocalFleetObservation(Box<crate::raft::fleet_inspection_wire::LocalObservation>),
     PeerNodeInspection(Result<Box<super::RaftPeerNodeObservation>, super::InspectionError>),
     PhysicalNode(Box<crate::raft::physical_inventory::PhysicalNodeObservation>),
-    HistoryRegistered,
     Node(Box<super::RaftHostObservation>),
     Fleet(Option<Box<crate::raft::member_state::FleetMembershipStatus>>),
-    FleetObservation(Box<crate::raft::host::FleetMembershipObservation>),
     Drained(super::RaftDrainReport),
     Controller(super::RaftControllerStatus),
     PeerInspection(
@@ -1259,7 +1103,6 @@ pub(crate) enum Response {
     Seed(Box<crate::raft::transport::seeds::SourceSeed>),
     Learner(LearnerReceipt),
     Command(CommandReceipt),
-    Query(QueryResult),
     Status(CellStatus),
 }
 

@@ -26,7 +26,7 @@ pub(crate) async fn cached_dispatch_execution() -> Result<()> {
         );
         let (mut fixture, route, a, b) = Box::pin(registered::setup(rooted, &class)).await?;
         let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
-        let gateways = gateways(&fixture, class.clone()).await?;
+        let gateways = gateways(&fixture, &controllers, class.clone()).await?;
         let dispatch = dispatcher(&fixture, class.clone(), keys(190)?)?;
         let mut warm = invocation(
             &dispatch,

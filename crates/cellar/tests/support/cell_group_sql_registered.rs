@@ -170,11 +170,22 @@ pub(super) async fn setup_in(
     root: tempfile::TempDir,
     filesystem: Arc<dyn cellar_ltx::FileSystem>,
 ) -> Result<(RuntimeCluster, GroupRoute, CellHistory, CellHistory)> {
-    let cluster = Cluster::with_storage_schema(
+    let cluster = Cluster::with_store_birth(
         RaftRuntimeOptions::default(),
         root,
         filesystem.clone(),
         class.schema_digest(),
+        Arc::new(object_store::memory::InMemory::new()),
+        ClusterBirthOptions {
+            group: GroupId::new([3; 16])?,
+            image_storage: if rooted {
+                RaftImageStorage::Extents
+            } else {
+                RaftImageStorage::Materialized
+            },
+            minimum: Durability::Quorum,
+            log: ClusterLogLimits::default(),
+        },
     )
     .await?;
     setup_cluster(rooted, cluster, filesystem).await
@@ -195,13 +206,22 @@ pub(super) async fn setup_store_minimum(
     minimum: Durability,
 ) -> Result<(RuntimeCluster, GroupRoute, CellHistory, CellHistory)> {
     let filesystem = Arc::new(DirectFileSystem);
-    let cluster = Cluster::with_store_minimum(
+    let cluster = Cluster::with_store_birth(
         RaftRuntimeOptions::default(),
         tempfile::tempdir()?,
         filesystem.clone(),
         class.schema_digest(),
         store,
-        minimum,
+        ClusterBirthOptions {
+            group: GroupId::new([3; 16])?,
+            image_storage: if rooted {
+                RaftImageStorage::Extents
+            } else {
+                RaftImageStorage::Materialized
+            },
+            minimum,
+            log: ClusterLogLimits::default(),
+        },
     )
     .await?;
     setup_cluster(rooted, cluster, filesystem).await
@@ -227,6 +247,15 @@ pub(super) async fn setup_cluster_named(
     filesystem: Arc<dyn cellar_ltx::FileSystem>,
     names: [&str; 2],
 ) -> Result<(RuntimeCluster, GroupRoute, CellHistory, CellHistory)> {
+    assert_eq!(
+        cluster.directory.namespace_config().image_storage,
+        if rooted {
+            RaftImageStorage::Extents
+        } else {
+            RaftImageStorage::Materialized
+        },
+        "fixture backend must match its immutable namespace capability",
+    );
     let mut fixture = Box::pin(RuntimeCluster::from_cluster(cluster, 256, 256, 1_000_000)).await?;
     let route = fixture.cluster.birth.route().clone();
     if rooted {

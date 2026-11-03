@@ -4,8 +4,8 @@
 use super::*;
 use crate::application::consensus::CommandFailure;
 use crate::raft::cell_groups::{
-    CellDispatchError, CellGroupController, CellGroupDispatcher, CellRoutingLimits, CellSqlOptions,
-    EnrollmentRecord,
+    CellDispatchError, CellGroupController, CellGroupDispatcher, CellGroupNamespaceStorage,
+    CellRoutingLimits, EnrollmentRecord,
 };
 use crate::raft::query_identity::QueryRoute;
 use crate::raft::query_wire::{
@@ -45,7 +45,7 @@ pub(super) struct Gateway {
     accepting: AtomicBool,
     controller: CellGroupController,
     dispatcher: CellGroupDispatcher,
-    options: CellSqlOptions,
+    storage: CellGroupNamespaceStorage,
 }
 
 /// Retains the same node/peer query admission through consumption of the result.
@@ -227,13 +227,19 @@ impl RaftTransport {
         &self,
         dispatcher: CellGroupDispatcher,
         controller: CellGroupController,
-        options: CellSqlOptions,
+        storage: CellGroupNamespaceStorage,
     ) -> Result<CellCommandGateway, TransportError> {
         let state = &self.handle.0;
         let runtime = state.runtime.shared()?;
         if !dispatcher.uses_domain(&state.domain) || !controller.belongs_to(runtime) {
             return Err(TransportError::Identity);
         }
+        let (namespace, _, _) = dispatcher
+            .host_binding()
+            .map_err(|_| TransportError::Identity)?;
+        storage
+            .validate_namespace(&namespace)
+            .map_err(|_| TransportError::Identity)?;
         let key = dispatcher.namespace();
         let mut gateways = state
             .cell_command_gateways
@@ -252,7 +258,7 @@ impl RaftTransport {
             accepting: AtomicBool::new(true),
             controller,
             dispatcher,
-            options,
+            storage,
         });
         gateways.insert(key, Arc::downgrade(&inner));
         Ok(CellCommandGateway {
@@ -614,6 +620,7 @@ impl State {
         if !gateway.accepting.load(Ordering::Acquire) {
             return Err(TransportError::Refused);
         }
+        let options = gateway.storage.for_cell(&cell);
         let binding = crate::raft::cell_groups::RemoteMutationRoute {
             group: target.scope,
             schema: route.schema(),
@@ -638,7 +645,7 @@ impl State {
                 .map_err(|_| CommandFailure::Unavailable)?;
             gateway
                 .controller
-                .lookup_receipt(invocation, gateway.options.clone())
+                .lookup_receipt(invocation, options)
                 .await
                 .map_err(|e| command_failure(&e))
         }
@@ -662,6 +669,7 @@ impl State {
         if !gateway.accepting.load(Ordering::Acquire) {
             return Err(TransportError::Refused);
         }
+        let options = gateway.storage.for_cell(&cell);
         let binding = crate::raft::cell_groups::RemoteMutationRoute {
             group: target.scope,
             schema: route.schema(),
@@ -691,7 +699,7 @@ impl State {
                 .map_err(|_| CommandFailure::Unavailable)?;
             let call = gateway
                 .controller
-                .enroll(invocation, gateway.options.clone())
+                .enroll(invocation, options)
                 .map_err(|error| command_failure(&error.error.cause))?;
             call.response()
                 .await
@@ -717,6 +725,7 @@ impl State {
         if !gateway.accepting.load(Ordering::Acquire) {
             return Err(TransportError::Refused);
         }
+        let options = gateway.storage.for_cell(&cell);
         let binding = crate::raft::cell_groups::RemoteMutationRoute {
             group: target.scope,
             schema: route.schema(),
@@ -748,7 +757,7 @@ impl State {
                 .map_err(|_| CommandFailure::Unavailable)?;
             let call = gateway
                 .controller
-                .command(invocation, gateway.options.clone())
+                .command(invocation, options)
                 .map_err(|error| command_failure(&error.error.cause))?;
             call.response()
                 .await

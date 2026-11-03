@@ -180,6 +180,13 @@ pub(crate) struct Guard {
 }
 
 impl Guard {
+    /// New group attachments must order behind this exact locally synced boot.
+    /// Quiescence, stop acceptance and fencing close this admission as well as
+    /// business traffic; only a committed resume reopens the same boot.
+    pub(crate) fn admits_group_start(&self, boot: &BootBinding) -> bool {
+        self.boot == *boot && matches!(&self.phase, Phase::Open | Phase::Resumed { .. })
+    }
+
     pub fn accepted(&self) -> Option<&StopSelector> {
         match &self.phase {
             Phase::StopAccepted { selector } => Some(selector),

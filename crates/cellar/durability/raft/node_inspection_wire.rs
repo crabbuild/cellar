@@ -162,6 +162,7 @@ struct Body {
     declared_namespaces: u32,
     registered_histories: u32,
     dormant_histories: u32,
+    #[serde(rename = "pending_group_registrations")]
     pending_history_registrations: u32,
     unattached_engine_histories: u32,
     seed_workers: u32,
@@ -211,7 +212,6 @@ pub(crate) fn validate(view: &RaftHostObservation) -> Result<(), TransportError>
         || !(1..=64).contains(&view.declared_namespaces)
         || view.registered_histories > 4096
         || view.dormant_histories > view.registered_histories
-        || view.pending_history_registrations > 1
         || view.node.groups > 4097
         || view.unattached_engine_histories > view.node.groups
         || view

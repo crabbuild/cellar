@@ -3,7 +3,9 @@
 # Committed producer/receiver recovery
 
 This finite development example runs three physical Node instances on one
-machine, with separate Producer and Receiver Raft groups. A producer command
+machine, with a configured range group in each Producer and Receiver namespace.
+Logical cells enroll into those groups through the shared runtime; cell handles
+do not create Raft machines. A producer command
 updates SQL and appends a signed outbox intent atomically. The owned scheduler
 commits an attempt, sends it through `RaftNativeEffectSink`, verifies the durable
 receiver receipt and commits source settlement. The receiver's SQL mutation and
@@ -26,12 +28,17 @@ python3 examples/raft-effects/smoke.py \
 ```
 
 Use a new directory for a new drill; keep the same directory between its two
-runs. The runner checks the executable digest before and after each run, retains
+runs. Provisioning writes the exact archive creation intents before committing
+their counters. Retained startup only opens those identities and refuses missing
+metadata; it never recreates an archive. A partially provisioned directory requires
+explicit recovery. Predecessor per-cell directories are not migrated by this drill. The runner checks the executable digest before and after each run, retains
 its logs and verifies `result.json`. The binary accepts those same four data/TLS
 arguments for an individual run. Every successfully started service and Node is
 joined on success or startup failure. A stopped primary can report ambiguous
 internal work, which the replacement reconciles from committed state; the report
-records its count. Final shutdown waits for settled S3 coverage. Retain disks and
+records the retained-call count. A fresh harmless Producer command follows the
+observed settlement; its S3 receipt proves coverage at or beyond that observation.
+Final shutdown requires joined producers and nonfailed groups. Retain disks and
 the catalog: this example does not grant permission to discard unarchived data.
 
 Lanes retain one immutable request until source settlement, and receivers retain
