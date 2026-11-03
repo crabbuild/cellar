@@ -3,7 +3,9 @@
 //! Catalog-bound invocations over the existing consensus and SQL owners.
 //! Routing observations never replace destination authority or ingress grants.
 
+mod query_routing;
 mod receipt;
+pub use query_routing::CellQueryRouting;
 pub use receipt::{
     CellReceiptInvocation, CellReceiptRequest, CellReceiptResponse, CellReceiptSelection,
 };
@@ -260,11 +262,23 @@ impl CellGroupDispatcher {
     pub fn query(
         &self,
         cell: CellHistory,
-        mut request: CellQueryRequest,
+        request: CellQueryRequest,
         limits: CellRoutingLimits,
         cached: Option<ResolvedCellRoute>,
     ) -> Result<CellQueryInvocation, CellDispatchError> {
+        self.query_routed(cell, request, limits, cached, CellQueryRouting::Local)
+    }
+
+    pub fn query_routed(
+        &self,
+        cell: CellHistory,
+        mut request: CellQueryRequest,
+        limits: CellRoutingLimits,
+        cached: Option<ResolvedCellRoute>,
+        mut routing: CellQueryRouting,
+    ) -> Result<CellQueryInvocation, CellDispatchError> {
         let started_at = self.domain.mono_ms().map_err(|_| closed())?;
+        routing.validate(limits)?;
         if request.contract.operation.len() > 128
             || request.input.len() > self.limits.max_input_bytes
         {
@@ -302,7 +316,7 @@ impl CellGroupDispatcher {
                 CellRouteRequest {
                     cell: cell.clone(),
                     operation: CellRouteOperation::Query(request.invocation),
-                    fingerprint: fingerprint(&cell, &request, limits),
+                    fingerprint: fingerprint(&cell, &request, limits, &routing),
                 },
                 limits,
                 cached,
@@ -313,11 +327,13 @@ impl CellGroupDispatcher {
         Ok(CellQueryInvocation {
             dispatcher: self.clone(),
             request,
+            routing,
+            leader_hint: None,
             session,
             attempt: None,
             remote_route: None,
             dispatched: false,
-            _admission: admission,
+            _admission: Arc::new(admission),
         })
     }
 }
@@ -327,11 +343,13 @@ impl CellGroupDispatcher {
 pub struct CellQueryInvocation {
     dispatcher: CellGroupDispatcher,
     request: CellQueryRequest,
+    routing: CellQueryRouting,
+    leader_hint: Option<cellar_logic::consensus::MemberId>,
     session: CellRoutingSession,
     attempt: Option<CellRouteAttempt>,
     remote_route: Option<RemoteMutationRoute>,
     dispatched: bool,
-    _admission: Permit,
+    _admission: Arc<Permit>,
 }
 
 impl CellQueryInvocation {
@@ -472,6 +490,9 @@ impl CellQueryInvocation {
         crate::asyncrt::select! {
             result = self.execute_at(attempt, runtime, sql, options, retention) => {
                 let result = result?;
+                if domain.mono_ms().map_err(|_| closed())? >= attempt.deadline_ms() {
+                    return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
+                }
                 self.session.validate_attempt(attempt).map_err(CellDispatchError::Routing)?;
                 Ok(result)
             }
@@ -518,9 +539,17 @@ impl CellQueryInvocation {
             .sleep_until(attempt.deadline_ms())
             .map_err(|_| closed())?;
         let response = crate::asyncrt::select! {
-            response = transport.query_cell(attempt.route(), &attempt.request().cell, member, call, self.dispatcher.keys.clone(), attempt.deadline_ms()) => response.map_err(CellDispatchError::Transport)?,
+            response = transport.query_cell(attempt.route(), &attempt.request().cell, member, call, crate::raft::transport::CellQueryContext { keys: self.dispatcher.keys.clone(), admission: self._admission.clone() }, attempt.deadline_ms()) => response,
             _ = timer => return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)),
         };
+        let response = response.map_err(CellDispatchError::Transport)?;
+        self.leader_hint = response.leader_hint;
+        let response = response.result.map_err(|failure| {
+            CellDispatchError::Transport(crate::raft::transport::TransportError::Query(failure))
+        })?;
+        if self.dispatcher.domain.mono_ms().map_err(|_| closed())? >= attempt.deadline_ms() {
+            return Err(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded));
+        }
         self.session
             .validate_attempt(attempt)
             .map_err(CellDispatchError::Routing)?;
@@ -610,16 +639,32 @@ impl CellQueryInvocation {
                 self.dispatcher.class.clone(),
                 self.request.contract.clone(),
                 self.request.input.clone(),
-                retention,
+                Some(crate::raft::host_sql::cell_groups::ReadRetention::new(
+                    Arc::new((retention, self._admission.clone())),
+                )),
             )
             .await
-            .map_err(CellDispatchError::Execution)?;
+            .map_err(|error| {
+                // The SQL waiter uses the shared execution error envelope. Its
+                // exact deadline must have the same routing meaning as this
+                // invocation's outer timer; ordinary storage failures stay fatal.
+                if matches!(&error, ExecutionError::Storage(cause)
+                    if matches!(cause.downcast_ref::<RuntimeError>(), Some(RuntimeError::DeadlineExceeded)))
+                {
+                    CellDispatchError::Runtime(RuntimeError::DeadlineExceeded)
+                } else {
+                    CellDispatchError::Execution(error)
+                }
+            })?;
         let token = self
             .dispatcher
             .keys
             .issue_cell(selected.observation(), schema, self.now().await?)
             .map_err(CellDispatchError::Version)?;
-        Ok(CellQueryResponse { selected, token })
+        Ok(CellQueryResponse {
+            selected: QuerySelection::Local(selected),
+            token,
+        })
     }
 
     async fn now(&self) -> Result<u64, CellDispatchError> {
@@ -632,17 +677,28 @@ impl CellQueryInvocation {
 }
 
 pub struct CellQueryResponse {
-    selected: CellSqlQueryResult,
+    selected: QuerySelection,
     token: CellVersionToken,
+}
+
+enum QuerySelection {
+    Local(CellSqlQueryResult),
+    Remote(crate::raft::transport::CellRemoteQueryResponse),
 }
 
 impl CellQueryResponse {
     pub fn result(&self) -> &[u8] {
-        self.selected.result()
+        match &self.selected {
+            QuerySelection::Local(selected) => selected.result(),
+            QuerySelection::Remote(selected) => selected.result(),
+        }
     }
 
     pub fn observation(&self) -> &CellVersionObservation {
-        self.selected.observation()
+        match &self.selected {
+            QuerySelection::Local(selected) => selected.observation(),
+            QuerySelection::Remote(selected) => selected.observation(),
+        }
     }
 
     pub fn token(&self) -> &CellVersionToken {
@@ -652,7 +708,18 @@ impl CellQueryResponse {
     pub fn replica(
         &self,
     ) -> &cellar_logic::consensus::ReplicaIdentity<cellar_logic::cell_group::GroupHistory> {
-        self.selected.replica()
+        match &self.selected {
+            QuerySelection::Local(selected) => selected.replica(),
+            QuerySelection::Remote(selected) => selected.replica(),
+        }
+    }
+
+    pub(crate) fn remote(selected: crate::raft::transport::CellRemoteQueryResponse) -> Self {
+        let token = selected.token().clone();
+        Self {
+            selected: QuerySelection::Remote(selected),
+            token,
+        }
     }
 }
 
@@ -664,12 +731,14 @@ fn fingerprint(
     cell: &CellHistory,
     request: &CellQueryRequest,
     limits: CellRoutingLimits,
+    routing: &CellQueryRouting,
 ) -> [u8; 32] {
     let mut hash = Sha256::new();
     hash.update(b"cellar-cell-query-invocation-1\0");
     hash.update(cell_image_history_digest(cell));
     hash.update(limits.timeout.as_nanos().to_be_bytes());
     hash.update([limits.max_attempts]);
+    routing.fingerprint(&mut hash);
     hash.update(request.invocation.bytes());
     hash.update((request.contract.operation.len() as u32).to_be_bytes());
     hash.update(request.contract.operation.as_bytes());

@@ -119,6 +119,19 @@ impl CellRouteAttempt {
     pub fn ordinal(&self) -> u8 {
         self.ordinal
     }
+
+    pub(crate) fn limit_query_deadline(&mut self, deadline: u64) -> Result<(), CellRoutingError> {
+        if !matches!(self.request.operation, CellRouteOperation::Query(_))
+            || deadline > self.deadline_ms
+        {
+            return Err(CellRoutingError {
+                reason: CellRoutingFailure::InvalidRequest,
+                ambiguous_command: None,
+            });
+        }
+        self.deadline_ms = deadline;
+        Ok(())
+    }
 }
 
 /// One invocation, with no automatic command submission or producer ownership.

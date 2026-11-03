@@ -178,12 +178,27 @@ version; another history or schema refuses. Linearizable needs a fresh safe
 ReadIndex and the corresponding applied root. Stale supplies neither a quorum
 barrier nor a wall-clock age promise.
 
-QueryOptions supplies consistency, timeout and a bounded max_attempts value. The
-invocation's original deadline is fixed before returning its waiter; retries keep
-the same contract, captured input and requested token. QueryRouting::Replicas and
-the per-cell QueryRouter registration path are retired. Group discovery supplies
-no member, image, read barrier or write authority. Complete public SDK, ingress
-and managed lifecycle qualification remains tracked by the
+QueryOptions supplies consistency, timeout, bounded max_attempts and QueryRouting.
+Local uses the same shared controller. Replicas captures one to eight distinct
+member preferences, a positive attempt_timeout no larger than the original timeout,
+and an optional leader_fallback. Candidates run in order, at most once; one final
+known leader may be tried only if it was not already a candidate. An absent leader
+hint does not authorize a guessed destination. Each attempted read consumes the
+same global attempt bank. Every ticket deadline can only shorten the original
+invocation deadline, which starts before the waiter returns.
+
+Retries preserve the contract, input, token, logical history, routing fingerprint
+and node admission. Expired physical SQL and transport work retain their permits
+until they join, even while a later attempt runs. Results retain the actual local
+or authenticated remote replica and response reservations. Wrong-history/schema,
+registration and permission failures do not become replica fallback opportunities.
+Incoming query RPCs execute locally and cannot recursively forward.
+
+Physical group discovery and leader hints are observations; destination admission
+still checks current namespace/process grants, route, membership and the selected
+cell read proof. The retired per-cell QueryRouter registration path is not used.
+The shared routing component passes its recorded native gates; complete public
+SDK, ingress and managed lifecycle qualification remains tracked by the
 [cell-group implementation record](cell-groups/progress.md).
 
 RaftCellsConfig::query_origins installs trusted namespace read grants for exact

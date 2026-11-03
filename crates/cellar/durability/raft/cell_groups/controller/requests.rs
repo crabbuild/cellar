@@ -54,6 +54,7 @@ pub(super) async fn drive(
     sql: CellGroupSqlPool,
     shared: Arc<Shared>,
     progress: tokio::sync::watch::Receiver<()>,
+    transport: RaftTransport,
 ) -> Completed {
     match request {
         Request::Registration(_) | Request::Provision(_) | Request::Archive(_) | Request::S3(_) => {
@@ -66,7 +67,7 @@ pub(super) async fn drive(
             enrollments::drive(*request, runtime, sql, shared, progress).await,
         )),
         Request::Query(request) => {
-            queries::drive(*request, runtime, sql, shared).await;
+            queries::drive(*request, runtime, sql, shared, transport).await;
             Completed::Query
         }
     }

@@ -12,6 +12,86 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 bounded replica routing checkpoint
+
+The shared controller now owns bounded public replica preferences: one to eight
+explicit candidates, per-attempt deadlines and an optional untried observed leader
+fallback all share one invocation, fingerprint, input, token, global deadline and
+attempt bank. Incoming RPCs execute locally. Authenticated leader advice supplies
+no authority; every destination retains namespace/process grants and exact
+cell/group admission. Remote responses expose the actual authenticated replica.
+Wrong-history/schema minima fail preflight before destination retries.
+
+Expired physical SQL retains the original dispatcher and controller admission
+until its callback exits. Outbound work retains dispatcher admission through the
+physical exchange, and a successful remote result retains its transport charges.
+Releasing a waiter cannot refund resources still owned by physical work.
+
+The new routing fixture reproduced a timer race: SQL reports its inner deadline
+as Execution(Storage(RuntimeError::DeadlineExceeded)), while the invocation's
+outer timer reports a runtime deadline. Fixed-06 normalizes only that exact typed
+SQL deadline at dispatch; ordinary storage errors stay fatal. Probe-05's failure
+and exact source/executable are retained. No timeout or capacity was increased.
+The new fixture then exposed an early cleanup observation; fixed-07 waits for
+actual joined transport/controller cleanup before requiring exactly zero. Held
+physical callbacks still require their exact item count and charged bytes.
+
+Fixed-07 passes nineteen focused cases and forty routing repetitions, twenty per
+image form. Its full suite has 175 passed, two failed and two ignored: original
+cancellation oracles expected metadata admission to vanish after waiter abort
+while SQL still ran. Fixed-08 preserves their SQL, cancellation and blocked-close
+checks, requires the exact pre-abort reservation while SQL remains held, and
+requires zero after joined physical shutdown. Production/new routing cases are
+unchanged. Fixed-08 passes twenty-one focused cases and the complete execution
+suite: **177 passed, zero failed, two ignored**, in 406.47 seconds. Its source
+manifest SHA256 is
+0f65bed56b6632a843b0e3e3bc5cfac03ad4145dbc9b14d75844a48c7feaf2e6;
+native executable SHA256 is
+b35cdf1d25e57d34476d2e27a1fd4a0944c781996f7e05014b31d94458025462.
+Fixed-07's forty-repeat evidence applies to the unchanged production and cases.
+
+The normal unit target builds; all twenty query-wire cases pass. The full library
+has **1049 passed, one failed, two ignored**. The remaining failure is the old
+managed inspection fixture using its retired per-cell protocol. Host-fixed-09
+adds the owning raft::prelude::Entry import to a shared integration fixture; all
+three namespace-host cases pass, including both image forms. The native Cargo
+command still exits 101 on unconverted counter/performance APIs despite emitting
+the fresh test executable. This is component qualification, not a package pass.
+Strict library Clippy retains 234 diagnostics, including 214 dead_code; comparison
+of code/message/primary file finds no additional diagnostic against the previous
+shared-read checkpoint. No lint suppression is added.
+
+Effects qualification retains baseline/current failures rather than attributing
+them to routing. Three baseline/current comparisons capture definite-unsubmitted
+NotReady after failover in both executables, plus a current incomplete-shutdown
+report after the complete business result. Probe-10 samples unchanged close
+semantics: SQL is idle, no groups failed, but one call can remain and the outcome
+is Unobserved. Readiness-fixed-11 retries only definite-unsubmitted NotReady or
+NotLeader with the same command ID/input and original deadline; five of six
+fresh smoke trials pass both retained runs, while one still completes the
+business work then refuses shutdown quiescence. This isolates close ordering
+from failover readiness.
+
+Drain-fixed-12 lets Node seal admission and drain its producers before inspecting
+the final joined Raft report. The exact NoUnresolvedLocalProducers/no-failed-group
+predicate remains; unknown mutation outcomes are never accepted as quiescence.
+All temporary close diagnostics are removed. Its effects build passes, followed
+by all six original smoke trials: twelve successful process runs including a
+retained-disk restart per trial, with unchanged assertions and deadlines. Its
+executable SHA256 is
+1b86a52b35b3d6c38abb808430eeca2f053a6d5b0f22d7e249abf85caccc2297.
+Its source manifest is
+af29d82f0446507a4f4a089d5806a9e39537af065fd79460acba2a7a77f26f2e.
+Relative to fixed-08, Rust changes are confined to the owning test import and the
+effects example; production/library Rust is identical. The effect store here is
+the SQLite development backend, not RustFS qualification.
+
+PR #160 remains a draft. Public SDK/consumer ports, managed startup, exact-reference
+S3 learner activation, all five original public acceptance gates, refreshed
+combined-source RustFS/DR/load gates and CG-09–16 remain required. See
+[remaining work and priorities](remaining-work.md). Historical captures preserve
+all earlier failures and their source/binary boundaries.
+
 ## CG-07 shared reads and PR #160 MVP scope
 
 PR #160 publishes the canonical shared SDK/fleet work as a draft checkpoint.

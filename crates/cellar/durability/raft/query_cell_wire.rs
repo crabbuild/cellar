@@ -134,12 +134,14 @@ impl CellQueryCall {
 
 pub(in crate::raft) fn encode_cell_result(
     result: &Result<CellQueryResponse, CommandFailure>,
+    leader_hint: Option<MemberId>,
     limit: usize,
 ) -> Result<Vec<u8>, TransportError> {
     let mut body = b"CLGCQS01".to_vec();
     match result {
         Ok(value) => {
             body.push(0);
+            body.extend_from_slice(&leader_hint.map_or(0, MemberId::get).to_be_bytes());
             string(&mut body, value.token().as_str())?;
             let length = u32::try_from(value.result().len()).map_err(|_| TransportError::Limit)?;
             if body
@@ -153,7 +155,10 @@ pub(in crate::raft) fn encode_cell_result(
             body.extend_from_slice(&length.to_be_bytes());
             body.extend_from_slice(value.result());
         }
-        Err(error) => body.push(failure_code(error)),
+        Err(error) => {
+            body.push(failure_code(error));
+            body.extend_from_slice(&leader_hint.map_or(0, MemberId::get).to_be_bytes());
+        }
     }
     if body.len() > limit {
         return Err(TransportError::Limit);
@@ -161,7 +166,7 @@ pub(in crate::raft) fn encode_cell_result(
     Ok(body)
 }
 
-pub(in crate::raft) fn decode_cell_result(
+pub(in crate::raft) fn decode_cell_reply(
     bytes: &[u8],
     cell: &CellHistory,
     schema: [u8; 32],
@@ -169,7 +174,7 @@ pub(in crate::raft) fn decode_cell_result(
     now: u64,
     limit: usize,
     served_by: MemberId,
-) -> Result<Result<CellQueryValue, CommandFailure>, TransportError> {
+) -> Result<(Result<CellQueryValue, CommandFailure>, Option<MemberId>), TransportError> {
     if bytes.len() > limit {
         return Err(TransportError::Limit);
     }
@@ -178,6 +183,12 @@ pub(in crate::raft) fn decode_cell_result(
         return Err(TransportError::Protocol);
     }
     let status = body.byte()?;
+    let member = u64::from_be_bytes(body.array()?);
+    let leader_hint = if member == 0 {
+        None
+    } else {
+        Some(MemberId::new(member).map_err(|_| TransportError::Identity)?)
+    };
     let result = if status == 0 {
         let token = CellVersionToken::from_encoded(&body.string(4096)?)
             .map_err(|_| TransportError::Authentication)?;
@@ -197,5 +208,18 @@ pub(in crate::raft) fn decode_cell_result(
     if !body.0.is_empty() {
         return Err(TransportError::Protocol);
     }
-    Ok(result)
+    Ok((result, leader_hint))
+}
+
+#[cfg(test)]
+pub(in crate::raft) fn decode_cell_result(
+    bytes: &[u8],
+    cell: &CellHistory,
+    schema: [u8; 32],
+    keys: &VersionKeys,
+    now: u64,
+    limit: usize,
+    served_by: MemberId,
+) -> Result<Result<CellQueryValue, CommandFailure>, TransportError> {
+    decode_cell_reply(bytes, cell, schema, keys, now, limit, served_by).map(|(result, _)| result)
 }

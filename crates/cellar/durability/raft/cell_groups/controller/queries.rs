@@ -85,6 +85,7 @@ pub(super) async fn drive(
     runtime: CellGroupRuntime,
     sql: CellGroupSqlPool,
     shared: Arc<Shared>,
+    transport: RaftTransport,
 ) {
     let Request {
         mut invocation,
@@ -92,29 +93,15 @@ pub(super) async fn drive(
         reply,
         permit,
     } = request;
-    let result = async {
-        invocation.begin().await?;
-        let attempt = invocation
-            .attempt()
-            .ok_or(CellDispatchError::Runtime(RuntimeError::NotFound))?;
-        if !shared
-            .groups
-            .contains(&attempt.route().history)
-            .map_err(CellDispatchError::Runtime)?
-        {
-            return Err(CellDispatchError::Runtime(RuntimeError::NotFound));
-        }
-        invocation
-            .execute_retained(
-                &runtime,
-                &sql,
-                options,
-                Some(crate::raft::host_sql::cell_groups::ReadRetention::new(
-                    permit.clone(),
-                )),
-            )
-            .await
-    }
+    let result = super::query_routes::execute(
+        &mut invocation,
+        &runtime,
+        &sql,
+        &transport,
+        &shared,
+        options,
+        permit.clone(),
+    )
     .await
     .map_err(Arc::new);
     let _ = reply.send(Delivery {

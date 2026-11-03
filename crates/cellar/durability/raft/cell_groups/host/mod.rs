@@ -310,11 +310,23 @@ impl CellGroupCellHandle {
         request: CellQueryRequest,
         limits: CellRoutingLimits,
     ) -> Result<CellQueryCall, CellDispatchError> {
+        self.query_routed(request, limits, CellQueryRouting::Local)
+    }
+
+    pub fn query_routed(
+        &self,
+        request: CellQueryRequest,
+        limits: CellRoutingLimits,
+        routing: CellQueryRouting,
+    ) -> Result<CellQueryCall, CellDispatchError> {
         self.host.check_open()?;
-        let invocation =
-            self.binding
-                .dispatcher
-                .query(self.history.clone(), request, limits, None)?;
+        let invocation = self.binding.dispatcher.query_routed(
+            self.history.clone(),
+            request,
+            limits,
+            None,
+            routing,
+        )?;
         self.host
             .controller
             .query(invocation, self.binding.options(&self.history)?)

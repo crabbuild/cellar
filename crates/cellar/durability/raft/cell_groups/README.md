@@ -703,5 +703,22 @@ proof retains its original source expiry through queued and entered SQL work;
 fresh later traffic cannot extend it. SDK stale reads use the injected host source
 age by default; disconnected historical reads require explicit selection. Neither
 policy supplies a quorum proof. The default request deadline and physical query
-retention still apply. Public replica-candidate routing and counter/performance
-entrypoint conversion remain separate, unfinished CG-07 work.
+retention still apply. Public replica preferences use the same shared controller;
+counter/performance entrypoint conversion remains unfinished CG-07 work.
+
+Public replica preferences now enter the same shared controller invocation as a
+local query. One to eight distinct candidates have a bounded per-attempt timeout;
+all attempts share the original request, route fingerprint, global deadline and
+attempt bank. A final fallback may address one untried observed leader. Discovery
+and the leader field inside an authenticated query reply remain advisory; a
+receiving node independently checks the complete cell/group route and namespace
+process grant. Incoming RPCs always execute locally.
+
+An expired physical query retains both dispatcher and controller admission until
+its SQL callback exits. Outbound work retains dispatcher admission through the
+physical transport exchange; successful remote results retain their node/peer
+reservations and exact authenticated replica identity. A later attempt cannot
+renew an earlier read proof or create a private replacement admission bank.
+Both image forms pass the focused routing cases and the complete execution
+suite; repeated deadline cases retain the original capacities and timeouts.
+Consumer ports and the combined public/managed/backend gates remain unfinished.

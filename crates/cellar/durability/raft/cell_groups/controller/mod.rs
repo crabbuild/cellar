@@ -17,6 +17,7 @@ mod checkpoints;
 pub use checkpoints::CellGroupCheckpointPolicy;
 mod commands;
 mod queries;
+mod query_routes;
 pub use queries::CellQueryCall;
 mod effects;
 mod enrollments;

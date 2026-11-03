@@ -3,12 +3,144 @@
 //! A fourth TLS process identity routes reads without any local group or voter.
 use super::remote_queries::{dispatcher, gateways, invocation, keys, wait_for};
 use super::*;
+use cellar::application::consensus::verification::cell_groups::CellQueryRouting;
 use cellar::peer_auth::PeerAuth;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Mutex,
 };
 use tokio::net::TcpListener;
+
+pub(crate) async fn nonmember_controller_queries(rooted: bool) -> Result<()> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let count = calls.clone();
+    let class = Arc::new(RaftClass::new("Counter", 1, [81; 32])?.query(
+        "Get",
+        [82; 32],
+        move |ctx, input| {
+            assert_eq!(input, b"router-input");
+            count.fetch_add(1, Ordering::SeqCst);
+            Ok(ctx
+                .query_row("SELECT n FROM value", [], |r| r.get::<_, i64>(0))?
+                .to_be_bytes()
+                .to_vec())
+        },
+    )?);
+    let (mut fixture, route, a, b) = Box::pin(registered::setup(rooted, &class)).await?;
+    let controllers = controller::start_with_limits(&mut fixture, controller::limits()).await?;
+    let owners = gateways(&fixture, &controllers, class.clone()).await?;
+    let Router {
+        log,
+        runtime,
+        events,
+        transport,
+        peer,
+    } = Router::start(&fixture).await?;
+    transport.install_cell_query_group(fixture.tcp_route(route.history)?)?;
+    let pool = CellGroupSqlPool::start(
+        &log,
+        fixture.appliers[&(0, route.history)].0.usage()?.limits,
+    )?;
+    let controller = CellGroupController::start(
+        runtime.clone(),
+        events,
+        transport.clone(),
+        pool.clone(),
+        vec![],
+        controller::limits(),
+    )
+    .await?;
+    let dispatch = dispatcher(&fixture, class.clone(), keys(190)?)?;
+    let query = |cell: &CellHistory, consistency| -> Result<CellQueryInvocation> {
+        Ok(dispatch.query_routed(
+            cell.clone(),
+            CellQueryRequest {
+                invocation: ProposalId::new([219; 16])?,
+                contract: class.contract("Get").context("Get")?,
+                input: b"router-input".to_vec(),
+                consistency,
+            },
+            CellRoutingLimits {
+                timeout: Duration::from_secs(2),
+                max_attempts: 2,
+            },
+            None,
+            CellQueryRouting::Replicas {
+                members: vec![MemberId::new(2)?, MemberId::new(3)?],
+                attempt_timeout: Duration::from_millis(180),
+                leader_fallback: true,
+            },
+        )?)
+    };
+    assert_eq!(controller.usage().groups, 0);
+    assert!(controller
+        .query(
+            query(&a, CellQueryConsistency::Linearizable)?,
+            fixture.cell_options(&a).await?
+        )?
+        .response()
+        .await
+        .is_err());
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    for destination in &fixture.transports {
+        destination.grant_query_origin(NamespaceQueryOrigin {
+            cluster: a.cluster,
+            namespace: a.namespace,
+            peer: peer.clone(),
+            revision: 1,
+        })?;
+    }
+    let response = controller
+        .query(
+            query(&a, CellQueryConsistency::Linearizable)?,
+            fixture.cell_options(&a).await?,
+        )?
+        .response()
+        .await?;
+    assert_eq!(response.result(), 0i64.to_be_bytes());
+    assert_eq!(response.observation().version.history, a);
+    assert_eq!(
+        response.replica(),
+        fixture.cluster.voters[1]
+            .log
+            .cell_group(&route.history)?
+            .identity()
+    );
+    assert_eq!(transport.usage().query_items, 1);
+    let token = response.token().clone();
+    drop(response);
+    wait_for(async || Ok(transport.usage().query_items == 0 && dispatch.usage().0 == 0)).await?;
+    assert!(matches!(
+        controller
+            .query(
+                query(&b, CellQueryConsistency::AtLeast(token))?,
+                fixture.cell_options(&b).await?
+            )?
+            .response()
+            .await
+            .err()
+            .context("wrong cell")?
+            .as_ref(),
+        CellDispatchError::Version(cellar::application::consensus::VersionError::WrongHistory)
+    ));
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(controller.usage().groups, 0);
+    assert!(log.cell_groups()?.is_empty());
+    assert_eq!(transport.usage().groups, 0);
+    assert_eq!(pool.usage()?.retained_operations, 0);
+    assert!(matches!(
+        runtime.status(route.history).await,
+        Err(RuntimeError::NotFound)
+    ));
+    controller.close().await?;
+    log.close().await?;
+    drop(owners);
+    for controller in controllers {
+        controller.close().await?;
+    }
+    fixture.close().await?;
+    Ok(())
+}
 
 pub(super) struct Router {
     pub(super) log: ReplicaLog,

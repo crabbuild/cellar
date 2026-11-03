@@ -172,11 +172,14 @@ async fn write_with_client(
             .await;
         // Busy may follow SQL entry and retain an ambiguous outcome. Retry
         // only this same command identity, contract and input until the
-        // original deadline; no error is interpreted as a rollback proof.
+        // original deadline. A definite pre-submission readiness refusal also
+        // retains this identity/input; no error is interpreted as rollback.
         if !matches!(&result, Err(error) if matches!(error.cause.as_ref(),
             CellDispatchError::Runtime(RuntimeError::Overloaded)
                 | CellDispatchError::Execution(ExecutionError::Busy
-                    | ExecutionError::Refused(CommandFailure::Overloaded))))
+                    | ExecutionError::Refused(CommandFailure::Overloaded)))
+                || (!error.ambiguous && matches!(error.cause.as_ref(),
+                    CellDispatchError::Runtime(RuntimeError::NotReady | RuntimeError::NotLeader))))
             || tokio::time::Instant::now() >= deadline
         {
             return Ok(result?);
@@ -187,11 +190,14 @@ async fn write_with_client(
 
 async fn drain(services: &mut [Option<RaftCells>], nodes: &mut [Option<Node>]) -> Result<()> {
     let mut failed = false;
-    for service in services.iter_mut().filter_map(Option::take) {
-        failed |= !matches!(service.close().await,Ok(report) if report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers && report.groups.iter().all(|group| !group.failed));
-    }
+    // Node seals admission and drains application producers before final Raft
+    // closure samples local quiescence. Retain every service to inspect that
+    // joined report even after the node's execution domain has stopped.
     for node in nodes.iter_mut().filter_map(Option::take) {
         failed |= node.shutdown(ShutdownMode::Preserve).await.is_err();
+    }
+    for service in services.iter_mut().filter_map(Option::take) {
+        failed |= !matches!(service.close().await,Ok(report) if report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers && report.groups.iter().all(|group| !group.failed));
     }
     ensure!(
         !failed,

@@ -58,8 +58,8 @@ pub use dispatch::{
     CellCommandResponse, CellCommandSettlement, CellCommandSubmission, CellDispatchError,
     CellDispatchLimits, CellEnrollmentError, CellEnrollmentInvocation, CellEnrollmentRequest,
     CellGroupDispatcher, CellQueryConsistency, CellQueryInvocation, CellQueryRequest,
-    CellQueryResponse, CellReceiptInvocation, CellReceiptRequest, CellReceiptResponse,
-    CellReceiptSelection,
+    CellQueryResponse, CellQueryRouting, CellReceiptInvocation, CellReceiptRequest,
+    CellReceiptResponse, CellReceiptSelection,
 };
 pub use host::{
     CellGroupCellHandle, CellGroupHost, CellGroupHostLimits, CellGroupHostRegistration,

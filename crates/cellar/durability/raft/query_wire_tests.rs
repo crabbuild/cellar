@@ -57,6 +57,7 @@ fn result_bytes() -> Vec<u8> {
         .issue_cell(&cell_observation(), [9; 32], 1000)
         .unwrap();
     let mut bytes = b"CLGCQS01\0".to_vec();
+    bytes.extend_from_slice(&0u64.to_be_bytes());
     string(&mut bytes, token.as_str()).unwrap();
     bytes.extend_from_slice(&3u32.to_be_bytes());
     bytes.extend_from_slice(&[8, 7, 6]);
@@ -369,7 +370,7 @@ fn query_wire_failures_remain_typed() {
         CommandFailure::StorageFull,
         CommandFailure::Unavailable,
     ] {
-        let bytes = cell::encode_cell_result(&Err(failure.clone()), 4096).unwrap();
+        let bytes = cell::encode_cell_result(&Err(failure.clone()), None, 4096).unwrap();
         assert!(
             matches!(cell::decode_cell_result(&bytes, &cell_history(), [9; 32], &keys(), 1000, 4096, MemberId::new(2).unwrap()).unwrap(), Err(actual) if actual == failure)
         );
@@ -548,7 +549,7 @@ fn shared_query_route_binds_physical_group_logical_cell_and_process() {
     let head = request_head(&auth, &[3; 32], &request, &body, &options).unwrap();
     assert!(read_request(&head, &auth, &[3; 32], &options).is_ok());
     assert!(read_request(&head, &auth, &[4; 32], &options).is_err());
-    let reply = cell::encode_cell_result(&Err(CommandFailure::Overloaded), 4096).unwrap();
+    let reply = cell::encode_cell_result(&Err(CommandFailure::Overloaded), None, 4096).unwrap();
     let response = response_head(&auth, &[3; 32], &request, &head.tag, &reply, &options).unwrap();
     let mut other_cell = cell.clone();
     other_cell.cell = CellId::new("neighbor").unwrap();
@@ -591,6 +592,7 @@ fn shared_query_result_authenticates_cell_progress_not_group_log_index() {
     let observation = cell_observation();
     let token = keys().issue_cell(&observation, [9; 32], 1000).unwrap();
     let mut bytes = b"CLGCQS01\0".to_vec();
+    bytes.extend_from_slice(&0u64.to_be_bytes());
     string(&mut bytes, token.as_str()).unwrap();
     bytes.extend_from_slice(&3u32.to_be_bytes());
     bytes.extend_from_slice(b"yes");
@@ -668,7 +670,7 @@ fn shared_query_result_authenticates_cell_progress_not_group_log_index() {
         CommandFailure::UnsupportedCapability,
         CommandFailure::UnsupportedConsistency,
     ] {
-        let bytes = cell::encode_cell_result(&Err(error.clone()), 4096).unwrap();
+        let bytes = cell::encode_cell_result(&Err(error.clone()), None, 4096).unwrap();
         assert!(
             matches!(cell::decode_cell_result(&bytes, &observation.version.history, [9; 32], &keys(), 1000, 4096, member).unwrap(), Err(actual) if actual == error)
         );
@@ -1376,5 +1378,49 @@ fn shared_receipt_purpose_cannot_authorize_mutation() {
             payload_len: head.payload_len,
         };
         assert!(read_request(&changed, &auth, &[3; 32], &options).is_err());
+    }
+}
+
+#[test]
+fn shared_query_leader_hint_is_advice_inside_authenticated_payload() {
+    for hint in [None, Some(MemberId::new(3).unwrap())] {
+        let bytes =
+            cell::encode_cell_result(&Err(CommandFailure::VersionUnavailable), hint, 4096).unwrap();
+        let (result, decoded) = cell::decode_cell_reply(
+            &bytes,
+            &cell_history(),
+            [9; 32],
+            &keys(),
+            1000,
+            4096,
+            MemberId::new(2).unwrap(),
+        )
+        .unwrap();
+        assert!(matches!(result, Err(CommandFailure::VersionUnavailable)));
+        assert_eq!(decoded, hint);
+        for length in 0..bytes.len() {
+            assert!(cell::decode_cell_reply(
+                &bytes[..length],
+                &cell_history(),
+                [9; 32],
+                &keys(),
+                1000,
+                4096,
+                MemberId::new(2).unwrap()
+            )
+            .is_err());
+        }
+        let mut extra = bytes.clone();
+        extra.push(0);
+        assert!(cell::decode_cell_reply(
+            &extra,
+            &cell_history(),
+            [9; 32],
+            &keys(),
+            1000,
+            4096,
+            MemberId::new(2).unwrap()
+        )
+        .is_err());
     }
 }

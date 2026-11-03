@@ -19,7 +19,12 @@ manifests/checkpoints, group archives/reclamation, fenced fresh-history recovery
 indexed effects, bounded caches, canonical namespace/group startup and logical
 SDK handles. Managed group controls and source/boot checks are implemented in
 part; combined public orchestration remains unqualified. Shared follower reads,
-source-age policies and actual responder metadata advance that cutover.
+source-age policies and actual responder metadata advance that cutover. Bounded
+public replica preferences now run through one shared-controller invocation,
+including per-attempt deadlines, an untried observed leader fallback and physical
+SQL/transport retention. Both image forms pass the focused routing cases and the
+complete execution suite. This component result does not qualify the public
+SDK consumers or managed orchestration.
 
 CG-07 remains IN_PROGRESS. The five original public acceptance cases are still
 required, and their `native_cell_groups_public` target has not been delivered.
@@ -32,7 +37,7 @@ part of the target.
 
 | Order | Deliverable | Required result |
 | --- | --- | --- |
-| 1 | Public query routing and executable consumers (CG-07) | Implement bounded explicit replica candidates, per-attempt limits and an untried leader fallback through the shared controller. Preserve one original deadline, invocation, input, token and global attempt budget. Keep namespace/process grants and fresh destination admission. Port counter, native/Axum consumers and performance/fleet runners to namespace capabilities, physical group assignment and replicated cell enrollment. Retain every original HTTP/read/retry behavior and report the actual responder. |
+| 1 | Public SDK surface and executable consumers (CG-07) | Expose the focused configuration, enrollment, limits and typed failure contracts needed by public SDK consumers. Port counter, native/Axum consumers and performance/fleet runners to namespace capabilities, physical group assignment and replicated cell enrollment. Retain every original HTTP/read/retry behavior and actual responder metadata. Exercise the implemented controller routing with one original deadline, invocation, input, token and global attempt budget; preserve namespace/process grants and fresh destination admission. |
 | 2 | Managed canonical startup and whole-group lifecycle (CG-07) | Finish node-directory/startup integration and qualify fresh/retained boots, ownership discovery, capacity, repair, drain, maintenance, stop/return/resume and accounting as complete groups with separate cell/image occupancy. Reuse CAS journals, permanent claims, exact boot fencing and physical disruption debt. Join entered work on failure/cancellation before releasing resources. |
 | 3 | Managed S3 learner activation and archive holds (CG-06/07) | Implement the currently refused exact-reference S3 path without peer fallback. Verify and retain the complete manifest/image/receipt closure; preserve local owner and uncertain outcomes through actual sync. Reauthorize the destination boot and catalog, attach the actual installed member, catch up and obtain fresh quorum before promotion/success. Complete safe archive-hold retirement. A seed receipt or S3 object alone is not activation authority. |
 | 4 | Public, build and backend qualification (CG-07 and MVP portions of CG-14/15/16) | Deliver all five public cases below; resolve public binary compilation, port the old inspection cancellation oracle to the managed shared protocol, and clear strict lint failures without suppressions. Run affected feature modes from SDK CI. Refresh same-source real RustFS recovery and replication/reclamation under bounded mixed load, retaining the exact binaries, ledgers, failures and resource/latency measurements. |
@@ -86,7 +91,7 @@ full hard cutover.
 | CG-15 | Full load/crash, transition, wakeup and disaster-recovery matrix. Measure the documented profiles and failure schedules; no capacity or TiKV performance-parity claim follows from correctness tests. |
 | CG-16 | Delete remaining predecessor consumers/codecs, finish feature-off/full release checks, publish the unified API/runbooks and qualified operating envelope. No one-cell special path, compatibility reader or production mode toggle. |
 
-The execution sequence is public routing/consumer ports, managed startup and S3
+The execution sequence is public SDK/consumer ports, managed startup and S3
 activation, the complete MVP public/backend gates, then transition/topology/wake
 features and the final managed recovery/load/release matrix. Passing one layer
 does not mark another layer or the end-to-end goal complete.

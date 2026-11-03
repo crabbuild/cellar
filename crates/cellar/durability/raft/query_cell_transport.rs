@@ -5,7 +5,7 @@ use super::*;
 use crate::application::consensus::CommandFailure;
 use crate::raft::cell_groups::{
     CellDispatchError, CellGroupController, CellGroupDispatcher, CellGroupNamespaceStorage,
-    CellQueryResponse, CellRoutingLimits,
+    CellRoutingLimits,
 };
 use crate::raft::query_identity::QueryRoute;
 use crate::raft::query_wire::{
@@ -49,6 +49,7 @@ pub(super) struct Gateway {
 /// Retains the same node/peer query admission through consumption of the result.
 pub struct CellRemoteQueryResponse {
     value: CellQueryValue,
+    replica: cellar_logic::consensus::ReplicaIdentity<GroupHistory>,
     _node: Permit,
     _peer: Permit,
 }
@@ -69,6 +70,20 @@ impl CellRemoteQueryResponse {
     pub fn served_by(&self) -> MemberId {
         self.value.served_by
     }
+
+    pub fn replica(&self) -> &cellar_logic::consensus::ReplicaIdentity<GroupHistory> {
+        &self.replica
+    }
+}
+
+pub(in crate::raft) struct CellRemoteQueryReply {
+    pub result: Result<CellRemoteQueryResponse, CommandFailure>,
+    pub leader_hint: Option<MemberId>,
+}
+
+pub(crate) struct CellQueryContext {
+    pub keys: VersionKeys,
+    pub admission: Arc<Permit>,
 }
 
 pub(super) struct SendCellQuery {
@@ -77,9 +92,10 @@ pub(super) struct SendCellQuery {
     cell: CellHistory,
     call: CellQueryCall,
     keys: VersionKeys,
+    _admission: Arc<Permit>,
     deadline: u64,
     cancel: watch::Receiver<bool>,
-    reply: oneshot::Sender<Result<CellRemoteQueryResponse, TransportError>>,
+    reply: oneshot::Sender<Result<CellRemoteQueryReply, TransportError>>,
     node: Permit,
     peer_bytes: Permit,
 }
@@ -154,9 +170,9 @@ impl RaftTransport {
         cell: &CellHistory,
         member: MemberId,
         call: CellQueryCall,
-        keys: VersionKeys,
+        context: CellQueryContext,
         deadline: u64,
-    ) -> Result<CellRemoteQueryResponse, TransportError> {
+    ) -> Result<CellRemoteQueryReply, TransportError> {
         let state = &self.handle.0;
         // Discovery never creates a local replica or grants voting authority.
         state.runtime.shared()?;
@@ -222,7 +238,8 @@ impl RaftTransport {
                 peer,
                 cell: cell.clone(),
                 call,
-                keys,
+                keys: context.keys,
+                _admission: context.admission,
                 deadline,
                 cancel: cancelled,
                 reply,
@@ -327,7 +344,7 @@ impl State {
                     }
                     let now = u64::try_from(crate::asyncrt::wall_ms())
                         .map_err(|_| TransportError::Authentication)?;
-                    wire::cell::decode_cell_result(
+                    wire::cell::decode_cell_reply(
                         &body,
                         &request.cell,
                         request.route.schema_digest,
@@ -335,20 +352,23 @@ impl State {
                         now,
                         self.options.max_query_response_bytes,
                         request.peer.replica.member,
-                    )?
-                    .map_err(TransportError::Query)
+                    )
                 },
             )
             .await;
         // A fully authenticated application refusal consumed a complete reply;
         // retain the peer connection for the next authenticated request.
-        let failed = matches!(&result, Err(error) if !matches!(error, TransportError::Query(_)));
+        let failed = result.is_err();
         let _ = request
             .reply
-            .send(result.map(|value| CellRemoteQueryResponse {
-                value,
-                _node: request.node,
-                _peer: request.peer_bytes,
+            .send(result.map(|(value, leader_hint)| CellRemoteQueryReply {
+                result: value.map(|value| CellRemoteQueryResponse {
+                    value,
+                    replica: request.peer.replica.clone(),
+                    _node: request.node,
+                    _peer: request.peer_bytes,
+                }),
+                leader_hint,
             }));
         failed
     }
@@ -415,25 +435,45 @@ impl IncomingCall {
                 if !gateway.accepting.load(Ordering::Acquire) {
                     return Err(TransportError::Refused);
                 }
-                let result = gateway
-                    .execute(call, target.scope, cell, route.schema())
-                    .await
-                    .map_err(|e| query_failure(&e));
-                wire::cell::encode_cell_result(&result, state.options.max_query_response_bytes)
-                    .map(super::query_replies::Reply::plain)
+                // Queue first: metadata observation cannot renew the query's
+                // captured deadline or delay ownership transfer to its producer.
+                let queued = gateway.enqueue(call, target.scope, cell, route.schema());
+                let leader_hint = if queued.is_ok() {
+                    state
+                        .runtime
+                        .shared()?
+                        .status(target.scope)
+                        .await
+                        .ok()
+                        .and_then(|status| status.leader)
+                        .and_then(|member| MemberId::new(member).ok())
+                } else {
+                    None
+                };
+                let result = match queued {
+                    Ok(call) => call.response().await,
+                    Err(error) => Err(error),
+                }
+                .map_err(|e| query_failure(&e));
+                wire::cell::encode_cell_result(
+                    &result,
+                    leader_hint,
+                    state.options.max_query_response_bytes,
+                )
+                .map(super::query_replies::Reply::plain)
             }
         }
     }
 }
 
 impl Gateway {
-    async fn execute(
+    fn enqueue(
         &self,
         call: CellQueryCall,
         group: GroupHistory,
         cell: CellHistory,
         schema: [u8; 32],
-    ) -> Result<CellQueryResponse, Arc<CellDispatchError>> {
+    ) -> Result<crate::raft::cell_groups::CellQueryCall, Arc<CellDispatchError>> {
         let options = self.storage.for_cell(&cell);
         let queued = (|| {
             let mut query = self.dispatcher.query(
@@ -453,7 +493,7 @@ impl Gateway {
             });
             self.controller.query(query, options)
         })();
-        queued.map_err(Arc::new)?.response().await
+        queued.map_err(Arc::new)
     }
 }
 

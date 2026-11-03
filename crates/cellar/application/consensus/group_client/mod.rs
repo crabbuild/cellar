@@ -20,6 +20,7 @@ use std::{
 };
 
 pub use super::client::CommandOptions;
+pub use crate::raft::cell_groups::CellQueryRouting as QueryRouting;
 
 #[derive(Clone, Debug)]
 pub enum QueryConsistency {
@@ -40,6 +41,7 @@ pub struct QueryOptions {
     pub stale_policy: StaleReadPolicy,
     pub timeout: Duration,
     pub max_attempts: u8,
+    pub routing: QueryRouting,
 }
 
 impl Default for QueryOptions {
@@ -49,6 +51,7 @@ impl Default for QueryOptions {
             stale_policy: StaleReadPolicy::RecentSource,
             timeout: Duration::from_secs(5),
             max_attempts: 4,
+            routing: QueryRouting::Local,
         }
     }
 }
@@ -425,7 +428,7 @@ impl RaftCellHandle {
                 QueryConsistency::AtLeast(token) => CellQueryConsistency::AtLeast(token),
                 QueryConsistency::Linearizable => CellQueryConsistency::Linearizable,
             };
-            self.cell.query(
+            self.cell.query_routed(
                 CellQueryRequest {
                     invocation,
                     contract: contract.clone(),
@@ -436,6 +439,7 @@ impl RaftCellHandle {
                     timeout: options.timeout,
                     max_attempts: options.max_attempts,
                 },
+                options.routing,
             )
         });
         let owner = self.owner.clone();

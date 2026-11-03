@@ -1432,3 +1432,23 @@ async fn shared_remote_follower_reads_preserve_constraints() -> Result<()> {
 async fn rooted_remote_follower_reads_preserve_constraints() -> Result<()> {
     Box::pin(runtime_fixture::remote_follower_reads(true)).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn shared_controller_replica_routing_keeps_one_invocation() -> Result<()> {
+    Box::pin(runtime_fixture::controller_routed_queries(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn rooted_controller_replica_routing_keeps_one_invocation() -> Result<()> {
+    Box::pin(runtime_fixture::controller_routed_queries(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn shared_controller_queries_without_local_group_require_grants() -> Result<()> {
+    Box::pin(runtime_fixture::nonmember_controller_queries(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn rooted_controller_queries_without_local_group_require_grants() -> Result<()> {
+    Box::pin(runtime_fixture::nonmember_controller_queries(true)).await
+}

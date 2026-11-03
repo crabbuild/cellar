@@ -213,7 +213,7 @@ impl Worker {
                             self.effects.register(&request.registration.applier)?;
                             self.registrations.push(Box::pin(registration::drive(*request, self.runtime.clone(), self.transport.clone())));
                         }
-                        other => self.commands.push(Box::pin(requests::drive(other, self.runtime.clone(), self.sql.clone(), self.shared.clone(), self.progress.subscribe()))),
+                        other => self.commands.push(Box::pin(requests::drive(other, self.runtime.clone(), self.sql.clone(), self.shared.clone(), self.progress.subscribe(), self.transport.clone()))),
                     }
                 }
                 Some(done) = self.provisioning.next(), if self.provisioning.is_running() => {

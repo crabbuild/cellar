@@ -2,6 +2,7 @@
 
 use super::reconciliation::apply_through;
 use super::*;
+use raft::prelude::Entry;
 
 pub(super) async fn deadline(fixture: &RuntimeCluster, ms: u64) -> Result<u64> {
     fixture

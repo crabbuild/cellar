@@ -596,7 +596,9 @@ pub(crate) use remote_queries::{remote_follower_reads, remote_queries, remote_qu
 
 #[path = "cell_group_query_origins.rs"]
 mod query_origins;
-pub(crate) use query_origins::{nonmember_queries, nonmember_query_revocation};
+pub(crate) use query_origins::{
+    nonmember_controller_queries, nonmember_queries, nonmember_query_revocation,
+};
 
 #[path = "cell_group_dispatch_cache_execution.rs"]
 mod dispatch_cache_execution;
@@ -702,3 +704,7 @@ pub(crate) use namespace_host::{
     many_cells as host_many_cells, query_shutdown as host_query_shutdown,
     registration_and_deadline as host_registration_and_deadline,
 };
+
+#[path = "cell_group_query_routing.rs"]
+mod query_routing;
+pub(crate) use query_routing::controller_routed_queries;

@@ -146,7 +146,7 @@ pub use cellar_logic::cell_group::{CommitWitness, GroupHistory};
 pub use group_client::{
     CellGroupControlError, CellGroupImageUsage, CellGroupResourceUsage, CellGroupStartupError,
     CommandOptions, CommandReceipt, MutationOutcomes, QueryConsistency, QueryOptions, QueryResult,
-    RaftCellHandle, RaftCells, RaftCloseError, RaftCloseReport, RaftGroupCloseReport,
+    QueryRouting, RaftCellHandle, RaftCells, RaftCloseError, RaftCloseReport, RaftGroupCloseReport,
     RaftGroupHandle, StaleReadPolicy,
 };
 

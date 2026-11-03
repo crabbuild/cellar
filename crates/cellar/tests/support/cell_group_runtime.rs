@@ -882,7 +882,7 @@ pub(super) use sql::{
 
 pub(super) use sql::{remote_follower_reads, remote_queries, remote_query_lifecycle};
 
-pub(super) use sql::{nonmember_queries, nonmember_query_revocation};
+pub(super) use sql::{nonmember_controller_queries, nonmember_queries, nonmember_query_revocation};
 
 pub(super) use sql::cached_dispatch_execution;
 
@@ -939,3 +939,5 @@ pub(super) async fn retained_log_admission(rooted: bool) -> Result<()> {
 pub(super) use sql::physical_log_reclamation;
 
 pub(super) use sql::{host_many_cells, host_query_shutdown, host_registration_and_deadline};
+
+pub(super) use sql::controller_routed_queries;

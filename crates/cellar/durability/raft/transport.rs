@@ -79,6 +79,7 @@ mod metrics;
 pub(crate) mod node_inspections;
 #[path = "query_transport.rs"]
 mod queries;
+pub(crate) use cell_queries::CellQueryContext;
 pub use cell_queries::{CellQueryGateway, CellRemoteQueryResponse};
 #[path = "transport_resources.rs"]
 mod resources;

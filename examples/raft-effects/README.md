@@ -38,7 +38,11 @@ joined on success or startup failure. A stopped primary can report ambiguous
 internal work, which the replacement reconciles from committed state; the report
 records the retained-call count. A fresh harmless Producer command follows the
 observed settlement; its S3 receipt proves coverage at or beyond that observation.
-Final shutdown requires joined producers and nonfailed groups. Retain disks and
+Failover retries preserve the same command identity, input and original deadline;
+definite readiness refusals do not establish rollback. Final shutdown lets Node
+seal admission and drain application producers before inspecting the joined Raft
+report, which still requires no unresolved local producers and no failed groups.
+Retain disks and
 the catalog: this example does not grant permission to discard unarchived data.
 
 Lanes retain one immutable request until source settlement, and receivers retain

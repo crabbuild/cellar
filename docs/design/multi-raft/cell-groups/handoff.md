@@ -4,38 +4,50 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-The user explicitly requests updating PR #160 and scoping remaining work.
-Publish this as a draft checkpoint; do not merge. The previous publication hold
-is superseded by that request. Preserve/exclude the user's eight diagram files
-and both MR progress basenames. Keep the PR checkout and isolated effects
-checkout aligned after publication. All CG-01–16 requirements remain intact.
+PR #160 is the authorized draft checkpoint; do not merge. Preserve/exclude the
+user's eight diagram files and both MR progress basenames. Keep the canonical PR
+checkout and isolated effects checkout aligned after publication. All CG-01–16
+requirements remain intact, and the end-to-end goal remains incomplete.
 
-Start with [remaining work and priorities](remaining-work.md). The MVP order is
-public query routing and consumer ports; managed directory/startup and whole-group
-lifecycle; exact-reference S3 learner activation/archive holds; then all original
-public, build and current-source RustFS/DR/load gates. The five public cases and
-CG-09–16 follow-ups are explicitly listed there. No TiKV performance parity or
-combined system/MVP completion is claimed.
+Start with [remaining work and priorities](remaining-work.md). The next MVP work
+is the focused public SDK surface and counter/native/Axum/performance/fleet
+consumer ports, then managed directory/startup and whole-group lifecycle,
+exact-reference S3 learner activation/archive holds, and all original public,
+build and current-source RustFS/DR/load gates. Transfers, split/merge, placement,
+hibernation, managed recovery and full load/release qualification remain required.
 
-Latest source adds safe follower ReadIndex, source-generation fencing, captured
-recent-source expiry through physical SQL completion, SDK source-age defaults and
-actual selecting-replica metadata. New TLS cases retain namespace/process grants,
-logical observations, responder identity and physical permits. Fifteen focused
-cases pass on router-fixed-05; the source-age fixture also passes forty repetitions.
-The complete native execution suite passes: 173 passed, zero failed and two
-ignored, in 408.03 seconds on the normal default stack.
-Core-fixed-01 has identical production/example Rust: unit 1048 passed, one failed,
-two ignored (old managed inspection protocol); two retained effects smoke runs
-pass using the SQLite development object store. Strict Clippy fails with 234
-diagnostics. The overall native Cargo command still fails on 34 old performance
-API errors. These component results do not qualify the public package or current
-RustFS/managed/recovery/load orchestration.
+Latest source adds controller-owned public replica candidates, per-attempt
+limits and an untried observed leader fallback under the original invocation,
+input, minimum token, deadline and attempt bank. Authenticated reply advice is
+not authority. Incoming RPCs execute locally. Queries retain physical SQL and
+transport ownership after waiter expiry; responses expose the actual replica.
+A reproduced SQL deadline-envelope race is fixed without increasing timeouts or
+changing ordinary storage refusals.
 
-Read shared_read_public_work in the ignored continuation for exact source hashes,
-immutable executables, retained failing baselines, backup and owned handles.
-Finish every owned job before staging Rust. An observation timeout is not failure;
-never restart a live build/test merely because its output has not arrived.
-Historical sections below describe scoped checkpoints; this newest section governs.
+Fixed-08 passes twenty-one focused cases and the complete native execution suite:
+177 passed, zero failed, two ignored. Fixed-07's forty routing repetitions apply
+to unchanged production/new cases. The library has 1049 passed, one failed and
+two ignored; all twenty wire cases pass. Host-fixed-09 passes all three host cases
+across both image forms. Strict library Clippy still has 234 diagnostics, with no
+additional code/message/primary-file diagnostic versus the prior checkpoint.
+The overall native Cargo command still fails on unconverted counter/performance
+APIs. Do not present the emitted component artifact as a package pass.
+
+The effects example now retries only definite-unsubmitted readiness refusals
+under the same command ID/input/deadline, and lets Node drain before inspecting
+Raft's final report. Original close assertions and the original smoke are intact;
+close diagnostics are removed. All six original smoke trials pass at
+drain-fixed-12, twelve process runs including retained-disk restart.
+Production/library Rust matches fixed-08; the only later Rust
+changes are the fixture's owning Entry import and this example. Effects smoke
+uses the SQLite development object store. Current combined RustFS, managed DR,
+load and public orchestration remain unqualified.
+
+Read public_replica_routing_work in the ignored continuation for exact source
+hashes, immutable executables, retained failures, backup and owned handles. Finish
+every owned job before staging Rust. An observation timeout is not failure; never
+restart a live build/test merely because output has not arrived. Historical
+sections below describe scoped checkpoints; this newest section governs.
 
 Latest unpublished WIP fixes retained-preparation reuse and the completion phase
 of an already synced seed. Boundary probes reproduced the previous three native

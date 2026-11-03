@@ -376,7 +376,9 @@ pub(crate) async fn routed(rooted: bool) -> Result<()> {
         Some(first.cached_route()),
     )?;
     held.begin().await?;
-    assert!(dispatcher.usage().0 >= 512 * 1024);
+    let retained = dispatcher.usage();
+    assert!(retained.0 >= 512 * 1024);
+    assert_eq!(retained.1, 1);
     let runtime = fixture.runtimes[0].clone();
     let sql = pool.clone();
     let options = fixture.cell_options(&a).await?;
@@ -387,7 +389,9 @@ pub(crate) async fn routed(rooted: bool) -> Result<()> {
     tokio::time::timeout(Duration::from_secs(5), started).await??;
     waiter.abort();
     assert!(waiter.await.is_err());
-    assert_eq!(dispatcher.usage(), (0, 0));
+    // A dropped routing waiter cannot refund the invocation while its entered
+    // SQL callback still owns captured input and physical read authority.
+    assert_eq!(dispatcher.usage(), retained);
     assert_eq!(pool.usage()?.retained_operations, 1);
     assert!(pool.usage()?.retained_bytes >= 256 * 1024);
     assert!(
@@ -398,6 +402,7 @@ pub(crate) async fn routed(rooted: bool) -> Result<()> {
     release.send(())?;
     tokio::time::timeout(Duration::from_secs(5), pool.close()).await??;
     assert_eq!(pool.usage()?.retained_bytes, 0);
+    assert_eq!(dispatcher.usage(), (0, 0));
     drop(pool);
     drop(dispatcher);
     fixture.close().await
