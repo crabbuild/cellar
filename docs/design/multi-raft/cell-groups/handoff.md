@@ -4,6 +4,52 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Dynamic archive ownership checkpoint
+
+Canonical startup now retains node-wide pools and independent verifier resources
+for groups added after boot. Preparation opens existing archive identity/counters
+before bootstrap, charges both store bounds to the existing provisioning bank and
+retains the private owner through uncertain attachment/learner installation.
+Successful physical attachment hands it directly to the actor's bounded archive
+lane. Joined node close releases preparations, archive jobs and then immutable
+configuration; cancelled waiters cannot release an entered archive owner.
+
+CG-07-dynamic-archives-01/source-final SHA256 is
+9cb0776c7a699f6e7af5f1aa6ed03d3bd09f277967a6bcbb5d70051a12d39f7d,
+above 8c0a42f02eb78060adaa5c87472ab34f95b6e5c7. Twelve managed cases pass,
+including dynamic RF3 S3 writes, missing identity refusal followed by explicit
+synced initialization/retry, and joined close while an archive GET is held. Both
+image forms run through native Nodes/SQLite/TLS with an in-memory fault adapter.
+Seven native targets pass 263 cases with 31 explicit skips and unchanged source.
+The same binaries pass public fresh-incarnation recovery against real pinned,
+constrained RustFS in 30.33 seconds for both image forms after erasing all source
+voter directories and verifier cache. Backend and dedicated VM are stopped.
+This is embedded-Node/contract-fence coverage, not managed archive qualification
+against RustFS, permanent Docker fencing, independent voter containers or load.
+Public SDK process, full performance and full library gates were not rerun here;
+the preceding performance/inspection/release gaps remain open.
+
+Format/layout/dependency/docs and native-only library checks pass. Strict Cellar
+library Clippy remains red with 221 errors, one fewer than before and no new keys;
+202 are dead-code errors. Plan tests remain 35 pass/one fail/one error, with
+generated index/Purpose and reviewed-protocol drift refusals preserved.
+
+Next: qualify archived managed replacement and maintenance, then implement the
+currently refused exact-reference S3 learner path. Preserve complete manifest,
+image and receipt closure, uncertain outcomes, actual destination boot/catalog
+authorization, physical installation and fresh-quorum catch-up. Do not treat a
+seed or remote object as activation authority. Finish archive hold retirement,
+public/default-backend gates, live manifest-page collection, permanent Docker
+fencing/load qualification and CG-09–16. The full goal remains incomplete.
+
+The peer seed exchange lives in `group_snapshot_transport/seed/`: `client.rs`
+authenticates the source checkpoint and stages the exact managed grant;
+`install.rs` receives peer chunks and reauthorizes before durable installation.
+The authenticated reply currently carries no archive reference. The S3 path must
+bind and retain an exact archive cut alongside that grant, check the complete
+destination against the granted marker and preserve the same install/deadline
+fences. Removing the `from_s3` refusal alone cannot provide that contract.
+
 ## Owned workspace barrier qualification checkpoint
 
 This checkpoint supersedes the validation and performance boundaries below.

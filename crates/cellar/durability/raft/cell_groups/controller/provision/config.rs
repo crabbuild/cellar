@@ -67,6 +67,7 @@ pub struct CellGroupProvisioning {
 
 pub(in super::super) struct Config {
     pub settings: CellGroupProvisioning,
+    pub archives: Option<archive::Provisioning>,
     pub preparations: Arc<Budget>,
     pub waiters: Arc<Budget>,
     pub parallel: Arc<tokio::sync::Semaphore>,
@@ -78,6 +79,7 @@ impl Config {
     pub fn new(
         mut settings: CellGroupProvisioning,
         shared: &Shared,
+        archives: Option<archive::Provisioning>,
     ) -> Result<Self, CellGroupControllerError> {
         let invalid = || CellGroupControllerError::Invalid("group provisioning configuration");
         settings.manifest.validate().map_err(|_| invalid())?;
@@ -189,7 +191,7 @@ impl Config {
         // Bound recovery pins, BTree inventory/leases, recursive page decoding,
         // image scratch and all bounded catalog/peer/request metadata. The active
         // roster retains at most max_groups stores of these configured sizes.
-        let bytes = ManifestPins::maximum_bytes(settings.manifest.max_cells)
+        let mut bytes = ManifestPins::maximum_bytes(settings.manifest.max_cells)
             .checked_add(settings.max_pages.checked_mul(256).ok_or_else(invalid)?)
             .and_then(|n| {
                 n.checked_add(
@@ -200,6 +202,14 @@ impl Config {
             .and_then(|n| n.checked_add(image_bytes))
             .and_then(|n| n.checked_add(2 * 1024 * 1024))
             .ok_or_else(invalid)?;
+        if let Some(archives) = &archives {
+            configuration_bytes = configuration_bytes
+                .checked_add(archives.metadata(&settings)?)
+                .ok_or_else(invalid)?;
+            // A preparation retains both serving and private verifier stores.
+            // Charge both complete bounds to the existing node-wide bank.
+            bytes = bytes.checked_mul(2).ok_or_else(invalid)?;
+        }
         // Immutable namespace handles keep their advertised directory caches alive.
         // Charge those once against the existing total, leaving one shared bank
         // for every namespace's physical preparations. No per-namespace banks.
@@ -221,6 +231,7 @@ impl Config {
             )),
             bytes,
             configuration_bytes,
+            archives,
             settings,
         })
     }

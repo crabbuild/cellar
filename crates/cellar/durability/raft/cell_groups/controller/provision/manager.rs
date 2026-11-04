@@ -14,15 +14,21 @@ struct Entry {
     reservation: registration::Reservation,
     permit: Option<Permit>,
     prepared: Option<prepare::Prepared>,
+    archive: Option<CellGroupArchiveRegistration>,
     waiters: Vec<Waiter>,
     running: bool,
     active: bool,
 }
 
+pub(in super::super) struct Recovered {
+    input: prepare::Recovery,
+    archive: Option<CellGroupArchiveRegistration>,
+}
+
 pub(in super::super) enum Completed {
     Prepared(
         GroupHistory,
-        Result<Box<prepare::Recovery>, CellGroupControllerError>,
+        Result<Box<Recovered>, CellGroupControllerError>,
     ),
     Attached(
         GroupHistory,
@@ -145,6 +151,7 @@ impl Manager {
                 reservation,
                 permit: Some(permit),
                 prepared: None,
+                archive: None,
                 waiters: vec![waiter],
                 running: false,
                 active: false,
@@ -190,15 +197,32 @@ impl Manager {
         let config = entry.config.clone();
         let prepared = entry.prepared.clone();
         let authority = entry.authority.clone();
+        let archive = entry.archive.clone();
         self.jobs.push(Box::pin(async move {
-            Completed::Prepared(
-                group,
-                prepare::recover(
+            let result = async {
+                let archive = if let Some(archives) = &config.archives {
+                    let _parallel = config
+                        .parallel
+                        .acquire()
+                        .await
+                        .map_err(|_| CellGroupControllerError::Closed)?;
+                    let birth = prepare::resolve(&directory, &route, &runtime, &authority).await?;
+                    let archive = archives
+                        .prepare(&directory, &birth, &config.settings, &runtime, archive)
+                        .await?;
+                    authority.check_live(&runtime)?;
+                    Some(archive)
+                } else {
+                    None
+                };
+                let input = prepare::recover(
                     directory, route, config, runtime, transport, authority, prepared,
                 )
-                .await
-                .map(Box::new),
-            )
+                .await?;
+                Ok(Box::new(Recovered { input, archive }))
+            }
+            .await;
+            Completed::Prepared(group, result)
         }));
     }
 
@@ -209,10 +233,16 @@ impl Manager {
         transport: &RaftTransport,
         roster: &mut BTreeMap<GroupHistory, CellGroupApplier>,
         routes: &mut BTreeMap<GroupHistory, PhysicalRegistration>,
+        archives: &mut archive::Manager,
     ) -> Result<(), CellGroupControllerError> {
         match done {
             Completed::Prepared(group, Ok(input)) => {
-                let input = match *input {
+                let Recovered { input, archive } = *input;
+                self.entries
+                    .get_mut(&group)
+                    .expect("prepared archive entry")
+                    .archive = archive;
+                let input = match input {
                     prepare::Recovery::Seed(staged) => {
                         let entry = self.entries.get_mut(&group).expect("staged entry");
                         // Save the physical owner before entering transfer. Even
@@ -221,13 +251,17 @@ impl Manager {
                         if let Err(error) = entry.authority.check_live(&shared.runtime) {
                             return self.failed(group, error);
                         }
+                        let archive = entry.archive.clone();
                         self.jobs.push(Box::pin(async move {
                             Completed::Prepared(
                                 group,
                                 staged
                                     .install()
                                     .await
-                                    .map(prepare::Recovery::Ready)
+                                    .map(|registration| Recovered {
+                                        input: prepare::Recovery::Ready(registration),
+                                        archive,
+                                    })
                                     .map(Box::new),
                             )
                         }));
@@ -267,6 +301,12 @@ impl Manager {
                         return self.failed(group, error.into());
                     }
                     routes.insert(group, guard);
+                    if let Some(archive) = entry.archive.take() {
+                        // Transfer the prepared owner directly into the actor's
+                        // bounded archive lane. Never call and await this same
+                        // controller's public registration queue from its actor.
+                        archives.provision(archive, shared)?;
+                    }
                     entry.active = true;
                     entry.running = false;
                     entry.prepared = None;
@@ -357,17 +397,17 @@ impl Manager {
         // blocking recovery and attachment before releasing dependencies.
         while let Some(done) = self.jobs.next().await {
             if let Completed::Prepared(group, Ok(input)) = done {
-                let prepared = match *input {
+                let Recovered { input, archive } = *input;
+                let entry = self.entries.get_mut(&group).expect("closing entry");
+                entry.archive = archive;
+                let prepared = match input {
                     prepare::Recovery::Ready(input) => prepare::Prepared {
                         applier: input.applier,
                         current: input.current,
                     },
                     prepare::Recovery::Seed(staged) => staged.prepared,
                 };
-                self.entries
-                    .get_mut(&group)
-                    .expect("closing entry")
-                    .prepared = Some(prepared);
+                entry.prepared = Some(prepared);
             }
         }
         for entry in self.entries.values_mut() {

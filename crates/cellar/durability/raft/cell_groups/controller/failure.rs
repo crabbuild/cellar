@@ -44,6 +44,19 @@ pub(super) fn node_wide(error: &CellGroupControllerError) -> bool {
         }
         CellGroupControllerError::Runtime(error) => runtime(error),
         CellGroupControllerError::Apply(error) => execution(error),
+        CellGroupControllerError::Archive(error) => match error.as_ref() {
+            CellGroupArchiveControlError::Runtime(error) => runtime(error),
+            CellGroupArchiveControlError::Binding(
+                super::super::CellGroupArchiveBindingError::Catalog(
+                    crate::raft::catalog::CatalogError::Log(error),
+                ),
+            ) => storage(error),
+            CellGroupArchiveControlError::Archive(super::super::CellGroupArchiveError::Replay(
+                error,
+            )) => execution(error),
+            CellGroupArchiveControlError::Stopped => true,
+            _ => false,
+        },
         CellGroupControllerError::Checkpoint(error) => {
             matches!(error.as_ref(), super::super::CellGroupCheckpointError::Log(error) if storage(error))
         }

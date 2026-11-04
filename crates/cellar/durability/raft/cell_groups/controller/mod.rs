@@ -8,6 +8,7 @@ mod archive;
 pub(crate) use archive::settlement::{
     Client as S3Client, LookupPrepared as S3LookupPrepared, OutputProof as S3OutputProof,
 };
+pub(crate) use archive::Provisioning as CellGroupArchiveProvisioning;
 mod calls;
 pub use archive::{
     CellGroupArchiveCall, CellGroupArchiveControlError, CellGroupArchiveRegistration,
@@ -75,6 +76,7 @@ pub enum CellGroupControllerError {
     Invalid(&'static str),
     Runtime(RuntimeError),
     Apply(Arc<ExecutionError>),
+    Archive(Arc<CellGroupArchiveControlError>),
     Checkpoint(Arc<super::CellGroupCheckpointError>),
     Transport(TransportError),
     Catalog(Arc<crate::raft::catalog::CatalogError>),

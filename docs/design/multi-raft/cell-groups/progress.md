@@ -12,6 +12,63 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 archive ownership for post-startup groups
+
+Capture CG-07-dynamic-archives-01/source-final binds 2,714 Rust/Python/manifest
+inputs above 8c0a42f02eb78060adaa5c87472ab34f95b6e5c7 to SHA256
+9cb0776c7a699f6e7af5f1aa6ed03d3bd09f277967a6bcbb5d70051a12d39f7d.
+No request deadline, quota, profile, authority fence or durability assertion changes.
+
+Canonical startup retains archive provisioning resources for groups added after
+boot, including a node that starts with no groups. Preparations share the original
+archive pools and independent verifier image inventory. Both serving and verifier
+store bounds are charged to the existing provisioning bank. The selected birth,
+boot/deadline and existing catalog archive identity/counters are checked before
+local bootstrap. Missing metadata never allocates a replacement archive.
+
+Preparation retains the private archive store with its physical group owner
+through retries and learner installation. Actual attachment transfers it directly
+to the controller's bounded archive lane, avoiding a recursive wait on that actor's
+public registration queue. Existing preparation and archive joins retain those
+resources through node close; immutable provisioning resources release after the
+worker joins. Attachment alone grants no S3 acknowledgement or fresh quorum.
+
+The managed target passes twelve cases. New cases cover RF3 startup from empty
+nodes, independent cells and explicit S3 settlement in both image forms; missing
+archive refusal without genesis/catalog revision changes; explicit synced operator
+initialization and retry of the same birth/capacity slot; and a held archive GET
+that keeps joined close pending after its waiter expires. Quorum writes still
+complete independently of asynchronous archival. These use real native Nodes,
+SQLite and TLS with an instrumented in-memory object store. They do not qualify
+managed S3 learners, managed archived replacement/maintenance, permanent Docker
+fencing or sustained RustFS load.
+
+Seven native targets pass 263 cases with 31 explicit backend/process skips:
+managed 12, archive-controller 16, host 3, storage 16, archive/recovery 31,
+snapshot 5 and execution 180. Sources remain unchanged after the serial campaign.
+The same binaries pass the public recovery drill against pinned, constrained real
+RustFS in 30.33 seconds for both image forms after erasing every source voter
+directory and old verifier cache. Backend and dedicated VM are stopped afterward.
+That drill uses embedded Nodes and a contract fence; it does not qualify the new
+managed archive cases against RustFS, permanent Docker launch revocation,
+independent voter containers or sustained load. The public SDK process drill,
+full performance suite and full library suite were not rerun at this checkpoint.
+The preceding 8c0a42f0 performance/inspection/release gaps remain open.
+
+Formatting, layout, native dependency/docs checks and the native-only
+Cellar/cellar-python library check pass, including an unavailable Python sentinel.
+Strict Cellar library Clippy still fails with 221 errors (202 dead-code), down
+from 222: the retained preparation wrapper removes the private-interface error;
+no diagnostic key was added or suppressed. Plan tests retain 35 passes, one
+index/Purpose failure and one reviewed-protocol drift error; validation/preflight
+still refuse the stale generated index. No source anchor was silently refreshed.
+
+The next functional priority is the currently refused exact-reference S3 learner
+path, including retained closure/receipt proofs, destination boot/catalog checks,
+physical install, catch-up and fresh quorum before promotion. Full public
+lifecycle/default-backend gates, archive hold retirement, live manifest-page
+collection and CG-09–16 remain required. CG-07 stays IN_PROGRESS; PR #160 stays draft.
+
 ## CG-07 owned workspace directory barriers
 
 Capture CG-07-wide-enrollment-01/source-08 binds 2,712 Rust/Python/manifest

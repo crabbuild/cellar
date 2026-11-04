@@ -37,6 +37,13 @@ SQL/transport retention. Both image forms pass the focused routing cases and the
 complete execution suite. This component result does not qualify the public
 SDK consumers or managed orchestration.
 
+Groups added after startup now retain node-wide archive pools and independent
+verifier resources. Dynamic RF3 S3 writes, refusal of missing archive identity,
+explicit initialization/retry and joined close with a held archive GET pass local
+managed cases in both image forms. Archived managed replacement/maintenance,
+exact-reference S3 learner activation and the complete public lifecycle gate
+remain required. See the latest [progress checkpoint](progress.md).
+
 CG-07 remains IN_PROGRESS. The native_cell_groups_public target now passes its
 sdk_many_cells_share_group case through public startup, native/Axum ingress and
 retained process restart. The other four original public acceptance cases remain
@@ -95,7 +102,7 @@ inventory explicit and fail closed for unseeded groups.
 
 | Order | Deliverable | Required result |
 | --- | --- | --- |
-| 1 | Managed S3 learner activation and archive holds (CG-06/07) | Install owned archive resources for dynamically activated managed groups, then implement the currently refused exact-reference S3 path without peer fallback. Verify and retain the complete manifest/image/receipt closure; preserve local owner and uncertain outcomes through actual sync. Reauthorize the destination boot and catalog, attach the actual installed member, catch up and obtain fresh quorum before promotion/success. Join admitted archive work before stop/offline confirmation and complete safe archive-hold retirement. A seed receipt or S3 object alone is not activation authority. |
+| 1 | Managed S3 learner activation and archive holds (CG-06/07) | Owned dynamic archive attachment and joined node close pass local cases. Qualify archived managed replacement/maintenance and implement the currently refused exact-reference S3 path without peer fallback. Verify and retain the complete manifest/image/receipt closure; preserve local owner and uncertain outcomes through actual sync. Reauthorize the destination boot and catalog, attach the actual installed member, catch up and obtain fresh quorum before promotion/success. Qualify admitted archive work through stop/offline confirmation and complete safe archive-hold retirement. A seed receipt or S3 object alone is not activation authority. |
 | 2 | Public SDK surface and executable consumers (CG-07) | Port the original daemon/native/Axum fixtures and performance/fleet runners to namespace capabilities, physical group assignment and replicated cell enrollment. The local all-binary check clears the original 27 compilation errors; qualify the final combined source. Clear the remaining 128-cell enrollment deadline, qualify S3 at every planned occupancy, finish live manifest-page ownership and qualify owned extent collection under the original workload bounds. Retain every original HTTP/read/retry option, exact term/revision transfer guard, actual responder metadata and all five original public gates. Incorporate the implemented cold birth, repair, maintenance stop/return/resume and physical debt into the complete public lifecycle case, including retained nonvoting inventory and failure/cancellation ownership. |
 | 3 | Public, build and backend qualification (CG-07 and MVP portions of CG-14/15/16) | Deliver the four remaining public cases below while retaining the SDK case; port the old inspection cancellation oracle to the managed shared protocol, and clear strict lint failures without suppressions. Review the stale plan source anchors and reconcile the generated index/Purpose mismatch; preserve the drift refusal until that review is complete. Run affected feature modes from SDK CI. Refresh same-source real RustFS recovery and replication/reclamation under bounded mixed load, retaining exact binaries, ledgers, failures and resource/latency measurements. |
 
@@ -184,8 +191,9 @@ full hard cutover.
 | CG-15 | Full load/crash, transition, wakeup and disaster-recovery matrix. Measure the documented profiles and failure schedules; no capacity or TiKV performance-parity claim follows from correctness tests. |
 | CG-16 | Delete remaining predecessor consumers/codecs, finish feature-off/full release checks, publish the unified API/runbooks and qualified operating envelope. No one-cell special path, compatibility reader or production mode toggle. |
 
-The next functional slice is managed archive ownership and exact S3 activation,
-including joined stop/drain ownership, followed by public lifecycle/default-backend
+The next functional slice is archived managed replacement/maintenance and exact
+S3 activation, including stop/offline ownership and archive hold retirement,
+followed by public lifecycle/default-backend
 integration and complete MVP public/backend gates, then
 transition/topology/wake features and the final managed recovery/load/release matrix. Passing one layer
 does not mark another layer or the end-to-end goal complete.

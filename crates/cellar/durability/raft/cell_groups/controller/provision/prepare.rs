@@ -100,7 +100,7 @@ pub(super) async fn recover(
     }))
 }
 
-async fn resolve(
+pub(super) async fn resolve(
     directory: &RangeDirectory,
     route: &GroupRoute,
     runtime: &CellGroupRuntime,

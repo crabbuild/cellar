@@ -393,33 +393,36 @@ pub(crate) async fn start(
                 })
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
-        controller.configure_provisioning(CellGroupProvisioning {
-            directory: directory.clone(),
-            filesystem: crate::asyncrt::fs(),
-            namespaces,
-            manifest: limits.manifest,
-            entries: limits.entries,
-            max_effect_rows: limits.max_effect_rows,
-            max_pages: limits.manifest_pages,
-            max_page_bytes: limits.manifest_bytes,
-            max_retained_roots: limits.retained_roots,
-            peers: prepared.peers.clone(),
-            peer_revision: limits.provisioning.peer_revision,
-            max_preparations: limits.provisioning.max_preparations,
-            max_preparation_bytes: limits.provisioning.max_preparation_bytes,
-            max_parallel_preparations: limits.provisioning.max_parallel_preparations,
-            max_waiters: limits.provisioning.max_waiters,
-        })?;
         let archive = archive::Pools::new(limits.archive, checkpoint)?;
-        let archive_images = if let Some(archive) = archive {
-            let (observer, inventory) = archive
+        let (archive_images, archive_provisioning) = if let Some(archive) = archive {
+            let (observer, inventory, provisioning) = archive
                 .register(&prepared, &controller, &log, &directory, limits, &options)
                 .await?;
             collectible.extend(inventory);
-            Some(observer)
+            (Some(observer), Some(provisioning))
         } else {
-            None
+            (None, None)
         };
+        controller.configure_provisioning_with_archives(
+            CellGroupProvisioning {
+                directory: directory.clone(),
+                filesystem: crate::asyncrt::fs(),
+                namespaces,
+                manifest: limits.manifest,
+                entries: limits.entries,
+                max_effect_rows: limits.max_effect_rows,
+                max_pages: limits.manifest_pages,
+                max_page_bytes: limits.manifest_bytes,
+                max_retained_roots: limits.retained_roots,
+                peers: prepared.peers.clone(),
+                peer_revision: limits.provisioning.peer_revision,
+                max_preparations: limits.provisioning.max_preparations,
+                max_preparation_bytes: limits.provisioning.max_preparation_bytes,
+                max_parallel_preparations: limits.provisioning.max_parallel_preparations,
+                max_waiters: limits.provisioning.max_waiters,
+            },
+            archive_provisioning,
+        )?;
         let mut registrations = Vec::new();
         let mut effects = Vec::new();
         let mut dispatchers = Vec::new();

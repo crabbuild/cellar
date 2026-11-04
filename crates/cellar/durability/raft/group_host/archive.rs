@@ -41,6 +41,7 @@ impl Pools {
     ) -> anyhow::Result<(
         crate::application::consensus::group_client::resources::Images,
         Option<resources::CollectibleExtents>,
+        CellGroupArchiveProvisioning,
     )> {
         // All verifier groups share separate node-wide physical inventories.
         // Serving pins or voter images cannot satisfy independent archive replay.
@@ -100,6 +101,26 @@ impl Pools {
                 .response()
                 .await?;
         }
-        Ok((images.observer(), collectible))
+        let namespaces = prepared
+            .namespaces
+            .iter()
+            .map(|namespace| {
+                Ok(CellGroupProvisionNamespace {
+                    directory: namespace.directory.clone(),
+                    images: images.apply(namespace.directory.namespace_config(), options)?,
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        Ok((
+            images.observer(),
+            collectible,
+            CellGroupArchiveProvisioning {
+                namespaces,
+                io: self.io.clone(),
+                owners: self.owners.clone(),
+                tails: self.tails.clone(),
+                checkpoints: self.checkpoints.clone(),
+            },
+        ))
     }
 }

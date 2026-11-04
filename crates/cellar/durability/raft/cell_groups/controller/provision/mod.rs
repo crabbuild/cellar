@@ -161,8 +161,16 @@ impl CellGroupController {
         &self,
         settings: CellGroupProvisioning,
     ) -> Result<(), CellGroupControllerError> {
+        self.configure_provisioning_with_archives(settings, None)
+    }
+
+    pub(crate) fn configure_provisioning_with_archives(
+        &self,
+        settings: CellGroupProvisioning,
+        archives: Option<archive::Provisioning>,
+    ) -> Result<(), CellGroupControllerError> {
         let shared = &self.handle.0;
-        let config = Arc::new(Config::new(settings, shared)?);
+        let config = Arc::new(Config::new(settings, shared, archives)?);
         let mut slot = shared
             .provisioning
             .lock()

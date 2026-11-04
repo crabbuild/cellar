@@ -4,6 +4,8 @@
 //! markers are observations, never S3 command settlement or serving authority.
 mod job;
 mod journal;
+mod provision;
+pub(crate) use provision::Provisioning;
 pub(in crate::raft::cell_groups::controller) mod settlement;
 
 use super::calls::Delivery;
@@ -272,6 +274,52 @@ impl Manager {
             },
         );
         self.queue.push_back(group);
+    }
+
+    pub fn provision(
+        &mut self,
+        registration: CellGroupArchiveRegistration,
+        shared: &Shared,
+    ) -> std::result::Result<(), CellGroupControllerError> {
+        let group = registration.birth.route().history;
+        if self.entries.contains_key(&group) || self.entries.len() >= shared.limits.max_groups {
+            return Err(CellGroupControllerError::Invalid(
+                "duplicate/full provisioned archive roster",
+            ));
+        }
+        let local = shared
+            .runtime
+            .log()
+            .cell_group(&group)
+            .map_err(RuntimeError::from)?;
+        let activation = local
+            .archive_compaction
+            .begin_activation()
+            .map_err(RuntimeError::from)?;
+        shared
+            .archives
+            .lock()
+            .map_err(|_| CellGroupControllerError::Closed)?
+            .insert(group, CellGroupArchiveStatus::default());
+        // The physical group/preparation already holds bounded admission. This
+        // internal handoff consumes no second ordinary command slot or waiter.
+        self.entries.insert(
+            group,
+            Entry {
+                registration,
+                activation: Some(activation),
+                context: None,
+                reply: None,
+                queued: true,
+                latest_applied: None,
+                dirty: true,
+                fatal: false,
+                retry_at: 0,
+                waiters: Vec::new(),
+            },
+        );
+        self.queue.push_back(group);
+        Ok(())
     }
 
     pub fn applied(&mut self, group: GroupHistory, index: LogIndex) {

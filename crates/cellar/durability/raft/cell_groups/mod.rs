@@ -39,6 +39,7 @@ pub use checkpoint::{
     PreparedLocalCellGroupCheckpoint,
 };
 mod controller;
+pub(crate) use controller::CellGroupArchiveProvisioning;
 pub(crate) use controller::S3OutputProof;
 pub use controller::{
     CellCommandAdmissionError, CellCommandCall, CellEnrollmentAdmissionError, CellEnrollmentCall,

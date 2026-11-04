@@ -2,7 +2,9 @@
 
 //! Cold managed bootstrap must obtain inventory before reserving its first group.
 use super::*;
-use cellar::application::consensus::verification::cell_groups::RangeDirectory;
+use cellar::application::consensus::verification::cell_groups::{
+    CellGroupArchivePool, RangeDirectory,
+};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn managed_cold_inventory_bootstrap() -> Result<()> {
@@ -206,6 +208,13 @@ fn checkpoint_limits() -> CellGroupCheckpointLimits {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ArchiveSetup {
+    Disabled,
+    Initialized,
+    Missing,
+}
+
 struct ManagedCluster {
     fixtures: Vec<Fixture>,
     roots: Vec<tempfile::TempDir>,
@@ -217,6 +226,19 @@ struct ManagedCluster {
 
 impl ManagedCluster {
     async fn start(rooted: bool, spares: &[u8]) -> Result<Self> {
+        Box::pin(Self::start_with_archives(
+            rooted,
+            spares,
+            ArchiveSetup::Disabled,
+        ))
+        .await
+    }
+
+    async fn start_with_archives(
+        rooted: bool,
+        spares: &[u8],
+        archives: ArchiveSetup,
+    ) -> Result<Self> {
         let first = Fixture::with_class(rooted, counter_class()?).await?;
         let second = peer_fixture(&first, 5).await?;
         let third = peer_fixture(&first, 6).await?;
@@ -283,8 +305,15 @@ impl ManagedCluster {
             let (mut config, services) = fixture
                 .config(&node, LogOpenMode::Create, 24 + i as u8)
                 .await?;
-            if !spares.is_empty() {
+            if !spares.is_empty() || archives != ArchiveSetup::Disabled {
                 config.shared.checkpoints = Some(checkpoint_limits());
+            }
+            if archives != ArchiveSetup::Disabled {
+                config.shared.archive = Some(CellGroupNodeArchiveOptions {
+                    io: Default::default(),
+                    uploads: Default::default(),
+                    tails: Default::default(),
+                });
             }
             let host = node.start_raft_cells(config, services).await?;
             ensure!(host.observe_node(TIMEOUT).await?.node.groups == 0);
@@ -346,14 +375,33 @@ impl ManagedCluster {
                 TIMEOUT,
             )
             .await?;
+        if archives == ArchiveSetup::Initialized {
+            archives::initialize(f, &directory, history, roots[0].path()).await?;
+        }
         let cut = f.catalog.read(TIMEOUT).await?;
         for host in hosts.iter().take(3) {
             for fixture in &fixtures {
                 inspect_current(host, fixture.spec.node, cut.revision()).await?;
             }
             let authorization = f.catalog.authorize_group(&cut, &history, TIMEOUT).await?;
-            host.activate_managed_initial_group(authorization, TIMEOUT)
-                .await?;
+            let result = host
+                .activate_managed_initial_group(authorization, TIMEOUT)
+                .await;
+            if archives == ArchiveSetup::Missing {
+                ensure!(
+                    matches!(
+                        result,
+                        Err(CellGroupStartupError::Unconfirmed(
+                            CellGroupControllerError::Archive(_)
+                        ))
+                    ),
+                    "missing archive must refuse before bootstrap: {result:?}"
+                );
+                ensure!(host.observe_node(TIMEOUT).await?.node.groups == 0);
+                ensure!(f.catalog.read(TIMEOUT).await?.revision() == cut.revision());
+            } else {
+                result?;
+            }
         }
         Ok(Self {
             fixtures,
@@ -609,3 +657,6 @@ async fn cold_group(rooted: bool) -> Result<()> {
 
 #[path = "cell_group_managed_lifecycle.rs"]
 mod lifecycle;
+
+#[path = "cell_group_managed_archives.rs"]
+mod archives;

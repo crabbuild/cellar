@@ -90,6 +90,7 @@ pub struct Store {
     pub fleet_read_resume: tokio::sync::Notify,
     pub registry_before: RegistryGate,
     pub registry_after: RegistryGate,
+    pub group_archive_read: RegistryGate,
     pub fail_registry_before: AtomicBool,
     pub fail_registry_after: AtomicBool,
     pub registry_writes: AtomicUsize,
@@ -514,6 +515,9 @@ impl ObjectStore for Store {
     }
 
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
+        if path.as_ref().contains("/cell-group-archives/") {
+            self.group_archive_read.pause().await;
+        }
         let _ = READ_COUNTS.try_with(|counts| {
             *counts.borrow_mut().entry(path.to_string()).or_default() += 1;
         });

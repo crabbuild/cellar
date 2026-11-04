@@ -218,7 +218,7 @@ impl Worker {
                 }
                 Some(done) = self.provisioning.next(), if self.provisioning.is_running() => {
                     let group = done.group();
-                    self.provisioning.complete(done, &self.shared, &self.transport, &mut self.roster, &mut self.routes)?;
+                    self.provisioning.complete(done, &self.shared, &self.transport, &mut self.roster, &mut self.routes, &mut self.archives)?;
                     if let Some(applier) = self.roster.get(&group) { self.effects.register(applier)?; }
                 }
                 Some(completed) = self.registrations.next(), if !self.registrations.is_empty() => {
