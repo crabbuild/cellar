@@ -263,6 +263,16 @@ impl Worker {
             reply(request, group.owner.status().map(Response::Status));
             return;
         }
+        if matches!(request.command, Command::Observe) {
+            reply(
+                request,
+                group
+                    .owner
+                    .observe()
+                    .map(|value| Response::Observation(Box::new(value))),
+            );
+            return;
+        }
         if matches!(request.command, Command::ReplicationStatus) {
             reply(
                 request,
@@ -474,6 +484,17 @@ impl Worker {
                                 Command::TransferLeadership(transfer) => group
                                     .owner
                                     .transfer_leadership(transfer)
+                                    .map(|()| Response::Unit),
+                                Command::TransferLeadershipBefore(transfer, deadline) => self
+                                    .domain
+                                    .mono_ms()
+                                    .map_err(|_| RuntimeError::Closed)
+                                    .and_then(|now| {
+                                        if now >= deadline {
+                                            return Err(RuntimeError::DeadlineExceeded);
+                                        }
+                                        group.owner.transfer_leadership(transfer)
+                                    })
                                     .map(|()| Response::Unit),
                                 Command::RestartLeadership(check) => self
                                     .domain

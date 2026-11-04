@@ -208,7 +208,25 @@ async fn main() -> Result<()> {
         services.push(service);
     }
     configuration::enroll(&services, cluster, namespace).await?;
-    let inventory: Vec<_> = services.iter().map(|service| { let usage=service.resource_usage(); serde_json::json!({"groups":usage.host.controller.groups,"cells":usage.retained_manifest_cells}) }).collect();
+    let mut inventory = Vec::new();
+    for service in &services {
+        let usage = service.resource_usage();
+        let observed = service.group(configuration::group(cluster, namespace)?)?
+            .observe(Duration::from_secs(5)).await?;
+        inventory.push(serde_json::json!({
+            "groups": usage.host.controller.groups,
+            "cells": usage.retained_manifest_cells,
+            "group": hex::encode(observed.replica.scope.group.bytes()),
+            "group_incarnation": hex::encode(observed.replica.scope.incarnation.bytes()),
+            "member": observed.replica.member.get(),
+            "observed_cells": observed.cells,
+            "checkpoint": observed.checkpoint.index.get(),
+            "persisted": observed.persisted.get(),
+            "applied": observed.status.applied.index.get(),
+            "committed": observed.status.committed.get(),
+            "retained_entries": observed.retained_entries,
+        }));
+    }
     std::fs::write(root.join("inventory.json"), serde_json::to_vec_pretty(&inventory)?)?;
     for (i, service) in services.iter().enumerate() {
         *apis[i]

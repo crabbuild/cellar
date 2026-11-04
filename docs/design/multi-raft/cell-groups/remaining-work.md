@@ -48,6 +48,17 @@ part of the target.
 
 ## P0: finish the MVP and its merge gates
 
+The public group-control prerequisite now has an implementation:
+`RaftGroupHandle::observe` samples actual physical log/owner metadata and cell
+occupancy; `archive_status` keeps publication separate from coverage; guarded
+`transfer_leadership` preserves the caller's term/revision and checks the original
+deadline at owner execution. The counter inventory consumes the observation API.
+This does not port the performance/fleet runner or complete its public gates.
+Next port its cell-addressing, physical group layout/placement, replicated
+enrollment, logical version tokens and complete-group recovery together. Retain
+the original HTTP/read/retry options, workload ledger and independent oracles;
+report measured physical group counts separately from logical cell counts.
+
 | Order | Deliverable | Required result |
 | --- | --- | --- |
 | 1 | Public SDK surface and executable consumers (CG-07) | Port the original daemon/native/Axum fixtures and performance/fleet runners to namespace capabilities, physical group assignment and replicated cell enrollment. Clear the 27 remaining performance compilation errors. Retain every original HTTP/read/retry option, exact term/revision transfer guard, actual responder metadata and all five original public gates. Incorporate the implemented cold birth, repair, maintenance stop/return/resume and physical debt into the complete public lifecycle case, including retained nonvoting inventory and failure/cancellation ownership. |

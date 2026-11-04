@@ -12,6 +12,53 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 public physical-group controls checkpoint
+
+Capture CG-07-group-controls-02 binds 2133 Rust inputs (manifest SHA256
+09f5447c42949fb573c90a8d28fc0d5fc7ecedaa3bf10efbaef705d6c19029cd).
+All ten managed Node cases pass in 118.40 seconds; all nine parent names remain.
+Shared execution passes 179 cases with the two original owned child fixtures
+ignored, retaining all 181 names. Host three, public SDK one, counter build,
+locked native-only cellar/cellar-python compilation and five static checks pass.
+The public process drill retains native/Axum ingress and restart and now checks
+metadata from all three actual physical owners as well as resource counts.
+
+The SDK exposes local physical-group observation with identity, role, membership
+revision, persisted/committed/applied positions, installed checkpoint, retained
+entry count and applied cell occupancy. One owner turn and one short durable-cache
+read produce the sample. Entry counts do not estimate disk bytes; these samples
+grant no quorum or serving authority. Archive-controller publication is sampled
+separately and cannot supply retained physical coverage or compaction permission.
+No per-cell Raft owner, worker or admission bank was added.
+
+Guarded leadership transfer retains the caller's exact term, membership revision
+and target. The deadline starts at invocation and the actual owner checks it
+after queuing, before mutation. Success establishes admission, not election;
+expiry or close after dispatch does not establish whether a handoff was admitted.
+Both image forms pass stale term/revision, invalid target, timeout bounds,
+unpolled expiry and closed-owner refusals, followed by a real election, duplicate
+receipts, old-token reads and new writes through the new leader. A held real
+engine sync in the existing membership-floor case proves queued expiry refuses
+the transfer while retaining the original leader. All original assertions remain.
+
+The first capture retains two new private-method diagnostics and the explicitly
+interrupted failed compiler. The corrected source completes its checks without
+internal-test cfg or a raised timeout, quota, stack or optimization setting.
+Package commands still fail on exactly 27 unported performance-runner errors;
+emission and direct execution of an integration artifact is not a package pass.
+Strict Clippy remains 222 diagnostics, 202 dead_code, with unchanged diagnostic
+keys. The plan suite remains 35 passed, one index/Purpose failure and one reviewed
+anchor error; all seven recorded inputs of those failures match 824e0a20.
+No baseline or assertion was relaxed. Full-library and real RustFS qualification
+were not rerun in this checkpoint. The dedicated RustFS VM is currently stopped.
+
+CG-07 stays IN_PROGRESS and PR #160 stays draft. Next port the original executable
+consumers and remaining public lifecycle/ingress/occupancy/feature-off gates,
+including failure/cancellation and retained nonvoting inventory. Then finish
+exact-reference S3 learner activation/archive holds and refresh same-source
+RustFS recovery plus bounded replication/reclamation load. These local TLS/SQLite
+fixtures do not establish independent-host capacity, sustained load or release.
+
 ## CG-07 managed maintenance checkpoint
 
 The follow-up on 004d1051 implements and locally qualifies catalog-owned

@@ -139,6 +139,7 @@ enum Command {
     Campaign,
     TransferLeader(u64),
     TransferLeadership(crate::raft::completion::LeadershipTransfer),
+    TransferLeadershipBefore(crate::raft::completion::LeadershipTransfer, u64),
     RestartLeadership(Box<crate::raft::completion::RestartLeadershipCheck>),
     Configure(CellGroupMembershipChange),
     ActivateRecovery(Box<CellGroupRecoveryActivationPermit>),
@@ -168,6 +169,7 @@ enum Command {
     Apply(CellGroupTicket, Box<PreparedGroupManifest>),
     CaptureCheckpoint(CellGroupCheckpointPool),
     Status,
+    Observe,
     LeadershipBatch(Option<GroupHistory>),
     ReplicationStatus,
     Tick,
@@ -185,6 +187,7 @@ enum Response {
     EnrollmentState(Box<CellEnrollmentState>),
     Reconciliation(Box<CellReconciliationAuthority>),
     Status(CellGroupStatus),
+    Observation(Box<CellGroupObservation>),
     LeadershipBatch(LeadershipBatch),
     ReplicationStatus(crate::raft::completion::ReplicationStatus<GroupHistory>),
     Read(Box<CellReadAuthority>),
@@ -966,6 +969,33 @@ impl CellGroupRuntime {
                 "group replication status reply".into(),
             )),
         }
+    }
+
+    pub(crate) async fn observe(
+        &self,
+        history: GroupHistory,
+    ) -> Result<CellGroupObservation, RuntimeError> {
+        match self.call(Some(history), Command::Observe, 4096).await? {
+            Response::Observation(observation) => Ok(*observation),
+            _ => Err(RuntimeError::Protocol("group observation reply".into())),
+        }
+    }
+
+    /// The deadline is absolute in this runtime's execution domain. The owner
+    /// checks it after its serialized queue, before admitting the handoff.
+    pub async fn transfer_leadership_before(
+        &self,
+        history: GroupHistory,
+        transfer: crate::raft::completion::LeadershipTransfer,
+        deadline: u64,
+    ) -> Result<(), RuntimeError> {
+        self.call(
+            Some(history),
+            Command::TransferLeadershipBefore(transfer, deadline),
+            4096,
+        )
+        .await
+        .map(|_| ())
     }
 
     pub async fn transfer_leadership(

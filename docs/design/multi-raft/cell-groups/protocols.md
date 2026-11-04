@@ -27,6 +27,32 @@ record is never a vote, a majority proof or infrastructure fencing evidence.
 | I13 | Alarms/outbox/inbox preserve committed intent and stable effect identity across movement. |
 | I14 | Release claims are tied to exact source, actual tests, workloads and infrastructure. |
 
+## Physical group observations and handoff
+
+`RaftCells::group(GroupHistory)` selects a local physical log; application
+commands and queries continue to use independent `CellHistory` handles.
+`RaftGroupHandle::observe(timeout)` samples the actual owner and its durable
+cache in one serialized turn. It reports replica identity, role, membership
+revision, persisted/committed/applied progress, installed checkpoint, retained
+entry count and applied-manifest cell occupancy. A group containing two cells
+still contributes one group replica. Retained entries are not a disk-byte
+measurement. This metadata grants no quorum, serving or compaction authority.
+
+`archive_status()` reports the archive controller's last verified publication
+independently of the owner sample. Absence means no installed archive owner;
+a publication is historical metadata, not a retained coverage proof. Local
+compaction continues to require the existing physical dependency verification.
+
+`transfer_leadership(LeadershipTransfer, timeout)` preserves the caller's exact
+term, membership revision and target. The actual owner rechecks those guards,
+incoming-voter membership, readiness and matched progress before admission.
+Its deadline starts at invocation, including time before polling, and is checked
+again after queuing before mutation. Success establishes admission only;
+observe the actual election and obtain fresh application authority afterward.
+Expiry or close after dispatch does not establish whether a handoff was admitted.
+Observations and guarded transfer reject zero or greater-than-60-second budgets
+and closed owners. They add no worker, per-cell Raft instance or admission bank.
+
 ## Enrollment
 
 Resolve the current range, materialize its group birth if absent, and obtain

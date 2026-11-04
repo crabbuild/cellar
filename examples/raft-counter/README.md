@@ -10,6 +10,12 @@ Both use the same registered synchronous commands, queries and node-owned
 dispatcher. Followers apply LTX and serve committed-image reads without
 executing the increment callback.
 
+The retained `inventory.json` records both resource counts and public
+`RaftGroupHandle::observe` samples from all three actual owners. Each sample
+includes physical history/member identity, two-cell occupancy, local checkpoint,
+persisted/committed/applied positions and retained entry count. These are
+administrative observations; they grant no quorum or archive coverage.
+
 From the repository root, use the toolchain and checkout-specific target
 directory from [build guidance](../../AGENTS.md#build-and-validation):
 

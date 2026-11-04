@@ -68,11 +68,37 @@ fn sdk_many_cells_share_group() -> Result<()> {
         serde_json::from_slice(&std::fs::read(data.join("inventory.json"))?)?;
     let replicas = inventory.as_array().context("replica inventory array")?;
     ensure!(replicas.len() == 3, "incomplete replica inventory");
-    for replica in replicas {
+    for (i, replica) in replicas.iter().enumerate() {
         ensure!(replica["groups"] == 1, "expected one observed shared group");
         ensure!(
             replica["cells"] == 2,
             "expected two independent cell histories"
+        );
+        ensure!(
+            replica["observed_cells"] == 2,
+            "owner occupancy disagrees with resources"
+        );
+        ensure!(
+            replica["group"] == replicas[0]["group"]
+                && replica["group_incarnation"] == replicas[0]["group_incarnation"],
+            "replicas observe different physical histories"
+        );
+        ensure!(replica["member"] == i as u64 + 1, "wrong physical member");
+        let progress = ["checkpoint", "applied", "committed", "persisted"]
+            .map(|key| {
+                replica[key]
+                    .as_u64()
+                    .with_context(|| format!("missing physical {key}"))
+            })
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?;
+        ensure!(
+            progress.windows(2).all(|pair| pair[0] <= pair[1]),
+            "incoherent physical progress"
+        );
+        ensure!(
+            replica["retained_entries"].as_u64() == Some(progress[3] - progress[0]),
+            "retained entries differ from the durable log"
         );
     }
     eprintln!("Public SDK/process evidence retained at {}", root.display());

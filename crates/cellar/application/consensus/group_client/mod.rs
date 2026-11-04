@@ -84,6 +84,7 @@ mod fleet;
 mod learner;
 mod membership;
 mod node;
+mod observation;
 mod repair;
 mod services;
 mod startup;

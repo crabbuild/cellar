@@ -660,12 +660,54 @@ impl CellGroupOwner {
     pub fn status(&self) -> Result<CellGroupStatus, RuntimeError> {
         self.live()?;
         let cache = self.group.read()?;
-        Ok(CellGroupStatus {
+        Ok(self.status_at(&cache))
+    }
+
+    fn status_at(&self, cache: &crate::raft::cache::CachedGroup) -> CellGroupStatus {
+        CellGroupStatus {
             term: Term::new(self.node.raft.term),
             leader: (self.node.raft.leader_id != 0).then_some(self.node.raft.leader_id),
             applied: self.current.marker().position(),
             committed: LogIndex::new(cache.hard_state.commit),
-            ready: self.current.marker().is_active() && self.protocol_ready(&cache),
+            ready: self.current.marker().is_active() && self.protocol_ready(cache),
+        }
+    }
+
+    pub(super) fn observe(&self) -> Result<super::CellGroupObservation, RuntimeError> {
+        use crate::application::consensus::RaftReplicaRole;
+        self.live()?;
+        let cache = self.group.read()?;
+        let replica = self.group.identity().clone();
+        let member = replica.member.get();
+        let role = if cache.conf_state.voters.contains(&member)
+            || cache.conf_state.voters_outgoing.contains(&member)
+        {
+            if self.node.raft.state == StateRole::Leader {
+                RaftReplicaRole::Leader
+            } else {
+                RaftReplicaRole::Voter
+            }
+        } else if cache.conf_state.learners.contains(&member)
+            || cache.conf_state.learners_next.contains(&member)
+        {
+            RaftReplicaRole::Learner
+        } else {
+            RaftReplicaRole::Removed
+        };
+        let checkpoint = cache.snapshot.get_metadata();
+        Ok(super::CellGroupObservation {
+            replica,
+            status: self.status_at(&cache),
+            role,
+            membership_revision: cache.membership.revision(),
+            persisted: LogIndex::new(cache.last_index()),
+            checkpoint: LogPosition {
+                term: Term::new(checkpoint.term),
+                index: LogIndex::new(checkpoint.index),
+            },
+            retained_entries: cache.entries.len(),
+            cells: self.current.marker().root().cells(),
+            archive_required: cache.archive_required,
         })
     }
 

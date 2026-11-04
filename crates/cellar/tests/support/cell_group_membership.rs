@@ -757,6 +757,29 @@ pub(crate) async fn membership_quorum_floor() -> Result<()> {
         let accepted = runtime.configure(route.history, request).await?;
         tokio::time::timeout(Duration::from_secs(5), gate.entered.notified()).await?;
         assert_eq!(group.group_manifest()?.as_ref(), Some(&before));
+        // A real held engine sync keeps control work in the serialized queue.
+        // Expiry must win at owner execution even though the configuration also
+        // changes: without the deadline check this would report Invalid instead.
+        let transfer_deadline = fixture
+            .cluster
+            .domain
+            .run(async { cellar::asyncrt::mono_ms() + 40 })
+            .await?;
+        let transfer = runtime.transfer_leadership_before(
+            route.history,
+            cellar::application::consensus::LeadershipTransfer {
+                target: MemberId::new(2)?,
+                expected_term: runtime.status(route.history).await?.term,
+                expected_revision: LogIndex::new(before.membership_revision()),
+            },
+            transfer_deadline,
+        );
+        tokio::pin!(transfer);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(60), &mut transfer)
+                .await
+                .is_err()
+        );
         let deadline = fixture
             .cluster
             .domain
@@ -770,11 +793,16 @@ pub(crate) async fn membership_quorum_floor() -> Result<()> {
             .is_err());
         assert!(runtime.usage().read_pins.items > 0);
         drop(release);
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(5), &mut transfer).await?,
+            Err(RuntimeError::DeadlineExceeded)
+        ));
         let observed = tokio::time::timeout(Duration::from_secs(10), &mut read).await??;
         assert_eq!(observed.membership().revision(), accepted.position.index);
         assert!(observed.barrier().index >= accepted.position.index);
         assert!(observed.root().position().index >= observed.barrier().index);
         assert_eq!(observed.configuration().learners_next, vec![3]);
+        assert_eq!(observed.status().leader, Some(1));
         drop(observed);
         controller::wait_for(async || Ok(runtime.usage().read_pins.items == 0)).await?;
         let unreachable = LogIndex::new(accepted.position.index.get() + 10_000);

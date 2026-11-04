@@ -3,6 +3,9 @@
 //! Resource-backed whole-group replacement through the public managed APIs.
 use super::*;
 
+#[path = "cell_group_managed_controls.rs"]
+mod controls;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn managed_group_replacement_and_joined_restart() -> Result<()> {
     for rooted in [false, true] {

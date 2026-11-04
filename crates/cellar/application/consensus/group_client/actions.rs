@@ -215,6 +215,35 @@ impl RaftCells {
 }
 
 impl RaftGroupHandle {
+    /// Admit a handoff only if the actual owner still matches the caller's term
+    /// and membership revision and the target is a caught-up incoming voter.
+    /// The invocation deadline is rechecked after queuing, before mutation.
+    /// Acceptance is not election completion. Expiry/close after dispatch does
+    /// not establish whether a handoff was admitted; observe the group again.
+    pub fn transfer_leadership(
+        &self,
+        transfer: super::super::LeadershipTransfer,
+        timeout: Duration,
+    ) -> impl Future<Output = Result<(), RuntimeError>> + Send + 'static {
+        let deadline = self.control_deadline(timeout);
+        let group = self.clone();
+        async move {
+            let deadline = deadline?;
+            group.control_live(deadline)?;
+            super::drain::within(
+                &group.owner.handle.domain,
+                deadline,
+                group.owner.handle.core.runtime.transfer_leadership_before(
+                    group.history,
+                    transfer,
+                    deadline,
+                ),
+            )
+            .await?;
+            group.control_live(deadline)
+        }
+    }
+
     /// Leader-local metadata, without a quorum, applied image or health lease.
     pub fn replication_status(
         &self,
@@ -278,7 +307,7 @@ impl RaftGroupHandle {
         }
     }
 
-    fn control_live(&self, deadline: u64) -> Result<(), RuntimeError> {
+    pub(super) fn control_live(&self, deadline: u64) -> Result<(), RuntimeError> {
         if self.owner.is_closed() {
             return Err(RuntimeError::Closed);
         }

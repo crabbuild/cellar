@@ -4,6 +4,42 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Latest public physical-group controls checkpoint
+
+Capture CG-07-group-controls-02 passes all ten managed cases, retaining all nine
+parent names. The added public SDK case covers both image forms: actual physical
+identity/occupancy, guarded transfer refusals and deadlines, real election,
+receipt replay, old-token reads and new writes. The original membership-floor
+case now holds real engine sync to prove a queued transfer expires before mutation.
+Public counter inventory observes all three actual group owners.
+
+The SDK exposes physical log observations and separate historical archive status.
+Neither grants quorum, serving or compaction permission; retained entry count is
+not disk usage. Guarded transfer preserves caller term/revision/target and checks
+the invocation deadline at owner execution. Lost/expired replies remain uncertain
+about admission. There is no extra worker, bank or raised resource ceiling.
+
+The Rust manifest has 2133 inputs, SHA256
+09f5447c42949fb573c90a8d28fc0d5fc7ecedaa3bf10efbaef705d6c19029cd.
+Shared execution passes 179 cases with two ignored fixtures. The three host
+cases, public SDK case, counter build, native-only library compilation and five
+static checks pass. All 181 execution names remain. Strict Clippy retains 222
+diagnostics, 202 dead_code, with unchanged keys; package builds retain 27
+performance errors. Plan validation retains its index/Purpose and reviewed-anchor
+failures; all seven recorded inputs match 824e0a20. Do not refresh baselines merely
+to pass. The first failed capture and corrected source/artifacts are retained.
+Full library and RustFS were not rerun; the dedicated backend VM is stopped.
+
+Next feature priority remains the original performance/fleet consumer cutover:
+physical group layout/placement, replicated cell enrollment, cell versions/tokens,
+all HTTP/read/retry options and whole-group recovery. Complete the original four
+remaining public gates, lifecycle failure/cancellation and retained nonvoting debt.
+Then implement exact-reference S3 learner activation/archive-hold retirement and
+refresh same-source RustFS recovery/load. Keep CG-07 IN_PROGRESS, CG-09–16 TODO,
+the goal active and PR #160 draft. Consult group_controls_work in both ignored
+continuations for preservation/publication and any later live handles. Preserve
+the eight diagrams and exclude both requested MR progress basenames.
+
 ## Latest managed maintenance checkpoint
 
 This section supersedes the historical checkpoints below. Source
