@@ -312,6 +312,7 @@ pub async fn cells_many(
             host,
         },
         RaftCellsServices {
+            recovery: None,
             listeners: NodeRaftListeners {
                 control: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
                 data: tokio::net::TcpListener::bind("127.0.0.1:0").await?,

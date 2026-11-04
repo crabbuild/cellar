@@ -295,7 +295,7 @@ pub(super) async fn complete_source_cut(rooted: bool) -> Result<()> {
     }
     assert!(matches!(
         s.registry.prepare_acquire(&s.cluster.domain).await,
-        Err(CellGroupArchiveError::Invalid("no selected archive"))
+        Err(CellGroupArchiveError::Unconfirmed)
     ));
     // Source authority was captured with the tail, before the source advanced.
     // Another cell can commit without invalidating that immutable committed cut.

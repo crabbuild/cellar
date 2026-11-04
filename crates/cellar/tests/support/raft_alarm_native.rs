@@ -207,6 +207,7 @@ impl Fixture {
                         host,
                     },
                     RaftCellsServices {
+                        recovery: None,
                         listeners,
                         tls: public_node::tls()?,
                         store: store.clone(),

@@ -180,6 +180,7 @@ impl Cluster {
                         },
                     },
                     RaftCellsServices {
+                        recovery: None,
                         listeners,
                         tls: public_node::tls()?,
                         store: cluster.store.clone(),

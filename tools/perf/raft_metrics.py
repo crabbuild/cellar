@@ -30,6 +30,7 @@ OPERATIONS = (
     'transport_data_queue',
     'transport_control_exchange',
     'transport_data_exchange',
+    'transport_query_reply_write',
     'transport_control_admit',
     'transport_data_admit',
     'archive_admission_check',

@@ -467,6 +467,7 @@ async fn main() -> Result<()> {
         .start_raft_cells(
             raft_config,
             RaftCellsServices {
+            recovery: None,
                 listeners: NodeRaftListeners {
                     control: tokio::net::TcpListener::bind("0.0.0.0:9100").await?,
                     data: tokio::net::TcpListener::bind("0.0.0.0:9101").await?,

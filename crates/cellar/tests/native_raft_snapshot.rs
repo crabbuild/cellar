@@ -1537,6 +1537,7 @@ async fn native_seed_drill_store(
                     },
                 },
                 RaftCellsServices {
+                    recovery: None,
                     listeners: cellar::sdk::NodeRaftListeners {
                         control: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
                         data: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
@@ -1826,6 +1827,7 @@ async fn missing_quorum_restore_refused() -> Result<()> {
                     host: Default::default(),
                 },
                 RaftCellsServices {
+                    recovery: None,
                     listeners: cellar::sdk::NodeRaftListeners {
                         control: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
                         data: tokio::net::TcpListener::bind("127.0.0.1:0").await?,

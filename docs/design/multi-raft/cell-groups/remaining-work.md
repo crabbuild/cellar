@@ -59,10 +59,22 @@ enrollment, logical version tokens and complete-group recovery together. Retain
 the original HTTP/read/retry options, workload ledger and independent oracles;
 report measured physical group counts separately from logical cell counts.
 
+Public recovered-node startup now has its owned activation path: an explicit
+fencing authority plus exact retained seed/engine pins, actual fresh quorum
+activation, catalog completion and joined shutdown. The local public Node drill
+restores original S3 receipts/state after all old voter directories are erased,
+then verifies new writes and retained restart in both image forms. Its contract
+fence does not qualify the Docker controller or a combined RustFS deployment.
+Use this API in the executable whole-group recovery port next. Preserve complete
+archive cuts before fencing, use disjoint replacement member/node identities,
+and sequence each group against the current catalog root through activation;
+preplanning every group against one stale root is invalid. Keep partial recovered
+inventory explicit and fail closed for unseeded groups.
+
 | Order | Deliverable | Required result |
 | --- | --- | --- |
 | 1 | Public SDK surface and executable consumers (CG-07) | Port the original daemon/native/Axum fixtures and performance/fleet runners to namespace capabilities, physical group assignment and replicated cell enrollment. Clear the 27 remaining performance compilation errors. Retain every original HTTP/read/retry option, exact term/revision transfer guard, actual responder metadata and all five original public gates. Incorporate the implemented cold birth, repair, maintenance stop/return/resume and physical debt into the complete public lifecycle case, including retained nonvoting inventory and failure/cancellation ownership. |
-| 2 | Managed S3 learner activation and archive holds (CG-06/07) | Implement the currently refused exact-reference S3 path without peer fallback. Verify and retain the complete manifest/image/receipt closure; preserve local owner and uncertain outcomes through actual sync. Reauthorize the destination boot and catalog, attach the actual installed member, catch up and obtain fresh quorum before promotion/success. Complete safe archive-hold retirement. A seed receipt or S3 object alone is not activation authority. |
+| 2 | Managed S3 learner activation and archive holds (CG-06/07) | Install owned archive resources for dynamically activated managed groups, then implement the currently refused exact-reference S3 path without peer fallback. Verify and retain the complete manifest/image/receipt closure; preserve local owner and uncertain outcomes through actual sync. Reauthorize the destination boot and catalog, attach the actual installed member, catch up and obtain fresh quorum before promotion/success. Complete safe archive-hold retirement. A seed receipt or S3 object alone is not activation authority. |
 | 3 | Public, build and backend qualification (CG-07 and MVP portions of CG-14/15/16) | Deliver the four remaining public cases below while retaining the SDK case; port the old inspection cancellation oracle to the managed shared protocol, and clear strict lint failures without suppressions. Review the stale plan source anchors and reconcile the generated index/Purpose mismatch; preserve the drift refusal until that review is complete. Run affected feature modes from SDK CI. Refresh same-source real RustFS recovery and replication/reclamation under bounded mixed load, retaining exact binaries, ledgers, failures and resource/latency measurements. |
 
 The public counter and first SDK gate are qualified at their recorded local

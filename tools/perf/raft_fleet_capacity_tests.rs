@@ -73,6 +73,7 @@ async fn capacity_retry() -> Result<()> {
         .start_raft_cells(
             options,
             RaftCellsServices {
+                recovery: None,
                 listeners,
                 tls: RaftTls::new(
                     vec![

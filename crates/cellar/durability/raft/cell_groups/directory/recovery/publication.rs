@@ -209,12 +209,39 @@ impl RangeDirectory {
                             publication: publication.journal_digest(),
                             manifest: binding.commitment,
                         }) => {}
-            Some(_) => return Err(CatalogError::Fenced),
-            None => {
+            // An unrelated recovery can own the topology lock after this
+            // group completed. Its exact activation receipt and selected route
+            // must still verify; pending groups cannot use this lane.
+            Some(_) | None => {
                 self.require_recovery_activation(request, &publication, binding.commitment)
                     .await?
             }
         }
         Ok((publication, binding, digest))
+    }
+
+    /// Read-only status for this exact published intent. False requires its
+    /// durable activation receipt; another group's lock is never completion.
+    pub async fn group_recovery_pending(
+        &self,
+        request: &CellGroupRecoveryRequest,
+    ) -> Result<bool, CatalogError> {
+        self.bounded(async {
+            let (publication, binding, _) = self.published_recovery(request).await?;
+            let (view, _) = self.current().await?;
+            self.selected_route_in(&view, request.replacement().route())
+                .await?;
+            let pending = view
+                .head
+                .recovery
+                .as_deref()
+                .is_some_and(|lock| lock.request == request.digest());
+            if !pending {
+                self.require_recovery_activation(request, &publication, binding.commitment)
+                    .await?;
+            }
+            Ok(pending)
+        })
+        .await
     }
 }

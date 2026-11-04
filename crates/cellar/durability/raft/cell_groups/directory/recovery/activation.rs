@@ -19,6 +19,10 @@ pub struct CellGroupRecoveryActivationPermit {
 }
 
 impl CellGroupRecoveryActivationPermit {
+    pub(crate) fn deadline(&self) -> u64 {
+        self.deadline
+    }
+
     pub fn history(&self) -> GroupHistory {
         self.group.identity().scope
     }
@@ -278,7 +282,12 @@ impl RangeDirectory {
                 let (mut view, version) = self.current().await?;
                 self.selected_route_in(&view, request.replacement().route())
                     .await?;
-                if view.head.recovery.is_none() {
+                if view
+                    .head
+                    .recovery
+                    .as_deref()
+                    .is_none_or(|lock| lock.request != request.digest())
+                {
                     self.require_recovery_activation(&request, &publication, binding.commitment)
                         .await?;
                     return Ok(publication);

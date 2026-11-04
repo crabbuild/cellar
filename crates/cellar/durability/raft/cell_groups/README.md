@@ -59,6 +59,41 @@ exact retry can observe the synced effect; queueing alone is never acceptance.
 Reconcile an uncertain stop using the same rooted child; signed closure requires
 actual owned shutdown and join before offline confirmation.
 
+## Recovered public-node startup
+
+An offline recovery operator persists the exact recovery intent, obtains the
+infrastructure fence, verifies the complete archive closure and seeds every
+replacement voter with a fresh disk/engine and disjoint member/node identities.
+It publishes that same intent only after every required seed receipt is durable.
+Archive setup has its own one-use intent, which must be synced before commit.
+None of these steps creates a live quorum.
+
+`RaftCellsServices::recovery` supplies the independent
+`DisasterFenceAuthority<CellGroupDisasterFenceRequest>` for unmanaged public
+startup in `LogOpenMode::Resume`. Each assignment must already have the exact
+local recovery genesis, seed receipt and retained engine/disk pins. Startup
+locates the original request through the selected birth and immutable binding,
+then independently verifies the external fence. A missing authority, rejected
+fence, missing image or blank disk refuses; startup cannot regenerate these
+proofs from object-store metadata.
+
+One node-owned control service requests activation from the actual shared Raft
+owners. Its metadata uses the existing control bank, and queued permits retain
+their original deadlines. Startup may return before a fresh quorum exists;
+application admission stays closed until activation commits and applies. Only
+that acknowledgement can complete the original catalog intent. Unknown storage
+outcomes retain the same intent for reconciliation. An authority or corruption
+failure quarantines that group. Shutdown signals and joins entered recovery
+verification/publication before closing consensus and storage.
+
+A retained restart uses the same disks and independently verifies the fence
+again. `RangeDirectory::group_recovery_pending` observes the exact published
+intent; a completed status requires its activation receipt and selected route.
+This metadata is neither current quorum proof nor serving permission. An
+unrelated recovery lock cannot substitute for this group's activation receipt.
+Managed disaster recovery still requires its fleet recovery ownership contract;
+an unmanaged authority cannot enable that path.
+
 ## Manifests
 
 A manifest is a persistent AVL tree ordered by the namespace routing digest and

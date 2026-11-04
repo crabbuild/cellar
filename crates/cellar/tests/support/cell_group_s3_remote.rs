@@ -21,11 +21,25 @@ impl Remote {
     }
 
     pub(super) async fn start(h: &Harness, dispatcher: CellGroupDispatcher) -> Result<Self> {
+        // A gateway derives history paths below a namespace base. Nesting that
+        // base inside an existing cell's disposable SQLite directory leaves a
+        // foreign child which must make a later local reopen refuse.
+        let mut options = h.fixture.cell_options(&h.cell).await?;
+        let base = h
+            .fixture
+            .cluster
+            ._root
+            .path()
+            .join("remote-command-namespace");
+        match &mut options {
+            CellSqlOptions::Materialized(options) => options.directory = base,
+            CellSqlOptions::Extents(options) => options.cache_directory = base,
+        }
         let gateway = h.fixture.transports[0].install_cell_command_gateway(
             dispatcher,
             h.controllers[0].clone(),
             cellar::application::consensus::verification::cell_groups::CellGroupNamespaceStorage::new(
-                h.fixture.cell_options(&h.cell).await?,
+                options,
             )?,
         )?;
         let router = super::super::query_origins::Router::start(&h.fixture).await?;

@@ -51,6 +51,7 @@ async fn many_small_groups_checkpoint_under_shared_cache_pressure() -> Result<()
                 host: RaftHostOptions::default(),
             },
             RaftCellsServices {
+                recovery: None,
                 listeners: NodeRaftListeners {
                     control: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
                     data: tokio::net::TcpListener::bind("127.0.0.1:0").await?,

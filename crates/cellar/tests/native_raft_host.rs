@@ -1346,6 +1346,7 @@ async fn public_multi_group_replication_and_leader_failover() -> Result<()> {
                         host: RaftHostOptions::default(),
                     },
                     RaftCellsServices {
+                        recovery: None,
                         listeners,
                         tls: public_node::tls()?,
                         store: store.clone(),

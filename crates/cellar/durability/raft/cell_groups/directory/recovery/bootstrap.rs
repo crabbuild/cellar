@@ -14,6 +14,46 @@ pub(in crate::raft::catalog::range_directory) struct RecoveryStartup {
 }
 
 impl RangeDirectory {
+    /// Locate data only through the selected birth and this disk's immutable
+    /// recovery genesis. The supplied authority still verifies the permanent
+    /// external fence; a copied S3 binding cannot create a local seed receipt.
+    pub(crate) async fn bootstrap_selected_recovered_group_member(
+        &self,
+        birth: &CellGroupBirth,
+        log: &ReplicaLog,
+        authority: Arc<dyn DisasterFenceAuthority<CellGroupDisasterFenceRequest>>,
+    ) -> Result<CellGroupBootstrapPermit, CatalogError> {
+        self.require_current_group_birth(birth).await?;
+        let local = log
+            .cell_group(&birth.route().history)
+            .map_err(CatalogError::Log)?;
+        let genesis = local
+            .recovery_genesis()
+            .map_err(CatalogError::Log)?
+            .ok_or(CatalogError::LostStableState)?;
+        let bytes = self
+            .bounded(async {
+                self.namespace
+                    .inner
+                    .read_versioned_bounded(&self.recovery_binding_key(birth.route()), wire::LIMIT)
+                    .await?
+                    .map(|(bytes, _)| bytes)
+                    .ok_or(CatalogError::LostStableState)
+            })
+            .await?;
+        let binding: super::seed::Binding =
+            record::decode(wire::GROUP_RECOVERY_BINDING, &bytes, wire::LIMIT)?;
+        let request = self.decode_group_recovery(&binding.request)?;
+        if request.replacement().route() != birth.route()
+            || genesis.recovery_request() != Some(request.digest())
+            || genesis.as_ref() != &binding.genesis
+        {
+            return Err(CatalogError::LostStableState);
+        }
+        self.bootstrap_recovered_group_member(&request, log, authority)
+            .await
+    }
+
     pub(super) async fn recovered_member(
         &self,
         request: &CellGroupRecoveryRequest,

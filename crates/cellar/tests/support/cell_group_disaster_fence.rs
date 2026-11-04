@@ -19,6 +19,7 @@ struct Authority {
     permanently_stopped: AtomicBool,
     lose_response: AtomicBool,
     reject: AtomicBool,
+    held_verification: std::sync::Mutex<Option<Arc<archive_store::Gate>>>,
 }
 
 impl DisasterFenceAuthority<CellGroupDisasterFenceRequest> for Authority {
@@ -52,6 +53,11 @@ impl DisasterFenceAuthority<CellGroupDisasterFenceRequest> for Authority {
                 "independent verification rejected"
             );
             anyhow::ensure!(evidence == request.digest(), "foreign fence evidence");
+            let gate = self.held_verification.lock().unwrap().take();
+            if let Some(gate) = gate {
+                gate.entered.notify_one();
+                gate.release.notified().await;
+            }
             Ok(())
         })
     }
@@ -84,7 +90,7 @@ impl Scenario {
         mut workload: Option<&mut activation::ReceiptWorkload>,
     ) -> Result<Self> {
         let remote = archive_store::Store::around(store);
-        let mut cluster = Cluster::with_store(
+        let mut cluster = Cluster::with_store_birth(
             Default::default(),
             tempfile::tempdir()?,
             Arc::new(DirectFileSystem),
@@ -92,6 +98,16 @@ impl Scenario {
                 .as_ref()
                 .map_or([6; 32], |w| w.class.schema_digest()),
             remote.clone(),
+            ClusterBirthOptions {
+                group: GroupId::new([3; 16])?,
+                image_storage: if rooted {
+                    RaftImageStorage::Extents
+                } else {
+                    RaftImageStorage::Materialized
+                },
+                minimum: Durability::Quorum,
+                log: Default::default(),
+            },
         )
         .await?;
         cluster.elect().await?;
@@ -247,17 +263,11 @@ impl Scenario {
     }
 
     async fn reopen(&self) -> Result<RangeDirectory> {
-        let route = self.cluster.birth.route();
         let catalog = Catalog::new(self.remote.clone(), Default::default())?;
         let namespace = self
             .cluster
             .domain
-            .run(catalog.existing_namespace(NamespaceConfig::new(
-                route.history.cluster,
-                route.history.namespace,
-                cellar_logic::NamespaceMode::Raft,
-                route.schema_digest,
-            )))
+            .run(catalog.existing_namespace(self.cluster.directory.namespace_config().clone()))
             .await??;
         Ok(RangeDirectory::new(namespace, Default::default())?)
     }
@@ -313,16 +323,10 @@ impl Scenario {
             .await
             .is_err());
         assert_eq!(self.authority.fences.load(Ordering::Acquire), before);
-        let route = cluster.birth.route();
         let catalog = Catalog::new(self.remote.clone(), Default::default())?;
         let namespace = cluster
             .domain
-            .run(catalog.existing_namespace(NamespaceConfig::new(
-                route.history.cluster,
-                route.history.namespace,
-                cellar_logic::NamespaceMode::Raft,
-                route.schema_digest,
-            )))
+            .run(catalog.existing_namespace(self.cluster.directory.namespace_config().clone()))
             .await??;
         assert!(matches!(
             cluster

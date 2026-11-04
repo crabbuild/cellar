@@ -227,6 +227,7 @@ impl Fixture {
                 shared: limits(),
             },
             RaftCellsServices {
+                recovery: None,
                 listeners,
                 tls: RaftTls::new(
                     vec![include_bytes!("../transport/tcp/fixtures/ca.der")

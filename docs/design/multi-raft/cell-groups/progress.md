@@ -12,6 +12,71 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 public recovered-node startup checkpoint
+
+Capture CG-07-public-recovery-11 binds 2136 Rust inputs (manifest SHA256
+8380c9d3a06e0c54eb7942589d1fb4c6799f40611a478707f2c7c18a0085e658).
+The full native archive target passes 30 cases in 62.34 seconds; six explicit
+RustFS cases remain ignored. All 36 inventory names remain. Managed ten, archive-controller sixteen (twenty backend cases ignored), host
+three, public SDK one, counter build and native-only cellar/cellar-python library
+checks also pass at this source. Five static checks pass. Strict Clippy retains
+222 diagnostics, 202 dead_code, with unchanged keys. Plan checks retain their
+known index/Purpose and reviewed-anchor failures. A subsequent startup cleanup regression reproduced return-before-join under a
+held admitted control worker. The startup guard now retains the public service
+and awaits its close before controller/runtime/SQL/log teardown. Successful
+startup relinquishes that temporary clone. All three startup unit cases pass at
+CG-07-public-recovery-startup-13, including the new held-worker/physical-lock
+regression and both original cases. Its 2136-input manifest SHA256 is
+4bb879b357ee3f1d0e406d0f73448a70d72c9de35ca44d731ef5dc871a217441.
+The full library executes 1065 cases: 1062 pass, the same retired inspection
+protocol oracle fails, and two Docker cases remain ignored. All original unit
+names remain; the new cleanup case adds one. Final combined component checks
+must rebind this cleanup correction before publication.
+
+The public `RaftCellsServices::recovery` capability resumes an already seeded
+unmanaged log. Startup finds the original request through the selected birth,
+immutable genesis and catalog binding, independently verifies the infrastructure
+fence and checks the exact local seed receipt/engine/disk. Missing authority or
+rejected verification refuses. Managed recovery cannot use this unmanaged lane.
+One node-owned control service uses the existing control bank and original
+queued permit deadlines to request actual Raft activation, reconcile its exact
+catalog intent and join entered work before consensus/storage shutdown. Startup
+can return pending; that supplies no serving or quorum authority. Retained
+restart verifies the original fence and pins again. Exact activation receipts
+remain necessary when another recovery owns the namespace lock.
+
+The added public Node case runs materialized and extent images after removing
+every old voter directory and the old verification cache. It restores archived
+SQL state, original receipt bytes and S3 minima, client floors and fresh logical
+histories. It verifies independent cell state, actual group identity/occupancy,
+archive-required policy and one actual group per voter. Old valid tokens refuse
+against the new incarnation; new writes use it and duplicate calls do not rerun
+the callback. A retained restart repeats serving checks. A held independent
+verification call proves shutdown joins that entered recovery work. Its authority
+is a contract fixture; this is not Docker permanent-fencing qualification.
+
+Broader archive verification exposed fixture contract drift. Reopened recovery
+and outage gateways now preserve the full immutable namespace configuration,
+including image mode. The strict no-selected-archive assertion now expects the
+exact Unconfirmed contract introduced by f50b99af rather than the retired Invalid
+string; it still rejects success and all other failures. The RPC fixture now
+supplies a sibling namespace scratch base instead of nesting it inside a cell's
+disposable SQLite directory. The original strict cleanup refusal stays intact.
+The outage case now reports an early command result instead of masking it behind
+a settlement wait; all original outage/deadline, callback, capacity, archive and
+reclamation assertions remain. Earlier failures and executables are retained.
+The performance metric inventory also includes transport_query_reply_write;
+all 278 performance-tool Python tests pass with one explicit environment skip,
+and all eleven multi-Raft tool tests pass with one explicit Docker skip.
+
+This does not complete CG-07, its four missing original public gates or the
+combined MVP. Package builds still fail on the 27 unconverted performance-runner
+errors. The larger executable consumer port is preserved as unqualified work
+outside the checkout, with its original files and diff, for the next slice.
+Current-source Docker/RustFS recovery/load and full release qualification remain
+open. The full library run retains the known inspection-oracle failure. See the ignored public_recovery_work/perf_cutover_work continuation
+entries for exact captures, backups and any live handles.
+
 ## CG-07 public physical-group controls checkpoint
 
 Capture CG-07-group-controls-02 binds 2133 Rust inputs (manifest SHA256

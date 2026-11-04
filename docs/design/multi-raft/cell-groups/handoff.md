@@ -4,6 +4,34 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Public recovered-node startup in qualification
+
+Read the new progress checkpoint and ignored public_recovery_work continuation
+first. Capture CG-07-public-recovery-11 passes the complete native archive target
+(30 passed, six backend cases ignored), including public Node recovery after
+source disk deletion, both image forms, held-verification close, restored S3
+receipts/floors, actual physical inventory, new writes and retained restart.
+The component checks at capture 11 are terminal: managed ten, archive-controller
+sixteen, host three, public SDK one, counter and native-only pass. Static checks
+pass; strict lint/plan/package retain recorded failures. The later joined-startup
+cleanup fix passes all three startup unit cases at startup-13. Full library is
+1062 passed, the same retired inspection failure and two Docker skips. Final capture CG-07-public-recovery-14 uses the identical Rust mapping as
+startup-13. Archive thirty, managed ten, archive-controller sixteen, host three,
+public SDK one, counter and native-only are green again. Static/lint/plan checks
+and real-RustFS public recovery are still being finalized; inspect terminal
+records before a final qualification claim. Keep the goal active and PR #160 draft.
+
+The 21-file performance consumer WIP is preserved at the path recorded in
+perf_cutover_work, with manifest SHA256
+56a5989ea7e61312e0c265a89bbe745877e839b549ede39d9f413603680e6366.
+It is not qualified or in the proposed checkpoint. Restore/adapt it after this
+public recovery checkpoint; preserve the new services.recovery field and fixed
+transport_query_reply_write Python metric inventory. The intermediate bin check
+cleared 27 errors, but that did not complete Python/managed/disaster consumers.
+Finish disjoint recovery members, serial catalog activation/partial inventory,
+managed dynamic archive ownership/enrollment, Python fixtures/oracles and coherent
+128-cell budgets. Do not publish compile-only legacy disaster behavior.
+
 ## Latest public physical-group controls checkpoint
 
 Capture CG-07-group-controls-02 passes all ten managed cases, retaining all nine

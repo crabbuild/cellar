@@ -273,6 +273,19 @@ impl RaftHostOptions {
 }
 
 pub struct RaftCellsServices {
+    /// Explicit infrastructure authority for resuming physically seeded fresh
+    /// histories. Archive metadata alone never enables recovered startup.
+    /// Requires unmanaged Resume mode and the exact retained seed/engine pins.
+    /// Startup returns while quorum activation may still be pending; ordinary
+    /// requests remain refused until the actual owner applies activation.
+    /// Node shutdown joins any entered recovery verification/publication work.
+    pub recovery: Option<
+        Arc<
+            dyn super::catalog::DisasterFenceAuthority<
+                super::cell_groups::CellGroupDisasterFenceRequest,
+            >,
+        >,
+    >,
     pub listeners: crate::daemon::NodeRaftListeners,
     pub tls: super::transport_options::RaftTls,
     pub store: Arc<dyn object_store::ObjectStore>,

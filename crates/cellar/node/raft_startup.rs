@@ -53,6 +53,13 @@ impl Startup<'_> {
             config.infrastructure.log.directory == self.data_dir.join("raft"),
             "Raft log must use this node's raft directory"
         );
+        if services.recovery.is_some() {
+            anyhow::ensure!(
+                config.host.managed.is_none()
+                    && config.infrastructure.log.mode == crate::raft::options::LogOpenMode::Resume,
+                "recovered startup requires an existing seeded log and unmanaged recovery authority"
+            );
+        }
         let (performance, prepared) = self
             .domain
             .run(async {
@@ -89,6 +96,7 @@ impl Startup<'_> {
                     config.host,
                     config.shared,
                     services.versions,
+                    services.recovery,
                 )
                 .await?;
                 match service.fleet_stop_services() {

@@ -91,6 +91,7 @@ async fn failed_preflight_joins_infrastructure_with_retained_handles() -> anyhow
             vec![],
             Duration::from_secs(86400),
         )?,
+        None,
     )));
     let early = tokio::time::timeout(Duration::from_millis(30), &mut startup).await;
     let returned_early = early.is_ok();
@@ -404,6 +405,7 @@ async fn peer_traffic_waits_until_all_local_groups_attach() -> anyhow::Result<()
                 vec![],
                 Duration::from_secs(86400),
             )?,
+            None,
         ))
         .await??;
     // Hold the second local member's permanent claim after the first member
@@ -440,6 +442,7 @@ async fn peer_traffic_waits_until_all_local_groups_attach() -> anyhow::Result<()
                     vec![],
                     Duration::from_secs(86400),
                 )?,
+                None,
             ))
             .await?
     });
@@ -535,4 +538,108 @@ async fn peer_traffic_waits_until_all_local_groups_attach() -> anyhow::Result<()
     third.close().await?;
     local.close().await?;
     result
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn late_startup_refusal_joins_control_services_before_storage_close() -> anyhow::Result<()> {
+    use crate::application::consensus::group_client::ControlServiceKind;
+    let mut node = StartupNode::open(1).await?;
+    let class = Arc::new(RaftClass::new("StartupOnly", 1, [65; 32])?);
+    let catalog = Catalog::new(
+        Arc::new(object_store::memory::InMemory::new()),
+        Default::default(),
+    )?;
+    let namespace = node
+        .domain
+        .run(catalog.open_namespace(NamespaceConfig::new(
+            ClusterId::new([1; 16])?,
+            NamespaceId::new([2; 16])?,
+            cellar_logic::NamespaceMode::Raft,
+            class.schema_digest(),
+        )))
+        .await??;
+    let prepared = Prepared {
+        namespaces: vec![Namespace {
+            directory: RangeDirectory::new(namespace, Default::default())?,
+            class,
+        }],
+        peers: vec![node.peer()],
+        groups: vec![],
+        query_origins: vec![],
+        command_origins: vec![],
+    };
+    let options = test_support::host_options();
+    let capacity = options.max_control_bytes;
+    let input = node.service();
+    let host = node
+        .domain
+        .run(start(
+            input,
+            prepared,
+            node.root.path().join("cells"),
+            options,
+            test_support::limits(),
+            VersionKeys::new(
+                VersionSigningKey::new([31; 32], u64::MAX)?,
+                vec![],
+                Duration::from_secs(86400),
+            )?,
+            None,
+        ))
+        .await??;
+    // Reproduce late registration refusal after another control worker entered.
+    // The node's existing bank and worker lifecycle supply the real boundary.
+    let lease = host.register_control_service(ControlServiceKind::Directory, capacity)?;
+    let mut stop = lease.stop_receiver();
+    let (entered, stopped) = tokio::sync::oneshot::channel();
+    let (release, released) = tokio::sync::oneshot::channel();
+    node.log
+        .domain()
+        .spawn_cleanup(async move {
+            let _lease = lease;
+            let _ = stop.changed().await;
+            let _ = entered.send(());
+            let _ = released.await;
+        })?
+        .detach();
+    assert!(matches!(
+        host.register_control_service(ControlServiceKind::Recovery, 4096),
+        Err(crate::raft::fleet_catalog::FleetCatalogError::Overloaded)
+    ));
+    let mut startup = Startup {
+        service: Some(Infrastructure {
+            log: node.log.clone(),
+            runtime: node.runtime.clone(),
+            transport: node.transport.clone(),
+        }),
+        public: Some(host),
+        sql: None,
+        controller: None,
+    };
+    let mut closing = startup.cleanup()?.context("owned cleanup task")?;
+    tokio::time::timeout(Duration::from_secs(5), stopped).await??;
+    assert!(
+        tokio::time::timeout(Duration::from_millis(30), &mut closing)
+            .await
+            .is_err(),
+        "startup error returned before its entered control work joined"
+    );
+    let _ = release.send(());
+    tokio::time::timeout(Duration::from_secs(5), closing).await??;
+    assert!(matches!(
+        node.log.storage_instance(),
+        Err(crate::raft::storage::LogError::Closed)
+    ));
+    let mut options = node.log.limits().clone();
+    options.mode = LogOpenMode::Resume;
+    options.process = ProcessGeneration::new([9; 16])?;
+    let resumed = node
+        .domain
+        .run(ReplicaLog::open(
+            options,
+            Arc::new(cellar_ltx::DirectFileSystem),
+        ))
+        .await??;
+    resumed.close().await?;
+    node.close().await
 }

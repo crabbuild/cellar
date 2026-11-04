@@ -59,9 +59,9 @@ pub use crate::raft::cell_groups::{
     CellEnrollmentRequest, CellGroupArchiveControlError, CellGroupArchiveLimits,
     CellGroupArchiveStatus, CellGroupArchiveTailLimits, CellGroupArchiveUploadLimits,
     CellGroupBirthSpec, CellGroupCheckpointLimits, CellGroupCheckpointPolicy,
-    CellGroupControllerError, CellGroupControllerLimits, CellGroupHostLimits, CellGroupObservation,
-    CellGroupProvisionLimits, CellGroupQuorumMembership, CellReceiptRequest, CellReceiptResponse,
-    CellSqlLimits, DirectoryLimits, ManifestLimits,
+    CellGroupControllerError, CellGroupControllerLimits, CellGroupDisasterFenceRequest,
+    CellGroupHostLimits, CellGroupObservation, CellGroupProvisionLimits, CellGroupQuorumMembership,
+    CellReceiptRequest, CellReceiptResponse, CellSqlLimits, DirectoryLimits, ManifestLimits,
 };
 pub use crate::raft::fleet_catalog::{
     fleet_capacity_profile_digest, FleetAbortedMovementCompletion, FleetCapacityAction,

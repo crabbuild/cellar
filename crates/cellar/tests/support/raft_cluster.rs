@@ -684,6 +684,7 @@ impl Cluster {
             .start_raft_cells(
                 config,
                 RaftCellsServices {
+                    recovery: None,
                     listeners,
                     tls: public_node::tls()?,
                     store: self.store.clone(),
@@ -946,6 +947,7 @@ impl Cluster {
                 .start_raft_cells(
                     config,
                     RaftCellsServices {
+                        recovery: None,
                         listeners,
                         tls: public_node::tls()?,
                         store: store.clone(),

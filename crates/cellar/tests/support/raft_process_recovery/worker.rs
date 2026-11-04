@@ -115,6 +115,7 @@ pub(super) async fn run(config: Config) -> Result<()> {
         .start_raft_cells(
             native,
             RaftCellsServices {
+                recovery: None,
                 listeners,
                 tls: public_node::tls()?,
                 store: store(&config.prefix)?,

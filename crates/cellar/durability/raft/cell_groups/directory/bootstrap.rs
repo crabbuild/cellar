@@ -5,6 +5,7 @@
 use super::*;
 use crate::raft::{
     cache::GroupLog,
+    catalog::DisasterFenceAuthority,
     storage::{CellGroupBootstrap, LogError, ReplicaLog},
 };
 use cellar_logic::consensus::MemberId;
@@ -60,6 +61,22 @@ impl CellGroupBootstrapPermit {
 
     pub fn route(&self) -> &GroupRoute {
         self.birth.route()
+    }
+
+    pub(crate) fn recovery_request(&self) -> Option<&Arc<CellGroupRecoveryRequest>> {
+        match &self.origin {
+            BootstrapOrigin::Recovery(startup) => Some(&startup.request),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn recovery_authority(
+        &self,
+    ) -> Option<&Arc<dyn DisasterFenceAuthority<CellGroupDisasterFenceRequest>>> {
+        match &self.origin {
+            BootstrapOrigin::Recovery(startup) => Some(&startup.authority),
+            _ => None,
+        }
     }
 
     pub async fn revalidate(&self) -> Result<(), CatalogError> {

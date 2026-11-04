@@ -5,6 +5,7 @@
 mod archive;
 mod directory;
 mod provisioning;
+mod recovery;
 mod registration;
 pub use provisioning::{RaftGroupArchiveInitialization, RaftNamespaceProvisioning};
 mod resources;
@@ -113,6 +114,7 @@ pub(crate) use registration::prepare;
 /// schedules joined closure on the same domain; SQL outlives its physical work.
 struct Startup {
     service: Option<Infrastructure>,
+    public: Option<RaftCells>,
     sql: Option<CellGroupSqlPool>,
     controller: Option<CellGroupController>,
 }
@@ -131,10 +133,16 @@ impl Startup {
             return Ok(None);
         };
         let domain = service.log.domain();
+        let public = self.public.take();
         let sql = self.sql.take();
         let controller = self.controller.take();
         domain
             .spawn_cleanup(async move {
+                // A late admission/grant failure can follow entered control
+                // work. Join that owner before tearing down its dependencies.
+                if let Some(public) = public {
+                    let _ = public.close().await;
+                }
                 if let Some(controller) = controller {
                     let _ = controller.close().await;
                 } else {
@@ -165,6 +173,9 @@ pub(crate) async fn start(
     mut options: super::host::RaftHostOptions,
     limits: CellGroupNodeLimits,
     keys: VersionKeys,
+    recovery_authority: Option<
+        Arc<dyn super::catalog::DisasterFenceAuthority<CellGroupDisasterFenceRequest>>,
+    >,
 ) -> anyhow::Result<RaftCells> {
     let crate::daemon::NodeRaftService {
         log,
@@ -178,6 +189,7 @@ pub(crate) async fn start(
             runtime: runtime.clone(),
             transport: transport.clone(),
         }),
+        public: None,
         sql: None,
         controller: None,
     };
@@ -199,6 +211,8 @@ pub(crate) async fn start(
             resources::Images::open(&log, directory.clone(), &options, &prepared.namespaces)
                 .await?;
         let mut appliers = Vec::new();
+        let mut recovering = Vec::new();
+        let mut recovery_bytes = 4096usize;
         for assignment in &prepared.groups {
             match assignment.placement {
                 RaftGroupPlacement::QueryRouter => {
@@ -221,7 +235,31 @@ pub(crate) async fn start(
                         })
                         .transpose()?
                         .flatten();
-                    let permit = if let Some(member) = joined {
+                    let recovered = retained
+                        .as_ref()
+                        .map(|group| group.recovery_genesis())
+                        .transpose()?
+                        .flatten()
+                        .is_some();
+                    let permit = if recovered {
+                        anyhow::ensure!(
+                            options.managed.is_none(),
+                            "managed disaster recovery requires its fleet recovery authority"
+                        );
+                        let authority = recovery_authority.clone().ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "recovered startup requires an infrastructure fencing authority"
+                            )
+                        })?;
+                        namespace
+                            .directory
+                            .bootstrap_selected_recovered_group_member(
+                                &assignment.birth,
+                                &log,
+                                authority,
+                            )
+                            .await?
+                    } else if let Some(member) = joined {
                         if let Some(managed) = &options.managed {
                             namespace
                                 .directory
@@ -254,6 +292,31 @@ pub(crate) async fn start(
                             .await?
                     };
                     let group = permit.group().clone();
+                    if let Some(request) = permit.recovery_request() {
+                        // Charge the original bytes plus decoded records and
+                        // both startup/activation references against the
+                        // existing node control bank. No new bank is added.
+                        recovery_bytes =
+                            recovery_bytes
+                                .checked_add(
+                                    request.encode().len().checked_mul(16).ok_or_else(|| {
+                                        anyhow::anyhow!("recovery metadata overflow")
+                                    })?,
+                                )
+                                .ok_or_else(|| anyhow::anyhow!("recovery metadata overflow"))?;
+                        anyhow::ensure!(
+                            recovery_bytes <= options.max_control_bytes,
+                            "recovery metadata exceeds node control admission"
+                        );
+                        recovering.push(recovery::Registration {
+                            directory: namespace.directory.clone(),
+                            request: request.clone(),
+                            authority: permit
+                                .recovery_authority()
+                                .ok_or_else(|| anyhow::anyhow!("recovery authority missing"))?
+                                .clone(),
+                        });
+                    }
                     let pages = ManifestPageStore::group_pages_path(
                         &directory,
                         assignment.birth.route().history,
@@ -404,13 +467,14 @@ pub(crate) async fn start(
         let service = RaftCells::from_shared(
             host,
             controller.clone(),
-            runtime,
+            runtime.clone(),
             log.clone(),
             admission,
             resources,
             transport.clone(),
             &options,
         )?;
+        startup.public = Some(service.clone());
         // Admission/work accounting is bound before gateways or grants become
         // externally reachable. Returned capabilities own these weak registrations.
         for (dispatcher, storage) in dispatchers {
@@ -432,6 +496,15 @@ pub(crate) async fn start(
         if let Some(discovery) = discovery {
             discovery.start(&service, log.clone(), transport.clone())?;
         }
+        recovery::start(
+            &service,
+            log.clone(),
+            runtime,
+            recovering,
+            recovery_bytes,
+            options.poll_ms,
+        )?;
+        startup.public.take();
         startup.service.take();
         startup.sql.take();
         startup.controller.take();

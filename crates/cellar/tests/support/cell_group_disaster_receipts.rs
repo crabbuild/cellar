@@ -2,6 +2,8 @@
 
 //! Registered receipts and non-reusable client floors across a cold group seed.
 use super::*;
+#[path = "cell_group_disaster_public.rs"]
+mod public;
 use cellar::storage::CommandInputs;
 use std::collections::BTreeMap;
 

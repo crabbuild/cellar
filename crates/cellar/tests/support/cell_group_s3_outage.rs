@@ -17,12 +17,7 @@ async fn gateway(
     store: Arc<archive_controller::archive_store::Store>,
 ) -> Result<CellGroupDispatcher> {
     let catalog = Catalog::new(store, Default::default())?;
-    let config = NamespaceConfig::new(
-        h.route.history.cluster,
-        h.route.history.namespace,
-        cellar_logic::NamespaceMode::Raft,
-        h.class.schema_digest(),
-    );
+    let config = h.fixture.cluster.directory.namespace_config().clone();
     let namespace = h
         .fixture
         .cluster
@@ -272,8 +267,16 @@ async fn run(
     let pending = h
         .command(2, b"archive-wait", Durability::S3, Duration::from_secs(2))
         .await?;
-    h.waiting().await?;
     let mut pending = Box::pin(pending.response());
+    match futures_util::future::select(pending.as_mut(), Box::pin(h.waiting())).await {
+        futures_util::future::Either::Left((result, _)) => match result {
+            Ok(_) => anyhow::bail!("outage returned an unproved S3 response"),
+            Err(error) => {
+                anyhow::bail!("outage command ended before retaining S3 settlement: {error}")
+            }
+        },
+        futures_util::future::Either::Right((result, _)) => result?,
+    }
     assert!(
         tokio::time::timeout(Duration::from_millis(30), pending.as_mut())
             .await

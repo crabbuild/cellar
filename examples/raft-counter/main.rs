@@ -196,6 +196,7 @@ async fn main() -> Result<()> {
                     shared: configuration::limits(),
                 },
                 RaftCellsServices {
+                    recovery: None,
                     listeners,
                     tls: tls.clone(),
                     store: store.clone(),

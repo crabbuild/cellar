@@ -98,6 +98,7 @@ impl Startup {
         .start(
             prepared.config,
             RaftCellsServices {
+                recovery: None,
                 listeners: prepared.listeners,
                 tls: prepared.tls,
                 store: prepared.store,

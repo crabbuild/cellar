@@ -14,6 +14,7 @@ pub(crate) enum ControlServiceKind {
     Movement,
     Restart,
     Directory,
+    Recovery,
 }
 
 impl ControlServiceKind {
@@ -22,6 +23,7 @@ impl ControlServiceKind {
             Self::Movement => 0,
             Self::Restart => 1,
             Self::Directory => 2,
+            Self::Recovery => 3,
         }
     }
 }
@@ -35,7 +37,7 @@ struct Entry {
 struct State {
     closing: bool,
     next: u64,
-    slots: [Option<Entry>; 3],
+    slots: [Option<Entry>; 4],
 }
 
 pub(super) struct Services {
