@@ -15,10 +15,11 @@ impl State {
             .clone()
             .try_acquire_owned()
             .map_err(|_| TransportError::Overloaded)?;
-        let _metadata = self
-            .seed_metadata
-            .acquire(seeds::META_BYTES)
-            .ok_or(TransportError::Overloaded)?;
+        let _metadata = Arc::new(
+            self.seed_metadata
+                .acquire(seeds::META_BYTES)
+                .ok_or(TransportError::Overloaded)?,
+        );
         let wire = snapshots::Wire {
             auth: &self.auth,
             exporter,
@@ -75,6 +76,112 @@ impl State {
             .await?;
         let barrier = authority.barrier().index;
         self.checkpoint_current(&endpoint, &request.route)?;
+        if request.from_s3 {
+            let client = self
+                .registry
+                .lock()
+                .map_err(|_| TransportError::Closed)?
+                .group_archive_seeds
+                .clone()
+                .ok_or(TransportError::Refused)?;
+            let source = self
+                .seed_until(deadline, async {
+                    client
+                        .prepare(authority, Arc::new((admission.clone(), _metadata.clone())))
+                        .await
+                        .map_err(|error| {
+                            tracing::warn!(%error, "archive seed source refused");
+                            match error.as_ref() {
+                                crate::raft::cell_groups::CellGroupArchiveControlError::Stopped => {
+                                    TransportError::Closed
+                                }
+                                crate::raft::cell_groups::CellGroupArchiveControlError::Runtime(
+                                    error,
+                                ) => TransportError::Runtime(error.clone()),
+                                crate::raft::cell_groups::CellGroupArchiveControlError::Invalid(
+                                    _,
+                                ) => TransportError::Refused,
+                                _ => TransportError::Io(error.to_string()),
+                            }
+                        })
+                })
+                .await?;
+            source
+                .check()
+                .map_err(|e| TransportError::Io(e.to_string()))?;
+            let body = source
+                .snapshot()
+                .write_to_bytes()
+                .map_err(|_| TransportError::Protocol)?;
+            if body.len() > META_BYTES {
+                return Err(TransportError::Limit);
+            }
+            let reply = wire.encode(
+                REPLY_MAGIC,
+                REPLY,
+                &head.tag,
+                &Reply {
+                    route: request.route.reversed(),
+                    request: head.tag,
+                    nonce: request.nonce,
+                    barrier: source.barrier().get().to_string(),
+                    digest: digest(&body),
+                    data: SeedData::Archive {
+                        descriptor: source.descriptor().clone(),
+                    },
+                },
+                &body,
+            )?;
+            let binding = reply.tag;
+            self.checkpoint_current(&endpoint, &request.route)?;
+            self.snapshot_io(&peer, deadline, async {
+                write_head(stream, &reply).await?;
+                stream.write_all(&body).await?;
+                stream.flush().await?;
+                Ok(())
+            })
+            .await?;
+            for sequence in [0, 1] {
+                let ready = self
+                    .seed_until(
+                        deadline,
+                        snapshots::read_bulk_head(stream, None, READY_MAGIC, 0, &self.options),
+                    )
+                    .await?;
+                let ready: Ack = wire.decode(READY_MAGIC, READY, &ready, Some(&binding))?;
+                if ready.sequence != sequence {
+                    return Err(TransportError::Replay);
+                }
+                source
+                    .check()
+                    .map_err(|e| TransportError::Io(e.to_string()))?;
+                self.checkpoint_current(&endpoint, &request.route)?;
+            }
+            // The second authenticated acknowledgement is sent only after all
+            // S3 bytes are independently prepared in the destination's stores.
+            // Its local pins then own durability through the engine fence.
+            let packet = Packet {
+                sequence: 0,
+                part: None,
+                offset: 0,
+                length: 0,
+                digest: digest(&[]),
+            };
+            let end = wire.encode(CHUNK_MAGIC, CHUNK, &binding, &packet, &[])?;
+            source
+                .check()
+                .map_err(|e| TransportError::Io(e.to_string()))?;
+            self.snapshot_io(&peer, deadline, async {
+                write_head(stream, &end).await?;
+                stream.flush().await?;
+                Ok(())
+            })
+            .await?;
+            source
+                .check()
+                .map_err(|e| TransportError::Io(e.to_string()))?;
+            return Ok(());
+        }
         let work::Source {
             metadata,
             mut chunks,
@@ -102,6 +209,7 @@ impl State {
                 nonce: request.nonce,
                 barrier: barrier.get().to_string(),
                 digest: digest(&body),
+                data: SeedData::Peer,
             },
             &body,
         )?;

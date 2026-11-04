@@ -79,7 +79,7 @@ async fn peer_fixture(f: &Fixture, id: u8) -> Result<Fixture> {
         .await?;
     Ok(Fixture {
         domain: f.domain.clone(),
-        store: f.store.clone(),
+        store: Arc::new(fault::Store::around(f.store.clone())),
         catalog: f.catalog.clone(),
         declaration: f.declaration.clone(),
         application: f.application.clone(),
@@ -229,7 +229,7 @@ impl ManagedCluster {
         Box::pin(Self::start_with_archives(
             rooted,
             spares,
-            ArchiveSetup::Disabled,
+            ArchiveSetup::Initialized,
         ))
         .await
     }
@@ -239,7 +239,22 @@ impl ManagedCluster {
         spares: &[u8],
         archives: ArchiveSetup,
     ) -> Result<Self> {
-        let first = Fixture::with_class(rooted, counter_class()?).await?;
+        Box::pin(Self::start_with_store(
+            rooted,
+            spares,
+            archives,
+            Arc::new(fault::Store::default()),
+        ))
+        .await
+    }
+
+    async fn start_with_store(
+        rooted: bool,
+        spares: &[u8],
+        archives: ArchiveSetup,
+        store: Arc<fault::Store>,
+    ) -> Result<Self> {
+        let first = Fixture::with_store(rooted, counter_class()?, store).await?;
         let second = peer_fixture(&first, 5).await?;
         let third = peer_fixture(&first, 6).await?;
         let mut fixtures = vec![first, second, third];
@@ -309,11 +324,7 @@ impl ManagedCluster {
                 config.shared.checkpoints = Some(checkpoint_limits());
             }
             if archives != ArchiveSetup::Disabled {
-                config.shared.archive = Some(CellGroupNodeArchiveOptions {
-                    io: Default::default(),
-                    uploads: Default::default(),
-                    tails: Default::default(),
-                });
+                archives::configure(&mut config);
             }
             let host = node.start_raft_cells(config, services).await?;
             ensure!(host.observe_node(TIMEOUT).await?.node.groups == 0);

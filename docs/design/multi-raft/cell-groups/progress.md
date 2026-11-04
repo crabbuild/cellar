@@ -12,6 +12,83 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 managed S3 learner data plane and source failover
+
+Capture CG-07-managed-s3-seeding-01/source-candidate binds 2,717
+Rust/Python/manifest inputs above 41a67844278247df18c16df3c781a3c60bc6dd71
+to SHA256 65cbd074ab06749b4849ef06d38c23e0df396385c63e3b74bc6fb48159cdf5e7.
+No original five-second call, eight-turn reconciliation bound, profile, quota,
+stack setting or authority fence changes.
+
+Managed `from_s3` activation now uses the existing fresh ReadIndex checkpoint
+authority, a separate fsynced seed-upload journal and the established namespace
+archive registry. A pending generation and inherited parent graph protect the
+complete checkpoint. The authenticated grant binds its ticket/reference and
+snapshot. The destination independently verifies S3 bytes through its serving
+receiver before READY1; live source checks precede End and the existing
+boot/catalog/engine installation fence remains required. This transfer supplies
+neither a disaster-recovery head nor an S3 command coverage proof. Data modes are
+explicit marker-1 fields; missing/old shapes and peer-mode fallback refuse.
+
+Source jobs retain transport, metadata, read, checkpoint and S3 admissions through
+physical completion and cleanup; close stops new admission and joins source work
+with transport. An uncertain retirement retains its journal and observable debt;
+a later seed reconciles the exact intent before allocating again. Automatic
+abandoned-journal discovery/cleanup on idle nodes and restart remains unfinished.
+
+An exact red regression reproduced `Unconfirmed(Invalid("conflicting provision
+binding"))` after source failure: coalescing incorrectly included source
+member/node hints. The fixed comparator preserves destination boot/member/permit
+and data mode while reauthorizing the next source. Entered attempts retain their
+original hint/deadline. Tests require real target-only payload refusal before
+attachment, retained preparation/debit, no peer fallback, source-service stop,
+fresh election and completed membership repair. Replacement-local reads check
+actual responder, original values and versions; new writes require S3 proof.
+Catalog settlement still refuses without a live physical-inventory proof from an
+offline surviving original voter and retains the debit. No completion guard is
+relaxed. Normal full settlement, lost-reply replay, drain and retained restart
+remain covered separately.
+
+The frozen-source native campaign has **264 passes, one failure and 34 explicit
+backend/process skips** across seven targets: managed 14, snapshot 5,
+archive-controller 16, archive/recovery 31, host 3, storage 16 and execution 179.
+`checkpoint_tcp_failed_transfer_allows_raft_retry` fails with transport
+`Overloaded`; its unchanged focused repeat passes in 7.17 seconds. The full
+execution run remains failed. Snapshot process-kill, partial-install, ownership
+and memory/pin gates pass. All source inputs remain unchanged.
+
+The same binaries pass four explicit cases against pinned real RustFS constrained
+to one CPU and 2 GiB, after verifying signed conditional operations. S3 replacement
+and retained restart take 34.15 seconds; archived maintenance's initial/joined
+voter matrix takes 85.93 seconds; payload-refusal/source-failover/debt checks take
+33.04 seconds; public recovery after erasing every old voter directory and verifier
+cache takes 17.56 seconds. Both image forms run throughout. Backend and dedicated
+VM are stopped; data is retained. Record SHA256 is
+b7d35381cdc4d2a387ce4bfcca28b12c5841c02288d3625364a3891ba52c88f2.
+An earlier backend setup returned S3 HTTP 503 after health readiness, before any
+Cellar case; that failure is retained. The second setup first checks a bounded
+signed read, then the conditional probe. These use embedded Nodes and a contract
+fence, not independent voter containers, permanent Docker launch revocation or
+sustained load; no five-second failover SLA is established.
+
+The extent failover case previously exceeded its five-second ready-successor
+window in a complete managed run. Three isolated repeats and subsequent complete
+managed runs pass; no failure snapshot was triggered in those repeats. Root cause
+remains unresolved. Bounded owner observations now run only after a failed window
+and cannot rescue/extend it. The earlier eight-turn archived-maintenance failure
+is also preserved. Later passes do not waive either failure.
+
+Strict library Clippy retains **220 errors** versus 221 at the preceding
+checkpoint, with no added diagnostic keys or production suppressions. The one
+removed error is the seed client's argument count; all production inputs match
+the candidate. The 202 dead-code errors remain. Plan tests still have 35 passes,
+one generated-index/Purpose failure and one reviewed-source drift error. Public
+SDK process, full performance and full library gates were not rerun; prior
+128-cell enrollment and inspection failures remain open. CG-07 stays IN_PROGRESS
+and PR #160 stays draft. Finish automatic seed debt retirement, fenced failed-voter
+and public lifecycle/capability/default gates, then the remaining release profiles
+and CG-09–16. See [remaining work](remaining-work.md).
+
 ## CG-07 archive ownership for post-startup groups
 
 Capture CG-07-dynamic-archives-01/source-final binds 2,714 Rust/Python/manifest

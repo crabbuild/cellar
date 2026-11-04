@@ -72,6 +72,9 @@ impl Worker {
             }
         }
         let archives = archive::Manager::new(shared.domain.clone());
+        transport
+            .enable_group_archive_seeds(archive::seed::Client::new(&shared))
+            .map_err(CellGroupControllerError::Transport)?;
         let effects = effects::Manager::new(&roster)?;
         Ok(Self {
             runtime,
@@ -406,6 +409,7 @@ impl Worker {
     }
 
     pub(super) async fn finish(&mut self) -> Result<(), CellGroupControllerError> {
+        self.shared.archive_seeds.stop();
         self.requests.close();
         while self.requests.try_recv().is_ok() {}
         // Attachment may already own a RawNode/claim or be inside catalog I/O.
@@ -417,7 +421,9 @@ impl Worker {
         self.provisioning.join().await;
         self.checkpoints.join().await;
         self.archives.finish(&self.shared).await;
-        self.transport.close().await;
+        // A seed producer waits for its transport-held handoff lease before
+        // retiring the journaled generation. Drive both joins together.
+        futures_util::future::join(self.transport.close(), self.shared.archive_seeds.join()).await;
         let sql = self
             .sql
             .close()

@@ -13,7 +13,7 @@ impl RaftTransport {
         birth: CellGroupBirth,
         deadline: u64,
     ) -> Result<CellGroupSeedSession, CellGroupSeedError> {
-        self.prepare_seed(local, source, directory, birth, deadline, None, None)
+        self.prepare_seed(local, source, directory, birth, deadline, None)
             .await
     }
 
@@ -35,8 +35,35 @@ impl RaftTransport {
             directory,
             birth,
             deadline,
-            Some(host),
-            Some(expected),
+            Some(ManagedSeed {
+                host,
+                expected,
+                archive: None,
+            }),
+        )
+        .await
+    }
+
+    pub(crate) async fn prepare_managed_group_archive_seed(
+        &self,
+        local: ReplicaIdentity<GroupHistory>,
+        source: RaftPeer<GroupHistory>,
+        directory: RangeDirectory,
+        birth: CellGroupBirth,
+        deadline: u64,
+        managed: ManagedArchiveSeed,
+    ) -> Result<CellGroupSeedSession, CellGroupSeedError> {
+        self.prepare_seed(
+            local,
+            source,
+            directory,
+            birth,
+            deadline,
+            Some(ManagedSeed {
+                host: managed.host,
+                expected: managed.authorization,
+                archive: Some(managed.archive),
+            }),
         )
         .await
     }
@@ -48,9 +75,12 @@ impl RaftTransport {
         directory: RangeDirectory,
         birth: CellGroupBirth,
         deadline: u64,
-        host: Option<crate::raft::fleet_catalog::FleetHostAuthorization>,
-        expected: Option<crate::raft::fleet_catalog::FleetPermitAuthorization>,
+        managed_options: Option<ManagedSeed>,
     ) -> Result<CellGroupSeedSession, CellGroupSeedError> {
+        let (host, expected, archive) = match managed_options {
+            Some(managed) => (Some(managed.host), Some(managed.expected), managed.archive),
+            None => (None, None, None),
+        };
         let state = self.handle.0.clone();
         let log = state.runtime.shared()?.log().clone();
         let options = log.limits();
@@ -135,6 +165,7 @@ impl RaftTransport {
             )?,
             nonce: nonce.to_string(),
             timeout_ms,
+            from_s3: archive.is_some(),
         };
         let connection = state.outgoing_connections.acquire(Lane::Data);
         let mut stream = state
@@ -182,6 +213,7 @@ impl RaftTransport {
                 if reply.route != request.route.reversed()
                     || reply.request != head.tag
                     || reply.nonce != request.nonce
+                    || matches!(&reply.data, SeedData::Archive { .. }) != request.from_s3
                 {
                     return Err(TransportError::Authentication);
                 }
@@ -209,6 +241,13 @@ impl RaftTransport {
             managed.as_ref().map(|m| m.authorization.permit()),
         )?;
         checkpoint::seed_source(&snapshot, &source.replica)?;
+        let archive = match (reply.data, archive) {
+            (SeedData::Archive { descriptor }, Some(registration)) => {
+                Some((descriptor, registration))
+            }
+            (SeedData::Peer, None) => None,
+            _ => return Err(TransportError::Authentication.into()),
+        };
         let grant = Arc::new(Grant {
             source: source.replica.clone(),
             managed,
@@ -274,6 +313,7 @@ impl RaftTransport {
             birth,
             pool,
             admission,
+            archive,
             _connection: connection,
             operation: OperationId::new(nonce),
         };

@@ -216,7 +216,16 @@ impl Manager {
                     None
                 };
                 let input = prepare::recover(
-                    directory, route, config, runtime, transport, authority, prepared,
+                    directory,
+                    route,
+                    config,
+                    runtime,
+                    transport,
+                    authority,
+                    prepare::Resources {
+                        existing: prepared,
+                        archive: archive.clone(),
+                    },
                 )
                 .await?;
                 Ok(Box::new(Recovered { input, archive }))

@@ -37,20 +37,20 @@ impl Drop for Entered {
 /// One controller's physical joins, including closures whose async waiter has
 /// already failed or disappeared. Does not join unrelated execution-domain work.
 #[derive(Clone)]
-pub(in crate::raft::cell_groups) struct ControllerExecution {
+pub(crate) struct ControllerExecution {
     domain: DomainToken,
     physical: Arc<Physical>,
 }
 
 impl ControllerExecution {
-    pub(in crate::raft::cell_groups) fn new(domain: DomainToken) -> Self {
+    pub(crate) fn new(domain: DomainToken) -> Self {
         Self {
             domain,
             physical: Arc::new(Physical::default()),
         }
     }
 
-    pub(in crate::raft::cell_groups) async fn join(&self) {
+    pub(crate) async fn join(&self) {
         loop {
             let finished = self.physical.finished.notified();
             tokio::pin!(finished);

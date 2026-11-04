@@ -23,6 +23,7 @@ pub(super) struct Admission {
     pub member: MemberId,
     source: MemberId,
     source_node: NodeId,
+    from_s3: bool,
 }
 
 impl Admission {
@@ -58,6 +59,7 @@ impl Admission {
             member: activation.member,
             source: activation.source,
             source_node: activation.source_node,
+            from_s3: activation.from_s3,
         })
     }
 
@@ -98,11 +100,14 @@ pub(super) fn same_admission(a: Option<&Admission>, b: Option<&Admission>) -> bo
     match (a, b) {
         (None, None) => true,
         (Some(a), Some(b)) => {
+            // A source endpoint is a fresh-attempt hint, not destination
+            // ownership. Leader failure must not strand the exact retained
+            // boot/member/permit. A running attempt keeps its original hint;
+            // the next attempt reauthorizes its source quorum independently.
             a.authorization.permit() == b.authorization.permit()
                 && a.authorization.target_boot() == b.authorization.target_boot()
                 && a.member == b.member
-                && a.source == b.source
-                && a.source_node == b.source_node
+                && a.from_s3 == b.from_s3
         }
         _ => false,
     }
@@ -151,9 +156,10 @@ pub(super) async fn recover(
     host: &FleetHostAuthorization,
     admission: &Admission,
     deadline: u64,
-    existing: Option<prepare::Prepared>,
+    resources: prepare::Resources,
     parallel: tokio::sync::OwnedSemaphorePermit,
 ) -> Result<prepare::Recovery, CellGroupControllerError> {
+    let prepare::Resources { existing, archive } = resources;
     let log = runtime.log();
     let installed = match log.cell_group(&birth.route().history) {
         Ok(group) => group
@@ -219,18 +225,38 @@ pub(super) async fn recover(
         data_address: peer.data_address,
         query_address: peer.query_address,
     };
-    let session = transport
-        .prepare_managed_group_seed(
-            target,
-            source,
-            directory.clone(),
-            birth.clone(),
-            deadline,
-            host.clone(),
-            admission.authorization.clone(),
-        )
-        .await
-        .map_err(seed_error)?;
+    let session = if admission.from_s3 {
+        let archive = archive.ok_or(CellGroupControllerError::Invalid(
+            "S3 learner resources unavailable",
+        ))?;
+        transport
+            .prepare_managed_group_archive_seed(
+                target,
+                source,
+                directory.clone(),
+                birth.clone(),
+                deadline,
+                crate::raft::transport::ManagedArchiveSeed {
+                    host: host.clone(),
+                    authorization: admission.authorization.clone(),
+                    archive,
+                },
+            )
+            .await
+    } else {
+        transport
+            .prepare_managed_group_seed(
+                target,
+                source,
+                directory.clone(),
+                birth.clone(),
+                deadline,
+                host.clone(),
+                admission.authorization.clone(),
+            )
+            .await
+    }
+    .map_err(seed_error)?;
     let prepared =
         prepare::recover_pages(config, runtime, session.group().clone(), images, existing).await?;
     Ok(prepare::Recovery::Seed(Staged {
@@ -326,5 +352,8 @@ fn seed_error(error: CellGroupSeedError) -> CellGroupControllerError {
         CellGroupSeedError::Catalog(e) => catalog_error(e),
         CellGroupSeedError::Log(e) => RuntimeError::from(e).into(),
         CellGroupSeedError::Checkpoint(e) => CellGroupControllerError::Checkpoint(Arc::new(e)),
+        CellGroupSeedError::Archive(e) => {
+            CellGroupControllerError::Archive(Arc::new(CellGroupArchiveControlError::Archive(*e)))
+        }
     }
 }

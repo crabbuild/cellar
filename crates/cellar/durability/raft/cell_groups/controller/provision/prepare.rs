@@ -11,6 +11,11 @@ pub(super) struct Prepared {
     pub current: PreparedGroupManifest,
 }
 
+pub(super) struct Resources {
+    pub existing: Option<Prepared>,
+    pub archive: Option<CellGroupArchiveRegistration>,
+}
+
 pub(super) enum Recovery {
     Ready(CellGroupRegistration),
     Seed(learner::Staged),
@@ -23,8 +28,9 @@ pub(super) async fn recover(
     runtime: CellGroupRuntime,
     transport: RaftTransport,
     authority: Authority,
-    existing: Option<Prepared>,
+    resources: Resources,
 ) -> Result<Recovery, CellGroupControllerError> {
+    let Resources { existing, archive } = resources;
     authority.check_live(&runtime)?;
     let images = config.images(&directory)?;
     let _parallel = config
@@ -41,8 +47,16 @@ pub(super) async fn recover(
     } = &authority
     {
         return learner::recover(
-            &directory, &birth, &config, &runtime, &transport, host, admission, *deadline,
-            existing, _parallel,
+            &directory,
+            &birth,
+            &config,
+            &runtime,
+            &transport,
+            host,
+            admission,
+            *deadline,
+            Resources { existing, archive },
+            _parallel,
         )
         .await;
     }

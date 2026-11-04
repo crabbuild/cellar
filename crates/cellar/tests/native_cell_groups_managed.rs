@@ -21,6 +21,9 @@ mod fault;
 #[path = "support/html.rs"]
 #[allow(dead_code)]
 mod graph;
+#[path = "support/cell_group_rustfs.rs"]
+#[allow(dead_code)]
+mod rustfs;
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -58,8 +61,16 @@ impl Fixture {
     }
 
     async fn with_class(rooted: bool, class: RaftClass) -> Result<Self> {
+        Box::pin(Self::with_store(
+            rooted,
+            class,
+            Arc::new(fault::Store::default()),
+        ))
+        .await
+    }
+
+    async fn with_store(rooted: bool, class: RaftClass, store: Arc<fault::Store>) -> Result<Self> {
         let domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
-        let store = Arc::new(fault::Store::default());
         let bucket = Bucket::from_clients(
             store.clone(),
             store.clone(),

@@ -70,6 +70,14 @@ pub struct CellGroupSeedAuthority {
 }
 
 impl CellGroupSeedAuthority {
+    pub(crate) fn belongs_to_engine(&self, owner: &Arc<()>) -> bool {
+        Arc::ptr_eq(&self.selection.group.owner, owner)
+    }
+
+    pub(crate) fn marker(&self) -> &GroupManifest {
+        self.selection.root.marker()
+    }
+
     pub(super) fn new(
         selection: SeedSelection,
         deadline: u64,
@@ -170,6 +178,15 @@ pub struct CellGroupSeedSource {
 }
 
 impl CellGroupSeedSource {
+    /// Retain the same fresh authority while its exact complete cut is uploaded.
+    /// This is data preparation, never a publication or installation permission.
+    pub(crate) fn into_archive_parts(
+        self,
+    ) -> Result<(CellGroupSeedAuthority, CellGroupCheckpoint), CellGroupCheckpointError> {
+        self.check().map_err(CellGroupCheckpointError::Authority)?;
+        Ok((self.authority, self.checkpoint))
+    }
+
     pub fn target(&self) -> &ReplicaIdentity<GroupHistory> {
         self.authority.target()
     }

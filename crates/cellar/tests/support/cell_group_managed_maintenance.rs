@@ -26,7 +26,37 @@ fn intent(id: u8, revision: u64) -> FleetRequestIdentity {
 }
 
 async fn maintained(rooted: bool, joined: bool) -> Result<()> {
-    let mut cluster = Box::pin(ManagedCluster::start(rooted, &[7])).await?;
+    Box::pin(maintained_with_store(
+        rooted,
+        joined,
+        Arc::new(fault::Store::default()),
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_managed_archive_maintenance_stop_return_and_resume() -> Result<()> {
+    for rooted in [false, true] {
+        for joined in [false, true] {
+            let store = Arc::new(fault::Store::around(rustfs::store(
+                &format!("managed-archive-maintenance-joined-{joined}"),
+                rooted,
+            )?));
+            Box::pin(maintained_with_store(rooted, joined, store)).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn maintained_with_store(rooted: bool, joined: bool, store: Arc<fault::Store>) -> Result<()> {
+    let mut cluster = Box::pin(ManagedCluster::start_with_store(
+        rooted,
+        &[7],
+        ArchiveSetup::Initialized,
+        store,
+    ))
+    .await?;
     let work = async {
         let (seed, obsolete) = replace(&cluster)
             .await
@@ -41,6 +71,14 @@ async fn maintained(rooted: bool, joined: bool) -> Result<()> {
     .await;
     let joined = close(std::mem::take(&mut cluster.nodes), &cluster.hosts).await;
     cluster.fixtures[0].domain.shutdown().await;
+    if work.is_err() || joined.is_err() {
+        for root in std::mem::take(&mut cluster.roots) {
+            eprintln!(
+                "retained failed managed maintenance disk: {}",
+                root.keep().display()
+            );
+        }
+    }
     joined?;
     work
 }
@@ -390,7 +428,7 @@ async fn cycle(
     )
     .await?;
     let (mut config, services) = f.config(&resumed_node, LogOpenMode::Resume, 54).await?;
-    config.shared.checkpoints = Some(checkpoint_limits());
+    archives::configure(&mut config);
     config.groups.push(RaftGroupAssignment {
         history: cluster.history,
         placement: RaftGroupPlacement::Replica,

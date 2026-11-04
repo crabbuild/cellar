@@ -38,7 +38,6 @@ impl RaftCells {
                 .map_err(|e| catalog_error(CatalogError::Log(e)))?;
             if group.binding() != authorization.permit().binding()
                 || group.binding().fleet() != host.fleet()
-                || activation.from_s3
             {
                 return Err(CellGroupControllerError::Invalid(
                     "managed learner capability",

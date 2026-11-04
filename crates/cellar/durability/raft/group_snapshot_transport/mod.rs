@@ -53,6 +53,24 @@ impl Drop for CellGroupCheckpointRegistration {
 }
 
 impl RaftTransport {
+    pub(crate) fn enable_group_archive_seeds(
+        &self,
+        client: crate::raft::cell_groups::ArchiveSeedClient,
+    ) -> Result<(), TransportError> {
+        let mut registry = self
+            .handle
+            .0
+            .registry
+            .lock()
+            .map_err(|_| TransportError::Closed)?;
+        self.handle.0.admit(&registry)?;
+        if registry.group_archive_seeds.is_some() {
+            return Err(TransportError::Identity);
+        }
+        registry.group_archive_seeds = Some(client);
+        Ok(())
+    }
+
     /// Configure once per node, before accepting snapshots. Share this same pool
     /// with local checkpoint publication. Scratch comes from the owning log.
     pub fn enable_group_checkpoints(

@@ -9,6 +9,7 @@ pub(crate) use archive::settlement::{
     Client as S3Client, LookupPrepared as S3LookupPrepared, OutputProof as S3OutputProof,
 };
 pub(crate) use archive::Provisioning as CellGroupArchiveProvisioning;
+pub(crate) use archive::{ArchiveSeedClient, ArchiveSeedDescriptor};
 mod calls;
 pub use archive::{
     CellGroupArchiveCall, CellGroupArchiveControlError, CellGroupArchiveRegistration,
@@ -134,6 +135,9 @@ pub struct CellGroupControllerUsage {
     pub active_effects: usize,
     pub effect_turns: u64,
     pub effect_retries: u64,
+    /// Includes response handoff and physical retirement of seed uploads.
+    pub active_archive_seeds: usize,
+    pub archive_seed_cleanup_errors: usize,
 }
 
 struct Shared {
@@ -155,6 +159,7 @@ struct Shared {
     effect_retries: AtomicU64,
     requests: tokio::sync::mpsc::Sender<requests::Request>,
     archives: Mutex<BTreeMap<cellar_logic::cell_group::GroupHistory, CellGroupArchiveStatus>>,
+    archive_seeds: Arc<archive::seed::Jobs>,
     s3: Arc<crate::raft::budget::Budget>,
     active_apply: AtomicUsize,
     pending_apply: AtomicUsize,
@@ -312,6 +317,7 @@ impl CellGroupController {
             effect_retries: AtomicU64::new(0),
             requests,
             archives: Mutex::new(BTreeMap::new()),
+            archive_seeds: Arc::new(archive::seed::Jobs::default()),
             s3: commands::budget(limits),
             active_apply: AtomicUsize::new(0),
             pending_apply: AtomicUsize::new(0),
@@ -399,6 +405,7 @@ impl CellGroupController {
         let shared = &self.handle.0;
         let (command_bytes, retained_commands) = shared.commands.usage();
         let (s3_bytes, retained_s3) = shared.s3.usage();
+        let (active_archive_seeds, archive_seed_cleanup_errors) = shared.archive_seeds.usage();
         let (
             preparation_bytes,
             retained_preparations,
@@ -446,6 +453,8 @@ impl CellGroupController {
             apply_retries: shared.apply_retries.load(Ordering::Relaxed),
             send_refusals: shared.send_refusals.load(Ordering::Relaxed),
             closing: shared.closing.load(Ordering::Acquire),
+            active_archive_seeds,
+            archive_seed_cleanup_errors,
         }
     }
 

@@ -3,6 +3,15 @@
 //! Post-startup archive ownership is exercised through actual managed Nodes.
 use super::*;
 
+pub(super) fn configure(config: &mut RaftCellsConfig) {
+    config.shared.checkpoints = Some(checkpoint_limits());
+    config.shared.archive = Some(CellGroupNodeArchiveOptions {
+        io: Default::default(),
+        uploads: Default::default(),
+        tails: Default::default(),
+    });
+}
+
 pub(super) async fn initialize(
     fixture: &Fixture,
     directory: &RangeDirectory,

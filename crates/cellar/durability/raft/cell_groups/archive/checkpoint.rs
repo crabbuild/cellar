@@ -103,6 +103,46 @@ impl Write for Bounded {
 }
 
 impl CellGroupArchiveUpload {
+    /// Fetch the exact checkpoint protected by this still-pending upload and
+    /// its inherited parent graph. This streams data only: the caller must use
+    /// a physical receiver and a separately authenticated live install grant.
+    pub(crate) async fn download_seed_checkpoint<F, Fut>(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        reference: &CellGroupArchiveReference,
+        mut sink: F,
+    ) -> Result<()>
+    where
+        F: FnMut(wire::Chunk) -> Fut + Send,
+        Fut: std::future::Future<Output = Result<()>> + Send,
+    {
+        domain
+            .run(async {
+                let permit = self.admit()?;
+                self.registry().pending(&self.ticket()).await?;
+                self.allows_object(super::graph::Kind::Indexes, &reference.object())?;
+                let index = self
+                    .checkpoint_index(domain, reference, permit.clone())
+                    .await?;
+                for chunk in index.chunks {
+                    self.registry().pending(&self.ticket()).await?;
+                    self.allows_object(super::graph::Kind::Chunks, &chunk.object)?;
+                    let bytes = self.get("chunks", &chunk.object, CHUNK_BYTES).await?;
+                    sink(wire::Chunk {
+                        part: chunk.part,
+                        offset: chunk.offset,
+                        length: chunk.length,
+                        bytes,
+                    })
+                    .await?;
+                }
+                self.registry().pending(&self.ticket()).await?;
+                Ok(())
+            })
+            .await
+            .map_err(|_| CellGroupArchiveError::Stopped)?
+    }
+
     /// Capture is supplied by the caller's node checkpoint pool. The bounded
     /// producer keeps the full source pinned through physical reads. Losing the
     /// async caller closes its channel; domain shutdown joins the physical owner.

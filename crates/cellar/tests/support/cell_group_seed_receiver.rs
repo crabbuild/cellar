@@ -19,6 +19,8 @@ pub(super) enum Fault {
     Barrier,
     Decimal,
     ExtraReply,
+    MissingData,
+    UnexpectedArchive,
     Descriptor,
     ReplyLimit,
     Binding,
@@ -48,6 +50,8 @@ impl Fault {
                 | Self::Barrier
                 | Self::Decimal
                 | Self::ExtraReply
+                | Self::MissingData
+                | Self::UnexpectedArchive
                 | Self::Descriptor
                 | Self::ReplyLimit
         )
@@ -66,10 +70,12 @@ fn expected_error(fault: Fault, error: &CellGroupSeedError) -> bool {
                 | Fault::Process
                 | Fault::Digest
                 | Fault::Binding
+                | Fault::UnexpectedArchive
                 | Fault::ChunkDigest,
             Transport(Authentication)
         ) | (
             Fault::Decimal
+                | Fault::MissingData
                 | Fault::ExtraReply
                 | Fault::Descriptor
                 | Fault::ExtraChunk
@@ -174,7 +180,7 @@ pub(super) async fn serve(
         route["target"] = request["route"]["source"].clone();
         let mut body = cut.body.clone();
         let mut reply = json!({"route":route, "request":request_tag, "nonce":request["nonce"],
-            "barrier":cut.barrier.to_string(), "digest":<[u8;32]>::from(Sha256::digest(&body))});
+            "barrier":cut.barrier.to_string(), "digest":<[u8;32]>::from(Sha256::digest(&body)), "data":{"kind":"peer"}});
         match fault {
             Fault::Exporter => wire.exporter[0] ^= 1,
             Fault::Correlation => reply["request"] = json!(vec![0; 32]),
@@ -184,6 +190,11 @@ pub(super) async fn serve(
             Fault::Barrier => reply["barrier"] = json!(u64::MAX.to_string()),
             Fault::Decimal => reply["barrier"] = json!("01"),
             Fault::ExtraReply => reply["extra"] = json!(true),
+            Fault::MissingData => { reply.as_object_mut().unwrap().remove("data"); },
+            Fault::UnexpectedArchive => reply["data"] = json!({"kind":"archive", "descriptor":{
+                "ticket":{"registry":vec![1;32],"generation":2,"allocation":vec![2;32]},
+                "checkpoint":{"registry":vec![1;32],"generation":2,"digest":vec![3;32],"length":1024}
+            }}),
             Fault::Descriptor => {
                 body = vec![255];
                 reply["digest"] = json!(<[u8; 32]>::from(Sha256::digest(&body)));
@@ -372,6 +383,8 @@ async fn run(mut fixture: RuntimeCluster, route: GroupRoute, rooted: bool) -> Re
         Fault::Barrier,
         Fault::Decimal,
         Fault::ExtraReply,
+        Fault::MissingData,
+        Fault::UnexpectedArchive,
         Fault::Descriptor,
         Fault::ReplyLimit,
         Fault::Binding,

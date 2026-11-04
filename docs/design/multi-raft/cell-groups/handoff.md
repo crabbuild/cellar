@@ -4,7 +4,66 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Dynamic archive ownership checkpoint
+## Managed S3 learner checkpoint
+
+Managed `from_s3` activation now captures a fresh-quorum complete checkpoint,
+journals a separate upload generation and authenticates its ticket/reference in
+the seed reply. The pending generation and inherited graph protect every object.
+The destination independently verifies the complete closure through its serving
+receiver before READY1; live source checks precede End and the existing engine
+boot/catalog/install fence remains authoritative. Transfer data supplies neither
+a disaster-recovery head nor an S3 command acknowledgement. Marker-1 seed requests
+require `from_s3` and replies require a tagged data mode; old shapes refuse.
+
+One owned source job retains the original transport/read/metadata/checkpoint/S3
+resources through upload, handoff and cleanup. Joined close stops new admission
+and drives transport and source cleanup together. A failed retirement retains its
+durable intent and an observable error; a subsequent seed reconciles that intent.
+Automatic background/restart cleanup remains required.
+
+A reproduced source-failover regression found that managed coalescing included
+source member/node hints in destination identity. The comparator now retains the
+exact destination boot/member/permit and mode, while the next completed attempt
+may reauthorize a new source. An entered attempt retains its original hint and
+deadline. A mode change cannot adopt the retained preparation.
+
+The new fault case verifies actual
+target-only S3 payload refusal, a retained nonserving preparation and resource
+debit, no peer fallback, source-service stop and fresh election. Full membership
+repair must obtain a fresh quorum. Catalog settlement separately requires live
+physical inventory from surviving original voters, so their outage retains the
+debit; it cannot be converted into an offline proof by a timeout. The normal full
+settlement/replay gates remain required. Explicit RustFS variants cover S3
+replacement/restart, archived maintenance and this failover/debt case.
+
+Candidate source SHA256 is
+65cbd074ab06749b4849ef06d38c23e0df396385c63e3b74bc6fb48159cdf5e7
+for 2,717 inputs above 41a67844. Native results are 264 pass/one fail/34 explicit
+skips. Execution's checkpoint TCP retry reports `Overloaded`; its unchanged
+focused repeat passes, without clearing the failed full run. An earlier extent
+successor-readiness timeout remains unresolved despite three isolated and later
+complete managed passes. The original archived-maintenance eight-turn failure
+also remains preserved. Bounded failure-only observations cannot extend a gate.
+
+Four same-source real RustFS cases pass: S3 replacement/restart 34.15s, archived
+maintenance 85.93s, denied-payload/failover/debt 33.04s, and public all-voter-disks
+plus verifier-cache-erased recovery 17.56s. Both image forms run; the backend and
+dedicated VM are stopped with data retained. An initial signed S3 probe returned
+503 before tests; keep that failed setup too. The passing setup checks signed-read
+readiness before conditional writes. Embedded Nodes/contract fencing supply no
+independent-voter, permanent Docker fencing or load qualification. Strict library
+Clippy is 220 errors, down one with identical production inputs and no added keys;
+plan/index/protocol drift remains red. See [progress](progress.md) for boundaries.
+
+Next: diagnose the checkpoint retry and bounded readiness/maintenance failures.
+Preserve the earlier failed runs and all original five-second calls/eight-turn
+reconciliation bounds. Finish abandoned hold cleanup,
+fenced failed-voter/public lifecycle ownership, default/capability cutover,
+manifest-page collection and the existing performance/inspection/lint/plan gates.
+Permanent Docker launch fencing, independent constrained voters, sustained load
+and CG-09–16 remain required. The complete goal is unfinished.
+
+## Dynamic archive ownership checkpoint at 41a67844
 
 Canonical startup now retains node-wide pools and independent verifier resources
 for groups added after boot. Preparation opens existing archive identity/counters
@@ -42,10 +101,10 @@ seed or remote object as activation authority. Finish archive hold retirement,
 public/default-backend gates, live manifest-page collection, permanent Docker
 fencing/load qualification and CG-09–16. The full goal remains incomplete.
 
-The peer seed exchange lives in `group_snapshot_transport/seed/`: `client.rs`
+At that checkpoint, the peer seed exchange lived in `group_snapshot_transport/seed/`: `client.rs`
 authenticates the source checkpoint and stages the exact managed grant;
 `install.rs` receives peer chunks and reauthorizes before durable installation.
-The authenticated reply currently carries no archive reference. The S3 path must
+The authenticated reply carried no archive reference. The S3 path needed to
 bind and retain an exact archive cut alongside that grant, check the complete
 destination against the granted marker and preserve the same install/deadline
 fences. Removing the `from_s3` refusal alone cannot provide that contract.

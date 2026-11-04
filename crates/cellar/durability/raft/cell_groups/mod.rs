@@ -17,6 +17,7 @@ pub use crate::raft::transport::{
 mod apply;
 mod archive;
 pub(crate) use archive::CellGroupArchiveAcquireOutcome;
+pub(crate) use archive::ControllerExecution as ArchiveExecution;
 pub(crate) mod archive_compaction;
 pub use archive::{
     CellGroupArchive, CellGroupArchiveCheckpointReceiver, CellGroupArchiveCollectionLimits,
@@ -41,6 +42,7 @@ pub use checkpoint::{
 mod controller;
 pub(crate) use controller::CellGroupArchiveProvisioning;
 pub(crate) use controller::S3OutputProof;
+pub(crate) use controller::{ArchiveSeedClient, ArchiveSeedDescriptor};
 pub use controller::{
     CellCommandAdmissionError, CellCommandCall, CellEnrollmentAdmissionError, CellEnrollmentCall,
     CellGroupArchiveCall, CellGroupArchiveControlError, CellGroupArchiveRegistration,

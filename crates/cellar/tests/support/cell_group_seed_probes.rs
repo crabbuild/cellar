@@ -22,8 +22,8 @@ pub(super) async fn source_protocol(
     let request = json!({"route": {
         "scope": {"kind":"Group", "identity":[history.cluster.bytes(), history.namespace.bytes(), history.group.bytes(), history.incarnation.bytes()]},
         "schema":route.schema_digest, "source":peer(target), "target":peer(&route.peers[0])
-    }, "nonce":"1", "timeout_ms":10000});
-    for case in 0..11 {
+    }, "nonce":"1", "timeout_ms":10000, "from_s3":false});
+    for case in 0..13 {
         let mut connection =
             Connection::open_with_exporter(source.data_address(), b"EXPORTER-cellar-group-seed-1")
                 .await?;
@@ -41,6 +41,10 @@ pub(super) async fn source_protocol(
             9 => invalid["extra"] = json!(true),
             // A current voter cannot request a fresh learner seed.
             10 => invalid["route"]["source"] = peer(&route.peers[1]),
+            11 => {
+                invalid.as_object_mut().unwrap().remove("from_s3");
+            }
+            12 => invalid["from_s3"] = json!("archive"),
             _ => unreachable!(),
         }
         connection
@@ -71,6 +75,7 @@ pub(super) async fn source_protocol(
             .await?;
         assert_eq!(reply["request"], json!(tag));
         assert_eq!(reply["nonce"], request["nonce"]);
+        assert_eq!(reply["data"], json!({"kind":"peer"}));
         assert_eq!(reply["route"]["source"], request["route"]["target"]);
         assert_eq!(reply["route"]["target"], request["route"]["source"]);
         assert_eq!(

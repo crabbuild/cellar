@@ -231,11 +231,17 @@ impl CellGroupController {
         deadline: u64,
     ) -> Result<CellGroupProvisionCall, CellGroupControllerError> {
         if activation.from_s3 {
-            // Exact-reference archive seeding is a separate transfer. Never
-            // interpret an unavailable S3 path as permission to fetch a peer.
-            return Err(CellGroupControllerError::Invalid(
-                "S3 learner transfer unavailable",
-            ));
+            let configured = self
+                .handle
+                .0
+                .provisioning
+                .lock()
+                .map_err(|_| CellGroupControllerError::Closed)?;
+            if configured.as_ref().is_none_or(|c| c.archives.is_none()) {
+                return Err(CellGroupControllerError::Invalid(
+                    "S3 learner resources unavailable",
+                ));
+            }
         }
         let learner = learner::Admission::new(&route, &host, authorization, activation)?;
         self.provision_authorized(

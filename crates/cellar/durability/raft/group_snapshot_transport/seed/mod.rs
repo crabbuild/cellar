@@ -9,6 +9,7 @@ use crate::raft::{
     storage::{CellGroupBootstrap, LogError, ReplicaLog},
 };
 use cellar_logic::consensus::{LogIndex, OperationId};
+mod archive;
 mod client;
 mod grant;
 mod install;
@@ -36,6 +37,7 @@ struct Request {
     route: Route,
     nonce: String,
     timeout_ms: u64,
+    from_s3: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -46,6 +48,16 @@ struct Reply {
     nonce: String,
     barrier: String,
     digest: [u8; 32],
+    data: SeedData,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum SeedData {
+    Peer,
+    Archive {
+        descriptor: crate::raft::cell_groups::ArchiveSeedDescriptor,
+    },
 }
 
 #[derive(Debug)]
@@ -54,6 +66,7 @@ pub enum CellGroupSeedError {
     Catalog(CatalogError),
     Log(LogError),
     Checkpoint(CellGroupCheckpointError),
+    Archive(Box<crate::raft::cell_groups::CellGroupArchiveError>),
 }
 
 impl std::fmt::Display for CellGroupSeedError {
@@ -69,6 +82,7 @@ impl std::error::Error for CellGroupSeedError {
             Self::Catalog(e) => e,
             Self::Log(e) => e,
             Self::Checkpoint(e) => e,
+            Self::Archive(e) => e.as_ref(),
         })
     }
 }
@@ -95,6 +109,37 @@ impl From<CellGroupCheckpointError> for CellGroupSeedError {
     fn from(e: CellGroupCheckpointError) -> Self {
         Self::Checkpoint(e)
     }
+}
+
+impl From<crate::raft::cell_groups::CellGroupArchiveError> for CellGroupSeedError {
+    fn from(error: crate::raft::cell_groups::CellGroupArchiveError) -> Self {
+        Self::Archive(Box::new(error))
+    }
+}
+
+impl From<crate::raft::cell_groups::CellGroupArchiveBindingError> for CellGroupSeedError {
+    fn from(error: crate::raft::cell_groups::CellGroupArchiveBindingError) -> Self {
+        match error {
+            crate::raft::cell_groups::CellGroupArchiveBindingError::Catalog(error) => {
+                Self::Catalog(error)
+            }
+            crate::raft::cell_groups::CellGroupArchiveBindingError::Archive(error) => {
+                Self::Archive(Box::new(error))
+            }
+        }
+    }
+}
+
+pub(crate) struct ManagedArchiveSeed {
+    pub host: crate::raft::fleet_catalog::FleetHostAuthorization,
+    pub authorization: crate::raft::fleet_catalog::FleetPermitAuthorization,
+    pub archive: crate::raft::cell_groups::CellGroupArchiveRegistration,
+}
+
+struct ManagedSeed {
+    host: crate::raft::fleet_catalog::FleetHostAuthorization,
+    expected: crate::raft::fleet_catalog::FleetPermitAuthorization,
+    archive: Option<crate::raft::cell_groups::CellGroupArchiveRegistration>,
 }
 
 /// A staged, non-serving destination. Dropping it before install closes the
@@ -151,6 +196,10 @@ struct Exchange {
     birth: CellGroupBirth,
     pool: CellGroupCheckpointPool,
     admission: Arc<ReceiveAdmission>,
+    archive: Option<(
+        crate::raft::cell_groups::ArchiveSeedDescriptor,
+        crate::raft::cell_groups::CellGroupArchiveRegistration,
+    )>,
     _connection: resources::ConnectionOwner,
     operation: OperationId,
 }

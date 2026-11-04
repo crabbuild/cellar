@@ -36,6 +36,44 @@ The final release requires all profiles marked required in `profiles.json`.
 Container counts alone cannot satisfy the independent-domain profile. Million-cell
 and Q2–Q4 scale claims remain separate larger experiments from the parent roadmap.
 
+## Managed S3 component verification
+
+The managed native target now implements these explicit backend cases:
+
+- `bootstrap::lifecycle::rustfs_managed_s3_group_replacement_and_joined_restart`
+- `bootstrap::lifecycle::maintenance::rustfs_managed_archive_maintenance_stop_return_and_resume`
+- `bootstrap::lifecycle::s3::rustfs_managed_s3_seed_refusal_and_source_failover`
+
+Run each by its exact name with `--ignored --exact --test-threads=1` in
+`native_cell_groups_managed`. Configure an owned local backend with
+`CELLAR_CELL_GROUPS_RUSTFS_ENDPOINT`, `CELLAR_CELL_GROUPS_RUSTFS_BUCKET`,
+`CELLAR_CELL_GROUPS_RUSTFS_PREFIX`, `AWS_ACCESS_KEY_ID` and
+`AWS_SECRET_ACCESS_KEY`. The helper accepts only a loopback HTTP endpoint,
+requires an isolated prefix and supplies explicit credentials; absence fails.
+Use a fresh prefix for every run. Never copy the private credential file into
+evidence or a PR. Build first, record and copy the executables, then run cases
+serially after writeback. Record and verify the pinned backend image, actual
+resource limits and signed conditional-write/read-after-write probe separately.
+
+Both image forms run. Replacement checks real S3 payload transfer, independent
+SQLite histories/receipts, joint finish, lost settlement replies, owned drain and
+retained joined-member restart. Maintenance covers initial and joined voters,
+owned stop, offline confirmation, paused return and fresh resume. The fault case
+denies target payload GETs before attachment, requires retained nonserving owner
+and debit, refuses a peer-mode change, stops the source service and requires a
+fresh election and completed repair. Replacement-local queries verify actual
+responder, values and versions; new writes require S3 proof. A surviving original
+voter's missing physical inventory must block catalog settlement and retain its
+debit even after membership repair completes.
+
+These are embedded native Nodes with separate domains, disks and TLS. Real RustFS
+verifies the S3 adapter; it does not supply independent or resource-constrained
+voter hosts. A source-service stop is distinct from process SIGKILL and permanent
+platform fencing. Retain every missed five-second readiness window and failed
+run; later passes cannot establish a fixed failover SLA or waive that failure.
+Five-second calls and eight reconciliation turns remain unchanged. See
+[progress](progress.md) for source-bound results and unresolved qualification.
+
 ## Planned harness interface
 
 CG-14 implements `tools/perf/cell_groups.py`; it does not exist at plan delivery.

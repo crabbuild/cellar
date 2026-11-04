@@ -5,7 +5,9 @@
 mod job;
 mod journal;
 mod provision;
+pub(in crate::raft::cell_groups::controller) mod seed;
 pub(crate) use provision::Provisioning;
+pub(crate) use seed::{Client as ArchiveSeedClient, Descriptor as ArchiveSeedDescriptor};
 pub(in crate::raft::cell_groups::controller) mod settlement;
 
 use super::calls::Delivery;
@@ -62,6 +64,12 @@ impl From<CellGroupArchiveBindingError> for CellGroupArchiveControlError {
 impl From<std::io::Error> for CellGroupArchiveControlError {
     fn from(error: std::io::Error) -> Self {
         Self::Journal(error)
+    }
+}
+
+impl From<crate::asyncrt::DomainClosed> for CellGroupArchiveControlError {
+    fn from(_: crate::asyncrt::DomainClosed) -> Self {
+        Self::Stopped
     }
 }
 

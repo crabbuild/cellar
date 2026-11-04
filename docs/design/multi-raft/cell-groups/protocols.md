@@ -285,6 +285,39 @@ physical route, fresh barrier and canonical checkpoint descriptor. Chunk sequenc
 digests and explicit End are authenticated within that exchange. Peer replacement,
 transport shutdown and the original deadline revoke pending destination work.
 
+The marker-1 request requires an explicit `from_s3` flag and the authenticated
+reply requires a tagged `data` choice: peer bytes or an archive upload ticket plus
+exact checkpoint reference. Missing fields and a choice different from the request
+refuse before staging. The S3 mode opens the established namespace archive registry;
+a peer cannot supply a backend or override its identity. It never falls back to
+peer checkpoint bytes.
+
+An S3 source captures the same fresh-quorum, exact-root checkpoint before catalog
+I/O. A separate purpose-bound, exclusively locked local journal syncs the reserve
+intent before allocating a generation and then syncs the returned upload ticket.
+The pending generation and inherited parent graph protect every checkpoint object
+through handoff. This transfer publishes neither a disaster-recovery head nor S3
+command coverage. The destination checks that protection, independently fetches and
+verifies all objects and feeds the existing physical checkpoint receiver. Only a
+complete prepared checkpoint matching the authenticated snapshot permits READY1.
+The source rechecks live authority before authenticated End. The ordinary engine
+installation, fresh destination boot/catalog checks and promotion/catch-up fences
+remain required.
+
+The source retains its admitted transport, read, checkpoint and S3 resources until
+physical upload and handoff cleanup finish. The destination's prepared stores own
+their local pins before READY1. Caller cancellation cannot release entered work;
+node close stops new source admission and joins transport with source cleanup.
+An uncertain ticket retirement preserves its durable journal and observable cleanup
+error. A later seed attempt reconciles that exact intent before allocating again;
+automatic background/restart cleanup of abandoned seed journals remains unfinished.
+
+Managed retries retain the exact destination boot, member, repair permit and data
+mode. Source member/node are attempt hints, independently reauthorized against a
+fresh source quorum; leader failure may change them without replacing the retained
+destination owner. An entered attempt keeps its original deadline and hint. A mode
+change cannot adopt a retained S3 preparation.
+
 The destination reconciles the namespace node pin and permanent member claim
 against the exact node/disk/engine. Its synced staging mapping retains the original
 birth configuration and grants no startup permission. An existing remote claim

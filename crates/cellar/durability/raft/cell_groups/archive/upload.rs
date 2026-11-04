@@ -155,6 +155,16 @@ impl CellGroupArchiveRegistry {
 }
 
 impl CellGroupArchiveUpload {
+    pub(crate) async fn require_pending(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+    ) -> Result<()> {
+        domain
+            .run(async { self.registry().pending(&self.ticket()).await.map(|_| ()) })
+            .await
+            .map_err(|_| CellGroupArchiveError::Stopped)?
+    }
+
     pub fn registry(&self) -> &CellGroupArchiveRegistry {
         &self.0.registry
     }
@@ -182,6 +192,22 @@ impl CellGroupArchiveUpload {
         }) {
             return Err(CellGroupArchiveError::Invalid(
                 "unprotected inherited archive object",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn allows_object(&self, kind: Kind, object: &super::objects::Object) -> Result<()> {
+        if object.registry != self.registry().id()
+            || object.generation > self.ticket().generation()
+            || (object.generation != self.ticket().generation()
+                && !self.0.inherited.objects.contains(&super::graph::Key {
+                    kind,
+                    object: object.clone(),
+                }))
+        {
+            return Err(CellGroupArchiveError::Invalid(
+                "unprotected seed checkpoint object",
             ));
         }
         Ok(())

@@ -6,6 +6,9 @@ use super::*;
 #[path = "cell_group_managed_controls.rs"]
 mod controls;
 
+#[path = "cell_group_managed_s3.rs"]
+mod s3;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn managed_group_replacement_and_joined_restart() -> Result<()> {
     for rooted in [false, true] {
@@ -15,9 +18,20 @@ async fn managed_group_replacement_and_joined_restart() -> Result<()> {
 }
 
 async fn discover(cluster: &ManagedCluster) -> Result<()> {
+    discover_survivors(cluster, None).await
+}
+
+async fn discover_survivors(cluster: &ManagedCluster, stopped: Option<usize>) -> Result<()> {
     let cut = cluster.fixtures[0].catalog.read(TIMEOUT).await?;
-    for host in &cluster.hosts {
-        for fixture in &cluster.fixtures {
+    for (i, host) in cluster.hosts.iter().enumerate() {
+        if stopped == Some(i) {
+            ensure!(host.is_closed());
+            continue;
+        }
+        for (j, fixture) in cluster.fixtures.iter().enumerate() {
+            if stopped == Some(j) {
+                continue;
+            }
             inspect_current(host, fixture.spec.node, cut.revision()).await?;
         }
     }
@@ -25,21 +39,76 @@ async fn discover(cluster: &ManagedCluster) -> Result<()> {
 }
 
 async fn close(nodes: Vec<Node>, hosts: &[RaftCells]) -> Result<()> {
+    let mut failures = Vec::new();
     for (node, host) in nodes.into_iter().zip(hosts) {
-        ensure!(matches!(
-            node.shutdown(ShutdownMode::Preserve).await?,
-            NodeOutcome::Stopped(_)
-        ));
-        let report = host.close().await?;
-        ensure!(report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers);
+        match node.shutdown(ShutdownMode::Preserve).await {
+            Ok(NodeOutcome::Stopped(_)) => (),
+            result => failures.push(format!("node shutdown: {result:?}")),
+        }
+        match host.close().await {
+            Ok(report)
+                if report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers =>
+            {
+                ()
+            }
+            result => failures.push(format!("group host close: {result:?}")),
+        }
     }
+    ensure!(
+        failures.is_empty(),
+        "joined managed shutdown failed: {failures:?}"
+    );
     Ok(())
 }
 
 async fn replacement(rooted: bool) -> Result<()> {
-    let mut cluster = Box::pin(ManagedCluster::start(rooted, &[7])).await?;
+    Box::pin(replacement_with_source(rooted, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn managed_s3_group_replacement_and_joined_restart() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(replacement_with_source(rooted, true)).await?;
+    }
+    Ok(())
+}
+
+async fn replacement_with_source(rooted: bool, from_s3: bool) -> Result<()> {
+    Box::pin(replacement_with_store(
+        rooted,
+        from_s3,
+        Arc::new(fault::Store::default()),
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_managed_s3_group_replacement_and_joined_restart() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(fault::Store::around(rustfs::store(
+            "managed-s3-replacement",
+            rooted,
+        )?));
+        Box::pin(replacement_with_store(rooted, true, store)).await?;
+    }
+    Ok(())
+}
+
+async fn replacement_with_store(
+    rooted: bool,
+    from_s3: bool,
+    store: Arc<fault::Store>,
+) -> Result<()> {
+    let mut cluster = Box::pin(ManagedCluster::start_with_store(
+        rooted,
+        &[7],
+        ArchiveSetup::Initialized,
+        store,
+    ))
+    .await?;
     let work = async {
-        let (seed, obsolete) = replace(&cluster).await?;
+        let (seed, obsolete) = replace_with_source(&cluster, from_s3).await?;
         drain_leader(&mut cluster, &seed, obsolete).await?;
         Ok((seed, obsolete))
     }
@@ -74,6 +143,7 @@ async fn replacement(rooted: bool) -> Result<()> {
         let (mut config, services) = fixture
             .config(&node, LogOpenMode::Resume, 44 + i as u8)
             .await?;
+        archives::configure(&mut config);
         config.groups.push(RaftGroupAssignment {
             history: cluster.history,
             placement: RaftGroupPlacement::Replica,
@@ -146,12 +216,27 @@ async fn replacement(rooted: bool) -> Result<()> {
 }
 
 async fn replace(cluster: &ManagedCluster) -> Result<(SeededCells, usize)> {
+    Box::pin(replace_with_source(cluster, false)).await
+}
+
+async fn replace_with_source(
+    cluster: &ManagedCluster,
+    from_s3: bool,
+) -> Result<(SeededCells, usize)> {
+    Box::pin(replace_with_retry(cluster, from_s3, false)).await
+}
+
+async fn replace_with_retry(
+    cluster: &ManagedCluster,
+    from_s3: bool,
+    refuse_then_failover: bool,
+) -> Result<(SeededCells, usize)> {
     let seed = seed_cells(&cluster.hosts, cluster.history).await?;
     discover(cluster).await?;
     let f = &cluster.fixtures[0];
     let index = leader(&cluster.hosts[..3], cluster.history).await?;
     let obsolete = (index + 1) % 3;
-    let observer = &cluster.hosts[index];
+    let mut observer = &cluster.hosts[index];
     let membership = observer
         .group(cluster.history)?
         .quorum_membership(TIMEOUT)
@@ -218,16 +303,27 @@ async fn replace(cluster: &ManagedCluster) -> Result<(SeededCells, usize)> {
     let execution = FleetMovementExecutionRequest {
         reservation: movement.resources.identity.id,
         attestation: movement.resources.attestation.clone(),
-        from_s3: false,
+        from_s3,
+    };
+    let stopped_source = if refuse_then_failover {
+        ensure!(from_s3);
+        let next = Box::pin(s3::refuse_then_failover(cluster, &execution, index)).await?;
+        observer = &cluster.hosts[next];
+        Some(index)
+    } else {
+        None
     };
     let mut settled = false;
     let mut phases = Vec::new();
     let mut lose_settlement = false;
     let mut lost_settlement = false;
     for turn in 0..8 {
-        discover(cluster).await?;
+        discover_survivors(cluster, stopped_source).await?;
         let cut = f.catalog.read(TIMEOUT).await?;
-        if phases.last() == Some(&FleetMovementPhase::Joint) && !lose_settlement {
+        if stopped_source.is_none()
+            && phases.last() == Some(&FleetMovementPhase::Joint)
+            && !lose_settlement
+        {
             // Lose the actual terminal root-CAS reply and its confirmation.
             // Background directory reads cannot consume this task-bound fault.
             f.store
@@ -255,6 +351,16 @@ async fn replace(cluster: &ManagedCluster) -> Result<(SeededCells, usize)> {
                     eprintln!("managed replacement turn {turn}: Unconfirmed; debit retained");
                 }
                 continue;
+            }
+            Err(FleetCatalogError::Observation(
+                cellar::application::consensus::InspectionError::Unreachable,
+            )) if stopped_source.is_some() => {
+                ensure!(f.catalog.read(TIMEOUT).await?.revision() == cut.revision());
+                Box::pin(s3::verify_blocked_settlement(
+                    cluster, &seed, &execution, observer, obsolete,
+                ))
+                .await?;
+                return Ok((seed, obsolete));
             }
             Err(error) => {
                 return Err(error).with_context(|| {
@@ -317,7 +423,7 @@ async fn replace(cluster: &ManagedCluster) -> Result<(SeededCells, usize)> {
             && membership.configuration().learners.is_empty()
     );
     drop(membership);
-    discover(cluster).await?;
+    discover_survivors(cluster, stopped_source).await?;
     // Settlement retires the move, not the old disk's physical debt.
     let removed = observer
         .inspect_peer_physical_inventory(
@@ -345,6 +451,16 @@ async fn replace(cluster: &ManagedCluster) -> Result<(SeededCells, usize)> {
             == Some(2)
     );
     ensure!(cluster.hosts[3].resource_usage().retained_manifest_cells == Some(2));
+    let archive_reads = cluster.fixtures[3]
+        .store
+        .group_payload_reads
+        .load(Ordering::Acquire);
+    if from_s3 {
+        ensure!(
+            archive_reads > 0,
+            "S3 replacement never fetched archive payloads"
+        );
+    }
     verify_cells(observer, &seed, 2).await?;
     Ok((seed, obsolete))
 }
@@ -422,14 +538,20 @@ async fn verify_cells(host: &RaftCells, seed: &SeededCells, sequence: u64) -> Re
     for (i, (cell, original)) in seed.cells.iter().zip(&seed.receipts).enumerate() {
         let handle = host.cell(cell.clone())?;
         let delta = [7i64, 11][i];
+        let mut duplicate_options = CommandOptions::new(original.id, seed.retry);
+        duplicate_options.durability = Durability::S3;
         let duplicate = handle
             .command(
                 &handle.contract("Add")?,
                 delta.to_be_bytes().to_vec(),
-                CommandOptions::new(original.id, seed.retry),
+                duplicate_options,
             )
             .await?;
-        ensure!(duplicate.result == original.result && duplicate.id == original.id);
+        ensure!(
+            duplicate.result == original.result
+                && duplicate.id == original.id
+                && duplicate.durability == Durability::S3
+        );
         let query = handle
             .query(
                 ProposalId::new([190 + i as u8; 16])?,
@@ -446,14 +568,20 @@ async fn verify_cells(host: &RaftCells, seed: &SeededCells, sequence: u64) -> Re
             query.result == (delta + sequence as i64 - 2).to_be_bytes(),
             "duplicate changed the installed image"
         );
+        let mut write_options =
+            CommandOptions::new(CommandId::new(original.id.client, sequence)?, seed.retry);
+        write_options.durability = Durability::S3;
         let result = handle
             .command(
                 &handle.contract("Add")?,
                 1i64.to_be_bytes().to_vec(),
-                CommandOptions::new(CommandId::new(original.id.client, sequence)?, seed.retry),
+                write_options,
             )
             .await?;
-        ensure!(result.result == (delta + sequence as i64 - 1).to_be_bytes());
+        ensure!(
+            result.result == (delta + sequence as i64 - 1).to_be_bytes()
+                && result.durability == Durability::S3
+        );
     }
     Ok(())
 }

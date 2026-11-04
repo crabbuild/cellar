@@ -17,7 +17,7 @@ use std::{fmt, sync::Arc};
 
 mod execution;
 pub use execution::CellGroupArchiveExecution;
-pub(super) use execution::ControllerExecution;
+pub(crate) use execution::ControllerExecution;
 
 mod checkpoint;
 mod data_store;

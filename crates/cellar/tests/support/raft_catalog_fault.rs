@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Conditional writes are real InMemory operations; faults lose responses only.
+//! Conditional writes use the selected store unchanged; faults surround real operations.
 use futures_util::{stream::BoxStream, StreamExt, TryStreamExt};
 use object_store::{
     path::Path, GetOptions, GetResult, GetResultPayload, ListResult, MultipartUpload, ObjectMeta,
@@ -70,6 +70,10 @@ impl RegistryGate {
 
 #[derive(Debug, Default)]
 pub struct Store {
+    external: Option<std::sync::Arc<dyn ObjectStore>>,
+    pub group_payload_reads: AtomicUsize,
+    pub denied_group_payload_reads: AtomicUsize,
+    pub deny_group_payload_reads: AtomicBool,
     pub range_before: RegistryGate,
     pub range_genesis_after: RegistryGate,
     pub range_page_puts: AtomicUsize,
@@ -213,6 +217,17 @@ impl Drop for BirthWaiting<'_> {
 }
 
 impl Store {
+    pub fn around(store: std::sync::Arc<dyn ObjectStore>) -> Self {
+        Self {
+            external: Some(store),
+            ..Default::default()
+        }
+    }
+
+    fn backend(&self) -> &dyn ObjectStore {
+        self.external.as_deref().unwrap_or(&self.inner)
+    }
+
     async fn wait_birth(&self) {
         self.birth_waiting.store(true, Ordering::Release);
         let _waiting = BirthWaiting(&self.birth_waiting);
@@ -403,7 +418,7 @@ impl ObjectStore for Store {
             path.as_ref().ends_with("/fleet/head") && matches!(options.mode, PutMode::Update(_));
         let range_genesis =
             path.as_ref().ends_with("/cell-groups/head") && matches!(options.mode, PutMode::Create);
-        let result = self.inner.put_opts(path, payload, options).await?;
+        let result = self.backend().put_opts(path, payload, options).await?;
         if range_genesis {
             self.range_genesis_after.pause().await;
         }
@@ -511,10 +526,18 @@ impl ObjectStore for Store {
         path: &Path,
         options: PutMultipartOptions,
     ) -> object_store::Result<Box<dyn MultipartUpload>> {
-        self.inner.put_multipart_opts(path, options).await
+        self.backend().put_multipart_opts(path, options).await
     }
 
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
+        if path.as_ref().contains("/cell-group-archives/") && path.as_ref().contains("/chunks/") {
+            self.group_payload_reads.fetch_add(1, Ordering::AcqRel);
+            if self.deny_group_payload_reads.load(Ordering::Acquire) {
+                self.denied_group_payload_reads
+                    .fetch_add(1, Ordering::AcqRel);
+                return Err(failure());
+            }
+        }
         if path.as_ref().contains("/cell-group-archives/") {
             self.group_archive_read.pause().await;
         }
@@ -797,7 +820,7 @@ impl ObjectStore for Store {
         if self.fail_read.swap(false, Ordering::AcqRel) {
             return Err(failure());
         }
-        let mut result = self.inner.get_opts(path, options).await?;
+        let mut result = self.backend().get_opts(path, options).await?;
         if root_extent {
             self.root_extent_hits.fetch_add(1, Ordering::AcqRel);
         }
@@ -851,7 +874,7 @@ impl ObjectStore for Store {
     }
 
     async fn delete(&self, path: &Path) -> object_store::Result<()> {
-        self.inner.delete(path).await
+        self.backend().delete(path).await
     }
 
     fn list(&self, prefix: Option<&Path>) -> BoxStream<'static, object_store::Result<ObjectMeta>> {
@@ -859,7 +882,7 @@ impl ObjectStore for Store {
         if self.reject_listing.load(Ordering::Acquire) {
             return futures_util::stream::once(async { Err(failure()) }).boxed();
         }
-        self.inner.list(prefix)
+        self.backend().list(prefix)
     }
 
     async fn list_with_delimiter(&self, prefix: Option<&Path>) -> object_store::Result<ListResult> {
@@ -867,14 +890,14 @@ impl ObjectStore for Store {
         if self.reject_listing.load(Ordering::Acquire) {
             return Err(failure());
         }
-        self.inner.list_with_delimiter(prefix).await
+        self.backend().list_with_delimiter(prefix).await
     }
 
     async fn copy(&self, from: &Path, to: &Path) -> object_store::Result<()> {
-        self.inner.copy(from, to).await
+        self.backend().copy(from, to).await
     }
 
     async fn copy_if_not_exists(&self, from: &Path, to: &Path) -> object_store::Result<()> {
-        self.inner.copy_if_not_exists(from, to).await
+        self.backend().copy_if_not_exists(from, to).await
     }
 }

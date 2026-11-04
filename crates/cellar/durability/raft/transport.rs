@@ -26,6 +26,7 @@ use crate::peer_auth::PeerAuth;
 use ::raft::prelude::{Message, MessageType};
 use cellar_logic::consensus::{ClusterId, GroupScope, NamespaceId, NodeId, ReplicaIdentity};
 pub(crate) use group_snapshots::seed::Grant as CellGroupSeedGrant;
+pub(crate) use group_snapshots::seed::ManagedArchiveSeed;
 pub use group_snapshots::{
     CellGroupCheckpointRegistration, CellGroupSeedError, CellGroupSeedSession,
 };
@@ -313,6 +314,7 @@ struct Registry {
     // refreshes keep it; explicit replacement/removal starts another lifetime.
     physical_owners: BTreeMap<GroupHistory, Arc<()>>,
     group_checkpoint_pool: Option<crate::raft::cell_groups::CellGroupCheckpointPool>,
+    group_archive_seeds: Option<crate::raft::cell_groups::ArchiveSeedClient>,
     group_checkpoints: BTreeMap<GroupHistory, std::sync::Weak<group_snapshots::Endpoint>>,
     query_groups: BTreeMap<GroupScope, Arc<GroupRoute>>,
     cell_query_groups: BTreeMap<GroupHistory, Arc<GroupRoute<GroupHistory>>>,
@@ -549,6 +551,7 @@ impl RaftTransport {
                 physical_groups: BTreeMap::new(),
                 physical_owners: BTreeMap::new(),
                 group_checkpoint_pool: None,
+                group_archive_seeds: None,
                 group_checkpoints: BTreeMap::new(),
                 query_groups: BTreeMap::new(),
                 cell_query_groups: BTreeMap::new(),

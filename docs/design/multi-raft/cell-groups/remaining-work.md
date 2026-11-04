@@ -40,9 +40,16 @@ SDK consumers or managed orchestration.
 Groups added after startup now retain node-wide archive pools and independent
 verifier resources. Dynamic RF3 S3 writes, refusal of missing archive identity,
 explicit initialization/retry and joined close with a held archive GET pass local
-managed cases in both image forms. Archived managed replacement/maintenance,
-exact-reference S3 learner activation and the complete public lifecycle gate
-remain required. See the latest [progress checkpoint](progress.md).
+managed cases in both image forms. Managed S3 learner activation now has a
+data-plane implementation: fresh quorum capture, a journaled protected upload,
+independent destination verification and the existing physical install fences.
+Source hints may change after leader failure while destination boot/member/permit
+and transfer mode remain fixed. Normal archived replacement/maintenance and the
+S3 refusal/failover/debt matrix pass scoped native and real-RustFS cases. The
+combined native run still has one checkpoint TCP retry failure; bounded failover
+readiness and earlier maintenance failures remain unresolved despite later passes.
+Automatic abandoned-seed journal cleanup and the complete public
+lifecycle gate remain required. See the latest [progress checkpoint](progress.md).
 
 CG-07 remains IN_PROGRESS. The native_cell_groups_public target now passes its
 sdk_many_cells_share_group case through public startup, native/Axum ingress and
@@ -102,9 +109,9 @@ inventory explicit and fail closed for unseeded groups.
 
 | Order | Deliverable | Required result |
 | --- | --- | --- |
-| 1 | Managed S3 learner activation and archive holds (CG-06/07) | Owned dynamic archive attachment and joined node close pass local cases. Qualify archived managed replacement/maintenance and implement the currently refused exact-reference S3 path without peer fallback. Verify and retain the complete manifest/image/receipt closure; preserve local owner and uncertain outcomes through actual sync. Reauthorize the destination boot and catalog, attach the actual installed member, catch up and obtain fresh quorum before promotion/success. Qualify admitted archive work through stop/offline confirmation and complete safe archive-hold retirement. A seed receipt or S3 object alone is not activation authority. |
+| 1 | Managed S3 learner activation and archive holds (CG-06/07) | Expand the scoped native/RustFS results to the full failure/cancellation and fenced failed-voter lifecycle. Preserve complete manifest/image/receipt closure, destination boot/catalog checks, physical install, catch-up and fresh quorum before promotion. Complete automatic discovery/reconciliation of abandoned seed journals and safe hold retirement during outages and restart. A surviving original voter still needs a live physical-inventory proof for catalog settlement; its outage must retain the debit. Finish orchestration for that retained debt and qualify stop/offline ownership; a seed or remote object supplies no activation authority. |
 | 2 | Public SDK surface and executable consumers (CG-07) | Port the original daemon/native/Axum fixtures and performance/fleet runners to namespace capabilities, physical group assignment and replicated cell enrollment. The local all-binary check clears the original 27 compilation errors; qualify the final combined source. Clear the remaining 128-cell enrollment deadline, qualify S3 at every planned occupancy, finish live manifest-page ownership and qualify owned extent collection under the original workload bounds. Retain every original HTTP/read/retry option, exact term/revision transfer guard, actual responder metadata and all five original public gates. Incorporate the implemented cold birth, repair, maintenance stop/return/resume and physical debt into the complete public lifecycle case, including retained nonvoting inventory and failure/cancellation ownership. |
-| 3 | Public, build and backend qualification (CG-07 and MVP portions of CG-14/15/16) | Deliver the four remaining public cases below while retaining the SDK case; port the old inspection cancellation oracle to the managed shared protocol, and clear strict lint failures without suppressions. Review the stale plan source anchors and reconcile the generated index/Purpose mismatch; preserve the drift refusal until that review is complete. Run affected feature modes from SDK CI. Refresh same-source real RustFS recovery and replication/reclamation under bounded mixed load, retaining exact binaries, ledgers, failures and resource/latency measurements. |
+| 3 | Public, build and backend qualification (CG-07 and MVP portions of CG-14/15/16) | Diagnose the current checkpoint TCP retry `Overloaded`, intermittent five-second successor-readiness timeout and earlier eight-turn maintenance failure; repeats cannot waive failed runs. Deliver the four remaining public cases below while retaining the SDK case; port the old inspection cancellation oracle to the managed shared protocol, and clear strict lint failures without suppressions. Review stale plan anchors and reconcile generated index/Purpose drift. Run affected SDK CI feature modes. Extend current-source real RustFS component recovery to constrained independent voters and replication/reclamation under bounded mixed load, retaining exact binaries, ledgers, failures and resource/latency measurements. |
 
 The public counter and first SDK gate are qualified at their recorded local
 boundary. Managed boot/directory/stop ownership is implemented at its recorded
@@ -112,7 +119,7 @@ component boundary. Cold inventory/capacity and nonempty initial-group startup
 pass the recorded local gate. Peer replacement, actual handoff and retained
 joined-member restart pass the focused managed case. Basic catalog maintenance
 stop/return/resume now passes its local role/image matrix. Original consumers and
-public acceptance, lifecycle failure/cancellation, exact S3 activation and backend
+public acceptance, lifecycle failure/cancellation, complete S3 qualification and backend
 qualification still block the complete MVP. A successful metadata-only standby boot supplies no
 complete-inventory or capacity proof; an Active-node fixture cannot replace the
 original public lifecycle gate. The currently refused managed paths remain

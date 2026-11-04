@@ -57,10 +57,41 @@ impl Journal {
         engine: [u8; 16],
         creation: CellGroupArchiveCreation,
     ) -> Result<Self> {
+        Self::open_domain(
+            filesystem,
+            directory,
+            engine,
+            creation,
+            "cellar-cell-group-archive-journal-1",
+        )
+    }
+
+    pub(super) fn open_seed(
+        filesystem: Arc<dyn FileSystem>,
+        directory: std::path::PathBuf,
+        engine: [u8; 16],
+        creation: CellGroupArchiveCreation,
+    ) -> Result<Self> {
+        Self::open_domain(
+            filesystem,
+            directory,
+            engine,
+            creation,
+            "cellar-cell-group-seed-archive-journal-1",
+        )
+    }
+
+    fn open_domain(
+        filesystem: Arc<dyn FileSystem>,
+        directory: std::path::PathBuf,
+        engine: [u8; 16],
+        creation: CellGroupArchiveCreation,
+        purpose: &str,
+    ) -> Result<Self> {
         cellar_ltx::host::create_dir_all_durable(filesystem.as_ref(), &directory)?;
         let lock = filesystem.lock_file(&directory.join("owner.lock"))?;
         let identity = Identity {
-            domain: "cellar-cell-group-archive-journal-1".into(),
+            domain: purpose.into(),
             engine,
             creation,
         };
