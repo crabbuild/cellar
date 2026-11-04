@@ -92,8 +92,7 @@ impl CellPrivateExecutor {
             return Err(ExecutionError::Invalid("cell execution schema"));
         }
         let filesystem = options.host.filesystem();
-        cellar_ltx::host::create_dir_all_durable(filesystem.as_ref(), &options.directory)
-            .map_err(storage)?;
+        options.prepare_directory()?;
         let lock = PrivateLock {
             _lock: filesystem
                 .lock_file(&options.directory.join("working.lock"))

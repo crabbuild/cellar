@@ -541,6 +541,11 @@ async fn rooted_concurrent_enrollment_one_cell() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn rooted_enrollment_and_commands_reuse_owned_workspace_barriers() -> Result<()> {
+    Box::pin(runtime_fixture::owned_workspace_barriers()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn enrollment_recovery_after_leadership_change() -> Result<()> {
     runtime_fixture::recover_initialization(false).await
 }

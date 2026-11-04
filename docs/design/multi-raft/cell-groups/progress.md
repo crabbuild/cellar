@@ -12,6 +12,81 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 owned workspace directory barriers
+
+Capture CG-07-wide-enrollment-01/source-08 binds 2,712 Rust/Python/manifest
+inputs above d268cf0bfc78c49f8c2d48f17a4a735f42028d81 to SHA256
+f9449fbd8937d6a2b5f9a871859bf1e7469b767df51f86f8720a2fb8fff61c57.
+The original optimization, stack, quotas, deadlines and assertions remain.
+
+Workspace creation now reuses the complete ancestor barriers established by its
+open, exclusively locked extent inventory. It still syncs the new child and
+parent before returning the admitted owner. Rooted private initialization and
+execution validate and retain that exact directory owner; arbitrary materialized
+paths keep their full directory preparation. Anonymous read-cache directories
+use ordinary creation because they supply no recovery or persistence authority.
+Failed child/parent barriers still quarantine and retain the complete reservation.
+Last-pin cleanup still joins physical handles and syncs deletion before refund.
+
+Preserved regressions fail before the fix: workspace creation performs twelve
+directory syncs rather than the two required barriers, and native initialization
+fails on the redundant ancestor sync. The new tests also inject child and parent
+sync failures separately and verify conservative charges, quarantine and recovery.
+The native case commits both initialization and a subsequent SQL mutation while
+redundant ancestor syncs remain armed to fail.
+
+At this source, five LTX targets pass 66 cases with four owned child helpers
+ignored. Eight shared-group native targets pass 262 cases: execution 180,
+storage 16, archive/recovery 31, archive-controller 16, managed 10, host 3 and
+public SDK/native/Axum/restart 1, plus five snapshot cases. Their 31 explicit
+backend/process skips remain recorded. The public drill preserves its original assertions
+and eighty additional writes on each side of restart; it passes in 155.92 seconds.
+The affected legacy execution targets also pass: 21 execution and 50 rooted
+cases, with five explicit backend/process skips. These protect the existing
+callers during the cutover; predecessor removal remains required in CG-16.
+
+The original performance suite has eighteen passes and one failure in 439.35
+seconds. Both 32-cell scenarios, warm-cache checks and the sixteen-root pressure
+case pass. Occupancy 128 still fails enrollment with ambiguous
+Runtime(DeadlineExceeded), with 58 cells observed under the original 60-second
+population budget and five-second call cap. Earlier diagnostic sources and their
+exact executables remain preserved. Stage timing isolated workspace setup and
+manifest preparation; publication and collection were smaller in that sample.
+Two bounded-pipeline experiments failed to clear the deadline and were removed,
+along with all temporary diagnostic logs and the duplicate diagnostic test. The
+original scheduler and the applied-equals-committed enrollment fence remain.
+These measurements do not establish a production latency or density envelope.
+
+All binary targets, native-only Cellar/Python compilation with an unavailable
+Python sentinel, LTX feature-off/all-feature builds, strict LTX library Clippy,
+formatting, layout, dependency isolation, docs and diff checks pass. Strict Cellar
+library Clippy retains 222 diagnostics, including 202 dead_code, with unchanged
+code/message/primary-file keys. The full library was not rerun; its prior
+inspection-protocol failure remains open. The plan suite retains 35 passes,
+one generated-index/Purpose mismatch failure and one reviewed-protocol drift
+error; validate/preflight stop at the stale index. No suppression or automatic
+baseline refresh was added.
+
+The exact archive executable passes public recovery against real pinned RustFS
+in both image forms in 19.30 seconds. Every source voter directory and the old
+verifier cache are erased before fresh-incarnation restoration. Complete images,
+receipts, client floors/S3 minima, fresh-quorum activation, old-token refusal,
+new writes and retained restart pass. Backend identity/resources and a signed
+conditional-S3 probe are checked; its one-CPU/two-GiB container and dedicated VM
+are stopped afterward with data/evidence retained. This embeds three native Nodes
+and a contract fencing authority. Permanent Docker launch revocation, independent
+voter containers/hosts, managed recovery and sustained load remain unqualified.
+Record SHA256 is
+38e947c6a5c1e5c053fd47798a4d678f95dba2f72afadf7d427566a1e4ec712e.
+Source-after comparisons remain unchanged.
+
+CG-07 remains IN_PROGRESS and the full hard cutover is incomplete. Next functional
+priorities are managed dynamic archive ownership, its stop/drain integration and
+exact-reference S3 learner activation. Continue measuring physical image/page
+preparation before selecting the next performance change. Live manifest-page
+collection, the remaining public/default-backend gates and CG-09–16 remain required.
+
+
 ## CG-07 archive metadata and warm verifier checkpoint
 
 Capture CG-07-wide-group-diagnosis-01/source-08 binds 2,712

@@ -336,6 +336,15 @@ registering the first receive/replay job; cached filenames provide no recovery
 proof. Disposable empty workspace roots are transient and pinned before sealing.
 Existing retained roots and uncertain publications keep their protection.
 
+An admitted private workspace retains its exact directory and locked extent-store
+owner through all SQLite/VFS handles. The store's open established its ancestor
+barriers; creating a workspace still syncs the child and parent before returning.
+Rooted private opens validate that owner/directory binding and do not repeat the
+ancestor walk. Failed child/parent barriers keep the full charge and quarantine;
+reopen establishes new barriers before another workspace can be issued. Anonymous
+read-cache directories remain disposable and supply no persistence, image or
+recovery proof. Materialized private paths keep their full directory preparation.
+
 The verifier keeps eligible files as an opportunistic, charged cache while each
 inventory dimension remains below one quarter of its existing ceiling. Pressure
 in roots, objects, root references or bytes enables ordinary collection; an

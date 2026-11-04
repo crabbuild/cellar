@@ -474,6 +474,10 @@ pub(super) async fn initialize_cells(rooted: bool) -> Result<()> {
     enrollment::concurrent(rooted).await
 }
 
+pub(super) async fn owned_workspace_barriers() -> Result<()> {
+    enrollment::owned_workspace_barriers().await
+}
+
 pub(super) async fn recover_initialization(rooted: bool) -> Result<()> {
     enrollment::recovery(rooted).await
 }

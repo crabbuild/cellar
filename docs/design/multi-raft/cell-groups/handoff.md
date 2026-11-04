@@ -4,6 +4,52 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Owned workspace barrier qualification checkpoint
+
+This checkpoint supersedes the validation and performance boundaries below.
+CG-07-wide-enrollment-01/source-08 SHA256 is
+f9449fbd8937d6a2b5f9a871859bf1e7469b767df51f86f8720a2fb8fff61c57,
+above d268cf0bfc78c49f8c2d48f17a4a735f42028d81. Workspace creation syncs its
+new child and owned parent, reusing the open inventory's ancestor barriers.
+Rooted private executors retain and validate the exact workspace directory owner;
+materialized paths keep their full preparation. Read-cache directories are
+disposable. No deadline, quota, profile, stack, authority fence or original
+assertion changes. Child/parent sync failure retains charge and quarantine;
+physical close/deletion still precedes refunds.
+
+Five LTX targets pass 66 cases, eight shared-group native targets pass 262, and
+the two affected legacy execution targets pass 71. Their explicit process/backend
+skips remain recorded. Public SDK/native/Axum restart passes in 155.92 seconds.
+Same-source public recovery passes both image forms against real constrained,
+pinned RustFS in 19.30 seconds after erasing every source voter directory and the
+old verifier cache. Backend and dedicated VM are stopped afterward. The drill
+uses embedded native Nodes and a contract fence; permanent Docker launch fencing,
+independent voter containers, managed recovery and sustained load remain open.
+
+The original performance suite still has eighteen passes and one failure:
+occupancy-128 enrollment reaches 58 cells, then returns ambiguous DeadlineExceeded
+under its original sixty-second population budget and five-second call cap.
+Both 32-cell cases and reclamation pressure pass. Preserved probes locate more
+time in physical apply preparation than publication or collection in that sample;
+the image/page split still needs measurement. Two startup-pipeline experiments
+failed and were removed, along with every temporary diagnostic log/test. The
+original scheduler and applied-equals-committed enrollment fence remain. Exact
+failed sources, executables and fixture disks are retained.
+
+Feature/build/static checks and strict LTX library Clippy pass. Strict Cellar
+library Clippy retains the same 222 diagnostic keys; plan index/Purpose and
+reviewed-protocol drift failures remain. Full-library inspection was not rerun.
+CG-07 remains IN_PROGRESS; PR #160 stays draft and the goal remains active.
+
+Next: retain node-owned archive resources for groups activated after startup,
+including joined stop/drain ownership, then implement the currently refused
+exact-reference S3 learner path. `group_host/archive.rs` registers only the initial
+prepared roster; `controller/provision/mod.rs` explicitly refuses S3 transfer.
+Keep archive initialization explicit and journaled, reauthorize the actual
+destination boot/catalog and require physical install, catch-up and fresh quorum.
+Live manifest-page collection, remaining public/default capability gates,
+deployment/read policy and CG-09–16 remain required.
+
 ## Archive metadata/cache qualification checkpoint
 
 This checkpoint supersedes the performance and validation boundary below.

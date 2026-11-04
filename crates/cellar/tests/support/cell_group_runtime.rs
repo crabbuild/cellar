@@ -848,6 +848,10 @@ pub(super) async fn initialize_cells(rooted: bool) -> Result<()> {
     sql::initialize_cells(rooted).await
 }
 
+pub(super) async fn owned_workspace_barriers() -> Result<()> {
+    sql::owned_workspace_barriers().await
+}
+
 pub(super) async fn recover_initialization(rooted: bool) -> Result<()> {
     sql::recover_initialization(rooted).await
 }

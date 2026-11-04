@@ -109,6 +109,26 @@ impl From<RootPrivateOptions> for Options {
 }
 
 impl Options {
+    pub(super) fn prepare_directory(&self) -> Result<(), ExecutionError> {
+        let filesystem = self.host.filesystem();
+        if let Some(workspace) = self.images.workspace() {
+            // This exact live owner already created and synced the directory
+            // under its locked inventory. Keep its pin; neither a pathname nor
+            // materialized execution can reuse that completed creation proof.
+            if workspace.directory() != self.directory.as_path()
+                || !filesystem
+                    .symlink_metadata(workspace.directory())
+                    .map_err(storage)?
+                    .is_dir
+            {
+                return Err(ExecutionError::Invalid("private workspace directory"));
+            }
+            return Ok(());
+        }
+        cellar_ltx::host::create_dir_all_durable(filesystem.as_ref(), &self.directory)
+            .map_err(storage)
+    }
+
     /// Only shared-cell private scratch is disposable here. Keep the lock inode
     /// and sealed image stores; an unresolved producer still owns this directory
     /// until its physical callback/settlement has joined.

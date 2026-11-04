@@ -139,6 +139,17 @@ proof before acknowledgement. Ordinary `Db` constructors retain durable capture.
 The Raft host uses this mode only for private command execution: its verified
 preview, committed immutable image and Raft log keep their persistence barriers.
 
+`NodeWorkspace` is created under an exclusively locked extent inventory whose
+open already completed the ancestor barriers. Creation still syncs the new child
+directory and its parent before returning its owner. Rooted private execution
+validates and retains that exact owner instead of repeating the ancestor walk;
+arbitrary materialized paths establish their own barriers. Child or parent sync
+failure quarantines the inventory and retains the complete reservation until
+recovery. Last-pin cleanup still syncs deletion before refunding capacity.
+Anonymous read-cache directories use ordinary creation because they are rebuilt
+after a crash. Neither those files nor the directory owner supplies an immutable
+image seal, a Raft acknowledgement or recovery authority.
+
 `Db::require_incremental_capture` restricts disposable capture to incremental
 updates after its initial or seeded TXID. A lost WAL continuation or checkpoint
 boundary that needs a full image returns `CaptureRebuildRequired` before snapshot

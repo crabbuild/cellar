@@ -95,6 +95,68 @@ fn immutable_objects_and_workspaces_share_admission_before_source_or_directory_i
 }
 
 #[test]
+fn workspace_creation_reuses_only_the_open_inventory_ancestor_barriers() {
+    let directory = tempfile::tempdir().unwrap();
+    let files = files(directory.path());
+    let path = directory.path().join("nested/store");
+    let store = NodeExtentStore::open(path.clone(), files.clone(), Default::default()).unwrap();
+    let before = files.metrics.dir_sync_calls.load(Ordering::Acquire);
+    let workspace = store.create_workspace([1; 32], bounds()).unwrap();
+    assert_eq!(
+        files.metrics.dir_sync_calls.load(Ordering::Acquire) - before,
+        2,
+        "workspace creation must sync its child and owned parent, without resyncing durable ancestors"
+    );
+    assert!(workspace.directory().is_dir());
+    let retained = workspace.clone();
+    drop(workspace);
+    assert_eq!(store.usage().unwrap().workspaces, 1);
+    drop(retained);
+    assert_eq!(store.usage().unwrap().workspaces, 0);
+    drop(store);
+    // Restart must establish its own ancestor barriers before issuing another
+    // workspace. A pathname or an observation from a former owner is no proof.
+    let before = files.metrics.dir_sync_calls.load(Ordering::Acquire);
+    let store = NodeExtentStore::open(path, files.clone(), Default::default()).unwrap();
+    assert!(files.metrics.dir_sync_calls.load(Ordering::Acquire) > before);
+    let before = files.metrics.dir_sync_calls.load(Ordering::Acquire);
+    drop(store.create_workspace([2; 32], bounds()).unwrap());
+    assert_eq!(
+        files.metrics.dir_sync_calls.load(Ordering::Acquire) - before,
+        3,
+        "creation barriers and the final deletion barrier must remain"
+    );
+}
+
+#[test]
+fn workspace_child_and_parent_sync_failures_keep_the_full_reservation() {
+    for barrier in [1, 2] {
+        let directory = tempfile::tempdir().unwrap();
+        let files = files(directory.path());
+        let path = directory.path().join("store");
+        let store = NodeExtentStore::open(path.clone(), files.clone(), Default::default()).unwrap();
+        files
+            .metrics
+            .fail_dir_sync_countdown
+            .store(barrier, Ordering::Release);
+        assert!(store.create_workspace([1; 32], bounds()).is_err());
+        let usage = store.usage().unwrap();
+        assert!(usage.quarantined);
+        assert_eq!(usage.workspaces, 1);
+        assert_eq!(usage.workspace_bytes, bounds().reservation().unwrap());
+        assert!(matches!(
+            store.create_workspace([2; 32], bounds()),
+            Err(StoreError::Quarantined)
+        ));
+        drop(store);
+        let recovered = NodeExtentStore::open(path, files, Default::default()).unwrap();
+        assert_eq!(recovered.usage().unwrap().workspace_bytes, 0);
+        assert_eq!(recovered.usage().unwrap().workspaces, 0);
+        assert!(!recovered.usage().unwrap().quarantined);
+    }
+}
+
+#[test]
 fn failed_cleanup_or_deletion_sync_retains_the_whole_charge_until_reopen() {
     for fault in 0..3 {
         let directory = tempfile::tempdir().unwrap();

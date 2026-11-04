@@ -91,7 +91,10 @@ impl RootWorking {
             "working extent history/schema differs"
         );
         let initial = RootState::of(&image);
-        cellar_ltx::host::create_dir_all_durable(filesystem.as_ref(), cache_directory)?;
+        // Anonymous read-cache files are disposable and never supply recovery
+        // authority. Their directory need not survive a crash; immutable image
+        // publication still requires the inventory's own persistence barriers.
+        filesystem.create_dir_all(cache_directory)?;
         let workspace = ExtentWorkspace::new(
             image,
             WorkspaceOptions {

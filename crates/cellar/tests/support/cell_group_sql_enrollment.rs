@@ -436,3 +436,75 @@ pub(super) async fn recovery(rooted: bool) -> Result<()> {
     drop(pool);
     fixture.close().await
 }
+
+pub(super) async fn owned_workspace_barriers() -> Result<()> {
+    let (mut fixture, route) = cluster(false).await?;
+    let gate = fault::Gate::new(None);
+    for (n, voter) in fixture.cluster.voters.iter_mut().enumerate() {
+        let filesystem: Arc<dyn cellar_ltx::FileSystem> = if n == 0 {
+            Arc::new(fault::FaultFileSystem { gate: gate.clone() })
+        } else {
+            Arc::new(DirectFileSystem)
+        };
+        voter.extents = Some(NodeExtentStore::open(
+            fixture
+                .cluster
+                ._root
+                .path()
+                .join(format!("owned-workspace-{n}")),
+            filesystem,
+            Default::default(),
+        )?);
+    }
+    let pool = CellGroupSqlPool::start(&fixture.cluster.voters[0].log, limits(2))?;
+    let cell = history(&route, "owned-workspace")?;
+    *gate.sync_path.lock().unwrap() = Some(fixture.cluster._root.path().to_path_buf());
+    let release = gate.arm(fault::FAIL_PARENT_SYNC);
+    let initial = prepare_initial(&fixture, &pool, 0, &cell, 170, 7).await?;
+    submit(&mut fixture, &pool, 0, &cell, &initial).await?;
+    let enrolled = resolved(&fixture, &pool, 0, &cell, initial.proposal()).await?;
+    assert_eq!(enrolled.record().cell(), &cell);
+    drop(enrolled);
+    drop(initial);
+    let authority = fixture.runtimes[0]
+        .execution_authority(route.history, cell.clone())
+        .await?;
+    let CellSqlOutcome::Prepared(command) = pool
+        .stage(
+            fixture.cell_options(&cell).await?,
+            authority,
+            cell_attempt(171)?,
+            true,
+            |tx| {
+                tx.execute("UPDATE value SET n=n+1", [])?;
+                let value: i64 = tx.query_row("SELECT n FROM value", [], |row| row.get(0))?;
+                assert_eq!(value, 8);
+                Ok(b"after-initialization".to_vec())
+            },
+        )
+        .await?
+    else {
+        anyhow::bail!("ordinary command preparation")
+    };
+    let receipt = commit_on(&mut fixture, &pool, 0, &cell, command).await?;
+    assert_eq!(receipt.receipt().version.sequence.get(), 2);
+    drop(receipt);
+    assert_eq!(
+        gate.mode.load(Ordering::Acquire),
+        fault::FAIL_PARENT_SYNC,
+        "an admitted workspace or disposable cache resynced a completed ancestor"
+    );
+    drop(release);
+    pool.close().await?;
+    assert_eq!(
+        fixture.cluster.voters[0]
+            .extents
+            .as_ref()
+            .context("store")?
+            .usage()?
+            .workspaces,
+        0
+    );
+    drop(pool);
+    fixture.close().await
+}
