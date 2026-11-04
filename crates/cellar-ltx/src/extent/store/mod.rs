@@ -180,6 +180,7 @@ struct State {
     busy: bool,
     quarantined: bool,
     references_reconciled: bool,
+    reclaim_scan_needed: bool,
 }
 
 struct Inner {

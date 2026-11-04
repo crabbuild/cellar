@@ -166,6 +166,7 @@ impl NodeExtentStore {
                     read_proof: None,
                 },
             );
+            state.reclaim_scan_needed = true;
         }
         let path = self.inner.directory.join(object_name(id));
         let mut file = match self.inner.filesystem.create_read_write(&path) {

@@ -328,6 +328,28 @@ Limits bound selected cells, reclaimed files and page scans. Cancellation retain
 queued work and claims; engine close joins completion. This API grants neither
 Raft log truncation nor S3 coverage and does not run during normal serving.
 
+Normal shared-group startup separately adopts the serving extent inventory after
+recovering every local group's current and checkpoint graph. Those complete graph
+pins replace conservative filename retention before routes become reachable.
+The independent archive verifier adopts its separately locked cache before
+registering the first receive/replay job; cached filenames provide no recovery
+proof. Disposable empty workspace roots are transient and pinned before sealing.
+Existing retained roots and uncertain publications keep their protection.
+
+Only these adopted inventories enter the node-owned live extent collector. One
+physical turn runs at a time across the two node roles, with at most sixteen
+deleted files. Checked working memory and the service's fixed metadata charge
+come from the existing control bank. Busy admission defers work. The idle hint
+uses metadata and notices a last-reader release without another mutation; marking
+preserves locally imported dependencies of pinned, incomplete receives. Physical
+deletion and directory sync precede capacity refund. Stop and cancelled observers
+cannot release the registry lease, inventories or working memory before an
+entered physical call returns. Inventory or worker failure stops collection and
+appears in advisory resource observations; those observations supply no durability
+proof. This service does not collect manifest pages, invoke the offline engine
+collector or authorize log truncation. Long-running replication and reclamation
+still require their workload qualification.
+
 After interrupted dependency writes, collect only unselected debris, then obtain
 a fresh seed from a fresh quorum. The empty stage still has no startup permission.
 Install its ordinary process route only after authenticated seed installation

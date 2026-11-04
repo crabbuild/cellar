@@ -14,6 +14,50 @@ pub struct CellGroupImageUsage {
 }
 
 #[derive(Clone, Copy, Debug, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CellGroupCollectionFailure {
+    Inventory,
+    Worker,
+    Domain,
+}
+
+/// Advisory physical collection observations, never archive or commit proof.
+#[derive(Clone, Copy, Debug, Default, serde::Serialize)]
+pub struct CellGroupCollectionUsage {
+    pub inventories: usize,
+    pub working_bytes: usize,
+    pub running: bool,
+    pub turns: u64,
+    pub files_reclaimed: u64,
+    pub deferrals: u64,
+    pub failures: u64,
+    pub last_failure: Option<CellGroupCollectionFailure>,
+}
+
+#[derive(Clone)]
+pub(crate) struct CollectionObserver(Arc<Mutex<CellGroupCollectionUsage>>);
+
+impl CollectionObserver {
+    pub(crate) fn new(inventories: usize, working_bytes: usize) -> Self {
+        Self(Arc::new(Mutex::new(CellGroupCollectionUsage {
+            inventories,
+            working_bytes,
+            ..Default::default()
+        })))
+    }
+
+    pub(crate) fn update(&self, update: impl FnOnce(&mut CellGroupCollectionUsage)) {
+        if let Ok(mut state) = self.0.lock() {
+            update(&mut state);
+        }
+    }
+
+    pub(crate) fn capture(&self) -> Option<CellGroupCollectionUsage> {
+        self.0.lock().ok().map(|state| *state)
+    }
+}
+
+#[derive(Clone, Copy, Debug, serde::Serialize)]
 pub struct CellGroupResourceUsage {
     pub host: CellGroupHostUsage,
     pub runtime: CellGroupRuntimeUsage,
@@ -25,6 +69,7 @@ pub struct CellGroupResourceUsage {
     /// Cached manifest metadata over the bounded durable group inventory.
     /// This counts retained cell histories, not current serving authority.
     pub retained_manifest_cells: Option<u64>,
+    pub collection: Option<CellGroupCollectionUsage>,
 }
 
 #[derive(Clone)]
@@ -55,6 +100,7 @@ pub(crate) struct Resources {
     transport: crate::raft::transport::ResourceObserver,
     serving: Images,
     archive: Option<Images>,
+    collection: Option<CollectionObserver>,
 }
 
 impl Resources {
@@ -63,12 +109,14 @@ impl Resources {
         transport: &crate::raft::transport::RaftTransport,
         serving: Images,
         archive: Option<Images>,
+        collection: Option<CollectionObserver>,
     ) -> Self {
         Self {
             sql,
             transport: transport.resource_observer(),
             serving,
             archive,
+            collection,
         }
     }
 
@@ -88,6 +136,10 @@ impl Resources {
             archive_verifier_images: self.archive.as_ref().map(Images::capture),
             transport: self.transport.capture(),
             retained_manifest_cells: cells,
+            collection: self
+                .collection
+                .as_ref()
+                .and_then(CollectionObserver::capture),
         }
     }
 }
@@ -97,6 +149,25 @@ impl CellGroupResourceUsage {
     /// enter labels. Unavailable observers emit availability without zero usage.
     pub fn prometheus(&self) -> String {
         let mut out = String::new();
+        sample(
+            &mut out,
+            "collection_sample_available",
+            "",
+            usize::from(self.collection.is_some()),
+        );
+        if let Some(gc) = self.collection {
+            for (name, value) in [
+                ("collection_running", u64::from(gc.running)),
+                ("collection_inventories", gc.inventories as u64),
+                ("collection_working_bound_bytes", gc.working_bytes as u64),
+                ("collection_turns", gc.turns),
+                ("collection_reclaimed_files", gc.files_reclaimed),
+                ("collection_deferrals", gc.deferrals),
+                ("collection_failures", gc.failures),
+            ] {
+                sample(&mut out, name, "", value);
+            }
+        }
         let c = self.host.controller;
         for (name, value) in [
             ("namespaces", self.host.namespaces),

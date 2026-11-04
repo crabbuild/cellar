@@ -54,11 +54,19 @@ occupancy; `archive_status` keeps publication separate from coverage; guarded
 `transfer_leadership` preserves the caller's term/revision and checks the original
 deadline at owner execution. The counter inventory consumes the observation API.
 The performance/fleet consumer port now uses shared layout, replicated enrollment,
-logical versions and physical witnesses locally; its full native RF3 gate still
-fails the original S3 deadline with a 32-cell neighbouring group. Complete archive
-verification takes roughly 4–5 seconds per full 32-cell cut in the diagnostic run.
-Fix repeated full-checkpoint work and cross-group interference, qualify safe live
-extent reclamation, then finish the whole-group disaster operator. Retain
+logical versions and physical witnesses locally; its full native RF3 gate remains
+failing. The earlier source reaches an explicit S3 deadline with a 32-cell
+neighbouring group; the live-collection source stops earlier, during enrollment
+after 31 cells, under the unchanged request budgets. Preserve both failures and
+investigate rather than attributing the newer refusal to the earlier cause.
+Complete archive verification takes roughly 4–5 seconds per full 32-cell cut in
+the earlier diagnostic run.
+The node-owned live extent collector now has focused shutdown and RF3 pressure
+coverage, including the independent archive-verifier store. It keeps existing
+control admission through physical completion and preserves reader/manifest pins.
+That does not supply manifest-page collection or sustained-load qualification.
+Fix repeated full-checkpoint work and cross-group interference, finish live
+manifest-page ownership, then finish the whole-group disaster operator. Retain
 the original HTTP/read/retry options, workload ledger and independent oracles;
 report measured physical group counts separately from logical cell counts.
 
@@ -77,7 +85,7 @@ inventory explicit and fail closed for unseeded groups.
 
 | Order | Deliverable | Required result |
 | --- | --- | --- |
-| 1 | Public SDK surface and executable consumers (CG-07) | Port the original daemon/native/Axum fixtures and performance/fleet runners to namespace capabilities, physical group assignment and replicated cell enrollment. The local all-binary check clears the original 27 compilation errors; qualify the final combined source. Fix the reproduced shared-archive S3 deadline and complete owned live reclamation without raising bounds. Retain every original HTTP/read/retry option, exact term/revision transfer guard, actual responder metadata and all five original public gates. Incorporate the implemented cold birth, repair, maintenance stop/return/resume and physical debt into the complete public lifecycle case, including retained nonvoting inventory and failure/cancellation ownership. |
+| 1 | Public SDK surface and executable consumers (CG-07) | Port the original daemon/native/Axum fixtures and performance/fleet runners to namespace capabilities, physical group assignment and replicated cell enrollment. The local all-binary check clears the original 27 compilation errors; qualify the final combined source. Fix the reproduced shared-archive S3 deadline, finish live manifest-page ownership and qualify owned extent collection under the original workload bounds. Retain every original HTTP/read/retry option, exact term/revision transfer guard, actual responder metadata and all five original public gates. Incorporate the implemented cold birth, repair, maintenance stop/return/resume and physical debt into the complete public lifecycle case, including retained nonvoting inventory and failure/cancellation ownership. |
 | 2 | Managed S3 learner activation and archive holds (CG-06/07) | Install owned archive resources for dynamically activated managed groups, then implement the currently refused exact-reference S3 path without peer fallback. Verify and retain the complete manifest/image/receipt closure; preserve local owner and uncertain outcomes through actual sync. Reauthorize the destination boot and catalog, attach the actual installed member, catch up and obtain fresh quorum before promotion/success. Complete safe archive-hold retirement. A seed receipt or S3 object alone is not activation authority. |
 | 3 | Public, build and backend qualification (CG-07 and MVP portions of CG-14/15/16) | Deliver the four remaining public cases below while retaining the SDK case; port the old inspection cancellation oracle to the managed shared protocol, and clear strict lint failures without suppressions. Review the stale plan source anchors and reconcile the generated index/Purpose mismatch; preserve the drift refusal until that review is complete. Run affected feature modes from SDK CI. Refresh same-source real RustFS recovery and replication/reclamation under bounded mixed load, retaining exact binaries, ledgers, failures and resource/latency measurements. |
 

@@ -154,17 +154,17 @@ async fn failed_preflight_joins_infrastructure_with_retained_handles() -> anyhow
 #[path = "../../tests/support/raft_catalog_fault.rs"]
 mod catalog_fault;
 
-struct StartupNode {
-    root: tempfile::TempDir,
-    domain: crate::asyncrt::ExecutionDomain,
-    log: ReplicaLog,
+pub(super) struct StartupNode {
+    pub(super) root: tempfile::TempDir,
+    pub(super) domain: crate::asyncrt::ExecutionDomain,
+    pub(super) log: ReplicaLog,
     runtime: CellGroupRuntime,
     events: Option<CellGroupRuntimeEvents>,
     transport: RaftTransport,
 }
 
 impl StartupNode {
-    async fn open(id: u8) -> anyhow::Result<Self> {
+    pub(super) async fn open(id: u8) -> anyhow::Result<Self> {
         let root = tempfile::tempdir()?;
         let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
         let log = domain
@@ -224,7 +224,7 @@ impl StartupNode {
         })
     }
 
-    fn peer(&self) -> RaftPeerNode {
+    pub(super) fn peer(&self) -> RaftPeerNode {
         let limits = self.log.limits();
         RaftPeerNode {
             node: limits.node,
@@ -238,7 +238,7 @@ impl StartupNode {
         }
     }
 
-    fn service(&mut self) -> crate::daemon::NodeRaftService {
+    pub(super) fn service(&mut self) -> crate::daemon::NodeRaftService {
         crate::daemon::NodeRaftService {
             log: self.log.clone(),
             runtime: self.runtime.clone(),
@@ -247,7 +247,7 @@ impl StartupNode {
         }
     }
 
-    async fn close(self) -> anyhow::Result<()> {
+    pub(super) async fn close(self) -> anyhow::Result<()> {
         self.transport.close().await;
         let _ = self.runtime.close().await;
         self.log.close().await?;

@@ -62,7 +62,17 @@ whose current, checkpoint and uncertain publication roots stay pinned. Startup
 recovers every local group's selected graphs before releasing conservative
 filename retention. Collection still requires a reconciled node inventory,
 respects reader/archive pins, and refunds capacity only after synced deletion.
-This does not schedule live extent collection or qualify sustained load.
+`NodeExtentStore::needs_reclaim` provides a metadata-only scheduling hint after
+reference reconciliation. It notices the last reader's release without requiring
+another write; an idle, already marked inventory needs no file scan. It supplies
+no collection authority. `reclaim_working_bytes` computes checked temporary-memory
+admission for a bounded physical turn. Marking includes only locally present
+objects, preserving dependencies imported under a pinned, incomplete receive.
+The shared-group host schedules one node-owned collector for the serving and
+independent verifier stores. Its existing control admission and shutdown registry
+retain inventory handles and working memory through physical completion. This
+does not authorize manifest-page collection, Raft log truncation or S3 coverage,
+and does not qualify sustained load.
 
 `NodeExtentStore::put_extent_bytes` borrows a complete, already admitted extent
 through the existing at-most-4-MiB positional write window. Native providers

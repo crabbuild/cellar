@@ -31,6 +31,7 @@ pub const FAIL_AFTER_SYNC: u8 = 14;
 pub const HOLD_DEPENDENCY_PREFIX: u8 = 15;
 pub const HOLD_DEPENDENCY_SYNC: u8 = 16;
 pub const HOLD_FAIL_PRIVATE_CLEANUP: u8 = 17;
+pub const HOLD_SELECTED_DIRECTORY_SYNC: u8 = 18;
 
 pub struct Gate {
     pub mode: AtomicU8,
@@ -377,6 +378,23 @@ impl FileSystem for FaultFileSystem {
     }
 
     fn sync_all(&self, path: &Path) -> io::Result<()> {
+        let selected = self.gate.sync_path.lock().unwrap().as_deref() == Some(path);
+        if selected
+            && self
+                .gate
+                .mode
+                .compare_exchange(
+                    HOLD_SELECTED_DIRECTORY_SYNC,
+                    OFF,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_ok()
+        {
+            DirectFileSystem.sync_all(path)?;
+            self.gate.pause()?;
+            return Ok(());
+        }
         if self.gate.sync_path.lock().unwrap().as_deref() == Some(path)
             && self
                 .gate

@@ -146,9 +146,10 @@ pub use group_protocol::GroupEntryLimits;
 pub use crate::raft::version::CellVersionToken;
 pub use cellar_logic::cell_group::{CommitWitness, GroupHistory};
 pub use group_client::{
-    CellGroupControlError, CellGroupImageUsage, CellGroupResourceUsage, CellGroupStartupError,
-    CommandOptions, CommandReceipt, MutationOutcomes, QueryConsistency, QueryOptions, QueryResult,
-    QueryRouting, RaftCellHandle, RaftCells, RaftCloseError, RaftCloseReport, RaftGroupCloseReport,
+    CellGroupCollectionFailure, CellGroupCollectionUsage, CellGroupControlError,
+    CellGroupImageUsage, CellGroupResourceUsage, CellGroupStartupError, CommandOptions,
+    CommandReceipt, MutationOutcomes, QueryConsistency, QueryOptions, QueryResult, QueryRouting,
+    RaftCellHandle, RaftCells, RaftCloseError, RaftCloseReport, RaftGroupCloseReport,
     RaftGroupHandle, StaleReadPolicy,
 };
 

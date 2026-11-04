@@ -3,6 +3,7 @@
 //! Canonical startup uses namespace capabilities and physical group placement.
 //! Logical cells are enrolled through the controller, never through node config.
 mod archive;
+mod collection;
 mod directory;
 mod provisioning;
 mod recovery;
@@ -352,7 +353,8 @@ pub(crate) async fn start(
                 "retained group is absent from the node placement inventory"
             );
         }
-        images.adopt_recovered(&log, &appliers).await?;
+        let mut collectible = Vec::new();
+        collectible.extend(images.adopt_recovered(&log, &appliers).await?);
         // No physical peer or query route is reachable while a later local group
         // still waits on its permanent claim or physical recovery. The attached
         // owners retain bounded Ready work until the controller starts draining it.
@@ -410,11 +412,11 @@ pub(crate) async fn start(
         })?;
         let archive = archive::Pools::new(limits.archive, checkpoint)?;
         let archive_images = if let Some(archive) = archive {
-            Some(
-                archive
-                    .register(&prepared, &controller, &log, &directory, limits, &options)
-                    .await?,
-            )
+            let (observer, inventory) = archive
+                .register(&prepared, &controller, &log, &directory, limits, &options)
+                .await?;
+            collectible.extend(inventory);
+            Some(observer)
         } else {
             None
         };
@@ -459,11 +461,13 @@ pub(crate) async fn start(
             registrations,
             limits.namespaces,
         )?;
+        let collection = collection::Collection::new(collectible)?;
         let resources = crate::application::consensus::group_client::resources::Resources::new(
             sql,
             &transport,
             images.observer(),
             archive_images,
+            collection.as_ref().map(collection::Collection::observer),
         );
         let service = RaftCells::from_shared(
             host,
@@ -505,6 +509,9 @@ pub(crate) async fn start(
             recovery_bytes,
             options.poll_ms,
         )?;
+        if let Some(collection) = collection {
+            collection.start(&service, options.poll_ms)?;
+        }
         startup.public.take();
         startup.service.take();
         startup.sql.take();

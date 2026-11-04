@@ -151,6 +151,89 @@ impl Fixture {
 }
 
 #[test]
+fn collection_hint_is_idle_after_marking_and_notices_reader_release_without_io() {
+    let f = Fixture::new(0);
+    let store = f.store();
+    store.retain_only(&[]).unwrap();
+    let receiving = store.stage_transient_root(f.manifest.clone()).unwrap();
+    f.fill(&store);
+    assert_eq!(store.reclaim(32).unwrap(), 0);
+    let before = f.files.metrics.read_bytes.load(Ordering::Acquire);
+    assert!(!store.needs_reclaim().unwrap());
+    assert_eq!(f.files.metrics.read_bytes.load(Ordering::Acquire), before);
+    drop(receiving);
+    assert!(store.needs_reclaim().unwrap());
+    assert_eq!(f.files.metrics.read_bytes.load(Ordering::Acquire), before);
+    assert_eq!(store.reclaim(1).unwrap(), 1);
+    assert!(
+        store.needs_reclaim().unwrap(),
+        "synced root deletion hid its orphan objects"
+    );
+    assert_eq!(store.reclaim(32).unwrap(), f.objects.len());
+    assert!(!store.needs_reclaim().unwrap());
+    let bytes = vec![9; 4096];
+    store
+        .put_extent_bytes(ExtentId::of(&bytes).unwrap(), &bytes)
+        .unwrap();
+    assert!(
+        store.needs_reclaim().unwrap(),
+        "a new unreferenced object did not request marking"
+    );
+    assert_eq!(store.reclaim(32).unwrap(), 1);
+    assert!(!store.needs_reclaim().unwrap());
+}
+
+#[test]
+fn collection_marks_local_objects_while_a_pinned_receive_is_still_missing_dependencies() {
+    let f = Fixture::new(EXTENT_BYTES as usize + 4096);
+    let store = f.store();
+    store.retain_only(&[]).unwrap();
+    let receiving = store.stage_transient_root(f.manifest.clone()).unwrap();
+    let orphan = vec![9; 4096];
+    store
+        .put_extent_bytes(ExtentId::of(&orphan).unwrap(), &orphan)
+        .unwrap();
+    assert_eq!(store.reclaim(32).unwrap(), 1);
+    assert_eq!(store.usage().unwrap().roots, 1);
+    assert!(!store.needs_reclaim().unwrap());
+    f.fill(&store);
+    assert!(store.needs_reclaim().unwrap());
+    assert_eq!(
+        store.reclaim(32).unwrap(),
+        0,
+        "partial receive lost an imported dependency"
+    );
+    drop(receiving);
+    assert_eq!(store.reclaim(32).unwrap(), f.objects.len() + 1);
+}
+
+#[test]
+fn collection_memory_admission_refuses_overflow_without_allocating_an_inventory() {
+    let f = Fixture::new(0);
+    let mut limits = f.limits();
+    limits.max_roots = usize::MAX;
+    let store = NodeExtentStore::open(
+        f.root.path().join("oversized-control"),
+        f.files.clone(),
+        limits,
+    )
+    .unwrap();
+    assert!(matches!(
+        store.reclaim_working_bytes(16),
+        Err(StoreError::Limit)
+    ));
+    assert!(matches!(
+        store.reclaim_working_bytes(0),
+        Err(StoreError::Limit)
+    ));
+    assert!(matches!(
+        store.reclaim_working_bytes(4097),
+        Err(StoreError::Limit)
+    ));
+    assert_eq!(store.usage().unwrap().bytes, 0);
+}
+
+#[test]
 fn reopen_uses_metadata_only_inventory_then_verifies_sqlite_extents_on_demand() {
     let f = Fixture::new(9 * 1024 * 1024);
     let store = f.store();

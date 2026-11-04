@@ -28,7 +28,7 @@ fn tls() -> Result<RaftTls> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shared_runner_owns_rf3_enrollment_archives_and_follower_reads() -> Result<()> {
     for (total, occupancy) in [(3, 1), (33, 32), (129, 128)] {
-        Box::pin(run(total, occupancy)).await?;
+        Box::pin(run(total, occupancy, None)).await?;
     }
     Ok(())
 }
@@ -42,7 +42,13 @@ async fn shared_runner_rooted32_archive_diagnostics() -> Result<()> {
         .with_ansi(false)
         .with_test_writer()
         .try_init();
-    Box::pin(run(33, 32)).await
+    Box::pin(run(33, 32, None)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shared_runner_reclaims_live_rooted_images_within_the_original_request_budget() -> Result<()>
+{
+    Box::pin(run(3, 2, Some(16))).await
 }
 
 fn namespace_for(
@@ -78,7 +84,7 @@ async fn leader(services: &[RaftCells], history: GroupHistory) -> Result<usize> 
     .await?
 }
 
-async fn run(total: usize, occupancy: usize) -> Result<()> {
+async fn run(total: usize, occupancy: usize, root_limit: Option<usize>) -> Result<()> {
     let target =
         PathBuf::from(std::env::var_os("CARGO_TARGET_DIR").context("checkout target directory")?);
     let retained = target.join("qualification-evidence/perf-runner-native");
@@ -129,7 +135,11 @@ async fn run(total: usize, occupancy: usize) -> Result<()> {
         ..Default::default()
     };
     if rooted {
-        host.extents = Some(crate::raft_limits::extents(&host)?);
+        let mut extents = crate::raft_limits::extents(&host)?;
+        if let Some(limit) = root_limit {
+            extents.inventory.max_roots = limit;
+        }
+        host.extents = Some(extents);
     }
     host.close_report.max_groups = host.max_groups;
     host.node_profile = Some(RaftNodeProfile {
@@ -332,7 +342,8 @@ async fn run(total: usize, occupancy: usize) -> Result<()> {
         }
         // Preserve the original 64-image bank while crossing its cumulative
         // preview count. Completed private work must not retain every preview.
-        if !rooted {
+        let mut pressure = None;
+        if !rooted || root_limit.is_some() {
             for sequence in 2..=81 {
                 let origin = leader(&services, layout.group(0)?.history).await?;
                 let handle = services[origin].cell(layout.history(0)?)?;
@@ -344,17 +355,91 @@ async fn run(total: usize, occupancy: usize) -> Result<()> {
                     options.durability = Durability::S3;
                 }
                 let reply = handle
-                    .command(&increment, 1_i64.to_be_bytes().to_vec(), options)
+                    .command(&increment, 1_i64.to_be_bytes().to_vec(), options.clone())
                     .await?;
                 ensure!(
                     reply.version.sequence.get() == sequence + 1
                         && i64::from_be_bytes(
                             reply
                                 .result
+                                .as_slice()
                                 .try_into()
                                 .map_err(|_| anyhow::anyhow!("counter width"))?
                         ) == sequence as i64,
                     "private preview pressure changed a committed result"
+                );
+                pressure = Some((options, reply));
+            }
+        }
+        if let Some(limit) = root_limit {
+            let (options, receipt) = pressure.context("rooted pressure receipt")?;
+            let origin = leader(&services, layout.group(0)?.history).await?;
+            let duplicate = services[origin]
+                .cell(layout.history(0)?)?
+                .command(&increment, 1_i64.to_be_bytes().to_vec(), options)
+                .await?;
+            ensure!(
+                duplicate.id == receipt.id
+                    && duplicate.result == receipt.result
+                    && duplicate.version == receipt.version
+                    && duplicate.witness == receipt.witness
+                    && duplicate.durability == Durability::S3,
+                "collection changed the stored result or its S3 proof"
+            );
+            for (ordinal, service) in services.iter().enumerate() {
+                let mut id = [43; 16];
+                id[8] = ordinal as u8 + 1;
+                let observed = service
+                    .cell(layout.history(0)?)?
+                    .query(
+                        ProposalId::new(id)?,
+                        &get,
+                        vec![],
+                        QueryOptions {
+                            consistency: QueryConsistency::AtLeast(receipt.version_token.clone()),
+                            ..Default::default()
+                        },
+                    )
+                    .await?;
+                ensure!(
+                    observed.result == receipt.result
+                        && observed.version == receipt.version
+                        && observed.served_by.get() == ordinal as u64 + 1,
+                    "collection lost the latest committed image on a voter"
+                );
+                let resources = tokio::time::timeout(Duration::from_secs(5), async {
+                    loop {
+                        let resources = service.resource_usage();
+                        if resources
+                            .serving_images
+                            .extents
+                            .is_some_and(|images| images.objects <= limit)
+                        {
+                            break resources;
+                        }
+                        tokio::time::sleep(Duration::from_millis(20)).await;
+                    }
+                })
+                .await
+                .context("collector did not drain obsolete image objects")?;
+                let collection = resources
+                    .collection
+                    .context("owned collection observation")?;
+                let images = resources
+                    .serving_images
+                    .extents
+                    .context("serving extents")?;
+                ensure!(
+                    collection.running
+                        && collection.files_reclaimed > 0
+                        && collection.failures == 0,
+                    "node collection did not make healthy physical progress: {collection:?}"
+                );
+                ensure!(
+                    images.max_roots == limit
+                        && images.roots <= images.max_roots
+                        && images.objects <= limit,
+                    "root pressure was escaped by raising the configured inventory"
                 );
             }
         }

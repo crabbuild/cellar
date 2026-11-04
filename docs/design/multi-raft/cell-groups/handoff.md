@@ -4,6 +4,51 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Owned live extent collection checkpoint
+
+The node-owned collector now covers the serving and separate archive-verifier
+extent inventories after their complete reference adoption. It uses the existing
+control bank and service registry, with sixteen deletions per physical turn;
+reader, manifest, receive and uncertain-publication pins remain authoritative.
+A cancelled close waiter cannot release admitted physical work or advertise
+storage closure early. Advisory resource samples expose progress, deferrals and
+failures. This does not add live manifest-page collection or weaken the offline
+engine collector's joined-ownership guard.
+
+Capture CG-07-live-collection-01/source-01 SHA256 is
+a1ea8aa8ab265debeef983589f385eb8cf4e398327fd4ee22aaa0eb7af05a931.
+Initial locked compilation, LTX six apply/36 store (one child helper ignored),
+held-deletion close and RF3 pressure checks pass. The pressure case configures
+sixteen roots for each image role and runs eighty additional commands with the
+original request budgets, final S3 proof, exact duplicate receipt and every-voter
+minimum-version read. Exact source/executables are preserved before broader
+regression. Final seven-target native regression passes 254 cases with 29 explicit
+backend/process skips; three startup cases and the service-registry unit pass.
+Native-only and LTX feature modes, strict LTX library Clippy and static checks pass.
+The exact current-source public recovery case passes against real pinned RustFS
+in both image forms in 24.47 seconds. Its source voter disks and verifier cache are
+erased; fresh activation, receipts, new writes and retained restart pass. It uses
+embedded native Nodes and a contract fence, with the backend and dedicated VM
+stopped afterward; permanent Docker launch fencing and independent voter containers
+are not qualified. Source-after comparisons are unchanged.
+
+The full native performance gate is still red: sixteen pass, including the new
+collector pressure case, and two wider-group cases refuse during enrollment after
+31 cells. The matrix reports ambiguous Runtime(DeadlineExceeded); isolated
+32-cell diagnostics reports an elapsed deadline with a changed leader/not-ready
+sample. The original budgets remain; 128 and the prior source's S3 failure point
+are not reached. Preserve both earlier and current failures. Strict library
+Clippy still has 222 diagnostics/202 dead_code with unchanged code/message/primary
+file keys. Full-library inspection, plan and remaining CI gates stay open. See
+[progress](progress.md) for exact scope; the MVP is incomplete.
+
+Next: resolve the wider-group S3 deadline and repeated complete verification,
+finish owned live manifest-page reclamation, dynamic managed archive attachment
+and exact-reference S3 learner activation. Preserve the old failed sources and
+bounds. The whole-group disaster operator, permanent Docker launch fence,
+remaining public gates, default capabilities/deployment/read policy and CG-09–16
+remain required. The goal is active and PR #160 stays draft.
+
 ## Executable consumer and image ownership checkpoint
 
 This section supersedes the historical consumer checkpoints below. The restored

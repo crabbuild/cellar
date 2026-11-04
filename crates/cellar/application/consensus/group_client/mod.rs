@@ -95,7 +95,10 @@ pub use startup::CellGroupStartupError;
 pub(crate) mod resources;
 use close::Close;
 pub use close::{MutationOutcomes, RaftCloseError, RaftCloseReport, RaftGroupCloseReport};
-pub use resources::{CellGroupImageUsage, CellGroupResourceUsage};
+pub use resources::{
+    CellGroupCollectionFailure, CellGroupCollectionUsage, CellGroupImageUsage,
+    CellGroupResourceUsage,
+};
 
 struct Core {
     host: CellGroupHost,

@@ -38,7 +38,10 @@ impl Pools {
         directory: &std::path::Path,
         limits: CellGroupNodeLimits,
         options: &super::super::host::RaftHostOptions,
-    ) -> anyhow::Result<crate::application::consensus::group_client::resources::Images> {
+    ) -> anyhow::Result<(
+        crate::application::consensus::group_client::resources::Images,
+        Option<resources::CollectibleExtents>,
+    )> {
         // All verifier groups share separate node-wide physical inventories.
         // Serving pins or voter images cannot satisfy independent archive replay.
         // The checkpoint receiver creates anonymous image spools in this
@@ -55,6 +58,7 @@ impl Pools {
         let base = directory.join("archive-verifier");
         let images =
             resources::Images::open(log, base.clone(), options, &prepared.namespaces).await?;
+        let collectible = images.adopt_verifier(log).await?;
         for assignment in prepared
             .groups
             .iter()
@@ -96,6 +100,6 @@ impl Pools {
                 .response()
                 .await?;
         }
-        Ok(images.observer())
+        Ok((images.observer(), collectible))
     }
 }

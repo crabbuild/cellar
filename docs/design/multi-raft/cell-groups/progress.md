@@ -12,6 +12,82 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 owned live extent collection
+
+Capture CG-07-live-collection-01/source-01 binds the implementation to SHA256
+a1ea8aa8ab265debeef983589f385eb8cf4e398327fd4ee22aaa0eb7af05a931.
+Its initial and regression checks use the same frozen Rust/Python/manifest inputs,
+above d04471d8e3e30f9d64f3d6a1ffacd6234bda0333. Fetched main remains
+981a5417d9359d1f992e2dbf214eec7d221b6777, with zero commits behind.
+
+The shared host now owns one live extent collector across the serving and
+independent archive-verifier inventories. Only complete startup reference
+adoption constructs its inventory grants. Complete current/checkpoint graphs,
+readers, staged receives and uncertain publications retain their pins. Disposable
+empty workspace roots become transient without changing an existing retention.
+The collector uses the existing control bank: a fixed 4 KiB service charge plus
+checked temporary marking memory, with at most sixteen physical deletions per
+turn. Idle inventories require no filesystem scan; last-reader release and new
+object imports rearm collection. Marks include only locally present objects,
+protecting dependencies imported under a pinned, incomplete receive. Physical
+calls retain their inventory handles, working memory and shutdown-registry lease
+until completion. Capacity refunds follow deletion and directory sync. Typed
+advisory observations distinguish deferred admission, progress and stopped/failing
+collection from durability proof.
+
+Initial checks pass: locked library compilation, six LTX apply cases, 36 LTX
+store cases (one owned child-process helper ignored), the physical close test and
+the RF3 pressure case. The close test holds a real deletion barrier, cancels a
+public close waiter, verifies that storage and both admission charges remain,
+then releases the barrier and joins closure with zero outstanding charge.
+The RF3 case uses two groups/three independent cells and a 16-root ceiling in
+both physical image roles. Eighty additional commands cross that bound while
+retaining the original request deadlines and S3 minimum for the last write.
+Duplicate receipt/witness/result checks and minimum-version reads from every
+voter survive; obsolete serving objects drain below sixteen with healthy
+collection observations. It passes in 107.03 seconds excluding compilation.
+
+The same-source seven-target native regression passes 254 cases with 29 explicit
+backend/process skips: storage 15, archive/recovery 30, archive-controller 16,
+execution 179, managed 10, host 3 and public SDK/native/Axum/restart 1. The public
+process drill passes in 174.22 seconds, retaining eighty additional writes on
+each side of restart and every original assertion. All three startup ownership
+cases pass. All binary targets, formatting, layout and dependency checks pass.
+The complete performance gate still fails: sixteen cases pass, including the new
+collector pressure case, and two wider-group cases fail. Both stop during
+32-cell-group enrollment after the observed manifest reaches 31 cells. The matrix
+case returns ambiguous Runtime(DeadlineExceeded); isolated diagnostics returns
+"deadline has elapsed" with a changed leader and the sampled member not ready.
+The original request budgets remain unchanged. Occupancy 128 and the earlier
+explicit-S3 failure point are not reached. Preserve this earlier refusal as well
+as the source 23 S3 failures; neither cause nor scalable performance is qualified.
+Strict library Clippy still fails with 222 diagnostics, including 202 dead_code.
+Code/message/primary-file diagnostic keys match public-recovery 14 exactly,
+without line offsets; nothing is suppressed or baseline-refreshed. Native-only
+cellar/cellar-python compilation with the unavailable Python-runtime sentinel,
+LTX feature-off/all-feature compilation, strict LTX library Clippy and the existing
+control-service registry unit case pass. Final docs checks pass.
+
+The exact same-source archive executable passes the public recovery case against
+real pinned RustFS in 24.47 seconds, in both image forms. RustFS enforces one CPU
+and two GiB; its image, owner, mounts, loopback endpoint and resource limits are
+checked, alongside an independent signed conditional-S3 probe. The fixture deletes
+all source voter directories and the old verifier cache, restores complete images
+and receipts, obtains fresh-quorum activation, preserves S3 minima/client floors,
+rejects old tokens, serves new writes and survives retained restart. Its backend
+and dedicated VM are stopped, retaining owned data and evidence. The test embeds
+three native Nodes with independent domains/disks/TLS and uses a contract fencing
+authority. It does not qualify permanent Docker launch revocation, separate voter
+containers/hosts, managed recovery or sustained replication/reclamation load.
+Both source-after comparisons have no changed inputs. Exact initial and broader
+regression executables, failed sources/logs and the recovery artifact are retained
+in the checkout-private qualification directory. Original deadlines, quotas,
+stack and optimization profiles remain unchanged. This does not collect manifest pages,
+authorize Raft log truncation or bypass offline engine reclamation admission.
+It does not qualify sustained load, current-source Docker permanent fencing,
+managed S3 learner activation or the default-backend cutover. CG-07 stays
+IN_PROGRESS, CG-09–16 TODO and PR #160 draft.
+
 ## CG-07 shared consumer and retention checkpoint
 
 Capture CG-07-perf-resume-01/source-inputs-25 binds 2710 Rust, Python,

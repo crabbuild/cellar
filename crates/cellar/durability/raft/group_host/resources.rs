@@ -26,6 +26,16 @@ pub(super) struct Images {
     accounting: Option<cellar_ltx::generation::GenerationAccounting>,
 }
 
+/// Constructed only after this owner's complete reference recovery. The live
+/// collector can delete eligible physical files, but cannot change references.
+pub(super) struct CollectibleExtents(NodeExtentStore);
+
+impl CollectibleExtents {
+    pub(super) fn store(&self) -> &NodeExtentStore {
+        &self.0
+    }
+}
+
 impl Images {
     pub async fn open(
         log: &ReplicaLog,
@@ -92,7 +102,7 @@ impl Images {
         &self,
         log: &ReplicaLog,
         appliers: &[CellGroupApplier],
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Option<CollectibleExtents>> {
         let inventory = log.cell_groups()?;
         anyhow::ensure!(
             inventory.len() == appliers.len()
@@ -104,18 +114,39 @@ impl Images {
         let images = self.clone();
         let retained = appliers.to_vec();
         log.domain()
-            .blocking(move || -> anyhow::Result<()> {
+            .blocking(move || -> anyhow::Result<_> {
                 if let Some(store) = &images.materialized {
                     store.retain_only(&[])?;
                 }
                 if let Some(store) = &images.extents {
                     store.retain_only(&[])?;
                 }
+                let inventory = images.extents.map(CollectibleExtents);
                 drop(retained);
-                Ok(())
+                Ok(inventory)
             })?
-            .await??;
-        Ok(())
+            .await?
+    }
+
+    /// This separately locked verifier has no durable local selectors. Call
+    /// before registering its first receive/replay owner. Remote holds still
+    /// require fresh verification; cached filenames supply no recovery proof.
+    pub async fn adopt_verifier(
+        &self,
+        log: &ReplicaLog,
+    ) -> anyhow::Result<Option<CollectibleExtents>> {
+        let images = self.clone();
+        log.domain()
+            .blocking(move || -> anyhow::Result<_> {
+                if let Some(store) = &images.materialized {
+                    store.retain_only(&[])?;
+                }
+                if let Some(store) = &images.extents {
+                    store.retain_only(&[])?;
+                }
+                Ok(images.extents.map(CollectibleExtents))
+            })?
+            .await?
     }
 
     pub fn observer(&self) -> crate::application::consensus::group_client::resources::Images {
@@ -241,3 +272,7 @@ fn host() -> cellar_ltx::LtxHost {
     )
     .with_filesystem(fs)
 }
+
+#[cfg(all(test, not(cellar_internal_tests)))]
+#[path = "resources_tests.rs"]
+mod tests;

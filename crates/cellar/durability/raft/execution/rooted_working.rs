@@ -65,8 +65,8 @@ impl RootWorking {
         crate::raft::working::clean(filesystem.as_ref(), &options.directory, &path)?;
         let image = match base {
             Some(image) => image,
-            None => Arc::new(store.seal_image_root(
-                ExtentManifest::new(
+            None => {
+                let manifest = ExtentManifest::new(
                     ImageBinding {
                         history,
                         schema: options.application_digest,
@@ -76,9 +76,14 @@ impl RootWorking {
                     },
                     Geometry::new(0, 0)?,
                     &[],
-                )?,
-                &mut vec![0; EXTENT_BYTES as usize],
-            )?),
+                )?;
+                // This empty base belongs only to the disposable workspace.
+                // Pin before sealing so concurrent collection cannot remove it.
+                let receiving = store.stage_transient_root(manifest.clone())?;
+                let image = store.seal_image_root(manifest, &mut vec![0; EXTENT_BYTES as usize])?;
+                drop(receiving);
+                Arc::new(image)
+            }
         };
         ensure!(
             image.manifest().binding().history == history
