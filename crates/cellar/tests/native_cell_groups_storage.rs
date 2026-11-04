@@ -395,6 +395,128 @@ fn root_write<S: Clone>(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn warm_manifest_preparations_revalidate_pages_and_reuse_completed_barriers() -> Result<()> {
+    use cellar::application::consensus::verification::{LogOpenMode, ReplicaLog};
+    use cellar::sdk::ExecutionDomain;
+    use std::sync::atomic::Ordering;
+    let temp = tempfile::tempdir()?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let log = domain
+        .run(ReplicaLog::open(
+            engine_options(&temp.path().join("node"), LogOpenMode::Create, 1),
+            Arc::new(DirectFileSystem),
+        ))
+        .await??;
+    let group = log.create_group(engine_bootstrap()).await?;
+    let generations = GenerationStore::open(
+        temp.path().join("images"),
+        Arc::new(DirectFileSystem),
+        GenerationLimits::default(),
+    )?;
+    let bytes = images::image(
+        None,
+        "CREATE TABLE value(n); INSERT INTO value VALUES (11);",
+    )?;
+    let cut = images::Cut::new(&[], &bytes, 0, true, false);
+    let pin = generations.prepare(images::id(1), None, &cut.update())?;
+    let directory = temp.path().join("pages");
+    let faults = faults::Faults::new(directory.clone(), None);
+    faults.all_directory_files.store(true, Ordering::Release);
+    let filesystem = Arc::new(faults::FaultFileSystem {
+        faults: faults.clone(),
+    });
+    let open = || ManifestPageStore::open(&directory, filesystem.clone(), 64, 1024 * 1024, 16);
+    let mut pages = open()?;
+    let tree = ManifestTree::new(route(), ManifestLimits::default())?;
+    let value = leaf(1, &pin, 1, 2);
+    let root = tree.update(&mut pages, ManifestRoot::default(), value.clone(), None)?;
+    let before = faults.image_seals.lock().unwrap().len();
+    let reads = faults.reads.load(Ordering::Acquire);
+    let first = tree.prepare_complete(&group, &mut pages, root, position(2), 1, |_| {
+        Ok(CellImagePin::Materialized(pin.clone()))
+    })?;
+    assert!(
+        faults.reads.load(Ordering::Acquire) > reads,
+        "warm preparation skipped physical reads"
+    );
+    assert_eq!(
+        faults.image_seals.lock().unwrap().len(),
+        before,
+        "already durable page was flushed again"
+    );
+    let directories = faults.synced_paths.lock().unwrap().len();
+    assert_eq!(
+        tree.update(&mut pages, ManifestRoot::default(), value.clone(), None)?,
+        root
+    );
+    assert_eq!(faults.image_seals.lock().unwrap().len(), before);
+    assert_eq!(faults.synced_paths.lock().unwrap().len(), directories);
+
+    let path = faults.image_seals.lock().unwrap()[0].clone();
+    let original = std::fs::read(&path)?;
+    let mut corrupt = original.clone();
+    corrupt[0] ^= 0x80;
+    std::fs::write(&path, corrupt)?;
+    assert!(
+        tree.prepare_complete(&group, &mut pages, root, position(2), 1, |_| {
+            Ok(CellImagePin::Materialized(pin.clone()))
+        })
+        .is_err(),
+        "held pins hid damaged page bytes"
+    );
+    std::fs::write(path, original)?;
+    faults
+        .mode
+        .store(faults::FAIL_IMAGE_SYNC, Ordering::Release);
+    assert!(
+        tree.prepare_complete(&group, &mut pages, root, position(2), 1, |_| {
+            Ok(CellImagePin::Materialized(pin.clone()))
+        })
+        .is_err(),
+        "failed read retained a page persistence observation"
+    );
+    assert!(matches!(
+        tree.get(&pages, root, &value.version.history.cell),
+        Err(ManifestError::Quarantined)
+    ));
+    drop(first);
+    drop(pages);
+
+    let mut pages = open()?;
+    tree.get(&pages, root, &value.version.history.cell)?;
+    faults
+        .mode
+        .store(faults::FAIL_DIRECTORY_SYNC, Ordering::Release);
+    assert!(
+        tree.prepare_complete(&group, &mut pages, root, position(2), 1, |_| {
+            Ok(CellImagePin::Materialized(pin.clone()))
+        })
+        .is_err(),
+        "reopened filename or metadata read supplied a directory barrier"
+    );
+    assert!(matches!(
+        tree.get(&pages, root, &value.version.history.cell),
+        Err(ManifestError::Quarantined)
+    ));
+    drop(pages);
+    let mut pages = open()?;
+    let recovered = tree.prepare_complete(&group, &mut pages, root, position(2), 1, |_| {
+        Ok(CellImagePin::Materialized(pin.clone()))
+    })?;
+    let before = faults.image_seals.lock().unwrap().len();
+    let again = tree.prepare_complete(&group, &mut pages, root, position(2), 1, |_| {
+        Ok(CellImagePin::Materialized(pin.clone()))
+    })?;
+    assert_eq!(faults.image_seals.lock().unwrap().len(), before);
+    drop(again);
+    drop(recovered);
+    drop(pages);
+    log.close().await?;
+    domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn group_manifest_engine_sync_publication() -> Result<()> {
     use cellar::application::consensus::verification::{
         DurableApply, GroupWrite, LogOpenMode, ReplicaLog,

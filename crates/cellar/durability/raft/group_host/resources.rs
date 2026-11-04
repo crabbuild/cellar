@@ -28,11 +28,51 @@ pub(super) struct Images {
 
 /// Constructed only after this owner's complete reference recovery. The live
 /// collector can delete eligible physical files, but cannot change references.
-pub(super) struct CollectibleExtents(NodeExtentStore);
+pub(super) struct CollectibleExtents {
+    store: NodeExtentStore,
+    warm_cache: bool,
+}
 
 impl CollectibleExtents {
+    fn serving(store: NodeExtentStore) -> Self {
+        Self {
+            store,
+            warm_cache: false,
+        }
+    }
+
+    fn verifier(store: NodeExtentStore) -> Self {
+        Self {
+            store,
+            warm_cache: true,
+        }
+    }
+
     pub(super) fn store(&self) -> &NodeExtentStore {
-        &self.0
+        &self.store
+    }
+
+    pub(super) fn needs_reclaim(&self) -> Result<bool, cellar_ltx::internal::StoreError> {
+        if !self.store.needs_reclaim()? {
+            return Ok(false);
+        }
+        if !self.warm_cache {
+            return Ok(true);
+        }
+        // Keep eligible verifier files as a charged cache below a quarter of
+        // each existing inventory ceiling. The remaining headroom backs active
+        // receives/replay. These files grant no proof: every job still GETs and
+        // independently checks its source and local destination bytes.
+        let (usage, limits) = self
+            .store
+            .observer()
+            .capture()
+            .ok_or(cellar_ltx::internal::StoreError::Quarantined)?;
+        Ok(usage.roots == 0
+            || usage.roots >= (limits.max_roots / 4).max(1)
+            || usage.objects >= (limits.max_objects / 4).max(1)
+            || usage.root_extents >= (limits.max_root_extents / 4).max(1)
+            || usage.bytes >= (limits.max_bytes / 4).max(1))
     }
 }
 
@@ -121,7 +161,7 @@ impl Images {
                 if let Some(store) = &images.extents {
                     store.retain_only(&[])?;
                 }
-                let inventory = images.extents.map(CollectibleExtents);
+                let inventory = images.extents.map(CollectibleExtents::serving);
                 drop(retained);
                 Ok(inventory)
             })?
@@ -144,7 +184,7 @@ impl Images {
                 if let Some(store) = &images.extents {
                     store.retain_only(&[])?;
                 }
-                Ok(images.extents.map(CollectibleExtents))
+                Ok(images.extents.map(CollectibleExtents::verifier))
             })?
             .await?
     }

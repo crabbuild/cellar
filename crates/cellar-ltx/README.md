@@ -74,15 +74,25 @@ retain inventory handles and working memory through physical completion. This
 does not authorize manifest-page collection, Raft log truncation or S3 coverage,
 and does not qualify sustained load.
 
+Root metadata keeps a volatile observation of completed file and directory
+barriers on its exact open inventory owner. A repeated seal still reads and
+checks the entire root file and SQLite image bytes, while reusing those completed
+barriers for unchanged immutable files. Reopening clears the observation; a failed
+root read also invalidates it. A metadata-only read supplies no persistence proof,
+and an incomplete or failed barrier cannot be reused. This observation supplies
+neither a SQLite image seal by itself nor remote archive coverage.
+
 `NodeExtentStore::put_extent_bytes` borrows a complete, already admitted extent
 through the existing at-most-4-MiB positional write window. Native providers
 avoid splitting it into allocated 64 KiB source chunks; injected providers keep
 their bounded positional-write fallback. Capacity admission, exclusive creation,
 source identity, file sync, independent destination verification and directory
-sync still precede a reusable local proof. Existing objects are independently
-reverified rather than overwritten. Peer and archive receives share this path,
-as does an image update whose changed extent already occupies its admitted
-workspace. Streaming source callbacks retain the separate 64 KiB contract.
+sync still precede a reusable local proof. Buffered imports check their supplied
+bytes against the extent identity even when the destination already exists.
+Existing objects are independently reverified rather than overwritten. Peer and
+archive receives share this path, as does an image update whose changed extent
+already occupies its admitted workspace. Streaming source callbacks retain the
+separate 64 KiB contract.
 
 `RootView::image` caches read-only handles to its pinned local extents. Full
 independent verification derives bounded block hashes that the inventory retains

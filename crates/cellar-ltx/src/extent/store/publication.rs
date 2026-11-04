@@ -84,13 +84,10 @@ impl NodeExtentStore {
         id: ExtentId,
         bytes: &[u8],
     ) -> Result<(), StoreError> {
-        if bytes.len() != id.length() as usize {
+        if bytes.len() != id.length() as usize || ExtentId::of(bytes)? != id {
             return Err(StoreError::Integrity);
         }
         self.put_extent_with(id, |file| {
-            if ExtentId::of(bytes)? != id {
-                return Err(StoreError::Integrity);
-            }
             // The caller already owns this bounded input. Avoid a second
             // extent allocation and preserve injected providers' fallback.
             file.write_all_at_window(0, bytes)?;
@@ -340,6 +337,7 @@ impl NodeExtentStore {
                     bytes: bytes.len() as u64,
                     slots,
                     retained: true,
+                    persisted: false,
                     token: Arc::new(()),
                     data: None,
                 },
@@ -393,12 +391,15 @@ impl NodeExtentStore {
             .map(|index| manifest.extent(index).ok_or(StoreError::Layout))
             .collect::<Result<BTreeSet<_>, _>>()?;
         let data = Arc::new(RootData { manifest, objects });
-        self.inner
-            .state()?
-            .roots
-            .get_mut(&reference.root)
-            .ok_or(StoreError::Missing)?
-            .data = Some(data.clone());
+        {
+            let mut state = self.inner.state()?;
+            let entry = state
+                .roots
+                .get_mut(&reference.root)
+                .ok_or(StoreError::Missing)?;
+            entry.persisted = true;
+            entry.data = Some(data.clone());
+        }
         self.view(reference, data)
     }
 }

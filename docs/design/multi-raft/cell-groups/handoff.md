@@ -4,6 +4,41 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Archive metadata/cache qualification checkpoint
+
+This checkpoint supersedes the performance and validation boundary below.
+CG-07-wide-group-diagnosis-01/source-08 SHA256 is
+4b55360d8d064379763d69f3d57b13b34074bef86b9328568da773b636b775e0,
+above 3dc6e25cb23a87a263edf865d24c626d087ebee4. The open owner may reuse its
+completed immutable root/page barriers, while still checking bytes; reopen and
+failed reads invalidate that observation. A charged verifier cache stays below
+one quarter of each existing ceiling until ordinary collection pressure. Serving
+collection remains eager. Incoming buffered bytes are checked even when a valid
+destination exists. No deadline, quota, optimization or assertion is relaxed.
+
+Forty-five LTX and 261 native cases pass, with their owned process/backend skips
+recorded. The public native/Axum retained-restart case passes in 179.65 seconds.
+Same-source public recovery passes both image forms against real constrained,
+pinned RustFS in 33.02 seconds after erasing all source voter disks and verifier
+cache; backend and dedicated VM are stopped afterward. This is an embedded-Node,
+contract-fence boundary, not permanent Docker launch fencing or independent voter
+containers. Sources, exact executables, failed runs and fixture disks are retained.
+
+The full performance gate now has eighteen passes and one failure. Occupancy 32
+passes the matrix and isolated S3 diagnostic; occupancy 128 is reached but fails
+enrollment after 44 observed cells under the original 60-second population budget
+and five-second per-call cap. Measure enrollment, complete checkpoint and
+collector interference next without raising bounds or assuming a fixed cell-count
+limit. Strict Cellar library Clippy retains the same 222 diagnostic keys; plan
+index/Purpose and reviewed-protocol drift failures remain. Full-library inspection
+was not rerun. CG-07 remains IN_PROGRESS and PR #160 stays draft.
+
+Next implementation priorities are managed dynamic archive attachment and exact
+S3 learner activation, owned live manifest-page collection, complete public
+lifecycle/ingress/default-backend gates and whole-group Docker-fenced recovery.
+Capabilities, deployment/read policy and CG-09–16 remain required. See
+[progress](progress.md) and [remaining work](remaining-work.md) for exact limits.
+
 ## Owned live extent collection checkpoint
 
 The node-owned collector now covers the serving and separate archive-verifier

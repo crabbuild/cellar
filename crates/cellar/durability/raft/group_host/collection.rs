@@ -138,7 +138,7 @@ async fn run(
             if *stop.borrow() {
                 break 'service;
             }
-            match owner.inventories[inventory].store().needs_reclaim() {
+            match owner.inventories[inventory].needs_reclaim() {
                 Ok(false) => continue,
                 Ok(true) => (),
                 Err(error) => {

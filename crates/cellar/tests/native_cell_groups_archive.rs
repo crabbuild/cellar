@@ -998,6 +998,102 @@ async fn forged_index(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn checkpoint_archive_warm_cache_cannot_hide_wrong_extent_payload() -> Result<()> {
+    let (cluster, _) = checkpoint_fixture::populate_images(true, true, false, 1, 8192).await?;
+    let store = archive_store::Store::new();
+    let archive = new_archive(
+        &cluster,
+        store.clone(),
+        Path::from("warm-source"),
+        Default::default(),
+    )
+    .await?;
+    let sources = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
+    let reference = archive
+        .upload_checkpoint(&cluster.domain, source(&sources, &cluster)?)
+        .await?;
+    let (path, mut encoded) = index(store.as_ref(), &reference).await?;
+    let applier = destination(&cluster).await?;
+    let pool = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
+    let verified = archive
+        .verify_checkpoint(
+            &cluster.domain,
+            &reference,
+            receiver(&pool, &applier, &cluster)?,
+        )
+        .await?;
+    drop(verified);
+    let CellGroupApplyImages::Extents { images, .. } = &applier.apply_images else {
+        anyhow::bail!("extent destination");
+    };
+    assert!(images.usage()?.objects > 0);
+    let chunk = encoded["chunks"]
+        .as_array_mut()
+        .context("chunks")?
+        .iter_mut()
+        .find(|chunk| chunk["part"]["kind"] == "Extent" && chunk["offset"] == 0)
+        .context("first streamed extent chunk")?;
+    let (prefix, _) = generation_prefix(&path)?;
+    let digest: Vec<u8> = serde_json::from_value(chunk["object"]["digest"].clone())?;
+    let old = Path::from(format!(
+        "{prefix}/generations/{}/chunks/{}-{}",
+        chunk["object"]["generation"],
+        chunk["object"]["length"],
+        hex::encode(digest)
+    ));
+    let mut corrupt = store.get(&old).await?.bytes().await?.to_vec();
+    corrupt[100] ^= 0x80;
+    let digest: [u8; 32] = Sha256::digest(&corrupt).into();
+    let new = Path::from(format!(
+        "{prefix}/generations/{}/chunks/{}-{}",
+        chunk["object"]["generation"],
+        corrupt.len(),
+        hex::encode(digest)
+    ));
+    store.put(&new, corrupt.into()).await?;
+    chunk["object"]["digest"] = serde_json::to_value(digest)?;
+    // The forged locator and object have correct hashes/lengths, while the
+    // announced extent identity still belongs to the original committed image.
+    let forged = forged_index(store.as_ref(), &path, &encoded).await?;
+    let cold = destination_at(
+        &cluster,
+        true,
+        Arc::new(DirectFileSystem),
+        cluster._root.path().join("cold-source-check"),
+        cluster.birth.route().clone(),
+    )
+    .await?;
+    assert!(archive
+        .verify_checkpoint(&cluster.domain, &forged, receiver(&pool, &cold, &cluster)?)
+        .await
+        .is_err());
+    assert_eq!(pool.usage().sources, 0);
+    assert!(
+        archive
+            .verify_checkpoint(
+                &cluster.domain,
+                &forged,
+                receiver(&pool, &applier, &cluster)?
+            )
+            .await
+            .is_err(),
+        "warm local data hid an invalid remote extent payload"
+    );
+    assert_eq!(pool.usage().sources, 0);
+    let recovered = archive
+        .verify_checkpoint(
+            &cluster.domain,
+            &reference,
+            receiver(&pool, &applier, &cluster)?,
+        )
+        .await?;
+    assert_eq!(recovered.checkpoint().marker().root().cells(), 4);
+    drop(recovered);
+    cluster.close().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn checkpoint_archive_untrusted_index_and_cut_binding() -> Result<()> {
     for rooted in [false, true] {
         let (cluster, _) =

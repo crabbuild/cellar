@@ -54,6 +54,33 @@ fn complete_input_uses_one_native_window_and_preserves_bounded_provider_fallback
 }
 
 #[test]
+fn complete_input_checks_source_bytes_even_when_a_valid_local_object_exists() {
+    let f = Fixture::new(0);
+    let store = f.store();
+    let bytes = vec![7; 4096];
+    let id = ExtentId::of(&bytes).unwrap();
+    store.put_extent_bytes(id, &bytes).unwrap();
+    let before = store.usage().unwrap();
+    let writes = f.files.metrics.random_write_calls.load(Ordering::Acquire);
+    let reads = f.files.metrics.read_bytes.load(Ordering::Acquire);
+    let corrupt = vec![8; bytes.len()];
+    assert!(
+        matches!(
+            store.put_extent_bytes(id, &corrupt),
+            Err(StoreError::Integrity)
+        ),
+        "a warm destination hid invalid supplied source bytes"
+    );
+    assert_eq!(store.usage().unwrap(), before);
+    assert_eq!(
+        f.files.metrics.random_write_calls.load(Ordering::Acquire),
+        writes
+    );
+    assert_eq!(f.files.metrics.read_bytes.load(Ordering::Acquire), reads);
+    store.put_extent_bytes(id, &bytes).unwrap();
+}
+
+#[test]
 fn complete_input_refuses_wrong_length_and_capacity_before_writes() {
     let f = Fixture::new(0);
     let mut limits = f.limits();

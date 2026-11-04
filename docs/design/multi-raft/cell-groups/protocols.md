@@ -336,6 +336,15 @@ registering the first receive/replay job; cached filenames provide no recovery
 proof. Disposable empty workspace roots are transient and pinned before sealing.
 Existing retained roots and uncertain publications keep their protection.
 
+The verifier keeps eligible files as an opportunistic, charged cache while each
+inventory dimension remains below one quarter of its existing ceiling. Pressure
+in roots, objects, root references or bytes enables ordinary collection; an
+inventory without roots also collects orphan objects. Serving inventories collect
+eligible files without this delay. Cache entries add no pins or capacity and
+cannot replace archive GETs, source validation or independent local replay.
+Buffered imports check the supplied extent digest even when a valid destination
+already exists, so a warm cache cannot hide corrupt incoming bytes.
+
 Only these adopted inventories enter the node-owned live extent collector. One
 physical turn runs at a time across the two node roles, with at most sixteen
 deleted files. Checked working memory and the service's fixed metadata charge
@@ -600,6 +609,15 @@ Private-store quotas remain enforced and live proofs retain their physical data.
 Extent replay applies every delta and rechecks
 the complete final image. A valid but wrong LTX delta or warm destination damage
 must refuse, even when metadata and object hashes are well formed.
+
+Immutable page and extent-root stores remember completed file and directory
+barriers only on their exact open owner. Warm preparation still reads and checks
+the bytes; it may reuse those completed barriers for an unchanged immutable file.
+Reopening clears the observation, and a failed read invalidates that file's
+observation. Metadata reads and inventory filenames cannot restore it. Both
+barriers must complete before reuse, and a page persistence failure keeps its
+owner quarantined. This supplies neither a missing image nor remote coverage;
+archive GET, digest, complete closure and replay validation remain required.
 
 A node-wide `CellGroupArchiveTailPool` separately bounds copied suffixes, decoded
 entries, image work and retained base/predecessor/successor metadata. Its limits

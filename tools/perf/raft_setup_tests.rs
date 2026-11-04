@@ -28,7 +28,7 @@ fn tls() -> Result<RaftTls> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shared_runner_owns_rf3_enrollment_archives_and_follower_reads() -> Result<()> {
     for (total, occupancy) in [(3, 1), (33, 32), (129, 128)] {
-        Box::pin(run(total, occupancy, None)).await?;
+        Box::pin(run(total, occupancy, None, false)).await?;
     }
     Ok(())
 }
@@ -42,13 +42,18 @@ async fn shared_runner_rooted32_archive_diagnostics() -> Result<()> {
         .with_ansi(false)
         .with_test_writer()
         .try_init();
-    Box::pin(run(33, 32, None)).await
+    Box::pin(run(33, 32, None, false)).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shared_runner_reclaims_live_rooted_images_within_the_original_request_budget() -> Result<()>
 {
-    Box::pin(run(3, 2, Some(16))).await
+    Box::pin(run(3, 2, Some(16), false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shared_runner_keeps_a_bounded_warm_verifier_cache_between_jobs() -> Result<()> {
+    Box::pin(run(3, 2, None, true)).await
 }
 
 fn namespace_for(
@@ -84,7 +89,12 @@ async fn leader(services: &[RaftCells], history: GroupHistory) -> Result<usize> 
     .await?
 }
 
-async fn run(total: usize, occupancy: usize, root_limit: Option<usize>) -> Result<()> {
+async fn run(
+    total: usize,
+    occupancy: usize,
+    root_limit: Option<usize>,
+    warm_cache: bool,
+) -> Result<()> {
     let target =
         PathBuf::from(std::env::var_os("CARGO_TARGET_DIR").context("checkout target directory")?);
     let retained = target.join("qualification-evidence/perf-runner-native");
@@ -442,6 +452,51 @@ async fn run(total: usize, occupancy: usize, root_limit: Option<usize>) -> Resul
                     "root pressure was escaped by raising the configured inventory"
                 );
             }
+        }
+        if warm_cache {
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let mut caught_up = true;
+                    for service in &services {
+                        for group in &layout.groups {
+                            let handle = service.group(group.history)?;
+                            let observed = handle.observe(Duration::from_secs(5)).await?;
+                            let archive =
+                                handle.archive_status()?.context("archive observation")?;
+                            caught_up &= archive.error.is_none()
+                                && archive.published.as_ref().is_some_and(|marker| {
+                                    marker.position() == observed.status.applied
+                                });
+                        }
+                    }
+                    if caught_up {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                // Give the ordinary collector twenty idle polls after all
+                // archive jobs have completed and released verification pins.
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                for service in &services {
+                    let resources = service.resource_usage();
+                    let images = resources
+                        .archive_verifier_images
+                        .and_then(|images| images.extents)
+                        .context("verifier image accounting")?;
+                    ensure!(
+                        images.roots > 0 && images.objects > 0,
+                        "idle verifier discarded its entire warm cache: {images:?}"
+                    );
+                    ensure!(
+                        images.roots <= images.max_roots
+                            && images.objects <= images.max_objects
+                            && images.bytes <= images.max_bytes,
+                        "warm verifier escaped its physical inventory bounds"
+                    );
+                }
+                Ok::<_, anyhow::Error>(())
+            })
+            .await??;
         }
         for service in &services {
             let observed = service.observe_node(Duration::from_secs(5)).await?;

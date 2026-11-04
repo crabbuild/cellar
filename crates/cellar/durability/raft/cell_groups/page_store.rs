@@ -13,7 +13,10 @@ use cellar_ltx::{FileSystem, HostFileLock};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -43,6 +46,9 @@ pub(super) struct PageOwner {
 struct PageEntry {
     length: u64,
     lease: Arc<()>,
+    // Only this open owner's completed file and directory barriers. Every
+    // subsequent preparation still rechecks the file's length and digest.
+    persisted: AtomicBool,
 }
 
 /// A page lease also keeps its directory locked. A replacement store cannot
@@ -161,6 +167,7 @@ impl ManifestPageStore {
                     PageEntry {
                         length: metadata.len,
                         lease: Arc::new(()),
+                        persisted: AtomicBool::new(false),
                     },
                 )
                 .is_some()
@@ -272,25 +279,52 @@ impl ManifestPageStore {
             .inventory
             .get(&key)
             .ok_or(ManifestError::Invalid("missing page"))?;
-        let path = self.directory.join(format!("{}.page", hex::encode(key)));
-        let mut file = self.filesystem.open(&path)?;
-        let length = file.file_len()?;
-        if length != expected.length || length > MAX_PAGE_BYTES as u64 {
-            return Err(ManifestError::Invalid("page length"));
+        let result = (|| {
+            let path = self.directory.join(format!("{}.page", hex::encode(key)));
+            let mut file = self.filesystem.open(&path)?;
+            let length = file.file_len()?;
+            if length != expected.length || length > MAX_PAGE_BYTES as u64 {
+                return Err(ManifestError::Invalid("page length"));
+            }
+            let bytes = file.read_exact_at(0, length as usize)?;
+            if digest(&bytes) != key {
+                return Err(ManifestError::Invalid("page digest"));
+            }
+            Ok(bytes)
+        })();
+        if result.is_err() {
+            expected.persisted.store(false, Ordering::Release);
         }
-        let bytes = file.read_exact_at(0, length as usize)?;
-        if digest(&bytes) != key {
-            return Err(ManifestError::Invalid("page digest"));
-        }
-        Ok(bytes)
+        result
     }
 
     pub(super) fn sync_page(&mut self, key: [u8; 32]) -> Result<(), ManifestError> {
         self.read(key)?;
+        self.sync_checked_page(key)
+    }
+
+    // Both callers have just read and validated the immutable page. Filename
+    // inventory and metadata-only reads never establish persistence after open.
+    fn sync_checked_page(&mut self, key: [u8; 32]) -> Result<(), ManifestError> {
+        if self
+            .inventory
+            .get(&key)
+            .ok_or(ManifestError::Invalid("missing page"))?
+            .persisted
+            .load(Ordering::Acquire)
+        {
+            return Ok(());
+        }
         self.quarantined = true;
         self.filesystem
             .open(&self.directory.join(format!("{}.page", hex::encode(key))))?
             .sync_all()?;
+        self.filesystem.sync_all(&self.directory)?;
+        self.inventory
+            .get(&key)
+            .ok_or(ManifestError::Invalid("missing page"))?
+            .persisted
+            .store(true, Ordering::Release);
         self.quarantined = false;
         Ok(())
     }
@@ -317,12 +351,7 @@ impl ManifestPageStore {
             if self.read(key)? != bytes {
                 return Err(ManifestError::Invalid("page collision"));
             }
-            // Restart inventory is not proof of a prior completed fsync.
-            self.quarantined = true;
-            self.filesystem.open(&path)?.sync_all()?;
-            self.filesystem.sync_all(&self.directory)?;
-            self.quarantined = false;
-            return Ok(());
+            return self.sync_checked_page(key);
         }
         let next_bytes = self
             .usage
@@ -344,6 +373,7 @@ impl ManifestPageStore {
             PageEntry {
                 length: bytes.len() as u64,
                 lease: Arc::new(()),
+                persisted: AtomicBool::new(true),
             },
         );
         self.usage.pages += 1;

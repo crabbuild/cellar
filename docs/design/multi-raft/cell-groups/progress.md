@@ -12,6 +12,88 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 archive metadata and warm verifier checkpoint
+
+Capture CG-07-wide-group-diagnosis-01/source-08 binds 2,712
+Rust/Python/manifest inputs above 3dc6e25cb23a87a263edf865d24c626d087ebee4 to
+SHA256 4b55360d8d064379763d69f3d57b13b34074bef86b9328568da773b636b775e0.
+Fetched main remains 981a5417d9359d1f992e2dbf214eec7d221b6777, zero commits
+behind. Original optimization, stack, deadlines, quotas and assertions remain.
+
+Immutable extent-root and manifest-page owners now remember their own completed
+file and directory barriers. Every preparation still reads and checks the bytes;
+only redundant barriers for an unchanged immutable file may be reused. Reopening
+clears the observation, failed reads invalidate it, metadata-only reads establish
+no persistence, and failed page barriers retain quarantine. This grants neither
+an image seal nor remote coverage by itself.
+
+The independent verifier keeps eligible files as a charged cache below one quarter
+of each existing inventory ceiling. Any dimension reaching pressure, or orphan
+objects without roots, enables its ordinary owned collection. Serving collection
+remains eager. No pins, banks, capacity or cached archive proofs are added; remote
+GETs, complete closure and independent replay remain required. Buffered extent
+imports now check supplied bytes before destination reuse. Previously a valid
+warm destination could hide wrong supplied bytes of the same length.
+
+Preserved regressions demonstrate redundant root/page syncs, complete idle cache
+eviction and acceptance of wrong buffered input before their fixes. New public
+archive coverage forges incoming extent bytes while preserving valid object/index
+hashes and the original expected extent identity: both cold and warm verification
+refuse, while the original four-cell archive remains usable. The first attempt at
+that public test failed fixture setup by assuming one chunk per extent; it is
+preserved as a setup failure, not evidence of the production bug.
+
+The same source passes six LTX apply and 39 extent-store cases, with one owned
+child helper ignored. Seven native targets pass 256 cases with 29 explicit
+backend/process skips: execution 179, storage 16, archive/recovery 31,
+archive-controller 16, managed 10, host 3 and public SDK/native/Axum/restart 1.
+The public process drill passes in 179.65 seconds with its original assertions
+and eighty additional writes on each side of restart.
+Five additional snapshot cases pass, with two owned child helpers ignored:
+partial-install refusal, complete multi-cell cuts, extent restart, pin/memory
+bounds and whole-group learner/joint membership. All binary targets, native-only
+Cellar/Python compilation with an unavailable Python sentinel, LTX feature-off
+and all-feature builds, and strict LTX library Clippy pass. Strict Cellar library
+Clippy still fails with 222 diagnostics, including 202 dead_code; diagnostic
+code/message/primary-file keys are unchanged. No suppressions or baseline refresh
+were added. The full library was not rerun; its prior inspection-protocol failure
+remains open.
+
+The exact archive executable passes public recovery against real pinned RustFS
+in both image forms in 33.02 seconds. All source voter directories and the old
+verifier cache are erased before restoring complete images/receipts, client
+floors and S3 minima into fresh incarnations. Fresh quorum activation, old-token
+refusal, new writes and retained restart pass. The backend enforces one CPU/two
+GiB with checked identity/resources and a signed conditional-S3 probe. Backend
+and dedicated VM are stopped with their data retained. This uses three embedded
+native Nodes and a contract fencing authority; permanent Docker launch revocation,
+independent voter containers, managed recovery and sustained load remain
+unqualified. Record SHA256 is
+b8adf98e6f019da487c493a71c2107ec4beee255e531b17723eaf074ff4d082f.
+All source-after comparisons remain unchanged.
+
+Formatting, layout, dependency isolation, docs and diff checks pass. The plan
+suite has 35 passes, one generated-index/Purpose mismatch failure and one
+reviewed-source drift error for the consensus protocol. Validate/preflight stop
+at the stale generated index. These failures remain explicit; no automatic
+baseline refresh or task-status changes were made.
+
+The complete performance suite improves to eighteen passes and one failure in
+483.34 seconds. Both 32-cell scenarios now pass their original enrollment, S3,
+duplicate-receipt and every-voter read checks. The 16-root pressure case and new
+warm-cache case also pass. The matrix reaches occupancy 128, then fails enrollment
+with ambiguous Runtime(DeadlineExceeded); the observed large group has 44 cells
+under the unchanged 60-second population budget and five-second per-call cap.
+Quorum and collector observations remain healthy at that sample. This does not
+establish a cause, fixed cell-count boundary, density claim or a passing load gate.
+Earlier source failures, exact executables and fixture disks remain preserved.
+
+CG-07 remains IN_PROGRESS. Measure the remaining enrollment, checkpoint and
+collector work, then finish managed archive attachment, exact-reference S3 learner
+activation, live manifest-page ownership, the remaining public gates and full
+Docker-fenced qualification. The default backend, capability/deployment/read
+decisions and CG-09–16 remain required; see [remaining work](remaining-work.md).
+
 ## CG-07 owned live extent collection
 
 Capture CG-07-live-collection-01/source-01 binds the implementation to SHA256
