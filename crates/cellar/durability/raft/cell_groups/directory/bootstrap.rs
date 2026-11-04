@@ -190,7 +190,16 @@ impl RangeDirectory {
         host: &crate::raft::fleet_catalog::FleetHostAuthorization,
     ) -> Result<CellGroupBootstrapPermit, CatalogError> {
         self.bounded(async {
-            self.require_managed_group_boot(log, host).await?;
+            match log.cell_group(&birth.route().history) {
+                Ok(_) => {
+                    self.require_managed_retained_group_boot(birth, log, host)
+                        .await?;
+                }
+                Err(LogError::NotFound) => {
+                    self.require_managed_group_boot(log, host).await?;
+                }
+                Err(error) => return Err(CatalogError::Log(error)),
+            }
             self.bootstrap_initial_group_member(birth, log, Some(host))
                 .await
         })
@@ -198,6 +207,64 @@ impl RangeDirectory {
     }
 
     pub(super) async fn require_managed_group_boot(
+        &self,
+        log: &ReplicaLog,
+        host: &crate::raft::fleet_catalog::FleetHostAuthorization,
+    ) -> Result<crate::raft::fleet_stop::BootBinding, CatalogError> {
+        let boot = self.require_managed_boot_identity(log, host).await?;
+        if log
+            .lifecycle_guard()
+            .map_err(CatalogError::Log)?
+            .is_none_or(|guard| !guard.admits_group_start(&boot))
+        {
+            return Err(CatalogError::ManagedAdmissionRequired);
+        }
+        Ok(boot)
+    }
+
+    pub(super) async fn require_managed_retained_group_boot(
+        &self,
+        birth: &CellGroupBirth,
+        log: &ReplicaLog,
+        host: &crate::raft::fleet_catalog::FleetHostAuthorization,
+    ) -> Result<crate::raft::fleet_stop::BootBinding, CatalogError> {
+        let boot = self.require_managed_boot_identity(log, host).await?;
+        if log
+            .lifecycle_guard()
+            .map_err(CatalogError::Log)?
+            .is_some_and(|guard| guard.admits_group_start(&boot))
+        {
+            return Ok(boot);
+        }
+        let guard = log
+            .lifecycle_guard()
+            .map_err(CatalogError::Log)?
+            .ok_or(CatalogError::ManagedAdmissionRequired)?;
+        let selector = guard
+            .quiescing()
+            .ok_or(CatalogError::ManagedAdmissionRequired)?
+            .clone();
+        let group = log
+            .cell_group(&birth.route().history)
+            .map_err(CatalogError::Log)?;
+        host.require_retained_group_start(
+            &selector,
+            group.identity(),
+            Duration::from_millis(self.limits.operation_timeout_ms),
+        )
+        .await
+        .map_err(CatalogError::from)?;
+        let current = log
+            .lifecycle_guard()
+            .map_err(CatalogError::Log)?
+            .ok_or(CatalogError::Fenced)?;
+        if current.boot != boot || current.quiescing() != Some(&selector) {
+            return Err(CatalogError::Fenced);
+        }
+        Ok(boot)
+    }
+
+    async fn require_managed_boot_identity(
         &self,
         log: &ReplicaLog,
         host: &crate::raft::fleet_catalog::FleetHostAuthorization,
@@ -218,7 +285,7 @@ impl RangeDirectory {
             || log
                 .lifecycle_guard()
                 .map_err(CatalogError::Log)?
-                .is_none_or(|guard| !guard.admits_group_start(&boot))
+                .is_none_or(|guard| guard.boot != boot)
         {
             return Err(CatalogError::ManagedAdmissionRequired);
         }
@@ -307,38 +374,84 @@ impl RangeDirectory {
                 voters: birth.voters().iter().map(|m| m.member).collect(),
                 learners: birth.learners().iter().map(|m| m.member).collect(),
             };
-            let group = match &authorization {
-                Some(authorization) => {
-                    let boot = host
-                        .ok_or(CatalogError::ManagedAdmissionRequired)?
-                        .boot_binding()
-                        .map_err(CatalogError::from)?;
-                    log.create_managed_cell_group(bootstrap, authorization, &boot)
-                        .await
+            let paused_retained = if let Some(host) = host {
+                let boot = host.boot_binding().map_err(CatalogError::from)?;
+                let guard = log
+                    .lifecycle_guard()
+                    .map_err(CatalogError::Log)?
+                    .ok_or(CatalogError::ManagedAdmissionRequired)?;
+                !guard.admits_group_start(&boot)
+            } else {
+                false
+            };
+            let group = if paused_retained {
+                // A returned paused boot only reattaches retained state. It
+                // cannot complete genesis or create a missing permanent claim.
+                if remote.is_none() {
+                    return Err(CatalogError::LostStableState);
                 }
-                None => log.create_cell_group(bootstrap).await,
-            }
-            .map_err(CatalogError::Log)?;
+                let host = host.ok_or(CatalogError::ManagedAdmissionRequired)?;
+                self.require_managed_retained_group_boot(birth, log, host)
+                    .await?;
+                let group = local.ok_or(CatalogError::LostStableState)?;
+                {
+                    let cache = group.read().map_err(CatalogError::Log)?;
+                    let authorization = authorization
+                        .as_ref()
+                        .ok_or(CatalogError::ManagedAdmissionRequired)?;
+                    if group.identity().member != selected.member
+                        || cache
+                            .group_manifest
+                            .as_ref()
+                            .is_none_or(|root| root.route() != birth.route())
+                        || cache
+                            .membership
+                            .fleet_status()
+                            .is_none_or(|status| &status.binding != authorization.binding())
+                        || !authorization.matches_replica(group.identity(), &cache.membership)
+                    {
+                        return Err(CatalogError::ManagedAdmissionRequired);
+                    }
+                }
+                group
+            } else {
+                match &authorization {
+                    Some(authorization) => {
+                        let boot = host
+                            .ok_or(CatalogError::ManagedAdmissionRequired)?
+                            .boot_binding()
+                            .map_err(CatalogError::from)?;
+                        log.create_managed_cell_group(bootstrap, authorization, &boot)
+                            .await
+                    }
+                    None => log.create_cell_group(bootstrap).await,
+                }
+                .map_err(CatalogError::Log)?
+            };
             check_member(&group)?;
-            let observed = self
-                .namespace
-                .inner
-                .create_and_observe_bounded(&key, &expected, wire::LIMIT)
-                .await?;
+            let observed = if paused_retained {
+                // Reobserve without a conditional create: a missing claim
+                // during return must refuse, including after the earlier read.
+                self.namespace
+                    .inner
+                    .read_versioned_bounded(&key, wire::LIMIT)
+                    .await?
+                    .ok_or(CatalogError::LostStableState)?
+                    .0
+            } else {
+                self.namespace
+                    .inner
+                    .create_and_observe_bounded(&key, &expected, wire::LIMIT)
+                    .await?
+            };
             if observed != expected {
                 return Err(CatalogError::Conflict("permanent group member claim"));
             }
             self.require_current_group_birth(birth).await?;
             check_member(&group)?;
             if let Some(host) = host {
-                let boot = host.boot_binding().map_err(CatalogError::from)?;
-                if log
-                    .lifecycle_guard()
-                    .map_err(CatalogError::Log)?
-                    .is_none_or(|guard| !guard.admits_group_start(&boot))
-                {
-                    return Err(CatalogError::Fenced);
-                }
+                self.require_managed_retained_group_boot(birth, log, host)
+                    .await?;
             }
             Ok(CellGroupBootstrapPermit {
                 group,

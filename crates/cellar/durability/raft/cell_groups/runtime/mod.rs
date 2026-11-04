@@ -2,8 +2,10 @@
 
 //! One execution-domain worker multiplexes physical cell-group owners per node.
 
+mod leadership;
 pub(super) mod reads;
 mod worker;
+use leadership::LeadershipBatch;
 
 use super::*;
 use crate::raft::{
@@ -166,6 +168,7 @@ enum Command {
     Apply(CellGroupTicket, Box<PreparedGroupManifest>),
     CaptureCheckpoint(CellGroupCheckpointPool),
     Status,
+    LeadershipBatch(Option<GroupHistory>),
     ReplicationStatus,
     Tick,
 }
@@ -182,6 +185,7 @@ enum Response {
     EnrollmentState(Box<CellEnrollmentState>),
     Reconciliation(Box<CellReconciliationAuthority>),
     Status(CellGroupStatus),
+    LeadershipBatch(LeadershipBatch),
     ReplicationStatus(crate::raft::completion::ReplicationStatus<GroupHistory>),
     Read(Box<CellReadAuthority>),
     Seed(Box<CellGroupSeedAuthority>),

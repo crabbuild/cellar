@@ -454,3 +454,6 @@ async fn verify_cells(host: &RaftCells, seed: &SeededCells, sequence: u64) -> Re
     }
     Ok(())
 }
+
+#[path = "cell_group_managed_maintenance.rs"]
+mod maintenance;

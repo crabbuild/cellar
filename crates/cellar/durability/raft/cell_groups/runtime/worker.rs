@@ -98,6 +98,9 @@ pub(super) struct Worker {
     options: RaftRuntimeOptions,
     domain: crate::asyncrt::DomainToken,
     groups: BTreeMap<GroupHistory, Group>,
+    // Every physical roster insertion changes the scan token. Future detach
+    // paths must also advance it, so an ABA roster cannot validate a sample.
+    roster_revision: u64,
     order: VecDeque<GroupHistory>,
     writes: VecDeque<GroupHistory>,
     events: mpsc::Sender<CellGroupRuntimeEvent>,
@@ -129,6 +132,7 @@ impl Worker {
             options,
             domain,
             groups: BTreeMap::new(),
+            roster_revision: 0,
             order: VecDeque::new(),
             writes: VecDeque::new(),
             events,
@@ -155,10 +159,27 @@ impl Worker {
         group.usage = usage;
     }
 
+    fn leadership_batch(
+        &self,
+        after: Option<GroupHistory>,
+    ) -> Result<LeadershipBatch, RuntimeError> {
+        leadership::capture(&self.groups, self.roster_revision, after, |group| {
+            if let Some(error) = &group.failed {
+                return Err(error.clone());
+            }
+            group.owner.local_leader()
+        })
+    }
+
     fn dispatch(&mut self, mut request: Request) {
         if matches!(request.command, Command::Tick) {
             self.tick();
             reply(request, Ok(Response::Unit));
+            return;
+        }
+        if let Command::LeadershipBatch(after) = &request.command {
+            let result = self.leadership_batch(*after).map(Response::LeadershipBatch);
+            reply(request, result);
             return;
         }
         let Some(history) = request.group else {
@@ -174,6 +195,15 @@ impl Worker {
                 reply(request, Err(RuntimeError::Overloaded));
                 return;
             }
+            let Some(revision) = self.roster_revision.checked_add(1) else {
+                reply(
+                    request,
+                    Err(RuntimeError::Invalid(
+                        "runtime roster revision overflow".into(),
+                    )),
+                );
+                return;
+            };
             let Request {
                 command: Command::Attach(mut owner),
                 reply: answer,
@@ -206,6 +236,7 @@ impl Worker {
             };
             group.wake(history, &mut self.order);
             self.groups.insert(history, group);
+            self.roster_revision = revision;
             self.refresh(history);
             drop(_permit);
             let _ = answer.send(Ok(Response::Unit));

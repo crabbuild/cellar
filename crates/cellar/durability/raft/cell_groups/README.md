@@ -24,6 +24,41 @@ reservation and verify its permanent receipt. Corruption and authority failures
 keep their typed errors. Settlement removes the active reservation while
 retained source storage remains charged.
 
+## Managed maintenance and retained return
+
+Authenticated fleet observations sample leader load from actual attached group
+owners. Each runtime turn visits at most sixteen owners; a roster revision,
+complete population check and original deadline span the scan. A failed owner,
+roster change, pending attachment or incomplete physical inventory supplies no
+known headroom. Counts describe physical groups, independently of cell count.
+This advisory sample supplies neither a transfer grant nor serving authority.
+
+A catalog-authorized maintenance return starts paused. Its exact new boot may
+reattach an existing voting member only after the directory verifies the current
+Live group, settled membership, returned-boot lineage, retained state, permanent
+member claim and complete image closure. Joined members also retain their seed
+receipt. The directory rechecks the local quiescence guard after catalog I/O.
+A paused return cannot create genesis or a missing claim, seed a learner or admit
+business writes. Generic new-group startup continues to require the ordinary
+open/resumed guard. Fresh catalog resume proof and capacity settlement remain
+separate from local attachment.
+
+A public command refused by the maintenance barrier reports temporary
+`Unavailable` with no submission by that invocation. The cause is captured under
+the registration lock, rather than inferred by rereading a flag after resume.
+Permanent closure remains a distinct cause. Background effects defer a captured
+temporary refusal, including when resume races with their next flag read.
+Neither this refusal nor a lost lifecycle response resolves an earlier mutation.
+A remote maintenance stop or resume returns `Unconfirmed` after enqueueing its
+bounded Node-owned proof work. Exact rooted authority and payload are checked
+before enqueue, preserving typed refusals. The worker rechecks them before
+collecting fresh physical/quorum evidence and syncing the guard. Releasing the
+transport waiter lets the survivor leader
+renew its inspection within the existing two-slot peer metadata bank. A later
+exact retry can observe the synced effect; queueing alone is never acceptance.
+Reconcile an uncertain stop using the same rooted child; signed closure requires
+actual owned shutdown and join before offline confirmation.
+
 ## Manifests
 
 A manifest is a persistent AVL tree ordered by the namespace routing digest and

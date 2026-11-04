@@ -12,6 +12,93 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 managed maintenance checkpoint
+
+The follow-up on 004d1051 implements and locally qualifies catalog-owned
+maintenance for repaired cell groups. Capture CG-07-managed-maintenance-16 binds
+2130 Rust inputs (manifest SHA256
+55e9323085d42f58d0fa77d5eb4b806eb8412e3528c7e129aab14a74b04b789d).
+All nine managed Node cases pass in 102.06 seconds; all eight earlier names remain.
+The new case runs both initial and joined replacement members in both image forms.
+
+Each cycle starts with an actual resource-backed peer repair and settlement
+reconciliation, then moves the real target leader to a survivor. Rooted readiness
+covers one physical group containing two independent cells. The survivor leader
+originates the owned stop. Actual Node join and signed closure precede offline
+confirmation; the surviving quorum accepts writes while that member is offline.
+Canonical retained startup preserves the engine and both images while admission
+stays paused. Old-boot stop and same-new-boot wrong-child resume requests refuse;
+the latter preserves PayloadConflict, the root and paused admission. Fresh owned
+resume proof, capacity/disruption settlement and actual leadership on the returned
+member precede duplicate-receipt, old-token and new-write verification. A subsequent
+maintenance intent proves the disruption slot was released.
+
+Shared fleet metadata now samples actual RawNode leadership across the complete
+physical roster, with at most sixteen owners per turn. Roster revision, physical
+population and the original deadline bound the scan. Unknown, failed or incomplete
+owners supply no headroom. Counts describe groups independently of cell occupancy.
+Five private unit cases cover bounded complete scanning and invalid/changed cuts.
+
+Paused retained startup now requires the exact current returned-boot lineage,
+Live history, settled voting member, retained local state and pre-existing permanent
+claim. Initial-member return uses read-only claim reobservation and existing group
+state; it cannot create genesis or a missing claim. Joined startup retains its seed
+receipt and claim checks. The directory rechecks the synced quiescence guard after
+catalog I/O. Generic new-group and learner startup gates remain in force. Temporary
+maintenance refusal is captured under the registration barrier and exposed as
+Unavailable without submission by that invocation. Effect scheduling defers that
+captured refusal even if resume races with a later flag read; permanent close
+retains its distinct cause and prior mutation uncertainty remains sticky.
+
+The regression with a stop submitted by the survivor leader exposed a metadata dependency cycle: the stop RPC,
+its matched-progress action back to the survivor leader, and the leader's fresh
+inspection require three nested slots in the same two-slot peer bank. Resume has
+the same dependency. A new peer maintenance stop/resume first validates exact
+rooted authority/payload, then queues the existing bounded Node worker and returns
+Unconfirmed. Physical transport completion releases its metadata before the
+nested proof finishes. The worker revalidates context, gathers fresh proof and
+syncs the exact guard; a later exact retry can observe that effect. Queueing grants
+no acceptance, closure, serving or capacity. Local and non-maintenance calls keep
+their original behavior. No deadline, quota, stack or promotion check was raised.
+
+Failed captures retain missing leader load, retained-return refusal, unlocalized
+timeouts, temporary refusal reported as Closed, and the nested proof overload.
+The first queued-proof run also preserves an aggressive uncertain-resubmission
+storm; the final case uses the earlier physical join/signed-closure oracle,
+retrying submission overload rather than competing with its admitted worker.
+The pre-fix source08 join oracle fails and the final source passes with the same
+shutdown deadline. Temporary production diagnostics are absent from the final
+source. Source15 also passes all nine cases before the final typed-refusal check.
+
+The normal unit build and the five scan, three admission, 28 fleet catalog,
+six fleet-action wire and twenty query-wire cases pass. The fleet selection has
+thirty names; its two existing Docker Engine cases remain ignored without their
+explicit owned harness. Earlier prose counted selected cases as passed; the
+preserved logs show 28 passed and two ignored. Broader final-source qualification
+is terminal: all 23 catalog and 179 shared execution cases pass, with the two
+original owned process fixtures ignored. All 181 execution names remain. Full
+library is 1061 passed, one retired inspection-protocol failure and two ignored
+Docker Engine cases; all 1059 parent names remain and the five scan tests are
+added. Three host cases, the original public SDK case, counter/effects builds and
+the retained effects smoke pass. The effects smoke uses the SQLite development
+object store. Locked native-only cellar/cellar-python library compilation and all
+five static checks pass.
+
+Package builds still fail only on 27 unconverted performance-runner errors.
+Strict library Clippy retains 222 diagnostics, 202 dead_code, with no added or
+removed code/message/primary-file keys. The plan suite remains 35 passed, one
+index/Purpose failure and one reviewed source-anchor error. All seven recorded
+inputs of those two failures are byte-identical to 004d1051; no baseline or
+assertion was relaxed. Profiles remain opt-level zero with debug assertions and
+overflow checks, without internal-test cfg. Source, exact binaries, inventories,
+failures and checks are preserved in the capture and its workspace-volume backup.
+The earlier full suites below retain their own source boundaries.
+This remains in-process TLS/SQLite qualification with a conditional fixture
+catalog and explicit fixture deployment attestations. The original public lifecycle
+and failure/cancellation gate, consumer/build/lint gates, exact S3 learner activation,
+current-source RustFS recovery/load, optimized CI and complete feature matrix remain
+required. CG-07 stays IN_PROGRESS, CG-09–16 stay TODO and PR #160 remains draft.
+
 ## CG-07 managed peer replacement and drain checkpoint
 
 The follow-up on e8f9352d adds a four-Node managed lifecycle case and exposes
@@ -46,7 +133,7 @@ caught up; no seed failure or relaxed promotion check was required. Bounded
 fresh-cut reconciliation retains the same permit and debit. Diagnostic-only
 production edits are absent from the final source.
 
-The normal library build, 30 fleet catalog unit tests, six fleet-action wire
+The normal library build, 28 fleet catalog unit tests, six fleet-action wire
 tests, locked native-only cellar/cellar-python library check and all five static
 checks pass. Strict library Clippy retains the same 222 diagnostics, 202 dead_code,
 with no added or removed code/message/primary-file keys. Package compilation

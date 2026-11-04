@@ -247,7 +247,8 @@ impl RangeDirectory {
     ) -> Result<CellGroupBootstrapPermit, CatalogError> {
         self.bounded(async {
             let authorization = if let Some(host) = host {
-                self.require_managed_group_boot(log, host).await?;
+                self.require_managed_retained_group_boot(birth, log, host)
+                    .await?;
                 let group = host
                     .group_authorization(
                         &birth.route().history,
@@ -313,7 +314,8 @@ impl RangeDirectory {
             self.require_current_group_birth(birth).await?;
             check()?;
             if let Some(host) = host {
-                self.require_managed_group_boot(log, host).await?;
+                self.require_managed_retained_group_boot(birth, log, host)
+                    .await?;
             }
             Ok(CellGroupBootstrapPermit {
                 group,

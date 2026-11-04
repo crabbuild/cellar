@@ -3,7 +3,7 @@
 //! Node maintenance and work accounting become visible in one short admission
 //! section. Physical producers and undelivered responses share the work lease.
 use super::*;
-use crate::application::consensus::admission::{Access, Admission};
+use crate::application::consensus::admission::{Access, Admission, RegistrationRefusal};
 use crate::host_services::{ApplicationWork, ApplicationWorkGuard};
 use std::sync::MutexGuard;
 
@@ -38,8 +38,11 @@ impl Shared {
             Some(public) => {
                 let gate = public
                     .admission
-                    .registration(Access::Application)
-                    .map_err(|_| RuntimeError::Closed)?;
+                    .registration_reason(Access::Application)
+                    .map_err(|refusal| match refusal {
+                        RegistrationRefusal::Closed => RuntimeError::Closed,
+                        RegistrationRefusal::Maintenance => RuntimeError::NotReady,
+                    })?;
                 (Some(gate), Some(public.work.enter()))
             }
             None => (None, None),

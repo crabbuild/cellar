@@ -650,6 +650,13 @@ impl CellGroupOwner {
         super::CellReconciliationAuthority::new(self.group.clone(), &self.current, cell)
     }
 
+    /// Count even a leader awaiting its current-term apply barrier. Headroom
+    /// must never mistake a non-serving leader for an unused leadership slot.
+    pub(super) fn local_leader(&self) -> Result<bool, RuntimeError> {
+        self.live()?;
+        Ok(self.node.raft.state == StateRole::Leader)
+    }
+
     pub fn status(&self) -> Result<CellGroupStatus, RuntimeError> {
         self.live()?;
         let cache = self.group.read()?;

@@ -24,8 +24,12 @@ restart also pass local cases with two independent cells in both image forms.
 Resource-backed peer replacement, joint finish, settlement replay, retained source
 physical debt, actual leader handoff and retained joined-member startup now pass
 the focused managed case. Old-boot learner-grant reuse refuses before submission.
-Full catalog maintenance stop/return/resume and the complete public gate remain
-unqualified. Shared follower reads, source-age policies and actual responder
+Catalog maintenance now has a focused local case covering readiness, actual
+leader handoff, owned stop, signed offline confirmation, retained paused return,
+fresh resume and capacity/disruption settlement. Initial and joined current voters run
+in both image forms; both independent cells retain receipts/tokens and serve new
+writes through the returned leader. The complete public lifecycle gate remains
+required, including failure/cancellation ownership. Shared follower reads, source-age policies and actual responder
 metadata advance that cutover. Bounded
 public replica preferences now run through one shared-controller invocation,
 including per-attempt deadlines, an untried observed leader fallback and physical
@@ -46,18 +50,18 @@ part of the target.
 
 | Order | Deliverable | Required result |
 | --- | --- | --- |
-| 1 | Managed whole-group lifecycle (CG-07) | Retain the implemented and locally tested standby inventory → exact boot/capacity → managed birth/range selection → RF3 activation and retained initial-member startup. Retain the qualified peer replacement, actual leader handoff, settlement replay, retained source debt and canonical joined-member startup. Complete and qualify catalog maintenance readiness, owned stop, offline confirmation, retained return, resume and capacity settlement as complete groups with separate cell/image occupancy. Reuse CAS journals, permanent claims, exact boot fencing and physical disruption debt. Join entered work on failure/cancellation before releasing resources. |
-| 2 | Public SDK surface and executable consumers (CG-07) | Retain the implemented public counter, explicit namespace/archive provisioning and typed refusal/identity contracts. Port the original daemon/native/Axum fixtures and performance/fleet runners to namespace capabilities, physical group assignment and replicated cell enrollment. Retain every original HTTP/read/retry behavior and actual responder metadata. Exercise the implemented controller routing with one original deadline, invocation, input, token and global attempt budget; preserve namespace/process grants and fresh destination admission. |
-| 3 | Managed S3 learner activation and archive holds (CG-06/07) | Implement the currently refused exact-reference S3 path without peer fallback. Verify and retain the complete manifest/image/receipt closure; preserve local owner and uncertain outcomes through actual sync. Reauthorize the destination boot and catalog, attach the actual installed member, catch up and obtain fresh quorum before promotion/success. Complete safe archive-hold retirement. A seed receipt or S3 object alone is not activation authority. |
-| 4 | Public, build and backend qualification (CG-07 and MVP portions of CG-14/15/16) | Deliver the four remaining public cases below while retaining the SDK case; resolve public binary compilation, port the old inspection cancellation oracle to the managed shared protocol, and clear strict lint failures without suppressions. Review the stale plan source anchors and reconcile the generated index/Purpose mismatch; preserve the drift refusal until that review is complete. Run affected feature modes from SDK CI. Refresh same-source real RustFS recovery and replication/reclamation under bounded mixed load, retaining the exact binaries, ledgers, failures and resource/latency measurements. |
+| 1 | Public SDK surface and executable consumers (CG-07) | Port the original daemon/native/Axum fixtures and performance/fleet runners to namespace capabilities, physical group assignment and replicated cell enrollment. Clear the 27 remaining performance compilation errors. Retain every original HTTP/read/retry option, exact term/revision transfer guard, actual responder metadata and all five original public gates. Incorporate the implemented cold birth, repair, maintenance stop/return/resume and physical debt into the complete public lifecycle case, including retained nonvoting inventory and failure/cancellation ownership. |
+| 2 | Managed S3 learner activation and archive holds (CG-06/07) | Implement the currently refused exact-reference S3 path without peer fallback. Verify and retain the complete manifest/image/receipt closure; preserve local owner and uncertain outcomes through actual sync. Reauthorize the destination boot and catalog, attach the actual installed member, catch up and obtain fresh quorum before promotion/success. Complete safe archive-hold retirement. A seed receipt or S3 object alone is not activation authority. |
+| 3 | Public, build and backend qualification (CG-07 and MVP portions of CG-14/15/16) | Deliver the four remaining public cases below while retaining the SDK case; port the old inspection cancellation oracle to the managed shared protocol, and clear strict lint failures without suppressions. Review the stale plan source anchors and reconcile the generated index/Purpose mismatch; preserve the drift refusal until that review is complete. Run affected feature modes from SDK CI. Refresh same-source real RustFS recovery and replication/reclamation under bounded mixed load, retaining exact binaries, ledgers, failures and resource/latency measurements. |
 
 The public counter and first SDK gate are qualified at their recorded local
 boundary. Managed boot/directory/stop ownership is implemented at its recorded
 component boundary. Cold inventory/capacity and nonempty initial-group startup
 pass the recorded local gate. Peer replacement, actual handoff and retained
-joined-member restart pass the focused managed case; catalog maintenance
-stop/return/resume still blocks full lifecycle, fleet and performance
-qualification. A successful metadata-only standby boot supplies no
+joined-member restart pass the focused managed case. Basic catalog maintenance
+stop/return/resume now passes its local role/image matrix. Original consumers and
+public acceptance, lifecycle failure/cancellation, exact S3 activation and backend
+qualification still block the complete MVP. A successful metadata-only standby boot supplies no
 complete-inventory or capacity proof; an Active-node fixture cannot replace the
 original public lifecycle gate. The currently refused managed paths remain
 closed until actual authorization, permanent claims, resource accounting and joined service ownership
@@ -112,7 +116,7 @@ full hard cutover.
 | CG-15 | Full load/crash, transition, wakeup and disaster-recovery matrix. Measure the documented profiles and failure schedules; no capacity or TiKV performance-parity claim follows from correctness tests. |
 | CG-16 | Delete remaining predecessor consumers/codecs, finish feature-off/full release checks, publish the unified API/runbooks and qualified operating envelope. No one-cell special path, compatibility reader or production mode toggle. |
 
-The remaining execution sequence is managed startup and dependent public
-consumer ports, S3 activation, the complete MVP public/backend gates, then transition/topology/wake
-features and the final managed recovery/load/release matrix. Passing one layer
+The remaining execution sequence is original public consumer ports and managed
+lifecycle integration, S3 activation, complete MVP public/backend gates, then
+transition/topology/wake features and the final managed recovery/load/release matrix. Passing one layer
 does not mark another layer or the end-to-end goal complete.

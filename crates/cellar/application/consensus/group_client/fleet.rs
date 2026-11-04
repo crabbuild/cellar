@@ -158,11 +158,40 @@ impl RaftCells {
                 crate::raft::completion::RuntimeError::Overloaded => CommandFailure::Overloaded,
                 _ => CommandFailure::Unavailable,
             })?;
-        let snapshot = GroupSnapshot::capture(&selected);
+        let mut snapshot = GroupSnapshot::capture(&selected);
         // This descriptor contains no image/page pins. Release the temporary
         // metadata read reservation before sampling unrelated physical work.
         drop(selected);
+        let load = match self.handle.core.runtime.leadership_sample(deadline).await {
+            Ok(sample) => Some(sample),
+            Err(
+                crate::raft::completion::RuntimeError::NotReady
+                | crate::raft::completion::RuntimeError::GroupQuarantined
+                | crate::raft::completion::RuntimeError::Overloaded
+                | crate::raft::completion::RuntimeError::DeadlineExceeded,
+            ) => None,
+            Err(_) => return Err(CommandFailure::Unavailable),
+        };
         let (node, _) = self.capture_physical_node()?;
+        // An unattached or initializing physical history cannot supply known
+        // headroom. Count complete groups, independently of manifest cell count.
+        if let Some(sample) = load.filter(|sample| {
+            sample.groups == node.node.groups as usize
+                && node.pending_history_registrations == 0
+                && node.unattached_engine_histories == 0
+        }) {
+            snapshot.load = Some(crate::raft::inspection::LeaderLoad {
+                leaders: sample.leaders,
+                capacity: node.node.profile.leader_capacity,
+                sample_age_ms: self
+                    .handle
+                    .domain
+                    .mono_ms()
+                    .map_err(|_| CommandFailure::Unavailable)?
+                    .checked_sub(sample.started_at_ms)
+                    .ok_or(CommandFailure::Unavailable)?,
+            });
+        }
         self.handle
             .core
             .transport

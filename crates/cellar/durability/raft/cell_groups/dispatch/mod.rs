@@ -74,11 +74,14 @@ pub enum CellDispatchError {
 }
 
 impl CellDispatchError {
-    /// A typed application refusal from local execution or an authenticated
-    /// remote reply. This does not resolve a command error's ambiguity: callers
+    /// A typed application or readiness refusal from local execution or an
+    /// authenticated remote reply. This does not resolve a command error's ambiguity: callers
     /// must inspect `CellCommandError::ambiguous` and preserve its command ID.
     pub fn refusal(&self) -> Option<&cellar_logic::consensus::CommandFailure> {
         match self {
+            Self::Runtime(RuntimeError::NotReady) => {
+                Some(&cellar_logic::consensus::CommandFailure::Unavailable)
+            }
             Self::Execution(ExecutionError::Refused(failure))
             | Self::Transport(
                 crate::raft::transport::TransportError::Query(failure)

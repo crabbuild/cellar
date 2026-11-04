@@ -293,6 +293,9 @@ impl Manager {
             // barrier before scheduling a scan or invoking an effect adapter.
             let mut admission = match shared.registration() {
                 Ok(admission) => admission,
+                // The reversible refusal was captured under the admission
+                // barrier. A concurrent resume cannot turn it into a failure.
+                Err(RuntimeError::NotReady) => return Ok(()),
                 Err(_) if shared.application_paused() || shared.closing.load(Ordering::Acquire) => {
                     return Ok(())
                 }

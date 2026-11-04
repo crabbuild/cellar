@@ -196,6 +196,16 @@ async fn managed_cold_capacity_group_and_retained_restart() -> Result<()> {
     Ok(())
 }
 
+fn checkpoint_limits() -> CellGroupCheckpointLimits {
+    CellGroupCheckpointLimits {
+        max_sources: 2,
+        max_retained_bytes: 32 * 1024 * 1024,
+        max_cells: 32,
+        max_transfer_bytes: 32 * 1024 * 1024,
+        max_chunk_bytes: 4093,
+    }
+}
+
 struct ManagedCluster {
     fixtures: Vec<Fixture>,
     roots: Vec<tempfile::TempDir>,
@@ -274,13 +284,7 @@ impl ManagedCluster {
                 .config(&node, LogOpenMode::Create, 24 + i as u8)
                 .await?;
             if !spares.is_empty() {
-                config.shared.checkpoints = Some(CellGroupCheckpointLimits {
-                    max_sources: 2,
-                    max_retained_bytes: 32 * 1024 * 1024,
-                    max_cells: 32,
-                    max_transfer_bytes: 32 * 1024 * 1024,
-                    max_chunk_bytes: 4093,
-                });
+                config.shared.checkpoints = Some(checkpoint_limits());
             }
             let host = node.start_raft_cells(config, services).await?;
             ensure!(host.observe_node(TIMEOUT).await?.node.groups == 0);

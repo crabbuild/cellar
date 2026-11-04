@@ -4,6 +4,57 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Latest managed maintenance checkpoint
+
+This section supersedes the historical checkpoints below. Source
+CG-07-managed-maintenance-16 passes all nine managed Node cases (102.06 seconds),
+retaining all eight earlier names. Both image forms complete repair, maintenance stop submitted by the survivor leader, actual Node join/signed offline proof, retained paused return,
+fresh resume, terminal capacity/disruption settlement and returned-leader writes
+for initial and joined members. Duplicate receipts and old tokens survive. Direct
+paused writes, old-boot stop and wrong-child same-new-boot resume refuse; the wrong
+child preserves PayloadConflict, an unchanged root and paused admission.
+
+Implementation adds bounded complete physical-group leader-load sampling, exact
+returned-boot retained startup without genesis/missing-claim creation, and a
+barrier-captured temporary application refusal. Effect scheduling handles the
+resume race without quarantining a temporary refusal. Peer maintenance stop/resume
+release their transport waiters after exact rooted preflight and bounded worker
+enqueue, returning Unconfirmed while fresh proof and guard sync remain Node-owned.
+This breaks the three-RPC/two-slot metadata dependency without raising capacity
+or accepting queued work. Local/non-maintenance semantics stay intact. Reconcile
+uncertainty through actual joined closure or fresh resumed proof, using the same
+rooted intent; a submission storm competes with the worker's proof budget.
+
+The final Rust manifest has 2130 files, SHA256
+55e9323085d42f58d0fa77d5eb4b806eb8412e3528c7e129aab14a74b04b789d.
+Broader qualification is terminal. Catalog 23 and shared execution 179 pass;
+two original owned process fixtures remain ignored and all 181 names remain.
+Unit build, scan five, admission three, fleet 28 (two existing Docker Engine
+cases ignored), fleet-action wire six and query-wire twenty pass. Full library
+is 1061 passed, the same retired inspection-protocol failure and two ignored.
+All 1059 parent names remain with five scan cases added. Host three, public SDK
+one, counter/effects builds, retained effects smoke, locked native-only library
+compilation and five static checks pass. Strict Clippy remains 222/202 dead_code
+with unchanged diagnostic keys; package builds retain 27 performance errors.
+Plan validation remains 35 passed, one generated index/Purpose failure and one
+reviewed-anchor error, with all seven recorded inputs unchanged from 004d1051.
+No baseline, assertion, timeout, quota or stack was relaxed. Local opt-level-zero
+profiles keep assertions/overflow checks; effects smoke uses the SQLite store.
+
+Consult managed_maintenance_work in both ignored continuations for final checks,
+immutable evidence, publication and any later owned handles. All current checks
+are terminal. Preserve failed captures, source/artifacts and the eight diagrams. Both requested MR progress basenames
+remain excluded. No final-source RustFS, independent-host, load or release claim.
+
+Next feature priority is original executable consumers and public lifecycle/
+ingress/occupancy/feature-off acceptance, including the 27 performance compilation
+errors, retained nonvoting inventory and lifecycle failure/cancellation
+ownership. Then implement exact-reference
+S3 learner activation/archive-hold retirement and refresh same-source RustFS
+recovery plus replication/reclamation load. The retired inspection oracle, strict
+lint and plan anchor/index gates remain required. CG-09–16 retain their complete
+scope. Keep the goal active and PR #160 draft; do not merge.
+
 ## Latest managed peer replacement checkpoint
 
 The follow-up on e8f9352d exports the nested startup cause through the SDK and
@@ -20,7 +71,7 @@ the next invocation resolves its permanent receipt. Corruption/authority errors
 retain their typed failures. Initial promotion NotReady is also uncertain;
 reconcile the same admitted intent and retain its debit.
 
-Final checks pass the library build, 30 fleet unit and six wire cases, native-only
+Final checks pass the library build, 28 fleet unit and six wire cases (two existing Docker Engine cases ignored), native-only
 library compilation and five static checks. Strict Clippy remains 222/202 dead_code
 with the same diagnostic keys; package compilation retains 27 performance errors.
 The added plan-validator run exposes two pre-existing failures: reviewed anchor
