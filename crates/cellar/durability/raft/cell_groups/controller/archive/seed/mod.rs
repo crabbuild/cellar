@@ -2,9 +2,15 @@
 
 //! A fresh quorum seed owns one journaled upload generation through handoff.
 //! Transfer data never publishes a recovery head or supplies S3 output proof.
+mod cleanup;
+
 use super::*;
 use crate::raft::cell_groups::controller::provision::Config;
 use std::sync::{atomic::AtomicBool, Weak};
+
+// One bounded sweep may overlap the transport's single admitted source. Charge
+// their journal codec workspace once to immutable provisioning configuration.
+pub(super) const JOURNAL_WORKSPACE_BYTES: usize = 8 * journal::LIMIT + 16 * 1024;
 
 #[derive(Clone)]
 pub(crate) struct Client(Weak<Shared>);
@@ -75,12 +81,15 @@ impl Lease {
 #[derive(Default)]
 struct State {
     active: usize,
-    groups: BTreeMap<GroupHistory, Arc<tokio::sync::Mutex<()>>>,
+    groups: BTreeMap<GroupHistory, Weak<tokio::sync::Mutex<()>>>,
     cleanup_errors: BTreeMap<GroupHistory, Arc<Error>>,
+    cleaning: bool,
+    next_cleanup: u64,
+    discovery_error: Option<Arc<Error>>,
 }
 
-#[derive(Default)]
 pub(in crate::raft::cell_groups::controller) struct Jobs {
+    max_groups: usize,
     stopping: AtomicBool,
     state: Mutex<State>,
     finished: Notify,
@@ -100,19 +109,42 @@ impl Drop for Entered {
 }
 
 impl Jobs {
+    pub(in crate::raft::cell_groups::controller) fn new(max_groups: usize) -> Self {
+        Self {
+            max_groups,
+            stopping: AtomicBool::new(false),
+            state: Mutex::new(State::default()),
+            finished: Notify::new(),
+        }
+    }
+
+    fn group(
+        &self,
+        state: &mut State,
+        history: GroupHistory,
+    ) -> Result<Arc<tokio::sync::Mutex<()>>> {
+        // The lock index bounds concurrent owners, not every history ever seen.
+        state.groups.retain(|_, group| group.strong_count() != 0);
+        if let Some(group) = state.groups.get(&history).and_then(Weak::upgrade) {
+            return Ok(group);
+        }
+        if state.groups.len() >= self.max_groups {
+            return Err(Error::Runtime(RuntimeError::Overloaded));
+        }
+        let group = Arc::new(tokio::sync::Mutex::new(()));
+        state.groups.insert(history, Arc::downgrade(&group));
+        Ok(group)
+    }
+
     fn enter(
         self: &Arc<Self>,
         history: GroupHistory,
-        max_groups: usize,
     ) -> Result<(Entered, Arc<tokio::sync::Mutex<()>>)> {
         let mut state = self.state.lock().map_err(|_| Error::Stopped)?;
         if self.stopping.load(Ordering::Acquire) {
             return Err(Error::Stopped);
         }
-        if !state.groups.contains_key(&history) && state.groups.len() >= max_groups {
-            return Err(Error::Runtime(RuntimeError::Overloaded));
-        }
-        let group = state.groups.entry(history).or_default().clone();
+        let group = self.group(&mut state, history)?;
         state.active += 1;
         Ok((Entered(self.clone()), group))
     }
@@ -127,16 +159,24 @@ impl Jobs {
             let finished = self.finished.notified();
             tokio::pin!(finished);
             finished.as_mut().enable();
-            if self.state.lock().unwrap_or_else(|e| e.into_inner()).active == 0 {
+            let done = {
+                let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                state.active == 0 && !state.cleaning
+            };
+            if done {
                 return;
             }
             finished.await;
         }
     }
 
-    pub(in crate::raft::cell_groups::controller) fn usage(&self) -> (usize, usize) {
+    pub(in crate::raft::cell_groups::controller) fn usage(&self) -> (usize, usize, usize) {
         let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        (state.active, state.cleanup_errors.len())
+        (
+            state.active,
+            usize::from(state.cleaning),
+            state.cleanup_errors.len() + usize::from(state.discovery_error.is_some()),
+        )
     }
 }
 
@@ -176,9 +216,7 @@ impl Client {
                 .s3
                 .acquire(8192)
                 .ok_or(Error::Runtime(RuntimeError::Overloaded))?;
-            let (entered, group) = shared
-                .archive_seeds
-                .enter(history, shared.limits.max_groups)?;
+            let (entered, group) = shared.archive_seeds.enter(history)?;
             Ok((config, permit, entered, group, history))
         })()
         .map_err(Arc::new)?;
@@ -241,16 +279,23 @@ impl Client {
     }
 }
 
-fn record_cleanup(jobs: &Jobs, history: GroupHistory, result: Result<()>) {
+fn record_cleanup(jobs: &Jobs, history: GroupHistory, result: Result<()>) -> bool {
     if let Err(error) = &result {
         tracing::warn!(%error, "archive seed cleanup retained its durable intent");
     }
     let mut state = jobs.state.lock().unwrap_or_else(|e| e.into_inner());
     if let Err(error) = result {
+        if !state.cleanup_errors.contains_key(&history)
+            && state.cleanup_errors.len() >= jobs.max_groups
+        {
+            state.discovery_error = Some(Arc::new(Error::Invalid("seed cleanup error capacity")));
+            return false;
+        }
         state.cleanup_errors.insert(history, Arc::new(error));
     } else {
         state.cleanup_errors.remove(&history);
     }
+    true
 }
 
 type JournalOwner = (Arc<journal::Journal>, CellGroupArchiveRegistry);
@@ -320,22 +365,12 @@ async fn prepare(
         .run(async { crate::asyncrt::fs() })
         .await
         .map_err(|_| failed(Error::Stopped, None))?;
-    let mut hash = sha2::Sha256::new();
-    use sha2::Digest;
-    for bytes in [
-        history.cluster.bytes(),
-        history.namespace.bytes(),
-        history.group.bytes(),
-        history.incarnation.bytes(),
-    ] {
-        hash.update(bytes);
-    }
     let path = runtime
         .log()
         .limits()
         .directory
         .join("cell-group-seed-archives")
-        .join(hex::encode(hash.finalize()));
+        .join(journal::seed_name(history));
     let creation = registry.creation().clone();
     let engine = runtime
         .log()

@@ -5,6 +5,73 @@ use cellar_logic::{cell_group::*, consensus::*};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[allow(clippy::disallowed_methods)]
+async fn seed_journal_reopens_only_existing_exact_engine_and_purpose() -> anyhow::Result<()> {
+    let domain = crate::sdk::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let history = GroupHistory {
+        cluster: ClusterId::new([21; 16])?,
+        namespace: NamespaceId::new([22; 16])?,
+        group: GroupId::new([23; 16])?,
+        incarnation: IncarnationId::new([24; 16])?,
+    };
+    let archive = CellGroupArchivePool::new(Default::default())?.for_group(
+        Arc::new(object_store::memory::InMemory::new()),
+        object_store::path::Path::from("seed-journal"),
+        history,
+    )?;
+    let prepared = archive
+        .prepare_registry_creation(
+            &domain,
+            GroupRoute {
+                history,
+                range: CellRange::all(),
+                epoch: RouteEpoch::new(1)?,
+                birth_digest: [25; 32],
+                schema_digest: [26; 32],
+            },
+        )
+        .await?;
+    let creation = prepared.intent().clone();
+    let registry = prepared.commit(&domain).await?;
+    let intent = registry.prepare_upload(&domain).await?;
+    let disk = tempfile::tempdir()?;
+    let root = disk.path().to_owned();
+    domain.blocking(move || -> Result<()> {
+        let fs: Arc<dyn cellar_ltx::FileSystem> = Arc::new(cellar_ltx::DirectFileSystem);
+        let path = root.join(seed_name(history));
+        assert!(Journal::open_seed_existing(fs.clone(), path.clone(), [27; 16], creation.clone()).is_err());
+        assert!(matches!(fs.symlink_metadata(&path), Err(error) if error.kind() == std::io::ErrorKind::NotFound));
+        let journal = Journal::open_seed(fs.clone(), path.clone(), [27; 16], creation.clone())?;
+        journal.store(&Record { pending: Pending::Reserve(intent.clone()), ..Default::default() })?;
+        let identity = fs.read(&path.join("identity"))?;
+        let saved = fs.read(&path.join("state"))?;
+        assert_eq!(Journal::inspect_seed(fs.as_ref(), &path, [27; 16])?, creation);
+        assert!(Journal::inspect_seed(fs.as_ref(), &path, [28; 16]).is_err());
+        drop(journal);
+        assert!(Journal::open_seed_existing(fs.clone(), path.clone(), [28; 16], creation.clone()).is_err());
+        assert_eq!(fs.read(&path.join("identity"))?, identity);
+        assert_eq!(fs.read(&path.join("state"))?, saved);
+        let reopened = Journal::open_seed_existing(fs.clone(), path.clone(), [27; 16], creation.clone())?;
+        let Pending::Reserve(recovered) = reopened.load()?.pending else { panic!("lost pending seed reserve") };
+        assert_eq!(recovered, intent);
+        drop(reopened);
+        let ordinary = root.join("ordinary");
+        let journal = Journal::open(fs.clone(), ordinary.clone(), [27; 16], creation.clone())?;
+        assert!(Journal::inspect_seed(fs.as_ref(), &ordinary, [27; 16]).is_err());
+        drop(journal);
+        fs.remove_file(&path.join("state"))?;
+        assert!(Journal::open_seed_existing(fs.clone(), path.clone(), [27; 16], creation.clone()).is_err());
+        assert!(matches!(fs.symlink_metadata(&path.join("state")), Err(error) if error.kind() == std::io::ErrorKind::NotFound));
+        fs.remove_file(&path.join("identity"))?;
+        assert!(Journal::open_seed_existing(fs.clone(), path.clone(), [27; 16], creation).is_err());
+        assert!(matches!(fs.symlink_metadata(&path.join("identity")), Err(error) if error.kind() == std::io::ErrorKind::NotFound));
+        Ok(())
+    })?.await??;
+    domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::disallowed_methods)]
 async fn archive_journal_reopens_exact_intent_and_refuses_lost_state() -> anyhow::Result<()> {
     let domain = crate::sdk::ExecutionDomain::new(tokio::runtime::Handle::current());
     let history = GroupHistory {

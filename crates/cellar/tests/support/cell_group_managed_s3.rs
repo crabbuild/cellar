@@ -37,17 +37,19 @@ async fn refused_with_store(rooted: bool, store: Arc<fault::Store>) -> Result<()
         store,
     ))
     .await?;
-    let work = Box::pin(replace_with_retry(&cluster, true, true)).await;
+    let work = Box::pin(replace_with_retry(&cluster, true, true))
+        .await
+        .and_then(|_| retained_seed_debt(&cluster));
     let stopped = close(std::mem::take(&mut cluster.nodes), &cluster.hosts).await;
-    cluster.fixtures[0].domain.shutdown().await;
     let result = match (work, stopped) {
-        (Ok(_), Ok(())) => Ok(()),
+        (Ok(debt), Ok(())) => Box::pin(restart_seed_cleanup(&cluster, debt)).await,
         (Err(error), Ok(())) => Err(error),
         (Ok(_), Err(error)) => Err(error),
         (Err(error), Err(stopped)) => Err(anyhow::anyhow!(
             "S3 learner failure: {error:#}; joined shutdown failure: {stopped:#}"
         )),
     };
+    cluster.fixtures[0].domain.shutdown().await;
     if result.is_err() {
         for root in std::mem::take(&mut cluster.roots) {
             eprintln!("retained failed managed S3 disk: {}", root.keep().display());
@@ -108,6 +110,8 @@ pub(super) async fn refuse_then_failover(
         timeout: TIMEOUT,
     };
     let store = &cluster.fixtures[3].store;
+    *store.registry_denial_on_payload_refusal.lock().unwrap() =
+        Some(cluster.fixtures[source].store.deny_registry_writes.clone());
     store
         .deny_group_payload_reads
         .store(true, Ordering::Release);
@@ -151,6 +155,64 @@ pub(super) async fn refuse_then_failover(
         .store(false, Ordering::Release);
     refused?;
     ensure!(store.denied_group_payload_reads.load(Ordering::Acquire) > 0);
+    wait_for_seed_debt(&cluster.hosts[source], true)
+        .await
+        .context("failed seed retirement did not retain observable debt")?;
+    ensure!(
+        cluster.fixtures[source]
+            .store
+            .denied_registry_writes
+            .load(Ordering::Acquire)
+            > 0
+    );
+    let journals = seed_journals(&cluster.nodes[source])?;
+    let pending = journals
+        .iter()
+        .map(|p| seed_pending(p))
+        .collect::<Result<Vec<_>>>()?;
+    ensure!(pending.into_iter().any(|pending| pending));
+    cluster.fixtures[source]
+        .store
+        .deny_registry_writes
+        .store(false, Ordering::Release);
+    // No seed request follows the outage recovery. The node must discover and
+    // retire its abandoned generation through its own bounded cleanup owner.
+    wait_for_seed_debt(&cluster.hosts[source], false)
+        .await
+        .context("idle node did not retry abandoned seed retirement")?;
+    for journal in &journals {
+        ensure!(
+            !seed_pending(journal)?,
+            "seed intent was not durably retired"
+        );
+    }
+    let denied = store.denied_group_payload_reads.load(Ordering::Acquire);
+    store
+        .deny_group_payload_reads
+        .store(true, Ordering::Release);
+    let second = target
+        .activate_managed_learner_group(group.clone(), permit.clone(), activation.clone())
+        .await;
+    store
+        .deny_group_payload_reads
+        .store(false, Ordering::Release);
+    ensure!(
+        matches!(
+            second,
+            Err(CellGroupStartupError::Unconfirmed(
+                CellGroupControllerError::Archive(_)
+            ))
+        ),
+        "second physical S3 refusal changed: {second:?}"
+    );
+    ensure!(store.denied_group_payload_reads.load(Ordering::Acquire) > denied);
+    wait_for_seed_debt(&cluster.hosts[source], true).await?;
+    ensure!(journals
+        .iter()
+        .map(|p| seed_pending(p))
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .any(|pending| pending));
     // Node inventory includes the retained staged engine mapping. Admission is
     // proved independently by the controller and its absent runtime owner.
     ensure!(target.observe_node(TIMEOUT).await?.node.groups == 1);
@@ -220,6 +282,13 @@ pub(super) async fn refuse_then_failover(
     );
     let report = cluster.hosts[source].close().await?;
     ensure!(report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers);
+    // The original source has joined with its journal still pending. Recover
+    // writes now so the surviving quorum can repair; source 0's fault wrapper
+    // also surrounds the shared backend. No stopped source can retry cleanup.
+    cluster.fixtures[source]
+        .store
+        .deny_registry_writes
+        .store(false, Ordering::Release);
     let survivors = (0..3).filter(|i| *i != source).collect::<Vec<_>>();
     let hosts = survivors
         .iter()
@@ -279,6 +348,171 @@ pub(super) async fn refuse_then_failover(
     // The other retained initial voter remains in both configurations even if
     // the temporary elected leader is the member this repair will remove.
     Ok((source + 2) % 3)
+}
+
+async fn wait_for_seed_debt(host: &RaftCells, pending: bool) -> Result<()> {
+    tokio::time::timeout(TIMEOUT, async {
+        loop {
+            let usage = host.resource_usage().host.controller;
+            if usage.active_archive_seeds == 0 && (usage.archive_seed_cleanup_errors > 0) == pending
+            {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    Ok(())
+}
+
+fn seed_journals(node: &Node) -> Result<Vec<std::path::PathBuf>> {
+    let root = node.info().data_dir.join("raft/cell-group-seed-archives");
+    let journals = std::fs::read_dir(root)?
+        .map(|entry| entry.map(|entry| entry.path().join("state")))
+        .collect::<std::io::Result<Vec<_>>>()?;
+    ensure!(!journals.is_empty(), "no physical seed journal");
+    Ok(journals)
+}
+
+fn seed_pending(path: &std::path::Path) -> Result<bool> {
+    let record: serde_json::Value = serde_json::from_slice(&std::fs::read(path)?)?;
+    let pending = record
+        .get("record")
+        .and_then(|r| r.get("pending"))
+        .context("seed journal pending record missing")?;
+    Ok(pending != "None")
+}
+
+struct SeedDebt {
+    source: usize,
+    journals: Vec<std::path::PathBuf>,
+    identities: Vec<Vec<u8>>,
+}
+
+fn retained_seed_debt(cluster: &ManagedCluster) -> Result<SeedDebt> {
+    let sources = cluster.hosts[..3]
+        .iter()
+        .enumerate()
+        .filter(|(_, host)| host.is_closed())
+        .map(|(i, _)| i)
+        .collect::<Vec<_>>();
+    ensure!(
+        sources.len() == 1,
+        "seed retirement outage did not select one source"
+    );
+    let source = sources[0];
+    ensure!(cluster.hosts[source].is_closed());
+    let journals = seed_journals(&cluster.nodes[source])?;
+    let mut identities = Vec::new();
+    for journal in &journals {
+        ensure!(seed_pending(journal)?, "source close discarded seed debt");
+        identities.push(std::fs::read(journal.with_file_name("identity"))?);
+    }
+    Ok(SeedDebt {
+        source,
+        journals,
+        identities,
+    })
+}
+
+async fn restart_seed_cleanup(cluster: &ManagedCluster, debt: SeedDebt) -> Result<()> {
+    // Every old host has joined. Reopen only the source: cleanup must not need
+    // a live quorum, a learner request or new activation authority.
+    ensure!(cluster.hosts.iter().all(RaftCells::is_closed));
+    let f = &cluster.fixtures[debt.source];
+    f.store.deny_registry_writes.store(true, Ordering::Release);
+    let node = start_node(
+        cluster.roots[debt.source].path(),
+        f.application.clone(),
+        &f.spec.label,
+    )
+    .await?;
+    let started = async {
+        let (mut config, services) = f
+            .config(&node, LogOpenMode::Resume, 94 + debt.source as u8)
+            .await?;
+        archives::configure(&mut config);
+        config.groups.push(RaftGroupAssignment {
+            history: cluster.history,
+            placement: RaftGroupPlacement::Replica,
+        });
+        node.start_raft_cells(config, services)
+            .await
+            .map_err(anyhow::Error::from)
+    }
+    .await;
+    let host = match started {
+        Ok(host) => host,
+        Err(error) => {
+            let stopped = node.shutdown(ShutdownMode::Preserve).await;
+            return Err(error.context(format!(
+                "seed cleanup retained startup; shutdown={stopped:?}"
+            )));
+        }
+    };
+    let work = async {
+        // Inventory is available while the recovered engine is open. Closing
+        // seals its I/O admission, independently of cleanup's physical joins.
+        ensure!(host.resource_usage().retained_manifest_cells == Some(2));
+        wait_for_seed_debt(&host, true)
+            .await
+            .context("restart did not discover existing seed debt")?;
+        for (journal, identity) in debt.journals.iter().zip(&debt.identities) {
+            ensure!(seed_pending(journal)?);
+            ensure!(&std::fs::read(journal.with_file_name("identity"))? == identity);
+        }
+        let cut = f.catalog.read(TIMEOUT).await?;
+        let gate = &f.store.group_archive_read;
+        gate.armed.store(true, Ordering::Release);
+        let release = ResumeSeedRead(gate);
+        tokio::time::timeout(TIMEOUT, gate.entered.notified())
+            .await
+            .context("restart cleanup did not enter the actual archive read")?;
+        let closing_host = host.clone();
+        let mut closing = tokio::spawn(async move { closing_host.close().await });
+        ensure!(
+            tokio::time::timeout(Duration::from_millis(30), &mut closing)
+                .await
+                .is_err(),
+            "close released an entered seed cleanup read"
+        );
+        ensure!(host.is_closed(), "close waiter did not seal admission");
+        closing.abort();
+        ensure!(matches!(closing.await, Err(error) if error.is_cancelled()));
+        let usage = host.resource_usage().host.controller;
+        ensure!(usage.active_archive_seed_cleanup == 1 && usage.s3_bytes >= 8192);
+        f.store.deny_registry_writes.store(false, Ordering::Release);
+        drop(release);
+        wait_for_seed_debt(&host, false)
+            .await
+            .context("restart did not retire seed debt without quorum")?;
+        for journal in &debt.journals {
+            ensure!(!seed_pending(journal)?);
+        }
+        ensure!(
+            f.catalog.read(TIMEOUT).await?.revision() == cut.revision(),
+            "seed cleanup changed fleet authority"
+        );
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    let stopped = close(vec![node], std::slice::from_ref(&host)).await;
+    match (work, stopped) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Err(error), Err(stopped)) => Err(anyhow::anyhow!(
+            "seed restart: {error:#}; joined shutdown: {stopped:#}"
+        )),
+    }
+}
+
+struct ResumeSeedRead<'a>(&'a fault::RegistryGate);
+
+impl Drop for ResumeSeedRead<'_> {
+    fn drop(&mut self) {
+        self.0.armed.store(false, Ordering::Release);
+        self.0.resume.notify_one();
+    }
 }
 
 /// A surviving original voter is offline. Its retained physical/producer debt

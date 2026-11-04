@@ -309,8 +309,31 @@ physical upload and handoff cleanup finish. The destination's prepared stores ow
 their local pins before READY1. Caller cancellation cannot release entered work;
 node close stops new source admission and joins transport with source cleanup.
 An uncertain ticket retirement preserves its durable journal and observable cleanup
-error. A later seed attempt reconciles that exact intent before allocating again;
-automatic background/restart cleanup of abandoned seed journals remains unfinished.
+error. A later seed attempt reconciles that exact intent before allocating again.
+A node-owned background sweep also discovers existing seed journals during idle
+operation and retained restart. It streams one directory entry at a time and
+checks the canonical history path, journal purpose, engine creation and exact
+immutable namespace archive binding. Cleanup may outlive the selected birth;
+reopening that binding grants no current membership or serving authority. Missing,
+corrupt, foreign-engine or wrong-purpose state refuses without initialization.
+
+Live sources and cleanup share a per-history lock. A sweep skips an entered
+source, never expires its protection by age, and retains its lock through entered
+physical I/O, including panic/error joins. It resolves the original reserve intent
+or upload ticket idempotently, confirms abort, then syncs the empty local record.
+An unavailable registry or unconfirmed abort preserves the intent and observable
+debt for another pass. Bounded error tracking does not stop other journals from
+being examined. Empty journals need no remote request. A lost journal or engine
+cannot authorize retirement of an unknown remote owner.
+
+The immutable provisioning configuration charges one 272-KiB journal workspace
+to the existing node preparation budget. One sweep runs per node, with one
+ordinary 8-KiB S3 admission per journal rather than for the entire inventory.
+Configured ceilings remain unchanged. Complete passes rest for at least one
+second, or the configured retry interval if longer. Close stops new sweeps and
+joins entered work before releasing engine/configuration resources; cancelling a
+close waiter cannot release a blocked archive read. Controller usage separately
+reports active sources, the active sweep and retained cleanup/discovery errors.
 
 Managed retries retain the exact destination boot, member, repair permit and data
 mode. Source member/node are attempt hints, independently reauthorized against a

@@ -74,6 +74,9 @@ pub struct Store {
     pub group_payload_reads: AtomicUsize,
     pub denied_group_payload_reads: AtomicUsize,
     pub deny_group_payload_reads: AtomicBool,
+    pub deny_registry_writes: std::sync::Arc<AtomicBool>,
+    pub denied_registry_writes: AtomicUsize,
+    pub registry_denial_on_payload_refusal: std::sync::Mutex<Option<std::sync::Arc<AtomicBool>>>,
     pub range_before: RegistryGate,
     pub range_genesis_after: RegistryGate,
     pub range_page_puts: AtomicUsize,
@@ -388,6 +391,13 @@ impl ObjectStore for Store {
                 return Err(failure());
             }
         }
+        if path.as_ref().contains("/cell-group-archives/")
+            && path.as_ref().ends_with("/ownership/registry")
+            && self.deny_registry_writes.load(Ordering::Acquire)
+        {
+            self.denied_registry_writes.fetch_add(1, Ordering::AcqRel);
+            return Err(failure());
+        }
         if self.fail_before.swap(false, Ordering::AcqRel) {
             return Err(failure());
         }
@@ -535,6 +545,14 @@ impl ObjectStore for Store {
             if self.deny_group_payload_reads.load(Ordering::Acquire) {
                 self.denied_group_payload_reads
                     .fetch_add(1, Ordering::AcqRel);
+                if let Some(denial) = self
+                    .registry_denial_on_payload_refusal
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                {
+                    denial.store(true, Ordering::Release);
+                }
                 return Err(failure());
             }
         }

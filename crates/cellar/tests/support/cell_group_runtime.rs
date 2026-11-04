@@ -184,7 +184,16 @@ impl RuntimeCluster {
                         self.network.push_back((history, message));
                         continue;
                     }
-                    Err(error) => return Err(error.into()),
+                    Err(error) => {
+                        return Err(error).with_context(|| {
+                            format!(
+                                "submit physical {:?} from {} to {} for {history:?}",
+                                message.get_msg_type(),
+                                message.from,
+                                message.to
+                            )
+                        });
+                    }
                 };
                 if snapshot && self.drop_snapshot_delivery {
                     drop(delivery);
@@ -197,15 +206,28 @@ impl RuntimeCluster {
                         );
                         self.failed_snapshot = true;
                         let to = message.to as usize - 1;
-                        self.retry_checkpoint =
-                            Some(self.transports[to].register_group_checkpoint(
-                                self.appliers[&(to, history)].1.clone(),
-                            )?);
+                        self.retry_checkpoint = Some(
+                            self.transports[to]
+                                .register_group_checkpoint(self.appliers[&(to, history)].1.clone())
+                                .with_context(|| {
+                                    format!(
+                                        "restore checkpoint registration at member {}",
+                                        message.to
+                                    )
+                                })?,
+                        );
                         // Do not requeue this failed snapshot. Raft must create
                         // another after its delivery failure is consumed.
                         continue;
                     }
-                    result?;
+                    result.with_context(|| {
+                        format!(
+                            "deliver physical {:?} from {} to {} for {history:?}",
+                            message.get_msg_type(),
+                            message.from,
+                            message.to
+                        )
+                    })?;
                 }
                 if snapshot {
                     self.snapshot_transfers += 1;

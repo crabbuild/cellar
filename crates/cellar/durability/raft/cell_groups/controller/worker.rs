@@ -191,6 +191,7 @@ impl Worker {
                 .map_err(|_| CellGroupControllerError::Closed)?;
             self.launch(now)?;
             self.archives.launch(&self.runtime, &self.shared, now);
+            self.shared.archive_seeds.maintain(&self.shared, now);
             self.effects.launch(&self.quarantined, &self.shared, now)?;
             let timer = domain
                 .sleep_until(wake_at)

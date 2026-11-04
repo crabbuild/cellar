@@ -5,7 +5,8 @@ use super::*;
 use cellar_ltx::{FileSystem, HostFileLock};
 use serde::{Deserialize, Serialize};
 
-const LIMIT: usize = 32 * 1024;
+pub(super) const LIMIT: usize = 32 * 1024;
+const SEED_DOMAIN: &str = "cellar-cell-group-seed-archive-journal-1";
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -63,6 +64,7 @@ impl Journal {
             engine,
             creation,
             "cellar-cell-group-archive-journal-1",
+            true,
         )
     }
 
@@ -72,13 +74,34 @@ impl Journal {
         engine: [u8; 16],
         creation: CellGroupArchiveCreation,
     ) -> Result<Self> {
-        Self::open_domain(
-            filesystem,
-            directory,
-            engine,
-            creation,
-            "cellar-cell-group-seed-archive-journal-1",
-        )
+        Self::open_domain(filesystem, directory, engine, creation, SEED_DOMAIN, true)
+    }
+
+    pub(super) fn open_seed_existing(
+        filesystem: Arc<dyn FileSystem>,
+        directory: std::path::PathBuf,
+        engine: [u8; 16],
+        creation: CellGroupArchiveCreation,
+    ) -> Result<Self> {
+        Self::open_domain(filesystem, directory, engine, creation, SEED_DOMAIN, false)
+    }
+
+    pub(super) fn inspect_seed(
+        filesystem: &dyn FileSystem,
+        directory: &std::path::Path,
+        engine: [u8; 16],
+    ) -> Result<CellGroupArchiveCreation> {
+        let bytes = read(filesystem, directory, "identity")?
+            .ok_or(Error::Invalid("seed journal identity missing"))?;
+        let identity: Identity = serde_json::from_slice(&bytes)
+            .map_err(|_| Error::Invalid("seed journal identity encoding"))?;
+        if identity.domain != SEED_DOMAIN
+            || identity.engine != engine
+            || encode(&identity)? != bytes
+        {
+            return Err(Error::Invalid("seed journal identity binding"));
+        }
+        Ok(identity.creation)
     }
 
     fn open_domain(
@@ -87,8 +110,13 @@ impl Journal {
         engine: [u8; 16],
         creation: CellGroupArchiveCreation,
         purpose: &str,
+        initialize: bool,
     ) -> Result<Self> {
-        cellar_ltx::host::create_dir_all_durable(filesystem.as_ref(), &directory)?;
+        if initialize {
+            cellar_ltx::host::create_dir_all_durable(filesystem.as_ref(), &directory)?;
+        } else if !filesystem.symlink_metadata(&directory)?.is_dir {
+            return Err(Error::Invalid("seed journal directory type"));
+        }
         let lock = filesystem.lock_file(&directory.join("owner.lock"))?;
         let identity = Identity {
             domain: purpose.into(),
@@ -104,7 +132,7 @@ impl Journal {
         let guard = journal.read("identity")?;
         let record = journal.read("state")?;
         match (guard, record) {
-            (None, None) => {
+            (None, None) if initialize => {
                 let bytes = encode(&journal.identity)?;
                 let mut file = journal
                     .filesystem
@@ -129,21 +157,7 @@ impl Journal {
     }
 
     fn read(&self, name: &str) -> Result<Option<Vec<u8>>> {
-        let path = self.directory.join(name);
-        let metadata = match self.filesystem.symlink_metadata(&path) {
-            Ok(metadata) => metadata,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error.into()),
-        };
-        if !metadata.is_file || metadata.len == 0 || metadata.len > LIMIT as u64 {
-            return Err(Error::Invalid("archive journal file bounds/type"));
-        }
-        let mut file = self.filesystem.open(&path)?;
-        let length = file.file_len()?;
-        if length != metadata.len {
-            return Err(Error::Invalid("archive journal changed during read"));
-        }
-        Ok(Some(file.read_exact_at(0, length as usize)?))
+        read(self.filesystem.as_ref(), &self.directory, name)
     }
 
     pub(super) fn load(&self) -> Result<Record> {
@@ -184,6 +198,42 @@ impl Journal {
         }
         Ok(())
     }
+}
+
+pub(super) fn seed_name(history: GroupHistory) -> String {
+    use sha2::Digest;
+    let mut hash = sha2::Sha256::new();
+    for bytes in [
+        history.cluster.bytes(),
+        history.namespace.bytes(),
+        history.group.bytes(),
+        history.incarnation.bytes(),
+    ] {
+        hash.update(bytes);
+    }
+    hex::encode(hash.finalize())
+}
+
+fn read(
+    filesystem: &dyn FileSystem,
+    directory: &std::path::Path,
+    name: &str,
+) -> Result<Option<Vec<u8>>> {
+    let path = directory.join(name);
+    let metadata = match filesystem.symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    if !metadata.is_file || metadata.len == 0 || metadata.len > LIMIT as u64 {
+        return Err(Error::Invalid("archive journal file bounds/type"));
+    }
+    let mut file = filesystem.open(&path)?;
+    let length = file.file_len()?;
+    if length != metadata.len {
+        return Err(Error::Invalid("archive journal changed during read"));
+    }
+    Ok(Some(file.read_exact_at(0, length as usize)?))
 }
 
 fn encode(value: &impl Serialize) -> Result<Vec<u8>> {

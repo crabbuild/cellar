@@ -66,6 +66,25 @@ responder, values and versions; new writes require S3 proof. A surviving origina
 voter's missing physical inventory must block catalog settlement and retain its
 debit even after membership repair completes.
 
+The fault case also blocks actual registry mutations after target payload
+refusal. Require a witnessed denied write, retained pending journal and observable
+cleanup error. Restore writes without issuing another learner request: the node's
+idle owner must confirm retirement and sync the empty record. A second failed
+retirement remains pending through source-service close; restore writes only after
+that source joins so the surviving quorum can repair. Preserve the shared-backend
+effect when the first fixture owns the underlying store.
+
+After every old host joins shutdown, reopen only that source on its retained disk.
+With registry writes denied, background discovery must find the original engine-
+and archive-bound intent without a live quorum or another learner request. Restore
+writes and require durable retirement without changing fleet authority. Gate an
+actual archive read, start close, verify sealed admission and retained S3/sweep
+ownership, cancel its waiter, then release the read and require joined shutdown.
+Sample retained cell inventory before close seals engine I/O admission. Both image
+forms run. Separate journal tests reject a foreign engine, ordinary archive-journal
+purpose, missing state and missing identity; existing-only open cannot reconstruct
+those records.
+
 These are embedded native Nodes with separate domains, disks and TLS. Real RustFS
 verifies the S3 adapter; it does not supply independent or resource-constrained
 voter hosts. A source-service stop is distinct from process SIGKILL and permanent

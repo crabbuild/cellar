@@ -46,14 +46,21 @@ independent destination verification and the existing physical install fences.
 Source hints may change after leader failure while destination boot/member/permit
 and transfer mode remain fixed. Normal archived replacement/maintenance and the
 S3 refusal/failover/debt matrix pass scoped native and real-RustFS cases. The
-combined native run still has one checkpoint TCP retry failure; bounded failover
-readiness and earlier maintenance failures remain unresolved despite later passes.
-Automatic abandoned-seed journal cleanup and the complete public
-lifecycle gate remain required. See the latest [progress checkpoint](progress.md).
+current seven-target native campaign passes 265 cases with 34 explicit skips. The
+original TCP retry, bounded readiness and maintenance failures remain unexplained
+despite later passes.
+Authenticated retained seed journals now reconcile automatically during idle
+operation and restart, with source-lock serialization, per-journal admission and
+joined close. Registry failure retains the intent; missing/corrupt/foreign-engine
+state refuses without initialization. Native/RustFS cases cover idle retry,
+source-only restart without quorum and cancellation of a close waiter during
+charged archive I/O. Complete public lifecycle and fenced handling of unknown/lost
+ownership remain required. See the latest [progress checkpoint](progress.md).
 
 CG-07 remains IN_PROGRESS. The native_cell_groups_public target now passes its
 sdk_many_cells_share_group case through public startup, native/Axum ingress and
-retained process restart. The other four original public acceptance cases remain
+retained process restart, including the current-source 132.07-second drill.
+The other four original public acceptance cases remain
 required and have not been delivered.
 CG-09–16 remain TODO. Historical local Docker/RustFS recovery and effects results
 do not qualify the latest combined SDK/fleet source, independent hosts, sustained
@@ -109,9 +116,9 @@ inventory explicit and fail closed for unseeded groups.
 
 | Order | Deliverable | Required result |
 | --- | --- | --- |
-| 1 | Managed S3 learner activation and archive holds (CG-06/07) | Expand the scoped native/RustFS results to the full failure/cancellation and fenced failed-voter lifecycle. Preserve complete manifest/image/receipt closure, destination boot/catalog checks, physical install, catch-up and fresh quorum before promotion. Complete automatic discovery/reconciliation of abandoned seed journals and safe hold retirement during outages and restart. A surviving original voter still needs a live physical-inventory proof for catalog settlement; its outage must retain the debit. Finish orchestration for that retained debt and qualify stop/offline ownership; a seed or remote object supplies no activation authority. |
+| 1 | Managed S3 learner activation and archive holds (CG-06/07) | Expand the scoped native/RustFS results to the full failure/cancellation and fenced failed-voter lifecycle. Preserve complete manifest/image/receipt closure, destination boot/catalog checks, physical install, catch-up and fresh quorum before promotion. Retained-journal discovery and retirement now pass native/RustFS idle, outage, solo-restart and cancelled-close cases. Complete fenced handling of unknown/lost ownership and the remaining failure/cancellation lifecycle. A surviving original voter still needs a live physical-inventory proof for catalog settlement; its outage must retain the debit. Finish orchestration for that retained debt and qualify stop/offline ownership; a seed or remote object supplies no activation authority. |
 | 2 | Public SDK surface and executable consumers (CG-07) | Port the original daemon/native/Axum fixtures and performance/fleet runners to namespace capabilities, physical group assignment and replicated cell enrollment. The local all-binary check clears the original 27 compilation errors; qualify the final combined source. Clear the remaining 128-cell enrollment deadline, qualify S3 at every planned occupancy, finish live manifest-page ownership and qualify owned extent collection under the original workload bounds. Retain every original HTTP/read/retry option, exact term/revision transfer guard, actual responder metadata and all five original public gates. Incorporate the implemented cold birth, repair, maintenance stop/return/resume and physical debt into the complete public lifecycle case, including retained nonvoting inventory and failure/cancellation ownership. |
-| 3 | Public, build and backend qualification (CG-07 and MVP portions of CG-14/15/16) | Diagnose the current checkpoint TCP retry `Overloaded`, intermittent five-second successor-readiness timeout and earlier eight-turn maintenance failure; repeats cannot waive failed runs. Deliver the four remaining public cases below while retaining the SDK case; port the old inspection cancellation oracle to the managed shared protocol, and clear strict lint failures without suppressions. Review stale plan anchors and reconcile generated index/Purpose drift. Run affected SDK CI feature modes. Extend current-source real RustFS component recovery to constrained independent voters and replication/reclamation under bounded mixed load, retaining exact binaries, ledgers, failures and resource/latency measurements. |
+| 3 | Public, build and backend qualification (CG-07 and MVP portions of CG-14/15/16) | Diagnose the original checkpoint TCP retry `Overloaded`, intermittent five-second successor-readiness timeout and earlier eight-turn maintenance failure; current passes cannot waive failed runs. Deliver the four remaining public cases below while retaining the SDK case; port the old inspection cancellation oracle to the managed shared protocol, and clear strict lint failures without suppressions. Review stale plan anchors and reconcile generated index/Purpose drift. Run affected SDK CI feature modes. Extend current-source real RustFS component recovery to constrained independent voters and replication/reclamation under bounded mixed load, retaining exact binaries, ledgers, failures and resource/latency measurements. |
 
 The public counter and first SDK gate are qualified at their recorded local
 boundary. Managed boot/directory/stop ownership is implemented at its recorded

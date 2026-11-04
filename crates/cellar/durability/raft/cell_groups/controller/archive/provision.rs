@@ -22,7 +22,7 @@ impl Provisioning {
         if self.namespaces.len() != settings.namespaces.len() {
             return Err(invalid());
         }
-        let mut bytes = 0usize;
+        let mut bytes = seed::JOURNAL_WORKSPACE_BYTES;
         for (profile, serving) in self.namespaces.iter().zip(&settings.namespaces) {
             if !profile.directory.same_owner(&serving.directory)
                 || std::mem::discriminant(&profile.images)

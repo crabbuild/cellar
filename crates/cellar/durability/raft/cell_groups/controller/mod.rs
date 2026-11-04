@@ -137,6 +137,8 @@ pub struct CellGroupControllerUsage {
     pub effect_retries: u64,
     /// Includes response handoff and physical retirement of seed uploads.
     pub active_archive_seeds: usize,
+    /// One node-owned streaming journal sweep; never supplies serving authority.
+    pub active_archive_seed_cleanup: usize,
     pub archive_seed_cleanup_errors: usize,
 }
 
@@ -317,7 +319,7 @@ impl CellGroupController {
             effect_retries: AtomicU64::new(0),
             requests,
             archives: Mutex::new(BTreeMap::new()),
-            archive_seeds: Arc::new(archive::seed::Jobs::default()),
+            archive_seeds: Arc::new(archive::seed::Jobs::new(limits.max_groups)),
             s3: commands::budget(limits),
             active_apply: AtomicUsize::new(0),
             pending_apply: AtomicUsize::new(0),
@@ -405,7 +407,8 @@ impl CellGroupController {
         let shared = &self.handle.0;
         let (command_bytes, retained_commands) = shared.commands.usage();
         let (s3_bytes, retained_s3) = shared.s3.usage();
-        let (active_archive_seeds, archive_seed_cleanup_errors) = shared.archive_seeds.usage();
+        let (active_archive_seeds, active_archive_seed_cleanup, archive_seed_cleanup_errors) =
+            shared.archive_seeds.usage();
         let (
             preparation_bytes,
             retained_preparations,
@@ -454,6 +457,7 @@ impl CellGroupController {
             send_refusals: shared.send_refusals.load(Ordering::Relaxed),
             closing: shared.closing.load(Ordering::Acquire),
             active_archive_seeds,
+            active_archive_seed_cleanup,
             archive_seed_cleanup_errors,
         }
     }

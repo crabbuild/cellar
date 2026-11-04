@@ -216,4 +216,38 @@ impl RangeDirectory {
             .open_registry(domain, &binding.creation)
             .await?)
     }
+
+    /// Cleanup may outlive the selected birth. Reopen only the exact immutable
+    /// catalog binding recorded by this engine; no initialization or serving
+    /// authority is supplied by an abandoned upload intent.
+    pub(in crate::raft) async fn open_seed_cleanup_archive(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        pool: &CellGroupArchivePool,
+        expected: &CellGroupArchiveCreation,
+    ) -> Result<CellGroupArchiveRegistry> {
+        let route = expected.route();
+        let config = self.namespace_config();
+        if route.history.cluster != config.cluster || route.history.namespace != config.namespace {
+            return Err(CatalogError::Corrupt("seed cleanup namespace").into());
+        }
+        let bytes = self
+            .bounded(async {
+                self.namespace
+                    .inner
+                    .read_versioned_bounded(&self.archive_binding_key(route), wire::LIMIT)
+                    .await?
+                    .map(|(bytes, _)| bytes)
+                    .ok_or(CatalogError::Corrupt("missing seed archive binding"))
+            })
+            .await?;
+        let binding: Binding = record::decode(wire::GROUP_ARCHIVE, &bytes, wire::LIMIT)?;
+        if binding.namespace != self.namespace.root_digest() || &binding.creation != expected {
+            return Err(CatalogError::Corrupt("seed archive binding changed").into());
+        }
+        Ok(self
+            .group_archive(pool, route)?
+            .open_registry(domain, expected)
+            .await?)
+    }
 }

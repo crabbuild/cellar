@@ -4,7 +4,42 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
-## Managed S3 learner checkpoint
+## Idle/restart seed retirement checkpoint
+
+A bounded node-owned sweep now retires authenticated retained seed journals during
+idle operation and restart. It validates history/purpose/engine/archive identity,
+shares live sources' group locks, reconciles the exact intent and confirms abort
+before syncing empty state. Unknown/missing/corrupt state never initializes a
+replacement or permits retirement of an unknown owner. Cleanup can reopen an old
+immutable catalog binding without serving or membership authority. Physical joins
+precede lock/admission release, including errors/panics. Joined close retains an
+entered remote read even after its waiter is cancelled. One 272-KiB workspace is
+charged to existing provisioning capacity; ordinary S3 admission is per journal.
+The source and cleanup modules live under `controller/archive/seed/`; public Rust
+paths and configured ceilings/deadlines/profiles remain unchanged.
+
+CG-07-seed-cleanup-01/source-final SHA256 is
+9d8d111ff2121fe9802d186b04710039e480c478366b0de9f0d372719e995603
+for 2,718 inputs above acd56a9f. The complete native campaign passes 265 cases/34
+explicit skips. A test-only inventory-before-close adjustment reran managed;
+production and seven other binaries are unchanged. Two journal cases and focused
+cleanup pass. Current public SDK/native/Axum process/restart passes in 132.07s.
+Four real RustFS cases pass in both image forms, including idle/solo-restart debt
+retirement, cancelled close and all-voter-disks/verifier-cache-erased recovery.
+Backend/VM are stopped; data and exact sources/binaries/failures are retained.
+See [progress](progress.md) for provenance and timings.
+
+Strict library Clippy remains 220 diagnostics/206 normalized keys without additions.
+Plan index/Purpose and reviewed-protocol drift remain red. Preserve earlier TCP
+overload, five-second readiness, eight-turn maintenance, enrollment and inspection
+failures; passes supply no causal fix or SLA. Next: fenced failed-voter/retained
+survivor-debt orchestration, four remaining public gates, capability/default
+cutover, collection/performance/inspection/lint/plan/release modes and CG-09–16.
+Lost ownership still needs proper recovery authority. Independent constrained
+voters, permanent Docker fencing and load remain unqualified. The full hard
+cutover is incomplete and PR #160 stays draft.
+
+## Managed S3 learner checkpoint at acd56a9f
 
 Managed `from_s3` activation now captures a fresh-quorum complete checkpoint,
 journals a separate upload generation and authenticates its ticket/reference in

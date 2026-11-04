@@ -12,7 +12,79 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
-## CG-07 managed S3 learner data plane and source failover
+## CG-07 owned idle and restart seed retirement
+
+CG-07-seed-cleanup-01/source-final binds 2,718 Rust/Python/manifest inputs above
+acd56a9fc2f14937af269e0c6e1ca54bb047ccb1 to SHA256
+9d8d111ff2121fe9802d186b04710039e480c478366b0de9f0d372719e995603.
+The preceding candidate has SHA256
+7ad9ac05a2da65ade95b300b5462523369f8d847197efce23900eec95fe87480.
+Only the managed test's inventory measurement moved before engine close, with an
+additional sealed-admission assertion. All production inputs and seven other test
+binaries are unchanged; the complete managed target was rerun. Combined record
+SHA256 is c53bfd8c79acb345e3a27e64a751b9760c8c818fdb62473896eb1da49bf0433b.
+
+Abandoned seed-upload journals now reconcile without another learner request.
+One streaming node-owned sweep validates history path, canonical purpose, engine
+creation and immutable namespace archive identity. It shares live sources' group
+locks, skips their entered work and reconciles only the original reserve/upload
+intent. Confirmed abort precedes syncing the empty record. Backend failure keeps
+the intent and observable debt; missing/corrupt/foreign metadata never initializes
+a replacement or authorizes retirement of an unknown owner. Cleanup may reopen an
+old immutable binding without granting current membership or serving authority.
+
+The existing provisioning bank charges one 272-KiB journal workspace per archived
+node. Ordinary 8-KiB S3 admission is per journal. Physical joins precede release of
+locks/admission, including panic/error paths. Error capacity cannot stop scanning
+other entries; weak lock bookkeeping does not accumulate every past history.
+Close stops new sweeps and joins entered work before engine/configuration release.
+No configured ceiling, original five-second call/eight-turn bound, stack, profile,
+authority fence or durability assertion is relaxed.
+
+The regression first failed at idle retirement: actual denied registry writes
+left a pending journal/error that never retried after backend recovery. The fixed
+case requires idle retirement, then another retained intent through source close
+and fresh-quorum repair. After every old host joins, the source alone reopens that
+intent without quorum or another learner request. A gated archive read keeps close
+pending and charged after its waiter is cancelled; release permits durable
+retirement and joined shutdown without changing fleet authority. Both image forms
+run. Existing-only journal tests reject wrong engine/purpose and missing state or
+identity without reconstruction.
+
+Seven native targets pass **265 cases with 34 explicit backend/process skips**:
+managed 14, snapshot 5, archive-controller 16, archive/recovery 31, host 3,
+storage 16 and execution 180. Two targeted library journal tests pass. The final
+focused cleanup case passes in 32.52 seconds and complete managed rerun in 221.10
+seconds. Current public SDK/native/Axum process/restart passes in 132.07 seconds;
+its counter executable and process evidence remain retained.
+
+Four cases pass against pinned real RustFS at one CPU/2 GiB after signed
+conditional-operation checks: replacement/restart 36.48s, initial/joined
+maintenance 80.70s, refusal/failover plus idle/solo-restart cleanup and cancelled
+close 36.15s, and fresh recovery after erasing every old voter directory/verifier
+cache 17.66s. Both image forms run. Record SHA256 is
+1fb2db0919585b80bb19311abdf382597a21acb154f59382021c176864590d7e.
+Backend/VM are stopped with data retained. These embedded-voter cases and contract
+fence do not qualify constrained independent Linux voters, permanent Docker launch
+revocation or sustained load. The public SDK drill separately uses native processes.
+
+Format/layout, dependency/docs and native-only Cellar/cellar-python checks pass,
+including the unavailable Python sentinel. Strict library Clippy retains **220
+diagnostics (202 dead-code)** and the same 206 normalized diagnostic keys, with no
+added keys or suppressions; the seed module path move is normalized. Plan checks
+retain 35 passes, one generated-index/Purpose failure and one reviewed-protocol
+drift error; validation/preflight still refuse the drift.
+
+TCP retry passes this complete execution target, fifteen earlier exact repeats
+and 33 checkpoint cases with frame/stage error context. Its original overload
+failure remains unexplained. Earlier five-second readiness, eight-turn maintenance,
+128-cell enrollment and inspection failures remain open; passes do not waive them
+or establish a failover SLA. Full performance/library suites were not rerun here.
+Finish fenced failed-voter/survivor-debt orchestration, the remaining public gates,
+capability/default cutover, remaining release profiles and CG-09–16. CG-07 remains
+IN_PROGRESS and PR #160 remains draft.
+
+## CG-07 managed S3 learner data plane and source failover at acd56a9f
 
 Capture CG-07-managed-s3-seeding-01/source-candidate binds 2,717
 Rust/Python/manifest inputs above 41a67844278247df18c16df3c781a3c60bc6dd71
