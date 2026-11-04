@@ -46,7 +46,7 @@ independent destination verification and the existing physical install fences.
 Source hints may change after leader failure while destination boot/member/permit
 and transfer mode remain fixed. Normal archived replacement/maintenance and the
 S3 refusal/failover/debt matrix pass scoped native and real-RustFS cases. The
-current seven-target native campaign passes 265 cases with 34 explicit skips. The
+current seven-target native campaign passes 266 cases with 35 explicit skips. The
 original TCP retry, bounded readiness and maintenance failures remain unexplained
 despite later passes.
 Authenticated retained seed journals now reconcile automatically during idle
@@ -56,6 +56,16 @@ state refuses without initialization. Native/RustFS cases cover idle retry,
 source-only restart without quorum and cancellation of a close waiter during
 charged archive I/O. Complete public lifecycle and fenced handling of unknown/lost
 ownership remain required. See the latest [progress checkpoint](progress.md).
+
+Quarantined obsolete-voter S3 replacement now passes native and real-RustFS
+component cases in both image forms. Current-host preflight refuses saved startup
+authority before engine mutation; physical route refresh omits the quarantined
+initial endpoint while retaining durable votes/debt. Fresh stable RF3, exact
+isolation attribution, lost settlement replay, restored cells/receipts and retained
+old log/target capacity floor are checked. Seven current-source native targets
+pass 266 cases/35 explicit skips, plus the public SDK process gate; four real
+RustFS lifecycle/recovery cases pass. These fixture results do not complete
+automatic failed-voter/terminal-removal orchestration or the public lifecycle gate.
 
 CG-07 remains IN_PROGRESS. The native_cell_groups_public target now passes its
 sdk_many_cells_share_group case through public startup, native/Axum ingress and
@@ -205,9 +215,9 @@ full hard cutover.
 | CG-15 | Full load/crash, transition, wakeup and disaster-recovery matrix. Measure the documented profiles and failure schedules; no capacity or TiKV performance-parity claim follows from correctness tests. |
 | CG-16 | Delete remaining predecessor consumers/codecs, finish feature-off/full release checks, publish the unified API/runbooks and qualified operating envelope. No one-cell special path, compatibility reader or production mode toggle. |
 
-The next functional slice is archived managed replacement/maintenance and exact
-S3 activation, including stop/offline ownership and archive hold retirement,
-followed by public lifecycle/default-backend
+The next functional slice is automatic fenced failed-voter recovery and retained
+surviving-voter-debt orchestration, including terminal survivor/archive
+verification, followed by public lifecycle/default-backend
 integration and complete MVP public/backend gates, then
 transition/topology/wake features and the final managed recovery/load/release matrix. Passing one layer
 does not mark another layer or the end-to-end goal complete.

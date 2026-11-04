@@ -382,16 +382,6 @@ impl FleetHostAuthorization {
         self.catalog.clone()
     }
 
-    pub(crate) async fn check_declared_namespaces(
-        &self,
-        entries: &[crate::raft::host::NamespaceRegistration],
-        timeout: Duration,
-    ) -> Result<()> {
-        self.catalog
-            .check_declared_namespaces(entries, timeout)
-            .await
-    }
-
     pub(crate) fn check_namespace(
         &self,
         config: &crate::raft::catalog::NamespaceConfig,

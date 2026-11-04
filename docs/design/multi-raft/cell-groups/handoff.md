@@ -4,6 +4,53 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Quarantined voter checkpoint
+
+Shared managed startup now verifies current host authority and prepared namespace
+declarations against one root before opening mutable engine state. It still
+requires the later engine-bound boot CAS. A saved pre-isolation capability cannot
+modify an already quarantined log. Shared physical route refresh discards a
+retained initial endpoint only with rooted permanent isolation, so an unusable
+old endpoint cannot prevent publication of an admitted learner's route. Durable
+votes, seed owners and resource debt are unchanged until their existing proofs.
+
+The new managed isolation case joins the complete obsolete Node, rejects premature
+and wrong-process evidence, and verifies typed startup refusal without fleet/log
+mutation. S3 replacement must restore both cells, obtain fresh stable RF3, preserve
+receipts, reconcile a lost settlement confirmation and attribute the isolated
+obsolete source. The retained log stays byte-identical and the replacement keeps
+its physical capacity floor. Two log-mutation reproducers and the eight-turn
+blocked-route failure are preserved. Diagnostic probes are removed from source.
+
+Source-isolated-final SHA256 is
+cc2e83093bfe91439dce852e25e3340108b885f3b79b3a05e1453a9596f3feb1
+above 9070eb15, for 2,719 Rust/Python/manifest inputs. Seven native targets pass
+266 cases/35 explicit skips; public SDK/native/Axum process/restart also passes.
+Native/public record SHA256 is
+60c4918d707c26a95efefa112dfa8400b194c67faa8643b71edd20586b812732.
+Four same-source real RustFS cases pass: isolated replacement, normal replacement
+and joined restart, archived maintenance and all-old-voter-disks/verifier-cache
+erased public recovery. Record SHA256 is
+3ea848910a5843bded56eb0140933cb2bd4120545bc32be37d6c9bee838e0d16.
+Backend/VM are stopped and data retained. Both image forms run with original
+quotas/bounds. Host-native embedded Nodes and fixture fencing do not qualify
+permanent Docker launch revocation, independent constrained voters or load.
+
+Format/layout/dependencies/docs and native-only library checks pass. Strict
+library Clippy still reports 220 errors/202 dead-code reports. The only changed
+message removes the now-used `is_isolated` from a grouped unused-method warning;
+expanded item/count comparison adds no diagnostic. Plan tests retain 35 pass,
+one index/Purpose failure and one reviewed-protocol drift error. No suppression
+or automatic source-anchor refresh is applied.
+
+Next: complete automatic failed-voter and retained surviving-voter-debt
+orchestration, terminal survivor/archive verification and the full public managed
+lifecycle gate. Preserve the live physical-closure requirement for surviving
+original voters. Finish four missing public gates, capability/default cutover,
+performance/inspection/lint/plan/CI modes and CG-09–16. Earlier unexplained
+failures remain open despite current passes. The full goal is unfinished and
+PR #160 remains draft.
+
 ## Idle/restart seed retirement checkpoint
 
 A bounded node-owned sweep now retires authenticated retained seed journals during

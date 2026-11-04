@@ -203,26 +203,33 @@ impl FleetCatalog {
     }
 }
 
-impl FleetCatalog {
-    /// Verify the actual prepared catalogs, not only the caller's digest. This
-    /// check is independent of inventory completion so import hosts can boot.
+impl FleetHostAuthorization {
+    /// Verify this host and the prepared catalogs against one current root
+    /// before the caller opens mutable engine state. A saved capability cannot
+    /// reopen an already quarantined/finalized boot. This remains independent
+    /// of inventory completion so import hosts can boot; the later engine-bound
+    /// boot CAS must still recheck authority before publishing any endpoint.
     pub(crate) async fn check_declared_namespaces(
         &self,
         entries: &[crate::raft::host::NamespaceRegistration],
         timeout: Duration,
     ) -> Result<()> {
-        self.run(timeout, async {
-            let root = self.inner.current().await?;
-            for entry in entries {
-                self.require_namespace_declaration(
-                    &root,
-                    &entry.namespace,
-                    Some(entry.class.name()),
-                )
-                .await?;
-            }
-            Ok(())
-        })
-        .await
+        self.catalog
+            .run(timeout, async {
+                let root = self.catalog.inner.current().await?;
+                let current = self.catalog.host_from(&root, self.node()).await?;
+                self.require_successor(&current)?;
+                for entry in entries {
+                    self.catalog
+                        .require_namespace_declaration(
+                            &root,
+                            &entry.namespace,
+                            Some(entry.class.name()),
+                        )
+                        .await?;
+                }
+                Ok(())
+            })
+            .await
     }
 }

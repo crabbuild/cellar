@@ -880,11 +880,24 @@ generic mutations cannot erase the receipt, clear quarantine or change its boot.
 A lost confirmation reconciles the exact original journal before current live
 prerequisites. Changed evidence under the same request identity conflicts.
 
+Shared-host startup checks the current host authorization together with namespace
+declarations against one rooted cut before opening the mutable Raft engine. A
+saved pre-isolation capability therefore refuses without changing an already
+quarantined engine. This is an early refusal check, not a disk fence against a
+concurrent platform action: the later engine-bound boot CAS still rechecks current
+authority before publishing endpoints or attaching groups.
+
 A resource-backed repair can pin the quarantined obsolete voter while obtaining
 fresh quorum from surviving voters. Route construction omits only an explicitly
 quarantined endpoint; placement validation still uses the full durable membership,
 including that voter's node and failure domain. Raft configuration and quorum
 thresholds do not change until the membership protocol commits them.
+
+Shared physical route refresh also removes explicitly quarantined initial
+endpoints when membership is otherwise unchanged. Keeping such an endpoint would
+make the refreshed route fail trust validation and prevent an admitted learner
+from receiving its seed. Missing discovery or an unreachable surviving voter does
+not establish isolation and cannot supply its settlement closure.
 
 Successful movement completion can substitute the admitted isolation proof only
 for the exact original obsolete boot, after fresh target quorum proves that

@@ -12,6 +12,58 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 quarantined voter replacement and startup refusal
+
+CG-07-seed-cleanup-01/source-isolated-final binds 2,719 Rust/Python/manifest
+inputs above 9070eb15bff289f52f3c3faddd606575fdefcaf1 to SHA256
+cc2e83093bfe91439dce852e25e3340108b885f3b79b3a05e1453a9596f3feb1.
+The complete seven-target native campaign passes **266 cases with 35 explicit
+skips**; the public SDK/native/Axum process/restart gate also passes in 114.80s.
+Combined native/public record SHA256 is
+60c4918d707c26a95efefa112dfa8400b194c67faa8643b71edd20586b812732.
+All cases use the same frozen source; local opt-level 0, debug assertions,
+overflow checks, quotas, five-second calls and eight movement turns are retained.
+
+A new physically joined obsolete-voter fixture reproduced two distinct faults.
+Saved startup authority refused only after changing the quarantined Raft log;
+two fresh diagnostic fixtures identify the same `.raftlog` mutation. Startup now
+checks current host authorization and namespace declarations in one catalog turn
+before opening the engine. The later engine-bound boot CAS remains mandatory.
+Replacement then exhausted eight turns because shared route refresh kept the
+quarantined initial endpoint, preventing publication of the admitted learner's
+route. Refresh now discards that retained endpoint only with rooted isolation,
+including when membership is otherwise unchanged. Votes and physical debt remain.
+
+The new case passes both image forms, requiring exact typed startup refusal,
+unchanged fleet root/engine files, S3 payload reads, fresh stable RF3, restored
+cell-local images/versions and receipts, lost settlement confirmation/exact replay,
+`isolated_sources` attribution and the replacement's physical capacity floor.
+The old log remains byte-identical and quarantined. Surviving-original-voter
+physical closure is still required; the full managed failover/debt case passes.
+The earlier red runs, diagnostic sources/binaries and failed fixture disks remain.
+
+Four exact cases pass against pinned real RustFS in both image forms: isolated
+S3 replacement 23.06s, normal replacement/joined restart 36.26s, archived
+initial/joined maintenance 84.55s, and public fresh-incarnation recovery after all
+old voter directories and verifier cache are erased 18.04s. Record SHA256 is
+3ea848910a5843bded56eb0140933cb2bd4120545bc32be37d6c9bee838e0d16.
+Signed readiness and conditional operations pass; the one-CPU/two-GiB backend
+and dedicated VM are stopped with data retained. These are host-native embedded
+Nodes with fixture fencing, not constrained independent voter containers,
+permanent Docker launch revocation, sustained load or the full lifecycle gate.
+
+The current campaign passes the previously failing TCP retry, but does not
+explain or waive that failure, earlier bounded readiness/maintenance failures,
+128-cell enrollment or inspection failures. Format/layout/dependency/docs and
+native-only Cellar/Python-library checks pass. Strict library Clippy remains red
+with 220 reports (202 dead-code reports). Its only message change is that the
+grouped unused-method warning no longer includes the now-used `is_isolated`;
+expanded item/count comparison adds no unused item or other diagnostic. No lint
+is suppressed. Plan tests retain 35 passes, one generated-index/Purpose failure
+and one reviewed-protocol drift error; validate/preflight refuse. SDK CI profiles
+and complete public/default/capability gates remain required. CG-07
+stays IN_PROGRESS; CG-09–16 and the full hard cutover remain unfinished.
+
 ## CG-07 owned idle and restart seed retirement
 
 CG-07-seed-cleanup-01/source-final binds 2,718 Rust/Python/manifest inputs above

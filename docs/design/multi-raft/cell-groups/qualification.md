@@ -43,6 +43,7 @@ The managed native target now implements these explicit backend cases:
 - `bootstrap::lifecycle::rustfs_managed_s3_group_replacement_and_joined_restart`
 - `bootstrap::lifecycle::maintenance::rustfs_managed_archive_maintenance_stop_return_and_resume`
 - `bootstrap::lifecycle::s3::rustfs_managed_s3_seed_refusal_and_source_failover`
+- `bootstrap::lifecycle::isolation::rustfs_managed_isolated_voter_s3_replacement_retains_disk_and_fence`
 
 Run each by its exact name with `--ignored --exact --test-threads=1` in
 `native_cell_groups_managed`. Configure an owned local backend with
@@ -65,6 +66,18 @@ fresh election and completed repair. Replacement-local queries verify actual
 responder, values and versions; new writes require S3 proof. A surviving original
 voter's missing physical inventory must block catalog settlement and retain its
 debit even after membership repair completes.
+
+The isolated-voter case first joins the complete obsolete Node, then supplies
+fixture isolation evidence. Reject evidence before rooted exclusion and reject
+the wrong process binding without advancing the root. A saved pre-isolation
+startup capability must return the typed catalog conflict, with both fleet root
+and retained engine files unchanged. Replace that voter from S3, require fresh
+stable RF3 and the exact `isolated_sources` receipt, lose the actual settlement
+confirmation and reconcile the same request. Check both restored cell
+images/receipts through replacement-local queries, explicit S3 writes, the
+replacement's physical capacity floor and byte-identical retained obsolete log.
+This fixture does not supply permanent Docker launch fencing or terminal node
+removal. Keep the original eight reconciliation turns and five-second calls.
 
 The fault case also blocks actual registry mutations after target payload
 refusal. Require a witnessed denied write, retained pending journal and observable

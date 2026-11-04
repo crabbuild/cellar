@@ -292,6 +292,18 @@ refuse before staging. The S3 mode opens the established namespace archive regis
 a peer cannot supply a backend or override its identity. It never falls back to
 peer checkpoint bytes.
 
+Managed startup validates its saved host capability and prepared namespace
+declarations against one current catalog root before opening mutable engine
+state. An already quarantined/finalized host refuses without reopening its log;
+the later engine-bound boot CAS still orders admission against concurrent fences.
+Managed physical route refresh discards a retained initial-voter endpoint only
+with rooted permanent isolation, even when durable membership has not changed.
+This permits an admitted learner's route to replace an unusable old endpoint
+without removing votes or seed-owner/resource debt. Movement completion may use
+that isolation proof only for the exact obsolete boot, after fresh stable RF3
+excludes it. Surviving original voters still need live physical-inventory and
+worker-exit proofs; settlement leaves the obsolete disk and disruption retained.
+
 An S3 source captures the same fresh-quorum, exact-root checkpoint before catalog
 I/O. A separate purpose-bound, exclusively locked local journal syncs the reserve
 intent before allocating a generation and then syncs the returned upload ticket.

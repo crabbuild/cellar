@@ -229,21 +229,27 @@ impl RaftTransport {
     ) -> Result<(), TransportError> {
         let state = &self.handle.0;
         let runtime = state.runtime.shared()?;
-        let (old, owner) = {
+        let (old, owner, has_isolated_peer) = {
             let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
             state.admit(&registry)?;
-            (
-                registry
-                    .physical_groups
-                    .get(history)
-                    .cloned()
-                    .ok_or(TransportError::UnknownGroup)?,
-                registry
-                    .physical_owners
-                    .get(history)
-                    .cloned()
-                    .ok_or(TransportError::UnknownGroup)?,
-            )
+            let old = registry
+                .physical_groups
+                .get(history)
+                .cloned()
+                .ok_or(TransportError::UnknownGroup)?;
+            let owner = registry
+                .physical_owners
+                .get(history)
+                .cloned()
+                .ok_or(TransportError::UnknownGroup)?;
+            let has_isolated_peer = registry.fleet_trust.as_ref().is_some_and(|trust| {
+                old.peers.iter().any(|peer| {
+                    trust
+                        .node(peer.replica.node)
+                        .is_some_and(|node| node.is_isolated())
+                })
+            });
+            (old, owner, has_isolated_peer)
         };
         let group = runtime
             .log()
@@ -259,7 +265,8 @@ impl RaftTransport {
                 return Ok(());
             };
             let current = crate::raft::member_state::members(&cache.conf_state);
-            if current.len() == old.peers.len()
+            if !has_isolated_peer
+                && current.len() == old.peers.len()
                 && old.peers.iter().all(|peer| {
                     current.contains(&peer.replica.member.get())
                         && cache.membership.permits_group(&peer.replica)
@@ -338,6 +345,17 @@ impl RaftTransport {
                     };
                     prior.clone()
                 };
+                // Only rooted permanent quarantine can omit an initial voter
+                // whose retained endpoint would otherwise reject the whole
+                // refreshed route, including a newly admitted learner. Keep
+                // its durable membership and seed-owner/resource debt intact.
+                if peer.replica.node != group.identity().node
+                    && trust
+                        .node(peer.replica.node)
+                        .is_some_and(|node| node.is_isolated())
+                {
+                    continue;
+                }
                 peers.push(peer);
             }
             peers
