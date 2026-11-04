@@ -246,7 +246,7 @@ def samples(rows, node_count=3):
                 and 0 <= row['started_ns'] < row['finished_ns'], 'invalid request interval')
         require(isinstance(row['sample'], dict) and set(row['sample']) == {'resources', 'performance'}, 'invalid node sample')
         require(isinstance(row['sample']['resources'], dict) and row['sample']['resources'].get('sql') is not None
-                and row['sample']['resources'].get('groups') is not None, 'unavailable resource sample')
+                and row['sample']['resources'].get('physical_counts') is not None, 'unavailable resource sample')
         observed = snapshot(row['sample']['performance'])
         require(observed['source'] not in sources, 'duplicate physical measurement source')
         sources.add(observed['source'])

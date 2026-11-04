@@ -177,6 +177,31 @@ impl NodeExtentStore {
         limits: &ApplyLimits,
         buffer: &mut [u8],
     ) -> Result<PreparedImageRoot, StoreError> {
+        self.prepare_image_root_retention(base, update, limits, buffer, false)
+    }
+
+    /// Prepare an image whose complete host graph will own the returned pin.
+    /// A fresh root becomes reclaimable after its last pin/reference closes.
+    /// An existing root keeps its prior retention. The host must recover and
+    /// pin all durable selections before reconciling the shared inventory.
+    pub fn prepare_transient_image_root(
+        &self,
+        base: Option<&SealedImageRoot>,
+        update: &ImageRootUpdate<'_>,
+        limits: &ApplyLimits,
+        buffer: &mut [u8],
+    ) -> Result<PreparedImageRoot, StoreError> {
+        self.prepare_image_root_retention(base, update, limits, buffer, true)
+    }
+
+    fn prepare_image_root_retention(
+        &self,
+        base: Option<&SealedImageRoot>,
+        update: &ImageRootUpdate<'_>,
+        limits: &ApplyLimits,
+        buffer: &mut [u8],
+        transient: bool,
+    ) -> Result<PreparedImageRoot, StoreError> {
         check_buffer(buffer)?;
         let mut current = match base {
             Some(base) => {
@@ -250,10 +275,20 @@ impl NodeExtentStore {
             // Header/hole checks are independent of the proposed commitment.
             // A checksum-enabled result has already been checked at each file.
             self.check_image_geometry(&current, buffer, &mut work)?;
-            Ok(PreparedImageRoot {
-                image: SealedImageRoot(self.seal_root_inner(current)?),
-                work,
-            })
+            // The serialized physical operation keeps the existence test and
+            // retention change atomic with sealing. The new view pins the
+            // entire closure before any root can become reclaimable.
+            let existed = self.inner.state()?.roots.contains_key(&current.root());
+            let image = SealedImageRoot(self.seal_root_inner(current)?);
+            if transient && !existed {
+                self.inner
+                    .state()?
+                    .roots
+                    .get_mut(&image.reference().root)
+                    .ok_or(StoreError::Missing)?
+                    .retained = false;
+            }
+            Ok(PreparedImageRoot { image, work })
         })();
         operation.finish()?;
         result

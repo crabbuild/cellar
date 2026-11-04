@@ -19,8 +19,7 @@ pub struct CounterApi {
     pub increment: OperationContract,
     pub get: OperationContract,
     secret: String,
-    cluster: ClusterId,
-    namespace: NamespaceId,
+    resolve: Arc<dyn Fn(&str) -> Result<CellHistory> + Send + Sync>,
     next_query: AtomicU64,
 }
 
@@ -53,7 +52,7 @@ fn header<'a>(headers: &'a [(String, String)], key: &str) -> Result<Option<&'a s
     Ok(value)
 }
 
-fn read_options(headers: &[(String, String)]) -> Result<QueryOptions> {
+pub(crate) fn read_options(headers: &[(String, String)]) -> Result<QueryOptions> {
     let minimum = header(headers, "x-min-version")?;
     let consistency = match header(headers, "x-read-consistency")?.unwrap_or("stale") {
         "stale" => QueryConsistency::Stale,
@@ -186,17 +185,30 @@ impl CounterApi {
         namespace: NamespaceId,
         class: &RaftClass,
     ) -> Result<Arc<Self>> {
+        Self::with_history_resolver(secret, class, move |name| history(cluster, namespace, name))
+    }
+
+    /// The caller binds its bearer to a bounded set of logical histories.
+    /// Both HTTP adapters retain exactly the same normalization and retry rules.
+    pub fn with_history_resolver(
+        secret: String,
+        class: &RaftClass,
+        resolve: impl Fn(&str) -> Result<CellHistory> + Send + Sync + 'static,
+    ) -> Result<Arc<Self>> {
         ensure!(
             secret.len() >= 16 && !secret.contains(['\r', '\n']),
             "use an HTTP bearer secret of at least 16 bytes"
         );
         Ok(Arc::new(Self {
             cells: Mutex::new(None),
-            increment: class.contract("Increment").unwrap(),
-            get: class.contract("Get").unwrap(),
+            increment: class
+                .contract("Increment")
+                .ok_or_else(|| anyhow::anyhow!("missing Increment contract"))?,
+            get: class
+                .contract("Get")
+                .ok_or_else(|| anyhow::anyhow!("missing Get contract"))?,
             secret,
-            cluster,
-            namespace,
+            resolve: Arc::new(resolve),
             next_query: AtomicU64::new(1),
         }))
     }
@@ -243,9 +255,9 @@ impl CounterApi {
             let name = url
                 .path()
                 .strip_prefix("/counters/")
-                .filter(|name| matches!(*name, "one" | "two"))
+                .filter(|name| !name.is_empty())
                 .ok_or_else(|| anyhow::anyhow!("use /counters/one or /counters/two"))?;
-            let cell = service.cell(history(self.cluster, self.namespace, name)?)?;
+            let cell = service.cell((self.resolve)(name)?)?;
             let mut contract = if method == "POST" {
                 self.increment.clone()
             } else {

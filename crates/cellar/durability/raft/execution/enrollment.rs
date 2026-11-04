@@ -234,6 +234,13 @@ impl CellPrivateEnrollment {
             Some(_) => CellEnrollmentResolution::Conflict,
             None => CellEnrollmentResolution::NotCommitted,
         };
+        // A terminal owner observation resolves this disposable preview. Its
+        // live pin still protects physical work until pending is dropped; the
+        // independently applied image owns every durable serving reference.
+        self.options
+            .images
+            .retire(&pending._preview)
+            .map_err(storage)?;
         pending
             .log_reservation
             .release()

@@ -9,7 +9,8 @@
       },
       "cells": {
         "total": 24,
-        "active": 24
+        "active": 24,
+        "per_group": 32
       },
       "database_bytes": [
         16384,
@@ -67,7 +68,8 @@
       },
       "cells": {
         "total": 24,
-        "active": 24
+        "active": 24,
+        "per_group": 32
       },
       "database_bytes": [
         16384,
@@ -125,7 +127,8 @@
       },
       "cells": {
         "total": 24,
-        "active": 24
+        "active": 24,
+        "per_group": 32
       },
       "database_bytes": [
         16384,
@@ -183,7 +186,8 @@
       },
       "cells": {
         "total": 24,
-        "active": 24
+        "active": 24,
+        "per_group": 32
       },
       "database_bytes": [
         16384,

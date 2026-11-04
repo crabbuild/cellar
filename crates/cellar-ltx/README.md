@@ -53,6 +53,17 @@ reads. This does not create a recovery or native admission capability.
 image seal. An identical root from another directory cannot substitute for that
 local physical capability.
 
+`NodeExtentStore::prepare_transient_image_root` runs the same bounded LTX,
+geometry, closure and persistence checks as `prepare_image_root`, but a fresh
+root does not keep an additional permanent host reference. Its returned image
+pin protects the complete closure; an existing root keeps its prior retention.
+The shared-group host transfers that pin into its complete manifest graph,
+whose current, checkpoint and uncertain publication roots stay pinned. Startup
+recovers every local group's selected graphs before releasing conservative
+filename retention. Collection still requires a reconciled node inventory,
+respects reader/archive pins, and refunds capacity only after synced deletion.
+This does not schedule live extent collection or qualify sustained load.
+
 `NodeExtentStore::put_extent_bytes` borrows a complete, already admitted extent
 through the existing at-most-4-MiB positional write window. Native providers
 avoid splitting it into allocated 64 KiB source chunks; injected providers keep

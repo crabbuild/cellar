@@ -52,7 +52,7 @@ def run(binary, work):
                     process.wait(timeout=10)
     print("late startup failure joined owners; resuming the same disks", flush=True)
 
-    def request(base, sequence=None, delta=None, *, cell="one", read_headers=None):
+    def request(base, sequence=None, delta=None, *, cell="one", read_headers=None, client_id=client):
         path = f"/counters/{cell}"
         headers = {"authorization": f"Bearer {token}"}
         headers.update(read_headers or {})
@@ -60,7 +60,7 @@ def run(binary, work):
         if sequence is not None:
             method = "POST"
             path += f"?delta={delta}"
-            headers.update({"x-command-id": f"{client}:{sequence}",
+            headers.update({"x-command-id": f"{client_id}:{sequence}",
                             "x-retry-until-ms": str(retry)})
         try:
             with opener.open(urllib.request.Request(base + path, headers=headers,
@@ -73,14 +73,14 @@ def run(binary, work):
         with (work / f"process-{phase}.log").open("wb") as output:
             process = subprocess.Popen(argv, stdout=output, stderr=subprocess.STDOUT)
             try:
-                def command(sequence, delta, expected, candidates, *, cell="one"):
+                def command(sequence, delta, expected, candidates, *, cell="one", client_id=client):
                     deadline = time.monotonic() + 30
                     while time.monotonic() < deadline:
                         if process.poll() is not None:
                             raise RuntimeError(f"example exited {process.returncode}")
                         for base in candidates:
                             try:
-                                status, body = request(base, sequence, delta, cell=cell)
+                                status, body = request(base, sequence, delta, cell=cell, client_id=client_id)
                             except OSError:
                                 continue
                             if status == 200:
@@ -109,6 +109,12 @@ def run(binary, work):
                     latest = command(3, 4, 13, bases[:3])
                     expected = 13
                 other = command(1, 31, 31, bases, cell="two")
+                # Cross the original 64-image inventory without increasing it.
+                # A separate client's zero-delta writes preserve every original
+                # business-result/retry assertion while producing real receipts
+                # and LTX images, both before and after retained restart.
+                for sequence in range(phase * 80 + 1, (phase + 1) * 80 + 1):
+                    latest = command(sequence, 0, expected, bases, client_id="08" * 16)
                 for i, base in enumerate(bases):
                     deadline = time.monotonic() + 15
                     while time.monotonic() < deadline:

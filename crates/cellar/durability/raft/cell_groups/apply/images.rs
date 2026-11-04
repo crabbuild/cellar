@@ -156,7 +156,16 @@ impl CellGroupApplyImages {
                     )
                 } else {
                     CellImagePin::Materialized(match images.prepare(id, base, &update) {
-                        Ok(pin) => pin,
+                        Ok(pin) => {
+                            // A fresh result has no earlier durable selector.
+                            // This pin transfers into the complete prepared tree;
+                            // RootRetentions keeps current, checkpoint and
+                            // uncertain publication closures pinned. Do not add
+                            // an independent, permanent host reference per entry.
+                            // Existing files preserve their prior retention below.
+                            images.retire(pin.id()).map_err(storage)?;
+                            pin
+                        }
                         Err(cellar_ltx::generation::GenerationError::Exists) => {
                             images.pin_prepared(id, update.result).map_err(storage)?
                         }
@@ -209,7 +218,12 @@ impl CellGroupApplyImages {
                     segments,
                 };
                 let prepared = images
-                    .prepare_image_root(base, &update, limits, &mut vec![0; EXTENT_BYTES as usize])
+                    .prepare_transient_image_root(
+                        base,
+                        &update,
+                        limits,
+                        &mut vec![0; EXTENT_BYTES as usize],
+                    )
                     .map_err(storage)?;
                 CellImagePin::Extents(Arc::new(prepared.image))
             }

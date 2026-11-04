@@ -28,7 +28,7 @@ def completed(raw, duration, outcome='succeeded'):
 
 def rows(stamp, node_count=3):
     return [{'node': node, 'started_ns': stamp * 10 + node, 'finished_ns': stamp * 10 + node + 1,
-             'sample': {'performance': observation(str(node) * 32, stamp), 'resources': {'sql': {}, 'groups': {}}}}
+             'sample': {'performance': observation(str(node) * 32, stamp), 'resources': {'sql': {}, 'physical_counts': {}}}}
             for node in range(1, node_count + 1)]
 
 

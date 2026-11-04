@@ -11,7 +11,8 @@ from raft_metrics import phases, periodic
 from raft_faults import fault_evidence, validate_scenario
 from workload_recovery import recovery_evidence
 from raft_kernel import analyze as analyze_kernel
-from raft_topology import local_placement, members, verify_topology, verify_resources, verify_populations, verify_traffic
+from raft_topology import local_placement, members, verify_topology, verify_resources, verify_populations, verify_traffic, verify_reply
+from raft_groups import profile_layout
 
 
 def analyze(root):
@@ -28,7 +29,7 @@ def analyze(root):
     topology = read_json(root / 'topology.json')
     require(set(topology) == {'before', 'after'}, 'missing topology boundary')
     for rows in topology.values():
-        verify_topology(rows, profile['cells']['total'], node_count)
+        verify_topology(rows, profile['cells']['total'], node_count, profile['cells']['per_group'])
     raw_phases = read_json(root / 'measurements.json')
     performance = phases(raw_phases, bool(profile['timing']['warmup_seconds']), node_count)
     for phase in raw_phases.values():
@@ -58,9 +59,10 @@ def analyze(root):
     for observed in replicas:
         cell, member = observed['cell'], observed['node']
         key = (cell, member)
-        require(key not in seen and cell in history['final'] and member in members(cell, node_count), 'invalid or duplicate replica')
+        require(key not in seen and cell in history['final'] and member in members(cell, node_count, profile_layout(profile)), 'invalid or duplicate replica')
         seen.add(key)
         expected, reply = history['final'][cell], observed['response']
+        verify_reply(reply, cell, profile_layout(profile))
         require(reply['state'] == expected['state'] and reply['index'] >= expected['index'] and reply['served_by'] == member,
                 'replica result differs from acknowledged history')
         require(reply['group'] == expected['group'] and reply['incarnation'] == expected['incarnation'], 'replica scope mismatch')

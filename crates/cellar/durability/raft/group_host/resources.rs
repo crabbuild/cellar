@@ -84,6 +84,40 @@ impl Images {
             .await?
     }
 
+    /// Startup has recovered every physical group's current/checkpoint graph,
+    /// and no peer or public route can enter yet. Those complete graph pins
+    /// replace the conservative host references loaded from filenames. Keep
+    /// the appliers alive through physical completion, including cancellation.
+    pub async fn adopt_recovered(
+        &self,
+        log: &ReplicaLog,
+        appliers: &[CellGroupApplier],
+    ) -> anyhow::Result<()> {
+        let inventory = log.cell_groups()?;
+        anyhow::ensure!(
+            inventory.len() == appliers.len()
+                && inventory.iter().all(|group| appliers
+                    .iter()
+                    .any(|a| a.history() == group.identity().scope)),
+            "image adoption requires complete physical group inventory"
+        );
+        let images = self.clone();
+        let retained = appliers.to_vec();
+        log.domain()
+            .blocking(move || -> anyhow::Result<()> {
+                if let Some(store) = &images.materialized {
+                    store.retain_only(&[])?;
+                }
+                if let Some(store) = &images.extents {
+                    store.retain_only(&[])?;
+                }
+                drop(retained);
+                Ok(())
+            })?
+            .await??;
+        Ok(())
+    }
+
     pub fn observer(&self) -> crate::application::consensus::group_client::resources::Images {
         crate::application::consensus::group_client::resources::Images {
             materialized: self.accounting.clone(),

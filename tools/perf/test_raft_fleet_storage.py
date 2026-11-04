@@ -12,14 +12,16 @@ from raft_fleet_storage import MIB, Storage, loop_binding, validate_storage
 
 
 def policy():
-    return {'owner': 'bounded-test', 'nodes': 5, 'group_capacity': 14,
+    return {'owner': 'bounded-test', 'nodes': 5, 'cells': 4, 'cells_per_group': 2, 'group_capacity': 4,
             'image_bytes': 4 * MIB, 'extent_bytes': 1024 * MIB,
             'replay_extent_bytes': 128 * MIB, 'durable_bytes': 2752 * MIB,
             'storage': {'metadata_bytes': 128 * MIB, 'raft_bytes': 512 * MIB,
                         'images_bytes': 2048 * MIB, 'replay_bytes': 384 * MIB,
                         'object_store_bytes': 4096 * MIB, 'snapshot_scratch_bytes': 128 * MIB,
                         'extent_cache_bytes': 64 * MIB},
-            'resources': {'durable_overhead_bytes': 2176 * MIB}}
+            'resources': {'durable_overhead_bytes': 2176 * MIB,
+                          'resident': {'durable_bytes': 64 * MIB},
+                          'peak': {'durable_bytes': 64 * MIB}}}
 
 
 class BoundedStorageTests(unittest.TestCase):

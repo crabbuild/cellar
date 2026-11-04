@@ -168,6 +168,9 @@ pub(super) async fn drive(
     runtime: &CellGroupRuntime,
     execution: &ControllerExecution,
 ) -> Result<CellGroupArchiveCoverage> {
+    let node = runtime.log().limits().node;
+    let group = registration.birth.route().history.group;
+    tracing::debug!(target: "cellar::raft::group_archive", ?node, ?group, stage = "drive");
     registration
         .directory
         .require_current_group_birth(&registration.birth)
@@ -265,9 +268,12 @@ pub(super) async fn drive(
         )
         .await
         .map_err(CellGroupArchiveError::from)?;
+    tracing::debug!(target: "cellar::raft::group_archive", ?node, ?group, stage = "captured",
+        index = source.marker().position().index.get());
     let uploaded = upload
         .upload_cut(execution, &registration.tails, source)
         .await?;
+    tracing::debug!(target: "cellar::raft::group_archive", ?node, ?group, stage = "uploaded");
     let publication = upload
         .prepare_publication(
             execution,
@@ -276,11 +282,13 @@ pub(super) async fn drive(
             receiver(registration)?,
         )
         .await?;
+    tracing::debug!(target: "cellar::raft::group_archive", ?node, ?group, stage = "verified");
     record.pending = Pending::Publish {
         ticket,
         intent: publication.intent().clone(),
     };
     store(context, execution, &record).await?;
     let coverage = publication.commit(execution).await?;
+    tracing::debug!(target: "cellar::raft::group_archive", ?node, ?group, stage = "published");
     select(context, execution, &mut record, coverage).await
 }

@@ -362,6 +362,12 @@ impl CellPrivateExecutor {
             .check_committed_entry(pending.prepared.bytes())
             .map_err(authority_failure)?;
         let receipt = self.read_receipt(&committed, &pending.request)?;
+        // Only exact committed/reconciliation authority retires a private
+        // preview. Pending retains its live pin through physical settlement.
+        self.options
+            .images
+            .retire(&pending._preview)
+            .map_err(storage)?;
         pending
             .prepared
             .release_log_reservation()
@@ -427,6 +433,12 @@ impl CellPrivateExecutor {
             Ok(None) => return Err(ExecutionError::Uncertain),
         };
         check()?;
+        // Only exact committed/reconciliation authority retires a private
+        // preview. Pending retains its live pin through physical settlement.
+        self.options
+            .images
+            .retire(&pending._preview)
+            .map_err(storage)?;
         pending
             .prepared
             .release_log_reservation()

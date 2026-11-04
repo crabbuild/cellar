@@ -12,6 +12,72 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 shared consumer and retention checkpoint
+
+Capture CG-07-perf-resume-01/source-inputs-25 binds 2710 Rust, Python,
+manifest and profile inputs (2142 Rust files) to SHA256
+8c2d708074d6c265dd69fe9edb62694495998a517900700a1cc3e97e97eefb92.
+Checks 25 and 26 finish with no changed inputs. The source includes fetched main
+981a5417d9359d1f992e2dbf214eec7d221b6777, zero commits behind.
+
+The performance/fleet consumer port now models frozen canonical ranges with
+occupancies 1–128, distinct logical histories and physical group witnesses,
+explicit RF3 initialization/enrollment and actual physical resource observations.
+Managed setup journals its standby/range/archive intents. Wider groups retain
+the original replay bank by reducing tail batch sizes. Configured archive ceilings
+are reported separately from the effective serial lane. These are implemented
+adapters, not deployed managed or density/performance qualification.
+
+Image ownership now releases excess permanent host references. Exact terminal
+command/enrollment reconciliation retires disposable previews while retaining
+their pins through physical completion. A fresh applied image transfers its pin
+into the complete manifest graph. Startup recovers every physical group's current
+and checkpoint closures before releasing conservative filename retention, before
+routes become reachable. Existing image retention, uncertain publication and
+reader/checkpoint pins remain authoritative. Fresh extent preparation follows the
+same pin ownership contract and preserves an existing root's retention. This
+does not add a live extent collector or bypass offline reclamation admission.
+
+- All Cellar binary targets compile, clearing the original 27 performance errors.
+- Seven native targets pass 254 cases with 29 explicit backend/process skips:
+  archive/recovery 30, archive-controller 16, shared execution 179, host 3, managed 10,
+  public SDK/native/Axum/restart 1 and storage 15. The public drill now adds 80 real
+  zero-delta commands on each side of retained restart, preserving all original
+  receipt, token, remote-read, business-value and joined-shutdown assertions and
+  the original 64-image bank. It passes in 135.69 seconds at this source.
+- All three startup ownership/barrier unit cases pass. Full-library execution is
+  not rerun here; its prior retired inspection-protocol failure remains open.
+- All six LTX apply cases pass at source 22; both changed LTX Rust files are
+  identical in source 25. The new regression keeps live readers during collection,
+  reclaims a fresh unpinned root and preserves exact existing host retention.
+- Native-only cellar/cellar-python libraries, LTX feature-off and all-feature
+  compilation, formatting, layout, dependency isolation, docs and diff checks pass.
+- Python tooling passes 282 cases with one environment skip. Its Python sources
+  are unchanged since that source 20 run.
+- Strict library Clippy still fails with 222 diagnostics, including 202 dead_code.
+  Message/primary-file diagnostic keys exactly match public-recovery 14; no
+  diagnostic is suppressed or baseline refreshed. Plan drift and full CI remain.
+
+The new complete native performance gate is still **failing**: source 23 has
+fifteen passes and two failures, both at logical cell 6 in the one-cell second
+group's explicit S3 command alongside a 32-cell first group. The original
+five-second command deadline returns an ambiguous DeadlineExceeded. Occupancy 128
+is not reached. Isolated instrumented 32/source 24 passes in 83.44 seconds, which
+does not clear those failures. Its complete 32-cell checkpoint verification takes
+roughly 4–5 seconds, and one full background job reaches 5.206 seconds. Preserve
+those failures and investigate repeated verification and archive-lane interference
+without raising deadlines, changing requested durability or removing assertions.
+
+No current-source Docker/RustFS, permanent launch-fencing, independent-host,
+managed S3 learner, sustained load or release claim follows. The older executable
+disaster operator still needs its whole-group port, disjoint identities, serial
+catalog activation and explicit partial inventory. Dynamic managed archive
+ownership, live extent collection, default-backend capability/deployment/read
+policy and four original public gates remain open. See
+[remaining priorities](remaining-work.md). CG-07 remains IN_PROGRESS, CG-09–16 TODO,
+the goal active and PR #160 draft. Both requested MR basenames stay excluded and
+the eight user diagrams remain unchanged and unstaged.
+
 ## CG-07 combined public recovery qualification
 
 Runtime commit f644d9d69b24bc44024a88f33f80dc21fbffd3d0 contains the recovered

@@ -352,6 +352,7 @@ pub(crate) async fn start(
                 "retained group is absent from the node placement inventory"
             );
         }
+        images.adopt_recovered(&log, &appliers).await?;
         // No physical peer or query route is reachable while a later local group
         // still waits on its permanent claim or physical recovery. The attached
         // owners retain bounded Ready work until the controller starts draining it.

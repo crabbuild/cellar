@@ -25,6 +25,7 @@ import time
 import urllib.error
 import urllib.request
 from run import create_bucket
+from raft_groups import cached_layout, DEFAULT_OCCUPANCY, MAX_OCCUPANCY
 
 
 def port_base(value):
@@ -98,6 +99,7 @@ def save_measurement(root, result, ordinal):
 
 def load(config, seconds, concurrency, rate=0):
     """Closed-loop HTTP/1.1 keepalive clients, no write retries."""
+    layout = cached_layout(config['cells'], config['cells_per_group'], 'Counter')
     stop = time.monotonic() + seconds
     start = time.monotonic()
     lock = threading.Lock()
@@ -121,7 +123,7 @@ def load(config, seconds, concurrency, rate=0):
                     break
             # One in-flight command per cell is the current SDK contract.
             c = rng.choice(range(w, config['cells'], concurrency))
-            node = 0 if config.get('primary_only') else c % 3
+            node = 0 if config.get('primary_only') else layout.members(c, 3)[0] - 1
             headers = {'Authorization': 'Bearer ' + config['token'],
                 'x-command-id': secrets.token_hex(16) + ':1',
                 'x-retry-until-ms': str(int(time.time()*1000)+300000)}
@@ -184,6 +186,7 @@ def main():
     p.add_argument('--output')
     p.add_argument('--continue-seed',type=Path,help='resume only journaled premeasurement seed commands using their original identities')
     p.add_argument('--continue-setup',type=Path,help='continue an existing live run only before any seed or measured writes')
+    p.add_argument('--cells-per-group',type=int,default=DEFAULT_OCCUPANCY)
     p.add_argument('--placement-seconds',type=int,default=600)
     p.add_argument('--load-config')
     args=p.parse_args()
@@ -194,7 +197,9 @@ def main():
     total=args.cells_per_primary if args.primary_only else args.cells_per_primary*3
     assert all(1 <= c <= total for c in args.concurrency)
     assert all(math.isfinite(rate) and rate >= 0 for rate in args.rates)
-    owner=lambda c:0 if args.primary_only else c%3
+    assert 1 <= args.cells_per_group <= MAX_OCCUPANCY
+    layout = cached_layout(total, args.cells_per_group, 'Counter')
+    owner=lambda c:0 if args.primary_only else layout.members(c,3)[0]-1
     continuing = args.continue_setup is not None or args.continue_seed is not None
     if continuing:
         root=(args.continue_seed or args.continue_setup).resolve()
@@ -203,7 +208,7 @@ def main():
             raise ValueError('continuation requires a live setup failure before measured writes')
         if args.continue_seed and not (root/'seed-journal.jsonl').exists():
             raise ValueError('seed continuation requires its original command journal')
-        if report['cells'] != total or report['context'] != args.context or report['tick_ms'] != args.tick_ms or report.get('archive_tmpfs_mib',0) != args.archive_tmpfs_mib or report.get('primary_only',False)!=args.primary_only or report.get('port_base',19800)!=args.port_base:
+        if report['cells_per_group'] != args.cells_per_group or report['cells'] != total or report['context'] != args.context or report['tick_ms'] != args.tick_ms or report.get('archive_tmpfs_mib',0) != args.archive_tmpfs_mib or report.get('primary_only',False)!=args.primary_only or report.get('port_base',19800)!=args.port_base:
             raise ValueError('continuation must preserve cell count, context, port base and tick interval')
         if report.get('archive_producers',1) != args.archive_producers:
             raise ValueError('continuation must preserve archive producer concurrency')
@@ -235,12 +240,12 @@ def main():
         for n in range(1,4): (config/f'process{n}').write_bytes(secrets.token_bytes(16))
         for name in ('ca.der','server.der','key.der'):
             shutil.copyfile(Path('crates/cellar/transport/tcp/fixtures')/name,config/name)
-        (config/'load.json').write_text(json.dumps({'token':token,'cells':total,'primary_only':args.primary_only}))
+        (config/'load.json').write_text(json.dumps({'token':token,'cells':total,'cells_per_group':args.cells_per_group,'primary_only':args.primary_only}))
         docker=lambda *a:command('docker','--context',args.context,*a)
         report={'source':command('git','rev-parse','HEAD'),'working_diff_sha256':hashlib.sha256(command('git','diff').encode()).hexdigest(),
             'source_files':{str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in [
                 Path('Cargo.toml'), Path('Cargo.lock'), Path('tools/perf/raft_node.rs'),
-                Path('tools/perf/raft.py'), Path('tools/perf/raft.Dockerfile'),
+                Path('tools/perf/raft.py'), Path('tools/perf/raft_groups.py'), Path('tools/perf/raft.Dockerfile'),
                 Path('examples/raft-counter/counter.rs'), Path('crates/cellar/Cargo.toml'),
                 Path('crates/cellar/storage/sqlite/command.rs'),
                 Path('crates/cellar-ltx/src/lib.rs'),
@@ -260,6 +265,7 @@ def main():
             'archive_max_unarchived_mib':args.archive_max_unarchived_mib,
             'archive_batch_groups':args.archive_batch_groups,
             'sql_workers':args.sql_workers, 'sql_worker_queue':args.sql_worker_queue,
+            'cells_per_group':args.cells_per_group,'physical_groups':len(layout.groups),
             'queue_items':args.queue_items,'primary_only':args.primary_only,'tick_ms':args.tick_ms,'write_durability':'Quorum','archive':'RustFS','measurements':[], 'completed':False}
     def save(): (root/'report.json').write_text(json.dumps(report,indent=2)+'\n')
     save()
@@ -274,7 +280,7 @@ def main():
             if code!=200 or usage.get('sql') is None:
                 raise RuntimeError('SQL resource observation unavailable')
             sql=usage['sql']
-            if sql['running_workers']!=args.sql_workers or sql['worker_capacity']!=args.sql_workers or sql['work_capacity']!=args.sql_workers*args.sql_worker_queue or sql['queue_closed']:
+            if sql['running_workers']!=args.sql_workers or sql['worker_capacity']!=args.sql_workers or sql['limits']['workers']!=args.sql_workers or sql['limits']['queue_per_worker']!=args.sql_worker_queue or sql['closing']:
                 raise RuntimeError('physical SQL workers/capacity differ from requested configuration')
             if usage.get('archive_max_unarchived_bytes') != args.archive_max_unarchived_mib*1024**2:
                 raise RuntimeError('node archive byte budget differs from requested configuration')
@@ -300,14 +306,22 @@ def main():
                 except Exception:
                     if time.monotonic()>deadline:raise
                     time.sleep(1)
+            for name in nodes: docker('volume','create',name)
+            report['initialization']=json.loads(docker('run','--rm','--network',tag,
+                '--cpus','1','--cpuset-cpus','0','--memory','3g','--memory-swap','3g',
+                '-v',nodes[0]+':/data','-v',str(config)+':/config:ro',
+                '-e','RAFT_INITIALIZE=1','-e','RAFT_NODE=1','-e',f'RAFT_CELLS={total}',
+                '-e',f'RAFT_CELLS_PER_GROUP={args.cells_per_group}',
+                '-e','AWS_ACCESS_KEY_ID='+access,'-e','AWS_SECRET_ACCESS_KEY='+secret,args.image))
+            assert report['initialization']=={'initialized_groups':len(layout.groups),'cells':total,'cells_per_group':args.cells_per_group}
+            save()
             for n,name in enumerate(nodes,1):
-                docker('volume','create',name)
                 docker('run','-d','--name',name,'--network',tag,'--ip',f'172.29.81.{n+10}',
                     '--cpus','1','--cpuset-cpus',str(n-1),'--memory','3g','--memory-swap','3g',
                     '--ulimit','nofile=65536:65536','-p',f'127.0.0.1:{args.port_base+n}:8082',
                     '-v',name+':/data','-v',str(config)+':/config:ro',
                     *(['--tmpfs',f'/data/node/raft-cells/archive-verifier:rw,noexec,nosuid,nodev,size={args.archive_tmpfs_mib}m'] if args.archive_tmpfs_mib else []),
-                    '-e',f'RAFT_NODE={n}','-e',f'RAFT_CELLS={total}','-e',f'RAFT_TICK_MS={args.tick_ms}','-e',f'RAFT_PRIMARY_ONLY={int(args.primary_only)}','-e',f'RAFT_QUEUE_ITEMS={args.queue_items}','-e',f'RAFT_ARCHIVE_PRODUCERS={args.archive_producers}',
+                    '-e',f'RAFT_NODE={n}','-e',f'RAFT_CELLS={total}','-e',f'RAFT_CELLS_PER_GROUP={args.cells_per_group}','-e',f'RAFT_TICK_MS={args.tick_ms}','-e',f'RAFT_PRIMARY_ONLY={int(args.primary_only)}','-e',f'RAFT_QUEUE_ITEMS={args.queue_items}','-e',f'RAFT_ARCHIVE_PRODUCERS={args.archive_producers}',
                     '-e',f'RAFT_ARCHIVE_BLOCKING_JOBS={args.archive_blocking_jobs}',
                     '-e',f'RAFT_ARCHIVE_MAX_UNARCHIVED_MIB={args.archive_max_unarchived_mib}',
                     '-e',f'RAFT_ARCHIVE_BATCH_GROUPS={args.archive_batch_groups}',
@@ -343,7 +357,15 @@ def main():
                 return False
             return s['ready']
         wait_for_placement(total,balance,deadline,log)
-        report['placement']={'leaders_per_node':([total,0,0] if args.primary_only else [args.cells_per_primary]*3),'followers_per_node':([0,total,total] if args.primary_only else [args.cells_per_primary*2]*3)}
+        plan=layout.placement(3)
+        if args.primary_only:
+            for row in plan:
+                row['leader_groups']=len(layout.groups) if row['node']==1 else 0
+                row['leader_cells']=total if row['node']==1 else 0
+        report['placement']={'leaders_per_node':[r['leader_cells'] for r in plan],
+            'followers_per_node':[r['replica_cells']-r['leader_cells'] for r in plan],
+            'leader_groups_per_node':[r['leader_groups'] for r in plan],
+            'replica_groups_per_node':[r['replica_groups'] for r in plan]}
         save()  # Persist the no-continuation boundary before the first seed write.
         expected=collections.Counter(); latest={}
         seed_lock=threading.Lock()
@@ -391,7 +413,7 @@ def main():
             deadline=began+600
             while True:
                 states=parallel(lambda c:request(bases[owner(c)],f'/admin/{c}',token),range(total))
-                covered=sum(code==200 and s['ready'] and s['leader']==owner(c)+1 and s['archived']>=latest[c]['index'] for c,(code,s) in enumerate(states))
+                covered=sum(code==200 and s['ready'] and s['leader']==owner(c)+1 and type(s['archived']) is int and s['archived']>=latest[c]['index'] for c,(code,s) in enumerate(states))
                 log(f'Archive covers {covered}/{total} acknowledged versions')
                 if covered==total:
                     return states,time.monotonic()-began

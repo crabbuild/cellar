@@ -30,6 +30,7 @@ from raft_probe_http import ProbeHTTP
 import raft_log_files
 from raft_topology import local_placement, members, verify_topology, verify_resources, verify_populations, verify_traffic, vm_requirements
 from run import create_bucket
+from raft_groups import profile_layout, MAX_OCCUPANCY
 
 ROOT = Path(__file__).resolve().parents[2]
 RUSTFS = 'ghcr.io/rustfs/rustfs@sha256:bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858'
@@ -71,9 +72,10 @@ def validate_profile(profile):
     for key, value in profile['topology'].items():
         integer(value, 1, 1000, key)
     require(profile['topology']['voters'] <= profile['topology']['nodes'], 'voters exceed nodes')
-    fields(profile['cells'], 'total active', 'cells')
+    fields(profile['cells'], 'total active per_group', 'cells')
     integer(profile['cells']['total'], 1, 1000000, 'total cells')
     integer(profile['cells']['active'], 1, profile['cells']['total'], 'active cells')
+    integer(profile['cells']['per_group'], 1, MAX_OCCUPANCY, 'cells per group')
     for name, maximum in [('database_bytes', 8 * 1024**2), ('write_bytes', 64 * 1024)]:
         require(isinstance(profile[name], list) and 1 <= len(profile[name]) <= 32, f'invalid {name} distribution')
         for value in profile[name]:
@@ -105,12 +107,17 @@ def validate_profile(profile):
 
 
 def capacity(profile):
-    total = profile['cells']['total'] * profile['topology']['voters']
+    require(profile['topology']['voters'] == 3, 'shared-group planner requires RF3')
+    layout = profile_layout(profile)
+    total = len(layout.groups) * profile['topology']['voters']
     per_node = math.ceil(total / profile['topology']['nodes'])
-    return {'total_voter_replicas': total, 'average_replicas_per_node': total / profile['topology']['nodes'],
-            'minimum_peak_replicas_per_node': per_node, 'host_group_limit': 4096,
-            'minimum_peak_with_20_percent_repair_reserve': math.ceil(per_node * 1.2),
-            'host_bound_admits_balanced_placement': per_node <= 4096, 'density_qualified': False}
+    planned_peak = max(node['replica_groups'] for node in layout.placement(profile['topology']['nodes']))
+    return {'logical_cells': layout.total, 'physical_groups': len(layout.groups), 'cells_per_group': layout.occupancy,
+            'total_cell_replicas': layout.total * profile['topology']['voters'],
+            'total_voter_replicas': total, 'average_replicas_per_node': total / profile['topology']['nodes'],
+            'minimum_peak_replicas_per_node': per_node, 'planned_peak_replicas_per_node': planned_peak,
+            'host_group_limit': 4096, 'minimum_peak_with_20_percent_repair_reserve': math.ceil(per_node * 1.2),
+            'host_bound_admits_balanced_placement': planned_peak <= 4096, 'density_qualified': False}
 
 
 def source_manifest(root=ROOT):
@@ -222,10 +229,10 @@ def summarize_ledger(path, phase, seconds, *, cells=None):
             'error_fraction': (counts['offered'] - counts['completed']) / counts['offered'] if counts['offered'] else 1}
 
 
-def observe_failed_seed(cell, bases, token, docker, nodes, run_id):
+def observe_failed_seed(cell, bases, token, docker, nodes, run_id, layout):
     """Read-only diagnostics; never retry or change the failed command outcome."""
     replicas, kernel = [], []
-    for member in members(cell, len(bases)):
+    for member in members(cell, len(bases), layout):
         row = {'cell': cell, 'node': member, 'started_ns': time.monotonic_ns()}
         try:
             row['status'], row['response'] = request(bases[member - 1], f'/admin/{cell}', token, timeout=.5)
@@ -292,6 +299,7 @@ def main():
 def run(args, profile, build, docker, cpus, memory):
     node_count = profile['topology']['nodes']
     planned = local_placement(profile)
+    layout = profile_layout(profile)
     root = args.output.resolve()
     root.mkdir(parents=True, mode=0o700, exist_ok=False)
     config = root / 'config'
@@ -314,7 +322,7 @@ def run(args, profile, build, docker, cpus, memory):
               'fault_profile': args.fault_config, 'fault_profile_sha256': input_digest(args.fault_config),
               'fault_capability': args.fault_capability,
               'fault_engine': args.fault_engine,
-              'runner_sha256': {name: hashlib.sha256((ROOT / 'tools/perf' / name).read_bytes()).hexdigest() for name in ('raft_run.py', 'raft_workload.py', 'raft_analyze.py', 'raft_metrics.py', 'raft_topology.py', 'raft_faults.py', 'raft_probe_http.py', 'store_faults.py', 'workload_recovery.py', 'raft_docker.py', 'raft_kernel.py', 'raft_log_files.py', 'raft.py', 'run.py')},
+              'runner_sha256': {name: hashlib.sha256((ROOT / 'tools/perf' / name).read_bytes()).hexdigest() for name in ('raft_run.py', 'raft_workload.py', 'raft_analyze.py', 'raft_metrics.py', 'raft_topology.py', 'raft_groups.py', 'raft_faults.py', 'raft_probe_http.py', 'store_faults.py', 'workload_recovery.py', 'raft_docker.py', 'raft_kernel.py', 'raft_log_files.py', 'raft.py', 'run.py')},
               'capacity': capacity(profile), 'placement': planned, 'vm': {'cpus': cpus, 'memory_bytes': memory},
               'completed': False, 'reconciled': False, 'log_reclamation_observed': args.observe_log_reclamation,
               'limitations': ['One local VM and RustFS; no independent failure domains or Amazon S3 qualification.',
@@ -353,13 +361,26 @@ def run(args, profile, build, docker, cpus, memory):
                 if time.monotonic() > deadline:
                     raise RuntimeError('disposable RustFS startup failed') from None
                 time.sleep(1)
-        for index, node in enumerate(nodes, 1):
+        for node in nodes:
             docker('volume', 'create', '--label', owner, node)
+        report['initialization'] = json.loads(docker('run', '--rm', '--label', owner, '--network', prefix,
+            '--cpus', '1', '--cpuset-cpus', '0', '--memory', '3g', '--memory-swap', '3g',
+            '-v', nodes[0] + ':/data', '-v', str(config) + ':/config:ro',
+            '-e', 'RAFT_INITIALIZE=1', '-e', 'RAFT_NODE=1', '-e', f'RAFT_NODES={node_count}',
+            '-e', f"RAFT_CELLS={layout.total}", '-e', f"RAFT_CELLS_PER_GROUP={layout.occupancy}",
+            '-e', 'RAFT_WORKLOAD=reference', '-e', f'RAFT_NETWORK_PREFIX={network_prefix}',
+            '-e', 'AWS_ACCESS_KEY_ID=' + access, '-e', 'AWS_SECRET_ACCESS_KEY=' + secret, args.image))
+        require(report['initialization'] == {'initialized_groups':len(layout.groups), 'cells':layout.total,
+            'cells_per_group':layout.occupancy}, 'shared setup population differs')
+        save()
+        for index, node in enumerate(nodes, 1):
             docker('run', '-d', '--name', node, '--label', owner, '--network', prefix, '--ip', f'{network_prefix}.{10+index}',
                    '--cpus', '1', '--cpuset-cpus', str(index-1), '--memory', '3g', '--memory-swap', '3g',
                    '--ulimit', 'nofile=65536:65536', '-p', f'127.0.0.1:{args.port_base+index}:8082',
                    '-v', node + ':/data', '-v', str(config) + ':/config:ro',
                    '-e', f'RAFT_NODE={index}', '-e', f'RAFT_NODES={node_count}', '-e', f"RAFT_CELLS={profile['cells']['total']}",
+                   '-e', f"RAFT_CELLS_PER_GROUP={layout.occupancy}",
+                   '-e', f"RAFT_STARTUP_TIMEOUT_MS={profile['timing']['startup_seconds']*1000}",
                    '-e', f"RAFT_TICK_MS={profile['tick_ms']}", '-e', 'RAFT_QUEUE_ITEMS=4096',
                    '-e', 'RAFT_WORKLOAD=reference', '-e', f"RAFT_DURABILITY={profile['durability']}",
                    '-e', f'RAFT_NETWORK_PREFIX={network_prefix}',
@@ -367,12 +388,12 @@ def run(args, profile, build, docker, cpus, memory):
         print(f'Created {prefix} in {args.context}; waiting for actual group leadership.', flush=True)
         def balance(cell):
             try:
-                code, state = request(bases[cell % node_count], f'/admin/{cell}', token)
+                code, state = request(bases[layout.members(cell, node_count)[0]-1], f'/admin/{cell}', token)
                 if code != 200:
                     return False
-                if state['leader'] and state['leader'] != cell % node_count + 1:
+                if state['leader'] and state['leader'] != layout.members(cell, node_count)[0]:
                     request(bases[state['leader']-1], f'/admin/{cell}', token, method='POST')
-                return state['ready'] and state['leader'] == cell % node_count + 1
+                return state['ready'] and state['leader'] == layout.members(cell, node_count)[0]
             except (OSError, ValueError):
                 return False
         wait_for_placement(profile['cells']['total'], balance, time.monotonic() + profile['timing']['startup_seconds'], lambda text: print(text, flush=True))
@@ -387,7 +408,7 @@ def run(args, profile, build, docker, cpus, memory):
             finally:
                 topology[edge] = rows
                 (root / 'topology.json').write_text(json.dumps(topology) + '\n')
-            verify_topology(rows, profile['cells']['total'], node_count)
+            verify_topology(rows, profile['cells']['total'], node_count, layout.occupancy)
         capture_topology('before')
         report['limits'] = [captured_node_limits(json.loads(docker('inspect', '--format', '{{json .HostConfig}}', node))) for node in nodes]
         report['store_limits'] = captured_node_limits(json.loads(docker('inspect', '--format', '{{json .HostConfig}}', prefix + '-store')))
@@ -396,7 +417,7 @@ def run(args, profile, build, docker, cpus, memory):
             require(limits['NanoCpus'] == 10**9 and limits['Memory'] == 3 * 1024**3 and limits['MemorySwap'] == 3 * 1024**3 and not limits['Tmpfs'], 'resource limit mismatch')
             require(docker('exec', node, 'sha256sum', '/proc/1/exe').split()[0] == build['binary_sha256'], 'deployed executable differs from verified image')
         def send(cell, operation, body, headers, member=None):
-            node = cell % node_count if operation == 'command' else (cell + 1) % node_count
+            node = layout.members(cell, node_count)[0 if operation == 'command' else 1] - 1
             if member is not None:
                 node = member
             extra = {'x-command-id': headers['command_id'], 'x-retry-until-ms': str(headers['retry_until_ms'])} if operation == 'command' else {
@@ -470,19 +491,19 @@ def run(args, profile, build, docker, cpus, memory):
             try:
                 code, reply = send(cell, 'command', change, headers)
             except Exception:
-                report['seed_failure_observations'] = observe_failed_seed(cell, bases, token, docker, nodes + [prefix + '-store'], run_id)
+                report['seed_failure_observations'] = observe_failed_seed(cell, bases, token, docker, nodes + [prefix + '-store'], run_id, layout)
                 raise
             ledger.append({'event': 'seed_complete', 'monotonic_seconds': time.monotonic(), 'cell': cell, 'status': code, 'response': reply})
             expected, changed = model(None, change)
             valid = code == 200 and reply['state'] == expected and reply['changed'] == changed and reply['durability'] == profile['durability']
             if not valid:
-                report['seed_failure_observations'] = observe_failed_seed(cell, bases, token, docker, nodes + [prefix + '-store'], run_id)
+                report['seed_failure_observations'] = observe_failed_seed(cell, bases, token, docker, nodes + [prefix + '-store'], run_id, layout)
             require(valid, 'seed failed; retain original command identity and ledger')
             state[cell] = {'state': expected, 'next_sequence': 2, 'version_token': reply['version_token'], 'index': reply['index']}
         def wait_archive():
             began = time.monotonic()
             while True:
-                observations = [request(bases[cell % node_count], f'/admin/{cell}', token) for cell in state]
+                observations = [request(bases[layout.members(cell, node_count)[0]-1], f'/admin/{cell}', token) for cell in state]
                 if all(code == 200 and item['archived'] >= state[cell]['index'] for cell, (code, item) in enumerate(observations)):
                     return observations, time.monotonic() - began
                 require(time.monotonic() - began < profile['slo']['max_archive_lag_seconds'], 'archive drain exceeded declared SLO')
@@ -497,7 +518,7 @@ def run(args, profile, build, docker, cpus, memory):
                 control = BoundContainer(**args.fault_engine, node=f"{prefix}-node{args.fault_config['node']}", owner=run_id)
                 probe_http = ProbeHTTP()
                 fault = SlowFollower(root, args.scenario, args.fault_config, profile, prefix, run_id, control,
-                                     lambda cell, timeout, probe_id, trace: request(bases[cell % node_count], f'/admin/{cell}', token, timeout=timeout,
+                                     lambda cell, timeout, probe_id, trace: request(bases[layout.members(cell, node_count)[0]-1], f'/admin/{cell}', token, timeout=timeout,
                                          headers={'x-cellar-probe': probe_id}, http_trace=trace, http_client=probe_http), control.close)
         for phase, seconds in [('warmup', profile['timing']['warmup_seconds']), ('measurement', profile['timing']['measurement_seconds'])]:
             if seconds:
@@ -520,7 +541,7 @@ def run(args, profile, build, docker, cpus, memory):
         report['memory_objectives_met'] = all(row['memory_objective_met'] for row in report['kernel']['measurement'])
         replicas = []
         for cell, expected in state.items():
-            for ordinal in members(cell, node_count):
+            for ordinal in members(cell, node_count, layout):
                 member = ordinal - 1
                 code, reply = send(cell, 'query', {'consistency': 'at-least'}, {'min_version': expected['version_token']}, member=member)
                 require(code == 200 and reply['state'] == expected['state'] and reply['index'] >= expected['index'] and reply['served_by'] == member+1, 'replica state or version mismatch')

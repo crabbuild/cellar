@@ -6,10 +6,35 @@ import unittest
 from unittest.mock import Mock, patch
 
 import raft_fleet_operations as operations
+from raft_groups import Layout
 from raft_run import read_json
 
 
 class OperationsTests(unittest.TestCase):
+    def test_shared_seed_reserves_complete_population_before_activation_and_enrollment(self):
+        run = object.__new__(operations.Run)
+        layout = Layout(65, 32, 'Counter')
+        run.policy = {'nodes': 5, 'cells': 65, 'cells_per_group': 32,
+                      'incarnation': [8] * 16, 'owner': 'test'}
+        run.report = {'run_id': 'frozen', 'layout': layout.json(5)}
+        run.status = Mock(return_value={'state': 'Active', 'revision': 10})
+        commands = []
+        run.command = lambda node, key, make: commands.append((node, key, make()))
+        run.seed()
+        actions = [body['action'] for _, _, body in commands]
+        self.assertEqual(actions[:3], ['Reserve'] * 3)
+        self.assertEqual(actions[3:9], ['Confirm', 'InitializeArchive'] * 3)
+        self.assertEqual(actions[9:18], ['ActivateInitial'] * 9)
+        self.assertEqual(actions[18:], ['Enroll'] * 65)
+        self.assertEqual(len({key for _, key, _ in commands}), len(commands))
+        for node, _, body in commands[18:]:
+            self.assertEqual(node, layout.members(body['cell'], 5)[0])
+        commands.clear()
+        run.report['layout']['cells_per_group'] = 1
+        with self.assertRaisesRegex(ValueError, 'frozen population changed'):
+            run.seed()
+        self.assertEqual(commands, [])
+
     def test_mount_identity_ignores_order_but_preserves_every_binding_field(self):
         mounts = [{'Destination': '/data', 'Name': 'metadata', 'RW': True},
                   {'Destination': '/data/node/raft', 'Name': 'raft', 'RW': True}]

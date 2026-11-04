@@ -4,6 +4,69 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Executable consumer and image ownership checkpoint
+
+This section supersedes the historical consumer checkpoints below. The restored
+consumer port uses canonical shared ranges, explicit replicated enrollment,
+logical versions and physical commit witnesses. Native and Python routing vectors
+agree at occupancies 1, 32 and 128. Resource observations count actual groups and
+logical cells separately. Configured archive ceilings remain separate from the
+effective serial publication lane. Wider groups fit the original replay bank
+using smaller tails. Local source 14 all-binary compilation clears the original
+27 performance errors; final combined-source qualification is separate.
+
+Capture CG-07-perf-resume-01 preserves the earlier failures and exact source23
+executable. Python source 20 passes 282 tests with one environment skip. Native 23
+has fifteen passes and two failures: both RF3 scenarios reach the one-cell
+second group's S3 command (logical cell 6) and return an ambiguous DeadlineExceeded
+under the original five-second command budget. Occupancy 128 is not reached.
+The instrumented isolated 32 run 24 passes in 83.44 seconds, but does not clear
+those failures. Its full 32-cell checkpoint verification takes roughly 4–5 seconds;
+a complete background job reaches 5.206 seconds. Investigate repeated complete
+checkpoint verification and cross-group archive-lane interference next. Keep
+all original deadlines, quotas and explicit S3 assertions.
+
+The materialized retention failure is corrected locally. Exact terminal command
+and enrollment reconciliation retires private previews while keeping their pins
+through physical completion. A fresh applied image transfers its pin into the
+complete manifest graph without retaining an extra permanent host reference.
+Startup recovers every physical group's current/checkpoint closure before
+releasing conservative filename references, with no routes reachable yet.
+Uncertain publication, checkpoint and reader pins still protect their closures.
+The public native/Axum process drill 19 passes 80 additional commands before and
+after retained restart using the original 64-image bank, in 166.22 seconds. Its
+exact source/artifacts are retained. Extent preparation similarly makes only
+fresh roots transient and preserves existing retention; all six LTX apply cases
+pass, including live-reader and exact existing-retention collection checks.
+This supplies correct eligibility, not an owned live extent collector or a
+sustained-load qualification. The offline reclaim_cell_storage guard remains.
+
+Qualification 25 is terminal: all seven targets pass 254 cases with 29 explicit
+backend/process skips. Execution 179, storage 15, archive 30/controller 16, managed 10,
+host 3 and public 1 pass. The extended public drill finishes in 135.69 seconds.
+Postchecks 26 pass all binary targets, three startup cases, native-only libraries,
+LTX feature-off/all-feature builds and static checks. Strict library Clippy keeps
+222 diagnostics (202 dead_code), with unchanged message/primary-file keys.
+Source 25's 2710-input manifest SHA256 is
+8c2d708074d6c265dd69fe9edb62694495998a517900700a1cc3e97e97eefb92;
+both final comparisons have no changed inputs. The failed full performance gate,
+full-library inspection oracle, plan drift and remaining CI are still open.
+No current-source Docker/RustFS or release claim.
+
+Managed setup persists standby/full-range intents, reserves all physical births
+before selecting ranges, initializes exact archive bindings, attaches RF3 and
+enrolls logical cells. These adapters still need deployed managed qualification,
+actual-leader enrollment routing, dynamic node-owned archive attachment and
+exact-reference S3 learner startup. The disaster operator remains the older
+per-cell workflow and is not shared-group recovery. Complete disjoint replacement
+identities, whole-group seeding into public Node paths, serial namespace activation,
+explicit partial inventory and permanent Docker launch revocation before its
+all-voter-disks-deleted RustFS run. Preserve every original refusal, state,
+receipt and restart oracle. Then finish the four missing public gates and CG-09–16.
+
+The goal remains active and PR #160 draft. Preserve both requested MR basename
+exclusions, the eight user diagrams and all failed source/artifact captures.
+
 ## Latest combined public recovery checkpoint
 
 Read progress and the ignored public_recovery_work continuation first. Final

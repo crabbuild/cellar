@@ -262,6 +262,19 @@ current/pending publication slots. Recovery reconstructs both complete closures;
 a missing older checkpoint refuses startup and reclamation even when the current
 applied root is complete. Physical recovery never renews quorum authority.
 
+Canonical startup recovers every retained physical group's complete current and
+checkpoint image graphs before releasing conservative filename retention in the
+shared serving inventory. It refuses an incomplete assignment and publishes no
+peer/public routes before this adoption. Complete manifest pins keep both
+selections alive; uncertain publication additionally retains its pending closure.
+Fresh applied materialized/extent images transfer their live pins into that graph
+without adding a permanent host reference for every entry. An existing image's
+retention is preserved. Disposable command/enrollment previews retire only after
+exact terminal owner reconciliation, retaining their physical pins until work
+finishes. Unknown outcomes keep the pending owner. Materialized preparation uses
+its existing bounded collection; transient extent roots still need node-owned
+collection. The offline complete-inventory reclamation API remains offline.
+
 These are verification APIs. Ordinary peer ingress still rejects snapshot
 messages. `step_checkpoint` on the owner/runtime accepts an authenticated envelope
 only with its exact receiver-local closure, engine/page owner, selected base and

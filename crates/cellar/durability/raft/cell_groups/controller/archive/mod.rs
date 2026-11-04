@@ -353,6 +353,8 @@ impl Manager {
             // node's potentially larger total command admission.
             let count = entry.waiters.len().min(32);
             let mut waiters = entry.waiters.drain(..count).collect();
+            tracing::debug!(target: "cellar::raft::group_archive", node = ?runtime.log().limits().node,
+                group = ?group.group, stage = "launch", waiters = count);
             settlement::prune(&mut waiters, now);
             self.job = Some(Box::pin(async move {
                 let result = std::panic::AssertUnwindSafe(async {
@@ -382,6 +384,8 @@ impl Manager {
                         .archive_compaction
                         .confirm(&local, &coverage)
                         .map_err(|error| Error::Runtime(error.into()))?;
+                    tracing::debug!(target: "cellar::raft::group_archive", node = ?runtime.log().limits().node,
+                        group = ?group.group, stage = "coverage", index = coverage.marker().position().index.get());
                     waiters = settlement::prove(
                         std::mem::take(&mut waiters),
                         context.as_ref().expect("opened archive context"),
@@ -390,6 +394,8 @@ impl Manager {
                         &execution,
                     )
                     .await;
+                    tracing::debug!(target: "cellar::raft::group_archive", node = ?runtime.log().limits().node,
+                        group = ?group.group, stage = "settled", remaining = waiters.len());
                     Ok(coverage.marker().clone())
                 })
                 .catch_unwind()

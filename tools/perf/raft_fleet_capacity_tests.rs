@@ -3,7 +3,7 @@
 //! Native admission and the lab operator wrapper share the canonical receipt.
 use super::*;
 #[allow(dead_code)]
-#[path = "../../crates/cellar/tests/support/raft_node.rs"]
+#[path = "../../crates/cellar/tests/support/cell_group_disaster_public_node.rs"]
 mod public_node;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -23,13 +23,16 @@ async fn capacity_retry() -> Result<()> {
     );
     let counter = counter::CounterApi::new(
         "fixture-token-capacity-retry".into(),
+        namespace.cluster,
         namespace.namespace,
         &class,
     )?;
     let application = counter::application(counter, class)?;
     let managed =
         Arc::new(Managed::open(bucket.clone(), config(), namespace, "Counter", true).await?);
-    managed.bootstrap().await?;
+    managed
+        .bootstrap(&root.path().join("initialization"))
+        .await?;
     let node = public_node::node_named(root.path(), application.clone(), "raft-node1").await?;
     let listeners = NodeRaftListeners {
         control: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
@@ -41,7 +44,10 @@ async fn capacity_retry() -> Result<()> {
     let process = ProcessGeneration::new([21; 16])?;
     let mut options = RaftCellsConfig {
         query_origins: vec![],
-        cells: vec![],
+        command_origins: vec![],
+        namespaces: vec![],
+        groups: vec![],
+        shared: crate::raft_limits::shared(&RaftHostOptions::default(), 2, 2)?,
         host: RaftHostOptions::default(),
         catalog: Managed::catalog_options(),
         peers: vec![RaftPeerNode {
@@ -106,7 +112,7 @@ async fn capacity_retry() -> Result<()> {
         managed.catalog.clone(),
         Docker::new(root.path().join("missing-engine.sock")),
         &managed.config.owner,
-        vec![managed.namespace.clone()],
+        vec![managed.directory.clone()],
     )?;
     let resources = FleetDockerResources::new(
         isolation.clone(),
@@ -182,7 +188,7 @@ async fn capacity_retry() -> Result<()> {
             &cut,
             &request,
             &cells,
-            std::slice::from_ref(&managed.namespace),
+            std::slice::from_ref(&managed.directory),
             TIMEOUT,
         )
         .await
@@ -191,12 +197,12 @@ async fn capacity_retry() -> Result<()> {
     let NodeOutcome::Stopped(report) = node.shutdown(ShutdownMode::Preserve).await? else {
         anyhow::bail!("native fixture did not join");
     };
-    ensure!(report
-        .raft
-        .context("missing raft close report")?
-        .result?
-        .unfinished
-        .is_empty());
+    let report = report.raft.context("missing raft close report")?.result?;
+    ensure!(
+        report.groups_total == 0
+            && report.omitted_groups == 0
+            && report.retained_calls_at_shutdown == 0
+    );
     // Neither a live process nor an Engine is available. Only the original
     // committed receipt may succeed; a changed payload must still be refused.
     let response = api

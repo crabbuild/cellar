@@ -9,11 +9,25 @@ highest observed error-free throughput with p99 below 200 ms by default. Use
 The [recorded measurements](raft-results.md) include both latency budgets and
 the longer confirmation at three concurrent writers.
 
-This fixture uses three separate native SDK processes with `NamespaceMode::Raft`,
-three durable voters per cell and no Fleet durability service. By default each
-node leads 500 of 1,500 cells and follows the other 1,000. Leadership is transferred
-through the checked SDK API and observed before traffic starts. Followers apply
-committed SQLite/LTX images; they do not execute the command callback.
+This fixture uses three separate native SDK processes with `NamespaceMode::Raft`
+and RF3 physical groups. `--cells-per-group` defaults to 32 and accepts 1–128;
+even occupancy one uses the shared-group runtime. Complete canonical routing
+keys partition the frozen population into contiguous ranges. Logical cell
+histories, SQLite state, command receipts and version tokens remain independent.
+A population of 1,500 cells uses 47 groups and 141 voter replicas. The reported
+placement counts physical groups and logical cells separately; hash partitioning
+means `--cells-per-primary` specifies total population, not an exact leader count.
+Leadership transfer uses the observed group term and membership revision before
+traffic starts. Followers apply committed SQLite/LTX images without invoking the
+command callback. Historical results linked above describe their original source
+and topology; they do not qualify this port or establish a speedup.
+
+A pre-voter initializer persists exact birth, full-range and one-use archive
+intents before dispatch. Ordinary and retained startup open those bindings;
+lookup never allocates another cell/group. Logical cells are explicitly enrolled
+through replicated commands before the unmanaged workload endpoint becomes ready.
+Changing population or occupancy on continuation refuses. The native and Python
+runners check common frozen routing vectors at occupancies 1, 32 and 128.
 
 Each Cellar container has one pinned CPU, a 3-GiB memory limit, no extra swap and a
 persistent Docker volume on the Colima VM filesystem. RustFS has two separate
@@ -45,12 +59,14 @@ additional scheduling delays. This trades failover speed for lower protocol
 traffic. The runner retains the SDK-oriented 100-ms default for small smoke
 runs. Record the chosen interval with every result.
 
-`--archive-producers` selects one to four concurrent cell publications per node
-(default two). Publications for the same cell remain serial, and physical replay
-uses one exclusive verification workspace. Each producer has a bounded capture
-and recovery set, so aggregate archive memory scales with this setting. The
-runner records it and requires the same value when continuing incomplete setup.
-Use one and two with the same image to isolate the effect of overlapping I/O.
+`--archive-producers` retains its one-to-four configured producer ceiling. The
+shared controller currently runs one physical group publication at a time and
+reports that effective concurrency separately. Producer/job/batch options are
+upper bounds, not evidence that the controller used that concurrency. One
+node-wide independent verifier replays each complete group. Wider groups use
+smaller tail batches within the original 512-MiB replay bank; apply admission
+includes the configured decoded-image bound and one extent scratch buffer.
+These bounds do not constitute measured memory or density qualification.
 
 `--archive-blocking-jobs` separately bounds local archive encoding and verification
 jobs across all those producers (one to four, default one). The node records the
@@ -216,3 +232,22 @@ receipt reconciliation, not a new increment. `--continue-seed RUN_DIRECTORY`
 requires that journal and refuses runs with measured writes. A seed whose unknown
 outcome outlives its original retry window is refused without generating a new
 identity. The measured load generator never retries writes.
+
+## Shared-group consumer qualification status
+
+The current port has native layout, setup, managed capacity/retry and reference
+workload tests, Python runner/oracle tests, and a separate public SDK/native/Axum
+process regression. No container throughput, latency or all-disks-deleted recovery
+result is implied by those checks. The performance disaster operator still needs
+the whole-group recovery protocol; its older per-cell workflow cannot qualify
+these shared histories. Use source-bound evidence for every new measurement.
+
+Managed policy requires `cells` and `cells_per_group` alongside physical
+`group_capacity`. Durable group reservations cover all configured logical cells;
+source/replay inventories and filesystem headroom are checked separately. A shared
+physical bank may refuse before the declared group count is reached. Provisioning
+persists a complete population, reserves every physical birth before selecting the
+initial range map, explicitly initializes archive bindings, activates each RF3
+member, then enrolls logical cells. Dynamic managed archive ownership and exact
+S3 learner startup remain implementation/qualification work; successful managed
+configuration tests do not establish that lifecycle end to end.
