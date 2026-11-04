@@ -61,10 +61,11 @@ report measured physical group counts separately from logical cell counts.
 
 Public recovered-node startup now has its owned activation path: an explicit
 fencing authority plus exact retained seed/engine pins, actual fresh quorum
-activation, catalog completion and joined shutdown. The local public Node drill
-restores original S3 receipts/state after all old voter directories are erased,
-then verifies new writes and retained restart in both image forms. Its contract
-fence does not qualify the Docker controller or a combined RustFS deployment.
+activation, catalog completion and joined shutdown. The public Node drill restores original S3 receipts/state after all old voter
+directories are erased, then verifies new writes and retained restart in both
+image forms, including the recorded real-RustFS run. Its three embedded Nodes
+and contract fence do not qualify the Docker permanent launch-fencing drill,
+separate voter processes/hosts or multi-group load.
 Use this API in the executable whole-group recovery port next. Preserve complete
 archive cuts before fencing, use disjoint replacement member/node identities,
 and sequence each group against the current catalog root through activation;

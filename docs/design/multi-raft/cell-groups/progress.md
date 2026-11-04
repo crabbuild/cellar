@@ -12,6 +12,54 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 combined public recovery qualification
+
+Runtime commit f644d9d69b24bc44024a88f33f80dc21fbffd3d0 contains the recovered
+public-node startup and joined late-error cleanup. It includes fetched main
+981a5417d9359d1f992e2dbf214eec7d221b6777, with zero commits behind. Final capture
+CG-07-public-recovery-14 binds 2136 Rust inputs to manifest SHA256
+009e0283f389ca2b4c09220a0c2b708e9e673cd350fa4d1701c1281530033977.
+Its Rust mapping exactly matches startup-13, which ran the new ownership unit
+case and the full library. Documentation publication does not change that code.
+
+- Native archive/recovery: 30 passed, six backend cases ignored, 72.45 seconds.
+- Managed Node lifecycle: ten passed, retaining all ten parent names.
+- Archive controller: sixteen passed, twenty backend cases ignored.
+- Host: three passed. Existing public SDK/native/Axum process/restart gate: one
+  passed. Counter build and locked native-only cellar/cellar-python library
+  compilation pass, including the unavailable Python-runtime sentinel.
+- All three startup unit cases pass. Full library: 1062 passed, the same retired
+  inspection-protocol oracle failed, two Docker cases ignored. The new held-worker
+  regression first reproduced return-before-join, then passed with explicit
+  public-service closure before infrastructure teardown.
+- Performance-tool Python: 277 passed and one environment case skipped.
+  Multi-Raft tool Python: ten passed and one Docker case skipped.
+- Formatting, layout, dependency isolation, docs and diff checks pass.
+- Strict Clippy remains 222 diagnostics, 202 dead_code, with unchanged diagnostic
+  keys. Plan checks remain 35 passed, one generated-index/Purpose mismatch and
+  one reviewed protocol.rs anchor error. Package commands still fail on the 27
+  unconverted performance-runner errors; emitted integration artifacts are not
+  package-build successes. No failure was suppressed or baseline refreshed.
+
+Capture CG-07-public-recovery-rustfs-15 passes the exact public SDK recovery case
+against real pinned RustFS in 19.70 seconds, covering both image forms. It uses
+the same final archive executable and Rust mapping. The owned backend enforces
+one CPU/two GiB, verifies its image, label and loopback endpoint, and passes an
+independent signed S3/conditional-object probe. The test removes all source voter
+directories and the old verifier cache, independently verifies the fixture fence,
+restores complete images and receipts, obtains fresh quorum activation, preserves
+S3 minima and client floors, rejects old tokens, serves new writes and survives
+retained restart. The backend is stopped with its owned data volume retained.
+
+This is one test process embedding three real Nodes with separate domains/disks
+and TLS. Its fencing authority is a contract fixture. It does not qualify the
+Docker controller's permanent launch fence, separate voter processes/hosts,
+managed disaster recovery, multi-group recovery orchestration or sustained
+replication/reclamation load. Those original requirements remain open. No stack,
+existing request deadline, admission quota or optimization profile was raised.
+Earlier source/failures, exact executables and the unqualified consumer WIP are
+preserved. Keep CG-07 IN_PROGRESS, CG-09–16 TODO and PR #160 draft.
+
 ## CG-07 public recovered-node startup checkpoint
 
 Capture CG-07-public-recovery-11 binds 2136 Rust inputs (manifest SHA256
@@ -66,8 +114,8 @@ The outage case now reports an early command result instead of masking it behind
 a settlement wait; all original outage/deadline, callback, capacity, archive and
 reclamation assertions remain. Earlier failures and executables are retained.
 The performance metric inventory also includes transport_query_reply_write;
-all 278 performance-tool Python tests pass with one explicit environment skip,
-and all eleven multi-Raft tool tests pass with one explicit Docker skip.
+the performance-tool campaign has 277 passed and one environment skip;
+the multi-Raft tool campaign has ten passed and one Docker skip.
 
 This does not complete CG-07, its four missing original public gates or the
 combined MVP. Package builds still fail on the 27 unconverted performance-runner

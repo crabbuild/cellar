@@ -4,6 +4,32 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Latest combined public recovery checkpoint
+
+Read progress and the ignored public_recovery_work continuation first. Final
+capture CG-07-public-recovery-14 and startup-13 have identical 2136-file Rust
+mappings. Archive thirty, managed ten, archive-controller sixteen, host three,
+public SDK one, counter/native-only and static checks pass. All three startup
+unit cases pass; full library is 1062 passed, the same retired inspection failure
+and two Docker skips. Strict lint retains 222/202 dead_code with unchanged keys;
+plan and 27 performance-build errors remain. All failures and original names
+are preserved.
+
+Real-RustFS capture CG-07-public-recovery-rustfs-15 passes public recovered
+startup/activation, receipts/floors, actual inventory, new writes and retained
+restart in both image forms. It uses fixture fencing and three embedded Nodes
+in one process, not the Docker permanent launch-fencing drill or load gate.
+The owned backend is stopped with its volume retained. Inspect preservation and
+publication records for exact commit, backup and any later live handles.
+
+Next restore/adapt the 21-file executable-consumer WIP recorded below. The new
+public recovery authority/activation/close owner is ready for that integration.
+Finish disjoint replacement members, serial catalog activation/partial inventory,
+managed archive ownership/enrollment, strict Python oracles and 128-cell budgets.
+Then complete all original public gates, exact managed S3 learner activation and
+source-qualified Docker/RustFS load/recovery. Keep the full CG-01–16 goal active
+and PR #160 draft. Preserve all eight diagrams and both MR basename exclusions.
+
 ## Public recovered-node startup in qualification
 
 Read the new progress checkpoint and ignored public_recovery_work continuation
