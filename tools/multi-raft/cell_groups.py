@@ -64,6 +64,13 @@ SUITES = {
         "Live effect S3 settlement and independent complete archive replay. Backend outage, "
         "live group transfer, external-effects disaster recovery and sustained load remain separate gates.",
     ),
+    "sealed-sources": (
+        "native_cell_groups_host",
+        ("rustfs_sealed_source_archives",),
+        "exact transition source seals, independently replayed RustFS holds and retained source-set CAS",
+        "Three host-native voters and the unmanaged transition boundary. Managed capacity, child "
+        "install, range publication and independent voter processes remain separate gates.",
+    ),
     "managed-ingress": (
         "native_cell_groups_managed",
         ("bootstrap::requests::rustfs_managed_native_axum_read_write_and_retained_restart",),

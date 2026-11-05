@@ -211,6 +211,12 @@ child preparation, reserve physical resources and authenticate remote Seal
 requests. Child install, archive closure, publication, activation and retirement
 follow the committed cuts.
 
+The sealed-source journal accepts one explicit archive hold per planned parent.
+Each hold must belong to the namespace-bound archive and independently restore
+the matching replicated seal and its complete image closure. The directory
+records the exact ordered set only after verification. The transition owner
+retains those holds until retirement and re-verifies them after restart.
+
 ## Default backend, capabilities and deployment
 
 Quorum is already the command API default, and the namespace declaration

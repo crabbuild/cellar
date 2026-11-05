@@ -7,55 +7,11 @@ pub(crate) async fn source_seal_blocks_delayed_work() -> Result<()> {
     let mut fixture = RuntimeCluster::new().await?;
     let route = fixture.cluster.birth.route().clone();
     let scope = route.history;
-    for (n, voter) in fixture.cluster.voters.iter_mut().enumerate() {
-        let pool = apply_pool(&voter.log)?;
-        let applier = CellGroupApplier::new(
-            voter.log.cell_group(&scope)?,
-            voter.pages.take().context("source page owner")?,
-            checkpoint_receive::config(voter.images.clone(), None, fixture.cluster._root.path())?,
-            ManifestLimits::default(),
-            GroupEntryLimits::default(),
-            100,
-        )?;
-        fixture.appliers.insert((n, scope), (pool, applier));
-    }
+    attach_source_appliers(&mut fixture)?;
     let directory = fixture.cluster.directory.clone();
     let log = fixture.cluster.voters[0].log.clone();
     let domain = &fixture.cluster.domain;
-    let view = domain.run(directory.observe()).await??;
-    let (left, right) = route
-        .range
-        .split(cell_routing_key(scope.namespace, &CellId::new("pivot")?))?;
-    let mut children = Vec::new();
-    for (id, range) in [(11, left), (12, right)] {
-        let child = directory.prepare_group_birth(CellGroupBirthSpec {
-            history: GroupHistory {
-                group: GroupId::new([id; 16])?,
-                incarnation: IncarnationId::new([id + 10; 16])?,
-                ..scope
-            },
-            range,
-            epoch: RouteEpoch::new(2)?,
-            creation: ProposalId::new([id; 16])?,
-            voters: (1..=3)
-                .map(|n| {
-                    Ok(InitialMember {
-                        member: MemberId::new(n)?,
-                        node: NodeId::new([n as u8; 16])?,
-                    })
-                })
-                .collect::<Result<_>>()?,
-            learners: vec![],
-        })?;
-        domain.run(directory.reserve_group_birth(&child)).await??;
-        children.push(child.route().clone());
-    }
-    let plan = directory.prepare_replacement(
-        &view,
-        ProposalId::new([13; 16])?,
-        std::slice::from_ref(&route),
-        &children,
-    )?;
+    let plan = split_plan(&fixture.cluster).await?;
     domain.run(directory.plan_transition(&plan)).await??;
     domain
         .run(directory.prepare_transition(&plan, [14; 32]))
@@ -297,6 +253,68 @@ pub(crate) async fn source_seal_blocks_delayed_work() -> Result<()> {
     };
     anyhow::ensure!(retry == applied);
     resumed.close().await
+}
+
+pub(super) fn attach_source_appliers(fixture: &mut RuntimeCluster) -> Result<()> {
+    let scope = fixture.cluster.birth.route().history;
+    for (n, voter) in fixture.cluster.voters.iter_mut().enumerate() {
+        let pool = apply_pool(&voter.log)?;
+        let applier = CellGroupApplier::new(
+            voter.log.cell_group(&scope)?,
+            voter.pages.take().context("source page owner")?,
+            checkpoint_receive::config(
+                voter.images.clone(),
+                voter.extents.clone(),
+                fixture.cluster._root.path(),
+            )?,
+            ManifestLimits::default(),
+            GroupEntryLimits::default(),
+            100,
+        )?;
+        fixture.appliers.insert((n, scope), (pool, applier));
+    }
+    Ok(())
+}
+
+pub(super) async fn split_plan(cluster: &Cluster) -> Result<DirectoryMutation> {
+    let directory = &cluster.directory;
+    let domain = &cluster.domain;
+    let route = cluster.birth.route().clone();
+    let scope = route.history;
+    let view = domain.run(directory.observe()).await??;
+    let (left, right) = route
+        .range
+        .split(cell_routing_key(scope.namespace, &CellId::new("pivot")?))?;
+    let mut children = Vec::new();
+    for (id, range) in [(11, left), (12, right)] {
+        let child = directory.prepare_group_birth(CellGroupBirthSpec {
+            history: GroupHistory {
+                group: GroupId::new([id; 16])?,
+                incarnation: IncarnationId::new([id + 10; 16])?,
+                ..scope
+            },
+            range,
+            epoch: RouteEpoch::new(2)?,
+            creation: ProposalId::new([id; 16])?,
+            voters: (1..=3)
+                .map(|n| {
+                    Ok(InitialMember {
+                        member: MemberId::new(n)?,
+                        node: NodeId::new([n as u8; 16])?,
+                    })
+                })
+                .collect::<Result<_>>()?,
+            learners: vec![],
+        })?;
+        domain.run(directory.reserve_group_birth(&child)).await??;
+        children.push(child.route().clone());
+    }
+    Ok(directory.prepare_replacement(
+        &view,
+        ProposalId::new([13; 16])?,
+        std::slice::from_ref(&route),
+        &children,
+    )?)
 }
 
 fn apply_pool(log: &ReplicaLog) -> Result<CellGroupSqlPool> {

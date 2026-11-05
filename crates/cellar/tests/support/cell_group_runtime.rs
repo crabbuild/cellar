@@ -37,6 +37,9 @@ pub(super) use tcp::physical_transport;
 #[path = "cell_group_source_seal.rs"]
 mod source_seal;
 pub(super) use source_seal::source_seal_blocks_delayed_work;
+#[path = "cell_group_source_archives.rs"]
+mod source_archives;
+pub(super) use source_archives::sealed_source_archives;
 
 struct RuntimeCluster {
     snapshot_sources: BTreeMap<(usize, GroupHistory), PreparedGroupManifest>,

@@ -31,11 +31,11 @@ pub use range_directory::{
     CellGroupBirthSpec, CellGroupBootstrapPermit, CellGroupDirectoryCursor, CellGroupDirectoryPage,
     CellGroupDisasterFenceRequest, CellGroupRecoveryActivationAck,
     CellGroupRecoveryActivationPermit, CellGroupRecoveryError, CellGroupRecoveryRequest,
-    CellGroupSealPermit, CellRouteAttempt, CellRouteCacheUsage, CellRouteOperation,
-    CellRouteRequest, CellRoutingError, CellRoutingFailure, CellRoutingLimits, CellRoutingSession,
-    DirectoryLimits, DirectoryMutation, DirectoryPublication, DirectoryView,
+    CellGroupSealPermit, CellGroupTransitionSource, CellRouteAttempt, CellRouteCacheUsage,
+    CellRouteOperation, CellRouteRequest, CellRoutingError, CellRoutingFailure, CellRoutingLimits,
+    CellRoutingSession, DirectoryLimits, DirectoryMutation, DirectoryPublication, DirectoryView,
     FencedCellGroupRecovery, PreparedCellGroupArchiveBinding, RangeDirectory, ResolvedCellRoute,
-    TransitionJournal, TransitionPhase,
+    TransitionJournal, TransitionPhase, VerifiedCellGroupTransitionSources,
 };
 
 #[path = "catalog_inventory/mod.rs"]

@@ -15,6 +15,33 @@ mod images;
 #[path = "support/cell_group_runtime.rs"]
 mod runtime_fixture;
 include!("support/cell_group_engine_fixture.rs");
+#[path = "support/cell_group_rustfs.rs"]
+mod rustfs;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn sealed_source_archives_require_exact_live_holds() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::sealed_source_archives(
+            rooted,
+            Arc::new(object_store::memory::InMemory::new()),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_sealed_source_archives() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::sealed_source_archives(
+            rooted,
+            rustfs::store("sealed-source-archives", rooted)?,
+        ))
+        .await?;
+    }
+    Ok(())
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn source_seal_blocks_delayed_work() -> Result<()> {

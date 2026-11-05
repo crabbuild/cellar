@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Pre-seal split/merge decisions rooted in the same CAS as the range tree.
+//! Split/merge decisions rooted in the same CAS as the range tree.
 use super::*;
 use crate::application::consensus::group_protocol::{
     CellGroupEntry, GroupCommand, GroupEntryBinding, GroupEntryLimits,
@@ -23,6 +23,7 @@ pub enum TransitionPhase {
     Planned,
     Prepared,
     SealAuthorized,
+    Sealed,
     Cancelled,
 }
 
@@ -33,6 +34,8 @@ pub enum TransitionPhase {
 pub struct TransitionJournal {
     request: [u8; 32],
     preparation: Option<[u8; 32]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_set: Option<[u8; 32]>,
     phase: TransitionPhase,
 }
 
@@ -43,6 +46,29 @@ impl TransitionJournal {
 
     pub fn preparation(&self) -> Option<[u8; 32]> {
         self.preparation
+    }
+
+    pub fn sealed_sources(&self) -> Option<[u8; 32]> {
+        self.source_set
+    }
+
+    pub(super) fn seal_authorization(&self) -> Result<[u8; 32], CatalogError> {
+        if !matches!(
+            self.phase,
+            TransitionPhase::SealAuthorized | TransitionPhase::Sealed
+        ) {
+            return Err(CatalogError::Fenced);
+        }
+        let authorized = Self {
+            phase: TransitionPhase::SealAuthorized,
+            source_set: None,
+            ..self.clone()
+        };
+        Ok(record::digest(&record::encode(
+            JOURNAL,
+            &authorized,
+            LIMIT,
+        )?))
     }
 }
 
@@ -100,6 +126,7 @@ impl CellGroupSealPermit {
 enum Advance {
     Prepare([u8; 32]),
     Authorize,
+    RecordSources([u8; 32]),
     Cancel,
 }
 
@@ -111,11 +138,16 @@ impl Advance {
                 journal.preparation = Some(digest);
                 journal.phase = Prepared;
             }
-            (Self::Prepare(digest), Prepared | SealAuthorized)
+            (Self::Prepare(digest), Prepared | SealAuthorized | Sealed)
                 if journal.preparation == Some(digest) => {}
             (Self::Authorize, Prepared) => journal.phase = SealAuthorized,
+            (Self::RecordSources(digest), SealAuthorized) if digest != [0; 32] => {
+                journal.phase = Sealed;
+                journal.source_set = Some(digest);
+            }
+            (Self::RecordSources(digest), Sealed) if journal.source_set == Some(digest) => {}
             (Self::Cancel, Planned | Prepared) => journal.phase = Cancelled,
-            (Self::Authorize, SealAuthorized) | (Self::Cancel, Cancelled) => {}
+            (Self::Authorize, SealAuthorized | Sealed) | (Self::Cancel, Cancelled) => {}
             _ => return Err(CatalogError::Conflict("transition decision")),
         }
         Ok(journal)
@@ -155,10 +187,14 @@ impl RangeDirectory {
                 let journal: TransitionJournal = record::decode(JOURNAL, &bytes, LIMIT)?;
                 let required = matches!(
                     journal.phase,
-                    TransitionPhase::Prepared | TransitionPhase::SealAuthorized
+                    TransitionPhase::Prepared
+                        | TransitionPhase::SealAuthorized
+                        | TransitionPhase::Sealed
                 );
                 if journal.request == [0; 32]
                     || journal.preparation == Some([0; 32])
+                    || journal.source_set == Some([0; 32])
+                    || (journal.phase == TransitionPhase::Sealed) != journal.source_set.is_some()
                     || (required && journal.preparation.is_none())
                     || (journal.phase == TransitionPhase::Planned && journal.preparation.is_some())
                 {
@@ -169,7 +205,10 @@ impl RangeDirectory {
             .transpose()
     }
 
-    fn check_transition_plan(&self, mutation: &DirectoryMutation) -> Result<(), CatalogError> {
+    pub(super) fn check_transition_plan(
+        &self,
+        mutation: &DirectoryMutation,
+    ) -> Result<(), CatalogError> {
         self.check_request(&mutation.request)?;
         match (
             mutation.request.parents.len(),
@@ -180,7 +219,7 @@ impl RangeDirectory {
         }
     }
 
-    async fn matching_transition(
+    pub(super) async fn matching_transition(
         &self,
         head: &wire::Head,
         mutation: &DirectoryMutation,
@@ -295,6 +334,7 @@ impl RangeDirectory {
             let journal = TransitionJournal {
                 request: mutation.digest,
                 preparation: None,
+                source_set: None,
                 phase: TransitionPhase::Planned,
             };
             for (key, value) in [
@@ -365,7 +405,6 @@ impl RangeDirectory {
             let journal = self
                 .matching_transition(&view.head, mutation)
                 .await?
-                .filter(|journal| journal.phase == TransitionPhase::SealAuthorized)
                 .ok_or(CatalogError::Fenced)?;
             let route = mutation
                 .request
@@ -390,31 +429,8 @@ impl RangeDirectory {
             {
                 return Err(CatalogError::Fenced);
             }
-            let transition = TransitionId::new(mutation.operation.bytes())
-                .map_err(|_| CatalogError::Invalid("transition identity"))?;
-            let authorization = record::digest(&record::encode(JOURNAL, &journal, LIMIT)?);
-            let children = mutation
-                .request
-                .children
-                .iter()
-                .map(|route| route.decode(self))
-                .collect::<Result<Vec<_>, _>>()?;
-            let entry = CellGroupEntry {
-                binding: GroupEntryBinding {
-                    group: route.history,
-                    route_epoch: route.epoch,
-                    birth_digest: route.birth_digest,
-                    schema_digest: route.schema_digest,
-                    proposal: mutation.operation,
-                },
-                command: GroupCommand::Seal {
-                    transition,
-                    authorization,
-                    children,
-                },
-            }
-            .encode(&route, GroupEntryLimits::default())
-            .map_err(|_| CatalogError::Invalid("source seal entry"))?;
+            let (transition, authorization, entry) =
+                self.source_seal_entry(mutation, &journal, &route)?;
             let deadline = log
                 .domain()
                 .mono_ms()
@@ -432,6 +448,49 @@ impl RangeDirectory {
             })
         })
         .await
+    }
+
+    pub(super) fn source_seal_entry(
+        &self,
+        mutation: &DirectoryMutation,
+        journal: &TransitionJournal,
+        route: &GroupRoute,
+    ) -> Result<(TransitionId, [u8; 32], Vec<u8>), CatalogError> {
+        let transition = TransitionId::new(mutation.operation.bytes())
+            .map_err(|_| CatalogError::Invalid("transition identity"))?;
+        let authorization = journal.seal_authorization()?;
+        let children = mutation
+            .request
+            .children
+            .iter()
+            .map(|route| route.decode(self))
+            .collect::<Result<_, _>>()?;
+        let entry = CellGroupEntry {
+            binding: GroupEntryBinding {
+                group: route.history,
+                route_epoch: route.epoch,
+                birth_digest: route.birth_digest,
+                schema_digest: route.schema_digest,
+                proposal: mutation.operation,
+            },
+            command: GroupCommand::Seal {
+                transition,
+                authorization,
+                children,
+            },
+        }
+        .encode(route, GroupEntryLimits::default())
+        .map_err(|_| CatalogError::Invalid("source seal entry"))?;
+        Ok((transition, authorization, entry))
+    }
+
+    pub(super) async fn record_verified_sources(
+        &self,
+        mutation: &DirectoryMutation,
+        digest: [u8; 32],
+    ) -> Result<TransitionJournal, CatalogError> {
+        self.advance_transition(mutation, Advance::RecordSources(digest))
+            .await
     }
 
     /// Record the exact digest of the controller's child preparation evidence.

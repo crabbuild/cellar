@@ -111,6 +111,16 @@ states. Logs and disks remain available after the run. The lab attests fixture
 capacity and runs on one VM. Cross-host failure, Axum, loss of quorum, archive
 outages and sustained load have separate acceptance gates.
 
+## Sealed source archive holds
+
+Use `cell_groups.py --suite sealed-sources` with an owned RustFS backend and a
+fresh output directory. Both image forms run the actual three-voter source seal,
+verify the complete archived source independently, and record the exact hold
+set in the directory CAS. The fixture rejects pre-seal and released holds,
+reopens the winning decision after a lost reply, and refuses an alternate hold
+for the same source cut. The unmanaged namespace remains selected at its parent
+ranges throughout the drill.
+
 ## Shared cell-group archive checks
 
 Commit the test and harness sources, then run the native three-voter TLS fixture

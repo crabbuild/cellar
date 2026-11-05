@@ -129,11 +129,12 @@ pub use crate::raft::catalog::{
     CellGroupBirthSpec, CellGroupBootstrapPermit, CellGroupDirectoryCursor, CellGroupDirectoryPage,
     CellGroupDisasterFenceRequest, CellGroupRecoveryActivationAck,
     CellGroupRecoveryActivationPermit, CellGroupRecoveryError, CellGroupRecoveryRequest,
-    CellGroupSealPermit, CellRouteAttempt, CellRouteCacheUsage, CellRouteOperation,
-    CellRouteRequest, CellRoutingError, CellRoutingFailure, CellRoutingLimits, CellRoutingSession,
-    DirectoryLimits, DirectoryMutation, DirectoryPublication, DirectoryView,
+    CellGroupSealPermit, CellGroupTransitionSource, CellRouteAttempt, CellRouteCacheUsage,
+    CellRouteOperation, CellRouteRequest, CellRoutingError, CellRoutingFailure, CellRoutingLimits,
+    CellRoutingSession, DirectoryLimits, DirectoryMutation, DirectoryPublication, DirectoryView,
     FencedCellGroupRecovery, FrozenCellGroupInventory, PreparedCellGroupArchiveBinding,
     RangeDirectory, ResolvedCellRoute, TransitionJournal, TransitionPhase,
+    VerifiedCellGroupTransitionSources,
 };
 pub use enrollment::{
     decide_enrollment, EnrollmentDecision, EnrollmentError, EnrollmentPhase, EnrollmentRecord,
