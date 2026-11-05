@@ -102,12 +102,18 @@ async fn exercise(cluster: &ManagedCluster) -> Result<()> {
         .store
         .fail_fleet_confirmation
         .store(true, Ordering::Release);
-    ensure!(matches!(
-        fleet
-            .plan_managed_transition(&original, directory, &plan, TIMEOUT)
-            .await,
-        Err(FleetCatalogError::Unconfirmed)
-    ));
+    let lost = fleet
+        .plan_managed_transition(&original, directory, &plan, TIMEOUT)
+        .await;
+    ensure!(
+        matches!(lost, Err(FleetCatalogError::Storage(_))),
+        "lost plan confirmation: {lost:?}"
+    );
+    ensure!(!fixture
+        .store
+        .fail_fleet_confirmation
+        .load(Ordering::Acquire));
+    ensure!(fleet.read(TIMEOUT).await?.revision() == before.revision() + 1);
     ensure!(domain.run(directory.active_transition()).await??.is_none());
     let reopened = Fixture::open_catalog(domain, fixture.store.clone(), scope.cluster)?;
     let first = reopened
@@ -149,12 +155,15 @@ async fn exercise(cluster: &ManagedCluster) -> Result<()> {
         .store
         .fail_fleet_confirmation
         .store(true, Ordering::Release);
-    ensure!(matches!(
-        fleet
-            .cancel_managed_transition(&admitted, &cancel, directory, &plan, TIMEOUT)
-            .await,
-        Err(FleetCatalogError::Unconfirmed)
-    ));
+    let lost = fleet
+        .cancel_managed_transition(&admitted, &cancel, directory, &plan, TIMEOUT)
+        .await;
+    ensure!(matches!(lost, Err(FleetCatalogError::Storage(_))));
+    ensure!(!fixture
+        .store
+        .fail_fleet_confirmation
+        .load(Ordering::Acquire));
+    ensure!(fleet.read(TIMEOUT).await?.revision() == admitted.revision() + 1);
     let cancelled = fleet
         .cancel_managed_transition(&admitted, &cancel, directory, &plan, TIMEOUT)
         .await?;
