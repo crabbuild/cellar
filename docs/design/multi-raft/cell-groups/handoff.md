@@ -4,6 +4,18 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## CG-07 managed router membership refresh
+
+The managed directory learns actual replacement membership for configured
+routers. The native and real RustFS cases verify rejection of the retired
+route, the exact old receipt, a fresh write through the replacement leader
+and read-back from the joined voter. They also rerun the native/Axum request
+path. [Source and test records](progress.md)
+
+Next, wire ordinary namespace provisioning and exercise the public startup
+and request path from an empty managed deployment. Cold router return after
+all birth voters retire and the complete public lifecycle gate remain open.
+
 ## CG-07 routed SDK enrollment
 
 The existing ingress path now creates cells through the SDK. It preserves
@@ -11,7 +23,6 @@ creation identity and achieved durability, including exact creation replay at
 S3 durability. Eight native cases and the real RustFS managed case pass.
 [Source and test records](progress.md)
 
-Next, qualify router membership refresh across actual voter replacement.
 Ordinary namespace provisioning, the complete public authority and lifecycle
 gates, reviewed source preflight and the remaining cell-group tasks stay open.
 

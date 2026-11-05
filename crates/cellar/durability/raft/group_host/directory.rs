@@ -31,9 +31,10 @@ pub(super) struct Directory {
     rooted: Option<FleetTrustSnapshot>,
     cursor: usize,
     own_revision: u64,
+    routers: Option<super::router_directory::RouterDirectory>,
 }
 
-fn remaining(log: &ReplicaLog, deadline: u64) -> anyhow::Result<Duration> {
+pub(super) fn remaining(log: &ReplicaLog, deadline: u64) -> anyhow::Result<Duration> {
     let ms = deadline
         .checked_sub(log.domain().mono_ms()?)
         .filter(|ms| *ms > 0)
@@ -187,6 +188,15 @@ pub(super) async fn prepare(
         || peers.values().cloned().map(Trusted::Configured).collect(),
         trusted,
     );
+    let routers = reader.as_ref().and_then(|_| {
+        super::router_directory::RouterDirectory::new(
+            prepared
+                .groups
+                .iter()
+                .filter(|assignment| assignment.placement == RaftGroupPlacement::QueryRouter)
+                .map(|assignment| assignment.birth.route().history),
+        )
+    });
     prepared.peers = peers.into_values().collect();
     Ok(Some(Directory {
         options: settings,
@@ -196,6 +206,7 @@ pub(super) async fn prepare(
         rooted,
         cursor: 0,
         own_revision,
+        routers,
     }))
 }
 
@@ -237,7 +248,7 @@ impl Directory {
                 if *stop.borrow() { break; }
                 // Entered discovery work is retained until its original bounded
                 // operation finishes. Shutdown never drops it at a select edge.
-                if let Err(error) = directory.refresh(&log, &transport).await {
+                if let Err(error) = directory.refresh(&log, &transport, &observer).await {
                     tracing::debug!(%error, "shared node directory fenced local owner");
                     drop(observer.close()); // requests independently owned joined closure
                     break;
@@ -251,7 +262,12 @@ impl Directory {
         Ok(())
     }
 
-    async fn refresh(&mut self, log: &ReplicaLog, transport: &RaftTransport) -> anyhow::Result<()> {
+    async fn refresh(
+        &mut self,
+        log: &ReplicaLog,
+        transport: &RaftTransport,
+        observer: &RaftCells,
+    ) -> anyhow::Result<()> {
         let deadline = log
             .domain()
             .mono_ms()?
@@ -345,6 +361,16 @@ impl Directory {
             };
             if let Err(error) = transport.accept_node_view(view, expected) {
                 tracing::debug!(%error, "node process refresh refused");
+            }
+        }
+        if let (Some(routers), Some(reader), Some(trust)) =
+            (&mut self.routers, &self.reader, &self.rooted)
+        {
+            if let Err(error) = routers
+                .refresh(log, transport, observer, reader, trust, deadline)
+                .await
+            {
+                tracing::debug!(%error, "router membership refresh unavailable");
             }
         }
         Ok(())

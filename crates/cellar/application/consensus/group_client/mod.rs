@@ -113,6 +113,7 @@ struct Core {
     close_limits: crate::raft::operations::RaftCloseReportLimits,
     services: Arc<services::Services>,
     managed: Option<crate::raft::fleet_catalog::FleetHostAuthorization>,
+    fleet_inspection: Option<crate::raft::fleet_catalog::FleetTrustReader>,
     transport: crate::raft::transport::RaftTransport,
     node_profile: Option<crate::raft::inspection::RaftNodeProfile>,
     startup_bounds: crate::raft::host::RaftHostStartupBounds,
@@ -212,6 +213,10 @@ impl RaftCells {
                 .managed
                 .as_ref()
                 .map(|managed| managed.authorization.clone()),
+            fleet_inspection: options
+                .managed
+                .as_ref()
+                .map(|managed| managed.authorization.trust_reader()),
             transport,
             node_profile: options.node_profile.clone(),
             startup_bounds,

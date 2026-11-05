@@ -251,8 +251,10 @@ pub(crate) async fn prepare(
 pub(super) fn refresh_routes(
     prepared: &mut Prepared,
     log: &crate::raft::storage::ReplicaLog,
+    managed: bool,
 ) -> anyhow::Result<()> {
     for assignment in &mut prepared.groups {
+        let managed_router = managed && assignment.placement == RaftGroupPlacement::QueryRouter;
         let retained = if assignment.placement == RaftGroupPlacement::Replica {
             match log.cell_group(&assignment.birth.route().history) {
                 Ok(group) => Some(group),
@@ -293,14 +295,29 @@ pub(super) fn refresh_routes(
                 })
                 .collect::<anyhow::Result<Vec<_>>>()?
         } else {
+            let learners = if managed_router {
+                &[]
+            } else {
+                assignment.birth.learners()
+            };
             assignment
                 .birth
                 .voters()
                 .iter()
-                .chain(assignment.birth.learners())
+                .chain(learners)
                 .map(|m| (m.member, m.node))
                 .collect()
         };
+        if managed_router
+            && members
+                .iter()
+                .any(|(_, node)| !prepared.peers.iter().any(|peer| peer.node == *node))
+        {
+            // An offline router may return after every birth voter retired.
+            // Its directory must first observe the current quorum.
+            assignment.transport.peers.clear();
+            continue;
+        }
         assignment.transport.peers = members
             .into_iter()
             .map(|(member, node)| {

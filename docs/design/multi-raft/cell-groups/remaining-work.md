@@ -44,8 +44,10 @@ requires namespace write permission. Local SQL, effect and archive proof remain
 distinct from authenticated remote output. The managed acceptance exercises
 native and Axum ingress with zero local groups. SDK enrollment now uses that
 path and preserves the exact creation record at both durability minima.
-Automatic refresh of a router's member list across replacements and ordinary
-namespace provisioning remain open.
+A configured managed router now refreshes its voter routes after a replacement.
+The native and real RustFS cases cover the retired route, joined-voter reads,
+original receipt replay and a fresh quorum write. Cold return after all birth
+voters retire and ordinary namespace provisioning remain open.
 
 CG-07 remains IN_PROGRESS. Four original public gates remain undelivered, including
 complete managed lifecycle and ingress authority. Default/backend and capability
@@ -55,21 +57,18 @@ production legacy/shared switch or old-data migration is part of the target.
 
 ## First delivery: basic SQL reads and writes through public ingress
 
-1. **Maintain trusted routes through membership changes.** The configured
-   ingress path now reads and writes through an authenticated group peer.
-   Refresh the router's member list after repair and replacement using trusted
-   current membership. Preserve the original budget and mutation identity.
-2. **Provision through the public namespace path.** Use the normal
+1. **Provision through the public namespace path.** Use the normal
    CLI, daemon and SDK path to start a three-voter shared group and exercise
    the SDK enrollment path for two independent cells. Carry the tenant and
    cell binding through native, Axum and admin entry points. Preserve typed
    capability refusals.
-3. **Qualify the expanded public path.** The managed request test covers
+2. **Qualify the expanded public path.** The managed request test covers
    ingress without a replica, failover, retained restart and quorum loss in
    both image formats. Real RustFS also verifies quorum acknowledgement
    during archive write denial and S3 receipt replay after restoration.
-   Extend this evidence to ordinary provisioning, membership replacement and
-   the remaining ingress authority cases. Keep read consistency explicit.
+   Extend this evidence to ordinary provisioning, cold router return after
+   birth-voter retirement and the remaining ingress authority cases. Keep read
+   consistency explicit.
 
 Clear the existing managed lifecycle failures and remaining public merge gates
 before enabling the default broadly. The basic request slice gives those gates
@@ -213,9 +212,8 @@ full hard cutover.
 | CG-15 | Full load/crash, transition, wakeup and disaster-recovery matrix. Measure the documented profiles and failure schedules; no capacity or TiKV performance-parity claim follows from correctness tests. |
 | CG-16 | Delete remaining predecessor consumers/codecs, finish feature-off/full release checks, publish the unified API/runbooks and qualified operating envelope. No one-cell special path, compatibility reader or production mode toggle. |
 
-The next functional slices are bounded leader discovery for ingress without a
-local replica, normal managed namespace/default provisioning, and the public
-managed lifecycle/ingress-authority gates. Resolve the current eight-turn
+The next functional slices are normal managed namespace/default provisioning,
+cold router return and the public managed lifecycle and ingress authority gates. Resolve the current eight-turn
 replacement and source-close successor-readiness failures, retained debt on
 surviving original voters and deployment fencing qualification. Investigate the unseeded read/write/transfer and eight-turn
 replacement failures without changing their bounds. Then finish default/backend

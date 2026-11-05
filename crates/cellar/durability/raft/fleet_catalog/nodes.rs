@@ -395,10 +395,10 @@ impl FleetHostAuthorization {
         Ok(())
     }
 
-    /// The one owned discovery worker has its own bounded read turn. Sharing
-    /// the mutation adapter's turn would let a periodic read reject foreground
-    /// history admission while waiting on storage. Its caller retains the
-    /// separate physical metadata reservation through this reader's completion.
+    /// Give a metadata owner a private bounded catalog turn. Sharing the
+    /// mutation adapter's turn would let discovery or a remote read reject
+    /// foreground work while waiting on storage. The owner retains its metadata
+    /// reservation through the read.
     pub(crate) fn trust_reader(&self) -> FleetTrustReader {
         let source = &self.catalog.inner;
         let mut authorization = self.clone();
@@ -656,7 +656,7 @@ impl FleetHostAuthorization {
     }
 }
 
-/// Read-only surface of the single separately budgeted directory adapter.
+/// Read-only surface of a separately budgeted metadata adapter.
 #[derive(Clone)]
 pub(crate) struct FleetTrustReader {
     authorization: FleetHostAuthorization,
@@ -669,6 +669,46 @@ impl FleetTrustReader {
         timeout: Duration,
     ) -> Result<FleetTrustSnapshot> {
         self.authorization.refresh_trust(previous, timeout).await
+    }
+
+    pub(crate) async fn authorize_group_at_least(
+        &self,
+        scope: &cellar_logic::cell_group::GroupHistory,
+        minimum_revision: u64,
+        timeout: Duration,
+    ) -> Result<FleetGroupAuthorization> {
+        self.authorization
+            .group_authorization_at_least(scope, minimum_revision, timeout)
+            .await
+    }
+
+    /// Resolve one router group using the directory's isolated read turn.
+    pub(crate) async fn authorize_router_group(
+        &self,
+        trust: &FleetTrustSnapshot,
+        scope: &cellar_logic::cell_group::GroupHistory,
+        timeout: Duration,
+    ) -> Result<Option<FleetGroupAuthorization>> {
+        let catalog = &self.authorization.catalog;
+        let expected = catalog.binding(scope)?;
+        let key = expected
+            .key()
+            .map_err(|_| FleetCatalogError::Invalid("group binding"))?;
+        catalog
+            .run(timeout, async {
+                let cut = catalog.inner.current().await?;
+                if cut.revision() != trust.revision {
+                    return Ok(None);
+                }
+                if hash(&encode(HEAD_KIND, &cut.head, ROOT_LIMIT)?) != trust.root_digest {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                catalog
+                    .authorize_live_group(&cut, expected, &key)
+                    .await
+                    .map(Some)
+            })
+            .await
     }
 }
 

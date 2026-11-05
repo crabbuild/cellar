@@ -2,13 +2,22 @@
 //! A capability never replaces the group's current quorum or consumed sequence.
 use super::*;
 use crate::raft::member_state::{FleetGroupBinding, FleetMembershipPermit};
-use cellar_logic::{cell_group::GroupHistory, consensus::NodeId};
+use cellar_logic::{
+    cell_group::GroupHistory,
+    consensus::{DiskLineage, MemberId, NodeId},
+};
 
 #[derive(Clone, Debug)]
 pub struct FleetGroupAuthorization {
     binding: FleetGroupBinding,
     history: Box<super::histories::FleetHistory>,
     owner: super::super::catalog::ManagedBirthOwner,
+}
+
+pub(crate) struct RouterVoter {
+    pub(crate) member: MemberId,
+    pub(crate) node: NodeId,
+    pub(crate) joined_disk: Option<DiskLineage>,
 }
 
 impl FleetGroupAuthorization {
@@ -25,14 +34,7 @@ impl FleetGroupAuthorization {
         }
         match membership.joined(replica.member) {
             Ok(Some((joined, _))) => joined.node == replica.node && joined.disk == replica.disk,
-            Ok(None) => self
-                .history
-                .voters
-                .iter()
-                .chain(&self.history.learners)
-                .any(|initial| {
-                    initial.member == replica.member.get() && initial.node == replica.node.bytes()
-                }),
+            Ok(None) => self.initial_member_node(replica.member) == Some(replica.node),
             Err(_) => false,
         }
     }
@@ -61,16 +63,62 @@ impl FleetGroupAuthorization {
                 if let Some((binding, _)) = observed.membership().joined(member)? {
                     return Ok(binding.node);
                 }
-                let initial = self
-                    .history
-                    .voters
-                    .iter()
-                    .chain(&self.history.learners)
-                    .find(|v| v.member == id)
-                    .ok_or_else(invalid)?;
-                NodeId::new(initial.node).map_err(|_| invalid())
+                self.initial_member_node(member).ok_or_else(invalid)
             })
             .collect()
+    }
+
+    /// Resolve initial or joined voters from one authenticated quorum sample.
+    /// A member number alone supplies no endpoint or boot authority.
+    pub(crate) fn router_voters(
+        &self,
+        observed: &crate::raft::host::FleetMembershipObservation,
+    ) -> Result<Vec<RouterVoter>> {
+        if !self.matches_scope(&observed.replica().scope)
+            || self.binding() != &observed.status().binding
+            || self.history_digests() != (observed.birth_digest(), observed.schema_digest())
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        let conf = observed.configuration();
+        let members = conf
+            .voters()
+            .iter()
+            .chain(conf.outgoing_voters())
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>();
+        members
+            .into_iter()
+            .map(|member| {
+                if let Some((joined, _)) = observed
+                    .joined_member(member)
+                    .map_err(|_| FleetCatalogError::Invalid("router member binding"))?
+                {
+                    return Ok(RouterVoter {
+                        member,
+                        node: joined.node,
+                        joined_disk: Some(joined.disk),
+                    });
+                }
+                let node = self
+                    .initial_member_node(member)
+                    .ok_or(FleetCatalogError::Conflict)?;
+                Ok(RouterVoter {
+                    member,
+                    node,
+                    joined_disk: None,
+                })
+            })
+            .collect()
+    }
+
+    fn initial_member_node(&self, member: MemberId) -> Option<NodeId> {
+        self.history
+            .voters
+            .iter()
+            .chain(&self.history.learners)
+            .find(|initial| initial.member == member.get())
+            .and_then(|initial| NodeId::new(initial.node).ok())
     }
 
     pub(crate) fn history_digests(&self) -> ([u8; 32], [u8; 32]) {
@@ -173,27 +221,31 @@ impl FleetCatalog {
         let key = expected
             .key()
             .map_err(|_| FleetCatalogError::Invalid("group binding"))?;
-        self.run(timeout, async {
-            let bytes = self
-                .inner
-                .lookup(snapshot.head.tables[FleetTable::Histories.slot()], &key)
-                .await?
-                .ok_or(FleetCatalogError::Conflict)?;
-            let history = super::histories::FleetHistory::decode(&bytes)?;
-            let actual = history.binding().clone();
-            if actual != expected {
-                return Err(FleetCatalogError::Conflict);
-            }
-            if *history.state() != FleetHistoryState::Live {
-                return Err(FleetCatalogError::Conflict);
-            }
-            Ok(FleetGroupAuthorization {
-                binding: actual,
-                history: Box::new(history),
-                owner: self.birth_owner()?,
-            })
+        self.run(timeout, self.authorize_live_group(snapshot, expected, &key))
+            .await
+    }
+
+    pub(super) async fn authorize_live_group(
+        &self,
+        snapshot: &FleetSnapshot,
+        expected: FleetGroupBinding,
+        key: &str,
+    ) -> Result<FleetGroupAuthorization> {
+        let bytes = self
+            .inner
+            .lookup(snapshot.head.tables[FleetTable::Histories.slot()], key)
+            .await?
+            .ok_or(FleetCatalogError::Conflict)?;
+        let history = super::histories::FleetHistory::decode(&bytes)?;
+        let actual = history.binding().clone();
+        if actual != expected || *history.state() != FleetHistoryState::Live {
+            return Err(FleetCatalogError::Conflict);
+        }
+        Ok(FleetGroupAuthorization {
+            binding: actual,
+            history: Box::new(history),
+            owner: self.birth_owner()?,
         })
-        .await
     }
 
     /// Resolve the exact rooted admission for a registered history. Replaying

@@ -119,10 +119,10 @@ impl RaftCells {
         let scope = history
             .scope()
             .map_err(|_| CommandFailure::CommandConflict)?;
-        let host = self
+        let reader = self
             .handle
             .core
-            .managed
+            .fleet_inspection
             .as_ref()
             .ok_or(CommandFailure::UnsupportedCapability)?;
         let remaining = deadline
@@ -135,8 +135,8 @@ impl RaftCells {
             .filter(|n| *n > 0)
             .map(Duration::from_millis)
             .ok_or(CommandFailure::VersionUnavailable)?;
-        let authorization = host
-            .group_authorization_at_least(&scope, minimum_revision, remaining)
+        let authorization = reader
+            .authorize_group_at_least(&scope, minimum_revision, remaining)
             .await
             .map_err(|error| match error {
                 crate::raft::fleet_catalog::FleetCatalogError::Overloaded

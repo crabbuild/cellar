@@ -8,6 +8,7 @@ mod directory;
 mod provisioning;
 mod recovery;
 mod registration;
+mod router_directory;
 pub use provisioning::{RaftGroupArchiveInitialization, RaftNamespaceProvisioning};
 mod resources;
 #[cfg(all(test, not(cellar_internal_tests)))]
@@ -198,7 +199,7 @@ pub(crate) async fn start(
     // that state off callers' native stacks, including nested node startup.
     let result = Box::pin(async {
         let discovery = directory::prepare(&mut prepared, &mut options, &log, &transport).await?;
-        registration::refresh_routes(&mut prepared, &log)?;
+        registration::refresh_routes(&mut prepared, &log, options.managed.is_some())?;
         let sql = CellGroupSqlPool::start(&log, limits.sql)?;
         startup.sql = Some(sql.clone());
         let checkpoint = limits
@@ -364,7 +365,22 @@ pub(crate) async fn start(
                     transport.install_physical_group(assignment.transport.clone())?
                 }
                 RaftGroupPlacement::QueryRouter => {
-                    transport.install_cell_query_group(assignment.transport.clone())?
+                    let mut route = assignment.transport.clone();
+                    if options.managed.is_some() {
+                        // Router revisions track the physical configuration log.
+                        route.revision = 1;
+                        if route.peers.is_empty() {
+                            continue;
+                        }
+                    }
+                    match transport.install_cell_query_group(route) {
+                        Ok(()) => (),
+                        Err(
+                            super::transport::TransportError::Refused
+                            | super::transport::TransportError::StalePeer,
+                        ) if options.managed.is_some() => (),
+                        Err(error) => return Err(error.into()),
+                    }
                 }
             }
         }

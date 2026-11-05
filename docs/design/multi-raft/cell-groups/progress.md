@@ -12,6 +12,38 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 managed router membership refresh
+
+A configured ingress without a local group refreshes its routes through the
+existing managed directory service. One bounded turn resolves group authority
+against the exact rooted fleet cut. The directory and the receiving quorum RPC
+each use a private bounded catalog read turn. The router verifies the authenticated
+quorum membership observation and the enrolled physical peers,
+including joined-member disk identity. The installed route follows the committed
+membership revision and contains the current and outgoing voters. Request grants,
+mutation identity, deadline and destination authority stay independent.
+
+The baseline completed voter replacement and timed out waiting for the new
+route. The first candidate reached the replacement and exposed a test oracle
+that expected the original receipt value after a later committed write. The
+corrected oracle verifies the latest value, the exact original receipt, and a
+fresh quorum write read back through its returned version token. The native cases
+pass (21.31s replacement with a router, 29.53s original replacement
+and joined restart, and 68.74s native/Axum requests).
+
+The earlier RustFS replacement attempt failed during settlement with
+`FleetCatalog::Overloaded`. Native comparisons reproduced contention while the
+receiving RPC still used the foreground catalog turn. The request case passed.
+The isolated-reader revision passes both cases against
+the same constrained RustFS backend (24.58s replacement and 67.93s
+native/Axum requests), in both image formats. The backend and dedicated VM stop
+with their data retained. Voters are host-native with fixture capacity. The
+older S3-source successor-readiness failure retains its separate evidence.
+
+Source manifest `f2d150294cef69a9959cd0110c5c8b6af540ec82994c71d8e78133fd779284a5`.
+Native record `121d71a1d89f54d07cfc17a5a488338f62780d581ef7f0b1a5aa8cae54a670c4`.
+RustFS record `ed0a5cde2d751ae85132f1244f41f71a8a09b254c7fc8edbde5fa15a3ad43c37`.
+
 ## CG-07 SDK enrollment without a local replica
 
 SDK enrollment shares the same trusted leader selection as commands. The

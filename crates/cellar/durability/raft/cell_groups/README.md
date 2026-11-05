@@ -564,6 +564,13 @@ original attempt limit and deadline. All attempts preserve the requested read
 consistency and version floor. Callers can choose explicit local execution or
 supply member preferences.
 
+For a managed router, the existing directory resolves group authority through
+its isolated reader at the installed fleet root. It samples authenticated quorum
+membership and resolves the full voter set through the rooted process views.
+Joined voters must match their committed disk bindings. The transport installs
+the route by committed membership revision. Discovery remains advisory and
+preserves namespace grants and destination checks.
+
 Managed embedders can call `RaftCells::grant_query_origin` and
 `RaftCells::grant_command_origin` after discovery has accepted the peer's actual
 boot and endpoints. The host verifies that it owns the namespace. The transport

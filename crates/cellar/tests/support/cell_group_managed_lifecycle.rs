@@ -6,6 +6,9 @@ use super::*;
 #[path = "cell_group_managed_discovery.rs"]
 mod discovery;
 
+#[path = "cell_group_managed_router.rs"]
+mod router;
+
 #[path = "cell_group_managed_controls.rs"]
 mod controls;
 
