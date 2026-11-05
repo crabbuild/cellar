@@ -44,6 +44,7 @@ pub use transition_activation::{
 };
 mod transition_archive;
 pub use transition_archive::CellGroupTransferArchive;
+mod transition_child_archive;
 mod transition_child_quorum;
 pub use transition::{CellGroupSealPermit, TransitionJournal, TransitionPhase};
 mod transition_sources;

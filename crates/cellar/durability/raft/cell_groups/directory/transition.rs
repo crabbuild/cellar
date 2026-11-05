@@ -50,6 +50,8 @@ pub struct TransitionJournal {
     publication: Option<[u8; 32]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     activation_set: Option<[u8; 32]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    child_archives: Option<[u8; 32]>,
     phase: TransitionPhase,
 }
 
@@ -78,6 +80,10 @@ impl TransitionJournal {
         self.activation_set
     }
 
+    pub fn child_archives(&self) -> Option<[u8; 32]> {
+        self.child_archives
+    }
+
     pub(super) fn seal_authorization(&self) -> Result<[u8; 32], CatalogError> {
         if !matches!(
             self.phase,
@@ -97,6 +103,7 @@ impl TransitionJournal {
             archive: None,
             publication: None,
             activation_set: None,
+            child_archives: None,
             ..self.clone()
         };
         Ok(record::digest(&record::encode(
@@ -173,6 +180,11 @@ enum Advance {
         installed: [u8; 32],
         digest: [u8; 32],
     },
+    RecordChildArchives {
+        publication: [u8; 32],
+        activations: [u8; 32],
+        digest: [u8; 32],
+    },
     Cancel,
 }
 
@@ -230,6 +242,22 @@ impl Advance {
             {
                 journal.activation_set = Some(digest);
                 journal.phase = Active;
+            }
+            (
+                Self::RecordChildArchives {
+                    publication,
+                    activations,
+                    digest,
+                },
+                Active,
+            ) if journal.publication == Some(publication)
+                && journal.activation_set == Some(activations)
+                && digest != [0; 32]
+                && journal
+                    .child_archives
+                    .is_none_or(|selected| selected == digest) =>
+            {
+                journal.child_archives = Some(digest);
             }
             (Self::Cancel, Planned | Prepared) => journal.phase = Cancelled,
             (Self::Authorize, SealAuthorized | Sealed | Installed | Archived)
@@ -296,6 +324,9 @@ impl RangeDirectory {
                     || journal.archive == Some([0; 32])
                     || journal.publication == Some([0; 32])
                     || journal.activation_set == Some([0; 32])
+                    || journal.child_archives == Some([0; 32])
+                    || (journal.child_archives.is_some()
+                        && journal.phase != TransitionPhase::Active)
                     || matches!(
                         journal.phase,
                         TransitionPhase::Sealed
@@ -549,6 +580,7 @@ impl RangeDirectory {
                 archive: None,
                 publication: None,
                 activation_set: None,
+                child_archives: None,
                 phase: TransitionPhase::Planned,
             };
             for (key, value) in [
@@ -877,6 +909,24 @@ impl RangeDirectory {
         .await
     }
 
+    pub(super) async fn record_verified_child_archives(
+        &self,
+        mutation: &DirectoryMutation,
+        publication: [u8; 32],
+        activations: [u8; 32],
+        digest: [u8; 32],
+    ) -> Result<TransitionJournal, CatalogError> {
+        self.advance_transition(
+            mutation,
+            Advance::RecordChildArchives {
+                publication,
+                activations,
+                digest,
+            },
+        )
+        .await
+    }
+
     /// Record the exact digest of the controller's child preparation evidence.
     /// This metadata boundary does not verify copied images or admit a child.
     pub async fn prepare_transition(
@@ -997,6 +1047,7 @@ impl RangeDirectory {
             archive: None,
             publication: None,
             activation_set: None,
+            child_archives: None,
             phase: TransitionPhase::Cancelled,
         };
         let count = self.available_transition_slot(&view.head).await?;

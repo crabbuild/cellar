@@ -1118,7 +1118,12 @@ remains owned until parent retirement. The parent Raft leader can commit its
 tombstone only after the directory selects the complete Active set. The entry
 binds the replacement publication to the original seal, and the manifest and
 checkpoint preserve both. This tombstone leaves the topology lane and parent
-archive holds pinned while child archive coverage is qualified.
+archive holds pinned while child archive coverage is qualified. The directory
+independently replays the exact held archive of every active child. Each cut
+must retain the installed seed and the selected publication and activation
+position. The directory rechecks all holds before rooting the complete set.
+It can reopen the selected references after a lost response, with the parent
+holds and topology lane still pinned for retirement settlement.
 Source tombstones remain effective across restart, delayed messages and catalog
 unavailability. The whole transition is one fenced owner operation; concurrent
 controllers reconcile the same journal instead of selecting different children.

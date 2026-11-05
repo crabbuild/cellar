@@ -83,24 +83,36 @@ impl Archives {
     }
 
     async fn publish(&self, fixture: &RuntimeCluster, label: &str) -> Result<CellGroupArchiveHold> {
+        self.publish_group(
+            fixture,
+            &self.registry,
+            fixture.cluster.birth.route(),
+            label,
+        )
+        .await
+    }
+
+    async fn publish_group(
+        &self,
+        fixture: &RuntimeCluster,
+        registry: &CellGroupArchiveRegistry,
+        route: &GroupRoute,
+        label: &str,
+    ) -> Result<CellGroupArchiveHold> {
         let cluster = &fixture.cluster;
-        let intent = self.registry.prepare_upload(&cluster.domain).await?;
-        let ticket = self.registry.reserve(&cluster.domain, &intent).await?;
-        let upload = self
-            .registry
+        let intent = registry.prepare_upload(&cluster.domain).await?;
+        let ticket = registry.reserve(&cluster.domain, &intent).await?;
+        let upload = registry
             .open_upload(&cluster.domain, &self.uploads, &ticket, &self.tails)
             .await?;
         let cut = fixture.runtimes[0]
-            .capture_checkpoint(cluster.birth.route().history, &self.checkpoints)
+            .capture_checkpoint(route.history, &self.checkpoints)
             .await?;
         let uploaded = upload.upload_cut(&cluster.domain, &self.tails, cut).await?;
+        let (store, base) = self.store(cluster, route.clone(), label)?;
+        let receiver = self.checkpoints.receive_archive(store, scratch()?, base)?;
         let verified = upload
-            .prepare_publication(
-                &cluster.domain,
-                &self.tails,
-                &uploaded,
-                self.receiver(cluster, label)?,
-            )
+            .prepare_publication(&cluster.domain, &self.tails, &uploaded, receiver)
             .await?
             .commit(&cluster.domain)
             .await?;
@@ -220,10 +232,14 @@ pub(crate) async fn sealed_source_archives(
         &mut fixture,
         &plan,
         &committed,
-        store,
+        store.clone(),
     ))
     .await?;
     let retired = Box::pin(verify_parent_retirement(&mut fixture, &plan)).await?;
+    Box::pin(verify_child_archive_coverage(
+        &fixture, &archives, &plan, &active, store,
+    ))
+    .await?;
     reopen_installed_children(&fixture, &plan, &active, &retired).await?;
     fixture.close().await
 }
@@ -1026,6 +1042,203 @@ async fn verify_parent_retirement(
     anyhow::ensure!(held.route() == fixture.cluster.birth.route());
     anyhow::ensure!(held.root() == before.root() && held.source_seal() == before.source_seal());
     Ok(selected)
+}
+
+async fn verify_child_archive_coverage(
+    fixture: &RuntimeCluster,
+    archives: &Archives,
+    plan: &DirectoryMutation,
+    active: &[GroupManifest],
+    store: Arc<catalog_fault::Store>,
+) -> Result<()> {
+    let cluster = &fixture.cluster;
+    let domain = &cluster.domain;
+    let directory = &cluster.directory;
+    let parent_holds = domain.run(directory.sealed_source_holds(plan)).await??;
+    let mut holds = Vec::with_capacity(active.len());
+    for (index, marker) in active.iter().enumerate() {
+        let birth = domain
+            .run(directory.materialize_selected_history(marker.route().history))
+            .await??;
+        let registry = directory
+            .prepare_group_archive_binding(domain, &archives.pool, &birth)
+            .await?
+            .commit(domain)
+            .await?;
+        let hold = archives
+            .publish_group(
+                fixture,
+                &registry,
+                marker.route(),
+                &format!("child-coverage-upload-{index}"),
+            )
+            .await?;
+        anyhow::ensure!(hold.marker() == marker);
+        holds.push(hold);
+    }
+    anyhow::ensure!(domain
+        .run(directory.retirement_child_holds(plan))
+        .await??
+        .is_none());
+    let incomplete = child_archive_inputs(
+        cluster,
+        archives,
+        directory,
+        &holds[..1],
+        "coverage-incomplete",
+    )
+    .await?;
+    anyhow::ensure!(matches!(
+        directory
+            .verify_and_record_child_archives(
+                domain,
+                &archives.pool,
+                &archives.tails,
+                plan,
+                incomplete
+            )
+            .await,
+        Err(CellGroupArchiveBindingError::Catalog(
+            CatalogError::Invalid(_)
+        ))
+    ));
+    let mut reversed =
+        child_archive_inputs(cluster, archives, directory, &holds, "coverage-reversed").await?;
+    reversed.reverse();
+    anyhow::ensure!(matches!(
+        directory
+            .verify_and_record_child_archives(
+                domain,
+                &archives.pool,
+                &archives.tails,
+                plan,
+                reversed
+            )
+            .await,
+        Err(CellGroupArchiveBindingError::Catalog(CatalogError::Fenced))
+    ));
+
+    let outage =
+        child_archive_inputs(cluster, archives, directory, &holds, "coverage-outage").await?;
+    let denied_before = store.denied_group_payload_reads.load(Ordering::Acquire);
+    store
+        .deny_group_payload_reads
+        .store(true, Ordering::Release);
+    let refused = directory
+        .verify_and_record_child_archives(domain, &archives.pool, &archives.tails, plan, outage)
+        .await;
+    store
+        .deny_group_payload_reads
+        .store(false, Ordering::Release);
+    anyhow::ensure!(matches!(
+        refused,
+        Err(CellGroupArchiveBindingError::Archive(_))
+    ));
+    anyhow::ensure!(store.denied_group_payload_reads.load(Ordering::Acquire) > denied_before);
+    anyhow::ensure!(domain
+        .run(directory.retirement_child_holds(plan))
+        .await??
+        .is_none());
+
+    let verified =
+        child_archive_inputs(cluster, archives, directory, &holds, "coverage-verify").await?;
+    store.fail_head_confirmation.store(true, Ordering::Release);
+    anyhow::ensure!(matches!(
+        directory
+            .verify_and_record_child_archives(
+                domain,
+                &archives.pool,
+                &archives.tails,
+                plan,
+                verified
+            )
+            .await,
+        Err(CellGroupArchiveBindingError::Catalog(
+            CatalogError::Unconfirmed
+        ))
+    ));
+    let catalog = Catalog::new(store, CatalogOptions::default())?;
+    let namespace = domain
+        .run(catalog.existing_namespace(directory.namespace_config().clone()))
+        .await??;
+    let reopened = RangeDirectory::new(namespace, DirectoryLimits::default())?;
+    let (original, decision) = domain
+        .run(reopened.active_transition())
+        .await??
+        .context("active transition with child archive proof")?;
+    anyhow::ensure!(original.encode() == plan.encode());
+    anyhow::ensure!(
+        decision.phase() == TransitionPhase::Active && decision.child_archives().is_some()
+    );
+    anyhow::ensure!(
+        domain
+            .run(reopened.retirement_child_holds(&original))
+            .await??
+            .as_deref()
+            == Some(holds.as_slice())
+    );
+    let replay =
+        child_archive_inputs(cluster, archives, &reopened, &holds, "coverage-replay").await?;
+    anyhow::ensure!(
+        reopened
+            .verify_and_record_child_archives(
+                domain,
+                &archives.pool,
+                &archives.tails,
+                &original,
+                replay,
+            )
+            .await?
+            == decision
+    );
+
+    anyhow::ensure!(
+        domain
+            .run(reopened.sealed_source_holds(&original))
+            .await??
+            == parent_holds
+    );
+    let parent = parent_holds
+        .first()
+        .context("original parent archive hold")?;
+    let held = archives
+        .registry
+        .verify_hold(
+            domain,
+            parent,
+            &archives.tails,
+            archives.receiver(cluster, "parent-hold-after-coverage")?,
+        )
+        .await?;
+    anyhow::ensure!(held.marker() == parent.marker());
+    Ok(())
+}
+
+async fn child_archive_inputs(
+    cluster: &Cluster,
+    archives: &Archives,
+    directory: &RangeDirectory,
+    holds: &[CellGroupArchiveHold],
+    label: &str,
+) -> Result<Vec<CellGroupTransitionSource>> {
+    let mut children = Vec::with_capacity(holds.len());
+    for (index, hold) in holds.iter().enumerate() {
+        let route = hold.marker().route();
+        let birth = cluster
+            .domain
+            .run(directory.materialize_selected_history(route.history))
+            .await??;
+        let (store, base) =
+            archives.store(cluster, route.clone(), &format!("{label}/child-{index}"))?;
+        let pool = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
+        let receiver = pool.receive_archive(store, scratch()?, base)?;
+        children.push(CellGroupTransitionSource {
+            birth,
+            hold: hold.clone(),
+            receiver,
+        });
+    }
+    Ok(children)
 }
 
 fn archive_inputs(
