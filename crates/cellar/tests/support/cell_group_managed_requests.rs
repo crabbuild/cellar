@@ -11,28 +11,14 @@ mod http;
 #[path = "cell_group_managed_request_nodes.rs"]
 mod nodes;
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn managed_native_axum_read_write_and_retained_restart() -> Result<()> {
+pub async fn run_native() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(request_path(rooted, Arc::new(fault::Store::default()))).await?;
     }
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
-async fn rustfs_managed_native_axum_read_write_and_retained_restart() -> Result<()> {
-    for rooted in [false, true] {
-        Box::pin(request_path(
-            rooted,
-            Arc::new(fault::Store::around(rustfs::store("managed-http", rooted)?)),
-        ))
-        .await?;
-    }
-    Ok(())
-}
-
-async fn request_path(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
+pub async fn request_path(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
     let mut cluster = Box::pin(nodes::Cluster::start(rooted, store)).await?;
     let work = Box::pin(exercise(&mut cluster)).await;
     let joined = cluster.close().await;

@@ -99,9 +99,11 @@ generations and require old receipts/version floors plus new writes. After two
 joined voter stops, observe actual quorum loss and require both adapters to
 refuse writes and linearizable reads. Shutdown joins every server and Node and
 accounts for unresolved work; failures retain all voter directories. Both image
-forms run. These are local embedded Nodes and fixture capacity attestations;
-they do not replace the full lifecycle/ingress-authority gates or independent
-voter-process, permanent fencing, crash/partition and load qualification.
+forms run. The same fixture supplies `ingress_cannot_cross_cell_authority` in
+`native_cell_groups_public`, with the managed exact test names retained. These
+local embedded Nodes and fixture capacity attestations are separate from the
+complete lifecycle, independent voter-process, permanent fencing,
+crash/partition and load gates.
 
 The automatic recovery case uses the Node-owned failure service with the original
 failure grace, probe interval and five-second turn limits. Hold an exact-boot

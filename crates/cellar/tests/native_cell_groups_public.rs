@@ -7,6 +7,14 @@ use anyhow::{ensure, Context as _, Result};
 use sha2::{Digest, Sha256};
 use std::{path::Path, process::Command, sync::Mutex};
 
+#[path = "support/cell_group_managed_fixture.rs"]
+pub mod managed_fixture;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ingress_cannot_cross_cell_authority() -> Result<()> {
+    Box::pin(managed_fixture::requests::run_native()).await
+}
+
 fn digest(path: &Path) -> Result<Vec<u8>> {
     Ok(Sha256::digest(std::fs::read(path)?).to_vec())
 }

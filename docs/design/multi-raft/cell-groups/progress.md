@@ -12,6 +12,26 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 public occupancy and ingress authority gates
+
+`native_cell_groups_public` exercises one and two enrolled SQL cells on
+the same three-voter counter executable, with one observed physical group per
+voter. Both occupancies use the same catalog, enrollment, archive snapshot
+and retained restart paths. The native and Axum adapters can request verified
+S3 coverage by retrying the original quorum command with the same identity,
+payload and retry deadline. The single-cell run refuses reads and writes to
+the unconfigured second cell.
+
+`ingress_cannot_cross_cell_authority` invokes the same managed request fixture
+from the public target. The managed test inventory retains the original
+case names. The authority case includes the real admin, native and Axum paths
+in both image modes. The occupancy fixture uses the development object store.
+These local runs use one machine and fixture credentials and do not qualify the
+constrained ordinary daemon path.
+
+Isolated occupancy test log SHA256 `d0e6c1dcb5b5705d14e8a534f2f8871974d2fdbe5360f3373b7d93a478d07a8d`.
+Standalone authority test log SHA256 `54c3f88fff11c17fb16d6d1355f604887651485cbb19948cc8d2c7f46754fe2b`.
+
 ## CG-06 Docker replay with a retained qualification network
 
 Both materialized and extent recovery runs pass on

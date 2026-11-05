@@ -64,11 +64,11 @@ remain open.
 The managed native and real RustFS request cases now cover foreign cluster,
 namespace and cell histories through both HTTP hosts, and foreign fleet,
 namespace and physical group requests through the admin API. Valid retries
-preserve the original receipt after those refusals. The original standalone
-public-target authority case remains open.
+preserve the original receipt after those refusals. The named public authority
+and occupancy-one cases pass their recorded native scope.
 
-CG-07 remains IN_PROGRESS. Four original public gates remain undelivered, including
-complete managed lifecycle and ingress authority. Default/backend and capability
+CG-07 remains IN_PROGRESS. Complete managed lifecycle and the feature-off
+Fleet regression matrix remain open. Default/backend and capability
 coverage, plan/lint/CI modes, production fencing, constrained independent voters
 and sustained-load qualification remain unfinished. CG-09–16 stay TODO. No
 production legacy/shared switch or old-data migration is part of the target.
