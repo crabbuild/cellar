@@ -28,6 +28,31 @@ advanced election time faster than disk sync. The passing replay pumps the
 explicit campaign with the original deadline. Managed preparation, source
 archive holds, child install and publication remain open.
 
+## CG-09 independently verified source archive holds
+
+`5b1d2f6f` replays the exact archived cuts of all parents before selecting the
+hold set in the transition journal. The same held set can be reopened after a
+lost directory confirmation. An incomplete set, a cut from before sealing, a
+released hold or a replacement hold for the same cut is refused. The native
+host target passed five cases, with its explicit RustFS case run separately.
+That case passed against real RustFS with both materialized and extent-backed
+images. The fixture uses the unmanaged verification boundary. Managed
+preparation, child installation and publication still need their own proofs.
+
+## CG-07 retained voter discovery and process quorum loss
+
+`47ce0d5d` passed the constrained Linux daemon gate against real RustFS in both
+image modes. The process ledger records a successful linearizable read, two
+joined voter shutdowns, typed write and linearizable-read refusals, and an
+historical read on the surviving voter. The same run retains its process-kill
+and retained-disk restart evidence.
+
+`e720f5b4` passed native initial and joined voter restart, managed ingress and
+daemon process cases. The opened engine supplies retained local replica
+placements within declared namespaces. Attachment checks selected birth,
+boot and membership authority. The managed ingress case also passed against
+real RustFS in both image modes with host-native voters.
+
 ## CG-07 feature-off native Fleet and bucket
 
 `feature_off_fleet_contract_unchanged` runs the compiled native counter
