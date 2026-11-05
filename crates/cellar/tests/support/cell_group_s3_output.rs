@@ -49,7 +49,14 @@ async fn run(rooted: bool, duplicate: bool) -> Result<()> {
             .await?
             .response()
             .await?;
-        assert_eq!(first.receipt().receipt.result(), b"retained-output");
+        assert_eq!(
+            first
+                .local_receipt()
+                .expect("local command receipt")
+                .receipt
+                .result(),
+            b"retained-output"
+        );
         drop(first);
     }
     let call = h
@@ -141,8 +148,23 @@ async fn run(rooted: bool, duplicate: bool) -> Result<()> {
     drop(private);
     let receipt = response.await?;
     assert_eq!(receipt.durability(), Durability::S3);
-    assert_eq!(receipt.receipt().receipt.result(), b"retained-output");
-    assert_eq!(receipt.receipt().version.sequence.get(), 2);
+    assert_eq!(
+        receipt
+            .local_receipt()
+            .expect("local command receipt")
+            .receipt
+            .result(),
+        b"retained-output"
+    );
+    assert_eq!(
+        receipt
+            .local_receipt()
+            .expect("local command receipt")
+            .version
+            .sequence
+            .get(),
+        2
+    );
     drop(receipt);
     let retry = h
         .command(
@@ -154,7 +176,14 @@ async fn run(rooted: bool, duplicate: bool) -> Result<()> {
         .await?
         .response()
         .await?;
-    assert_eq!(retry.receipt().receipt.result(), b"retained-output");
+    assert_eq!(
+        retry
+            .local_receipt()
+            .expect("local command receipt")
+            .receipt
+            .result(),
+        b"retained-output"
+    );
     assert_eq!(h.calls.load(Ordering::SeqCst), 1);
     drop(retry);
     for runtime in &h.fixture.runtimes {

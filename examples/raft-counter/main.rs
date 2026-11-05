@@ -190,7 +190,12 @@ async fn main() -> Result<()> {
                     },
                     namespaces: vec![configuration::retained_namespace(counter::definition()?.schema_digest())?],
                     groups: vec![RaftGroupAssignment { history: configuration::group(cluster, namespace)?, placement: RaftGroupPlacement::Replica }],
-                    command_origins: vec![],
+                    command_origins: peers.iter().filter(|peer| peer.node != peers[i].node).map(|peer| NamespaceCommandOrigin {
+                        cluster,
+                        namespace,
+                        revision: 1,
+                        peer: peer.clone(),
+                    }).collect(),
                     peers: peers.clone(),
                     host: RaftHostOptions { max_groups: 1, max_input_bytes: 64*1024, ..Default::default() },
                     shared: configuration::limits(),

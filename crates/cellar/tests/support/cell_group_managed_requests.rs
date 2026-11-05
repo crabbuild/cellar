@@ -1,0 +1,322 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+//! Public HTTP requests over cold managed birth, failover and retained restart.
+use super::*;
+
+#[path = "../../../../examples/raft-counter/counter.rs"]
+mod counter;
+#[path = "cell_group_managed_request_http.rs"]
+mod http;
+#[path = "cell_group_managed_request_nodes.rs"]
+mod nodes;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn managed_native_axum_read_write_and_retained_restart() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(request_path(rooted, Arc::new(fault::Store::default()))).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_managed_native_axum_read_write_and_retained_restart() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(request_path(
+            rooted,
+            Arc::new(fault::Store::around(rustfs::store("managed-http", rooted)?)),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+async fn request_path(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
+    let mut cluster = Box::pin(nodes::Cluster::start(rooted, store)).await?;
+    let work = Box::pin(exercise(&mut cluster)).await;
+    let joined = cluster.close().await;
+    if work.is_err() || joined.is_err() {
+        for root in std::mem::take(&mut cluster.managed.roots) {
+            eprintln!("retained managed HTTP disk: {}", root.keep().display());
+        }
+    }
+    cluster.managed.fixtures[0].domain.shutdown().await;
+    work?;
+    joined
+}
+
+async fn exercise(cluster: &mut nodes::Cluster) -> Result<()> {
+    let retry = u64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_millis(),
+    )?
+    .checked_add(60_000)
+    .context("HTTP retry horizon")?;
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(TIMEOUT + Duration::from_secs(1))
+        .build()?;
+    let first = cluster.leader().await?;
+    for name in ["one", "two"] {
+        let history = counter::history(
+            cluster.managed.history.cluster,
+            cluster.managed.history.namespace,
+            name,
+        )?;
+        cluster.managed.hosts[first]
+            .cell(history)?
+            .enroll(
+                CellEnrollmentRequest {
+                    creation: ProposalId::new([if name == "one" { 181 } else { 182 }; 16])?,
+                    durability: Durability::Quorum,
+                },
+                TIMEOUT,
+            )
+            .await?;
+    }
+    cluster.inventory().await?;
+    // Bind only after actual managed birth and replicated enrollment. Both
+    // HTTP adapters use the same registered application and public SDK handles.
+    cluster.bind()?;
+    let origin = (first + 1) % 3;
+    ensure!(
+        cluster
+            .web()?
+            .command(&client, (origin, false), "one", 7, 1, retry)
+            .await?
+            .status
+            == 503,
+        "membership alone granted a command origin"
+    );
+    let empty = cluster
+        .web()?
+        .query(
+            &client,
+            (first, true),
+            "one",
+            "linearizable",
+            &serde_json::Value::Null,
+            None,
+        )
+        .await?
+        .success()?;
+    http::value(&empty, "one", 0)?;
+    let mut foreign = NamespaceCommandOrigin {
+        cluster: cluster.managed.history.cluster,
+        namespace: NamespaceId::new([211; 16])?,
+        revision: 1,
+        peer: cluster.managed.peers[origin].clone(),
+    };
+    ensure!(cluster.managed.hosts[first]
+        .grant_command_origin(foreign.clone())
+        .is_err());
+    foreign.namespace = cluster.managed.history.namespace;
+    foreign.peer.process = ProcessGeneration::new([250; 16])?;
+    ensure!(cluster.managed.hosts[first]
+        .grant_command_origin(foreign)
+        .is_err());
+    cluster.authorize_commands()?;
+    let one = cluster
+        .web()?
+        .command(&client, ((first + 1) % 3, false), "one", 7, 1, retry)
+        .await?
+        .success()?;
+    let two = cluster
+        .web()?
+        .command(&client, ((first + 2) % 3, true), "two", 11, 1, retry)
+        .await?
+        .success()?;
+    http::value(&one, "one", 7)?;
+    http::value(&two, "two", 11)?;
+    ensure!(one["group"] == two["group"]);
+    ensure!(one["cell"] != two["cell"]);
+    for index in 0..3 {
+        for axum in [false, true] {
+            let duplicate = cluster
+                .web()?
+                .command(&client, (index, axum), "one", 7, 1, retry)
+                .await?
+                .success()?;
+            http::same_receipt(&one, &duplicate)?;
+            for (name, receipt) in [("one", &one), ("two", &two)] {
+                for mode in ["at-least", "linearizable"] {
+                    let remote = (index + 1) % 3;
+                    let read = cluster
+                        .web()?
+                        .query(&client, (index, axum), name, mode, receipt, Some(remote))
+                        .await?
+                        .success()?;
+                    ensure!(read["value"] == receipt["value"]);
+                    ensure!(read["served_by"].as_u64() == Some(remote as u64 + 1));
+                }
+            }
+            ensure!(
+                cluster
+                    .web()?
+                    .command(&client, (index, axum), "one", 9, 1, retry)
+                    .await?
+                    .status
+                    == 409,
+                "conflicting retry changed its identity or input"
+            );
+            ensure!(
+                cluster
+                    .web()?
+                    .query(&client, (index, axum), "two", "at-least", &one, None)
+                    .await?
+                    .status
+                    == 409,
+                "another cell's token granted a minimum version"
+            );
+        }
+    }
+    cluster.managed.hosts[first].revoke_command_origin(
+        cluster.managed.history.cluster,
+        cluster.managed.history.namespace,
+        cluster.managed.peers[origin].node,
+        2,
+    )?;
+    ensure!(
+        cluster
+            .web()?
+            .command(&client, (origin, true), "one", 3, 2, retry)
+            .await?
+            .status
+            == 503,
+        "revoked process still originated a command"
+    );
+    let unchanged = cluster
+        .web()?
+        .query(&client, (first, false), "one", "linearizable", &one, None)
+        .await?
+        .success()?;
+    http::value(&unchanged, "one", 7)?;
+    let mut restored = NamespaceCommandOrigin {
+        cluster: cluster.managed.history.cluster,
+        namespace: cluster.managed.history.namespace,
+        revision: 1,
+        peer: cluster.managed.peers[origin].clone(),
+    };
+    ensure!(cluster.managed.hosts[first]
+        .grant_command_origin(restored.clone())
+        .is_err());
+    restored.revision = 3;
+    cluster.managed.hosts[first].grant_command_origin(restored)?;
+    let updated = cluster
+        .web()?
+        .command(&client, (origin, true), "one", 3, 2, retry)
+        .await?
+        .success()?;
+    http::value(&updated, "one", 10)?;
+
+    let history = counter::history(
+        cluster.managed.history.cluster,
+        cluster.managed.history.namespace,
+        "one",
+    )?;
+    let remote = cluster.managed.hosts[(first + 1) % 3].cell(history)?;
+    let mut options = CommandOptions::new(CommandId::new(ClientId::new([204; 16])?, 1)?, retry);
+    options.durability = Durability::S3;
+    let archived = remote
+        .command(
+            &remote.contract("Increment")?,
+            0i64.to_be_bytes().to_vec(),
+            options,
+        )
+        .await?;
+    ensure!(archived.durability == Durability::S3 && archived.result == 10i64.to_be_bytes());
+    ensure!(archived.witness.group == cluster.managed.history);
+
+    // A joined leader stop is a local failover gate, not a process-crash drill.
+    cluster.stop(first).await?;
+    let successor = cluster.leader().await?;
+    ensure!(successor != first);
+    let duplicate = cluster
+        .web()?
+        .command(&client, (successor, false), "one", 7, 1, retry)
+        .await?
+        .success()?;
+    http::same_receipt(&one, &duplicate)?;
+    let read = cluster
+        .web()?
+        .query(
+            &client,
+            (successor, true),
+            "one",
+            "linearizable",
+            &updated,
+            None,
+        )
+        .await?
+        .success()?;
+    http::value(&read, "one", 10)?;
+
+    Box::pin(cluster.restart()).await?;
+    let resumed = cluster.leader().await?;
+    cluster.inventory().await?;
+    let duplicate = cluster
+        .web()?
+        .command(&client, (resumed, true), "one", 7, 1, retry)
+        .await?
+        .success()?;
+    http::same_receipt(&one, &duplicate)?;
+    let old_floor = cluster
+        .web()?
+        .query(
+            &client,
+            ((resumed + 1) % 3, false),
+            "one",
+            "at-least",
+            &one,
+            None,
+        )
+        .await?
+        .success()?;
+    http::value(&old_floor, "one", 10)?;
+    let next = cluster
+        .web()?
+        .command(&client, ((resumed + 2) % 3, false), "one", 2, 3, retry)
+        .await?
+        .success()?;
+    http::value(&next, "one", 12)?;
+
+    for index in [2, 1] {
+        cluster.stop(index).await?;
+    }
+    tokio::time::timeout(TIMEOUT, async {
+        loop {
+            let status = cluster.managed.hosts[0]
+                .group(cluster.managed.history)?
+                .status()
+                .await?;
+            if !status.ready && status.leader.is_none() {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("observe loss of the actual majority")??;
+    for axum in [false, true] {
+        ensure!(
+            cluster
+                .web()?
+                .query(&client, (0, axum), "one", "linearizable", &next, None)
+                .await?
+                .status
+                == 503,
+            "linearizable read succeeded without quorum"
+        );
+        ensure!(
+            cluster
+                .web()?
+                .command(&client, (0, axum), "one", 5, 4, retry)
+                .await?
+                .status
+                == 503,
+            "write succeeded without quorum"
+        );
+    }
+    Ok(())
+}

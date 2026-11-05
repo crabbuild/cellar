@@ -144,7 +144,14 @@ async fn alarms(hold_callback: bool, rearm_hot: bool) -> Result<()> {
             let accepted = command_dispatch::accepted(&mut invocation).await?;
             fixture.drive(Some(accepted.position.index)).await?;
             let receipt = command_dispatch::committed(&mut invocation).await?;
-            assert_eq!(receipt.receipt().receipt.result(), b"armed");
+            assert_eq!(
+                receipt
+                    .local_receipt()
+                    .expect("local command receipt")
+                    .receipt
+                    .result(),
+                b"armed"
+            );
         }
         // Seed already committed due work before starting the node controller.
         // Its initial marker hints, not another client request or fixture pump,

@@ -4,6 +4,80 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Managed request routing checkpoint
+
+A public SDK command sent to a follower previously attempted local SQL and
+returned NotLeader despite an observed healthy leader. The pre-fix managed HTTP
+case reproduced this twice, with failed binaries/logs and voter directories
+retained. Queued originating SDK commands now retain one controller invocation,
+identity, captured inputs, admission and original deadline through one forwarding
+hop. Incoming RPCs and the lower-level controller command API stay local-only.
+The destination independently checks its route, namespace process permission and
+current execution authority. Possible transmission keeps an error ambiguous;
+there is no automatic uncertain mutation retry or new identity.
+
+Trusted embedders can grant/revoke command origins after managed discovery has
+verified the actual peer boot/endpoints. Host namespace capabilities and current
+transport identity/revision checks are mandatory. Membership grants no permission;
+revocation retains a revision tombstone without undoing admitted work. Permissions
+belong to the running transport and require trusted policy after restart.
+
+Command output now distinguishes local inspected SQL receipts from authenticated
+remote results. Common output metadata is available for both; local_receipt is
+present only for the local variant. Wire encoding, effects and physical oracles
+retain local proof requirements. Existing tests make those requirements explicit.
+Temporary diagnostic logs are removed and no assertion or lint is suppressed.
+
+The new managed native/Axum case passes in both image forms: cold capacity and
+group birth, replicated enrollment of two independent cells, follower writes,
+remote minimum-version/linearizable reads with actual responder identity,
+conflicting retries, cross-cell tokens, absent/revoked/stale-process/foreign-
+namespace permission refusals, forwarded S3 acknowledgement, joined leader-stop
+failover, retained restart with original receipts/floors and new writes, then
+quorum-loss write/read refusals. The counter declares explicit namespace origins;
+its public process gate now requires original receipt success through every one
+of six native/Axum addresses before and after retained restart.
+
+The complete eleven-target final-01 native campaign is **FAILED: 308 passed,
+2 failed, 39 explicit skips**. The new managed HTTP case and public SDK/process
+gate pass; the public gate takes 140.55s. The managed
+target fails eight-turn maintenance replacement settlement and fresh successor
+readiness after closing an S3 source service, including an Unobserved close
+report. Original bounds/assertions and failure disks/logs remain unwaived. These
+are previously recorded failure classes; the forwarding fix does not establish
+their causes. No narrower component pass makes the full campaign green.
+
+RustFS comparison: managed request run1: PASS (53.37s); managed request run2: PASS (50.61s); archived maintenance: PASS (88.53s); automatic S3 recovery: PASS (45.41s).
+Matrix status is **PASSED**. Both request invocations cover both image
+forms and pass; every comparison case retains its own result. Signed readiness
+and conditional probes pass. The immutable-ID/owner/resource/mount-verified,
+pinned one-CPU/two-GiB backend is reused with fresh buckets/prefixes; backend and
+dedicated VM are stopped with data retained. Voters remain host-native embedded
+Nodes with fixture capacity/isolation. Joined stop is not a process-crash drill;
+independent constrained voters, permanent fencing, partitions and load remain
+unqualified.
+
+Source-final-01 binds 2,726 Rust/Python/manifest inputs above
+3ccc3e51f03458a2a5715401b8e5f6b963146276 to SHA256
+da3514ed9ea2dd614a45f3150f92d2280f75795287b7469a5883f72564b1a87c.
+FAILED native record SHA256 is
+6a4f24b43031c9b9cab3a996edd3b3bf280ecf494a2a231d997912b0e75098e7.
+Its individual managed request proof is extracted explicitly from that failed
+campaign (SHA256 8f6e418e605c0d56a635b245ded5cc423d7657cf8f548bdc40109cdb3bdac1a8).
+RustFS record SHA256 is
+646ebe709b457b540a97a12e85e43aade6aee1fbbb445a5d37d84a2650330695.
+Default stack, opt-level 0, assertions/overflow checks, quotas and original
+operation/movement bounds remain intact. Code inputs are checked unchanged.
+
+Format/layout/dependencies/docs, native-only Cellar/Python-library and diff checks
+pass. Strict library Clippy and plan tests/validate/preflight remain red, with no
+Clippy diagnostic-key additions or silent source-anchor refresh. Earlier unseeded
+maintenance/ambiguous-write/transfer/TCP/enrollment/inspection failures and older
+disk-erasure qualification keep their own source and scope. CG-07 remains
+IN_PROGRESS; four public gates, default/capability integration and CG-09–16 remain
+open. Automatic command selection still needs local group status: route-only
+ingress requires bounded leader discovery. Queries still default stale.
+
 ## Member observation renewal checkpoint
 
 A deterministic managed regression now reproduces one lost local-member

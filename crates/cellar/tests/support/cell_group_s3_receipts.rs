@@ -91,7 +91,11 @@ impl Harness {
             .await?
             .response()
             .await?;
-        let index = response.receipt().position.index;
+        let index = response
+            .local_receipt()
+            .expect("local command receipt")
+            .position
+            .index;
         drop(response);
         archive_controller::published(&self.controllers[0], self.route.history, index).await
     }

@@ -22,18 +22,27 @@ component cases. Automatic S3 voter recovery reaches terminal removal while
 retaining the obsolete engine and disk. These are fixture isolation/capacity
 results, not production platform fencing or a completed public lifecycle gate.
 
-The latest affected managed target passes 17 cases/6 backend-only skips. Four
-current-source RustFS invocations pass: lost-observation renewal, the original
-full maintenance case twice, and automatic recovery. Renewal retries a lost
-read-only observation within the original five-second envelope and requires all
-three fresh observations. Test handoffs re-observe actual leadership and preserve
-term/revision guards. Earlier unseeded proof, ambiguous-write, transfer/readiness,
-eight-turn replacement, enrollment and inspection failures remain unwaived.
+The latest complete eleven-target campaign has 308 passes, 2 failures and 39
+explicit skips. The new managed native/Axum request case and strengthened public
+SDK/process gate pass. The full campaign remains FAILED: eight-turn maintenance
+replacement settlement and fresh successor readiness after closing an S3 source
+service fail, with retained disks/logs and an Unobserved close report. No bound or
+assertion is relaxed and later passes do not waive these failures.
 
-Earlier seven-target native, SDK/native/Axum process/restart and all-voter-directory/
-verifier-cache-erased recovery results retain their own source hashes; they are
-not relabeled as the latest complete campaign. See [progress](progress.md) for
-exact current and historical source/binary results and limits.
+The request case qualifies follower writes, explicit namespace/process grant and
+revocation, remote minimum-version/linearizable reads, forwarded S3 acknowledgement,
+joined leader-stop failover, retained restart/deduplication and quorum-loss refusals
+in both image forms. The public counter requires all six native/Axum addresses to
+serve original retry receipts before and after retained restart. Current-source
+RustFS results and all exact source/binary limits are recorded in
+[progress](progress.md). Earlier disk-erasure and other checkpoints retain their
+recorded sources and are not relabeled as this campaign.
+
+SDK command forwarding now retains the originating owner/deadline and requires
+explicit namespace write permission. Local SQL/effect/archive proof remains
+distinct from authenticated remote output. Automatic selection still requires a
+local group leader hint; ingress without a local replica needs bounded leader
+discovery before the general public request path is complete.
 
 CG-07 remains IN_PROGRESS. Four original public gates remain undelivered, including
 complete managed lifecycle and ingress authority. Default/backend and capability
@@ -179,9 +188,11 @@ full hard cutover.
 | CG-15 | Full load/crash, transition, wakeup and disaster-recovery matrix. Measure the documented profiles and failure schedules; no capacity or TiKV performance-parity claim follows from correctness tests. |
 | CG-16 | Delete remaining predecessor consumers/codecs, finish feature-off/full release checks, publish the unified API/runbooks and qualified operating envelope. No one-cell special path, compatibility reader or production mode toggle. |
 
-The next functional slice is the public managed lifecycle and ingress authority
-gates, retained debt on surviving original voters and deployment fencing
-qualification. Investigate the unseeded read/write/transfer and eight-turn
+The next functional slices are bounded leader discovery for ingress without a
+local replica, normal managed namespace/default provisioning, and the public
+managed lifecycle/ingress-authority gates. Resolve the current eight-turn
+replacement and source-close successor-readiness failures, retained debt on
+surviving original voters and deployment fencing qualification. Investigate the unseeded read/write/transfer and eight-turn
 replacement failures without changing their bounds. Then finish default/backend
 and capability integration and the complete MVP public/backend gates, then
 transition/topology/wake features and the final managed recovery/load/release matrix. Passing one layer

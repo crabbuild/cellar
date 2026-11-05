@@ -105,6 +105,14 @@ duplicate recognized header returns 400; a valid token from another cell/history
 returns 409. Signature/expiry failures return 503 without weakening consistency.
 POST rejects read-specific headers rather than silently ignoring them.
 
+Every native and Axum address accepts commands through the same SDK invocation.
+The example explicitly grants its configured peer processes write permission for
+this namespace. A follower uses its observed leader as a destination hint;
+the leader independently checks the route and current write authority. A lost
+forwarded response stays ambiguous: retain the original command ID and input.
+The process drill retries the original receipt through all six public addresses
+before and after retained restart; it cannot pass by finding only the leader.
+
 The example uses Quorum command durability and the bucket's scoped conditional
 client for background archives. Programmatic SDK callers can request S3, which
 waits for a verified complete archive recovery set. An archive image alone cannot activate a member or fence old hosts; this

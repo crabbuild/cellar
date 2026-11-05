@@ -95,7 +95,15 @@ pub(crate) async fn s3_enrollment(rooted: bool, store: Arc<dyn ObjectStore>) -> 
                 .await?
                 .response()
                 .await?;
-            assert_eq!(changed.receipt().version.sequence.get(), 2);
+            assert_eq!(
+                changed
+                    .local_receipt()
+                    .expect("local command receipt")
+                    .version
+                    .sequence
+                    .get(),
+                2
+            );
             drop(changed);
         }
         let gate = h.remote.hold_publication();
@@ -203,7 +211,15 @@ pub(crate) async fn s3_enrollment_deadline(
         .await?
         .response()
         .await?;
-    assert_eq!(changed.receipt().version.sequence.get(), 2);
+    assert_eq!(
+        changed
+            .local_receipt()
+            .expect("local command receipt")
+            .version
+            .sequence
+            .get(),
+        2
+    );
     drop(changed);
     h.remote.outage.store(false, Ordering::Release);
     let response = h

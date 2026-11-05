@@ -115,8 +115,19 @@ async fn setup(rooted: bool, store: Arc<dyn ObjectStore>) -> Result<Base> {
         .response()
         .await?;
     assert_eq!(response.durability(), Durability::Quorum);
-    assert_eq!(response.receipt().receipt.result(), b"b-base");
-    let index = response.receipt().position.index;
+    assert_eq!(
+        response
+            .local_receipt()
+            .expect("local command receipt")
+            .receipt
+            .result(),
+        b"b-base"
+    );
+    let index = response
+        .local_receipt()
+        .expect("local command receipt")
+        .position
+        .index;
     drop(response);
     archive_controller::published(&h.controllers[0], h.route.history, index).await?;
     let coverage =
@@ -334,8 +345,18 @@ async fn delayed(rooted: bool, store: Arc<dyn ObjectStore>) -> Result<()> {
         .response()
         .await?;
     assert_eq!(next.durability(), Durability::Quorum);
-    assert_eq!(next.receipt().receipt.result(), b"quorum-successor");
-    let index = next.receipt().position.index;
+    assert_eq!(
+        next.local_receipt()
+            .expect("local command receipt")
+            .receipt
+            .result(),
+        b"quorum-successor"
+    );
+    let index = next
+        .local_receipt()
+        .expect("local command receipt")
+        .position
+        .index;
     assert!(index > base.hold.marker().position().index);
     drop(next);
     local_values(&base.h, index).await?;
@@ -371,7 +392,14 @@ async fn delayed(rooted: bool, store: Arc<dyn ObjectStore>) -> Result<()> {
     assert_eq!(tails.usage().operations, 0);
     let response = output.await?;
     assert_eq!(response.durability(), Durability::S3);
-    assert_eq!(response.receipt().receipt.result(), b"later-a");
+    assert_eq!(
+        response
+            .local_receipt()
+            .expect("local command receipt")
+            .receipt
+            .result(),
+        b"later-a"
+    );
     drop(response);
     archive_controller::published(&base.h.controllers[0], base.h.route.history, index).await?;
     exact_local_retry(&base.h).await?;
@@ -453,7 +481,11 @@ async fn corrupt(rooted: bool, store: Arc<dyn ObjectStore>) -> Result<()> {
         .response()
         .await?;
     assert_eq!(next.durability(), Durability::Quorum);
-    let index = next.receipt().position.index;
+    let index = next
+        .local_receipt()
+        .expect("local command receipt")
+        .position
+        .index;
     assert!(index > base.hold.marker().position().index);
     drop(next);
     local_values(&base.h, index).await?;

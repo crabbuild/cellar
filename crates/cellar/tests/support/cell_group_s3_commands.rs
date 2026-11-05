@@ -353,10 +353,21 @@ pub(crate) async fn s3_namespace_minimum(rooted: bool, store: Arc<dyn ObjectStor
     let response = waiting.await?;
     assert_eq!(response.durability(), Durability::S3);
     assert_eq!(
-        response.receipt().receipt.minimum_durability(),
+        response
+            .local_receipt()
+            .expect("local command receipt")
+            .receipt
+            .minimum_durability(),
         Durability::S3
     );
-    assert_eq!(response.receipt().receipt.result(), b"minimum");
+    assert_eq!(
+        response
+            .local_receipt()
+            .expect("local command receipt")
+            .receipt
+            .result(),
+        b"minimum"
+    );
     assert_eq!(h.calls.load(Ordering::SeqCst), 1);
     drop(response);
     h.close().await
@@ -419,7 +430,13 @@ pub(crate) async fn s3_commands(
         .response()
         .await?;
     assert_eq!(next.durability(), Durability::Quorum);
-    assert_eq!(next.receipt().receipt.result(), b"second");
+    assert_eq!(
+        next.local_receipt()
+            .expect("local command receipt")
+            .receipt
+            .result(),
+        b"second"
+    );
     drop(next);
     let gate = h.remote.hold_publication();
     h.remote.outage.store(false, Ordering::Release);
@@ -433,8 +450,23 @@ pub(crate) async fn s3_commands(
     gate.release.notify_one();
     let response = waiting.await?;
     assert_eq!(response.durability(), Durability::S3);
-    assert_eq!(response.receipt().receipt.result(), b"first");
-    assert_eq!(response.receipt().version.sequence.get(), 2);
+    assert_eq!(
+        response
+            .local_receipt()
+            .expect("local command receipt")
+            .receipt
+            .result(),
+        b"first"
+    );
+    assert_eq!(
+        response
+            .local_receipt()
+            .expect("local command receipt")
+            .version
+            .sequence
+            .get(),
+        2
+    );
     assert_eq!(h.archive.tails.usage().operations, 1);
     assert_eq!(h.calls.load(Ordering::SeqCst), 2);
     // A Quorum duplicate still honors the stored S3 minimum. A retained response
@@ -453,8 +485,23 @@ pub(crate) async fn s3_commands(
     drop(response);
     let response = duplicate.await?;
     assert_eq!(response.durability(), Durability::S3);
-    assert_eq!(response.receipt().receipt.result(), b"first");
-    assert_eq!(response.receipt().version.sequence.get(), 3);
+    assert_eq!(
+        response
+            .local_receipt()
+            .expect("local command receipt")
+            .receipt
+            .result(),
+        b"first"
+    );
+    assert_eq!(
+        response
+            .local_receipt()
+            .expect("local command receipt")
+            .version
+            .sequence
+            .get(),
+        3
+    );
     assert_eq!(h.calls.load(Ordering::SeqCst), 2);
     drop(response);
     controller::wait_for(async || Ok(h.controllers[0].usage().retained_s3 == 0)).await?;
@@ -501,7 +548,13 @@ pub(crate) async fn s3_deadline(
         .await?
         .response()
         .await?;
-    assert_eq!(next.receipt().receipt.result(), b"second");
+    assert_eq!(
+        next.local_receipt()
+            .expect("local command receipt")
+            .receipt
+            .result(),
+        b"second"
+    );
     drop(next);
     h.remote.outage.store(false, Ordering::Release);
     let response = h
@@ -510,7 +563,14 @@ pub(crate) async fn s3_deadline(
         .response()
         .await?;
     assert_eq!(response.durability(), Durability::S3);
-    assert_eq!(response.receipt().receipt.result(), b"first");
+    assert_eq!(
+        response
+            .local_receipt()
+            .expect("local command receipt")
+            .receipt
+            .result(),
+        b"first"
+    );
     assert_eq!(h.calls.load(Ordering::SeqCst), 2);
     drop(response);
     h.close().await
@@ -523,7 +583,11 @@ pub(crate) async fn s3_missing_sibling(rooted: bool, store: Arc<dyn ObjectStore>
         .await?
         .response()
         .await?;
-    let index = result.receipt().position.index;
+    let index = result
+        .local_receipt()
+        .expect("local command receipt")
+        .position
+        .index;
     drop(result);
     archive_controller::published(&h.controllers[0], h.route.history, index).await?;
     let marker = h.controllers[0]
@@ -603,7 +667,14 @@ pub(crate) async fn s3_missing_sibling(rooted: bool, store: Arc<dyn ObjectStore>
         .await?
         .response()
         .await?;
-    assert_eq!(result.receipt().receipt.result(), b"second");
+    assert_eq!(
+        result
+            .local_receipt()
+            .expect("local command receipt")
+            .receipt
+            .result(),
+        b"second"
+    );
     assert_eq!(h.calls.load(Ordering::SeqCst), 2);
     drop(result);
     h.close().await

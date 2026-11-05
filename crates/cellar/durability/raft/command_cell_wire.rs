@@ -130,7 +130,12 @@ pub(in crate::raft) fn encode_result(
     let mut body = b"CLGCCS01".to_vec();
     match result {
         Ok(response) => {
-            let receipt = &response.receipt().receipt;
+            // Incoming commands execute locally; remote output is not a local
+            // SQL image or this receiver's archive-settlement proof.
+            let receipt = &response
+                .local_receipt()
+                .ok_or(TransportError::Protocol)?
+                .receipt;
             body.push(0);
             body.push(durability_code(response.durability()));
             body.extend_from_slice(&receipt.command().client.bytes());

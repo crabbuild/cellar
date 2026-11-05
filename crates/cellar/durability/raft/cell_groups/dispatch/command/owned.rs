@@ -82,8 +82,51 @@ impl CellCommandInvocation {
         options: CellSqlOptions,
         roster: &crate::raft::cell_groups::controller::GroupRoster,
         progress: &mut watch::Receiver<()>,
+        transport: Option<&crate::raft::transport::RaftTransport>,
     ) -> Result<CellCommandResponse, CellCommandError> {
         self.begin().await?;
+        // Only an originating invocation may forward. An authenticated incoming
+        // command stays local, so stale hints cannot create forwarding cycles.
+        if let Some(transport) = transport.filter(|_| !self.system && self.remote_route.is_none()) {
+            let history = self.current()?.route().history;
+            let timer = self
+                .dispatcher
+                .domain
+                .sleep_until(self.session.deadline_ms())
+                .map_err(|_| self.error(closed()))?;
+            let status = crate::asyncrt::select! {
+                status = runtime.status(history) => status,
+                _ = timer => return Err(self.error(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded))),
+            };
+            match status {
+                Ok(status) => {
+                    if let Some(leader) = status.leader {
+                        let local = runtime
+                            .log()
+                            .cell_group(&history)
+                            .map_err(|e| {
+                                self.error(CellDispatchError::Runtime(RuntimeError::Storage(e)))
+                            })?
+                            .identity()
+                            .member;
+                        if leader != local.get() {
+                            let member =
+                                cellar_logic::consensus::MemberId::new(leader).map_err(|_| {
+                                    self.error(CellDispatchError::Invalid(
+                                        "command leader identity",
+                                    ))
+                                })?;
+                            let response = self.execute_remote(transport, member).await?;
+                            return Ok(CellCommandResponse {
+                                output: CommandOutput::Remote(Box::new(response)),
+                            });
+                        }
+                    }
+                }
+                Err(RuntimeError::NotFound) => (),
+                Err(error) => return Err(self.error(CellDispatchError::Runtime(error))),
+            }
+        }
         let result = self.run_at(runtime, sql, options, roster, progress).await;
         result.map_err(|error| self.error(error))
     }

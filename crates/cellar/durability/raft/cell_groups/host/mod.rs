@@ -161,10 +161,18 @@ impl CellGroupHost {
         &self,
         history: cellar_logic::cell_group::GroupHistory,
     ) -> Result<RangeDirectory, CellDispatchError> {
+        self.namespace_directory(history.cluster, history.namespace)
+    }
+
+    pub(crate) fn namespace_directory(
+        &self,
+        cluster: cellar_logic::consensus::ClusterId,
+        namespace: cellar_logic::consensus::NamespaceId,
+    ) -> Result<RangeDirectory, CellDispatchError> {
         self.inner.check_open()?;
         self.inner
             .namespaces
-            .get(&(history.cluster, history.namespace))
+            .get(&(cluster, namespace))
             .map(|binding| binding.dispatcher.directory())
             .ok_or(CellDispatchError::Runtime(RuntimeError::NotFound))
     }

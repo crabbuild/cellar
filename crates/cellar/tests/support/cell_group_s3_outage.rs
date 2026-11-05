@@ -193,7 +193,11 @@ async fn run(
         .await?
         .response()
         .await?;
-    let warm_index = warm.receipt().position.index;
+    let warm_index = warm
+        .local_receipt()
+        .expect("local command receipt")
+        .position
+        .index;
     assert_eq!(warm.durability(), Durability::Quorum);
     drop(warm);
     archive_controller::published(&h.controllers[0], h.route.history, warm_index).await?;
@@ -295,8 +299,19 @@ async fn run(
             .response()
             .await?;
         assert_eq!(response.durability(), Durability::Quorum);
-        assert_eq!(response.receipt().receipt.result(), b"quorum-offline");
-        latest = response.receipt().position.index;
+        assert_eq!(
+            response
+                .local_receipt()
+                .expect("local command receipt")
+                .receipt
+                .result(),
+            b"quorum-offline"
+        );
+        latest = response
+            .local_receipt()
+            .expect("local command receipt")
+            .position
+            .index;
         drop(response);
     }
     state(&h, latest, OFFLINE_COMMANDS).await?;
@@ -329,7 +344,14 @@ async fn run(
         .response()
         .await?;
     assert_eq!(known.durability(), Durability::Quorum);
-    assert_eq!(known.receipt().receipt.result(), b"warm");
+    assert_eq!(
+        known
+            .local_receipt()
+            .expect("local command receipt")
+            .receipt
+            .result(),
+        b"warm"
+    );
     drop(known);
     let error = pending
         .await
@@ -451,7 +473,14 @@ async fn run(
         .response()
         .await?;
     assert_eq!(recovered.durability(), Durability::S3);
-    assert_eq!(recovered.receipt().receipt.result(), b"archive-wait");
+    assert_eq!(
+        recovered
+            .local_receipt()
+            .expect("local command receipt")
+            .receipt
+            .result(),
+        b"archive-wait"
+    );
     drop(recovered);
     assert_eq!(h.calls.load(Ordering::SeqCst) as u64, OFFLINE_COMMANDS);
 

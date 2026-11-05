@@ -57,8 +57,23 @@ pub(crate) async fn idle_cache_reopens_exact_base() -> Result<()> {
             retry_until,
         )
         .await?;
-        assert_eq!(first.receipt().receipt.result(), 7_i64.to_be_bytes());
-        assert_eq!(first.receipt().version.sequence.get(), 2);
+        assert_eq!(
+            first
+                .local_receipt()
+                .expect("local command receipt")
+                .receipt
+                .result(),
+            7_i64.to_be_bytes()
+        );
+        assert_eq!(
+            first
+                .local_receipt()
+                .expect("local command receipt")
+                .version
+                .sequence
+                .get(),
+            2
+        );
         drop(first);
         idle(&fixture, &controllers, route.history, &a, 2).await?;
         let deadline = fixture
@@ -135,8 +150,21 @@ pub(crate) async fn idle_cache_reopens_exact_base() -> Result<()> {
             retry_until,
         )
         .await?;
-        assert_eq!(next.receipt().receipt.result(), 18_i64.to_be_bytes());
-        assert_eq!(next.receipt().version.sequence.get(), 3);
+        assert_eq!(
+            next.local_receipt()
+                .expect("local command receipt")
+                .receipt
+                .result(),
+            18_i64.to_be_bytes()
+        );
+        assert_eq!(
+            next.local_receipt()
+                .expect("local command receipt")
+                .version
+                .sequence
+                .get(),
+            3
+        );
         drop(next);
         idle(&fixture, &controllers, route.history, &a, 3).await?;
         let duplicate = add(
@@ -149,8 +177,23 @@ pub(crate) async fn idle_cache_reopens_exact_base() -> Result<()> {
             retry_until,
         )
         .await?;
-        assert_eq!(duplicate.receipt().receipt.result(), 7_i64.to_be_bytes());
-        assert_eq!(duplicate.receipt().version.sequence.get(), 3);
+        assert_eq!(
+            duplicate
+                .local_receipt()
+                .expect("local command receipt")
+                .receipt
+                .result(),
+            7_i64.to_be_bytes()
+        );
+        assert_eq!(
+            duplicate
+                .local_receipt()
+                .expect("local command receipt")
+                .version
+                .sequence
+                .get(),
+            3
+        );
         drop(duplicate);
         idle(&fixture, &controllers, route.history, &a, 3).await?;
         assert_eq!(calls.load(Ordering::SeqCst), 2);
@@ -434,8 +477,23 @@ pub(crate) async fn cleanup_failure_retains_outcome() -> Result<()> {
         .command(invocation, fixture.cell_options_at(&cell, 1).await?)?
         .response()
         .await?;
-    assert_eq!(receipt.receipt().receipt.result(), b"committed");
-    assert_eq!(receipt.receipt().version.sequence.get(), 2);
+    assert_eq!(
+        receipt
+            .local_receipt()
+            .expect("local command receipt")
+            .receipt
+            .result(),
+        b"committed"
+    );
+    assert_eq!(
+        receipt
+            .local_receipt()
+            .expect("local command receipt")
+            .version
+            .sequence
+            .get(),
+        2
+    );
     drop(receipt);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(controllers[0].usage().retained_commands, 1);

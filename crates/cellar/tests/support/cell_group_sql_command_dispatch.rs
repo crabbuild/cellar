@@ -170,10 +170,22 @@ pub(crate) async fn commands_with_transport(rooted: bool, tcp: bool) -> Result<(
     fixture.drive(Some(again.position.index)).await?;
     let receipt = committed(&mut command).await?;
     assert_eq!(
-        receipt.receipt().receipt.result(),
+        receipt
+            .local_receipt()
+            .expect("local command receipt")
+            .receipt
+            .result(),
         a.cell.as_str().as_bytes()
     );
-    assert_eq!(receipt.receipt().version.sequence.get(), 2);
+    assert_eq!(
+        receipt
+            .local_receipt()
+            .expect("local command receipt")
+            .version
+            .sequence
+            .get(),
+        2
+    );
     assert_eq!(receipt.durability(), Durability::Quorum);
     let now = fixture
         .cluster
@@ -182,7 +194,10 @@ pub(crate) async fn commands_with_transport(rooted: bool, tcp: bool) -> Result<(
         .await?;
     assert_eq!(
         keys.verify_cell(receipt.token(), &a, route.schema_digest, now)?,
-        receipt.receipt().observation()
+        receipt
+            .local_receipt()
+            .expect("local command receipt")
+            .observation()
     );
     drop(receipt);
     drop(command);
@@ -221,7 +236,11 @@ pub(crate) async fn commands_with_transport(rooted: bool, tcp: bool) -> Result<(
         anyhow::bail!("duplicate executed")
     };
     assert_eq!(
-        receipt.receipt().receipt.result(),
+        receipt
+            .local_receipt()
+            .expect("local command receipt")
+            .receipt
+            .result(),
         a.cell.as_str().as_bytes()
     );
     assert_eq!(calls.load(Ordering::SeqCst), 2);
@@ -270,7 +289,15 @@ pub(crate) async fn commands_with_transport(rooted: bool, tcp: bool) -> Result<(
     let retry_acceptance = accepted(&mut retry).await?;
     reconciliation::apply_through(&mut fixture, retry_acceptance.position.index).await?;
     let receipt = committed(&mut retry).await?;
-    assert_eq!(receipt.receipt().version.sequence.get(), 3);
+    assert_eq!(
+        receipt
+            .local_receipt()
+            .expect("local command receipt")
+            .version
+            .sequence
+            .get(),
+        3
+    );
     drop(receipt);
     drop(retry);
     let captured = captured.lock().unwrap().clone();

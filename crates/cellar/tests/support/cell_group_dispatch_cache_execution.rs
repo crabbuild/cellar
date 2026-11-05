@@ -98,7 +98,14 @@ pub(crate) async fn cached_dispatch_execution() -> Result<()> {
             .command(command, fixture.cell_options(&a).await?)?
             .response()
             .await?;
-        assert_eq!(result.receipt().receipt.result(), b"added");
+        assert_eq!(
+            result
+                .local_receipt()
+                .expect("local command receipt")
+                .receipt
+                .result(),
+            b"added"
+        );
         drop(result);
         let c = history(&route, "cache-enrolled")?;
         let enrollment = dispatch

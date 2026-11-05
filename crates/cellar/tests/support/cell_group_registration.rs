@@ -551,8 +551,23 @@ pub(super) async fn mutate(
         .command(invocation, f.cell_options(cell).await?)?
         .response()
         .await?;
-    assert_eq!(response.receipt().receipt.result(), b"persisted");
-    assert_eq!(response.receipt().version.sequence.get(), 2);
+    assert_eq!(
+        response
+            .local_receipt()
+            .expect("local command receipt")
+            .receipt
+            .result(),
+        b"persisted"
+    );
+    assert_eq!(
+        response
+            .local_receipt()
+            .expect("local command receipt")
+            .version
+            .sequence
+            .get(),
+        2
+    );
     drop(response);
     Ok(())
 }

@@ -6,6 +6,9 @@ use cellar::application::consensus::verification::cell_groups::{
     CellGroupArchivePool, RangeDirectory,
 };
 
+#[path = "cell_group_managed_requests.rs"]
+mod requests;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn managed_cold_inventory_bootstrap() -> Result<()> {
     let f = Fixture::new(false).await?;
@@ -220,6 +223,7 @@ struct ManagedCluster {
     roots: Vec<tempfile::TempDir>,
     nodes: Vec<Node>,
     hosts: Vec<RaftCells>,
+    peers: Vec<RaftPeerNode>,
     directory: RangeDirectory,
     history: GroupHistory,
 }
@@ -268,11 +272,34 @@ impl ManagedCluster {
         independent: bool,
     ) -> Result<Self> {
         let first = Fixture::with_store(rooted, counter_class()?, store).await?;
+        Box::pin(Self::start_with_applications(
+            first,
+            spares,
+            archives,
+            independent,
+            None,
+        ))
+        .await
+    }
+
+    async fn start_with_applications(
+        first: Fixture,
+        spares: &[u8],
+        archives: ArchiveSetup,
+        independent: bool,
+        applications: Option<Vec<Arc<dyn Application>>>,
+    ) -> Result<Self> {
         let second = peer_fixture(&first, 5).await?;
         let third = peer_fixture(&first, 6).await?;
         let mut fixtures = vec![first, second, third];
         for id in spares {
             fixtures.push(peer_fixture(&fixtures[0], *id).await?);
+        }
+        if let Some(applications) = applications {
+            ensure!(applications.len() == fixtures.len());
+            for (fixture, application) in fixtures.iter_mut().zip(applications) {
+                fixture.application = application;
+            }
         }
         if independent {
             for fixture in fixtures.iter_mut().skip(1) {
@@ -342,6 +369,7 @@ impl ManagedCluster {
             .collect::<std::io::Result<Vec<_>>>()?;
         let mut nodes = Vec::new();
         let mut hosts = Vec::new();
+        let mut peers = Vec::new();
         for (i, fixture) in fixtures.iter().enumerate() {
             let node = start_node(
                 roots[i].path(),
@@ -358,6 +386,7 @@ impl ManagedCluster {
             if archives != ArchiveSetup::Disabled {
                 archives::configure(&mut config);
             }
+            peers.push(config.peers[0].clone());
             let host = node.start_raft_cells(config, services).await?;
             ensure!(host.observe_node(TIMEOUT).await?.node.groups == 0);
             nodes.push(node);
@@ -451,6 +480,7 @@ impl ManagedCluster {
             roots,
             nodes,
             hosts,
+            peers,
             directory,
             history,
         })
@@ -530,6 +560,7 @@ async fn cold_group(rooted: bool) -> Result<()> {
         hosts,
         directory,
         history,
+        ..
     } = Box::pin(ManagedCluster::start(rooted, &[])).await?;
     let f = &fixtures[0];
     let proposal = || -> Result<CellGroupBirthSpec> {

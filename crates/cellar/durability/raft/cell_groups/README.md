@@ -545,6 +545,35 @@ connection. The production transport must still authenticate peers, and every
 destination must verify the complete route, logical cell incarnation and current
 serving authority. No redirect URL or caller-supplied catalog is followed.
 
+An originating public command may use its local group's observed leader as a
+destination hint. The same controller invocation retains its admission, command
+identity, captured inputs and original deadline through the remote exchange.
+The destination requires an explicit namespace/process write grant and checks
+its own current route and execution authority. Voter membership alone grants no
+write permission. An incoming command always executes locally; it never forwards
+again. A missing leader hint retains the existing typed local refusal.
+Automatic selection currently requires local physical group status. An ingress
+host without a local replica still needs bounded leader discovery; this path
+does not supply that missing public routing integration.
+
+Managed embedders can call `RaftCells::grant_command_origin` after discovery has
+accepted the peer's actual boot and endpoints. This avoids granting a future boot
+during cold startup. The API checks the host's namespace capability, and the
+transport checks the current peer view and monotonic permission revision.
+`revoke_command_origin` retains a revision tombstone and seals the old grant;
+it does not undo an admitted command. These are trusted host configuration APIs.
+Grants belong to the running transport and must be reapplied from trusted policy
+after restart; neither membership nor an S3 receipt restores write permission.
+The lower-level controller `command` API retains local-only execution; SDK
+`dispatch_command` owns the originating routed invocation.
+
+`CellCommandResponse::result`, `observation`, `token` and `durability` describe
+either a local result or authenticated remote output. `local_receipt` returns an
+inspected SQL receipt only for the local variant. Remote results retain transport
+admission and cannot authorize local effects, local archive settlement or another
+forwarding hop. Any possible outbound transmission makes an error ambiguous;
+the owner does not automatically retry it or create a new command identity.
+
 Attempts are consumed before awaiting reads. Cancellation cannot refund a budget
 or make a delayed ticket current. Read timeouts use the original domain clock,
 even when a waiter is polled elsewhere. Marking a command potentially submitted

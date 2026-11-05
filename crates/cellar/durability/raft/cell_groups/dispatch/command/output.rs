@@ -64,9 +64,11 @@ impl CellCommandInvocation {
         }
         let token = self.output_token(&receipt).await?;
         Ok(CellCommandResponse {
-            receipt,
-            token,
-            s3: None,
+            output: CommandOutput::Local {
+                receipt,
+                token,
+                s3: None,
+            },
         })
     }
 
@@ -101,9 +103,11 @@ impl CellCommandInvocation {
             .take()
             .ok_or(CellDispatchError::Invalid("consumed committed output"))?;
         Ok(CellCommandResponse {
-            receipt: output.receipt,
-            token,
-            s3: Some(output.proof),
+            output: CommandOutput::Local {
+                receipt: output.receipt,
+                token,
+                s3: Some(output.proof),
+            },
         })
     }
 

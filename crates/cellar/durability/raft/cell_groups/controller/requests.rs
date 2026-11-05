@@ -61,7 +61,7 @@ pub(super) async fn drive(
             unreachable!("registration has its own physical join owner")
         }
         Request::Command(request) => Completed::Command(Box::new(
-            commands::drive(*request, runtime, sql, shared, progress).await,
+            commands::drive(*request, runtime, sql, shared, progress, transport).await,
         )),
         Request::Enrollment(request) => Completed::Enrollment(Box::new(
             enrollments::drive(*request, runtime, sql, shared, progress).await,

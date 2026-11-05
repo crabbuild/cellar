@@ -175,8 +175,11 @@ pub(super) async fn run(
         request(registration, next, &operation, input, minimum, retry_until)?,
     )
     .await?;
+    let local = receipt
+        .local_receipt()
+        .ok_or(Error::Invalid("local effect receipt"))?;
     match due {
-        DueEffect::Alarm(_) => check_result(receipt.receipt().receipt.result()),
+        DueEffect::Alarm(_) => check_result(receipt.result()),
         DueEffect::Delivery {
             selected,
             definition,
@@ -187,14 +190,14 @@ pub(super) async fn run(
                 &cell,
                 registration.schema,
                 &selected,
-                receipt.receipt().receipt.result(),
+                receipt.result(),
             )
             .map_err(effect)?
             else {
                 return Ok(());
             };
             let authority = execution
-                .effect_authority(&receipt.receipt().version, receipt.receipt().position.term)
+                .effect_authority(&local.version, local.position.term)
                 .map_err(Error::Runtime)?;
             // The committed claim has been consumed into bounded delivery
             // metadata and fenced image custody. Release its response admission
@@ -235,7 +238,7 @@ pub(super) async fn run(
                 )?,
             )
             .await?;
-            check_result(receipt.receipt().receipt.result())
+            check_result(receipt.result())
         }
     }
 }

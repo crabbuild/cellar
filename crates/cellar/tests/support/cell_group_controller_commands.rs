@@ -386,9 +386,31 @@ pub(crate) async fn owned_commands(phase: u8, mode: u8) -> Result<()> {
                 fixture.cell_options(&a).await?,
             )?;
             let response = retry.response().await?;
-            assert_eq!(response.receipt().receipt.result(), b"owned-result");
-            assert_eq!(response.receipt().version.history, a);
-            assert_eq!(response.receipt().version.sequence.get(), 2);
+            assert_eq!(
+                response
+                    .local_receipt()
+                    .expect("local command receipt")
+                    .receipt
+                    .result(),
+                b"owned-result"
+            );
+            assert_eq!(
+                response
+                    .local_receipt()
+                    .expect("local command receipt")
+                    .version
+                    .history,
+                a
+            );
+            assert_eq!(
+                response
+                    .local_receipt()
+                    .expect("local command receipt")
+                    .version
+                    .sequence
+                    .get(),
+                2
+            );
             assert_eq!(calls.load(Ordering::SeqCst), if sealed { 2 } else { 1 });
             let now = fixture
                 .cluster
@@ -397,7 +419,10 @@ pub(crate) async fn owned_commands(phase: u8, mode: u8) -> Result<()> {
                 .await?;
             assert_eq!(
                 keys.verify_cell(response.token(), &a, route.schema_digest, now)?,
-                response.receipt().observation()
+                response
+                    .local_receipt()
+                    .expect("local command receipt")
+                    .observation()
             );
             drop(response);
             wait_for(async || {
@@ -438,7 +463,16 @@ pub(crate) async fn owned_commands(phase: u8, mode: u8) -> Result<()> {
                 CellDispatchError::Runtime(RuntimeError::Overloaded)
             ));
             drop(refused);
-            assert_eq!(unpolled.response().await?.receipt().version.history, b);
+            assert_eq!(
+                unpolled
+                    .response()
+                    .await?
+                    .local_receipt()
+                    .expect("local command receipt")
+                    .version
+                    .history,
+                b
+            );
             wait_for(async || Ok(controllers[0].usage().retained_commands == 0)).await?;
         }
         for controller in &controllers {
@@ -564,8 +598,23 @@ pub(crate) async fn owned_command_failure(lost_reply: bool) -> Result<()> {
                 )?
                 .response()
                 .await?;
-            assert_eq!(retried.receipt().receipt.result(), b"retry-result");
-            assert_eq!(retried.receipt().version.sequence.get(), 2);
+            assert_eq!(
+                retried
+                    .local_receipt()
+                    .expect("local command receipt")
+                    .receipt
+                    .result(),
+                b"retry-result"
+            );
+            assert_eq!(
+                retried
+                    .local_receipt()
+                    .expect("local command receipt")
+                    .version
+                    .sequence
+                    .get(),
+                2
+            );
             assert_eq!(calls.load(Ordering::SeqCst), 2);
             drop(retried);
             controllers[0].close().await?;

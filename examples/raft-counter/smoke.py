@@ -96,6 +96,16 @@ def run(binary, work):
                 # A successful retry after restart must return the original
                 # result 7 even though the current business value is already 9.
                 original = command(1, 7, 7, bases)
+                # Once ready, every public entry point must forward the same
+                # identity to the leader. Searching for a working leader here
+                # would hide a missing SDK command-routing path.
+                for base in bases:
+                    status, body = request(base, 1, 7)
+                    assert status == 200, (base, status, body)
+                    duplicate = json.loads(body)
+                    assert duplicate["value"] == 7, duplicate
+                    assert duplicate["cell"] == original["cell"], duplicate
+                    assert duplicate["incarnation"] == original["incarnation"], duplicate
                 if phase == 0:
                     first = original
                     latest = command(2, 2, 9, bases[3:])

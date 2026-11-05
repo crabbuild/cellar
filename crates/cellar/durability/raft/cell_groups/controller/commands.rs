@@ -240,6 +240,7 @@ pub(super) async fn drive(
     sql: CellGroupSqlPool,
     shared: Arc<Shared>,
     mut progress: watch::Receiver<()>,
+    transport: RaftTransport,
 ) -> Completed {
     let Request {
         invocation,
@@ -247,10 +248,10 @@ pub(super) async fn drive(
         reply,
         permit,
     } = request;
-    let mut invocation = match invocation {
-        Invocation::Ready(invocation) => *invocation,
+    let (mut invocation, transport) = match invocation {
+        Invocation::Ready(invocation) => (*invocation, None),
         Invocation::Pending(pending) => match (*pending).finish().await {
-            Ok(invocation) => invocation,
+            Ok(invocation) => (invocation, Some(transport)),
             Err(error) => {
                 let error = Arc::new(error);
                 let _ = reply.send(Delivery {
@@ -266,7 +267,14 @@ pub(super) async fn drive(
         },
     };
     let result = invocation
-        .run_owned(&runtime, &sql, options, &shared.groups, &mut progress)
+        .run_owned(
+            &runtime,
+            &sql,
+            options,
+            &shared.groups,
+            &mut progress,
+            transport.as_ref(),
+        )
         .await
         .map_err(Arc::new);
     let error = result.as_ref().err().cloned();

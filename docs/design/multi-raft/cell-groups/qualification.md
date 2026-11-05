@@ -46,6 +46,7 @@ The managed native target now implements these explicit backend cases:
 - `bootstrap::lifecycle::s3::rustfs_managed_s3_seed_refusal_and_source_failover`
 - `bootstrap::lifecycle::isolation::rustfs_managed_isolated_voter_s3_replacement_retains_disk_and_fence`
 - `bootstrap::lifecycle::recovery::rustfs_managed_failure_recovery_restarts_and_verifies_s3_before_removal`
+- `bootstrap::requests::rustfs_managed_native_axum_read_write_and_retained_restart`
 
 Run each by its exact name with `--ignored --exact --test-threads=1` in
 `native_cell_groups_managed`. Configure an owned local backend with
@@ -80,6 +81,27 @@ images/receipts through replacement-local queries, explicit S3 writes, the
 replacement's physical capacity floor and byte-identical retained obsolete log.
 This fixture does not supply permanent Docker launch fencing or terminal node
 removal. Keep the original eight reconciliation turns and five-second calls.
+
+The managed HTTP case uses the counter's existing native and Axum adapters with
+independently bound applications and catalog clients on three actual managed
+Nodes. Cold startup must qualify capacity, reserve/publish/confirm group birth,
+activate initial voters and replicate enrollment before HTTP admission. Check
+independent cell state, immutable retry receipts, conflicting-input refusal and
+cross-cell token refusal. Require a follower command refusal before explicit
+write-origin admission, reject foreign namespaces and stale processes, revoke
+one current process and require no mutation, then restore permission with a
+newer revision and retry the same command. Require explicit S3 acknowledgement
+through the follower as well as ordinary quorum responses. Force remote
+minimum-version and linearizable reads
+through every adapter/node, requiring the actual responder identity. Join the
+leader, require successor service, then restart retained disks with new process
+generations and require old receipts/version floors plus new writes. After two
+joined voter stops, observe actual quorum loss and require both adapters to
+refuse writes and linearizable reads. Shutdown joins every server and Node and
+accounts for unresolved work; failures retain all voter directories. Both image
+forms run. These are local embedded Nodes and fixture capacity attestations;
+they do not replace the full lifecycle/ingress-authority gates or independent
+voter-process, permanent fencing, crash/partition and load qualification.
 
 The automatic recovery case uses the Node-owned failure service with the original
 failure grace, probe interval and five-second turn limits. Hold an exact-boot

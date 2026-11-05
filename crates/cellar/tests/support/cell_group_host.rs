@@ -186,10 +186,37 @@ pub(crate) async fn many_cells(rooted: bool) -> Result<()> {
         controller::wait_for(async || Ok(commands.load(Ordering::SeqCst) == usize::from(i) + 1))
             .await?;
         let response = call.response().await?;
-        assert_eq!(response.receipt().receipt.result(), &[i + 1]);
-        assert_eq!(response.receipt().version.history, cell);
-        assert_eq!(response.receipt().version.sequence.get(), 2);
-        observations.push(response.receipt().observation());
+        assert_eq!(
+            response
+                .local_receipt()
+                .expect("local command receipt")
+                .receipt
+                .result(),
+            &[i + 1]
+        );
+        assert_eq!(
+            response
+                .local_receipt()
+                .expect("local command receipt")
+                .version
+                .history,
+            cell
+        );
+        assert_eq!(
+            response
+                .local_receipt()
+                .expect("local command receipt")
+                .version
+                .sequence
+                .get(),
+            2
+        );
+        observations.push(
+            response
+                .local_receipt()
+                .expect("local command receipt")
+                .observation(),
+        );
         tokens.push(response.token().clone());
         drop(response);
         idle(&hosts[0]).await?;
@@ -221,7 +248,13 @@ pub(crate) async fn many_cells(rooted: bool) -> Result<()> {
         .command(command(&class, 1, retry_until)?, routing())?
         .response()
         .await?;
-    assert_eq!(retry.receipt().observation(), observations[0]);
+    assert_eq!(
+        retry
+            .local_receipt()
+            .expect("local command receipt")
+            .observation(),
+        observations[0]
+    );
     drop(retry);
     idle(&hosts[0]).await?;
     assert_eq!(commands.load(Ordering::SeqCst), 8);

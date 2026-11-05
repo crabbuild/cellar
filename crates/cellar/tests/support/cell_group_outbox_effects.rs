@@ -123,7 +123,12 @@ impl RaftEffectSink for Routing {
                 .await
                 .map_err(|_| CommandFailure::Unavailable)?;
             assert_eq!(receipt.durability(), request.target().durability());
-            let proof = receipt.receipt().receipt.result().to_vec();
+            let proof = receipt
+                .local_receipt()
+                .expect("local command receipt")
+                .receipt
+                .result()
+                .to_vec();
             // The adapter has consumed the typed receiver result into bounded
             // reply bytes. A simulated lost network reply must not retain the
             // receiver's SQL operation slot while another cell runs.
@@ -435,7 +440,14 @@ async fn run_image(
         .command(invocation, fixture.cell_options(&source).await?)?
         .response()
         .await?;
-    assert_eq!(receipt.receipt().receipt.result(), 1_u64.to_be_bytes());
+    assert_eq!(
+        receipt
+            .local_receipt()
+            .expect("local command receipt")
+            .receipt
+            .result(),
+        1_u64.to_be_bytes()
+    );
     assert_eq!(receipt.durability(), minimum);
     drop(receipt);
     tokio::time::timeout(Duration::from_secs(5), state.entered.notified()).await?;

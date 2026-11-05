@@ -290,7 +290,15 @@ pub(crate) async fn owned_enrollment(phase: u8, mode: u8) -> Result<()> {
                 .command(command, fixture.cell_options(&cell).await?)?
                 .response()
                 .await?;
-            assert_eq!(updated.receipt().version.sequence.get(), 2);
+            assert_eq!(
+                updated
+                    .local_receipt()
+                    .expect("local command receipt")
+                    .version
+                    .sequence
+                    .get(),
+                2
+            );
             drop(updated);
             wait_for(async || Ok(controllers[0].usage().retained_commands == 0)).await?;
             let duplicate = controllers[0].enroll(

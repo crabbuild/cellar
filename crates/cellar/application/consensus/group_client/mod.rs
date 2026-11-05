@@ -85,6 +85,7 @@ mod learner;
 mod membership;
 mod node;
 mod observation;
+mod origins;
 mod repair;
 mod services;
 mod startup;
@@ -401,10 +402,10 @@ impl RaftCellHandle {
         async move {
             let _owner = owner;
             let response = accepted.map_err(Arc::new)?.response().await?;
-            let CellVersionObservation { version, witness } = response.receipt().observation();
+            let CellVersionObservation { version, witness } = response.observation();
             Ok(CommandReceipt {
                 id,
-                result: response.receipt().receipt.result().to_vec(),
+                result: response.result().to_vec(),
                 version,
                 witness,
                 version_token: response.token().clone(),

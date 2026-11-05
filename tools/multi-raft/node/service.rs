@@ -386,8 +386,11 @@ impl Node {
                     .command(invocation, self.options(&cell)?)?
                     .response()
                     .await?;
+                let local = result
+                    .local_receipt()
+                    .context("command oracle requires a local receipt")?;
                 Ok(
-                    json!({"result":serde_json::from_slice::<Value>(result.receipt().receipt.result())?,"s3":result.durability()==Durability::S3,"minimum_s3":result.receipt().receipt.minimum_durability()==Durability::S3,"version":result.receipt().version.sequence.get(),"token":result.token().as_str()}),
+                    json!({"result":serde_json::from_slice::<Value>(result.result())?,"s3":result.durability()==Durability::S3,"minimum_s3":local.receipt.minimum_durability()==Durability::S3,"version":local.version.sequence.get(),"token":result.token().as_str()}),
                 )
             }
             Action::Query { cell, token, stale } => {

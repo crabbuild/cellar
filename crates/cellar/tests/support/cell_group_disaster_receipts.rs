@@ -594,13 +594,36 @@ fn serving_phase<'a>(
                 .command(s, quorum, w, name, sequence, &[sequence as u8])
                 .await?;
             assert_eq!(
-                response.receipt().receipt.result(),
+                response
+                    .local_receipt()
+                    .expect("local command receipt")
+                    .receipt
+                    .result(),
                 &w.results[&(name.into(), sequence)]
             );
-            assert_eq!(response.receipt().version.history, cell);
-            assert_eq!(response.receipt().witness.group, quorum.route.history);
             assert_eq!(
-                response.receipt().version.sequence.get(),
+                response
+                    .local_receipt()
+                    .expect("local command receipt")
+                    .version
+                    .history,
+                cell
+            );
+            assert_eq!(
+                response
+                    .local_receipt()
+                    .expect("local command receipt")
+                    .witness
+                    .group,
+                quorum.route.history
+            );
+            assert_eq!(
+                response
+                    .local_receipt()
+                    .expect("local command receipt")
+                    .version
+                    .sequence
+                    .get(),
                 if ordinal == 1 && name == "alpha" {
                     2
                 } else {
@@ -608,7 +631,11 @@ fn serving_phase<'a>(
                 }
             );
             assert_eq!(
-                response.receipt().receipt.minimum_durability(),
+                response
+                    .local_receipt()
+                    .expect("local command receipt")
+                    .receipt
+                    .minimum_durability(),
                 if name == "alpha" {
                     Durability::S3
                 } else {
@@ -635,7 +662,10 @@ fn serving_phase<'a>(
                     quorum.route.schema_digest,
                     response_time
                 )?,
-                response.receipt().observation()
+                response
+                    .local_receipt()
+                    .expect("local command receipt")
+                    .observation()
             );
         }
         assert_eq!(
@@ -670,9 +700,28 @@ fn serving_phase<'a>(
         ));
         if ordinal == 0 {
             let response = serving.command(s, quorum, w, "alpha", 4, &[4]).await?;
-            assert_eq!(response.receipt().version.sequence.get(), 2);
-            assert_eq!(response.receipt().version.history, quorum.cell);
-            let index = response.receipt().position.index;
+            assert_eq!(
+                response
+                    .local_receipt()
+                    .expect("local command receipt")
+                    .version
+                    .sequence
+                    .get(),
+                2
+            );
+            assert_eq!(
+                response
+                    .local_receipt()
+                    .expect("local command receipt")
+                    .version
+                    .history,
+                quorum.cell
+            );
+            let index = response
+                .local_receipt()
+                .expect("local command receipt")
+                .position
+                .index;
             drop(response);
             controllers_applied(&quorum.voters, quorum.route.history, index).await?;
             let root = quorum.voters[0].applier.history();
@@ -688,7 +737,15 @@ fn serving_phase<'a>(
             );
         } else {
             let response = serving.command(s, quorum, w, "alpha", 4, &[4]).await?;
-            assert_eq!(response.receipt().version.sequence.get(), 2);
+            assert_eq!(
+                response
+                    .local_receipt()
+                    .expect("local command receipt")
+                    .version
+                    .sequence
+                    .get(),
+                2
+            );
         }
         assert_eq!(w.calls.load(Ordering::Acquire), 5);
         serving.close().await

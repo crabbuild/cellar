@@ -141,7 +141,14 @@ pub(crate) async fn receipt_lookup_ingress() -> Result<()> {
             )?
             .response()
             .await?;
-        assert_eq!(committed.receipt().receipt.result(), b"once");
+        assert_eq!(
+            committed
+                .local_receipt()
+                .expect("local command receipt")
+                .receipt
+                .result(),
+            b"once"
+        );
         drop(committed);
         read.retry().await?;
         let found = read

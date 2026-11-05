@@ -62,25 +62,54 @@ pub enum CellCommandSettlement {
 }
 
 pub struct CellCommandResponse {
-    receipt: Box<CellSqlReceipt>,
-    token: CellVersionToken,
-    s3: Option<Box<super::super::controller::S3OutputProof>>,
+    output: CommandOutput,
+}
+
+enum CommandOutput {
+    Local {
+        receipt: Box<CellSqlReceipt>,
+        token: CellVersionToken,
+        s3: Option<Box<super::super::controller::S3OutputProof>>,
+    },
+    Remote(Box<crate::raft::transport::CellRemoteCommandResponse>),
 }
 
 impl CellCommandResponse {
-    pub fn receipt(&self) -> &crate::raft::execution::CellCommittedReceipt {
-        self.receipt.receipt()
+    /// A remote acknowledgement carries authenticated output metadata, never a
+    /// locally inspected SQL image or a local archive-settlement proof.
+    pub fn local_receipt(&self) -> Option<&crate::raft::execution::CellCommittedReceipt> {
+        match &self.output {
+            CommandOutput::Local { receipt, .. } => Some(receipt.receipt()),
+            CommandOutput::Remote(_) => None,
+        }
+    }
+
+    pub fn result(&self) -> &[u8] {
+        match &self.output {
+            CommandOutput::Local { receipt, .. } => receipt.receipt().receipt.result(),
+            CommandOutput::Remote(response) => response.result(),
+        }
+    }
+
+    pub fn observation(&self) -> crate::raft::version::CellVersionObservation {
+        match &self.output {
+            CommandOutput::Local { receipt, .. } => receipt.receipt().observation(),
+            CommandOutput::Remote(response) => response.observation().clone(),
+        }
     }
 
     pub fn token(&self) -> &CellVersionToken {
-        &self.token
+        match &self.output {
+            CommandOutput::Local { token, .. } => token,
+            CommandOutput::Remote(response) => response.token(),
+        }
     }
 
     pub fn durability(&self) -> Durability {
-        if self.s3.is_some() {
-            Durability::S3
-        } else {
-            Durability::Quorum
+        match &self.output {
+            CommandOutput::Local { s3: Some(_), .. } => Durability::S3,
+            CommandOutput::Local { s3: None, .. } => Durability::Quorum,
+            CommandOutput::Remote(response) => response.durability(),
         }
     }
 }
