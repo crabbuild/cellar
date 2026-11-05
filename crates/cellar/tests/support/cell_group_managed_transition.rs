@@ -72,12 +72,16 @@ async fn run_plan(rooted: bool, store: Arc<fault::Store>, decision: Decision) ->
         FirstGroupSetup::Normal,
     ))
     .await?;
+    let expected_children = match decision {
+        Decision::Authorize => 2,
+        Decision::Cancel => 0,
+    };
     let result = Box::pin(exercise(&cluster, rooted, decision)).await;
     let spares = cluster.nodes.split_off(3);
     let joined = close_group_nodes(cluster.nodes, &cluster.hosts).await;
     let joined_spares = async {
         for (node, host) in spares.into_iter().zip(&cluster.hosts[3..]) {
-            stopped(node, host).await?;
+            stop_transfer_destination(node, host, expected_children).await?;
         }
         Ok::<_, anyhow::Error>(())
     }
@@ -86,6 +90,28 @@ async fn run_plan(rooted: bool, store: Arc<fault::Store>, decision: Decision) ->
     result?;
     joined?;
     joined_spares
+}
+
+async fn stop_transfer_destination(node: Node, host: &RaftCells, expected: usize) -> Result<()> {
+    ensure!(matches!(
+        node.shutdown(ShutdownMode::Preserve).await?,
+        NodeOutcome::Stopped(_)
+    ));
+    let report = host.close().await?;
+    ensure!(
+        report.groups_total == expected
+            && report.groups.len() == expected
+            && report.omitted_groups == 0
+            && report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers,
+        "transfer destination shutdown inventory: {report:?}"
+    );
+    ensure!(report.groups.iter().all(|group| {
+        !group.active
+            && !group.failed
+            && group.committed.get() == 1
+            && group.applied.index.get() == 1
+    }));
+    Ok(())
 }
 
 async fn exercise(cluster: &ManagedCluster, rooted: bool, decision: Decision) -> Result<()> {
