@@ -229,7 +229,9 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
             Action::FirstGroupStandby(namespace)
         }
         ("first_group_apply", Some(namespace)) if !wait && cursor.is_none() => {
-            let path = first_group_plan.take().ok_or_else(|| invalid("--plan is required"))?;
+            let path = first_group_plan
+                .take()
+                .ok_or_else(|| invalid("--plan is required"))?;
             let plan = json_file::<first_group::ApplyPlan>(&path)?;
             let catalog = catalog_id
                 .as_deref()
@@ -241,7 +243,9 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
             verb @ ("first_group_reserve" | "first_group_publish" | "first_group_archive"),
             Some(namespace),
         ) if !wait && cursor.is_none() && operation_id.is_none() => {
-            let path = first_group_plan.take().ok_or_else(|| invalid("--plan is required"))?;
+            let path = first_group_plan
+                .take()
+                .ok_or_else(|| invalid("--plan is required"))?;
             let plan = json_file::<RaftFleetFirstGroupPlan>(&path)?;
             plan.validate(&namespace)?;
             let catalog = catalog_id

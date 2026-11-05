@@ -24,12 +24,18 @@ impl ApplyPlan {
         if self.reservation.catalog_id != catalog {
             return Err(invalid("first group plan belongs to another catalog"));
         }
-        self.publication.request(&self.reservation).validate(namespace)?;
-        self.archive.request(&self.reservation).validate(namespace)?;
+        self.publication
+            .request(&self.reservation)
+            .validate(namespace)?;
+        self.archive
+            .request(&self.reservation)
+            .validate(namespace)?;
         if self.archive.request_id == self.publication.request_id
             || self.archive.expected_revision <= self.publication.expected_revision
         {
-            return Err(invalid("first group archive must follow publication with its own identity"));
+            return Err(invalid(
+                "first group archive must follow publication with its own identity",
+            ));
         }
         Ok(())
     }

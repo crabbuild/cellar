@@ -20,6 +20,7 @@ const ACTIVE: &str = "transition/active";
 const PLANS: &str = "transition-plans";
 const COUNT: &str = "transition/count";
 const JOURNAL: u8 = 198;
+
 // A retired journal can carry nine 32-byte digests. Each JSON byte array
 // takes up to 129 bytes, before field names, phase and the record envelope.
 const JOURNAL_LIMIT: usize = 1536;
