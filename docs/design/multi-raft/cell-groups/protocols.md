@@ -1091,7 +1091,10 @@ The local install binds one child genesis across all its voters and persists a
 member/node/disk/engine intent before syncing the mapping. Managed installs
 also require the exact transition's reserved child, a current capacity proof
 for the running destination boot, and the same local boot guard at the engine
-write. The synced child retains its fleet binding while pending. A matching receipt
+write. The controller prepares only its assigned child in the retained node
+stores. A retry can reconcile the exact synced mapping while the node retains
+its pins. After restart, the node must verify the retained images again.
+The child retains its fleet binding while pending. A matching receipt
 follows the sync. A read-only check confirms a majority of reserved voters
 from matching intents and receipts on distinct pinned disks and engines.
 A pending voter can attach after rechecking this majority and its own receipt.

@@ -48,6 +48,27 @@ struct ManagedSeed {
     deadline: u64,
 }
 
+enum InstallData<'a> {
+    Prepared(&'a PreparedCellGroupTransferChild),
+    Retained(&'a GroupManifest),
+}
+
+impl InstallData<'_> {
+    fn genesis(&self) -> Result<&GroupManifest, CatalogError> {
+        match self {
+            Self::Prepared(child) => {
+                child
+                    .genesis()
+                    .map(|root| root.marker())
+                    .ok_or(CatalogError::Conflict(
+                        "transfer requires final child genesis",
+                    ))
+            }
+            Self::Retained(marker) => Ok(marker),
+        }
+    }
+}
+
 struct ManagedInstall<'a> {
     transition: &'a ReopenedManagedCellGroupTransition,
     host: &'a FleetHostAuthorization,
@@ -134,7 +155,7 @@ impl RangeDirectory {
         log: &ReplicaLog,
     ) -> Result<GroupLog<GroupHistory>, CatalogError> {
         self.unmanaged_birth()?;
-        self.install_transfer_voter_inner(plan, child, log, None)
+        self.install_transfer_voter_inner(plan, InstallData::Prepared(child), log, None)
             .await
     }
 
@@ -158,6 +179,53 @@ impl RangeDirectory {
             .map_err(|_| CatalogError::Unconfirmed)?
             .checked_add(timeout.as_millis() as u64)
             .ok_or(CatalogError::Limit)?;
+        self.sync_managed_transfer_voter(
+            transition,
+            InstallData::Prepared(child),
+            log,
+            host,
+            deadline,
+        )
+        .await
+    }
+
+    pub(crate) async fn reconcile_managed_transfer_voter(
+        &self,
+        transition: &ReopenedManagedCellGroupTransition,
+        route: &GroupRoute,
+        log: &ReplicaLog,
+        host: &FleetHostAuthorization,
+        deadline: u64,
+    ) -> Result<Option<InstalledTransferVoter>, CatalogError> {
+        let group = match log.cell_group(&route.history) {
+            Ok(group) => group,
+            Err(LogError::NotFound) => return Ok(None),
+            Err(error) => return Err(CatalogError::Log(error)),
+        };
+        let marker = group
+            .group_manifest()
+            .map_err(CatalogError::Log)?
+            .filter(|marker| marker.route() == route)
+            .ok_or(CatalogError::Fenced)?;
+        self.sync_managed_transfer_voter(
+            transition,
+            InstallData::Retained(&marker),
+            log,
+            host,
+            deadline,
+        )
+        .await
+        .map(Some)
+    }
+
+    async fn sync_managed_transfer_voter(
+        &self,
+        transition: &ReopenedManagedCellGroupTransition,
+        data: InstallData<'_>,
+        log: &ReplicaLog,
+        host: &FleetHostAuthorization,
+        deadline: u64,
+    ) -> Result<InstalledTransferVoter, CatalogError> {
         let managed = ManagedInstall {
             transition,
             host,
@@ -169,7 +237,7 @@ impl RangeDirectory {
                 deadline,
                 Box::pin(self.install_transfer_voter_inner(
                     &transition.plan,
-                    child,
+                    data,
                     log,
                     Some(managed),
                 )),
@@ -189,16 +257,11 @@ impl RangeDirectory {
     async fn install_transfer_voter_inner(
         &self,
         plan: &DirectoryMutation,
-        child: &PreparedCellGroupTransferChild,
+        data: InstallData<'_>,
         log: &ReplicaLog,
         managed: Option<ManagedInstall<'_>>,
     ) -> Result<GroupLog<GroupHistory>, CatalogError> {
-        let genesis = child
-            .genesis()
-            .ok_or(CatalogError::Conflict(
-                "transfer requires final child genesis",
-            ))?
-            .marker();
+        let genesis = data.genesis()?;
         self.bounded(async {
             let authority = if let Some(managed) = &managed {
                 let boot = self.require_managed_group_boot(log, managed.host).await?;
@@ -216,7 +279,7 @@ impl RangeDirectory {
                 if authority.boot != boot {
                     return Err(CatalogError::Fenced);
                 }
-                Some(authority)
+                Some((managed, authority))
             } else {
                 self.namespace.require_cell_group_unmanaged().await?;
                 None
@@ -261,10 +324,21 @@ impl RangeDirectory {
                 wire::LIMIT,
             )?;
             let member = format!("{prefix}/{:016x}", voter.member.get());
-            self.exact_install_record(&format!("{prefix}/binding"), &binding)
-                .await?;
-            self.exact_install_record(&format!("{member}/intent"), &intent)
-                .await?;
+            let binding_key = format!("{prefix}/binding");
+            let intent_key = format!("{member}/intent");
+            match &data {
+                InstallData::Prepared(_) => {
+                    self.exact_install_record(&binding_key, &binding).await?;
+                    self.exact_install_record(&intent_key, &intent).await?;
+                }
+                InstallData::Retained(_) => {
+                    if self.read(&binding_key).await?.as_deref() != Some(binding.as_slice())
+                        || self.read(&intent_key).await?.as_deref() != Some(intent.as_slice())
+                    {
+                        return Err(CatalogError::Fenced);
+                    }
+                }
+            }
             let receipt = format!("{member}/receipt");
             if let Some(observed) = self.read(&receipt).await? {
                 if observed != intent {
@@ -277,7 +351,7 @@ impl RangeDirectory {
                 }
             }
             self.require_open_transfer_install(plan, genesis).await?;
-            let managed = if let Some((managed, original)) = managed.zip(authority) {
+            let managed = if let Some((managed, original)) = authority {
                 let authority = managed
                     .host
                     .managed_transfer_install_authority(
@@ -313,11 +387,47 @@ impl RangeDirectory {
                 engine,
                 managed,
             };
-            let seed = TransferSeed::new(permit, child).map_err(CatalogError::Log)?;
-            let group = log
-                .install_transfer_seed(seed)
-                .await
-                .map_err(CatalogError::Log)?;
+            let group = match &data {
+                InstallData::Prepared(child) => {
+                    let seed = TransferSeed::new(permit, child).map_err(CatalogError::Log)?;
+                    log.install_transfer_seed(seed)
+                        .await
+                        .map_err(CatalogError::Log)?
+                }
+                InstallData::Retained(_) => {
+                    let group = log.cell_group(&route.history).map_err(CatalogError::Log)?;
+                    let guard = log.lifecycle_guard().map_err(CatalogError::Log)?;
+                    let now = log
+                        .domain()
+                        .mono_ms()
+                        .map_err(|_| CatalogError::Unconfirmed)?;
+                    let binding = permit
+                        .managed_binding(guard.as_ref(), now)
+                        .map_err(CatalogError::Log)?
+                        .ok_or(CatalogError::ManagedAdmissionRequired)?;
+                    let cache = group.read().map_err(CatalogError::Log)?;
+                    if group.identity() != &permit.local
+                        || cache.group_manifest.as_ref() != Some(genesis)
+                        || cache
+                            .membership
+                            .fleet_status()
+                            .is_none_or(|status| &status.binding != binding)
+                    {
+                        return Err(CatalogError::Fenced);
+                    }
+                    if cache
+                        .manifest_pins
+                        .as_ref()
+                        .is_none_or(|pins| pins.root() != genesis.root())
+                    {
+                        return Err(CatalogError::Runtime(
+                            crate::raft::completion::RuntimeError::NotReady,
+                        ));
+                    }
+                    drop(cache);
+                    group
+                }
+            };
             self.require_open_transfer_install(plan, genesis).await?;
             self.exact_install_record(&receipt, &intent).await?;
             Ok(group)

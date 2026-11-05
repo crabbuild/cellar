@@ -5,6 +5,7 @@ mod config;
 mod learner;
 mod manager;
 mod prepare;
+mod transfer;
 pub(super) use config::Config;
 pub use config::{CellGroupProvisionLimits, CellGroupProvisionNamespace, CellGroupProvisioning};
 pub(super) use manager::Manager;

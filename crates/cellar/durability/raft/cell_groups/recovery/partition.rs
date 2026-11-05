@@ -143,25 +143,48 @@ impl CellGroupRecoveryPool {
         sources: VerifiedCellGroupTransitionSources,
         targets: Vec<CellGroupTransferTarget>,
     ) -> Result<PreparedCellGroupTransfer> {
-        let (operation, plan) = sources.transition_plan();
-        let sealed_sources =
-            sources
-                .journal()
-                .sealed_sources()
-                .ok_or(CellGroupArchiveError::Invalid(
-                    "missing sealed transfer sources",
-                ))?;
-        let origin = GroupTransferOrigin::new(operation, plan, sealed_sources);
+        let origin = sealed_origin(&sources)?;
         let partition = self
             .stage_partition(
                 domain,
                 sources.sources().to_vec(),
                 sources.children().to_vec(),
-                targets,
+                targets.into_iter().map(Some).collect(),
                 Some(origin),
             )
             .await?;
         Ok(PreparedCellGroupTransfer { partition, sources })
+    }
+
+    /// Use the complete verified partition to prepare only the local child.
+    /// Cells in other ranges are validated against the plan without copying them.
+    pub(crate) async fn prepare_transfer_child(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        sources: &VerifiedCellGroupTransitionSources,
+        target: CellGroupTransferTarget,
+    ) -> Result<PreparedCellGroupTransferChild> {
+        let origin = sealed_origin(sources)?;
+        let routes = sources.children();
+        let selected = routes
+            .iter()
+            .position(|route| route == target.store.route())
+            .ok_or(CellGroupArchiveError::Invalid("unselected transfer child"))?;
+        let mut targets: Vec<_> = (0..routes.len()).map(|_| None).collect();
+        targets[selected] = Some(target);
+        let mut partition = self
+            .stage_partition(
+                domain,
+                sources.sources().to_vec(),
+                routes.to_vec(),
+                targets,
+                Some(origin),
+            )
+            .await?;
+        partition
+            .children
+            .pop()
+            .ok_or(CellGroupArchiveError::Invalid("missing prepared child"))
     }
 
     pub(crate) async fn stage_partition(
@@ -169,7 +192,7 @@ impl CellGroupRecoveryPool {
         domain: &impl CellGroupArchiveExecution,
         sources: Vec<CellGroupArchiveCoverage>,
         routes: Vec<GroupRoute>,
-        targets: Vec<CellGroupTransferTarget>,
+        targets: Vec<Option<CellGroupTransferTarget>>,
         origin: Option<GroupTransferOrigin>,
     ) -> Result<StagedCellGroupPartition> {
         domain
@@ -201,19 +224,31 @@ impl CellGroupRecoveryPool {
     }
 }
 
+fn sealed_origin(sources: &VerifiedCellGroupTransitionSources) -> Result<GroupTransferOrigin> {
+    let (operation, plan) = sources.transition_plan();
+    let sealed = sources
+        .journal()
+        .sealed_sources()
+        .ok_or(CellGroupArchiveError::Invalid(
+            "missing sealed transfer sources",
+        ))?;
+    Ok(GroupTransferOrigin::new(operation, plan, sealed))
+}
+
 fn partition(
     sources: &[CellGroupArchiveCoverage],
     routes: &[GroupRoute],
-    targets: Vec<CellGroupTransferTarget>,
+    targets: Vec<Option<CellGroupTransferTarget>>,
     limits: CellGroupRecoveryLimits,
     cancelled: &AtomicBool,
     transfer: Option<(GroupTransferOrigin, Arc<crate::raft::budget::Permit>)>,
 ) -> Result<Vec<PreparedCellGroupTransferChild>> {
     if targets.len() != routes.len()
-        || targets
-            .iter()
-            .zip(routes)
-            .any(|(target, route)| target.store.route() != route || !target.directory.is_absolute())
+        || targets.iter().zip(routes).any(|(target, route)| {
+            target.as_ref().is_some_and(|target| {
+                target.store.route() != route || !target.directory.is_absolute()
+            })
+        })
     {
         return Err(CellGroupArchiveError::Invalid(
             "transition child destinations",
@@ -250,19 +285,24 @@ fn partition(
     // private child store in that order without waiting behind another owner.
     let mut stores = Vec::with_capacity(targets.len());
     for target in &targets {
-        target.store.require_live()?;
-        stores.push(
-            target
-                .store
-                .storage
-                .try_lock()
-                .map_err(|error| match error {
-                    std::sync::TryLockError::WouldBlock => CellGroupArchiveError::Busy,
-                    std::sync::TryLockError::Poisoned(_) => {
-                        CellGroupArchiveError::Invalid("poisoned transfer destination")
-                    }
-                })?,
-        );
+        let store = if let Some(target) = target {
+            target.store.require_live()?;
+            Some(
+                target
+                    .store
+                    .storage
+                    .try_lock()
+                    .map_err(|error| match error {
+                        std::sync::TryLockError::WouldBlock => CellGroupArchiveError::Busy,
+                        std::sync::TryLockError::Poisoned(_) => {
+                            CellGroupArchiveError::Invalid("poisoned transfer destination")
+                        }
+                    })?,
+            )
+        } else {
+            None
+        };
+        stores.push(store);
     }
     let mut pins = vec![ManifestPins::default(); targets.len()];
     let genesis = LogPosition {
@@ -270,6 +310,7 @@ fn partition(
         term: Term::new(1),
     };
     let mut child = 0;
+    let mut selected_cells = 0;
     for source in sources {
         let source_store = source.recovery().checkpoint().checkpoint().store();
         source_store.require_live()?;
@@ -280,15 +321,19 @@ fn partition(
             .visit(&mut |_, old, pin, _, _| -> Result<()> {
                 let key =
                     cell_routing_key(old.version.history.namespace, &old.version.history.cell);
-                while targets
+                while routes
                     .get(child)
-                    .is_some_and(|target| !target.store.route().range.contains(&key))
+                    .is_some_and(|route| !route.range.contains(&key))
                 {
                     child += 1;
                 }
-                let target = targets
+                let Some(target) = targets
                     .get(child)
-                    .ok_or(CellGroupArchiveError::Invalid("unassigned transition cell"))?;
+                    .ok_or(CellGroupArchiveError::Invalid("unassigned transition cell"))?
+                else {
+                    return Ok(());
+                };
+                selected_cells += 1;
                 let live = || {
                     check()?;
                     source_store.require_live()?;
@@ -301,7 +346,9 @@ fn partition(
                     pages,
                     images,
                     ..
-                } = &mut *stores[child];
+                } = stores[child]
+                    .as_deref_mut()
+                    .ok_or(CellGroupArchiveError::Invalid("missing transfer store"))?;
                 let mut leaf = old.clone();
                 leaf.last_mutation = genesis;
                 let pin = copy_image(
@@ -328,16 +375,19 @@ fn partition(
                 Ok(())
             })?;
     }
-    if pins.iter().map(ManifestPins::len).sum::<usize>() != total_cells {
+    if pins.iter().map(ManifestPins::len).sum::<usize>() != selected_cells {
         return Err(CellGroupArchiveError::Invalid(
             "transition partition cell count",
         ));
     }
     let mut children = Vec::with_capacity(targets.len());
     for ((store, pins), target) in stores.iter_mut().zip(pins).zip(&targets) {
+        let (Some(store), Some(target)) = (store.as_deref_mut(), target) else {
+            continue;
+        };
         check()?;
         target.store.require_live()?;
-        let apply::Storage { tree, pages, .. } = &mut **store;
+        let apply::Storage { tree, pages, .. } = store;
         let data = match &transfer {
             Some((origin, admission)) => {
                 let marker = GroupManifest::transfer_genesis(

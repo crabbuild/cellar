@@ -356,7 +356,7 @@ pub(super) async fn verify_sealed_cut(
         })?
         .await??;
     let prepared = recovery_pool()?
-        .prepare_transfer_partition(domain.as_ref(), replay, targets)
+        .prepare_transfer_partition(domain.as_ref(), replay.clone(), targets)
         .await?;
     ensure!(prepared.children().len() == 2);
     ensure!(prepared
@@ -371,5 +371,59 @@ pub(super) async fn verify_sealed_cut(
             .sum::<u32>()
             == 2
     );
+    drop(prepared);
+    let transition = Arc::new(
+        fleet
+            .reopen_managed_transition(directory, transition.plan.operation(), TIMEOUT)
+            .await?
+            .context("reopen managed sealed transition for install")?,
+    );
+    let recovery = recovery_pool()?;
+    let first = replay.children()[0].history;
+    ensure!(matches!(
+        cluster.hosts[0]
+            .install_managed_transfer_child(
+                transition.clone(),
+                replay.clone(),
+                first,
+                recovery.clone(),
+                TIMEOUT,
+            )
+            .await,
+        Err(CellGroupControllerError::Catalog(_))
+    ));
+    ensure!(matches!(
+        cluster.hosts[0].group(first),
+        Err(RuntimeError::NotFound)
+    ));
+    for route in replay.children() {
+        for (index, host) in cluster.hosts[3..].iter().enumerate() {
+            let receipt = host
+                .install_managed_transfer_child(
+                    transition.clone(),
+                    replay.clone(),
+                    route.history,
+                    recovery.clone(),
+                    TIMEOUT,
+                )
+                .await?;
+            ensure!(receipt.member.get() == index as u64 + 1);
+            ensure!(receipt.node == host.identity().node && receipt.disk == host.identity().disk);
+            let repeated = host
+                .install_managed_transfer_child(
+                    transition.clone(),
+                    replay.clone(),
+                    route.history,
+                    recovery.clone(),
+                    TIMEOUT,
+                )
+                .await?;
+            ensure!(repeated == receipt);
+            ensure!(matches!(
+                host.group(route.history)?.status().await,
+                Err(RuntimeError::NotFound)
+            ));
+        }
+    }
     Ok(())
 }

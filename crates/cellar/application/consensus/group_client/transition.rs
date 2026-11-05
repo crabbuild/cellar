@@ -71,3 +71,76 @@ impl RaftGroupHandle {
         }
     }
 }
+
+impl RaftCells {
+    /// Install one reserved transfer child into this node's retained stores.
+    /// The receipt proves local sync. Attachment and activation are separate.
+    /// After a timeout, retry the same transition, sources and child.
+    pub fn install_managed_transfer_child(
+        &self,
+        transition: Arc<ReopenedManagedCellGroupTransition>,
+        sources: VerifiedCellGroupTransitionSources,
+        child: GroupHistory,
+        recovery: CellGroupRecoveryPool,
+        timeout: Duration,
+    ) -> impl Future<Output = Result<InstalledTransferVoter, CellGroupControllerError>> + Send + 'static
+    {
+        let admitted = self
+            .metadata_admission(timeout, 4096)
+            .map_err(super::startup::admission_error);
+        let owner = self.internal_observer();
+        async move {
+            let (deadline, _memory) = admitted?;
+            let core = &owner.handle.core;
+            let host = core.managed.as_ref().ok_or_else(|| {
+                super::startup::catalog_error(CatalogError::ManagedAdmissionRequired)
+            })?;
+            owner.startup_live(host, deadline)?;
+            if sources.transition_plan() != (transition.plan.operation(), transition.plan.digest())
+            {
+                return Err(super::startup::catalog_error(CatalogError::Fenced));
+            }
+            let route = sources
+                .children()
+                .iter()
+                .find(|route| route.history == child)
+                .cloned()
+                .ok_or_else(|| super::startup::catalog_error(CatalogError::Fenced))?;
+            let directory = core
+                .host
+                .namespace_directory(child.cluster, child.namespace)
+                .map_err(|_| CellGroupControllerError::Invalid("transfer child namespace"))?;
+            let lease = owner
+                .register_control_service(ControlServiceKind::Transfer, 4096)
+                .map_err(CatalogError::from)
+                .map_err(super::startup::catalog_error)?;
+            let (reply, result) = tokio::sync::oneshot::channel();
+            let controller = core.controller.clone();
+            let host = host.clone();
+            let domain = &owner.handle.domain;
+            domain
+                .spawn_cleanup(async move {
+                    let stop = lease.stop_receiver();
+                    let installed = Box::pin(controller.install_managed_transfer_child(
+                        &directory,
+                        (&transition, &sources),
+                        &route,
+                        &host,
+                        &recovery,
+                        (deadline, &stop),
+                    ))
+                    .await;
+                    drop(lease);
+                    let _ = reply.send(installed);
+                })
+                .map_err(|_| CellGroupControllerError::Closed)?
+                .detach();
+            domain
+                .run(crate::asyncrt::timeout_at(deadline, result))
+                .await
+                .map_err(|_| CellGroupControllerError::Closed)?
+                .map_err(|_| CellGroupControllerError::Runtime(RuntimeError::DeadlineExceeded))?
+                .map_err(|_| CellGroupControllerError::Closed)?
+        }
+    }
+}

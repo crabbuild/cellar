@@ -97,7 +97,7 @@ impl RangeDirectory {
             domain,
             verified.sources.clone(),
             verified.children,
-            inputs.targets,
+            inputs.targets.into_iter().map(Some).collect(),
             None,
         ))
         .await?;
