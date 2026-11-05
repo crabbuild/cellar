@@ -72,10 +72,10 @@ HTTP request bodies do not contribute to this endpoint's command input.
 The bearer authorizes only the fixed `one` and `two` cells; other names refuse
 before creating a handle. Before the Raft bindings are installed, authenticated
 requests return 503.
-Send a command to the current leader's port. A follower returns 503 with a
-`NotLeader` hint. A response containing `Ambiguous` retains the original command
-ID; the gateway does not retry or generate a new one. Read using an authenticated
-`GET /counters/one` on any replica after its first committed image is published.
+Send the command to any ready native or Axum listener. The SDK can forward it
+to the current leader. If the response is `Ambiguous`, retry with the same
+command ID, delta and retry deadline. Read using an authenticated
+`GET /counters/one` after its first committed image is published.
 Every successful command and query response includes `version_token`, an opaque
 authenticated observation bound to its exact cell history. Queries also report
 `served_by`, the actual serving Raft member ID; commands return `null` there.
@@ -99,10 +99,24 @@ portable proof. A token does not grant access without the bearer credential.
 | `x-query-attempt-ms` | Requires members; 1–total budget, default the smaller of 250 ms and the total budget |
 | `x-leader-fallback` | Requires members; `true` to try one untried leader hint after candidates, or `false` (default) |
 
-For example, return the command's token in `x-min-version`, select `at-least`,
-and send the GET to a follower. It waits for that version before reading or
-returns an error; it never silently serves an older image. `linearizable`
-requires a fresh ReadIndex proof and a live majority. Member routing preserves
+The following writes through native HTTP and reads through Axum. Keep the same
+`command_id` and `retry_until_ms` if the POST needs to be retried.
+
+```sh
+token=$(cat examples/.cellar/raft-counter/http-token)
+command_id="$(openssl rand -hex 16):1"
+retry_until_ms=$(python3 -c 'import time; print(int(time.time() * 1000) + 60000)')
+receipt=$(curl -fsS -X POST 'http://127.0.0.1:9901/counters/one?delta=7' \
+  -H "Authorization: Bearer $token" -H "x-command-id: $command_id" \
+  -H "x-retry-until-ms: $retry_until_ms" -H 'x-write-durability: quorum')
+version_token=$(printf '%s\n' "$receipt" | jq -er '.version_token')
+curl -fsS 'http://127.0.0.1:9912/counters/one' -H "Authorization: Bearer $token" \
+  -H 'x-read-consistency: at-least' -H "x-min-version: $version_token"
+```
+
+The Axum query waits for the receipt's version or returns an error. A
+`linearizable` read requires a fresh ReadIndex proof and a live majority.
+Member routing preserves
 the requested consistency, token and input across attempts under one deadline.
 This development group uses member IDs 1–3. An invalid option combination or
 duplicate recognized header returns 400; a valid token from another cell/history
