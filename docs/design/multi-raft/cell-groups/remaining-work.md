@@ -61,6 +61,12 @@ RustFS prefix. The process fixture supplies boot ordering and capacity
 attestation. Real deployment capacity and constrained voter qualification
 remain open.
 
+The managed native and real RustFS request cases now cover foreign cluster,
+namespace and cell histories through both HTTP hosts, and foreign fleet,
+namespace and physical group requests through the admin API. Valid retries
+preserve the original receipt after those refusals. The original standalone
+public-target authority case remains open.
+
 CG-07 remains IN_PROGRESS. Four original public gates remain undelivered, including
 complete managed lifecycle and ingress authority. Default/backend and capability
 coverage, plan/lint/CI modes, production fencing, constrained independent voters

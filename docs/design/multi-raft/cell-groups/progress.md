@@ -12,6 +12,44 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-06 Docker replay with a retained qualification network
+
+Both materialized and extent recovery runs pass on
+`5a97e85e6a6d75de247ab3a0b601e90d84d14bb1`. The dedicated Linux Docker profile
+runs real RustFS and three constrained voter containers. The sole-launcher
+controller permanently revokes the old generation and deletes its three
+owned disks. Every replacement verifies restored images and exact receipts,
+then forms a fresh quorum, accepts new writes and joins retained restart.
+The fixture qualifies one group and three independent SQL cells in one local VM.
+
+The original retry on `725214bd` stops before starting voters or RustFS because
+Docker cannot allocate another default network. The successor accepts an
+explicit unused private subnet, retains the earlier networks, and records each
+actual subnet and network ID. Both runs join all containers and stop the VM.
+
+Materialized and extent report SHA256 values are `a4847c10c34187ef0649d22f14fc767427082c1d69f70df2d2100b928141008f` and `a5e8e1fc84bef07b705381e089b36f71a5d9bfc921c4407ce21eb6ad7eaceb1b`.
+
+## CG-07 managed ingress authority
+
+The managed operator rejects a foreign fleet or namespace and refuses
+confirmation of a different physical group. The original reservation replays
+and the fleet revision stays fixed until valid confirmation. Native and Axum
+requests through the zero-replica router refuse an unlisted cell and a canonical
+cell ID paired with a foreign cluster or namespace. A token from another cell
+cannot establish a read floor. A subsequent quorum read and the original
+command replay confirm that the selected history and value are intact.
+
+Both native cases pass on the cold-router base with the authority patch. The
+owned RustFS case passes in both image modes on candidate
+`3e44504c2e803f4adfe19313303968e620fe2d47`.
+The fixture uses host-native voters, explicit capacity attestations and a
+development peer grant setup. The standalone public-target gate and the
+constrained ordinary daemon request path remain open. RustFS and its dedicated
+VM stop with data retained.
+
+RustFS record SHA256 `4f8d822d9ed31315a2c404c17b0fd0ca64d58f5ecd3bf2c514cd0ae3cec40691`.
+Operator CLI SHA256 `89b44643dbdd2d2364c167d344b371538ea6135f9084d1b02780e253bd478a8e`.
+
 ## CG-07 cold router return after birth-voter replacement
 
 A retained voter whose durable configuration excludes it refuses quorum reads
