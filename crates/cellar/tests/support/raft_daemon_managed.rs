@@ -13,7 +13,6 @@ use cli::{first_group_plan, OperatorCli, OWNER};
 const TIMEOUT: Duration = Duration::from_secs(5);
 const PRINCIPAL: &str = "daemon-process-fixture";
 const STANDBY_READY: &str = "first-group-ready";
-const ARCHIVE_INTENT: &str = "archive-intent";
 
 pub(super) const RUSTFS_ENDPOINT: &str = "CELLAR_CELL_GROUPS_RUSTFS_ENDPOINT";
 pub(super) const RUSTFS_ENV: [&str; 6] = [
@@ -369,7 +368,7 @@ async fn ready(
     operator
         .archive()
         .await?
-        .verify_archive(history, &std::fs::read(root.join(ARCHIVE_INTENT))?, TIMEOUT)
+        .verify_first_group_archive(history, TIMEOUT)
         .await?;
     if !retained {
         let cut = operator.fleet.read(TIMEOUT).await?;
@@ -430,21 +429,14 @@ async fn provision_first_group(
         PRINCIPAL,
     )
     .await?;
-    let result = publish_first_group(&cli, service, root, history).await;
+    let result = provision_group_metadata(&cli, service, root, history).await;
     cli.close().await?;
     result?;
-    let archive = operator.archive().await?;
-    let prepared = archive.prepare_archive(history, TIMEOUT).await?;
-    persist(root, ARCHIVE_INTENT, prepared.encoded_intent())?;
-    prepared.commit(&operator.domain).await?;
-    archive
-        .verify_archive(history, &std::fs::read(root.join(ARCHIVE_INTENT))?, TIMEOUT)
-        .await?;
     persist(root, STANDBY_READY, b"confirmed")?;
     Ok(())
 }
 
-async fn publish_first_group(
+async fn provision_group_metadata(
     cli: &OperatorCli,
     service: &RaftCells,
     root: &Path,
@@ -520,6 +512,31 @@ async fn publish_first_group(
         .await?
         .success()?;
     ensure!(published["stage"] == "published");
+
+    let archive_request = request(34, cli.revision().await?);
+    persist(
+        root,
+        "first-group-archive-request",
+        &serde_json::to_vec(&archive_request)?,
+    )?;
+    let archived = cli
+        .call(
+            &[
+                "first-group",
+                "archive",
+                &namespace,
+                "--plan",
+                plan_path,
+                "--request-id",
+                &hex::encode(archive_request.id),
+                "--expected-revision",
+                &archive_request.expected_revision.to_string(),
+            ],
+            OWNER,
+        )
+        .await?
+        .success()?;
+    ensure!(archived["stage"] == "archive_initialized");
     Ok(())
 }
 

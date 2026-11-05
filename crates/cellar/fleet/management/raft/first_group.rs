@@ -163,13 +163,15 @@ fn proposal(id: &str) -> Result<ProposalId> {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RaftFleetFirstGroupPublish {
+pub struct RaftFleetFirstGroupMutation {
     pub plan: RaftFleetFirstGroupPlan,
     pub request_id: String,
     pub expected_revision: u64,
 }
 
-impl RaftFleetFirstGroupPublish {
+pub type RaftFleetFirstGroupPublish = RaftFleetFirstGroupMutation;
+
+impl RaftFleetFirstGroupMutation {
     pub fn validate(&self, namespace: &str) -> Result<()> {
         self.plan.validate(namespace)?;
         records::id(&self.request_id)?;
@@ -190,6 +192,7 @@ impl RaftFleetFirstGroupPublish {
 pub enum RaftFleetFirstGroupStage {
     Reserved,
     Published,
+    ArchiveInitialized,
 }
 
 /// Metadata admission for one exact request. A voter still needs its own
@@ -286,6 +289,40 @@ impl RaftFleetControl {
             &request.request_id,
             request.expected_revision,
             RaftFleetFirstGroupStage::Published,
+        ))
+    }
+
+    pub async fn initialize_first_group_archive(
+        &self,
+        principal: &str,
+        namespace: &str,
+        request: &RaftFleetFirstGroupMutation,
+        timeout: Duration,
+    ) -> Result<RaftFleetFirstGroupAcceptance> {
+        request.validate(namespace)?;
+        let plan = &request.plan;
+        self.check_catalog(&plan.catalog_id)?;
+        let directory = self.first_group_directory(namespace)?;
+        let setup = plan.setup(principal, directory)?;
+        let identity = plan.identity(principal, &request.request_id, request.expected_revision)?;
+        let turn = Turn::new(&self.domain, timeout)?;
+        let prepared = self
+            .catalog
+            .reopen_managed_first_group_at(directory, setup, turn.remaining()?)
+            .await?;
+        self.catalog
+            .initialize_managed_first_group_archive(
+                &prepared,
+                &identity,
+                &self.archive_pool,
+                turn.remaining()?,
+            )
+            .await?;
+        Ok(RaftFleetFirstGroupAcceptance::from_plan(
+            plan,
+            &request.request_id,
+            request.expected_revision,
+            RaftFleetFirstGroupStage::ArchiveInitialized,
         ))
     }
 

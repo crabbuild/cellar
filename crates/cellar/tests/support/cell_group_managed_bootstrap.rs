@@ -623,7 +623,9 @@ impl ManagedCluster {
                 .publish_managed_first_group(&reserved, &confirmation, TIMEOUT)
                 .await?
         };
-        if archives == ArchiveSetup::Initialized {
+        if archives == ArchiveSetup::Initialized
+            && !matches!(first_group, FirstGroupSetup::Operator)
+        {
             archives::initialize(f, &adapter, history, roots[0].path()).await?;
         }
         let cut = f.catalog.read(TIMEOUT).await?;

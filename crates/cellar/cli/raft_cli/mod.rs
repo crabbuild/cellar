@@ -49,7 +49,24 @@ async fn execute(options: &options::Options) -> Result<Value> {
             first_group::standby(&client, catalog, namespace, timeout).await
         }
         Action::FirstGroupReserve(plan) => first_group::reserve(&client, plan).await,
-        Action::FirstGroupPublish(request) => first_group::publish(&client, request).await,
+        Action::FirstGroupPublish(request) => {
+            first_group::mutate(
+                &client,
+                request,
+                "publish",
+                RaftFleetFirstGroupStage::Published,
+            )
+            .await
+        }
+        Action::FirstGroupArchive(request) => {
+            first_group::mutate(
+                &client,
+                request,
+                "archive",
+                RaftFleetFirstGroupStage::ArchiveInitialized,
+            )
+            .await
+        }
         Action::GrantMaintenance(node, request) => {
             maintenance::submit_action(&client, node, request, options.wait, options.timeout).await
         }

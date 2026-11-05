@@ -12,6 +12,27 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 rooted first-group archive initialization
+
+The authenticated archive command verifies the original first-group plan and
+requires its live selected history. It journals the exact namespace binding
+in the fleet root before entering the one-use initializer. An exact retry
+verifies the existing registry without creating counters. The native operator
+case checks permission, early refusal, conflicting request and replay after
+deleting the isolated fixture registry. The retry leaves that registry absent.
+
+Four native cases and both real RustFS image modes pass. The daemon fixture
+uses the CLI and admin API for capacity, group publication and archive setup.
+Voter startup and retained restart verify the exact rooted archive intent.
+The fixture supplies capacity attestation and physical voter activation.
+Host-native voters share a machine and use development peer authentication.
+The RustFS backend and VM stop with data retained.
+
+Source manifest `88725305464f1766d8eeb4ad52f8c66fa094fb20592fdac0a5577c8619e4eee5`.
+Native record `16e6d5d47603355a76248d13dc03b5dbacaab8fd91e51fc52b4ff84b1c57d3d8`.
+RustFS record `829fad729d5ea63ad54207daff4eda4cb98353eafdf9f7d390839c532b6157cc`.
+CLI binary `7423d3d18c45402114635a9b2fbfdd440f26ebf017d160a7ef988f3be2936f6f`.
+
 ## CG-07 public first-group operator workflow
 
 The fleet reservation now binds the exact first-range publication digest in

@@ -4,6 +4,13 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## CG-07 rooted first-group archive initialization
+
+Archive setup runs through the CLI and admin API. Preserve the exact rooted
+intent and verify it before startup. Move physical activation into the daemon
+readiness path and establish fresh quorum before ingress.
+[Source and test records](progress.md)
+
 ## CG-07 public first-group operator workflow
 
 The CLI and admin path observe standby and reserve and publish the first

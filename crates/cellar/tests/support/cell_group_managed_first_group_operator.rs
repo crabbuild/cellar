@@ -3,6 +3,8 @@
 //! The real operator CLI must preserve the first group's admitted request.
 use super::*;
 use cellar::sdk::fleet_operations::*;
+use futures_util::TryStreamExt as _;
+use object_store::ObjectStore as _;
 #[path = "raft_first_group_operator_cli.rs"]
 mod cli;
 use cli::{first_group_plan, OperatorCli, FLEET, OWNER, READER};
@@ -90,6 +92,21 @@ async fn exercise(
         &revision,
     ];
 
+    let archive_id = hex::encode([62; 16]);
+    let archive_revision = (confirmation_revision + 1).to_string();
+    let archive = [
+        "first-group",
+        "archive",
+        namespace,
+        "--plan",
+        path,
+        "--request-id",
+        &archive_id,
+        "--expected-revision",
+        &archive_revision,
+    ];
+    ensure!(cli.call(&archive, READER).await?.code == 4);
+    ensure!(cli.call(&archive, OWNER).await?.code == 3);
     let denied = cli.call(&reserve, READER).await?;
     ensure!(denied.code == 4);
     let early = cli.call(&publish, OWNER).await?;
@@ -144,5 +161,47 @@ async fn exercise(
     ensure!(selected["stage"] == "published");
     let cut = f.catalog.read(TIMEOUT).await?;
     ensure!(cut.revision() == confirmation_revision + 1);
+
+    let archive_receipt = cli.call(&archive, OWNER).await?.success()?;
+    ensure!(archive_receipt["stage"] == "archive_initialized");
+    let writes = f.store.registry_writes.load(Ordering::Acquire);
+    ensure!(cli.call(&archive, OWNER).await?.success()? == archive_receipt);
+    ensure!(f.store.registry_writes.load(Ordering::Acquire) == writes);
+    let changed_id = hex::encode([63; 16]);
+    let mut competing = archive;
+    competing[6] = &changed_id;
+    let conflict = cli.call(&competing, OWNER).await?;
+    ensure!(conflict.code == 3 && conflict.value["error"]["code"] == "payload_conflict");
+
+    // Lose the registry while retaining the fleet intent and archive identity.
+    // Replaying the operator call must never recreate a missing counter.
+    let registry = f
+        .store
+        .inner
+        .list(None)
+        .try_filter(|meta| {
+            let is_registry = meta.location.as_ref().contains("/cell-group-archives/")
+                && meta.location.as_ref().ends_with("/ownership/registry");
+            std::future::ready(is_registry)
+        })
+        .try_collect::<Vec<_>>()
+        .await?;
+    let [registry] = registry.as_slice() else {
+        anyhow::bail!("one archive registry must exist before activation");
+    };
+    let key = &registry.location;
+    let bytes = f.store.inner.get(key).await?.bytes().await?;
+    f.store.inner.delete(key).await?;
+    let replay = cli.call(&archive, OWNER).await?;
+    ensure!(replay.code == 5 && replay.value["error"]["outcome"] == "unknown");
+    ensure!(matches!(
+        f.store.inner.head(key).await,
+        Err(object_store::Error::NotFound { .. })
+    ));
+    f.store.inner.put(key, bytes.into()).await?;
+    ensure!(cli.call(&archive, OWNER).await?.success()? == archive_receipt);
+
+    let cut = f.catalog.read(TIMEOUT).await?;
+    ensure!(cut.revision() == confirmation_revision + 2);
     Ok(f.catalog.authorize_group(&cut, &history, TIMEOUT).await?)
 }

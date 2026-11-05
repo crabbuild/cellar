@@ -74,11 +74,34 @@ pub(crate) async fn publish(
     .await
 }
 
+pub(crate) async fn archive(
+    State(console): State<Arc<Console>>,
+    Extension(principal): Extension<Principal>,
+    Path((fleet, namespace)): Path<(String, String)>,
+    body: Result<Json<RaftFleetFirstGroupMutation>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    principal.require(&fleet, Permission::FleetTopology)?;
+    let Ok(Json(request)) = body else {
+        return Ok(failure(RaftFleetFailure::invalid(
+            "invalid first group archive request",
+        )));
+    };
+    submit(
+        &console,
+        &principal,
+        &fleet,
+        &namespace,
+        Mutation::Archive(request),
+    )
+    .await
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "snake_case")]
 enum Mutation {
     Reserve(RaftFleetFirstGroupPlan),
     Publish(RaftFleetFirstGroupPublish),
+    Archive(RaftFleetFirstGroupMutation),
 }
 
 async fn submit(
@@ -99,6 +122,12 @@ async fn submit(
             &request.plan,
             &request.request_id,
             "raft_first_group_publish",
+            request.validate(namespace),
+        ),
+        Mutation::Archive(request) => (
+            &request.plan,
+            &request.request_id,
+            "raft_first_group_archive",
             request.validate(namespace),
         ),
     };
@@ -134,6 +163,11 @@ async fn submit(
             Mutation::Publish(request) => {
                 control
                     .publish_first_group(&principal.id, namespace, request, TIMEOUT)
+                    .await
+            }
+            Mutation::Archive(request) => {
+                control
+                    .initialize_first_group_archive(&principal.id, namespace, request, TIMEOUT)
                     .await
             }
         },

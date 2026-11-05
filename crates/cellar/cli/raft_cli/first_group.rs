@@ -43,14 +43,16 @@ pub(super) async fn reserve(
     checked(response, expected)
 }
 
-pub(super) async fn publish(
+pub(super) async fn mutate(
     client: &http::Client,
-    request: &RaftFleetFirstGroupPublish,
+    request: &RaftFleetFirstGroupMutation,
+    verb: &str,
+    stage: RaftFleetFirstGroupStage,
 ) -> Result<Value> {
     let response = client
         .post::<RaftFleetFirstGroupAcceptance>(
             &format!(
-                "namespaces/{}/first-group/publish",
+                "namespaces/{}/first-group/{verb}",
                 request.plan.namespace_id
             ),
             request,
@@ -60,7 +62,7 @@ pub(super) async fn publish(
         &request.plan,
         &request.request_id,
         request.expected_revision,
-        RaftFleetFirstGroupStage::Published,
+        stage,
     );
     checked(response, expected)
 }

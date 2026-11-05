@@ -14,6 +14,7 @@ mod records;
 use crate::application::consensus::RaftCells;
 use crate::asyncrt::{DomainToken, ExecutionDomain};
 use crate::raft::catalog::RangeDirectory;
+use crate::raft::cell_groups::{CellGroupArchiveLimits, CellGroupArchivePool};
 use crate::raft::fleet_catalog::{
     FleetCatalog, FleetCatalogError, FleetCursor, FleetRequestIdentity, FleetTopologyIntentRequest,
     FleetTopologyOperation, FleetTopologyPhase, FleetTopologyPolicy,
@@ -22,8 +23,9 @@ use cellar_logic::consensus::{NodeId, ProposalId};
 pub use connection::{RaftFleetConnection, RaftFleetNamespace, RaftFleetNamespaceScope};
 pub use failure::{RaftFleetFailure, RaftFleetFailureCode, RaftFleetOutcome};
 pub use first_group::{
-    RaftFleetFirstGroupAcceptance, RaftFleetFirstGroupPlan, RaftFleetFirstGroupPublish,
-    RaftFleetFirstGroupStage, RaftFleetFirstGroupStandby, RaftFleetFirstGroupVoter,
+    RaftFleetFirstGroupAcceptance, RaftFleetFirstGroupMutation, RaftFleetFirstGroupPlan,
+    RaftFleetFirstGroupPublish, RaftFleetFirstGroupStage, RaftFleetFirstGroupStandby,
+    RaftFleetFirstGroupVoter,
 };
 pub use lifecycle::{
     RaftFleetEvacuationAcceptance, RaftFleetEvacuationDebt, RaftFleetEvacuationPhase,
@@ -54,6 +56,7 @@ pub struct RaftFleetControl {
     namespaces: Arc<[RangeDirectory]>,
     domain: DomainToken,
     node_observer: Option<RaftCells>,
+    archive_pool: CellGroupArchivePool,
     removal_verification: Option<Arc<lifecycle::verification::Verification>>,
 }
 
@@ -77,6 +80,8 @@ impl RaftFleetControl {
             namespaces: namespaces.into(),
             domain,
             node_observer: None,
+            archive_pool: CellGroupArchivePool::new(CellGroupArchiveLimits::default())
+                .map_err(FleetCatalogError::from)?,
             removal_verification: None,
         })
     }

@@ -23,6 +23,7 @@ cellar raft fleet nodes activate NODE_HEX --attestation CAPACITY.json --operatio
 cellar raft fleet first-group standby NAMESPACE_HEX
 cellar raft fleet first-group reserve NAMESPACE_HEX --plan PLAN.json
 cellar raft fleet first-group publish NAMESPACE_HEX --plan PLAN.json --request-id ID --expected-revision R
+cellar raft fleet first-group archive NAMESPACE_HEX --plan PLAN.json --request-id ID --expected-revision R
 cellar raft fleet status --fleet F --admin-url URL [--json]
 cellar raft fleet rebalance --keep NODE_HEX,... --policy POLICY.json --operation-id OP_HEX --expected-revision R [--wait]
 cellar raft fleet operation status OP_HEX
@@ -49,6 +50,7 @@ pub(super) enum Action {
     FirstGroupStandby(String),
     FirstGroupReserve(Box<RaftFleetFirstGroupPlan>),
     FirstGroupPublish(Box<RaftFleetFirstGroupPublish>),
+    FirstGroupArchive(Box<RaftFleetFirstGroupMutation>),
     NodeStatus(String),
     EvacuationStatus(String),
     Evacuate(String, Box<RaftFleetNodeOperation>),
@@ -191,7 +193,7 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
             "--plan"
                 if matches!(
                     command.as_str(),
-                    "first_group_reserve" | "first_group_publish"
+                    "first_group_reserve" | "first_group_publish" | "first_group_archive"
                 ) =>
             {
                 set(
@@ -234,9 +236,10 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
             }
             Action::FirstGroupStandby(namespace)
         }
-        (verb @ ("first_group_reserve" | "first_group_publish"), Some(namespace))
-            if !wait && cursor.is_none() && operation_id.is_none() =>
-        {
+        (
+            verb @ ("first_group_reserve" | "first_group_publish" | "first_group_archive"),
+            Some(namespace),
+        ) if !wait && cursor.is_none() && operation_id.is_none() => {
             let plan = first_group_plan.ok_or_else(|| invalid("--plan is required"))?;
             plan.validate(&namespace)?;
             let catalog = catalog_id
@@ -245,8 +248,8 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
             if catalog != plan.catalog_id {
                 return Err(invalid("first group plan belongs to another catalog"));
             }
-            if verb == "first_group_publish" {
-                let request = RaftFleetFirstGroupPublish {
+            if verb != "first_group_reserve" {
+                let request = RaftFleetFirstGroupMutation {
                     plan,
                     request_id: request_id
                         .take()
@@ -256,7 +259,11 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
                         .ok_or_else(|| invalid("--expected-revision is required"))?,
                 };
                 request.validate(&namespace)?;
-                Action::FirstGroupPublish(Box::new(request))
+                if verb == "first_group_archive" {
+                    Action::FirstGroupArchive(Box::new(request))
+                } else {
+                    Action::FirstGroupPublish(Box::new(request))
+                }
             } else {
                 if request_id.is_some() || expected_revision.is_some() {
                     return Err(invalid("reservation identity belongs in the plan"));

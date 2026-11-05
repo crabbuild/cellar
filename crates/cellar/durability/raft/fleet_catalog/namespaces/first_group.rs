@@ -23,10 +23,10 @@ pub struct RaftManagedFirstGroupRequest {
 /// Exact admitted reservation and immutable range mutation. Reopen a lost
 /// handle by replaying the original reservation and setup request.
 pub struct RaftManagedFirstGroup {
-    directory: RangeDirectory,
-    authorization: FleetBirthAuthorization,
-    mutation: DirectoryMutation,
-    reservation: FleetRequestIdentity,
+    pub(super) directory: RangeDirectory,
+    pub(super) authorization: FleetBirthAuthorization,
+    pub(super) mutation: DirectoryMutation,
+    pub(super) reservation: FleetRequestIdentity,
 }
 
 impl FleetCatalog {

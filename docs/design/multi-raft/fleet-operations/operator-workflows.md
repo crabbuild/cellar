@@ -116,6 +116,8 @@ cellar raft fleet first-group reserve "$NAMESPACE" --fleet F --catalog-id "$CATA
   --plan first-group.json --json
 cellar raft fleet first-group publish "$NAMESPACE" --fleet F --catalog-id "$CATALOG" \
   --plan first-group.json --request-id "$CONFIRMATION" --expected-revision "$CURRENT_REVISION" --json
+cellar raft fleet first-group archive "$NAMESPACE" --fleet F --catalog-id "$CATALOG" \
+  --plan first-group.json --request-id "$ARCHIVE_REQUEST" --expected-revision "$PUBLISHED_REVISION" --json
 ```
 
 Keep `first-group.json` with the catalog and namespace IDs, the returned
@@ -131,14 +133,19 @@ mutation. Confirm with a distinct request ID at the observed fleet revision.
 Publish uses the original reservation and plan. Retry an uncertain reply with
 the same confirmation ID and revision. After a definite revision conflict,
 retain the plan and use a new confirmation request at the new revision. A
-published receipt describes catalog admission. The SDK archive setup and each
-voter's physical activation and fresh quorum check precede ingress.
+published receipt describes catalog admission. Read the current revision again
+before submitting the archive request with its own ID. The archive command roots
+the exact initializer intent before creating registry state. Reconcile an unknown
+reply with the same request. An incomplete archive refuses verification and
+requires authority recovery. Each voter verifies the rooted archive, attaches
+locally and establishes fresh quorum before serving ingress.
 
 | Method and suffix under `/api/v1/fleets/{fleet}/raft` | Permission and result |
 | --- | --- |
 | `GET /namespaces/{namespace}/first-group/standby` | `metadata_read`; exact empty standby digest |
 | `POST /namespaces/{namespace}/first-group/reserve` | `fleet_topology`; exact plan and historical reservation receipt |
 | `POST /namespaces/{namespace}/first-group/publish` | `fleet_topology`; `plan`, `request_id`, `expected_revision` and historical publication receipt |
+| `POST /namespaces/{namespace}/first-group/archive` | `fleet_topology`; `plan`, `request_id`, `expected_revision` and exact archive initialization receipt |
 
 ## Delivered add-capacity workflow
 
