@@ -317,7 +317,7 @@ pub(super) async fn split_plan(cluster: &Cluster) -> Result<DirectoryMutation> {
     )?)
 }
 
-fn apply_pool(log: &ReplicaLog) -> Result<CellGroupSqlPool> {
+pub(super) fn apply_pool(log: &ReplicaLog) -> Result<CellGroupSqlPool> {
     Ok(CellGroupSqlPool::start(
         log,
         CellSqlLimits {

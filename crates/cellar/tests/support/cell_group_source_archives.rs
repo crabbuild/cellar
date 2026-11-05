@@ -197,7 +197,8 @@ pub(crate) async fn sealed_source_archives(
         seal.position,
     ))
     .await?;
-    reopen_installed_children(&fixture, &installed).await?;
+    let committed = Box::pin(verify_pending_child_raft(&mut fixture, &plan, installed)).await?;
+    reopen_installed_children(&fixture, &committed).await?;
     fixture.close().await
 }
 
@@ -208,7 +209,7 @@ async fn verify_sealed_sources(
     plan: &DirectoryMutation,
     unsealed: CellGroupArchiveHold,
     seal: LogPosition,
-) -> Result<Vec<GroupManifest>> {
+) -> Result<InstalledChildPartitions> {
     let directory = &fixture.cluster.directory;
     let scope = fixture.cluster.birth.route().history;
     let domain = &fixture.cluster.domain;
@@ -389,25 +390,140 @@ async fn reopen_installed_children(
     Ok(joined?)
 }
 
+struct InstalledChildPartitions {
+    genesis: Vec<GroupManifest>,
+    voters: Vec<(CellGroupRecoveryPool, PreparedCellGroupTransfer)>,
+}
+
+async fn verify_pending_child_raft(
+    fixture: &mut RuntimeCluster,
+    plan: &DirectoryMutation,
+    installed: InstalledChildPartitions,
+) -> Result<Vec<GroupManifest>> {
+    let cluster = &fixture.cluster;
+    let directory = &cluster.directory;
+    let domain = &cluster.domain;
+    for (index, (pool, partition)) in installed.voters.into_iter().enumerate() {
+        let log = &cluster.voters[index].log;
+        for child in partition.children() {
+            let history = child.route().history;
+            let permit = domain
+                .run(directory.bootstrap_pending_transfer_voter(plan, history, log))
+                .await??;
+            // The exact same physical content on another voter grants no right
+            // to use this voter's page and image owner.
+            let other = &cluster.voters[(index + 1) % cluster.voters.len()].log;
+            let foreign = domain
+                .run(directory.bootstrap_pending_transfer_voter(plan, history, other))
+                .await??;
+            anyhow::ensure!(matches!(
+                child.installed_applier(&foreign),
+                Err(RuntimeError::StaleCompletion)
+            ));
+            let applier = child.installed_applier(&permit)?;
+            let recover = applier.clone();
+            let root = domain
+                .blocking(move || recover.recover_selected())?
+                .await??;
+            anyhow::ensure!(Some(root.marker()) == child.genesis().map(|genesis| genesis.marker()));
+            fixture.runtimes[index].attach(permit, root).await?;
+            fixture
+                .appliers
+                .insert((index, history), (source_seal::apply_pool(log)?, applier));
+            fixture
+                .applied
+                .entry(history)
+                .or_insert_with(|| vec![LogIndex::new(1); 3]);
+        }
+        let retained = partition.children()[0]
+            .genesis()
+            .context("child genesis")?
+            .clone();
+        drop(partition);
+        anyhow::ensure!(pool.usage().operations == 1);
+        drop(retained);
+        anyhow::ensure!(pool.usage().operations == 0);
+    }
+
+    for genesis in &installed.genesis {
+        fixture.runtimes[0]
+            .campaign(genesis.route().history)
+            .await?;
+    }
+    tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            fixture.pump(&[], &mut BTreeMap::new()).await?;
+            if installed.genesis.iter().all(|marker| {
+                fixture.applied[&marker.route().history]
+                    .iter()
+                    .all(|index| index.get() >= 2)
+            }) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .context("commit pending child Raft barriers")??;
+
+    let mut committed = Vec::with_capacity(installed.genesis.len());
+    for genesis in installed.genesis {
+        let history = genesis.route().history;
+        let status = fixture.runtimes[0].status(history).await?;
+        anyhow::ensure!(
+            !status.ready
+                && status.leader == Some(1)
+                && status.term.get() > 1
+                && status.applied.term == status.term
+                && status.committed >= status.applied.index
+        );
+        for runtime in &fixture.runtimes {
+            anyhow::ensure!(matches!(
+                runtime.propose(history, vec![1]).await,
+                Err(RuntimeError::NotReady)
+            ));
+            anyhow::ensure!(matches!(
+                runtime.read_index(history, vec![1]).await,
+                Err(RuntimeError::NotReady)
+            ));
+        }
+        let marker = fixture.cluster.voters[0]
+            .log
+            .cell_group(&history)?
+            .group_manifest()?
+            .context("applied child root")?;
+        anyhow::ensure!(
+            marker.position() == status.applied
+                && marker.root() == genesis.root()
+                && marker.transfer_origin() == genesis.transfer_origin()
+                && !marker.is_active()
+        );
+        committed.push(marker);
+    }
+    Ok(committed)
+}
+
 async fn verify_partition(
     cluster: &Cluster,
     archives: &Archives,
     plan: &DirectoryMutation,
     verified: VerifiedCellGroupTransitionSources,
-) -> Result<Vec<GroupManifest>> {
-    let pool = CellGroupRecoveryPool::new(CellGroupRecoveryLimits {
-        max_cells: 3,
-        max_image_bytes: 1024 * 1024,
-        max_restore_bytes: 4 * 1024 * 1024,
-        ..Default::default()
-    })?;
+) -> Result<InstalledChildPartitions> {
     let sources = verified
         .journal()
         .sealed_sources()
         .context("sealed source set missing")?;
     let directory = &cluster.directory;
     let mut installed = Vec::new();
+    let mut partitions = Vec::new();
     for (voter_index, voter) in cluster.voters.iter().enumerate() {
+        let pool = CellGroupRecoveryPool::new(CellGroupRecoveryLimits {
+            max_cells: 3,
+            max_image_bytes: 1024 * 1024,
+            max_restore_bytes: 4 * 1024 * 1024,
+            ..Default::default()
+        })?;
         let targets = verified
             .children()
             .iter()
@@ -452,6 +568,13 @@ async fn verify_partition(
                 .await??;
             if voter_index == 0 {
                 anyhow::ensure!(quorum.is_none());
+                anyhow::ensure!(matches!(
+                    cluster
+                        .domain
+                        .run(directory.bootstrap_pending_transfer_voter(plan, history, &voter.log))
+                        .await?,
+                    Err(CatalogError::Unconfirmed)
+                ));
             } else {
                 let proof = quorum.context("missing physical install quorum")?;
                 anyhow::ensure!(
@@ -475,16 +598,12 @@ async fn verify_partition(
                 );
             }
         }
-        let retained = partition.children()[0]
-            .genesis()
-            .context("child genesis")?
-            .clone();
-        drop(partition);
-        anyhow::ensure!(pool.usage().operations == 1);
-        drop(retained);
-        anyhow::ensure!(pool.usage().operations == 0);
+        partitions.push((pool, partition));
     }
-    Ok(installed)
+    Ok(InstalledChildPartitions {
+        genesis: installed,
+        voters: partitions,
+    })
 }
 
 fn verify_partition_data(

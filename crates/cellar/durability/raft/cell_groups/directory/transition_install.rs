@@ -253,6 +253,78 @@ impl RangeDirectory {
         .await
     }
 
+    /// Admit a physically installed voter to the pending child Raft group.
+    /// The complete local image must still be recovered before attachment.
+    /// This grants no routing, application or activation authority.
+    pub fn bootstrap_pending_transfer_voter<'a>(
+        &'a self,
+        plan: &'a DirectoryMutation,
+        history: GroupHistory,
+        log: &'a ReplicaLog,
+    ) -> futures_util::future::BoxFuture<'a, Result<CellGroupBootstrapPermit, CatalogError>> {
+        Box::pin(async move {
+            let proof = self
+                .observe_transfer_install_quorum(plan, history)
+                .await?
+                .ok_or(CatalogError::Unconfirmed)?;
+            self.bounded(async {
+                let local = log.limits();
+                let voter = proof
+                    .voters
+                    .iter()
+                    .find(|receipt| receipt.node == local.node)
+                    .ok_or(CatalogError::NotInitialMember)?;
+                let engine = log.storage_instance().map_err(CatalogError::Log)?;
+                if voter.disk != local.disk || voter.engine != engine {
+                    return Err(CatalogError::LostStableState);
+                }
+                let group = log.cell_group(&history).map_err(|error| match error {
+                    LogError::NotFound => CatalogError::LostStableState,
+                    error => CatalogError::Log(error),
+                })?;
+                let birth = self
+                    .require_ordinary_birth_reservation(proof.genesis.route())
+                    .await?;
+                {
+                    let cache = group.read().map_err(CatalogError::Log)?;
+                    let expected_voters = birth.voters().iter().map(|member| member.member.get());
+                    let expected_learners =
+                        birth.learners().iter().map(|member| member.member.get());
+                    if group.identity().member != voter.member
+                        || cache.group_manifest.as_ref().is_none_or(|marker| {
+                            marker.route() != proof.genesis.route()
+                                || marker.is_active()
+                                || !marker.preserves_transfer(&proof.genesis)
+                        })
+                        || cache.membership.revision().get() != 1
+                        || !cache.conf_state.voters.iter().copied().eq(expected_voters)
+                        || !cache
+                            .conf_state
+                            .learners
+                            .iter()
+                            .copied()
+                            .eq(expected_learners)
+                        || !cache.conf_state.voters_outgoing.is_empty()
+                        || !cache.conf_state.learners_next.is_empty()
+                        || cache.conf_state.auto_leave
+                    {
+                        return Err(CatalogError::LostStableState);
+                    }
+                }
+                super::bootstrap::check_member(&group)?;
+                self.require_transfer_install(plan, &proof.genesis).await?;
+                Ok(CellGroupBootstrapPermit::pending_transfer(
+                    group,
+                    birth,
+                    self.clone(),
+                    log.clone(),
+                    self.decode_mutation(plan.encode())?,
+                ))
+            })
+            .await
+        })
+    }
+
     async fn require_transfer_install(
         &self,
         plan: &DirectoryMutation,

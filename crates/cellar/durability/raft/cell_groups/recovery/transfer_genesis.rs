@@ -7,12 +7,13 @@ use cellar_logic::{
     cell_group::GroupHistory,
     consensus::{EngineInstanceId, ReplicaIdentity},
 };
-use std::sync::{atomic::AtomicBool, Arc};
+use std::sync::{atomic::AtomicBool, Arc, OnceLock};
 
 pub(crate) struct TransferSeed {
     permit: TransferSeedPermit,
     prepared: PreparedGroupManifest,
     store: CellGroupArchiveStore,
+    installed_engine: Arc<OnceLock<Arc<()>>>,
 }
 
 impl TransferSeed {
@@ -29,6 +30,10 @@ impl TransferSeed {
             permit,
             prepared: prepared.clone(),
             store: store.clone(),
+            installed_engine: child
+                .install_owner()
+                .ok_or(LogError::WrongIdentity)?
+                .clone(),
         })
     }
 
@@ -76,6 +81,9 @@ impl TransferSeed {
         let publication = root
             .begin_transfer_genesis(&self.permit, closed)
             .map_err(super::genesis::preparation_error)?;
+        self.installed_engine
+            .set(self.permit.owner.clone())
+            .map_err(|_| LogError::WrongIdentity)?;
         self.store.close();
         Ok((root, publication))
     }

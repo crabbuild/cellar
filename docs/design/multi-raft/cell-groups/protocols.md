@@ -1077,8 +1077,11 @@ The local install binds one child genesis across all its voters and persists a
 member/node/disk/engine intent before syncing the mapping. A matching receipt
 follows the sync. A read-only check confirms a majority of reserved voters
 from matching intents and receipts on distinct pinned disks and engines.
-The installed child remains pending. Current-term Raft commitment and directory
-publication require further proofs.
+A pending voter can attach after rechecking this majority and its own receipt.
+The local applier uses the exact page and image owner handed to its engine.
+Raft can elect a leader and commit in a fresh term while the pending manifest
+fences cell commands and reads. Directory publication and activation require
+their own proofs.
 
 Child install receipts bind the source seals, own committed seed, membership and
 manifest digest. Publication also requires the exact verified remote transfer

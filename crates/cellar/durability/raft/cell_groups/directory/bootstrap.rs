@@ -32,6 +32,7 @@ enum BootstrapOrigin {
     Joined,
     ManagedJoined(Box<crate::raft::fleet_catalog::FleetHostAuthorization>),
     Recovery(Box<recovery::RecoveryStartup>),
+    PendingTransfer(Arc<DirectoryMutation>),
 }
 
 impl CellGroupBootstrapPermit {
@@ -48,6 +49,25 @@ impl CellGroupBootstrapPermit {
             directory,
             log,
             origin: BootstrapOrigin::Recovery(Box::new(startup)),
+        }
+    }
+
+    pub(super) fn pending_transfer(
+        group: GroupLog<GroupHistory>,
+        birth: CellGroupBirthRequest,
+        directory: RangeDirectory,
+        log: ReplicaLog,
+        plan: DirectoryMutation,
+    ) -> Self {
+        Self {
+            group,
+            birth: CellGroupBirth {
+                request: Arc::new(birth),
+                owner: directory.namespace.inner.owner.clone(),
+            },
+            directory,
+            log,
+            origin: BootstrapOrigin::PendingTransfer(Arc::new(plan)),
         }
     }
 
@@ -81,6 +101,11 @@ impl CellGroupBootstrapPermit {
 
     pub async fn revalidate(&self) -> Result<(), CatalogError> {
         match &self.origin {
+            BootstrapOrigin::PendingTransfer(plan) => self
+                .directory
+                .bootstrap_pending_transfer_voter(plan, self.route().history, &self.log)
+                .await
+                .map(|_| ()),
             BootstrapOrigin::Initial => self
                 .directory
                 .bootstrap_group_member(&self.birth, &self.log)

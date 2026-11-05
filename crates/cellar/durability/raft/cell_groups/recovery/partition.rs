@@ -16,7 +16,7 @@ use std::{
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, OnceLock,
     },
 };
 
@@ -39,7 +39,10 @@ pub struct PreparedCellGroupTransferChild {
 
 enum ChildData {
     PreCopy(ManifestPins),
-    Sealed(Box<PreparedGroupManifest>),
+    Sealed {
+        genesis: Box<PreparedGroupManifest>,
+        engine: Arc<OnceLock<Arc<()>>>,
+    },
 }
 
 impl PreparedCellGroupTransferChild {
@@ -54,7 +57,7 @@ impl PreparedCellGroupTransferChild {
     pub fn root(&self) -> ManifestRoot {
         match &self.data {
             ChildData::PreCopy(pins) => pins.root(),
-            ChildData::Sealed(genesis) => genesis.marker().root(),
+            ChildData::Sealed { genesis, .. } => genesis.marker().root(),
         }
     }
 
@@ -63,7 +66,7 @@ impl PreparedCellGroupTransferChild {
             ChildData::PreCopy(pins) => {
                 pins.get(&cell_routing_key(self.route().history.namespace, cell))
             }
-            ChildData::Sealed(genesis) => genesis.pin_cell(cell),
+            ChildData::Sealed { genesis, .. } => genesis.pin_cell(cell),
         }
     }
 
@@ -72,8 +75,37 @@ impl PreparedCellGroupTransferChild {
     pub fn genesis(&self) -> Option<&PreparedGroupManifest> {
         match &self.data {
             ChildData::PreCopy(_) => None,
-            ChildData::Sealed(genesis) => Some(genesis),
+            ChildData::Sealed { genesis, .. } => Some(genesis),
         }
+    }
+
+    pub(super) fn install_owner(&self) -> Option<&Arc<OnceLock<Arc<()>>>> {
+        match &self.data {
+            ChildData::PreCopy(_) => None,
+            ChildData::Sealed { engine, .. } => Some(engine),
+        }
+    }
+
+    /// Open the applier on the exact page store handed to the durable engine.
+    /// Recover and verify the selected root on a blocking owner before attach.
+    pub fn installed_applier(
+        &self,
+        permit: &CellGroupBootstrapPermit,
+    ) -> std::result::Result<CellGroupApplier, crate::raft::completion::RuntimeError> {
+        use crate::raft::completion::RuntimeError;
+        let group = permit.group();
+        if permit.route() != self.route()
+            || !self
+                .install_owner()
+                .and_then(|engine| engine.get())
+                .is_some_and(|engine| Arc::ptr_eq(engine, &group.owner))
+        {
+            return Err(RuntimeError::StaleCompletion);
+        }
+        Ok(CellGroupApplier {
+            group: group.clone(),
+            storage: self.store.storage.clone(),
+        })
     }
 }
 
@@ -328,7 +360,10 @@ fn partition(
                     })
                     .map_err(CellGroupCheckpointError::from)?;
                 prepared.recovery_admission = Some(admission.clone());
-                ChildData::Sealed(Box::new(prepared))
+                ChildData::Sealed {
+                    genesis: Box::new(prepared),
+                    engine: Arc::new(OnceLock::new()),
+                }
             }
             None => {
                 tree.verify(pages, pins.root(), genesis, |_| Ok(()))
