@@ -114,23 +114,43 @@ def execute(mode, output, remote, credentials, build, engine):
         ledger = guest(f"cat {quoted}/process.jsonl\n")
         require(ledger.returncode == 0, "process ledger missing")
         events = [json.loads(line) for line in ledger.stdout.splitlines()]
+        modes = ("native", "axum")
+        cells = (("one", "native"), ("two", "axum"))
         require(events[0]["store"] == "rustfs_catalog_and_archives"
-                and sum(event["phase"] == "post_resume_write_verified" for event in events) == 2,
-                "missing RustFS retained restart proof")
+                and events[0]["operator"] == "cli_admin", "missing RustFS CLI provisioning proof")
+        for phase in ("acknowledged", "post_resume_write_verified"):
+            outcomes = [(event["cell"], event["ingress"]) for event in events
+                        if event["phase"] == phase and (phase != "acknowledged" or event.get("delta") == 11)]
+            require(tuple(outcomes) == cells, f"missing native/Axum proof for {phase}")
+        resumed = [(event["cell"], event["ingress"]) for event in events
+                   if event["phase"] == "resumed_local_read_verified" and event["receipt"]["value"] == 23]
+        require(resumed == [(cell, ingress) for cell, _ in cells for ingress in modes],
+                "missing final retained-image reads on both ingress adapters")
+        summaries = [event for event in events if event["phase"] == "retained_disk_hard_kill_passed"]
+        require(len(summaries) == 1 and summaries[0]["physical_groups"] == 1
+                and summaries[0]["logical_cells"] == 2, "physical group and logical cell counts differ")
         (output / f"{mode}.jsonl").write_text(ledger.stdout)
-        phases = {"pre_loss_linearizable", "voter_shutdown_joined", "no_quorum_linearizable",
-                  "no_quorum_write_send", "no_quorum_write", "no_quorum_historical"}
+        refusals = ("no_quorum_linearizable", "no_quorum_write_send",
+                    "no_quorum_write", "no_quorum_historical")
+        phases = {"pre_loss_linearizable", "voter_shutdown_joined", *refusals}
         boundary = [event for event in events if event["phase"] in phases]
-        require([(event["phase"], event.get("member")) for event in boundary] == [
-            ("pre_loss_linearizable", None), ("voter_shutdown_joined", 1),
-            ("voter_shutdown_joined", 2), ("no_quorum_linearizable", 3),
-            ("no_quorum_write_send", 3), ("no_quorum_write", 3),
-            ("no_quorum_historical", 3), ("voter_shutdown_joined", 3),
-        ], "missing observed quorum-loss boundary")
-        require(boundary[3]["status"] == boundary[5]["status"] == 503
-                and boundary[4]["command"] == boundary[5]["command"]
-                and boundary[0]["reply"]["value"] == boundary[6]["reply"]["value"] == 23
-                and boundary[6]["reply"]["served_by"] == 3, "quorum-loss observations differ")
+        require([(event["phase"], event.get("member"), event.get("ingress")) for event in boundary] == [
+            *(("pre_loss_linearizable", None, ingress) for ingress in modes),
+            ("voter_shutdown_joined", 1, None), ("voter_shutdown_joined", 2, None),
+            *((phase, 3, ingress) for ingress in modes for phase in refusals),
+            ("voter_shutdown_joined", 3, None),
+        ], "missing observed quorum-loss boundary for native and Axum")
+        commands = []
+        for ingress in modes:
+            before, read, send, write, historical = (event for event in boundary
+                                                      if event.get("ingress") == ingress)
+            require(read["status"] == write["status"] == 503
+                    and send["command"] == write["command"]
+                    and before["reply"]["value"] == historical["reply"]["value"] == 23
+                    and historical["reply"]["served_by"] == 3,
+                    f"{ingress} quorum-loss observations differ")
+            commands.append((send["command"], send["retry_until"], send["delta"]))
+        require(commands[0] == commands[1], "quorum-loss retry changed command identity")
         observations = guest(f'''find {quoted} -maxdepth 2 -name '*-docker.json' -type f -exec sh -c '\nfor file do tr -d "\\n" < "$file"; printf "\\n"; done' sh {{}} +\n''')
         require(observations.returncode == 0, "could not capture cgroup observations")
         proof = [json.loads(line) for line in observations.stdout.splitlines()]

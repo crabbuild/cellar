@@ -314,6 +314,9 @@ pub(super) fn child(root: PathBuf, mode: &str) -> Result<()> {
     let domain = Arc::new(ExecutionDomain::new(runtime.handle().clone()));
     let operator = Arc::new(Operator::open(domain.clone(), &root)?);
     let boot_operator = operator.clone();
+    let axum_runtime = runtime.handle().clone();
+    let (axum_stop, mut axum_stopping) = tokio::sync::watch::channel(false);
+    let (axum_started, axum_task) = tokio::sync::oneshot::channel();
     let result = Host::local(graph::graph("raft-cli", "", vec![]))
         .register("raft-cli", "test", move || {
             counter::application(serving.clone(), counter::definition()?)
@@ -327,12 +330,40 @@ pub(super) fn child(root: PathBuf, mode: &str) -> Result<()> {
                 *api.cells
                     .lock()
                     .map_err(|_| anyhow::anyhow!("binding poisoned"))? = Some(service);
+                let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+                listener.set_nonblocking(true)?;
+                let address = listener.local_addr()?;
+                let router = counter::router(api);
+                let task = axum_runtime.spawn(async move {
+                    let listener = tokio::net::TcpListener::from_std(listener)?;
+                    cellar::note!("cellar axum listening on {address}");
+                    axum::serve(listener, router)
+                        .with_graceful_shutdown(async move {
+                            let _ = axum_stopping.changed().await;
+                        })
+                        .await
+                });
+                axum_started.send(task).map_err(|task| {
+                    task.abort();
+                    anyhow::anyhow!("Axum join owner dropped during startup")
+                })?;
                 Ok(())
             },
         )?
         .run_until(std::future::pending());
-    runtime.block_on(domain.shutdown());
-    result
+    let _ = axum_stop.send(true);
+    let axum_result = runtime.block_on(async {
+        let joined = match axum_task.await {
+            Ok(task) => task
+                .await
+                .map_err(anyhow::Error::from)
+                .and_then(|result| result.map_err(Into::into)),
+            Err(_) => Ok(()),
+        };
+        domain.shutdown().await;
+        joined
+    });
+    result.and(axum_result)
 }
 
 impl Operator {

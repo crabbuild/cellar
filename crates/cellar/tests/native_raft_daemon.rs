@@ -335,6 +335,36 @@ async fn ready_counter(service: &RaftCells, history: GroupHistory, local: Member
     }
 }
 
+struct ManagedIngress {
+    native: String,
+    internal: String,
+    axum: String,
+}
+
+#[derive(Clone, Copy)]
+enum Ingress {
+    Native,
+    Axum,
+}
+
+impl Ingress {
+    const ALL: [Self; 2] = [Self::Native, Self::Axum];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Native => "native",
+            Self::Axum => "axum",
+        }
+    }
+
+    fn endpoint(self, address: &ManagedIngress) -> &str {
+        match self {
+            Self::Native => &address.native,
+            Self::Axum => &address.axum,
+        }
+    }
+}
+
 struct Process {
     child: Child,
     voter: Option<docker::Voter>,
@@ -462,16 +492,9 @@ impl Process {
         let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             let logs = self.logs()?;
-            let addr = |prefix| {
-                logs.lines().find_map(|line| {
-                    line.strip_prefix(prefix)
-                        .and_then(|s| s.split_whitespace().next())
-                        .map(|s| format!("http://{s}"))
-                })
-            };
             if let (Some(public), Some(internal)) = (
-                addr("cellar listening on "),
-                addr("cellar internal listening on "),
+                listener_address(&logs, "cellar listening on "),
+                listener_address(&logs, "cellar internal listening on "),
             ) {
                 if let Some(voter) = &self.voter {
                     voter.running()?;
@@ -485,6 +508,34 @@ impl Process {
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
     }
+
+    async fn managed_addresses(&mut self) -> Result<ManagedIngress> {
+        let (native, internal) = self.addresses().await?;
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let logs = self.logs()?;
+            if let Some(axum) = listener_address(&logs, "cellar axum listening on ") {
+                return Ok(ManagedIngress {
+                    native,
+                    internal,
+                    axum,
+                });
+            }
+            ensure!(
+                self.child.try_wait()?.is_none() && Instant::now() < deadline,
+                "Axum startup failed\n{logs}"
+            );
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+}
+
+fn listener_address(logs: &str, prefix: &str) -> Option<String> {
+    logs.lines().find_map(|line| {
+        line.strip_prefix(prefix)
+            .and_then(|value| value.split_whitespace().next())
+            .map(|address| format!("http://{address}"))
+    })
 }
 
 async fn qualify() -> Result<()> {
@@ -731,7 +782,8 @@ async fn qualify() -> Result<()> {
         }
         if i < 2 {
             ensure!(
-                !process.logs()?.contains("cellar listening on "),
+                !process.logs()?.contains("cellar listening on ")
+                    && !process.logs()?.contains("cellar axum listening on "),
                 "standby opened public ingress"
             );
         }
@@ -739,7 +791,7 @@ async fn qualify() -> Result<()> {
     }
     let mut addresses = Vec::new();
     for index in 0..cluster.len() {
-        match cluster[index].addresses().await {
+        match cluster[index].managed_addresses().await {
             Ok(address) => addresses.push(address),
             Err(error) => {
                 let logs = cluster
@@ -760,7 +812,7 @@ async fn qualify() -> Result<()> {
     };
     let mut ledger = recovery::Ledger::new(root.path(), ledger_backend)?;
     let mut acknowledged = Vec::new();
-    for name in ["one", "two"] {
+    for (name, ingress) in [("one", Ingress::Native), ("two", Ingress::Axum)] {
         let command = format!("{}:1", hex::encode([90; 16]));
         let retry = (std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
@@ -770,10 +822,12 @@ async fn qualify() -> Result<()> {
         let deadline = Instant::now() + Duration::from_secs(20);
         let (leader, receipt) = loop {
             let mut committed = None;
-            for (index, (public, _)) in addresses.iter().enumerate() {
+            for (index, address) in addresses.iter().enumerate() {
+                let public = ingress.endpoint(address);
                 ledger.record(serde_json::json!({
                     "phase": "send", "cell": name, "command": command,
                     "retry_until": retry, "delta": 11, "member": index + 1,
+                    "ingress": ingress.label(),
                 }))?;
                 let response = client
                     .post(format!("{public}/counters/{name}?delta=11"))
@@ -803,36 +857,41 @@ async fn qualify() -> Result<()> {
         ledger.record(serde_json::json!({
             "phase": "acknowledged", "cell": name, "command": command,
             "retry_until": retry, "delta": 11, "receipt": receipt,
+            "ingress": ingress.label(),
         }))?;
-        for (index, (public, _)) in addresses
+        for (index, address) in addresses
             .iter()
             .enumerate()
             .filter(|(index, _)| *index != leader)
         {
-            let query: Value = client
-                .get(format!("{public}/counters/{name}"))
-                .bearer_auth(SECRET)
-                .header("x-read-consistency", "at-least")
-                .header(
-                    "x-min-version",
-                    receipt["version_token"]
-                        .as_str()
-                        .context("version token absent")?,
-                )
-                .send()
-                .await?
-                .error_for_status()?
-                .json()
-                .await?;
-            ensure!(
-                query["value"] == 11
-                    && query["served_by"] == index as u64 + 1
-                    && query["group"] == receipt["group"],
-                "follower query failed: {query}"
-            );
+            for ingress in Ingress::ALL {
+                let public = ingress.endpoint(address);
+                let query: Value = client
+                    .get(format!("{public}/counters/{name}"))
+                    .bearer_auth(SECRET)
+                    .header("x-read-consistency", "at-least")
+                    .header(
+                        "x-min-version",
+                        receipt["version_token"]
+                            .as_str()
+                            .context("version token absent")?,
+                    )
+                    .send()
+                    .await?
+                    .error_for_status()?
+                    .json()
+                    .await?;
+                ensure!(
+                    query["value"] == 11
+                        && query["served_by"] == index as u64 + 1
+                        && query["group"] == receipt["group"],
+                    "follower query failed: {query}"
+                );
+            }
         }
         acknowledged.push(recovery::Acknowledged {
             cell: name,
+            ingress,
             leader,
             command,
             retry_until: retry,
@@ -856,13 +915,13 @@ async fn qualify() -> Result<()> {
     )
     .await?;
     let survivor = cluster.len() - 1;
-    recovery::verify_linearizable_before_loss(&client, &addresses[survivor].0, &mut ledger).await?;
-    for (index, (process, (public, internal))) in cluster.iter_mut().zip(&addresses).enumerate() {
+    recovery::verify_linearizable_before_loss(&client, &addresses[survivor], &mut ledger).await?;
+    for (index, (process, address)) in cluster.iter_mut().zip(&addresses).enumerate() {
         if index == survivor {
-            recovery::verify_quorum_loss(&client, public, index, &mut ledger).await?;
+            recovery::verify_quorum_loss(&client, address, index, &mut ledger).await?;
         }
         client
-            .post(format!("{internal}/shutdown"))
+            .post(format!("{}/shutdown", address.internal))
             .send()
             .await?
             .error_for_status()?;
@@ -873,7 +932,7 @@ async fn qualify() -> Result<()> {
         );
         ledger.record(serde_json::json!({"phase":"voter_shutdown_joined", "member":index + 1}))?;
     }
-    cellar::note!("production Raft CLI qualification passed: directory and registration refusals, failed binding joins, two cells in one retained group, linearizable queries, process restart, semantic closure, startup cancellation, and three managed daemon processes with one shared group over TLS and local follower reads");
+    cellar::note!("production Raft CLI qualification passed: directory and registration refusals, failed binding joins, two cells in one retained group, linearizable queries, process restart, semantic closure, startup cancellation, and three managed daemon processes with one shared group over TLS with native and Axum reads and writes");
     Ok(())
 }
 

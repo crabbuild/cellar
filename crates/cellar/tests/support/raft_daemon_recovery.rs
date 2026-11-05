@@ -53,6 +53,7 @@ impl Ledger {
 
 pub(super) struct Acknowledged {
     pub(super) cell: &'static str,
+    pub(super) ingress: Ingress,
     pub(super) leader: usize,
     pub(super) command: String,
     pub(super) retry_until: String,
@@ -61,6 +62,7 @@ pub(super) struct Acknowledged {
 
 struct Request<'a> {
     cell: &'a str,
+    ingress: Ingress,
     command: &'a str,
     retry_until: &'a str,
     delta: i64,
@@ -70,13 +72,14 @@ impl Request<'_> {
     async fn send(
         &self,
         client: &reqwest::Client,
-        addresses: &[(String, String)],
+        addresses: &[ManagedIngress],
         excluded: Option<usize>,
         ledger: &mut Ledger,
     ) -> Result<Value> {
         let deadline = Instant::now() + Duration::from_secs(20);
         loop {
-            for (index, (public, _)) in addresses.iter().enumerate() {
+            for (index, address) in addresses.iter().enumerate() {
+                let public = self.ingress.endpoint(address);
                 if Some(index) == excluded {
                     continue;
                 }
@@ -87,6 +90,7 @@ impl Request<'_> {
                 ledger.record(serde_json::json!({
                     "phase": "send", "cell": self.cell, "command": self.command,
                     "retry_until": self.retry_until, "delta": self.delta, "member": index + 1,
+                    "ingress": self.ingress.label(),
                 }))?;
                 let response = client
                     .post(format!(
@@ -116,7 +120,7 @@ impl Request<'_> {
                 };
                 if status.is_success() {
                     let receipt: Value = serde_json::from_str(&body)?;
-                    ledger.record(serde_json::json!({"phase":"acknowledged", "cell":self.cell, "command":self.command, "receipt":receipt}))?;
+                    ledger.record(serde_json::json!({"phase":"acknowledged", "cell":self.cell, "command":self.command, "receipt":receipt, "ingress":self.ingress.label()}))?;
                     return Ok(receipt);
                 }
                 ledger.record(serde_json::json!({"phase":"refused", "cell":self.cell, "command":self.command, "status":status.as_u16(), "body":body}))?;
@@ -131,7 +135,7 @@ impl Request<'_> {
 }
 
 fn matching_receipt(actual: &Value, expected: &Value) -> Result<()> {
-    for field in ["value", "group", "incarnation"] {
+    for field in ["value", "group", "group_incarnation", "cell", "incarnation"] {
         ensure!(
             actual[field] == expected[field],
             "replayed receipt differs at {field}: {actual}"
@@ -156,7 +160,7 @@ pub(super) async fn hard_kill_and_resume(
     root: &Path,
     client: &reqwest::Client,
     processes: &mut [Process],
-    addresses: &mut [(String, String)],
+    addresses: &mut [ManagedIngress],
     acknowledged: &[Acknowledged],
     ledger: &mut Ledger,
 ) -> Result<()> {
@@ -196,6 +200,7 @@ pub(super) async fn hard_kill_and_resume(
     for old in acknowledged {
         let duplicate = Request {
             cell: old.cell,
+            ingress: old.ingress,
             command: &old.command,
             retry_until: &old.retry_until,
             delta: 11,
@@ -214,6 +219,7 @@ pub(super) async fn hard_kill_and_resume(
             .to_string();
         let next = Request {
             cell: old.cell,
+            ingress: old.ingress,
             command: &command,
             retry_until: &retry,
             delta: 7,
@@ -243,14 +249,14 @@ pub(super) async fn hard_kill_and_resume(
         &[std::ffi::OsStr::new("--data-dir"), disk.as_os_str()],
         false,
     )?;
-    addresses[killed] = processes[killed].addresses().await?;
+    addresses[killed] = processes[killed].managed_addresses().await?;
     let new_pid = processes[killed].pid()?;
     ensure!(new_pid != old_pid, "resume reused the killed PID");
     ledger.record(serde_json::json!({"phase":"restarted", "old_pid":old_pid, "new_pid":new_pid, "member":killed + 1}))?;
     for (old, receipt) in current {
         local_read(
             client,
-            &addresses[killed].0,
+            (old.ingress, &addresses[killed]),
             killed,
             old.cell,
             &receipt,
@@ -266,6 +272,7 @@ pub(super) async fn hard_kill_and_resume(
             .to_string();
         let next = Request {
             cell: old.cell,
+            ingress: old.ingress,
             command: &command,
             retry_until: &retry,
             delta: 5,
@@ -280,6 +287,7 @@ pub(super) async fn hard_kill_and_resume(
         );
         let duplicate = Request {
             cell: old.cell,
+            ingress: old.ingress,
             command: &old.command,
             retry_until: &old.retry_until,
             delta: 11,
@@ -288,25 +296,33 @@ pub(super) async fn hard_kill_and_resume(
             &duplicate.send(client, addresses, None, ledger).await?,
             &old.receipt,
         )?;
-        local_read(
-            client,
-            &addresses[killed].0,
-            killed,
-            old.cell,
-            &next,
-            23,
-            ledger,
-        )
-        .await?;
-        ledger.record(serde_json::json!({"phase":"post_resume_write_verified", "cell":old.cell, "receipt":next}))?;
+        for ingress in Ingress::ALL {
+            local_read(
+                client,
+                (ingress, &addresses[killed]),
+                killed,
+                old.cell,
+                &next,
+                23,
+                ledger,
+            )
+            .await?;
+        }
+        ledger.record(serde_json::json!({
+            "phase":"post_resume_write_verified", "cell":old.cell,
+            "receipt":next, "ingress":old.ingress.label(),
+        }))?;
     }
-    ledger.record(serde_json::json!({"phase":"retained_disk_hard_kill_passed", "groups":2, "qualified_10gb":false}))?;
+    ledger.record(serde_json::json!({
+        "phase":"retained_disk_hard_kill_passed", "physical_groups":1,
+        "logical_cells":acknowledged.len(), "qualified_10gb":false,
+    }))?;
     Ok(())
 }
 
 async fn local_read(
     client: &reqwest::Client,
-    public: &str,
+    (ingress, address): (Ingress, &ManagedIngress),
     member_index: usize,
     cell: &str,
     receipt: &Value,
@@ -314,6 +330,7 @@ async fn local_read(
     ledger: &mut Ledger,
 ) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(20);
+    let public = ingress.endpoint(address);
     loop {
         let response = client
             .get(format!("{public}/counters/{cell}"))
@@ -335,10 +352,12 @@ async fn local_read(
                 value["value"] == expected_value
                     && value["served_by"] == member_index as u64 + 1
                     && value["group"] == receipt["group"]
+                    && value["group_incarnation"] == receipt["group_incarnation"]
                     && value["incarnation"] == receipt["incarnation"],
                 "restarted voter served the wrong state: {value}"
             );
-            ledger.record(serde_json::json!({"phase":"resumed_local_read_verified", "cell":cell, "receipt":value}))?;
+            ledger.record(serde_json::json!({"phase":"resumed_local_read_verified", "cell":cell, "receipt":value,
+                "ingress":ingress.label()}))?;
             return Ok(());
         }
         ensure!(
@@ -351,46 +370,34 @@ async fn local_read(
 
 pub(super) async fn verify_linearizable_before_loss(
     client: &reqwest::Client,
-    public: &str,
+    address: &ManagedIngress,
     ledger: &mut Ledger,
 ) -> Result<()> {
-    let reply = client
-        .get(format!("{public}/counters/one"))
-        .bearer_auth(SECRET)
-        .header("x-read-consistency", "linearizable")
-        .send()
-        .await?
-        .error_for_status()?
-        .json::<Value>()
-        .await?;
-    ensure!(reply["value"] == 23, "wrong pre-loss read: {reply}");
-    ledger.record(serde_json::json!({"phase":"pre_loss_linearizable", "reply":reply}))
+    for ingress in Ingress::ALL {
+        let public = ingress.endpoint(address);
+        let reply = client
+            .get(format!("{public}/counters/one"))
+            .bearer_auth(SECRET)
+            .header("x-read-consistency", "linearizable")
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<Value>()
+            .await?;
+        ensure!(reply["value"] == 23, "wrong pre-loss read: {reply}");
+        ledger.record(serde_json::json!({
+            "phase":"pre_loss_linearizable", "reply":reply, "ingress":ingress.label(),
+        }))?;
+    }
+    Ok(())
 }
 
 pub(super) async fn verify_quorum_loss(
     client: &reqwest::Client,
-    public: &str,
+    address: &ManagedIngress,
     survivor: usize,
     ledger: &mut Ledger,
 ) -> Result<()> {
-    let url = format!("{public}/counters/one");
-    let response = client
-        .get(&url)
-        .bearer_auth(SECRET)
-        .header("x-read-consistency", "linearizable")
-        .send()
-        .await?;
-    let status = response.status();
-    let cause = response.text().await?;
-    ledger.record(serde_json::json!({
-        "phase":"no_quorum_linearizable", "member":survivor + 1,
-        "status":status.as_u16(), "cause":cause,
-    }))?;
-    ensure!(
-        status == 503 && quorum_refusal(&cause),
-        "linearizable read without quorum returned {status}: {cause}"
-    );
-
     let client_id = ClientId::new([90; 16])?;
     let id = CommandId::new(client_id, 4)?;
     let command = format!("{}:4", hex::encode([90; 16]));
@@ -399,50 +406,74 @@ pub(super) async fn verify_quorum_loss(
         .as_millis()
         + 60_000)
         .to_string();
-    ledger.record(serde_json::json!({
-        "phase":"no_quorum_write_send", "member":survivor + 1,
-        "cell":"one", "command":command, "retry_until":retry, "delta":9,
-    }))?;
-    let response = client
-        .post(format!("{url}?delta=9"))
-        .bearer_auth(SECRET)
-        .header("x-command-id", &command)
-        .header("x-retry-until-ms", &retry)
-        .header("x-write-durability", "quorum")
-        .send()
-        .await?;
-    let status = response.status();
-    let body = response.text().await?;
     let ambiguity = format!("Ambiguous {{ command: {id:?} }}; cause=");
-    let cause = body.strip_prefix(&ambiguity).unwrap_or(&body);
-    ledger.record(serde_json::json!({
-        "phase":"no_quorum_write", "member":survivor + 1,
-        "command":command, "status":status.as_u16(), "cause":cause, "body":body,
-    }))?;
-    ensure!(
-        status == 503 && quorum_refusal(cause),
-        "quorum write without a majority returned {status}: {body}"
-    );
+    for ingress in Ingress::ALL {
+        let public = ingress.endpoint(address);
+        let url = format!("{public}/counters/one");
+        let response = client
+            .get(&url)
+            .bearer_auth(SECRET)
+            .header("x-read-consistency", "linearizable")
+            .send()
+            .await?;
+        let status = response.status();
+        let cause = response.text().await?;
+        ledger.record(serde_json::json!({
+            "phase":"no_quorum_linearizable", "member":survivor + 1,
+            "status":status.as_u16(), "cause":cause, "ingress":ingress.label(),
+        }))?;
+        ensure!(
+            status == 503 && quorum_refusal(&cause),
+            "linearizable read without quorum returned {status}: {cause}"
+        );
 
-    // Demonstrate that both refusals came from a still-serving local voter
-    // and that the public historical read mode remains explicitly available.
-    let reply = client
-        .get(&url)
-        .bearer_auth(SECRET)
-        .header("x-read-consistency", "stale")
-        .header("x-read-policy", "disconnected-historical")
-        .send()
-        .await?
-        .error_for_status()?
-        .json::<Value>()
-        .await?;
-    ensure!(
-        reply["value"] == 23 && reply["served_by"] == survivor + 1,
-        "surviving voter returned the wrong historical image: {reply}"
-    );
-    ledger.record(serde_json::json!({
-        "phase":"no_quorum_historical", "member":survivor + 1, "reply":reply,
-    }))
+        ledger.record(serde_json::json!({
+            "phase":"no_quorum_write_send", "member":survivor + 1,
+            "cell":"one", "command":command, "retry_until":retry, "delta":9,
+            "ingress":ingress.label(),
+        }))?;
+        let response = client
+            .post(format!("{url}?delta=9"))
+            .bearer_auth(SECRET)
+            .header("x-command-id", &command)
+            .header("x-retry-until-ms", &retry)
+            .header("x-write-durability", "quorum")
+            .send()
+            .await?;
+        let status = response.status();
+        let body = response.text().await?;
+        let cause = body.strip_prefix(&ambiguity).unwrap_or(&body);
+        ledger.record(serde_json::json!({
+            "phase":"no_quorum_write", "member":survivor + 1,
+            "command":command, "status":status.as_u16(), "cause":cause, "body":body,
+            "ingress":ingress.label(),
+        }))?;
+        ensure!(
+            status == 503 && quorum_refusal(cause),
+            "quorum write without a majority returned {status}: {body}"
+        );
+
+        // The same surviving voter still offers an explicit historical read.
+        let reply = client
+            .get(&url)
+            .bearer_auth(SECRET)
+            .header("x-read-consistency", "stale")
+            .header("x-read-policy", "disconnected-historical")
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<Value>()
+            .await?;
+        ensure!(
+            reply["value"] == 23 && reply["served_by"] == survivor + 1,
+            "surviving voter returned the wrong historical image: {reply}"
+        );
+        ledger.record(serde_json::json!({
+            "phase":"no_quorum_historical", "member":survivor + 1,
+            "reply":reply, "ingress":ingress.label(),
+        }))?;
+    }
+    Ok(())
 }
 
 fn quorum_refusal(cause: &str) -> bool {
