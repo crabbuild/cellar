@@ -1106,6 +1106,11 @@ a managed child it verifies the original active fleet plan and reserved route
 and matches the physical receipts to the fleet's permanent storage claims.
 A pending voter can attach after rechecking this majority and its own receipt.
 The local applier uses the exact page and image owner handed to its engine.
+Managed attachment also rechecks the current boot and admitted capacity and
+installs only authenticated voter routes. The controller retains the same
+physical page owner across an uncertain install reply and hands it to the
+pending Raft roster. After a fresh-term barrier commits and applies, the
+pending leader can issue a quorum witness while the child remains inactive.
 Raft can elect a leader and commit in a fresh term while the pending manifest
 fences cell commands and reads. Only the child leader can attest that its
 stable initial voter configuration committed and durably applied a fresh-term

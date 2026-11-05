@@ -440,6 +440,11 @@ pub(super) async fn verify_sealed_cut(
                 .await?;
             if index == 0 {
                 ensure!(observed.is_none());
+                ensure!(matches!(
+                    host.attach_managed_transfer_child(transition.clone(), route.clone(), TIMEOUT)
+                        .await,
+                    Err(CellGroupControllerError::Catalog(_))
+                ));
             } else {
                 let observed = observed.context("managed install majority")?;
                 ensure!(observed.genesis.route() == route && observed.voters == installed);
@@ -489,7 +494,7 @@ async fn restart_destination(
     let old = cluster.nodes.remove(DESTINATION);
     let old_host = cluster.hosts.remove(DESTINATION);
     let previous = old_host.identity();
-    stop_transfer_destination(old, &old_host, 2).await?;
+    stop_transfer_destination(old, &old_host, 2, false).await?;
     let fixture = &cluster.fixtures[DESTINATION];
     let node = start_node(
         cluster.roots[DESTINATION].path(),
@@ -536,21 +541,75 @@ async fn restart_destination(
         .children()
         .iter()
         .find(|route| route.history == child)
+        .cloned()
         .context("retained child route")?;
     let historical = fixture
         .catalog
-        .observe_managed_transfer_install_quorum(&transition, directory, route, TIMEOUT)
+        .observe_managed_transfer_install_quorum(&transition, directory, &route, TIMEOUT)
         .await?
         .context("durable receipts survive an ordinary boot")?;
     ensure!(historical.voters.len() == 3 && historical.voters.contains(&expected));
+    ensure!(matches!(
+        host.attach_managed_transfer_child(transition.clone(), route.clone(), TIMEOUT)
+            .await,
+        Err(CellGroupControllerError::Catalog(_))
+    ));
     admit_capacity(fixture, host, directory, 225).await?;
     let reopened = host
-        .install_managed_transfer_child(transition, sources, child, recovery, TIMEOUT)
+        .install_managed_transfer_child(transition.clone(), sources, child, recovery, TIMEOUT)
         .await?;
     ensure!(reopened == expected);
     ensure!(matches!(
         host.group(child)?.status().await,
         Err(RuntimeError::NotFound)
     ));
+    let voters = &cluster.hosts[DESTINATION..];
+    voters[0]
+        .attach_managed_transfer_child(transition.clone(), route.clone(), TIMEOUT)
+        .await?;
+    ensure!(matches!(
+        voters[0]
+            .group(child)?
+            .managed_pending_transfer_quorum(TIMEOUT)
+            .await,
+        Err(CellGroupControllerError::Runtime(
+            RuntimeError::NotLeader | RuntimeError::NotReady
+        ))
+    ));
+    for voter in &voters[1..] {
+        voter
+            .attach_managed_transfer_child(transition.clone(), route.clone(), TIMEOUT)
+            .await?;
+    }
+    tokio::time::timeout(TIMEOUT, async {
+        loop {
+            let mut applied = true;
+            let mut witness = false;
+            for voter in voters {
+                let group = voter.group(child)?;
+                let status = group.status().await?;
+                ensure!(!status.ready, "a pending child served before publication");
+                applied &= status.applied.index.get() > 1;
+                match group.managed_pending_transfer_quorum(TIMEOUT).await {
+                    Ok(_) => witness = true,
+                    Err(CellGroupControllerError::Runtime(
+                        RuntimeError::NotLeader | RuntimeError::NotReady,
+                    )) => (),
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            if applied && witness {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("pending transfer child must commit a fresh term")??;
+    for voter in voters {
+        voter
+            .attach_managed_transfer_child(transition.clone(), route.clone(), TIMEOUT)
+            .await?;
+    }
     Ok(())
 }

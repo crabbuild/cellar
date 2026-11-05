@@ -59,11 +59,36 @@ pub(super) async fn recover(
         .recover(Resources { existing, archive }, _parallel)
         .await;
     }
+    let physical = transport_route(
+        &config,
+        &transport,
+        &route,
+        birth.voters().iter().chain(birth.learners()),
+        authority.managed().is_some(),
+    )?;
+    let permit = bootstrap(&directory, &birth, &runtime, &authority).await?;
+    let prepared =
+        recover_pages(&config, &runtime, permit.group().clone(), images, existing).await?;
+    Ok(Recovery::Ready(CellGroupRegistration {
+        permit,
+        current: prepared.current,
+        applier: prepared.applier,
+        transport: physical,
+    }))
+}
+
+pub(super) fn transport_route<'a>(
+    config: &Config,
+    transport: &RaftTransport,
+    route: &GroupRoute,
+    members: impl Iterator<Item = &'a crate::raft::catalog::InitialMember>,
+    managed: bool,
+) -> Result<PhysicalRoute<cellar_logic::cell_group::GroupHistory>, CellGroupControllerError> {
     // Check complete trusted placement before creating genesis or page files.
     let mut peers = Vec::new();
-    for member in birth.voters().iter().chain(birth.learners()) {
+    for member in members {
         let discovered;
-        let node = if matches!(&authority, Authority::Managed(_)) {
+        let node = if managed {
             discovered = transport
                 .observed_peer(member.node)
                 .map_err(CellGroupControllerError::Transport)?;
@@ -97,20 +122,12 @@ pub(super) async fn recover(
             query_address: node.query_address,
         });
     }
-    let permit = bootstrap(&directory, &birth, &runtime, &authority).await?;
-    let prepared =
-        recover_pages(&config, &runtime, permit.group().clone(), images, existing).await?;
-    Ok(Recovery::Ready(CellGroupRegistration {
-        permit,
-        current: prepared.current,
-        applier: prepared.applier,
-        transport: PhysicalRoute {
-            scope: route.history,
-            schema_digest: route.schema_digest,
-            revision: config.settings.peer_revision,
-            peers,
-        },
-    }))
+    Ok(PhysicalRoute {
+        scope: route.history,
+        schema_digest: route.schema_digest,
+        revision: config.settings.peer_revision,
+        peers,
+    })
 }
 
 pub(super) async fn resolve(

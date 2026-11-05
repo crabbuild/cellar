@@ -666,81 +666,157 @@ impl RangeDirectory {
                 .observe_transfer_install_quorum(plan, history)
                 .await?
                 .ok_or(CatalogError::Unconfirmed)?;
-            self.bounded(async {
-                let local = log.limits();
-                let voter = proof
-                    .voters
-                    .iter()
-                    .find(|receipt| receipt.node == local.node)
-                    .ok_or(CatalogError::NotInitialMember)?;
-                let engine = log.storage_instance().map_err(CatalogError::Log)?;
-                if voter.disk != local.disk || voter.engine != engine {
+            let (group, birth) = self.pending_transfer_member(plan, &proof, log).await?;
+            Ok(CellGroupBootstrapPermit::pending_transfer(
+                group,
+                birth,
+                self.clone(),
+                log.clone(),
+                super::bootstrap::PendingTransfer::Unmanaged(Arc::new(
+                    self.decode_mutation(plan.encode())?,
+                )),
+            ))
+        })
+    }
+
+    pub(crate) fn bootstrap_managed_pending_transfer_voter<'a>(
+        &'a self,
+        transition: Arc<ReopenedManagedCellGroupTransition>,
+        route: &'a GroupRoute,
+        log: &'a ReplicaLog,
+        host: &'a FleetHostAuthorization,
+        deadline: u64,
+    ) -> futures_util::future::BoxFuture<'a, Result<CellGroupBootstrapPermit, CatalogError>> {
+        Box::pin(async move {
+            let domain = log.domain();
+            let remaining = || {
+                let now = domain.mono_ms().map_err(|_| CatalogError::Unconfirmed)?;
+                deadline
+                    .checked_sub(now)
+                    .filter(|ms| *ms > 0)
+                    .map(Duration::from_millis)
+                    .ok_or(CatalogError::Runtime(
+                        crate::raft::completion::RuntimeError::DeadlineExceeded,
+                    ))
+            };
+            let proof = host
+                .stop_catalog()
+                .observe_managed_transfer_install_quorum(&transition, self, route, remaining()?)
+                .await
+                .map_err(CatalogError::from)?
+                .ok_or(CatalogError::Unconfirmed)?;
+            let (group, birth) = self
+                .pending_transfer_member(&transition.plan, &proof, log)
+                .await?;
+            let authority = host
+                .managed_transfer_install_authority(&transition, self, route, remaining()?)
+                .await
+                .map_err(CatalogError::from)?;
+            let boot = self.require_managed_group_boot(log, host).await?;
+            remaining()?;
+            let cache = group.read().map_err(CatalogError::Log)?;
+            if boot != authority.boot
+                || cache
+                    .membership
+                    .fleet_status()
+                    .is_none_or(|status| status.binding != authority.group)
+                || cache
+                    .group_manifest
+                    .as_ref()
+                    .is_none_or(|marker| marker.transfer_activation().is_some())
+            {
+                return Err(CatalogError::Fenced);
+            }
+            drop(cache);
+            Ok(CellGroupBootstrapPermit::pending_transfer(
+                group,
+                birth,
+                self.clone(),
+                log.clone(),
+                super::bootstrap::PendingTransfer::Managed {
+                    transition,
+                    host: Box::new(host.clone()),
+                    deadline,
+                },
+            ))
+        })
+    }
+
+    async fn pending_transfer_member(
+        &self,
+        plan: &DirectoryMutation,
+        proof: &TransferInstallQuorum,
+        log: &ReplicaLog,
+    ) -> Result<(GroupLog<GroupHistory>, CellGroupBirthRequest), CatalogError> {
+        self.bounded(async {
+            let local = log.limits();
+            let voter = proof
+                .voters
+                .iter()
+                .find(|receipt| receipt.node == local.node)
+                .ok_or(CatalogError::NotInitialMember)?;
+            let engine = log.storage_instance().map_err(CatalogError::Log)?;
+            if voter.disk != local.disk || voter.engine != engine {
+                return Err(CatalogError::LostStableState);
+            }
+            let group =
+                log.cell_group(&proof.genesis.route().history)
+                    .map_err(|error| match error {
+                        LogError::NotFound => CatalogError::LostStableState,
+                        error => CatalogError::Log(error),
+                    })?;
+            let birth = self
+                .require_ordinary_birth_reservation(proof.genesis.route())
+                .await?;
+            let activation = {
+                let cache = group.read().map_err(CatalogError::Log)?;
+                let marker = cache
+                    .group_manifest
+                    .as_ref()
+                    .ok_or(CatalogError::LostStableState)?;
+                let expected_voters = birth.voters().iter().map(|member| member.member.get());
+                let expected_learners = birth.learners().iter().map(|member| member.member.get());
+                if group.identity().member != voter.member
+                    || marker.route() != proof.genesis.route()
+                    || !marker.preserves_transfer(&proof.genesis)
+                {
                     return Err(CatalogError::LostStableState);
                 }
-                let group = log.cell_group(&history).map_err(|error| match error {
-                    LogError::NotFound => CatalogError::LostStableState,
-                    error => CatalogError::Log(error),
-                })?;
-                let birth = self
-                    .require_ordinary_birth_reservation(proof.genesis.route())
-                    .await?;
-                let activation = {
-                    let cache = group.read().map_err(CatalogError::Log)?;
-                    let marker = cache
-                        .group_manifest
-                        .as_ref()
-                        .ok_or(CatalogError::LostStableState)?;
-                    let expected_voters = birth.voters().iter().map(|member| member.member.get());
-                    let expected_learners =
-                        birth.learners().iter().map(|member| member.member.get());
-                    if group.identity().member != voter.member
-                        || marker.route() != proof.genesis.route()
-                        || !marker.preserves_transfer(&proof.genesis)
-                    {
-                        return Err(CatalogError::LostStableState);
-                    }
-                    let activation = marker.transfer_activation();
-                    if activation.is_none()
-                        && (cache.membership.revision().get() != 1
-                            || !cache.conf_state.voters.iter().copied().eq(expected_voters)
-                            || !cache
-                                .conf_state
-                                .learners
-                                .iter()
-                                .copied()
-                                .eq(expected_learners)
-                            || !cache.conf_state.voters_outgoing.is_empty()
-                            || !cache.conf_state.learners_next.is_empty()
-                            || cache.conf_state.auto_leave)
-                    {
-                        return Err(CatalogError::LostStableState);
-                    }
-                    activation
-                };
-                if let Some((certificate, _, _)) = activation {
-                    let published = self.publication(plan).await?.ok_or(CatalogError::Fenced)?;
-                    if published.transfer_archive().is_none()
-                        || published.journal_digest() != certificate
-                    {
-                        return Err(CatalogError::Fenced);
-                    }
+                let activation = marker.transfer_activation();
+                if activation.is_none()
+                    && (cache.membership.revision().get() != 1
+                        || !cache.conf_state.voters.iter().copied().eq(expected_voters)
+                        || !cache
+                            .conf_state
+                            .learners
+                            .iter()
+                            .copied()
+                            .eq(expected_learners)
+                        || !cache.conf_state.voters_outgoing.is_empty()
+                        || !cache.conf_state.learners_next.is_empty()
+                        || cache.conf_state.auto_leave)
+                {
+                    return Err(CatalogError::LostStableState);
                 }
-                super::bootstrap::check_member(&group)?;
-                let phase = self.require_transfer_install(plan, &proof.genesis).await?;
-                if phase == TransitionPhase::Retired || activation.is_some() {
-                    let (view, _) = self.current().await?;
-                    self.selected_route_in(&view, proof.genesis.route()).await?;
+                activation
+            };
+            if let Some((certificate, _, _)) = activation {
+                let published = self.publication(plan).await?.ok_or(CatalogError::Fenced)?;
+                if published.transfer_archive().is_none()
+                    || published.journal_digest() != certificate
+                {
+                    return Err(CatalogError::Fenced);
                 }
-                Ok(CellGroupBootstrapPermit::pending_transfer(
-                    group,
-                    birth,
-                    self.clone(),
-                    log.clone(),
-                    self.decode_mutation(plan.encode())?,
-                ))
-            })
-            .await
+            }
+            super::bootstrap::check_member(&group)?;
+            let phase = self.require_transfer_install(plan, &proof.genesis).await?;
+            if phase == TransitionPhase::Retired || activation.is_some() {
+                let (view, _) = self.current().await?;
+                self.selected_route_in(&view, proof.genesis.route()).await?;
+            }
+            Ok((group, birth))
         })
+        .await
     }
 
     async fn require_open_transfer_install(

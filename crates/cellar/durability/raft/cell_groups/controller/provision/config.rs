@@ -5,6 +5,7 @@ use super::*;
 use crate::application::consensus::group_protocol::GroupEntryLimits;
 use crate::raft::cell_groups::{CellGroupApplyImages, ManifestLimits, ManifestPins};
 use crate::raft::{budget::Budget, transport_options::RaftPeerNode};
+use cellar_logic::cell_group::GroupHistory;
 use std::path::PathBuf;
 
 /// Node-shared dynamic preparation ceilings; no namespace gets its own bank.
@@ -75,7 +76,8 @@ pub(in super::super) struct Config {
     pub configuration_bytes: usize,
     // Startup verified these physical owners before enabling image collection.
     // They have no controller roster or transport registration.
-    pub parked: Vec<(CellGroupApplier, PreparedGroupManifest)>,
+    pub(super) parked: Mutex<BTreeMap<GroupHistory, transfer::PendingTransferOwner>>,
+    pub(super) transfer_turn: tokio::sync::Mutex<()>,
 }
 
 impl Config {
@@ -235,7 +237,21 @@ impl Config {
             )),
             bytes,
             configuration_bytes,
-            parked,
+            parked: Mutex::new(
+                parked
+                    .into_iter()
+                    .map(|(applier, current)| {
+                        (
+                            applier.history(),
+                            transfer::PendingTransferOwner::Recovered(prepare::Prepared {
+                                applier,
+                                current,
+                            }),
+                        )
+                    })
+                    .collect(),
+            ),
+            transfer_turn: tokio::sync::Mutex::new(()),
             archives,
             settings,
         })

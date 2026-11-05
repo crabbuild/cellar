@@ -5,14 +5,104 @@ use super::*;
 use crate::raft::{
     cell_groups::{
         CellGroupArchiveStore, CellGroupRecoveryPool, CellGroupTransferTarget,
-        InstalledTransferVoter, ManifestPageStore, TransitionPhase,
+        InstalledTransferVoter, ManifestPageStore, PreparedCellGroupTransferChild, TransitionPhase,
         VerifiedCellGroupTransitionSources,
     },
     fleet_catalog::{FleetHostAuthorization, ReopenedManagedCellGroupTransition},
 };
 use std::time::Duration;
 
+#[derive(Clone)]
+pub(super) enum PendingTransferOwner {
+    Recovered(prepare::Prepared),
+    Seeded(Arc<PreparedCellGroupTransferChild>),
+}
+
 impl CellGroupController {
+    pub(crate) async fn attach_managed_transfer_child(
+        &self,
+        directory: &RangeDirectory,
+        transition: Arc<ReopenedManagedCellGroupTransition>,
+        route: &GroupRoute,
+        host: &FleetHostAuthorization,
+        transport: &RaftTransport,
+        control: (u64, &tokio::sync::watch::Receiver<bool>),
+    ) -> Result<(), CellGroupControllerError> {
+        let (deadline, stop) = control;
+        let shared = &self.handle.0;
+        let log = shared.runtime.log();
+        let config = shared
+            .provisioning
+            .lock()
+            .map_err(|_| CellGroupControllerError::Closed)?
+            .clone()
+            .ok_or(CellGroupControllerError::Invalid(
+                "transfer provisioning owner",
+            ))?;
+        let _turn = config
+            .transfer_turn
+            .try_lock()
+            .map_err(|_| RuntimeError::Overloaded)?;
+        config.images(directory)?;
+        let permit = directory
+            .bootstrap_managed_pending_transfer_voter(transition, route, log, host, deadline)
+            .await
+            .map_err(catalog_error)?;
+        if shared.groups.contains(&route.history)? {
+            return Ok(());
+        }
+        let physical = prepare::transport_route(
+            &config,
+            transport,
+            route,
+            permit.initial_voters().iter(),
+            true,
+        )?;
+        let owner = config
+            .parked
+            .lock()
+            .map_err(|_| CellGroupControllerError::Closed)?
+            .get(&route.history)
+            .cloned()
+            .ok_or_else(|| catalog_error(CatalogError::LostStableState))?;
+        let prepared = match owner {
+            PendingTransferOwner::Recovered(owner) => owner,
+            PendingTransferOwner::Seeded(child) => {
+                let applier = child.installed_applier(&permit)?;
+                log.domain()
+                    .blocking(move || {
+                        let current = applier.recover_selected()?;
+                        Ok(prepare::Prepared { applier, current })
+                    })
+                    .map_err(|_| CellGroupControllerError::Closed)?
+                    .await
+                    .map_err(|_| CellGroupControllerError::Closed)?
+                    .map_err(apply_error)?
+            }
+        };
+        if *stop.borrow() || shared.closing.load(Ordering::Acquire) {
+            return Err(CellGroupControllerError::Closed);
+        }
+        self.register(CellGroupRegistration {
+            permit,
+            current: prepared.current,
+            applier: prepared.applier,
+            transport: physical,
+        })
+        .map_err(|error| error.error)?
+        .response()
+        .await
+        .map_err(|error| error.as_ref().clone())?;
+        // The roster owns this page store after registration joins. Release
+        // the separate genesis reference so it cannot pin superseded images.
+        config
+            .parked
+            .lock()
+            .map_err(|_| CellGroupControllerError::Closed)?
+            .remove(&route.history);
+        Ok(())
+    }
+
     pub(crate) async fn install_managed_transfer_child(
         &self,
         directory: &RangeDirectory,
@@ -51,6 +141,10 @@ impl CellGroupController {
             .ok_or(CellGroupControllerError::Invalid(
                 "transfer provisioning owner",
             ))?;
+        let _turn = config
+            .transfer_turn
+            .try_lock()
+            .map_err(|_| RuntimeError::Overloaded)?;
         let images = config.images(directory)?;
         let _preparation = config
             .preparations
@@ -76,11 +170,16 @@ impl CellGroupController {
         {
             return Err(catalog_error(CatalogError::Fenced));
         }
-        let recovered = config
+        let previous = config
             .parked
-            .iter()
-            .find(|(applier, _)| applier.history() == route.history)
-            .map(|(_, root)| root);
+            .lock()
+            .map_err(|_| CellGroupControllerError::Closed)?
+            .get(&route.history)
+            .cloned();
+        let recovered = match &previous {
+            Some(PendingTransferOwner::Recovered(owner)) => Some(&owner.current),
+            _ => None,
+        };
         if let Some(receipt) = directory
             .reconcile_managed_transfer_voter(transition, route, log, host, deadline, recovered)
             .await
@@ -88,12 +187,34 @@ impl CellGroupController {
         {
             return Ok(receipt);
         }
+        match previous {
+            Some(PendingTransferOwner::Recovered(_)) => {
+                return Err(catalog_error(CatalogError::LostStableState))
+            }
+            Some(PendingTransferOwner::Seeded(prepared)) => {
+                return directory
+                    .install_managed_transfer_voter(transition, &prepared, log, host, remaining()?)
+                    .await
+                    .map_err(catalog_error);
+            }
+            None => (),
+        }
+        if config
+            .parked
+            .lock()
+            .map_err(|_| CellGroupControllerError::Closed)?
+            .len()
+            >= shared.limits.max_groups
+        {
+            return Err(RuntimeError::Overloaded.into());
+        }
         remaining()?;
         let target_route = route.clone();
         let scratch = log.snapshot_scratch();
+        let staging = config.clone();
         let target = domain
             .blocking(move || {
-                let settings = &config.settings;
+                let settings = &staging.settings;
                 let directory = settings.directory.join("transfer-spools");
                 cellar_ltx::host::create_dir_all_durable(settings.filesystem.as_ref(), &directory)
                     .map_err(crate::raft::execution::storage)?;
@@ -131,8 +252,20 @@ impl CellGroupController {
             .prepare_transfer_child(&domain, sources, target)
             .await
             .map_err(|error| CellGroupControllerError::Archive(Arc::new(error.into())))?;
+        let remaining = remaining()?;
+        let prepared = Arc::new(prepared);
+        // Retain the exact page owner before the engine can enter sync. A lost
+        // receipt or timeout can follow the durable mapping.
+        config
+            .parked
+            .lock()
+            .map_err(|_| CellGroupControllerError::Closed)?
+            .insert(
+                route.history,
+                PendingTransferOwner::Seeded(prepared.clone()),
+            );
         directory
-            .install_managed_transfer_voter(transition, &prepared, log, host, remaining()?)
+            .install_managed_transfer_voter(transition, &prepared, log, host, remaining)
             .await
             .map_err(catalog_error)
     }

@@ -6,10 +6,46 @@ use crate::raft::{
     catalog::CatalogError, completion::RuntimeError,
     fleet_catalog::ReopenedManagedCellGroupTransition,
 };
+use cellar_logic::cell_group::GroupRoute;
 
 const SEAL_BYTES: usize = 4 * 1024 * 1024;
 
 impl RaftGroupHandle {
+    /// Observe a durable fresh-term commit on a pending managed transfer child.
+    /// The resulting proof supplies no application or routing authority.
+    pub fn managed_pending_transfer_quorum(
+        &self,
+        timeout: Duration,
+    ) -> impl Future<Output = Result<TransferChildQuorum, CellGroupControllerError>> + Send + 'static
+    {
+        let admitted = self
+            .owner
+            .metadata_admission(timeout, 4096)
+            .map_err(super::startup::admission_error);
+        let owner = self.owner.internal_observer();
+        let history = self.history;
+        async move {
+            let (deadline, _memory) = admitted?;
+            let core = &owner.handle.core;
+            let host = core.managed.as_ref().ok_or_else(|| {
+                super::startup::catalog_error(CatalogError::ManagedAdmissionRequired)
+            })?;
+            owner.startup_live(host, deadline)?;
+            let proof = owner
+                .handle
+                .domain
+                .run(crate::asyncrt::timeout_at(
+                    deadline,
+                    core.runtime.pending_transfer_quorum(history),
+                ))
+                .await
+                .map_err(|_| CellGroupControllerError::Closed)?
+                .map_err(|_| CellGroupControllerError::Runtime(RuntimeError::DeadlineExceeded))??;
+            owner.startup_live(host, deadline)?;
+            Ok(proof)
+        }
+    }
+
     /// Submit or observe the exact seal authorized for this managed parent.
     /// Accepted identifies a proposal. Applied returns the selected durable cut.
     /// A lost response can follow either outcome. Retry the same fleet plan.
@@ -73,6 +109,65 @@ impl RaftGroupHandle {
 }
 
 impl RaftCells {
+    /// Attach this boot's exact installed voter to the pending child. The
+    /// majority of install receipts and current capacity are revalidated before
+    /// attachment. The child can vote but cannot serve application requests.
+    pub fn attach_managed_transfer_child(
+        &self,
+        transition: Arc<ReopenedManagedCellGroupTransition>,
+        route: GroupRoute,
+        timeout: Duration,
+    ) -> impl Future<Output = Result<(), CellGroupControllerError>> + Send + 'static {
+        let admitted = self
+            .metadata_admission(timeout, 4096)
+            .map_err(super::startup::admission_error);
+        let owner = self.internal_observer();
+        async move {
+            let (deadline, _memory) = admitted?;
+            let core = &owner.handle.core;
+            let host = core.managed.as_ref().ok_or_else(|| {
+                super::startup::catalog_error(CatalogError::ManagedAdmissionRequired)
+            })?;
+            owner.startup_live(host, deadline)?;
+            let directory = core
+                .host
+                .namespace_directory(route.history.cluster, route.history.namespace)
+                .map_err(|_| CellGroupControllerError::Invalid("transfer child namespace"))?;
+            let lease = owner
+                .register_control_service(ControlServiceKind::Transfer, 4096)
+                .map_err(CatalogError::from)
+                .map_err(super::startup::catalog_error)?;
+            let (reply, result) = tokio::sync::oneshot::channel();
+            let controller = core.controller.clone();
+            let transport = core.transport.clone();
+            let host = host.clone();
+            let domain = &owner.handle.domain;
+            domain
+                .spawn_cleanup(async move {
+                    let stop = lease.stop_receiver();
+                    let attached = Box::pin(controller.attach_managed_transfer_child(
+                        &directory,
+                        transition,
+                        &route,
+                        &host,
+                        &transport,
+                        (deadline, &stop),
+                    ))
+                    .await;
+                    drop(lease);
+                    let _ = reply.send(attached);
+                })
+                .map_err(|_| CellGroupControllerError::Closed)?
+                .detach();
+            domain
+                .run(crate::asyncrt::timeout_at(deadline, result))
+                .await
+                .map_err(|_| CellGroupControllerError::Closed)?
+                .map_err(|_| CellGroupControllerError::Runtime(RuntimeError::DeadlineExceeded))?
+                .map_err(|_| CellGroupControllerError::Closed)?
+        }
+    }
+
     /// Install one reserved transfer child into this node's retained stores.
     /// The receipt proves local sync. Attachment and activation are separate.
     /// After a timeout, retry the same transition, sources and child.

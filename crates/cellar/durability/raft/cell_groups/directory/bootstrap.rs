@@ -5,7 +5,7 @@
 use super::*;
 use crate::raft::{
     cache::GroupLog,
-    catalog::DisasterFenceAuthority,
+    catalog::{DisasterFenceAuthority, InitialMember},
     storage::{CellGroupBootstrap, LogError, ReplicaLog},
 };
 use cellar_logic::consensus::MemberId;
@@ -32,7 +32,16 @@ enum BootstrapOrigin {
     Joined,
     ManagedJoined(Box<crate::raft::fleet_catalog::FleetHostAuthorization>),
     Recovery(Box<recovery::RecoveryStartup>),
-    PendingTransfer(Arc<DirectoryMutation>),
+    PendingTransfer(PendingTransfer),
+}
+
+pub(super) enum PendingTransfer {
+    Unmanaged(Arc<DirectoryMutation>),
+    Managed {
+        transition: Arc<crate::raft::fleet_catalog::ReopenedManagedCellGroupTransition>,
+        host: Box<crate::raft::fleet_catalog::FleetHostAuthorization>,
+        deadline: u64,
+    },
 }
 
 impl CellGroupBootstrapPermit {
@@ -57,7 +66,7 @@ impl CellGroupBootstrapPermit {
         birth: CellGroupBirthRequest,
         directory: RangeDirectory,
         log: ReplicaLog,
-        plan: DirectoryMutation,
+        origin: PendingTransfer,
     ) -> Self {
         Self {
             group,
@@ -67,7 +76,7 @@ impl CellGroupBootstrapPermit {
             },
             directory,
             log,
-            origin: BootstrapOrigin::PendingTransfer(Arc::new(plan)),
+            origin: BootstrapOrigin::PendingTransfer(origin),
         }
     }
 
@@ -81,6 +90,10 @@ impl CellGroupBootstrapPermit {
 
     pub fn route(&self) -> &GroupRoute {
         self.birth.route()
+    }
+
+    pub(crate) fn initial_voters(&self) -> &[InitialMember] {
+        self.birth.voters()
     }
 
     pub(crate) fn recovery_request(&self) -> Option<&Arc<CellGroupRecoveryRequest>> {
@@ -101,9 +114,23 @@ impl CellGroupBootstrapPermit {
 
     pub async fn revalidate(&self) -> Result<(), CatalogError> {
         match &self.origin {
-            BootstrapOrigin::PendingTransfer(plan) => self
+            BootstrapOrigin::PendingTransfer(PendingTransfer::Unmanaged(plan)) => self
                 .directory
                 .bootstrap_pending_transfer_voter(plan, self.route().history, &self.log)
+                .await
+                .map(|_| ()),
+            BootstrapOrigin::PendingTransfer(PendingTransfer::Managed {
+                transition,
+                host,
+                deadline,
+            }) => self
+                .bootstrap_managed_pending_transfer_voter(
+                    transition.clone(),
+                    self.route(),
+                    &self.log,
+                    host,
+                    *deadline,
+                )
                 .await
                 .map(|_| ()),
             BootstrapOrigin::Initial => self
