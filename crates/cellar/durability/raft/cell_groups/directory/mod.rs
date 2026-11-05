@@ -151,6 +151,13 @@ pub struct DirectoryPublication {
     revision: u64,
     tree: Option<[u8; 32]>,
     journal: [u8; 32],
+    transfer_archive: Option<[u8; 32]>,
+}
+
+enum PublicationAuthority<'a> {
+    Ordinary,
+    Recovery(&'a recovery::RecoveryPublication),
+    Transfer([u8; 32]),
 }
 
 impl DirectoryPublication {
@@ -170,6 +177,10 @@ impl DirectoryPublication {
 
     pub fn journal_digest(&self) -> [u8; 32] {
         self.journal
+    }
+
+    pub fn transfer_archive(&self) -> Option<[u8; 32]> {
+        self.transfer_archive
     }
 }
 
@@ -344,7 +355,8 @@ impl RangeDirectory {
                 }
             } else {
                 let birth = self.decide_live_birth(&proposal).await?;
-                self.publish_inner(mutation, None).await?;
+                self.publish_inner(mutation, PublicationAuthority::Ordinary)
+                    .await?;
                 birth
             };
             self.require_current_group_birth(&birth).await
@@ -525,6 +537,8 @@ impl RangeDirectory {
         {
             return Err(CatalogError::Corrupt("directory head/journal disagreement"));
         }
+        self.check_confirmed_transfer(&view.head, &journal, view.head.journal)
+            .await?;
         Ok((view, version))
     }
 
@@ -583,11 +597,13 @@ impl RangeDirectory {
         if journal.request != mutation.digest {
             return Err(CatalogError::Conflict("directory operation reused"));
         }
+        self.check_confirmed_transfer(head, &journal, id).await?;
         Ok(Some(DirectoryPublication {
             operation: mutation.operation,
             revision: journal.revision,
             tree: journal.tree.as_ref().map(|tree| tree.digest),
             journal: id,
+            transfer_archive: journal.transfer_archive,
         }))
     }
 
@@ -608,6 +624,8 @@ impl RangeDirectory {
             || journal.revision > self.limits.max_mutations
             || ProposalId::new(journal.operation).is_err()
             || journal.previous.is_none() != (journal.revision == 1)
+            || journal.transfer_archive == Some([0; 32])
+            || (journal.revision == 1 && journal.transfer_archive.is_some())
         {
             return Err(CatalogError::Corrupt("directory journal identity"));
         }
@@ -633,15 +651,22 @@ impl RangeDirectory {
         mutation: &DirectoryMutation,
     ) -> Result<DirectoryPublication, CatalogError> {
         self.check_request(&mutation.request)?;
-        self.bounded(self.publish_inner(mutation, None)).await
+        self.bounded(self.publish_inner(mutation, PublicationAuthority::Ordinary))
+            .await
     }
 
     async fn publish_inner(
         &self,
         mutation: &DirectoryMutation,
-        recovery: Option<&recovery::RecoveryPublication>,
+        authority: PublicationAuthority<'_>,
     ) -> Result<DirectoryPublication, CatalogError> {
         let request = &mutation.request;
+        let (recovery, transfer_archive) = match authority {
+            PublicationAuthority::Ordinary => (None, None),
+            PublicationAuthority::Recovery(recovery) => (Some(recovery), None),
+            PublicationAuthority::Transfer(archive) => (None, Some(archive)),
+        };
+        let mut transition = None;
         let current = if request.expected.is_some() {
             Some(self.current().await?)
         } else {
@@ -665,31 +690,43 @@ impl RangeDirectory {
             }
             if let Some(publication) = self.confirmed(&view.head, mutation).await? {
                 if request.expected.is_some() {
+                    if transfer_archive.is_some()
+                        && publication.transfer_archive() != transfer_archive
+                    {
+                        return Err(CatalogError::Fenced);
+                    }
                     return Ok(publication);
                 }
                 // An interrupted genesis resumes only its identical first head.
             }
-            if self.transition_active(&view.head).await?.is_some() {
-                return Err(CatalogError::Fenced);
-            }
-            if self
-                .transition_record(&view.head, mutation.operation)
-                .await?
-                .is_some()
-            {
-                return Err(CatalogError::Conflict("transition operation reused"));
-            }
-            if let Some(recovery) = recovery {
-                recovery.check(self, view, mutation)?;
+            if let Some(archive) = transfer_archive {
+                transition = Some(
+                    self.check_transfer_publication(view, mutation, archive)
+                        .await?,
+                );
             } else {
-                if view.head.recovery.is_some() {
+                if self.transition_active(&view.head).await?.is_some() {
                     return Err(CatalogError::Fenced);
                 }
-                if request
-                    .expected
-                    .is_some_and(|expected| expected != view.digest)
+                if self
+                    .transition_record(&view.head, mutation.operation)
+                    .await?
+                    .is_some()
                 {
-                    return Err(CatalogError::Conflict("stale directory root"));
+                    return Err(CatalogError::Conflict("transition operation reused"));
+                }
+                if let Some(recovery) = recovery {
+                    recovery.check(self, view, mutation)?;
+                } else {
+                    if view.head.recovery.is_some() {
+                        return Err(CatalogError::Fenced);
+                    }
+                    if request
+                        .expected
+                        .is_some_and(|expected| expected != view.digest)
+                    {
+                        return Err(CatalogError::Conflict("stale directory root"));
+                    }
                 }
             }
         }
@@ -718,7 +755,10 @@ impl RangeDirectory {
             if let Some(recovery) = recovery {
                 recovery.check_child(&route)?;
             } else {
-                self.require_ordinary_birth_reservation(&route).await?;
+                let birth = self.require_ordinary_birth_reservation(&route).await?;
+                if transition.is_some() {
+                    self.decide_live_birth(&birth).await?;
+                }
             }
         }
         for parent in &request.parents {
@@ -746,12 +786,13 @@ impl RangeDirectory {
             request: mutation.digest,
             revision,
             previous: base.map(|h| h.journal),
+            transfer_archive,
             tree: tree.clone(),
         };
         let bytes = record::encode(wire::JOURNAL, &journal, wire::LIMIT)?;
         let id = record::digest(&bytes);
         self.immutable("journal", id, &bytes).await?;
-        let operations = Index::new(self)
+        let mut operations = Index::new(self)
             .update(
                 base.and_then(|h| h.operations),
                 &hex::encode(request.operation),
@@ -759,6 +800,11 @@ impl RangeDirectory {
                 0,
             )
             .await?;
+        if let Some(transition) = transition {
+            operations = self
+                .root_transfer_publication(operations, mutation, transition, id)
+                .await?;
+        }
         let head = wire::Head {
             namespace: self.namespace.root_digest,
             genesis: base.map_or(id, |h| h.genesis),
@@ -833,8 +879,17 @@ impl RangeDirectory {
             .await
             .map_err(|_| CatalogError::Unconfirmed)?;
         match self.confirmed(&after.head, mutation).await {
-            Ok(Some(publication)) => Ok(publication),
-            Ok(None) if request.expected.is_some_and(|base| base != after.digest) => {
+            Ok(Some(publication))
+                if transfer_archive.is_none()
+                    || publication.transfer_archive() == transfer_archive =>
+            {
+                Ok(publication)
+            }
+            Ok(Some(_)) => Err(CatalogError::Fenced),
+            Ok(None)
+                if transfer_archive.is_none()
+                    && request.expected.is_some_and(|base| base != after.digest) =>
+            {
                 Err(CatalogError::Conflict("directory CAS lost"))
             }
             _ => Err(CatalogError::Unconfirmed),

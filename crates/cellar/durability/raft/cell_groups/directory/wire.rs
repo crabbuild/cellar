@@ -271,6 +271,8 @@ pub(super) struct Journal {
     pub request: [u8; 32],
     pub revision: u64,
     pub previous: Option<[u8; 32]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transfer_archive: Option<[u8; 32]>,
     #[serde(deserialize_with = "required_tree")]
     pub tree: Option<Reference>,
 }

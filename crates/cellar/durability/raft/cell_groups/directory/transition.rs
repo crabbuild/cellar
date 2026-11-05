@@ -28,6 +28,7 @@ pub enum TransitionPhase {
     Sealed,
     Installed,
     Archived,
+    Published,
     Cancelled,
 }
 
@@ -44,6 +45,8 @@ pub struct TransitionJournal {
     installed_set: Option<[u8; 32]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     archive: Option<[u8; 32]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    publication: Option<[u8; 32]>,
     phase: TransitionPhase,
 }
 
@@ -75,6 +78,7 @@ impl TransitionJournal {
                 | TransitionPhase::Sealed
                 | TransitionPhase::Installed
                 | TransitionPhase::Archived
+                | TransitionPhase::Published
         ) {
             return Err(CatalogError::Fenced);
         }
@@ -83,6 +87,7 @@ impl TransitionJournal {
             source_set: None,
             installed_set: None,
             archive: None,
+            publication: None,
             ..self.clone()
         };
         Ok(record::digest(&record::encode(
@@ -242,23 +247,33 @@ impl RangeDirectory {
                         | TransitionPhase::Sealed
                         | TransitionPhase::Installed
                         | TransitionPhase::Archived
+                        | TransitionPhase::Published
                 );
                 if journal.request == [0; 32]
                     || journal.preparation == Some([0; 32])
                     || journal.source_set == Some([0; 32])
                     || journal.installed_set == Some([0; 32])
                     || journal.archive == Some([0; 32])
+                    || journal.publication == Some([0; 32])
                     || matches!(
                         journal.phase,
                         TransitionPhase::Sealed
                             | TransitionPhase::Installed
                             | TransitionPhase::Archived
+                            | TransitionPhase::Published
                     ) != journal.source_set.is_some()
                     || matches!(
                         journal.phase,
-                        TransitionPhase::Installed | TransitionPhase::Archived
+                        TransitionPhase::Installed
+                            | TransitionPhase::Archived
+                            | TransitionPhase::Published
                     ) != journal.installed_set.is_some()
-                    || (journal.phase == TransitionPhase::Archived) != journal.archive.is_some()
+                    || matches!(
+                        journal.phase,
+                        TransitionPhase::Archived | TransitionPhase::Published
+                    ) != journal.archive.is_some()
+                    || (journal.phase == TransitionPhase::Published)
+                        != journal.publication.is_some()
                     || (required && journal.preparation.is_none())
                     || (journal.phase == TransitionPhase::Planned && journal.preparation.is_some())
                 {
@@ -318,6 +333,69 @@ impl RangeDirectory {
             }
         }
         Ok(found)
+    }
+
+    pub(super) async fn check_transfer_publication(
+        &self,
+        view: &DirectoryView,
+        mutation: &DirectoryMutation,
+        archive: [u8; 32],
+    ) -> Result<TransitionJournal, CatalogError> {
+        if view.head.recovery.is_some() {
+            return Err(CatalogError::Fenced);
+        }
+        self.matching_transition(&view.head, mutation)
+            .await?
+            .filter(|journal| {
+                journal.phase == TransitionPhase::Archived && journal.archive == Some(archive)
+            })
+            .ok_or(CatalogError::Fenced)
+    }
+
+    pub(super) async fn root_transfer_publication(
+        &self,
+        operations: Option<[u8; 32]>,
+        mutation: &DirectoryMutation,
+        mut journal: TransitionJournal,
+        publication: [u8; 32],
+    ) -> Result<Option<[u8; 32]>, CatalogError> {
+        journal.publication = Some(publication);
+        journal.phase = TransitionPhase::Published;
+        // Keep the operation active until activation and retirement settle.
+        Index::new(self)
+            .update(
+                operations,
+                &key(mutation.operation),
+                Some(record::encode(JOURNAL, &journal, LIMIT)?),
+                0,
+            )
+            .await
+    }
+
+    pub(super) async fn check_confirmed_transfer(
+        &self,
+        head: &wire::Head,
+        journal: &wire::Journal,
+        publication: [u8; 32],
+    ) -> Result<(), CatalogError> {
+        let Some(archive) = journal.transfer_archive else {
+            return Ok(());
+        };
+        let operation = ProposalId::new(journal.operation)
+            .map_err(|_| CatalogError::Corrupt("transfer publication operation"))?;
+        let selected = self
+            .transition_record(head, operation)
+            .await?
+            .ok_or(CatalogError::Corrupt("missing published transfer decision"))?;
+        if selected.phase != TransitionPhase::Published
+            || selected.request != journal.request
+            || selected.archive != Some(archive)
+            || selected.publication != Some(publication)
+            || self.transition_active(head).await? != Some(operation)
+        {
+            return Err(CatalogError::Corrupt("transfer publication binding"));
+        }
+        Ok(())
     }
 
     async fn commit_transition_head(
@@ -389,6 +467,7 @@ impl RangeDirectory {
                 source_set: None,
                 installed_set: None,
                 archive: None,
+                publication: None,
                 phase: TransitionPhase::Planned,
             };
             for (key, value) in [
@@ -817,6 +896,7 @@ impl RangeDirectory {
             source_set: None,
             installed_set: None,
             archive: None,
+            publication: None,
             phase: TransitionPhase::Cancelled,
         };
         let count = self.available_transition_slot(&view.head).await?;

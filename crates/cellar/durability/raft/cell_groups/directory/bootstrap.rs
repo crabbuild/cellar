@@ -357,6 +357,7 @@ impl RangeDirectory {
                 None
             };
             self.require_current_group_birth(birth).await?;
+            self.require_non_transfer_birth(birth.route()).await?;
             self.require_ordinary_birth_reservation(birth.route())
                 .await?;
             let selected = birth

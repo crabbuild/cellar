@@ -1100,8 +1100,12 @@ still leaves a recovery path for prior S3-protected effects under the child
 partition. A controller observation without
 those proofs cannot publish. S3 outage may stall topology changes; it does not
 change ordinary Quorum acknowledgement behavior.
-Publication certificates are immutable journal entries, not a mutable head URL.
-Children validate their exact transition and refuse replay after later retirement.
+Publication verifies that the original archive holds are still retained. A single
+directory CAS selects all child ranges, the Published decision and the immutable
+certificate binding the archive closure. An exact retry can recover that
+certificate after a lost response. Ordinary initial bootstrap refuses transfer
+children even after their routes are selected. Children validate their exact
+transition and refuse replay after later retirement.
 Source tombstones remain effective across restart, delayed messages and catalog
 unavailability. The whole transition is one fenced owner operation; concurrent
 controllers reconcile the same journal instead of selecting different children.

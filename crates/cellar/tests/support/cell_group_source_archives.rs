@@ -455,6 +455,12 @@ async fn verify_transfer_archive(
         .await??
         .is_none());
 
+    anyhow::ensure!(matches!(
+        directory
+            .publish_transfer(domain, &archives.pool, plan)
+            .await,
+        Err(CellGroupArchiveBindingError::Catalog(CatalogError::Fenced))
+    ));
     let inputs = archive_inputs(archives, cluster, hold, markers, "closure-outage")?;
     store
         .deny_group_payload_reads
@@ -488,7 +494,7 @@ async fn verify_transfer_archive(
         ))
     ));
 
-    let catalog = Catalog::new(store, CatalogOptions::default())?;
+    let catalog = Catalog::new(store.clone(), CatalogOptions::default())?;
     let namespace = domain
         .run(catalog.existing_namespace(directory.namespace_config().clone()))
         .await??;
@@ -527,6 +533,90 @@ async fn verify_transfer_archive(
             .await??
             == *cluster.birth.route()
     );
+    Box::pin(verify_transfer_publication(
+        fixture, archives, &reopened, &original, view, store, &closure,
+    ))
+    .await
+}
+
+async fn verify_transfer_publication(
+    fixture: &RuntimeCluster,
+    archives: &Archives,
+    directory: &RangeDirectory,
+    plan: &DirectoryMutation,
+    before: DirectoryView,
+    store: Arc<catalog_fault::Store>,
+    closure: &CellGroupTransferArchive,
+) -> Result<()> {
+    let cluster = &fixture.cluster;
+    let domain = &cluster.domain;
+
+    // The conditional update commits but its immediate read-back fails.
+    store.fail_head_confirmation.store(true, Ordering::Release);
+    let publication = directory
+        .publish_transfer(domain, &archives.pool, plan)
+        .await?;
+    anyhow::ensure!(!store.fail_head_confirmation.load(Ordering::Acquire));
+    anyhow::ensure!(publication.transfer_archive() == Some(closure.digest));
+    anyhow::ensure!(publication.revision() == before.revision() + 1);
+
+    let old = domain.run(directory.group_page(&before, None, 3)).await??;
+    anyhow::ensure!(old.next.is_none() && old.routes.as_slice() == [cluster.birth.route().clone()]);
+    let after = domain.run(directory.observe()).await??;
+    let new = domain.run(directory.group_page(&after, None, 3)).await??;
+    anyhow::ensure!(after.revision() == publication.revision() && new.next.is_none());
+    let expected = closure.children.iter().map(GroupManifest::route);
+    anyhow::ensure!(new.routes.iter().eq(expected));
+    anyhow::ensure!(new.routes.len() == 2);
+    let cell = CellId::new("alpha")?;
+    let child = domain.run(directory.lookup(&after, &cell)).await??;
+    anyhow::ensure!(new.routes.contains(&child));
+
+    let catalog = Catalog::new(store, CatalogOptions::default())?;
+    let namespace = domain
+        .run(catalog.existing_namespace(directory.namespace_config().clone()))
+        .await??;
+    let reopened = RangeDirectory::new(namespace, DirectoryLimits::default())?;
+    let (original, decision) = domain
+        .run(reopened.active_transition())
+        .await??
+        .context("published transition")?;
+    anyhow::ensure!(original.encode() == plan.encode());
+    anyhow::ensure!(decision.phase() == TransitionPhase::Published);
+    anyhow::ensure!(
+        reopened
+            .publish_transfer(domain, &archives.pool, &original)
+            .await?
+            == publication
+    );
+    let retained = domain
+        .run(reopened.transfer_archive(&original))
+        .await??
+        .context("published transfer archive")?;
+    anyhow::ensure!(retained.digest == closure.digest);
+    anyhow::ensure!(
+        retained.source_holds == closure.source_holds && retained.children == closure.children
+    );
+
+    for route in &new.routes {
+        let birth = domain
+            .run(reopened.materialize_selected_history(route.history))
+            .await??;
+        anyhow::ensure!(matches!(
+            domain
+                .run(reopened.bootstrap_group_member(&birth, &cluster.voters[0].log))
+                .await?,
+            Err(CatalogError::Fenced)
+        ));
+        anyhow::ensure!(matches!(
+            fixture.runtimes[0].propose(route.history, vec![1]).await,
+            Err(RuntimeError::NotReady)
+        ));
+        anyhow::ensure!(matches!(
+            fixture.runtimes[0].read_index(route.history, vec![1]).await,
+            Err(RuntimeError::NotReady)
+        ));
+    }
     Ok(())
 }
 

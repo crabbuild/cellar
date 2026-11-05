@@ -148,6 +148,7 @@ impl RangeDirectory {
                     request: view.digest,
                     revision,
                     previous: Some(view.head.journal),
+                    transfer_archive: None,
                     tree: view.head.tree.clone(),
                 };
                 let journal_bytes = record::encode(wire::JOURNAL, &journal, wire::LIMIT)?;

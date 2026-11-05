@@ -4,7 +4,8 @@
 //! independently reconstructed child roots selected by the installation CAS.
 use super::{transition_sources::TransitionSourceCut, *};
 use crate::raft::cell_groups::{
-    CellGroupArchiveError, CellGroupArchiveExecution, CellGroupArchiveHold, GroupManifest,
+    CellGroupArchiveError, CellGroupArchiveExecution, CellGroupArchiveHold, CellGroupArchivePool,
+    GroupManifest,
 };
 use serde::{Deserialize, Serialize};
 
@@ -110,6 +111,70 @@ impl RangeDirectory {
             }))
             .await
             .map_err(|_| CellGroupArchiveError::Stopped)?
+    }
+
+    /// Atomically select the archived child ranges. An exact retry confirms
+    /// the same publication, including when the first CAS response was lost.
+    /// Children remain fenced until their own replicated activation.
+    pub async fn publish_transfer(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        archives: &CellGroupArchivePool,
+        plan: &DirectoryMutation,
+    ) -> Result<DirectoryPublication, CellGroupArchiveBindingError> {
+        self.unmanaged_birth()?;
+        self.check_transition_plan(plan)?;
+        domain
+            .run(Box::pin(async {
+                self.namespace.require_cell_group_unmanaged().await?;
+                if let Some(publication) = self.confirmed_transfer_publication(plan).await? {
+                    return Ok(publication);
+                }
+                let attempt = async {
+                    let closure = self
+                        .transfer_archive(plan)
+                        .await?
+                        .ok_or(CatalogError::Fenced)?;
+                    for hold in &closure.source_holds {
+                        let birth = self
+                            .materialize_selected_history(hold.marker().route().history)
+                            .await?;
+                        let registry = self.open_group_archive(domain, archives, &birth).await?;
+                        registry.require_retained_hold(domain, hold).await?;
+                    }
+                    self.bounded(
+                        self.publish_inner(plan, PublicationAuthority::Transfer(closure.digest)),
+                    )
+                    .await
+                    .map_err(Into::into)
+                }
+                .await;
+                match attempt {
+                    Ok(publication) => Ok(publication),
+                    // Another controller may have published this exact plan
+                    // while this attempt was reopening the parent archives.
+                    Err(error) => match self.confirmed_transfer_publication(plan).await {
+                        Ok(Some(publication)) => Ok(publication),
+                        _ => Err(error),
+                    },
+                }
+            }))
+            .await
+            .map_err(|_| CellGroupArchiveError::Stopped)?
+    }
+
+    async fn confirmed_transfer_publication(
+        &self,
+        plan: &DirectoryMutation,
+    ) -> Result<Option<DirectoryPublication>, CatalogError> {
+        let publication = self.publication(plan).await?;
+        if publication
+            .as_ref()
+            .is_some_and(|publication| publication.transfer_archive().is_none())
+        {
+            return Err(CatalogError::Fenced);
+        }
+        Ok(publication)
     }
 
     /// Reopen the exact closure selected by an earlier CAS, including after a

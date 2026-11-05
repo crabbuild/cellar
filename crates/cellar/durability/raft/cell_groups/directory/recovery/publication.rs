@@ -181,7 +181,8 @@ impl RangeDirectory {
                     request: request.clone(),
                     manifest: binding.commitment,
                 };
-                self.publish_inner(request.mutation(), Some(&permit)).await
+                self.publish_inner(request.mutation(), PublicationAuthority::Recovery(&permit))
+                    .await
             })
             .await
         })

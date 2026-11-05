@@ -325,6 +325,20 @@ impl RangeDirectory {
         })
     }
 
+    pub(super) async fn require_non_transfer_birth(
+        &self,
+        route: &GroupRoute,
+    ) -> Result<(), CatalogError> {
+        if self
+            .read(&format!("{}/binding", install_prefix(route)))
+            .await?
+            .is_some()
+        {
+            return Err(CatalogError::Fenced);
+        }
+        Ok(())
+    }
+
     async fn require_transfer_install(
         &self,
         plan: &DirectoryMutation,
@@ -340,7 +354,10 @@ impl RangeDirectory {
         if !genesis.is_transfer_genesis()
             || !matches!(
                 journal.phase(),
-                TransitionPhase::Sealed | TransitionPhase::Installed | TransitionPhase::Archived
+                TransitionPhase::Sealed
+                    | TransitionPhase::Installed
+                    | TransitionPhase::Archived
+                    | TransitionPhase::Published
             )
             || journal.sealed_sources() != Some(origin.sealed_sources())
             || origin.operation() != plan.operation().bytes()
