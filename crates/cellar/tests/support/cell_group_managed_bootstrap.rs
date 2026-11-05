@@ -263,13 +263,9 @@ async fn cold_group(rooted: bool) -> Result<()> {
             &fixture.spec.label,
         )
         .await?;
-        let (mut config, services) = fixture
+        let (config, services) = fixture
             .config(&node, LogOpenMode::Resume, 34 + i as u8)
             .await?;
-        config.groups.push(RaftGroupAssignment {
-            history,
-            placement: RaftGroupPlacement::Replica,
-        });
         hosts.push(node.start_raft_cells(config, services).await?);
         nodes.push(node);
     }

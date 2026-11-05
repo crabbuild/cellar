@@ -286,16 +286,14 @@ impl Cluster {
             let (mut config, services) = fixture
                 .config(&node, LogOpenMode::Resume, 104 + i as u8)
                 .await?;
-            let placement = if i == INGRESS {
-                RaftGroupPlacement::QueryRouter
+            if i == INGRESS {
+                config.groups.push(RaftGroupAssignment {
+                    history: self.managed.history,
+                    placement: RaftGroupPlacement::QueryRouter,
+                });
             } else {
                 archives::configure(&mut config);
-                RaftGroupPlacement::Replica
-            };
-            config.groups.push(RaftGroupAssignment {
-                history: self.managed.history,
-                placement,
-            });
+            }
             self.managed.peers.push(config.peers[0].clone());
             let host = node.start_raft_cells(config, services).await?;
             self.managed.hosts.push(host);

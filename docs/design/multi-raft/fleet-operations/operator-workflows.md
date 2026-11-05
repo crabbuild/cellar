@@ -163,7 +163,10 @@ The call discovers the first full-range group through the managed directory,
 waits for its rooted archive and complete registry under the startup deadline,
 then validates or attaches the local initial voter and establishes fresh quorum.
 Bind the application's ingress handles after it returns the selected history.
-Retained boot still needs its explicit placement inventory.
+Managed retained boot discovers local replicas from its opened engine within
+the declared namespaces. Each replica still requires its selected catalog
+history, exact boot and membership authorization before attachment. Configure
+router placements explicitly.
 
 | Method and suffix under `/api/v1/fleets/{fleet}/raft` | Permission and result |
 | --- | --- |

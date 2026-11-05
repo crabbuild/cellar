@@ -424,14 +424,7 @@ impl Operator {
                     class: declaration.class,
                     initialize: None,
                 }],
-                groups: if retained {
-                    vec![RaftGroupAssignment {
-                        history: history()?,
-                        placement: RaftGroupPlacement::Replica,
-                    }]
-                } else {
-                    vec![]
-                },
+                groups: vec![],
                 peers,
                 query_origins: vec![],
                 command_origins: vec![],

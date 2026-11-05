@@ -82,6 +82,8 @@ pub struct RaftCellsConfig {
     pub infrastructure: crate::daemon::NodeRaftConfig,
     pub catalog: super::catalog::CatalogOptions,
     pub namespaces: Vec<RaftNamespaceConfig>,
+    /// Explicit routes and placements. A managed host discovers retained local
+    /// replicas within its declared namespaces from the opened engine.
     pub groups: Vec<RaftGroupAssignment>,
     pub peers: Vec<super::transport_options::RaftPeerNode>,
     pub query_origins: Vec<super::transport_options::NamespaceQueryOrigin>,
@@ -198,6 +200,14 @@ pub(crate) async fn start(
     // This initialization owns several nested catalog/recovery futures. Keep
     // that state off callers' native stacks, including nested node startup.
     let result = Box::pin(async {
+        if options.managed.is_some() {
+            registration::discover_retained_placements(
+                &mut prepared,
+                &log,
+                limits.controller.max_groups,
+            )
+            .await?;
+        }
         let discovery = directory::prepare(&mut prepared, &mut options, &log, &transport).await?;
         registration::refresh_routes(&mut prepared, &log, options.managed.is_some())?;
         let sql = CellGroupSqlPool::start(&log, limits.sql)?;
@@ -345,7 +355,7 @@ pub(crate) async fn start(
             }
         }
         // Refuse incomplete inventories before any collector can consider unpinned
-        // files. Every retained group must have an explicitly recovered assignment.
+        // files. Every retained group must have a recovered assignment.
         for group in log.cell_groups()? {
             anyhow::ensure!(
                 appliers

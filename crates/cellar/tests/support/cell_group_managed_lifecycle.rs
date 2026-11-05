@@ -116,10 +116,6 @@ async fn replacement_with_store(
             .config(&node, LogOpenMode::Resume, 44 + i as u8)
             .await?;
         archives::configure(&mut config);
-        config.groups.push(RaftGroupAssignment {
-            history: cluster.history,
-            placement: RaftGroupPlacement::Replica,
-        });
         cluster
             .hosts
             .push(node.start_raft_cells(config, services).await?);

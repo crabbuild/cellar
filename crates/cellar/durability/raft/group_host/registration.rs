@@ -186,20 +186,9 @@ pub(crate) async fn prepare(
             seen.insert(assignment.history),
             "duplicate physical group placement"
         );
-        let namespace = namespaces
-            .iter()
-            .position(|n| {
-                let c = n.directory.namespace_config();
-                c.cluster == assignment.history.cluster
-                    && c.namespace == assignment.history.namespace
-            })
-            .ok_or_else(|| anyhow::anyhow!("group is outside namespace capabilities"))?;
-        let birth = namespaces[namespace]
-            .directory
-            .materialize_selected_history(assignment.history)
-            .await?;
+        let mut group = select_assignment(&namespaces, *assignment).await?;
         let mut members = Vec::new();
-        for member in birth.voters().iter().chain(birth.learners()) {
+        for member in group.birth.voters().iter().chain(group.birth.learners()) {
             let endpoint = match peers.get(&member.node) {
                 Some(peer) => peer,
                 None if config.host.managed.is_some()
@@ -225,17 +214,8 @@ pub(crate) async fn prepare(
                 query_address: endpoint.query_address,
             });
         }
-        groups.push(Assignment {
-            namespace,
-            placement: assignment.placement,
-            transport: super::super::transport::GroupRoute {
-                scope: assignment.history,
-                schema_digest: birth.route().schema_digest,
-                revision: birth.route().epoch.get(),
-                peers: members,
-            },
-            birth,
-        });
+        group.transport.peers = members;
+        groups.push(group);
     }
     Ok(Prepared {
         namespaces,
@@ -244,6 +224,73 @@ pub(crate) async fn prepare(
         query_origins: std::mem::take(&mut config.query_origins),
         command_origins: std::mem::take(&mut config.command_origins),
     })
+}
+
+async fn select_assignment(
+    namespaces: &[Namespace],
+    assignment: RaftGroupAssignment,
+) -> anyhow::Result<Assignment> {
+    let namespace = namespaces
+        .iter()
+        .position(|n| {
+            let config = n.directory.namespace_config();
+            config.cluster == assignment.history.cluster
+                && config.namespace == assignment.history.namespace
+        })
+        .ok_or_else(|| anyhow::anyhow!("group is outside namespace capabilities"))?;
+    let birth = namespaces[namespace]
+        .directory
+        .materialize_selected_history(assignment.history)
+        .await?;
+    Ok(Assignment {
+        namespace,
+        placement: assignment.placement,
+        transport: super::super::transport::GroupRoute {
+            scope: assignment.history,
+            schema_digest: birth.route().schema_digest,
+            revision: birth.route().epoch.get(),
+            peers: Vec::new(),
+        },
+        birth,
+    })
+}
+
+/// Recover local placement from the opened engine and selected namespace
+/// histories. Boot, permanent claims and membership are checked at attachment.
+pub(super) async fn discover_retained_placements(
+    prepared: &mut Prepared,
+    log: &crate::raft::storage::ReplicaLog,
+    limit: usize,
+) -> anyhow::Result<()> {
+    let configured: BTreeMap<_, _> = prepared
+        .groups
+        .iter()
+        .map(|assignment| (assignment.birth.route().history, assignment.placement))
+        .collect();
+    for retained in log.cell_groups()? {
+        let history = retained.identity().scope;
+        match configured.get(&history) {
+            Some(RaftGroupPlacement::Replica) => continue,
+            Some(RaftGroupPlacement::QueryRouter) => {
+                anyhow::bail!("retained replica conflicts with router placement");
+            }
+            None => (),
+        }
+        anyhow::ensure!(
+            prepared.groups.len() < limit,
+            "retained group capacity exceeded"
+        );
+        let group = select_assignment(
+            &prepared.namespaces,
+            RaftGroupAssignment {
+                history,
+                placement: RaftGroupPlacement::Replica,
+            },
+        )
+        .await?;
+        prepared.groups.push(group);
+    }
+    Ok(())
 }
 
 /// Resolve the complete physical placement after managed discovery has accepted
