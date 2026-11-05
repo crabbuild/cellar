@@ -161,7 +161,7 @@ async fn provision_from_compiled_cli(
 ) -> Result<RaftNamespaceRegistration> {
     let id = hex::encode(operator.fleet.catalog_id()?);
     let namespace = hex::encode(operator.namespace.namespace.bytes());
-    let plan = serde_json::json!({
+    let mut plan = serde_json::json!({
         "catalog_id": id,
         "cluster_id": hex::encode(operator.namespace.cluster.bytes()),
         "incarnation_id": hex::encode([81; 16]),
@@ -176,9 +176,17 @@ async fn provision_from_compiled_cli(
         "operation_id": hex::encode(identity.operation),
         "expected_revision": identity.expected_revision,
     });
+    let image_storage = match operator.namespace.image_storage {
+        RaftImageStorage::Materialized => "materialized",
+        RaftImageStorage::Extents => {
+            plan["image_storage"] = "extents".into();
+            "extents"
+        }
+    };
     for (field, value) in [
         ("catalog_id", hex::encode([77; 32])),
         ("class", "Absent".into()),
+        ("image_storage", "unknown".into()),
     ] {
         let mut wrong = plan.clone();
         wrong[field] = value.into();
@@ -199,6 +207,7 @@ async fn provision_from_compiled_cli(
         receipt["catalog_id"] == id
             && receipt["namespace_id"] == namespace
             && receipt["class"] == "Counter"
+            && receipt["image_storage"] == image_storage
             && receipt["schema_digest"] == hex::encode(operator.namespace.schema_digest)
             && receipt["request_id"] == plan["request_id"]
             && receipt["operation_id"] == plan["operation_id"]
@@ -206,6 +215,13 @@ async fn provision_from_compiled_cli(
     ensure!(operator.fleet.read(TIMEOUT).await?.revision() == identity.expected_revision + 1);
     let replay = provision_call(root, &plan).await?;
     ensure!(replay.status.success() && replay.stdout == admitted.stdout);
+    let mut changed = plan;
+    changed["image_storage"] = match operator.namespace.image_storage {
+        RaftImageStorage::Materialized => "extents",
+        RaftImageStorage::Extents => "materialized",
+    }
+    .into();
+    ensure!(!provision_call(root, &changed).await?.status.success());
     ensure!(operator.fleet.read(TIMEOUT).await?.revision() == identity.expected_revision + 1);
     operator.declaration()
 }
@@ -224,38 +240,21 @@ pub(super) async fn initialize(root: &Path) -> Result<()> {
                 operator.fleet.initialize(TIMEOUT).await?
             };
             let identity = request(10, snapshot.revision());
-            let class = counter::definition()?;
-            let limits = configuration::limits().directory;
-            let declaration = match operator.namespace.image_storage {
-                RaftImageStorage::Materialized if std::env::var_os(RUSTFS_ENDPOINT).is_some() => {
-                    provision_from_compiled_cli(root, &operator, &identity).await?
-                }
-                RaftImageStorage::Materialized => {
-                    operator
-                        .fleet
-                        .provision_managed_sql_namespace(
-                            &identity,
-                            &operator.adapter,
-                            operator.namespace.namespace,
-                            &class,
-                            limits,
-                            TIMEOUT,
-                        )
-                        .await?
-                }
-                RaftImageStorage::Extents => {
-                    operator
-                        .fleet
-                        .provision_managed_namespace(
-                            &identity,
-                            &operator.adapter,
-                            operator.namespace.clone(),
-                            &class,
-                            limits,
-                            TIMEOUT,
-                        )
-                        .await?
-                }
+            let declaration = if std::env::var_os(RUSTFS_ENDPOINT).is_some() {
+                provision_from_compiled_cli(root, &operator, &identity).await?
+            } else {
+                let class = counter::definition()?;
+                operator
+                    .fleet
+                    .provision_managed_sql_namespace(
+                        &identity,
+                        &operator.adapter,
+                        operator.namespace.namespace,
+                        &class,
+                        configuration::limits().directory,
+                        TIMEOUT,
+                    )
+                    .await?
             };
             let capability_digest = RaftManagedHostOptions::capability_digest(&[declaration])?;
             for index in 0..3 {

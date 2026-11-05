@@ -125,8 +125,10 @@ application --provision-sql-namespace sql-namespace.json --bucket "$FLEET_BUCKET
 The JSON plan contains `catalog_id`, `cluster_id`, `incarnation_id`,
 `coordination_prefix`, `catalog_prefix`, `namespace_id`, `script`, `version`,
 `class`, `principal`, `request_id`, `operation_id` and `expected_revision`.
-Use the exact compiled script version and Raft class. The application supplies
-the schema digest in the receipt for the admin and voter configuration.
+Use the exact compiled script version and Raft class. The optional
+`image_storage` field accepts `materialized` (the default) or `extents`.
+The receipt includes the selected image policy and schema digest for the
+admin and voter configuration.
 Retain the plan and retry it byte for byte after an unknown result.
 
 ```sh

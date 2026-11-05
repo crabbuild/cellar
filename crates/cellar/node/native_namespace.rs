@@ -8,7 +8,7 @@ use crate::cli_options::{FleetFlags, Storage};
 use crate::cli_output::{Format, Output};
 use crate::sdk::{consensus::*, ExecutionDomain};
 use anyhow::{ensure, Context as _, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{ffi::OsString, io::Read, path::Path, time::Duration};
 
 pub(super) const FLAG: &str = "--provision-sql-namespace";
@@ -31,6 +31,25 @@ struct Plan {
     request_id: String,
     operation_id: String,
     expected_revision: u64,
+    #[serde(default)]
+    image_storage: ImageStorage,
+}
+
+#[derive(Clone, Copy, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ImageStorage {
+    #[default]
+    Materialized,
+    Extents,
+}
+
+impl From<ImageStorage> for RaftImageStorage {
+    fn from(storage: ImageStorage) -> Self {
+        match storage {
+            ImageStorage::Materialized => Self::Materialized,
+            ImageStorage::Extents => Self::Extents,
+        }
+    }
 }
 
 fn identity<const N: usize>(value: &str, label: &str) -> Result<[u8; N]> {
@@ -133,11 +152,18 @@ async fn provision(
             ..Default::default()
         },
     )?;
+    let mut config = NamespaceConfig::new(
+        cluster,
+        namespace,
+        NamespaceMode::Raft,
+        class.schema_digest(),
+    );
+    config.image_storage = plan.image_storage.into();
     let registered = fleet
-        .provision_managed_sql_namespace(
+        .provision_managed_namespace(
             &request,
             &catalog,
-            namespace,
+            config,
             class.as_ref(),
             DirectoryLimits::default(),
             TIMEOUT,
@@ -150,6 +176,7 @@ async fn provision(
         "operation_id": plan.operation_id,
         "expected_revision": request.expected_revision,
         "class": registered.class,
+        "image_storage": plan.image_storage,
         "schema_digest": hex::encode(registered.namespace.schema_digest),
     }))
 }
