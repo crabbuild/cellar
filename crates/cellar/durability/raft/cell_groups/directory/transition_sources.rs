@@ -74,7 +74,8 @@ impl RangeDirectory {
     /// set in the namespace CAS. Persist the hold allocations before calling.
     /// Keep those remote holds until the transition owner retires all users.
     /// Retry with the identical set after a lost response and independently
-    /// verify the restored holds again before using their data.
+    /// verify the restored holds again before using their data. On reopen,
+    /// materialize the selected births with this directory before retrying.
     pub async fn verify_and_record_sealed_sources(
         &self,
         domain: &impl CellGroupArchiveExecution,
@@ -89,7 +90,7 @@ impl RangeDirectory {
             return Err(CatalogError::Invalid("incomplete transition source set").into());
         }
         domain
-            .run(async {
+            .run(Box::pin(async {
                 let (view, journal) = self
                     .bounded(async {
                         let (view, _) = self.current().await?;
@@ -156,7 +157,7 @@ impl RangeDirectory {
                     journal,
                     sources: verified,
                 })
-            })
+            }))
             .await
             .map_err(|_| crate::raft::cell_groups::CellGroupArchiveError::Stopped)?
     }

@@ -1,6 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 use super::*;
+use cellar_logic::consensus::LogPosition;
 use cellar_ltx::{
     internal::NodeExtentStore,
     stream_snapshot::{ScratchLimits, ScratchPool},
@@ -177,25 +178,41 @@ pub(crate) async fn sealed_source_archives(
     })
     .await
     .context("replicate archived source seal")??;
+    Box::pin(verify_sealed_sources(
+        &fixture,
+        &archives,
+        store,
+        &plan,
+        unsealed,
+        seal.position,
+    ))
+    .await?;
+    fixture.close().await
+}
+
+async fn verify_sealed_sources(
+    fixture: &RuntimeCluster,
+    archives: &Archives,
+    store: Arc<catalog_fault::Store>,
+    plan: &DirectoryMutation,
+    unsealed: CellGroupArchiveHold,
+    seal: LogPosition,
+) -> Result<()> {
+    let directory = &fixture.cluster.directory;
+    let scope = fixture.cluster.birth.route().history;
     let domain = &fixture.cluster.domain;
-    let sealed = archives.publish(&fixture, "verify-sealed").await?;
+    let sealed = archives.publish(fixture, "verify-sealed").await?;
     anyhow::ensure!(
         sealed
             .marker()
             .source_seal()
             .context("archived seal")?
             .position()
-            == seal.position
+            == seal
     );
     anyhow::ensure!(matches!(
         directory
-            .verify_and_record_sealed_sources(
-                domain,
-                &archives.pool,
-                &archives.tails,
-                &plan,
-                vec![]
-            )
+            .verify_and_record_sealed_sources(domain, &archives.pool, &archives.tails, plan, vec![])
             .await,
         Err(CellGroupArchiveBindingError::Catalog(
             CatalogError::Invalid(_)
@@ -207,7 +224,7 @@ pub(crate) async fn sealed_source_archives(
                 domain,
                 &archives.pool,
                 &archives.tails,
-                &plan,
+                plan,
                 vec![archives.source(&fixture.cluster, unsealed, "reject-preseal")?]
             )
             .await,
@@ -222,7 +239,7 @@ pub(crate) async fn sealed_source_archives(
                 domain,
                 &archives.pool,
                 &archives.tails,
-                &plan,
+                plan,
                 vec![archives.source(&fixture.cluster, released, "reject-released")?]
             )
             .await,
@@ -243,7 +260,7 @@ pub(crate) async fn sealed_source_archives(
                 domain,
                 &archives.pool,
                 &archives.tails,
-                &plan,
+                plan,
                 vec![archives.source(&fixture.cluster, sealed.clone(), "verify-before-cas")?]
             )
             .await,
@@ -267,17 +284,22 @@ pub(crate) async fn sealed_source_archives(
         .run(reopened.sealed_source_holds(&original))
         .await??;
     anyhow::ensure!(holds == vec![sealed.clone()]);
+    let birth = domain
+        .run(reopened.materialize_selected_history(scope))
+        .await??;
+    let mut source = archives.source(
+        &fixture.cluster,
+        holds.pop().context("retained hold")?,
+        "verify-reopened",
+    )?;
+    source.birth = birth.clone();
     let verified = reopened
         .verify_and_record_sealed_sources(
             domain,
             &archives.pool,
             &archives.tails,
             &original,
-            vec![archives.source(
-                &fixture.cluster,
-                holds.pop().context("retained hold")?,
-                "verify-reopened",
-            )?],
+            vec![source],
         )
         .await?;
     anyhow::ensure!(verified.journal() == &journal && verified.sources().len() == 1);
@@ -287,6 +309,8 @@ pub(crate) async fn sealed_source_archives(
     let intent = archives.registry.prepare_acquire(domain).await?;
     let alternate = archives.registry.acquire(domain, &intent).await?;
     anyhow::ensure!(alternate != sealed);
+    let mut source = archives.source(&fixture.cluster, alternate, "reject-alternate")?;
+    source.birth = birth;
     anyhow::ensure!(matches!(
         reopened
             .verify_and_record_sealed_sources(
@@ -294,7 +318,7 @@ pub(crate) async fn sealed_source_archives(
                 &archives.pool,
                 &archives.tails,
                 &original,
-                vec![archives.source(&fixture.cluster, alternate, "reject-alternate")?]
+                vec![source]
             )
             .await,
         Err(CellGroupArchiveBindingError::Catalog(
@@ -308,5 +332,5 @@ pub(crate) async fn sealed_source_archives(
         fixture.runtimes[0].seal_source(permit).await?,
         CellGroupSealOutcome::Applied(_)
     ));
-    fixture.close().await
+    Ok(())
 }
