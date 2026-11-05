@@ -3,10 +3,10 @@
 //! Rebuild a durable pre-copy from the same real managed archive hold.
 use super::*;
 use cellar::application::consensus::verification::cell_groups::{
-    CellGroupApplyImages, CellGroupArchiveHold, CellGroupArchiveRegistry, CellGroupArchiveStore,
-    CellGroupArchiveTailPool, CellGroupBirth, CellGroupCheckpointPool, CellGroupRecoveryLimits,
-    CellGroupRecoveryPool, CellGroupTransferTarget, CellGroupTransitionPreparationInputs,
-    CellGroupTransitionSource, GroupRoute, ManifestPageStore,
+    CellGroupApplyImages, CellGroupArchiveError, CellGroupArchiveHold, CellGroupArchiveRegistry,
+    CellGroupArchiveStore, CellGroupArchiveTailPool, CellGroupBirth, CellGroupCheckpointPool,
+    CellGroupRecoveryLimits, CellGroupRecoveryPool, CellGroupTransferTarget,
+    CellGroupTransitionPreparationInputs, CellGroupTransitionSource, GroupRoute, ManifestPageStore,
 };
 use cellar_ltx::{
     generation::{GenerationStore, ReadServices},
@@ -45,8 +45,26 @@ pub(super) async fn exercise(
     let registry = directory
         .open_group_archive(domain.as_ref(), &archives, parent)
         .await?;
-    let intent = registry.prepare_acquire(domain.as_ref()).await?;
-    let held = registry.acquire(domain.as_ref(), &intent).await?;
+    let held = tokio::time::timeout(TIMEOUT, async {
+        let mut intent = registry.prepare_acquire(domain.as_ref()).await?;
+        loop {
+            match registry.acquire(domain.as_ref(), &intent).await {
+                Ok(hold) => return Ok(hold),
+                // A newer registry revision has fenced this exact intent.
+                Err(CellGroupArchiveError::Expired) => {
+                    intent = registry.prepare_acquire(domain.as_ref()).await?;
+                }
+                // Reconcile the same allocation until a hold or definite
+                // expiry is observed. The archive publisher is still live.
+                Err(CellGroupArchiveError::Conflict | CellGroupArchiveError::Unconfirmed) => {
+                    tokio::task::yield_now().await;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    })
+    .await
+    .context("acquire active source archive hold before pre-copy")??;
     let scratch = tempfile::tempdir()?;
     let mut selected = None;
     for stage in ["first", "reopened"] {
