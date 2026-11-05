@@ -102,12 +102,16 @@ impl RouteCache {
     }
 
     fn advance(state: &mut State, view: &DirectoryView) -> Result<(), CatalogError> {
+        // Planning, preparation and cancellation share the directory CAS but
+        // preserve its validated range journal. Only routing publication
+        // advances this identity and invalidates cached range hints.
+        let selected = view.head.journal;
         if let Some((revision, digest)) = state.head {
             if view.revision() < revision {
                 return Err(CatalogError::Conflict("superseded routing observation"));
             }
             if view.revision() == revision {
-                return if view.digest() == digest {
+                return if selected == digest {
                     Ok(())
                 } else {
                     Err(CatalogError::Corrupt("routing revision changed digest"))
@@ -115,7 +119,7 @@ impl RouteCache {
             }
         }
         state.routes.clear();
-        state.head = Some((view.revision(), view.digest()));
+        state.head = Some((view.revision(), selected));
         Ok(())
     }
 

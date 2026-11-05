@@ -150,6 +150,29 @@ pub(crate) async fn bounded_route_hints() -> Result<()> {
         assert!(dispatcher.route_cache_usage()?.reserved_bytes <= 16 * 1024);
     }
     let selected = cell(&routes[0], 0);
+    let before = dispatcher.route_cache_usage()?;
+    let view = f.run(f.directory.observe()).await?;
+    let mut planned = split(&routes[0], 730);
+    for child in &mut planned {
+        child.schema_digest = routes[0].schema_digest;
+    }
+    f.reserve(&mut planned).await?;
+    let transition = f.directory.prepare_replacement(
+        &view,
+        operation(1002),
+        std::slice::from_ref(&routes[0]),
+        &planned,
+    )?;
+    f.run(f.directory.plan_transition(&transition)).await?;
+    assert_ne!(f.run(f.directory.observe()).await?.digest(), view.digest());
+    assert_eq!(dispatcher.refresh_routes().await?, view.revision());
+    assert_eq!(dispatcher.route_cache_usage()?, before);
+    f.run(f.directory.prepare_transition(&transition, [11; 32]))
+        .await?;
+    assert_eq!(dispatcher.refresh_routes().await?, view.revision());
+    f.run(f.directory.cancel_transition(&transition)).await?;
+    assert_eq!(dispatcher.refresh_routes().await?, view.revision());
+    assert_eq!(dispatcher.route_cache_usage()?, before);
     let next = publish_route_split(&f, &routes[0], &selected.cell).await?;
     assert_eq!(dispatcher.refresh_routes().await?, 2);
     assert_eq!(dispatcher.route_cache_usage()?.entries, 0);
