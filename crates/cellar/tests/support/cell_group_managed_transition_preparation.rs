@@ -313,6 +313,11 @@ pub(super) async fn verify_sealed_cut(
         .await?;
     ensure!(first.journal().phase() == TransitionPhase::Sealed);
     ensure!(first.sources().len() == 1 && first.sources()[0].marker().source_seal() == Some(seal));
+    let journal = first.journal().clone();
+    let marker = first.sources()[0].marker().clone();
+    ensure!(tails.usage().operations == 1);
+    drop(first);
+    ensure!(tails.usage().operations == 0);
     let reopened = domain
         .run(directory.sealed_source_holds(&transition.plan))
         .await??;
@@ -336,8 +341,8 @@ pub(super) async fn verify_sealed_cut(
             TIMEOUT,
         )
         .await?;
-    ensure!(replay.journal() == first.journal());
-    ensure!(replay.sources()[0].marker() == first.sources()[0].marker());
+    ensure!(replay.journal() == &journal);
+    ensure!(replay.sources()[0].marker() == &marker);
 
     let root = scratch.path().join("final");
     let routes = replay.children().to_vec();
