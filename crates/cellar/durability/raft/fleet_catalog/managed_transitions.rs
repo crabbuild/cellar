@@ -12,6 +12,7 @@ use crate::raft::{
     },
 };
 
+use cellar_logic::consensus::ProposalId;
 use serde::Deserialize;
 
 pub(super) const KIND: u8 = 201;
@@ -93,16 +94,23 @@ impl ManagedTransitionPermit {
         directory: &RangeDirectory,
         plan: &DirectoryMutation,
     ) -> std::result::Result<(), CatalogError> {
+        self.check_directory(directory)?;
+        let record = &self.0;
+        if plan.operation().bytes() != record.operation() || plan.digest() != record.plan {
+            return Err(CatalogError::ManagedAdmissionRequired);
+        }
+        Ok(())
+    }
+
+    fn check_directory(&self, directory: &RangeDirectory) -> std::result::Result<(), CatalogError> {
         let record = &self.0;
         if directory
             .namespace_config()
             .managed_fleet
             .as_ref()
-            .map(|o| o.catalog)
+            .map(|owner| owner.catalog)
             != Some(record.catalog)
             || directory.namespace().root_digest() != record.namespace_root
-            || plan.operation().bytes() != record.operation()
-            || plan.digest() != record.plan
         {
             return Err(CatalogError::ManagedAdmissionRequired);
         }
@@ -110,7 +118,72 @@ impl ManagedTransitionPermit {
     }
 }
 
+/// Exact admitted plan and any directory decision. A missing decision means
+/// the fleet selected the plan before directory publication was confirmed.
+/// This observation grants no sealing, installation or serving authority.
+pub struct ReopenedManagedCellGroupTransition {
+    pub request: FleetRequestIdentity,
+    pub plan: DirectoryMutation,
+    pub journal: Option<TransitionJournal>,
+}
+
 impl FleetCatalog {
+    /// Reopen an admitted transition by operation ID. This reads the original
+    /// fleet request and canonical plan bytes even after the caller loses its
+    /// local copy. Resume planning by resubmitting the returned exact request.
+    pub async fn reopen_managed_transition(
+        &self,
+        directory: &RangeDirectory,
+        operation: ProposalId,
+        timeout: Duration,
+    ) -> Result<Option<ReopenedManagedCellGroupTransition>> {
+        self.run(
+            timeout,
+            Box::pin(async {
+                let current = self.inner.current().await?;
+                let Some(record) = self
+                    .managed_transition_record(&current, operation.bytes())
+                    .await?
+                else {
+                    return Ok(None);
+                };
+                let permit = ManagedTransitionPermit(record);
+                permit.check_directory(directory).map_err(catalog_error)?;
+                let record = &permit.0;
+                let active = matches!(
+                    self.active_disruption(&current).await?,
+                    Some(Disruption::Transition(active)) if active == *record
+                );
+                let (plan, journal) = self
+                    .inner
+                    .domain
+                    .run(Box::pin(directory.reopen_managed_transition_plan(
+                        operation,
+                        record.plan,
+                        &permit,
+                    )))
+                    .await
+                    .map_err(|_| FleetCatalogError::Closed)?
+                    .map_err(catalog_error)?;
+                if !active
+                    && !journal.as_ref().is_some_and(|decision| {
+                        decision.phase() == crate::raft::cell_groups::TransitionPhase::Cancelled
+                    })
+                {
+                    return Err(FleetCatalogError::Corrupt(
+                        "released managed transition has no cancellation",
+                    ));
+                }
+                Ok(Some(ReopenedManagedCellGroupTransition {
+                    request: record.request.clone(),
+                    plan,
+                    journal,
+                }))
+            }),
+        )
+        .await
+    }
+
     /// Acquire the fleet disruption slot and plan the exact range mutation.
     /// Reserve all child births against the same operation before calling.
     /// Persist the request and plan before submission. Replaying both after
@@ -211,7 +284,7 @@ impl FleetCatalog {
                     self.inner
                         .domain
                         .run(Box::pin(
-                            directory.check_managed_transition_basis(plan, &permit),
+                            directory.stage_managed_transition_plan(plan, &permit),
                         ))
                         .await
                         .map_err(|_| FleetCatalogError::Closed)?

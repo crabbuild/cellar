@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 // Normal operation keys are 32 lowercase hexadecimal digits. These keys share
 // their immutable index and head CAS without changing its wire shape.
 const ACTIVE: &str = "transition/active";
+const PLANS: &str = "transition-plans";
 const COUNT: &str = "transition/count";
 const JOURNAL: u8 = 198;
 const LIMIT: usize = 1024;
@@ -318,7 +319,7 @@ impl RangeDirectory {
             }
             let count = self.check_new_transition(&view, mutation).await?;
             let index = Index::new(self);
-            self.immutable("transition-plans", mutation.digest, mutation.encode())
+            self.immutable(PLANS, mutation.digest, mutation.encode())
                 .await?;
             let journal = TransitionJournal {
                 request: mutation.digest,
@@ -346,7 +347,7 @@ impl RangeDirectory {
         .await
     }
 
-    pub(crate) async fn check_managed_transition_basis(
+    pub(crate) async fn stage_managed_transition_plan(
         &self,
         mutation: &DirectoryMutation,
         permit: &ManagedTransitionPermit,
@@ -363,7 +364,26 @@ impl RangeDirectory {
                 return Err(CatalogError::Conflict("transition already decided"));
             }
             self.check_new_transition(&view, mutation).await?;
-            Ok(())
+            // Stage the bytes before the fleet can select their digest. A
+            // controller may lose its reply before entering the directory CAS.
+            self.immutable(PLANS, mutation.digest, mutation.encode())
+                .await
+        })
+        .await
+    }
+
+    pub(crate) async fn reopen_managed_transition_plan(
+        &self,
+        operation: ProposalId,
+        digest: [u8; 32],
+        permit: &ManagedTransitionPermit,
+    ) -> Result<(DirectoryMutation, Option<TransitionJournal>), CatalogError> {
+        self.bounded(async {
+            let plan = self.load_transition_plan(operation, digest).await?;
+            permit.check(self, &plan)?;
+            let (view, _) = self.current().await?;
+            let journal = self.matching_transition(&view.head, &plan).await?;
+            Ok((plan, journal))
         })
         .await
     }
@@ -457,24 +477,32 @@ impl RangeDirectory {
                 .transition_record(&view.head, operation)
                 .await?
                 .ok_or(CatalogError::Corrupt("missing active transition"))?;
-            let bytes = self
-                .read(&format!(
-                    "transition-plans/{}",
-                    hex::encode(journal.request)
-                ))
-                .await?
-                .ok_or(CatalogError::Corrupt("missing transition plan"))?;
-            let mutation = self.decode_mutation(&bytes)?;
-            self.check_transition_plan(&mutation)?;
-            if mutation.operation != operation
-                || mutation.digest != journal.request
-                || journal.phase == TransitionPhase::Cancelled
-            {
+            let mutation = self
+                .load_transition_plan(operation, journal.request)
+                .await?;
+            if journal.phase == TransitionPhase::Cancelled {
                 return Err(CatalogError::Corrupt("active transition plan binding"));
             }
             Ok(Some((mutation, journal)))
         })
         .await
+    }
+
+    async fn load_transition_plan(
+        &self,
+        operation: ProposalId,
+        digest: [u8; 32],
+    ) -> Result<DirectoryMutation, CatalogError> {
+        let bytes = self
+            .read(&format!("{PLANS}/{}", hex::encode(digest)))
+            .await?
+            .ok_or(CatalogError::Corrupt("missing transition plan"))?;
+        let mutation = self.decode_mutation(&bytes)?;
+        self.check_transition_plan(&mutation)?;
+        if mutation.operation != operation || mutation.digest != digest {
+            return Err(CatalogError::Corrupt("transition plan binding"));
+        }
+        Ok(mutation)
     }
 
     /// Issue the selected transition's exact seal for a local source owner.

@@ -1050,6 +1050,12 @@ Every transition pins its exact parents, range epochs, child births, final cell
 partition and resource reservations in a durable catalog journal. There is a
 namespace topology CAS, but no catalog I/O on an ordinary already-routed command.
 
+Managed planning stages the canonical directory request before the fleet selects
+its digest. A replacement controller can reopen the exact admitted plan by
+operation ID. If the fleet selected the plan before the directory CAS, the
+controller can replay the original request from the reopened record. A cancelled
+operation retains its historical decision and plan.
+
 | State | Durable action and admission rule |
 | --- | --- |
 | Planned | CAS a unique intent against the exact current range tree; reserve child/transfer resources. Parents still serve. |

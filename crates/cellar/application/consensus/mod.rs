@@ -99,6 +99,7 @@ pub use crate::raft::fleet_catalog::{
 };
 pub use crate::raft::fleet_catalog::{
     RaftManagedArchiveProvisioning, RaftManagedFirstGroup, RaftManagedFirstGroupRequest,
+    ReopenedManagedCellGroupTransition,
 };
 pub use crate::raft::fleet_stop::{
     FleetBootBinding, FleetStopAcceptance, FleetStopAction, FleetStopRequest, VerifiedFleetClosure,

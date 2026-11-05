@@ -116,6 +116,10 @@ async fn exercise(cluster: &ManagedCluster, rooted: bool) -> Result<()> {
         std::slice::from_ref(parent.route()),
         &children,
     )?;
+    ensure!(fleet
+        .reopen_managed_transition(directory, operation, TIMEOUT)
+        .await?
+        .is_none());
     let before = fleet.read(TIMEOUT).await?;
     let original = identity(234, before.revision());
     fixture
@@ -136,25 +140,49 @@ async fn exercise(cluster: &ManagedCluster, rooted: bool) -> Result<()> {
     ensure!(fleet.read(TIMEOUT).await?.revision() == before.revision() + 1);
     ensure!(domain.run(directory.active_transition()).await??.is_none());
     let reopened = Fixture::open_catalog(domain, fixture.store.clone(), scope.cluster)?;
+    let adapter = Catalog::new(
+        fixture.store.clone(),
+        CatalogOptions {
+            prefix: "managed/".into(),
+            ..Default::default()
+        },
+    )?;
+    let namespace = domain
+        .run(adapter.existing_namespace(fixture.declaration.namespace.clone()))
+        .await??;
+    let directory = RangeDirectory::new(namespace, DirectoryLimits::default())?;
+    let directory = &directory;
+    let recovered = reopened
+        .reopen_managed_transition(directory, operation, TIMEOUT)
+        .await?
+        .context("admitted fleet operation must reopen without a directory decision")?;
+    ensure!(recovered.journal.is_none());
+    ensure!(recovered.request == original && recovered.plan.encode() == plan.encode());
+    drop(plan);
+    let plan = &recovered.plan;
+    let original = &recovered.request;
+    let parent = domain
+        .run(directory.materialize_selected_history(scope))
+        .await??;
     let first = reopened
-        .plan_managed_transition(&original, directory, &plan, TIMEOUT)
+        .plan_managed_transition(original, directory, plan, TIMEOUT)
         .await?;
     ensure!(first.phase() == TransitionPhase::Planned);
     ensure!(
         fleet
-            .plan_managed_transition(&original, directory, &plan, TIMEOUT)
+            .plan_managed_transition(original, directory, plan, TIMEOUT)
             .await?
             == first
     );
     ensure!(matches!(
         domain
-            .run(directory.authorize_transition_seal(&plan))
+            .run(directory.authorize_transition_seal(plan))
             .await?,
         Err(CatalogError::ManagedAdmissionRequired)
     ));
 
     let (registry, held) = Box::pin(preparation::exercise(
-        cluster, &reopened, &original, &plan, &parent, &children, rooted,
+        cluster, &reopened, directory, &recovered, &parent, &children, rooted,
     ))
     .await?;
 
@@ -181,7 +209,7 @@ async fn exercise(cluster: &ManagedCluster, rooted: bool) -> Result<()> {
         .fail_fleet_confirmation
         .store(true, Ordering::Release);
     let lost = fleet
-        .cancel_managed_transition(&admitted, &cancel, directory, &plan, TIMEOUT)
+        .cancel_managed_transition(&admitted, &cancel, directory, plan, TIMEOUT)
         .await;
     ensure!(matches!(lost, Err(FleetCatalogError::Storage(_))));
     ensure!(!fixture
@@ -190,26 +218,38 @@ async fn exercise(cluster: &ManagedCluster, rooted: bool) -> Result<()> {
         .load(Ordering::Acquire));
     ensure!(fleet.read(TIMEOUT).await?.revision() == admitted.revision() + 1);
     let cancelled = fleet
-        .cancel_managed_transition(&admitted, &cancel, directory, &plan, TIMEOUT)
+        .cancel_managed_transition(&admitted, &cancel, directory, plan, TIMEOUT)
         .await?;
     ensure!(
         fleet
-            .cancel_managed_transition(&admitted, &cancel, directory, &plan, TIMEOUT)
+            .cancel_managed_transition(&admitted, &cancel, directory, plan, TIMEOUT)
             .await?
             .applied_revision
             == cancelled.applied_revision
     );
     ensure!(
         fleet
-            .plan_managed_transition(&original, directory, &plan, TIMEOUT)
+            .plan_managed_transition(original, directory, plan, TIMEOUT)
             .await?
             .phase()
             == TransitionPhase::Cancelled
     );
     ensure!(domain.run(directory.active_transition()).await??.is_none());
+    let cancelled_plan = reopened
+        .reopen_managed_transition(directory, operation, TIMEOUT)
+        .await?
+        .context("cancelled operation must retain its exact historical receipt")?;
+    ensure!(cancelled_plan.request == *original && cancelled_plan.plan.encode() == plan.encode());
+    ensure!(
+        cancelled_plan
+            .journal
+            .context("missing cancellation decision")?
+            .phase()
+            == TransitionPhase::Cancelled
+    );
     ensure!(matches!(
         domain
-            .run(directory.managed_preparation_holds(&plan))
+            .run(directory.managed_preparation_holds(plan))
             .await?,
         Err(CatalogError::Fenced)
     ));

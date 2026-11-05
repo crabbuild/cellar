@@ -19,6 +19,7 @@ mod isolation;
 mod maintenance;
 mod managed_transitions;
 pub(crate) use managed_transitions::ManagedTransitionPermit;
+pub use managed_transitions::ReopenedManagedCellGroupTransition;
 mod namespaces;
 mod nodes;
 mod permits;

@@ -6,7 +6,7 @@ use cellar::application::consensus::verification::cell_groups::{
     CellGroupApplyImages, CellGroupArchiveHold, CellGroupArchiveRegistry, CellGroupArchiveStore,
     CellGroupArchiveTailPool, CellGroupBirth, CellGroupCheckpointPool, CellGroupRecoveryLimits,
     CellGroupRecoveryPool, CellGroupTransferTarget, CellGroupTransitionPreparationInputs,
-    CellGroupTransitionSource, DirectoryMutation, GroupRoute, ManifestPageStore,
+    CellGroupTransitionSource, GroupRoute, ManifestPageStore,
 };
 use cellar_ltx::{
     generation::{GenerationStore, ReadServices},
@@ -19,8 +19,8 @@ use rand::RngCore as _;
 pub(super) async fn exercise(
     cluster: &ManagedCluster,
     controller: &FleetCatalog,
-    request: &FleetRequestIdentity,
-    plan: &DirectoryMutation,
+    directory: &RangeDirectory,
+    transition: &ReopenedManagedCellGroupTransition,
     parent: &CellGroupBirth,
     children: &[GroupRoute],
     rooted: bool,
@@ -42,8 +42,7 @@ pub(super) async fn exercise(
         .await?;
     ensure!(archived.durability == Durability::S3 && archived.result == 9i64.to_be_bytes());
     let archives = CellGroupArchivePool::new(Default::default())?;
-    let registry = cluster
-        .directory
+    let registry = directory
         .open_group_archive(domain.as_ref(), &archives, parent)
         .await?;
     let intent = registry.prepare_acquire(domain.as_ref()).await?;
@@ -72,9 +71,9 @@ pub(super) async fn exercise(
         )?;
         let prepared = controller
             .prepare_managed_transition(
-                request,
-                &cluster.directory,
-                plan,
+                &transition.request,
+                directory,
+                &transition.plan,
                 CellGroupTransitionPreparationInputs {
                     archives: archives.clone(),
                     tails: CellGroupArchiveTailPool::new(Default::default())?,
@@ -118,7 +117,7 @@ pub(super) async fn exercise(
         ensure!(staged.next().is_none());
         ensure!(
             domain
-                .run(cluster.directory.managed_preparation_holds(plan))
+                .run(directory.managed_preparation_holds(&transition.plan))
                 .await??
                 == vec![held.clone()]
         );
