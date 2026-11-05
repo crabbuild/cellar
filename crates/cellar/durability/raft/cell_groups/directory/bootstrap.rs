@@ -33,6 +33,7 @@ enum BootstrapOrigin {
     ManagedJoined(Box<crate::raft::fleet_catalog::FleetHostAuthorization>),
     Recovery(Box<recovery::RecoveryStartup>),
     PendingTransfer(PendingTransfer),
+    ManagedActivatedTransfer(Box<crate::raft::fleet_catalog::FleetHostAuthorization>),
 }
 
 pub(super) enum PendingTransfer {
@@ -77,6 +78,22 @@ impl CellGroupBootstrapPermit {
             directory,
             log,
             origin: BootstrapOrigin::PendingTransfer(origin),
+        }
+    }
+
+    pub(super) fn managed_activated_transfer(
+        group: GroupLog<GroupHistory>,
+        birth: CellGroupBirth,
+        directory: RangeDirectory,
+        log: ReplicaLog,
+        host: crate::raft::fleet_catalog::FleetHostAuthorization,
+    ) -> Self {
+        Self {
+            group,
+            birth,
+            directory,
+            log,
+            origin: BootstrapOrigin::ManagedActivatedTransfer(Box::new(host)),
         }
     }
 
@@ -132,6 +149,11 @@ impl CellGroupBootstrapPermit {
                     host,
                     *deadline,
                 )
+                .await
+                .map(|_| ()),
+            BootstrapOrigin::ManagedActivatedTransfer(host) => self
+                .directory
+                .bootstrap_managed_activated_transfer_voter(&self.birth, &self.log, host)
                 .await
                 .map(|_| ()),
             BootstrapOrigin::Initial => self

@@ -48,18 +48,16 @@ A configured managed router now refreshes its voter routes after a replacement.
 The native and real RustFS cases cover the retired route, joined-voter reads,
 original receipt replay and a fresh quorum write. Cold return after all birth
 voters are replaced and stopped passes the focused native and RustFS cases.
-The public SDK can now provision a declared
-managed standby and reserve, publish and confirm its first full-range group.
-The SDK also prepares and verifies an exact managed group archive. The
-native daemon process gate exercises cold managed startup, two-cell requests
-and retained restart on the development store and real RustFS in both image
-modes. The process gate uses the CLI and admin API for capacity, first-group
-metadata and rooted archive initialization. The daemon owns first-voter
-activation and waits for rooted archive state and fresh quorum. The combined
-native/Axum case uses public group and archive provisioning from a fresh
-RustFS prefix. The process fixture supplies boot ordering and capacity
-attestation. Real deployment capacity and constrained voter qualification
-remain open.
+The public SDK provisions a declared managed standby and reserves, publishes
+and confirms its first full-range group. The CLI and admin API admit capacity
+and initialize the rooted archive. The managed SQL daemon discovers the group
+and waits for the exact archive and fresh quorum before opening application
+ingress. At `cd1d8315`, the native process gate and constrained Linux RustFS
+gate passed in both image formats. The latter uses separate voter containers
+and disks in one VM with fixture capacity. It covers native and Axum reads and
+writes, voter SIGKILL, receipt replay, retained restart and quorum-loss refusal.
+Production capacity admission and the combined lifecycle, outage and load
+gates remain open.
 
 The managed native and real RustFS request cases now cover foreign cluster,
 namespace and cell histories through both HTTP hosts, and foreign fleet,
@@ -77,22 +75,16 @@ production legacy/shared switch or old-data migration is part of the target.
 
 ## First delivery: basic SQL reads and writes through public ingress
 
-1. **Provision through the public namespace path.** Start from the SDK-created
-   managed standby and the public capacity, first-group and archive commands.
-   Bounded rooted archive observation and SDK enrollment for two cells pass
-   the combined fresh RustFS case. Finish tenant and cell binding through
-   native, Axum and admin entry points. Preserve typed capability refusals.
-2. **Qualify the expanded public path.** The managed request test covers
-   ingress without a replica, failover, retained restart and quorum loss in
-   both image formats. Real RustFS also verifies quorum acknowledgement
-   during archive write denial and S3 receipt replay after restoration.
-   Cold router return after birth-voter retirement now passes on RustFS.
-   Extend the evidence to constrained voters and the remaining ingress authority
-   cases. Keep read consistency explicit.
-
-Clear the existing managed lifecycle failures and remaining public merge gates
-before enabling the default broadly. The basic request slice gives those gates
-a single public path to exercise.
+1. **Finish ordinary SQL onboarding and the public lifecycle.** Use the
+   qualified namespace, first-group and daemon path to enroll supported new
+   SQL applications. Qualify repair, drain, stop, return and resume with
+   authenticated native, Axum and admin authority and exact retained capacity
+   charges. Preserve typed capability refusals and immutable retry identity.
+2. **Qualify the combined SQL release path.** Run ingress without a replica,
+   leader loss, retained restart, quorum loss, archive denial and recovery
+   together on constrained voters. Keep explicit S3 acknowledgements tied to
+   archive coverage. Exercise bounded mixed load and reclaim only covered
+   local history.
 
 ## P0: finish the MVP and its merge gates
 
@@ -202,14 +194,16 @@ same prepared head. Ordinary range publication, import and disaster recovery
 must acquire the topology head without an active transition. Routing continues
 to select the original parent ranges until the verified transfer publishes.
 
-The unmanaged verification path mints a local source seal permit from the
-selected journal and exact parent replica. The owner drains prior proposals
-before appending the seal, closes application admission while it is pending,
-and persists the selected cut with the complete manifest. Checkpoint and apply
-admission preserve that cut. The managed controller still needs to verify
-child preparation, reserve physical resources and authenticate remote Seal
-requests. Child install, archive closure, publication, activation and retirement
-follow the committed cuts.
+The managed transition holds the fleet disruption slot from admission and
+binds source seal and child installation to the exact plan and physical
+replicas. The parent drains accepted proposals before committing the seal.
+The child install, fresh-term quorum set and verified source archive closure
+pass their focused native and real RustFS gates. Atomic publication and
+replicated child activation have a focused native test that also checks
+retained cell values, original receipt replay and a new quorum write on each
+transferred cell. Complete activated-child and sealed-parent restart, the
+child archive and retirement gates, then run the whole transition on the
+same qualified source.
 
 The sealed-source journal accepts one explicit archive hold per planned parent.
 Each hold must belong to the namespace-bound archive and independently restore
@@ -257,11 +251,9 @@ full hard cutover.
 | CG-15 | Full load/crash, transition, wakeup and disaster-recovery matrix. Measure the documented profiles and failure schedules; no capacity or TiKV performance-parity claim follows from correctness tests. |
 | CG-16 | Delete remaining predecessor consumers/codecs, finish feature-off/full release checks, publish the unified API/runbooks and qualified operating envelope. No one-cell special path, compatibility reader or production mode toggle. |
 
-The next functional slices are normal managed namespace/default provisioning,
-cold router return and the public managed lifecycle and ingress authority gates. Resolve the current eight-turn
-replacement and source-close successor-readiness failures, retained debt on
-surviving original voters and deployment fencing qualification. Investigate the unseeded read/write/transfer and eight-turn
-replacement failures without changing their bounds. Then finish default/backend
-and capability integration and the complete MVP public/backend gates, then
-transition/topology/wake features and the final managed recovery/load/release matrix. Passing one layer
-does not mark another layer or the end-to-end goal complete.
+The next functional slices are the combined public SQL lifecycle and retained
+restart through an in-progress managed transfer. Preserve the existing bounds
+while diagnosing eight-turn replacement, successor readiness after source close
+and retained debt on surviving original voters. Complete the SQL capability
+scope and release gates, then topology, placement, wake and the managed
+recovery and release matrix.

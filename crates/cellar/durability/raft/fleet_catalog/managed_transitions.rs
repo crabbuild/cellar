@@ -974,12 +974,36 @@ impl FleetCatalog {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TransferVoterAdmission {
+    Install,
+    Retained,
+}
+
 impl FleetHostAuthorization {
     pub(crate) async fn managed_transfer_install_authority(
         &self,
         transition: &ReopenedManagedCellGroupTransition,
         directory: &RangeDirectory,
         route: &GroupRoute,
+        timeout: Duration,
+    ) -> Result<ManagedTransferInstallAuthority> {
+        self.managed_transfer_voter_authority(
+            transition,
+            directory,
+            route,
+            TransferVoterAdmission::Install,
+            timeout,
+        )
+        .await
+    }
+
+    pub(crate) async fn managed_transfer_voter_authority(
+        &self,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        route: &GroupRoute,
+        admission: TransferVoterAdmission,
         timeout: Duration,
     ) -> Result<ManagedTransferInstallAuthority> {
         validate_request(&transition.request)?;
@@ -1006,11 +1030,13 @@ impl FleetHostAuthorization {
                     if !history.voters.iter().any(|voter| voter.node == boot.node) {
                         return Err(FleetCatalogError::Conflict);
                     }
-                    let capacity = catalog.capacity_from(&current, self.node()).await?;
-                    if !capacity.receive_replicas()
-                        || capacity.attestation().boot != boot
-                        || catalog.inner.current().await?.token != current.token
-                    {
+                    if admission == TransferVoterAdmission::Install {
+                        let capacity = catalog.capacity_from(&current, self.node()).await?;
+                        if !capacity.receive_replicas() || capacity.attestation().boot != boot {
+                            return Err(FleetCatalogError::Conflict);
+                        }
+                    }
+                    if catalog.inner.current().await?.token != current.token {
                         return Err(FleetCatalogError::Conflict);
                     }
                     Ok(ManagedTransferInstallAuthority {

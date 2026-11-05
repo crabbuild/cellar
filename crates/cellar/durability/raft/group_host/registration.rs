@@ -245,6 +245,7 @@ async fn select_assignment(
     Ok(Assignment {
         namespace,
         placement: assignment.placement,
+        pending_transfer_archive: false,
         transport: super::super::transport::GroupRoute {
             scope: assignment.history,
             schema_digest: birth.route().schema_digest,

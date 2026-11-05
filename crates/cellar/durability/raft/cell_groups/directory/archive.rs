@@ -179,6 +179,11 @@ impl RangeDirectory {
         self.open_selected_archive(domain, pool, birth, None).await
     }
 
+    pub(crate) async fn has_group_archive_binding(&self, birth: &CellGroupBirth) -> Result<bool> {
+        self.require_current_group_birth(birth).await?;
+        Ok(self.read_archive_binding(birth, None).await?.is_some())
+    }
+
     pub(crate) async fn verify_group_archive_binding(
         &self,
         domain: &impl CellGroupArchiveExecution,

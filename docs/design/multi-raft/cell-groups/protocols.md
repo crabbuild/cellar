@@ -1149,8 +1149,13 @@ managed activation permit binds the selected route and install receipt to the
 current boot and initial voter configuration. The child Raft owner admits the
 exact certificate and seed commitment only after its fresh-term barrier. Committed
 apply retains the certificate, seed commitment and activation position in the
-child manifest. Subsequent mutations, checkpoints and retained restart preserve
-that evidence. A selected child can serve only after activation applies. The
+child manifest. Subsequent mutations and checkpoints preserve that evidence.
+During an active managed transfer, restart reopens the exact activated voter
+from its permanently claimed engine, revalidates the publication and current
+boot, and uses its existing placement. Until the child archive is initialized,
+the held source closure remains available for recovery. Explicit S3
+acknowledgement requires child archive coverage. A selected child can serve
+only after activation applies. The
 directory selects Active after receiving one durable acknowledgement for every
 child in plan order. It binds the set to the exact publication and installed
 seed commitments and can reopen it after an ambiguous CAS. The topology lane

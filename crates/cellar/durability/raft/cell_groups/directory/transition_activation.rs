@@ -10,6 +10,7 @@ use crate::raft::{
     completion::RuntimeError,
     fleet_catalog::{
         FleetHostAuthorization, ManagedTransitionPermit, ReopenedManagedCellGroupTransition,
+        TransferVoterAdmission,
     },
     fleet_stop::BootBinding,
     storage::ReplicaLog,
@@ -162,7 +163,14 @@ impl RangeDirectory {
             .find(|route| route.history == history)
             .ok_or(CatalogError::Fenced)?;
         let (group, _, boot) = self
-            .require_managed_transfer_voter(transition, route, log, host, deadline)
+            .require_managed_transfer_voter(
+                transition,
+                route,
+                log,
+                host,
+                TransferVoterAdmission::Install,
+                deadline,
+            )
             .await?;
         self.prepare_transfer_activation_inner(
             &transition.plan,

@@ -7,7 +7,9 @@ use crate::raft::{
     cell_groups::{
         GroupManifest, PreparedCellGroupTransferChild, PreparedGroupManifest, TransferSeed,
     },
-    fleet_catalog::{FleetHostAuthorization, ReopenedManagedCellGroupTransition},
+    fleet_catalog::{
+        FleetHostAuthorization, ReopenedManagedCellGroupTransition, TransferVoterAdmission,
+    },
     fleet_stop::{BootBinding, Guard},
     member_state::FleetGroupBinding,
     storage::{CellGroupBootstrap, LogError, ReplicaLog},
@@ -701,7 +703,14 @@ impl RangeDirectory {
     ) -> futures_util::future::BoxFuture<'a, Result<CellGroupBootstrapPermit, CatalogError>> {
         Box::pin(async move {
             let (group, birth, _) = self
-                .require_managed_transfer_voter(&transition, route, log, host, deadline)
+                .require_managed_transfer_voter(
+                    &transition,
+                    route,
+                    log,
+                    host,
+                    TransferVoterAdmission::Install,
+                    deadline,
+                )
                 .await?;
             if group
                 .group_manifest()
@@ -724,12 +733,72 @@ impl RangeDirectory {
         })
     }
 
+    /// Reattach an already activated voter from its permanently claimed engine.
+    /// The selected transfer and synced local activation supply retained
+    /// authority. A new allocation still requires fresh capacity admission.
+    pub(crate) async fn bootstrap_managed_activated_transfer_voter(
+        &self,
+        birth: &CellGroupBirth,
+        log: &ReplicaLog,
+        host: &FleetHostAuthorization,
+    ) -> Result<CellGroupBootstrapPermit, CatalogError> {
+        self.bounded(async {
+            let route = birth.route();
+            let group = log.cell_group(&route.history).map_err(CatalogError::Log)?;
+            let marker = group
+                .group_manifest()
+                .map_err(CatalogError::Log)?
+                .filter(|marker| {
+                    marker.route() == route
+                        && marker.transfer_activation().is_some()
+                        && marker.is_active()
+                })
+                .ok_or(CatalogError::Fenced)?;
+            let origin = marker.transfer_origin().ok_or(CatalogError::Fenced)?;
+            let operation = ProposalId::new(origin.operation())
+                .map_err(|_| CatalogError::Corrupt("transfer operation"))?;
+            let timeout = Duration::from_millis(self.limits.operation_timeout_ms);
+            let deadline = log
+                .domain()
+                .mono_ms()
+                .map_err(|_| CatalogError::Unconfirmed)?
+                .checked_add(self.limits.operation_timeout_ms)
+                .ok_or(CatalogError::Limit)?;
+            let transition = host
+                .stop_catalog()
+                .reopen_managed_transition(self, operation, timeout)
+                .await
+                .map_err(CatalogError::from)?
+                .ok_or(CatalogError::Fenced)?;
+            let (group, _, _) = self
+                .require_managed_transfer_voter(
+                    &transition,
+                    route,
+                    log,
+                    host,
+                    TransferVoterAdmission::Retained,
+                    deadline,
+                )
+                .await?;
+            self.require_current_group_birth(birth).await?;
+            Ok(CellGroupBootstrapPermit::managed_activated_transfer(
+                group,
+                birth.clone(),
+                self.clone(),
+                log.clone(),
+                host.clone(),
+            ))
+        })
+        .await
+    }
+
     pub(super) async fn require_managed_transfer_voter(
         &self,
         transition: &ReopenedManagedCellGroupTransition,
         route: &GroupRoute,
         log: &ReplicaLog,
         host: &FleetHostAuthorization,
+        admission: TransferVoterAdmission,
         deadline: u64,
     ) -> Result<(GroupLog<GroupHistory>, CellGroupBirthRequest, BootBinding), CatalogError> {
         let domain = log.domain();
@@ -753,7 +822,7 @@ impl RangeDirectory {
             .pending_transfer_member(&transition.plan, &proof, log)
             .await?;
         let authority = host
-            .managed_transfer_install_authority(transition, self, route, remaining()?)
+            .managed_transfer_voter_authority(transition, self, route, admission, remaining()?)
             .await
             .map_err(CatalogError::from)?;
         let boot = self.require_managed_group_boot(log, host).await?;
@@ -769,6 +838,16 @@ impl RangeDirectory {
                 .conf_state
                 .voters
                 .contains(&group.identity().member.get())
+        {
+            return Err(CatalogError::Fenced);
+        }
+        if admission == TransferVoterAdmission::Retained
+            && cache
+                .group_manifest
+                .as_ref()
+                .filter(|marker| marker.is_active())
+                .and_then(GroupManifest::transfer_activation)
+                .is_none_or(|(_, _, position)| cache.hard_state.commit < position.index.get())
         {
             return Err(CatalogError::Fenced);
         }

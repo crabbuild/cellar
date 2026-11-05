@@ -51,7 +51,9 @@ async fn rustfs_managed_split_authorization() -> Result<()> {
             "managed-transition-authorize",
             rooted,
         )?));
-        Box::pin(run_plan(rooted, store, Decision::Authorize)).await?;
+        Box::pin(run_plan(rooted, store, Decision::Authorize))
+            .await
+            .with_context(|| format!("managed split authorization, extent images={rooted}"))?;
     }
     Ok(())
 }
@@ -114,9 +116,12 @@ async fn stop_transfer_destination(
             && report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers,
         "transfer destination shutdown inventory: {report:?}"
     );
-    ensure!(report.groups.iter().all(|group| group.active == active
-        && !group.failed
-        && group.applied.index == group.committed));
+    ensure!(
+        report.groups.iter().all(|group| group.active == active
+            && !group.failed
+            && group.applied.index == group.committed),
+        "expected active={active}, shutdown inventory: {report:?}"
+    );
     ensure!(
         report
             .groups

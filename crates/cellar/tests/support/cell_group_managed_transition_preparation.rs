@@ -728,13 +728,24 @@ async fn verify_managed_publication(
             == *journal
     );
 
+    let positions = children
+        .iter()
+        .zip(&acknowledgements)
+        .map(|(route, ack)| (route.history, ack.position().index))
+        .collect::<Vec<_>>();
+    wait_transfer_applied(voters, &positions).await
+}
+
+async fn wait_transfer_applied(
+    voters: &[RaftCells],
+    positions: &[(GroupHistory, LogIndex)],
+) -> Result<()> {
     tokio::time::timeout(TIMEOUT, async {
         loop {
             let mut applied = true;
-            for (route, acknowledgement) in children.iter().zip(&acknowledgements) {
+            for (history, index) in positions {
                 for voter in voters {
-                    applied &= voter.group(route.history)?.status().await?.applied.index
-                        >= acknowledgement.position().index;
+                    applied &= voter.group(*history)?.status().await?.applied.index >= *index;
                 }
             }
             if applied {
@@ -743,7 +754,8 @@ async fn verify_managed_publication(
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
-    .await?
+    .await
+    .context("transfer voter apply did not reach the committed position")?
 }
 
 async fn wait_managed_activation(
@@ -778,14 +790,21 @@ async fn wait_managed_activation(
 }
 
 pub(super) async fn verify_transferred_sql(
-    cluster: &ManagedCluster,
+    cluster: &mut ManagedCluster,
     directory: &RangeDirectory,
     seeded: SeededCells,
 ) -> Result<()> {
-    let domain = &cluster.fixtures[0].domain;
+    let domain = cluster.fixtures[0].domain.clone();
     let view = domain.run(directory.observe()).await??;
     let hosts = &cluster.hosts[DESTINATION..];
-    for (index, (cell, original)) in seeded.cells.into_iter().zip(seeded.receipts).enumerate() {
+    let mut positions = Vec::with_capacity(seeded.cells.len());
+    for (index, (cell, original)) in seeded
+        .cells
+        .iter()
+        .cloned()
+        .zip(seeded.receipts)
+        .enumerate()
+    {
         let route = domain.run(directory.lookup(&view, &cell.cell)).await??;
         let leader = leader(hosts, route.history).await?;
         let handle = hosts[leader].cell(cell)?;
@@ -820,6 +839,30 @@ pub(super) async fn verify_transferred_sql(
             )
             .await?;
         ensure!(next.result == (expected + 1).to_be_bytes() && next.witness.group == route.history);
+        positions.push((route.history, next.witness.position.index));
+    }
+    wait_transfer_applied(hosts, &positions).await?;
+    reopen_transfer_destination(cluster, 111, 2, true).await?;
+    let restarted = &cluster.hosts[DESTINATION];
+    let view = domain.run(directory.observe()).await??;
+    for (index, cell) in seeded.cells.into_iter().enumerate() {
+        let route = domain.run(directory.lookup(&view, &cell.cell)).await??;
+        let group = restarted.group(route.history)?;
+        ensure!(group.archive_status()?.is_none());
+        let handle = restarted.cell(cell)?;
+        let query = handle
+            .query(
+                ProposalId::new([194 + index as u8; 16])?,
+                &handle.contract("Get")?,
+                vec![],
+                QueryOptions {
+                    routing: QueryRouting::Local,
+                    ..Default::default()
+                },
+            )
+            .await?;
+        ensure!(query.result == [11i64, 12][index].to_be_bytes());
+        ensure!(query.served_by_node == restarted.identity());
     }
     Ok(())
 }
@@ -905,7 +948,7 @@ async fn restart_destination(
     recovery: CellGroupRecoveryPool,
     expected: InstalledTransferVoter,
 ) -> Result<()> {
-    reopen_transfer_destination(cluster, 109, 0).await?;
+    reopen_transfer_destination(cluster, 109, 0, false).await?;
     let fixture = &cluster.fixtures[DESTINATION];
     let host = &cluster.hosts[DESTINATION];
     for route in sources.children() {
@@ -981,7 +1024,7 @@ async fn restart_destination(
             .attach_managed_transfer_child(transition.clone(), route.clone(), TIMEOUT)
             .await?;
     }
-    reopen_transfer_destination(cluster, 110, 1).await?;
+    reopen_transfer_destination(cluster, 110, 1, false).await?;
     let fixture = &cluster.fixtures[DESTINATION];
     let host = &cluster.hosts[DESTINATION];
     ensure!(matches!(
@@ -1011,11 +1054,12 @@ async fn reopen_transfer_destination(
     cluster: &mut ManagedCluster,
     generation: u8,
     pending_quorums: usize,
+    activated: bool,
 ) -> Result<()> {
     let old = cluster.nodes.remove(DESTINATION);
     let old_host = cluster.hosts.remove(DESTINATION);
     let previous = old_host.identity();
-    stop_transfer_destination(old, &old_host, 2, pending_quorums, false).await?;
+    stop_transfer_destination(old, &old_host, 2, pending_quorums, activated).await?;
     let fixture = &cluster.fixtures[DESTINATION];
     let node = start_node(
         cluster.roots[DESTINATION].path(),

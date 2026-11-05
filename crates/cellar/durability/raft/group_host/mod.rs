@@ -101,6 +101,7 @@ pub(crate) struct Assignment {
     namespace: usize,
     birth: CellGroupBirth,
     placement: RaftGroupPlacement,
+    pending_transfer_archive: bool,
     transport: super::transport::GroupRoute<GroupHistory>,
 }
 
@@ -228,7 +229,7 @@ pub(crate) async fn start(
         let mut appliers = Vec::new();
         let mut recovering = Vec::new();
         let mut recovery_bytes = 4096usize;
-        for assignment in &prepared.groups {
+        for assignment in &mut prepared.groups {
             match assignment.placement {
                 RaftGroupPlacement::QueryRouter => {
                     // Publish every route together after all local roots attach.
@@ -256,6 +257,12 @@ pub(crate) async fn start(
                         .transpose()?
                         .flatten()
                         .is_some();
+                    let activated_transfer = retained
+                        .as_ref()
+                        .map(|group| group.group_manifest())
+                        .transpose()?
+                        .flatten()
+                        .is_some_and(|marker| marker.transfer_activation().is_some());
                     let permit = if recovered {
                         anyhow::ensure!(
                             options.managed.is_none(),
@@ -292,14 +299,26 @@ pub(crate) async fn start(
                                 .await?
                         }
                     } else if let Some(managed) = &options.managed {
-                        namespace
-                            .directory
-                            .bootstrap_managed_group_member(
-                                &assignment.birth,
-                                &log,
-                                &managed.authorization,
-                            )
-                            .await?
+                        if activated_transfer {
+                            assignment.pending_transfer_archive = true;
+                            namespace
+                                .directory
+                                .bootstrap_managed_activated_transfer_voter(
+                                    &assignment.birth,
+                                    &log,
+                                    &managed.authorization,
+                                )
+                                .await?
+                        } else {
+                            namespace
+                                .directory
+                                .bootstrap_managed_group_member(
+                                    &assignment.birth,
+                                    &log,
+                                    &managed.authorization,
+                                )
+                                .await?
+                        }
                     } else {
                         namespace
                             .directory

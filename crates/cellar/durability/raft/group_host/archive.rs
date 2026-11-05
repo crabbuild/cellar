@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Startup opens preprovisioned archive identities. A missing identity or
-//! counter is corruption, never permission to create a replacement archive.
+//! Startup opens preprovisioned archive identities. An activated transfer may
+//! still rely on its source archive closure while its own archive is pending.
 use super::*;
 
 pub(super) struct Pools {
@@ -66,6 +66,17 @@ impl Pools {
             .filter(|a| a.placement == RaftGroupPlacement::Replica)
         {
             let namespace = &prepared.namespaces[assignment.namespace];
+            if assignment.pending_transfer_archive
+                && !namespace
+                    .directory
+                    .has_group_archive_binding(&assignment.birth)
+                    .await?
+            {
+                // The verified transfer closure still owns recovery. Leave
+                // archive publication and explicit S3 coverage unavailable
+                // until the operator creates this child's archive binding.
+                continue;
+            }
             namespace
                 .directory
                 .open_group_archive(&log.domain(), &self.io, &assignment.birth)
