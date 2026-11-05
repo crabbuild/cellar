@@ -187,7 +187,14 @@ async fn exercise(
     let cut = f.catalog.read(TIMEOUT).await?;
     ensure!(cut.revision() == confirmation_revision + 1);
 
+    // Lose the fleet CAS reply and its first confirmation read after the
+    // archive intent commits. The active initializer must reconcile it.
+    f.store
+        .fail_fleet_confirmation
+        .store(true, Ordering::Release);
     let archive_receipt = cli.call(&archive, OWNER).await?.success()?;
+    ensure!(!f.store.fail_fleet_confirmation.load(Ordering::Acquire));
+    ensure!(!f.store.fail_fleet_read.load(Ordering::Acquire));
     ensure!(archive_receipt["stage"] == "archive_initialized");
     let writes = f.store.registry_writes.load(Ordering::Acquire);
     ensure!(cli.call(&archive, OWNER).await?.success()? == archive_receipt);

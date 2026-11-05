@@ -17,7 +17,7 @@ use cellar_logic::cell_group::{CellRange, GroupHistory};
 const FIRST_GROUP_ARCHIVE_KIND: u8 = 103;
 const INTENT_LIMIT: usize = 4096;
 
-#[derive(Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FirstGroupArchiveIntent {
     request: FleetRequestIdentity,
@@ -54,7 +54,8 @@ pub struct RaftManagedArchiveProvisioning {
 
 impl FleetCatalog {
     /// Root one archive intent for the exact published first group before
-    /// entering the one-use initializer. Replay is verification only.
+    /// entering the one-use initializer. The active owner can reconcile a
+    /// lost fleet confirmation. A later replay is verification only.
     pub(crate) async fn initialize_managed_first_group_archive(
         &self,
         group: &RaftManagedFirstGroup,
@@ -139,7 +140,25 @@ impl FleetCatalog {
                 binding: hex::encode(prepared.encode()),
             };
             let mutation = intent.mutation(&key)?;
-            self.commit_inner(&snapshot, &mutation).await?;
+            match self.commit_inner(&snapshot, &mutation).await {
+                Ok(_) => (),
+                Err(error @ (FleetCatalogError::Storage(_) | FleetCatalogError::Unconfirmed)) => {
+                    // The fleet CAS may have committed despite the lost reply
+                    // or confirmation read. Only this invocation still owns
+                    // the fresh initializer, and it needs the exact rooted
+                    // journal entry before creating any archive metadata.
+                    let observed = self.inner.current().await?;
+                    if self
+                        .first_group_archive_intent(&observed, &key)
+                        .await?
+                        .as_ref()
+                        != Some(&intent)
+                    {
+                        return Err(error);
+                    }
+                }
+                Err(error) => return Err(error),
+            }
             prepared.commit(domain).await.map_err(binding_error)?;
             Ok(())
         })
