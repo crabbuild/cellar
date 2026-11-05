@@ -202,6 +202,17 @@ impl FleetCatalog {
         namespace: &NamespaceCatalog,
         class: Option<&str>,
     ) -> Result<()> {
+        self.namespace_declaration(snapshot, namespace, class)
+            .await?;
+        Ok(())
+    }
+
+    async fn namespace_declaration(
+        &self,
+        snapshot: &FleetSnapshot,
+        namespace: &NamespaceCatalog,
+        class: Option<&str>,
+    ) -> Result<Declaration> {
         let registry = self
             .registry(snapshot)
             .await?
@@ -215,7 +226,8 @@ impl FleetCatalog {
             .await?
             .ok_or(FleetCatalogError::InventoryIncomplete)?;
         let declaration: Declaration = decode(DECLARATION_KIND, &bytes, 4096)?;
-        declaration.check(self, namespace, class)
+        declaration.check(self, namespace, class)?;
+        Ok(declaration)
     }
 }
 

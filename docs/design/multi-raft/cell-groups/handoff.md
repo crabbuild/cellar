@@ -4,6 +4,14 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## CG-07 public first-group operator workflow
+
+The CLI and admin path observe standby and reserve and publish the first
+group using the exact rooted plan. Both RustFS process modes use the CLI
+for capacity and metadata. Keep one-use archive initialization and daemon
+activation under explicit ownership while moving them out of the fixture.
+[Source and test records](progress.md)
+
 ## CG-07 independent managed daemon voters on RustFS
 
 The real-backend process case now passes with both materialized images and

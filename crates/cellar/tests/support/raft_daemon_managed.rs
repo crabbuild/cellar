@@ -4,7 +4,11 @@
 use super::*;
 use cellar::application::consensus::verification::cell_groups::RangeDirectory;
 use cellar::bucket::{Bucket, StaticCredentials};
+use cellar::sdk::fleet_operations::*;
 use std::io::Write;
+#[path = "raft_first_group_operator_cli.rs"]
+mod cli;
+use cli::{first_group_plan, OperatorCli, OWNER};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 const PRINCIPAL: &str = "daemon-process-fixture";
@@ -399,10 +403,6 @@ async fn provision_first_group(
 ) -> Result<()> {
     let declaration = operator.declaration()?;
     let limits = configuration::limits().directory;
-    let standby = operator
-        .fleet
-        .observe_managed_standby(&operator.adapter, &declaration, limits, TIMEOUT)
-        .await?;
     let selected = operator
         .domain
         .run(
@@ -420,58 +420,19 @@ async fn provision_first_group(
         );
         cellar::asyncrt::sleep(Duration::from_millis(20)).await;
     }
-    for index in 0..3 {
-        admit_capacity(operator, service, &directory, index).await?;
-    }
-    let cut = operator.fleet.read(TIMEOUT).await?;
-    let reservation = request(30, cut.revision());
-    let publication = ProposalId::new([32; 16])?;
-    let group = CellGroupBirthSpec {
-        history,
-        range: CellRange::all(),
-        epoch: RouteEpoch::new(1)?,
-        creation: ProposalId::new([33; 16])?,
-        voters: (0..3)
-            .map(|index| {
-                Ok(InitialMember {
-                    node: node(index)?,
-                    member: MemberId::new(u64::from(index) + 1)?,
-                })
-            })
-            .collect::<Result<_>>()?,
-        learners: vec![],
-    };
-    persist(
+    let control = RaftFleetControl::new(&operator.domain, operator.fleet.clone(), vec![directory])?
+        .with_node_observer(service.clone());
+    let cli = OperatorCli::start(
+        &operator.domain,
+        operator.bucket.clone(),
+        control,
         root,
-        "first-group-reservation",
-        &serde_json::to_vec(&reservation)?,
-    )?;
-    let prepared = operator
-        .fleet
-        .reserve_managed_first_group(
-            &operator.adapter,
-            &declaration,
-            RaftManagedFirstGroupRequest {
-                reservation,
-                standby,
-                publication,
-                group,
-            },
-            limits,
-            TIMEOUT,
-        )
-        .await?;
-    let cut = operator.fleet.read(TIMEOUT).await?;
-    let confirmation = request(31, cut.revision());
-    persist(
-        root,
-        "first-group-confirmation",
-        &serde_json::to_vec(&confirmation)?,
-    )?;
-    operator
-        .fleet
-        .publish_managed_first_group(&prepared, &confirmation, TIMEOUT)
-        .await?;
+        PRINCIPAL,
+    )
+    .await?;
+    let result = publish_first_group(&cli, service, root, history).await;
+    cli.close().await?;
+    result?;
     let archive = operator.archive().await?;
     let prepared = archive.prepare_archive(history, TIMEOUT).await?;
     persist(root, ARCHIVE_INTENT, prepared.encoded_intent())?;
@@ -480,6 +441,85 @@ async fn provision_first_group(
         .verify_archive(history, &std::fs::read(root.join(ARCHIVE_INTENT))?, TIMEOUT)
         .await?;
     persist(root, STANDBY_READY, b"confirmed")?;
+    Ok(())
+}
+
+async fn publish_first_group(
+    cli: &OperatorCli,
+    service: &RaftCells,
+    root: &Path,
+    history: GroupHistory,
+) -> Result<()> {
+    for index in 0..3 {
+        admit_capacity(cli, service, root, index).await?;
+    }
+    let namespace = hex::encode(history.namespace.bytes());
+    let observed: RaftFleetFirstGroupStandby = serde_json::from_value(
+        cli.call(&["first-group", "standby", &namespace], OWNER)
+            .await?
+            .success()?,
+    )?;
+    let mut standby = [0; 32];
+    hex::decode_to_slice(observed.standby, &mut standby)?;
+    let plan = first_group_plan(
+        &cli.catalog,
+        RaftManagedFirstGroupRequest {
+            reservation: request(30, cli.revision().await?),
+            standby,
+            publication: ProposalId::new([32; 16])?,
+            group: CellGroupBirthSpec {
+                history,
+                range: CellRange::all(),
+                epoch: RouteEpoch::new(1)?,
+                creation: ProposalId::new([33; 16])?,
+                voters: (0..3)
+                    .map(|index| {
+                        Ok(InitialMember {
+                            node: node(index)?,
+                            member: MemberId::new(u64::from(index) + 1)?,
+                        })
+                    })
+                    .collect::<Result<_>>()?,
+                learners: vec![],
+            },
+        },
+    )?;
+    let plan_file = "first-group-plan.json";
+    persist(root, plan_file, &serde_json::to_vec(&plan)?)?;
+    let plan_path = root.join(plan_file);
+    let plan_path = plan_path.to_str().context("UTF-8 first group plan path")?;
+    let reserved = cli
+        .call(
+            &["first-group", "reserve", &namespace, "--plan", plan_path],
+            OWNER,
+        )
+        .await?
+        .success()?;
+    ensure!(reserved["stage"] == "reserved");
+    let confirmation = request(31, cli.revision().await?);
+    persist(
+        root,
+        "first-group-confirmation",
+        &serde_json::to_vec(&confirmation)?,
+    )?;
+    let published = cli
+        .call(
+            &[
+                "first-group",
+                "publish",
+                &namespace,
+                "--plan",
+                plan_path,
+                "--request-id",
+                &hex::encode(confirmation.id),
+                "--expected-revision",
+                &confirmation.expected_revision.to_string(),
+            ],
+            OWNER,
+        )
+        .await?
+        .success()?;
+    ensure!(published["stage"] == "published");
     Ok(())
 }
 
@@ -503,14 +543,13 @@ async fn inspect_current(
 }
 
 async fn admit_capacity(
-    operator: &Operator,
+    cli: &OperatorCli,
     service: &RaftCells,
-    directory: &RangeDirectory,
+    root: &Path,
     index: u8,
 ) -> Result<()> {
     let node = node(index)?;
-    let cut = operator.fleet.read(TIMEOUT).await?;
-    let observed = inspect_current(service, node, cut.revision()).await?;
+    let observed = inspect_current(service, node, cli.revision().await?).await?;
     let attestation = FleetCapacityAttestation {
         boot: observed.fleet_boot.context("capacity boot")?,
         profile_revision: 1,
@@ -525,27 +564,36 @@ async fn admit_capacity(
         evidence_digest: [71; 32],
         evidence_reference: "fixture-only/daemon-process".into(),
     };
-    for (offset, action, state) in [
-        (0, FleetCapacityAction::Qualify, FleetNodeState::Ready),
-        (1, FleetCapacityAction::Activate, FleetNodeState::Active),
+    let filename = format!("capacity-{index}.json");
+    persist(root, &filename, &serde_json::to_vec(&attestation)?)?;
+    let path = root.join(filename);
+    let path = path.to_str().context("UTF-8 capacity attestation path")?;
+    let node_hex = hex::encode(node.bytes());
+    for (offset, verb, state) in [
+        (0, "qualify", FleetNodeState::Ready),
+        (1, "activate", FleetNodeState::Active),
     ] {
-        let cut = operator.fleet.read(TIMEOUT).await?;
-        inspect_current(service, node, cut.revision()).await?;
-        let admitted = operator
-            .fleet
-            .admit_node_capacity(
-                &cut,
-                &FleetCapacityRequest {
-                    identity: request(20 + index * 2 + offset, cut.revision()),
-                    attestation: attestation.clone(),
-                    action,
-                },
-                service,
-                std::slice::from_ref(directory),
-                TIMEOUT,
+        let revision = cli.revision().await?;
+        inspect_current(service, node, revision).await?;
+        let admission: RaftFleetNodeAcceptance = serde_json::from_value(
+            cli.call(
+                &[
+                    "nodes",
+                    verb,
+                    &node_hex,
+                    "--attestation",
+                    path,
+                    "--operation-id",
+                    &hex::encode([20 + index * 2 + offset; 16]),
+                    "--expected-revision",
+                    &revision.to_string(),
+                ],
+                OWNER,
             )
-            .await?;
-        ensure!(admitted.state() == state);
+            .await?
+            .success()?,
+        )?;
+        ensure!(admission.admission.admitted_state == state);
     }
     Ok(())
 }

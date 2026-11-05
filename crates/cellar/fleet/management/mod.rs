@@ -30,6 +30,8 @@ pub use raft::{
     RaftFleetCapacityAttestation, RaftFleetConnection, RaftFleetControl,
     RaftFleetEvacuationAcceptance, RaftFleetEvacuationDebt, RaftFleetEvacuationPhase,
     RaftFleetEvacuationProgress, RaftFleetEvacuationStatus, RaftFleetFailure, RaftFleetFailureCode,
+    RaftFleetFirstGroupAcceptance, RaftFleetFirstGroupPlan, RaftFleetFirstGroupPublish,
+    RaftFleetFirstGroupStage, RaftFleetFirstGroupStandby, RaftFleetFirstGroupVoter,
     RaftFleetMaintenanceAcceptance, RaftFleetMaintenanceAction, RaftFleetMaintenanceCancel,
     RaftFleetMaintenancePhase, RaftFleetMaintenancePrepare, RaftFleetMaintenanceReturnContext,
     RaftFleetMaintenanceStatus, RaftFleetMovement, RaftFleetMovements, RaftFleetNamespace,

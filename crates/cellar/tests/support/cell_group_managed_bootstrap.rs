@@ -6,6 +6,9 @@ use cellar::application::consensus::verification::cell_groups::{
     CellGroupArchivePool, RangeDirectory,
 };
 
+#[path = "cell_group_managed_first_group_operator.rs"]
+mod first_group_operator;
+
 #[path = "cell_group_managed_requests.rs"]
 mod requests;
 
@@ -362,6 +365,7 @@ enum ArchiveSetup {
 enum FirstGroupSetup {
     Normal,
     ExerciseReplay,
+    Operator,
 }
 
 struct ManagedCluster {
@@ -573,44 +577,52 @@ impl ManagedCluster {
         }
         let cut = f.catalog.read(TIMEOUT).await?;
         let reserve_identity = request(60, cut.revision());
-        let reserved = f
-            .catalog
-            .reserve_managed_first_group(
-                &adapter,
-                &f.declaration,
-                reserve(reserve_identity.clone())?,
-                DirectoryLimits::default(),
-                TIMEOUT,
-            )
-            .await?;
-        let cut = f.catalog.read(TIMEOUT).await?;
-        ensure!(
-            f.catalog
-                .check_inventory(&cut, std::slice::from_ref(&directory), TIMEOUT)
-                .await?
-                .histories()
-                == 1,
-            "unselected reservation must retain its physical references"
-        );
-        let confirmation = request(61, cut.revision());
-        let reserved = if matches!(first_group, FirstGroupSetup::ExerciseReplay) {
-            verify_first_group_replay(
+        let authorization = if matches!(first_group, FirstGroupSetup::Operator) {
+            Box::pin(first_group_operator::provision(
                 f,
-                &adapter,
                 &directory,
-                &reserved,
-                &confirmation,
                 reserve(reserve_identity)?,
-                history,
-            )
+            ))
             .await?
         } else {
-            reserved
+            let reserved = f
+                .catalog
+                .reserve_managed_first_group(
+                    &adapter,
+                    &f.declaration,
+                    reserve(reserve_identity.clone())?,
+                    DirectoryLimits::default(),
+                    TIMEOUT,
+                )
+                .await?;
+            let cut = f.catalog.read(TIMEOUT).await?;
+            ensure!(
+                f.catalog
+                    .check_inventory(&cut, std::slice::from_ref(&directory), TIMEOUT)
+                    .await?
+                    .histories()
+                    == 1,
+                "unselected reservation must retain its physical references"
+            );
+            let confirmation = request(61, cut.revision());
+            let reserved = if matches!(first_group, FirstGroupSetup::ExerciseReplay) {
+                verify_first_group_replay(
+                    f,
+                    &adapter,
+                    &directory,
+                    &reserved,
+                    &confirmation,
+                    reserve(reserve_identity)?,
+                    history,
+                )
+                .await?
+            } else {
+                reserved
+            };
+            f.catalog
+                .publish_managed_first_group(&reserved, &confirmation, TIMEOUT)
+                .await?
         };
-        let authorization = f
-            .catalog
-            .publish_managed_first_group(&reserved, &confirmation, TIMEOUT)
-            .await?;
         if archives == ArchiveSetup::Initialized {
             archives::initialize(f, &adapter, history, roots[0].path()).await?;
         }
@@ -670,6 +682,33 @@ async fn verify_first_group_replay(
         .catalog
         .recover_birth_reservation(&cut, directory, &history, TIMEOUT)
         .await?;
+    let mut changed = request_plan.clone();
+    changed.publication = ProposalId::new([125; 16])?;
+    ensure!(matches!(
+        f.catalog
+            .reopen_managed_first_group(
+                adapter,
+                &f.declaration,
+                changed.clone(),
+                DirectoryLimits::default(),
+                TIMEOUT
+            )
+            .await,
+        Err(FleetCatalogError::PayloadConflict)
+    ));
+    ensure!(matches!(
+        f.catalog
+            .reserve_managed_first_group(
+                adapter,
+                &f.declaration,
+                changed,
+                DirectoryLimits::default(),
+                TIMEOUT
+            )
+            .await,
+        Err(FleetCatalogError::PayloadConflict)
+    ));
+    ensure!(f.catalog.read(TIMEOUT).await?.revision() == cut.revision());
     let gate = &f.store.first_group_birth_after;
     gate.armed.store(true, Ordering::Release);
     let conflicting = request(62, cut.revision() + 1);
@@ -734,7 +773,7 @@ async fn verify_first_group_replay(
     ensure!(matches!(replay, Err(FleetCatalogError::Corrupt(_))) && missing);
     ensure!(f.catalog.read(TIMEOUT).await?.revision() == cut.revision() + 1);
     Ok(f.catalog
-        .reserve_managed_first_group(
+        .reopen_managed_first_group(
             adapter,
             &f.declaration,
             request_plan,

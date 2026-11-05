@@ -499,7 +499,14 @@ impl FleetCatalog {
         )?;
         self.run(
             timeout,
-            self.insert_history(snapshot, request, &history, directory, class, false),
+            self.insert_history(
+                snapshot,
+                request,
+                &history,
+                directory,
+                class,
+                HistoryAdmission::Observed,
+            ),
         )
         .await
     }
@@ -513,6 +520,27 @@ impl FleetCatalog {
         class: &str,
         timeout: Duration,
     ) -> Result<FleetBirthReservation> {
+        self.reserve_birth_with_intent(
+            snapshot,
+            request,
+            directory,
+            (proposal, None),
+            class,
+            timeout,
+        )
+        .await
+    }
+
+    pub(super) async fn reserve_birth_with_intent(
+        &self,
+        snapshot: &FleetSnapshot,
+        request: &FleetRequestIdentity,
+        directory: &RangeDirectory,
+        setup: (CellGroupBirthSpec, Option<[u8; 32]>),
+        class: &str,
+        timeout: Duration,
+    ) -> Result<FleetBirthReservation> {
+        let (proposal, intent) = setup;
         self.check_snapshot(snapshot)?;
         validate_request(request)?;
         let namespace = directory.namespace();
@@ -551,7 +579,14 @@ impl FleetCatalog {
             };
             history.validate()?;
             let commit = self
-                .insert_history(snapshot, request, &history, directory, class, true)
+                .insert_history(
+                    snapshot,
+                    request,
+                    &history,
+                    directory,
+                    class,
+                    HistoryAdmission::Reserved(intent),
+                )
                 .await?;
             Ok(FleetBirthReservation {
                 commit,
@@ -574,6 +609,18 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         directory: &RangeDirectory,
         scope: &GroupHistory,
+        timeout: Duration,
+    ) -> Result<FleetBirthAuthorization> {
+        self.recover_birth_reservation_matching(snapshot, directory, scope, None, timeout)
+            .await
+    }
+
+    pub(super) async fn recover_birth_reservation_matching(
+        &self,
+        snapshot: &FleetSnapshot,
+        directory: &RangeDirectory,
+        scope: &GroupHistory,
+        expected: Option<(&FleetRequestIdentity, [u8; 32])>,
         timeout: Duration,
     ) -> Result<FleetBirthAuthorization> {
         self.check_snapshot(snapshot)?;
@@ -609,26 +656,11 @@ impl FleetCatalog {
                 principal: mutation.principal.clone(),
                 expected_revision: mutation.expected_revision,
             };
-            let expected = history_mutation(
-                &request,
-                vec![
-                    FleetChange {
-                        table: FleetTable::Histories,
-                        key: key.clone(),
-                        value: Some(history.encode()?),
-                    },
-                    FleetChange {
-                        table: FleetTable::Policy,
-                        key: history.name_key()?,
-                        value: Some(key.as_bytes().to_vec()),
-                    },
-                    FleetChange {
-                        table: FleetTable::Policy,
-                        key: history.group_key()?,
-                        value: Some(key.as_bytes().to_vec()),
-                    },
-                ],
-            );
+            let intent = self.first_group_intent(snapshot, &request.id).await?;
+            if expected.is_some_and(|(saved, digest)| saved != &request || Some(digest) != intent) {
+                return Err(FleetCatalogError::PayloadConflict);
+            }
+            let expected = birth_mutation(&history, &request, &key, intent)?;
             if mutation.id != history.admission
                 || mutation.operation != history.operation
                 || mutation != expected
@@ -786,6 +818,25 @@ impl FleetCatalog {
         Ok(history)
     }
 
+    pub(super) async fn first_group_intent(
+        &self,
+        snapshot: &FleetSnapshot,
+        request: &[u8; 16],
+    ) -> Result<Option<[u8; 32]>> {
+        self.inner
+            .lookup(
+                snapshot.head.tables[FleetTable::Policy.slot()],
+                &first_group_intent_key(request),
+            )
+            .await?
+            .map(|value| {
+                value
+                    .try_into()
+                    .map_err(|_| FleetCatalogError::Corrupt("first group intent"))
+            })
+            .transpose()
+    }
+
     async fn insert_history(
         &self,
         snapshot: &FleetSnapshot,
@@ -793,7 +844,7 @@ impl FleetCatalog {
         history: &FleetHistory,
         directory: &RangeDirectory,
         class: &str,
-        placement: bool,
+        admission: HistoryAdmission,
     ) -> Result<FleetCommit> {
         let namespace = directory.namespace();
         let key = history
@@ -807,26 +858,11 @@ impl FleetCatalog {
         if self.binding(&scope)? != history.binding {
             return Err(FleetCatalogError::Conflict);
         }
-        let mutation = history_mutation(
-            request,
-            vec![
-                FleetChange {
-                    table: FleetTable::Histories,
-                    key: key.clone(),
-                    value: Some(history.encode()?),
-                },
-                FleetChange {
-                    table: FleetTable::Policy,
-                    key: history.name_key()?,
-                    value: Some(key.as_bytes().to_vec()),
-                },
-                FleetChange {
-                    table: FleetTable::Policy,
-                    key: history.group_key()?,
-                    value: Some(key.as_bytes().to_vec()),
-                },
-            ],
-        );
+        let intent = match admission {
+            HistoryAdmission::Observed => None,
+            HistoryAdmission::Reserved(intent) => intent,
+        };
+        let mutation = birth_mutation(history, request, &key, intent)?;
         mutation.validate()?;
         let current = self.inner.current().await?;
         let digest = hash(&encode(REQUEST_KIND, &mutation, REQUEST_LIMIT)?);
@@ -868,7 +904,7 @@ impl FleetCatalog {
             {
                 return Err(FleetCatalogError::Conflict);
             }
-            if placement {
+            if let HistoryAdmission::Reserved(_) = admission {
                 let nodes = self.node_records(snapshot).await?;
                 let mut hosts = BTreeSet::new();
                 for member in &history.voters {
@@ -917,6 +953,48 @@ impl FleetCatalog {
         }
         self.commit_inner(snapshot, &mutation).await
     }
+}
+
+enum HistoryAdmission {
+    Observed,
+    Reserved(Option<[u8; 32]>),
+}
+
+fn first_group_intent_key(request: &[u8; 16]) -> String {
+    format!("first-group-intents/{}", hex::encode(request))
+}
+
+fn birth_mutation(
+    history: &FleetHistory,
+    request: &FleetRequestIdentity,
+    key: &str,
+    intent: Option<[u8; 32]>,
+) -> Result<FleetMutation> {
+    let mut changes = vec![
+        FleetChange {
+            table: FleetTable::Histories,
+            key: key.into(),
+            value: Some(history.encode()?),
+        },
+        FleetChange {
+            table: FleetTable::Policy,
+            key: history.name_key()?,
+            value: Some(key.as_bytes().to_vec()),
+        },
+        FleetChange {
+            table: FleetTable::Policy,
+            key: history.group_key()?,
+            value: Some(key.as_bytes().to_vec()),
+        },
+    ];
+    if let Some(digest) = intent {
+        changes.push(FleetChange {
+            table: FleetTable::Policy,
+            key: first_group_intent_key(&request.id),
+            value: Some(digest.to_vec()),
+        });
+    }
+    Ok(history_mutation(request, changes))
 }
 
 pub(super) fn history_mutation(

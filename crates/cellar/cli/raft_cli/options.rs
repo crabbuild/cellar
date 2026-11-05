@@ -20,6 +20,9 @@ cellar raft fleet nodes add --descriptor NODE.json --operation-id REQUEST_HEX --
 cellar raft fleet nodes status NODE_HEX
 cellar raft fleet nodes qualify NODE_HEX --attestation CAPACITY.json --operation-id REQUEST_HEX --expected-revision R
 cellar raft fleet nodes activate NODE_HEX --attestation CAPACITY.json --operation-id REQUEST_HEX --expected-revision R
+cellar raft fleet first-group standby NAMESPACE_HEX
+cellar raft fleet first-group reserve NAMESPACE_HEX --plan PLAN.json
+cellar raft fleet first-group publish NAMESPACE_HEX --plan PLAN.json --request-id ID --expected-revision R
 cellar raft fleet status --fleet F --admin-url URL [--json]
 cellar raft fleet rebalance --keep NODE_HEX,... --policy POLICY.json --operation-id OP_HEX --expected-revision R [--wait]
 cellar raft fleet operation status OP_HEX
@@ -43,6 +46,9 @@ pub(super) enum Action {
     PrepareMaintenance(String, Box<RaftFleetMaintenancePrepare>),
     CancelMaintenance(String, Box<RaftFleetMaintenanceCancel>),
     Status,
+    FirstGroupStandby(String),
+    FirstGroupReserve(Box<RaftFleetFirstGroupPlan>),
+    FirstGroupPublish(Box<RaftFleetFirstGroupPublish>),
     NodeStatus(String),
     EvacuationStatus(String),
     Evacuate(String, Box<RaftFleetNodeOperation>),
@@ -85,6 +91,12 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
             Some(args.next().ok_or_else(|| invalid("missing node ID"))?)
         };
         (format!("nodes_{verb}"), target)
+    } else if command == "first-group" {
+        let verb = args
+            .next()
+            .ok_or_else(|| invalid("missing first group command"))?;
+        let namespace = args.next().ok_or_else(|| invalid("missing namespace ID"))?;
+        (format!("first_group_{verb}"), Some(namespace))
     } else if command == "operation" {
         let command = args
             .next()
@@ -112,6 +124,7 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
     let mut policy = None;
     let mut descriptor = None;
     let mut attestation = None;
+    let mut first_group_plan = None;
     let mut cursor = None;
     let mut limit = 64usize;
     let mut wait = false;
@@ -175,6 +188,17 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
                 &mut policy,
                 json_file::<crate::raft::fleet_catalog::FleetTopologyPolicy>(&value)?,
             )?,
+            "--plan"
+                if matches!(
+                    command.as_str(),
+                    "first_group_reserve" | "first_group_publish"
+                ) =>
+            {
+                set(
+                    &mut first_group_plan,
+                    json_file::<RaftFleetFirstGroupPlan>(&value)?,
+                )?
+            }
             "--cursor" => set(&mut cursor, value)?,
             "--limit" => limit = value.parse().map_err(|_| invalid("invalid page limit"))?,
             "--timeout-seconds" => {
@@ -203,6 +227,43 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
         validate_catalog(pin)?;
     }
     let action = match (command.as_str(), target) {
+        ("first_group_standby", Some(namespace)) if !wait && cursor.is_none() => {
+            validate_id(&namespace)?;
+            if catalog_id.is_none() {
+                return Err(invalid("--catalog-id from fleet status is required"));
+            }
+            Action::FirstGroupStandby(namespace)
+        }
+        (verb @ ("first_group_reserve" | "first_group_publish"), Some(namespace))
+            if !wait && cursor.is_none() && operation_id.is_none() =>
+        {
+            let plan = first_group_plan.ok_or_else(|| invalid("--plan is required"))?;
+            plan.validate(&namespace)?;
+            let catalog = catalog_id
+                .as_deref()
+                .ok_or_else(|| invalid("--catalog-id from fleet status is required"))?;
+            if catalog != plan.catalog_id {
+                return Err(invalid("first group plan belongs to another catalog"));
+            }
+            if verb == "first_group_publish" {
+                let request = RaftFleetFirstGroupPublish {
+                    plan,
+                    request_id: request_id
+                        .take()
+                        .ok_or_else(|| invalid("--request-id is required"))?,
+                    expected_revision: expected_revision
+                        .take()
+                        .ok_or_else(|| invalid("--expected-revision is required"))?,
+                };
+                request.validate(&namespace)?;
+                Action::FirstGroupPublish(Box::new(request))
+            } else {
+                if request_id.is_some() || expected_revision.is_some() {
+                    return Err(invalid("reservation identity belongs in the plan"));
+                }
+                Action::FirstGroupReserve(Box::new(plan))
+            }
+        }
         ("nodes_maintenance-status", Some(operation)) if cursor.is_none() => {
             validate_id(&operation)?;
             Action::MaintenanceStatus(operation)

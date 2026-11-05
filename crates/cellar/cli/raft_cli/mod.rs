@@ -3,6 +3,7 @@
 // This module is an explicit process boundary for environment, files and exit.
 #![allow(clippy::disallowed_methods)]
 //! Human operator commands use authenticated management, not bucket listing.
+mod first_group;
 mod http;
 mod lifecycle;
 mod maintenance;
@@ -40,6 +41,15 @@ async fn execute(options: &options::Options) -> Result<Value> {
     let client = http::Client::new(options)?;
     let timeout = Duration::from_secs(30);
     match &options.action {
+        Action::FirstGroupStandby(namespace) => {
+            let catalog = options
+                .catalog_id
+                .as_deref()
+                .ok_or_else(|| invalid("missing catalog ID"))?;
+            first_group::standby(&client, catalog, namespace, timeout).await
+        }
+        Action::FirstGroupReserve(plan) => first_group::reserve(&client, plan).await,
+        Action::FirstGroupPublish(request) => first_group::publish(&client, request).await,
         Action::GrantMaintenance(node, request) => {
             maintenance::submit_action(&client, node, request, options.wait, options.timeout).await
         }

@@ -23,6 +23,7 @@ flowchart LR
 Start with these sections; subsequent entries retain their original source and evidence scope:
 
 - [Delivered keep-set workflow](#delivered-keep-set-workflow)
+- [First managed group workflow](#first-managed-group-workflow)
 - [Delivered add-capacity workflow](#delivered-add-capacity-workflow)
 - [Failure-observation SDK workflow](#failure-observation-sdk-workflow)
 - [Automatic failure-recovery SDK workflow](#automatic-failure-recovery-sdk-workflow)
@@ -100,6 +101,44 @@ The API routes use `/api/v1/fleets/{fleet}/raft`:
 - Success carries the observed phase and terminal/converged flags; errors carry a typed `code`, `outcome`, and null phase/terminal.
 - CLI exit codes are 0 for the requested result, 2 invalid input, 3 conflict, 4 blocked/cancelled/authentication/authorization, 5 unavailable or unknown result, and 6 wait timeout.
 - Mutations are never retried automatically; exact caller retries are reconciled against the catalog.
+
+## First managed group workflow
+
+Configure the admin fleet with the exact declared managed namespace. Use the
+application SDK to provision its compiled namespace as standby. Bring up the
+three enrolled hosts and qualify and activate their capacity through the
+workflow below. Read the current catalog generation and revision before
+preparing the first group.
+
+```sh
+cellar raft fleet first-group standby "$NAMESPACE" --fleet F --catalog-id "$CATALOG" --json
+cellar raft fleet first-group reserve "$NAMESPACE" --fleet F --catalog-id "$CATALOG" \
+  --plan first-group.json --json
+cellar raft fleet first-group publish "$NAMESPACE" --fleet F --catalog-id "$CATALOG" \
+  --plan first-group.json --request-id "$CONFIRMATION" --expected-revision "$CURRENT_REVISION" --json
+```
+
+Keep `first-group.json` with the catalog and namespace IDs, the returned
+`standby` digest, and the reservation's `request_id`, `operation_id` and
+`expected_revision`. Include `publication_id`, `group_id`,
+`incarnation_id` and `creation_id` identities and exactly three `voters`.
+Each voter has a registered `node_id` and a nonzero numeric `member_id`.
+List voters in increasing member ID order. Hex identities use lowercase and
+the same lengths as the node and fleet operations below.
+
+Reserve checks live capacity and replica separation and binds the exact range
+mutation. Confirm with a distinct request ID at the observed fleet revision.
+Publish uses the original reservation and plan. Retry an uncertain reply with
+the same confirmation ID and revision. After a definite revision conflict,
+retain the plan and use a new confirmation request at the new revision. A
+published receipt describes catalog admission. The SDK archive setup and each
+voter's physical activation and fresh quorum check precede ingress.
+
+| Method and suffix under `/api/v1/fleets/{fleet}/raft` | Permission and result |
+| --- | --- |
+| `GET /namespaces/{namespace}/first-group/standby` | `metadata_read`; exact empty standby digest |
+| `POST /namespaces/{namespace}/first-group/reserve` | `fleet_topology`; exact plan and historical reservation receipt |
+| `POST /namespaces/{namespace}/first-group/publish` | `fleet_topology`; `plan`, `request_id`, `expected_revision` and historical publication receipt |
 
 ## Delivered add-capacity workflow
 

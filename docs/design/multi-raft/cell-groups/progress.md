@@ -12,6 +12,33 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 public first-group operator workflow
+
+The fleet reservation now binds the exact first-range publication digest in
+the same CAS as its admitted birth. Read-only reopen verifies the original
+identity, payload, committed projection and directory operation. A changed
+publication ID conflicts without advancing either root.
+
+The public CLI and authenticated admin adapter expose standby, reserve and
+publish. The process fixture also uses the existing CLI capacity commands.
+The native case rejects missing grants, a mismatched namespace, publication
+before reservation and a changed plan. It retries the original confirmation
+after a lost reply and activates the group for two independent cells.
+
+Four native cases and both independent-process RustFS image modes pass. The
+process cases use the actual CLI and admin API for capacity and first-group
+metadata. The fixture still supplies the deployment attestation, archive
+intent and daemon activation. RustFS hosts the Raft catalog, fleet coordination
+and archives. Peer authentication uses the development store. Voters are
+host-native processes on one machine. The backend and VM stop with data
+retained. Archive initialization and voter activation still need a public
+operator workflow.
+
+Source manifest `bf62b059a7d2e172ec81e0549d41a22e185f99f97955bddd02f3957d00382d87`.
+Native record `f3b2cde1c6d4a2d498996c9ae5ebd4cbd3bcd1179d477e9891afe25cd6ed6a95`.
+RustFS record `be2ccf3175600c6c99f772af9f44aeac69365d850946f35406dc852deb523465`.
+CLI binary `33420164f6daa4681ceab857f2da2481620fd93000f0baa4dfc111d42b73d7aa`.
+
 ## CG-07 independent managed daemon voters on RustFS
 
 The native daemon process fixture accepts an explicit loopback RustFS endpoint,

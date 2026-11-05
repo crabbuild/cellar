@@ -10,6 +10,7 @@ mod cron;
 mod events;
 mod nodes;
 mod raft;
+mod raft_first_group;
 mod raft_lifecycle;
 mod raft_maintenance;
 mod raft_nodes;
@@ -108,6 +109,18 @@ pub fn router(console: Console) -> Result<Router> {
         .route(
             "/fleets/{fleet}/raft/nodes",
             post(raft_nodes::register).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/first-group/standby",
+            get(raft_first_group::standby),
+        )
+        .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/first-group/reserve",
+            post(raft_first_group::reserve),
+        )
+        .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/first-group/publish",
+            post(raft_first_group::publish),
         )
         .route("/fleets/{fleet}/raft/nodes/{node}", get(raft_nodes::status))
         .route(

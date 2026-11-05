@@ -5,6 +5,7 @@
 //! proofs remain host-owned; capacity-granted operators explicitly attest limits.
 mod connection;
 mod failure;
+mod first_group;
 mod lifecycle;
 mod maintenance;
 pub use maintenance::*;
@@ -20,6 +21,10 @@ use crate::raft::fleet_catalog::{
 use cellar_logic::consensus::{NodeId, ProposalId};
 pub use connection::{RaftFleetConnection, RaftFleetNamespace, RaftFleetNamespaceScope};
 pub use failure::{RaftFleetFailure, RaftFleetFailureCode, RaftFleetOutcome};
+pub use first_group::{
+    RaftFleetFirstGroupAcceptance, RaftFleetFirstGroupPlan, RaftFleetFirstGroupPublish,
+    RaftFleetFirstGroupStage, RaftFleetFirstGroupStandby, RaftFleetFirstGroupVoter,
+};
 pub use lifecycle::{
     RaftFleetEvacuationAcceptance, RaftFleetEvacuationDebt, RaftFleetEvacuationPhase,
     RaftFleetEvacuationProgress, RaftFleetEvacuationStatus, RaftFleetNodeCancel,
