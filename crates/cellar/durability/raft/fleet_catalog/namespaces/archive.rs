@@ -12,7 +12,7 @@ use crate::raft::{
     },
     group_host::RaftGroupArchiveInitialization,
 };
-use cellar_logic::cell_group::GroupHistory;
+use cellar_logic::cell_group::{CellRange, GroupHistory};
 
 const FIRST_GROUP_ARCHIVE_KIND: u8 = 103;
 const INTENT_LIMIT: usize = 4096;
@@ -207,7 +207,7 @@ impl FleetHostAuthorization {
         &self,
         directory: RangeDirectory,
         archives: CellGroupArchivePool,
-        history: GroupHistory,
+        history: Option<GroupHistory>,
         timeout: Duration,
     ) -> Result<Option<FleetGroupAuthorization>> {
         self.check_namespace(directory.namespace_config())?;
@@ -266,7 +266,7 @@ impl RaftManagedArchiveProvisioning {
         history: GroupHistory,
         timeout: Duration,
     ) -> Result<()> {
-        self.verified_first_group(history, timeout)
+        self.verified_first_group(Some(history), timeout)
             .await?
             .ok_or(FleetCatalogError::Unconfirmed)?;
         Ok(())
@@ -274,12 +274,21 @@ impl RaftManagedArchiveProvisioning {
 
     async fn verified_first_group(
         &self,
-        history: GroupHistory,
+        history: Option<GroupHistory>,
         timeout: Duration,
     ) -> Result<Option<FleetGroupAuthorization>> {
-        let key = self.fleet.first_group_archive_key(history)?;
         self.fleet
             .run(timeout, async {
+                let history = match history {
+                    Some(history) => history,
+                    None => {
+                        let Some(history) = self.selected_full_range_history().await? else {
+                            return Ok(None);
+                        };
+                        history
+                    }
+                };
+                let key = self.fleet.first_group_archive_key(history)?;
                 let snapshot = self.fleet.inner.current().await?;
                 let Some(intent) = self
                     .fleet
@@ -302,6 +311,29 @@ impl RaftManagedArchiveProvisioning {
                 Ok(verified.then_some(authority))
             })
             .await
+    }
+
+    async fn selected_full_range_history(&self) -> Result<Option<GroupHistory>> {
+        let directory = &self.directory;
+        let (view, page) = self
+            .fleet
+            .inner
+            .domain
+            .run(async {
+                let view = directory.observe().await?;
+                let page = directory.group_page(&view, None, 1).await?;
+                Ok::<_, crate::raft::catalog::CatalogError>((view, page))
+            })
+            .await
+            .map_err(|_| FleetCatalogError::Closed)?
+            .map_err(catalog_error)?;
+        match page.routes.as_slice() {
+            [] if view.groups() == 0 => Ok(None),
+            [route] if view.groups() == 1 && route.range == CellRange::all() => {
+                Ok(Some(route.history))
+            }
+            _ => Err(FleetCatalogError::Conflict),
+        }
     }
 
     async fn verify_birth_archive(&self, birth: &CellGroupBirth, intent: &[u8]) -> Result<()> {

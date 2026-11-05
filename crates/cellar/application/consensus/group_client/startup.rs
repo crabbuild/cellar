@@ -9,7 +9,7 @@ use crate::raft::{
     fleet_catalog::{FleetGroupAuthorization, FleetHostAuthorization},
     member_state::FleetMembershipStatus,
 };
-use cellar_logic::consensus::CommandFailure;
+use cellar_logic::consensus::{ClusterId, CommandFailure, NamespaceId};
 
 const STARTUP_BYTES: usize = 4 * 1024 * 1024;
 
@@ -71,6 +71,31 @@ impl RaftCells {
         history: GroupHistory,
         timeout: Duration,
     ) -> impl Future<Output = Result<(), CellGroupStartupError>> + Send + 'static {
+        let startup =
+            self.start_first_group(history.cluster, history.namespace, Some(history), timeout);
+        async move { startup.await.map(|_| ()) }
+    }
+
+    /// Wait for the managed namespace's first full-range group and establish
+    /// fresh quorum on this initial voter. The catalog selects the history,
+    /// and the rooted archive intent must match its live birth. Call this
+    /// before binding ingress for a newly provisioned namespace.
+    pub fn start_managed_namespace_first_group(
+        &self,
+        cluster: ClusterId,
+        namespace: NamespaceId,
+        timeout: Duration,
+    ) -> impl Future<Output = Result<GroupHistory, CellGroupStartupError>> + Send + 'static {
+        self.start_first_group(cluster, namespace, None, timeout)
+    }
+
+    fn start_first_group(
+        &self,
+        cluster: ClusterId,
+        namespace: NamespaceId,
+        history: Option<GroupHistory>,
+        timeout: Duration,
+    ) -> impl Future<Output = Result<GroupHistory, CellGroupStartupError>> + Send + 'static {
         use CellGroupStartupError::{Refused, Unconfirmed};
         let admitted = (|| {
             let (deadline, memory) = self
@@ -91,7 +116,7 @@ impl RaftCells {
                 ))?;
             let directory = core
                 .host
-                .directory(history)
+                .namespace_directory(cluster, namespace)
                 .map_err(startup_directory_error)?;
             Ok((deadline, memory, host, directory, archives))
         })();
@@ -126,6 +151,10 @@ impl RaftCells {
                     .await;
                 backoff_ms = (backoff_ms * 2).min(250);
             };
+            let history = authorization
+                .binding()
+                .scope()
+                .map_err(|e| Refused(catalog_error(CatalogError::Log(e))))?;
             drop(memory);
             let remaining = owner.startup_remaining(deadline).map_err(Refused)?;
             let attachment = owner
@@ -169,7 +198,8 @@ impl RaftCells {
                     "managed first group quorum membership",
                 )));
             }
-            owner.startup_live(&host, deadline).map_err(Unconfirmed)
+            owner.startup_live(&host, deadline).map_err(Unconfirmed)?;
+            Ok(history)
         }
     }
 

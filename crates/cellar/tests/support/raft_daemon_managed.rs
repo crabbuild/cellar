@@ -468,7 +468,10 @@ async fn ready(
     } else {
         TIMEOUT
     };
-    service.start_managed_first_group(history, timeout).await?;
+    let discovered = service
+        .start_managed_namespace_first_group(history.cluster, history.namespace, timeout)
+        .await?;
+    ensure!(discovered == history, "unexpected managed namespace group");
     if !retained {
         let cut = operator.fleet.read(TIMEOUT).await?;
         for index in 0..3 {

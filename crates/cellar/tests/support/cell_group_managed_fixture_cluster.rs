@@ -463,13 +463,18 @@ impl ManagedCluster {
             }
         }
         if public_operator {
-            futures_util::future::try_join_all(
-                hosts
-                    .iter()
-                    .take(3)
-                    .map(|voter| voter.start_managed_first_group(history, TIMEOUT)),
-            )
+            let selected = futures_util::future::try_join_all(hosts.iter().take(3).map(|voter| {
+                voter.start_managed_namespace_first_group(
+                    history.cluster,
+                    history.namespace,
+                    TIMEOUT,
+                )
+            }))
             .await?;
+            ensure!(
+                selected.iter().all(|selected| *selected == history),
+                "unexpected managed namespace group"
+            );
         }
         Ok(Self {
             fixtures,

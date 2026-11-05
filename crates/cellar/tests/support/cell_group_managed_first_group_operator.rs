@@ -34,7 +34,11 @@ async fn managed_first_group_cli_admin_and_cold_quorum() -> Result<()> {
         .await
         .context("observe first group quorum loss")??;
         let readiness = survivor
-            .start_managed_first_group(cluster.history, TIMEOUT)
+            .start_managed_namespace_first_group(
+                cluster.history.cluster,
+                cluster.history.namespace,
+                TIMEOUT,
+            )
             .await;
         ensure!(
             matches!(
