@@ -203,7 +203,10 @@ python3 tools/multi-raft/group_disaster.py \
   --mode materialized --output "$HOME/cellar-qualification/group-disaster-materialized-001"
 ```
 
-Repeat with `--mode extents` and a fresh output directory. Configuration reaches
+Repeat with `--mode extents` and a fresh output directory. If Docker's automatic
+address pools are exhausted, pass `--subnet` with a distinct unused private
+IPv4 /24 for each retained run. The report records the inspected network and
+subnet. Configuration reaches
 each stopped container through the Docker API with exact byte readback before
 startup. Mutable host bind mounts are avoided because virtiofs can expose mixed
 file size/content across atomic replacements. The image embeds the

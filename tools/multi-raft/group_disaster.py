@@ -108,6 +108,18 @@ def verify_image(image, docker):
     return {'image': image, 'binary_sha256': binary, 'source_manifest_sha256': input_digest(actual), 'profile': 'dev-debug0', 'source_revision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()}
 
 
+def qualification_subnet(value):
+    try:
+        subnet = ipaddress.IPv4Network(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("expected a canonical private IPv4 /24 subnet") from error
+    private = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+    if (str(subnet) != value or subnet.prefixlen != 24
+            or not any(subnet.subnet_of(ipaddress.IPv4Network(pool)) for pool in private)):
+        raise argparse.ArgumentTypeError("expected a canonical private IPv4 /24 subnet")
+    return subnet
+
+
 class Qualification:
     def __init__(self, args):
         self.args = args
@@ -146,14 +158,21 @@ class Qualification:
         info = json.loads(self.docker('info', '--format', '{{json .}}'))
         require(info['OSType'] == 'linux' and info['NCPU'] >= 5 and info['MemTotal'] >= 12 * 1024**3,
                 'insufficient isolated Docker resources')
-        self.docker('network', 'create', '--label', self.owner, self.prefix)
+        options = ['--subnet', str(self.args.subnet)] if self.args.subnet else []
+        # This command has only generated names and network addresses. Preserve
+        # Docker's error here so address-pool exhaustion can be diagnosed.
+        result = command(['docker', '--context', self.args.context, 'network', 'create',
+                          '--label', self.owner, *options, self.prefix], check=False)
+        require(result.returncode == 0, 'cannot create qualification network: ' + result.stderr.strip())
         network = json.loads(self.docker('network', 'inspect', self.prefix))[0]
+        require(network['Labels'].get(LABEL) == self.run_id, 'qualification network ownership changed')
         subnet = ipaddress.ip_network(network['IPAM']['Config'][0]['Subnet'])
         require(subnet.version == 4 and subnet.prefixlen <= 24, 'private IPv4 network required')
-        prefix = '.'.join(str(subnet.network_address).split('.')[:3])
+        require(self.args.subnet is None or subnet == self.args.subnet, 'Docker selected a different subnet')
+        self.report['network'] = {'id': network['Id'], 'subnet': str(subnet)}
         for peers in self.config['peers']:
             for n, peer in enumerate(peers):
-                peer['host'] = prefix + '.' + str(11+n)
+                peer['host'] = str(subnet[11 + n])
         self.key = self.root / 'controller-private.pem'
         command(['openssl', 'genpkey', '-algorithm', 'ED25519', '-out', str(self.key)])
         self.key.chmod(0o600)
@@ -497,6 +516,8 @@ def main():
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--mode',choices=['materialized','extents'],required=True)
     parser.add_argument('--port-base',type=int,default=19800)
+    parser.add_argument('--subnet', type=qualification_subnet,
+                        help='unused private IPv4 /24 for the owned Docker network')
     args=parser.parse_args()
     require(1024<=args.port_base<65530,'invalid loopback port range')
     os.umask(0o077)
