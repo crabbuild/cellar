@@ -70,7 +70,10 @@ pub(crate) async fn source_seal_blocks_delayed_work() -> Result<()> {
         .run(directory.authorize_transition_seal(&plan))
         .await??;
     fixture.runtimes[0].campaign(scope).await?;
-    fixture.drive(None).await?;
+    fixture
+        .drive(None)
+        .await
+        .context("initial source election")?;
     let cell = history(&route, "before-seal")?;
     let delayed = history(&route, "delayed-enrollment")?;
     let bytes = images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES(1);")?;
@@ -87,7 +90,10 @@ pub(crate) async fn source_seal_blocks_delayed_work() -> Result<()> {
         fixture.runtimes[0].seal_source(permit).await,
         Err(RuntimeError::NotReady)
     ));
-    fixture.drive(Some(accepted.position.index)).await?;
+    fixture
+        .drive(Some(accepted.position.index))
+        .await
+        .context("drain accepted enrollment")?;
     let before = log
         .cell_group(&scope)?
         .group_manifest()?
@@ -133,7 +139,8 @@ pub(crate) async fn source_seal_blocks_delayed_work() -> Result<()> {
         }
         Ok::<_, anyhow::Error>(())
     })
-    .await??;
+    .await
+    .context("replicate and apply the source seal")??;
     let permit = fixture
         .cluster
         .domain
@@ -192,7 +199,8 @@ pub(crate) async fn source_seal_blocks_delayed_work() -> Result<()> {
         }
         Ok::<_, anyhow::Error>(())
     })
-    .await??;
+    .await
+    .context("publish the exact sealed checkpoint")??;
     drop(group);
     drop(log);
     let disk = std::mem::replace(&mut fixture.cluster._root, tempfile::tempdir()?);
@@ -210,7 +218,7 @@ pub(crate) async fn source_seal_blocks_delayed_work() -> Result<()> {
     ))
     .await?;
     resumed.runtimes[0].campaign(scope).await?;
-    tokio::time::timeout(Duration::from_secs(20), async {
+    let convergence = tokio::time::timeout(Duration::from_secs(20), async {
         loop {
             resumed.pump(&[], &mut BTreeMap::new()).await?;
             let mut converged = true;
@@ -228,7 +236,17 @@ pub(crate) async fn source_seal_blocks_delayed_work() -> Result<()> {
             tokio::task::yield_now().await;
         }
     })
-    .await??;
+    .await;
+    if convergence.is_err() {
+        for (index, runtime) in resumed.runtimes.iter().enumerate() {
+            eprintln!(
+                "retained voter {}: {:?}",
+                index + 1,
+                runtime.status(scope).await
+            );
+        }
+    }
+    convergence.context("establish a fresh committed term on the reopened voters")??;
     let deadline = resumed
         .cluster
         .domain
