@@ -8,8 +8,8 @@ use crate::raft::{
     catalog::CatalogError,
     cell_groups::{
         CellGroupArchiveBindingError, CellGroupArchivePool, CellGroupArchiveTailPool,
-        CellGroupTransitionPreparationInputs, CellGroupTransitionSource, DirectoryMutation,
-        PreparedManagedCellGroupTransition, RangeDirectory, TransferChildQuorum,
+        CellGroupTransferArchive, CellGroupTransitionPreparationInputs, CellGroupTransitionSource,
+        DirectoryMutation, PreparedManagedCellGroupTransition, RangeDirectory, TransferChildQuorum,
         TransferInstallQuorum, TransitionJournal, VerifiedCellGroupTransitionSources,
     },
     fleet_stop::BootBinding,
@@ -416,6 +416,128 @@ impl FleetCatalog {
             })
     }
 
+    /// Independently rebuild all installed child roots from the retained
+    /// parent archives and select their durable transfer closure. The
+    /// directory keeps the parent ranges selected after verification.
+    pub async fn verify_managed_transfer_archive(
+        &self,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        inputs: CellGroupTransitionPreparationInputs,
+        timeout: Duration,
+    ) -> Result<TransitionJournal> {
+        validate_request(&transition.request)?;
+        let deadline = deadline::Deadline::new(self, timeout)?;
+        let permit = self
+            .run(
+                deadline.remaining()?,
+                Box::pin(async {
+                    let current = self.inner.current().await?;
+                    let permit = self
+                        .managed_transition_permit_at(
+                            &current,
+                            &transition.request,
+                            directory,
+                            &transition.plan,
+                        )
+                        .await?;
+                    self.verify_managed_transfer_storage_at(
+                        &current, transition, directory, &permit,
+                    )
+                    .await?;
+                    if self.inner.current().await?.token != current.token {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                    Ok(permit)
+                }),
+            )
+            .await?;
+        // Replay and partition work use the caller's original deadline. The
+        // directory CAS binds the resulting closure to the installed set.
+        let remaining = deadline.remaining()?;
+        let domain = &self.inner.domain;
+        domain
+            .run(Box::pin(crate::asyncrt::timeout(
+                remaining,
+                Box::pin(directory.verify_and_record_managed_transfer_archive(
+                    domain,
+                    &transition.plan,
+                    inputs,
+                    &permit,
+                )),
+            )))
+            .await
+            .map_err(|_| FleetCatalogError::Closed)?
+            .map_err(|_| FleetCatalogError::Unconfirmed)?
+            .map_err(|error| match error {
+                CellGroupArchiveBindingError::Catalog(error) => catalog_error(error),
+                CellGroupArchiveBindingError::Archive(error) => error.into(),
+            })
+    }
+
+    /// Reopen the archive closure selected for the exact active managed plan.
+    /// This reads the durable references and their install bindings.
+    pub async fn reopen_managed_transfer_archive(
+        &self,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        timeout: Duration,
+    ) -> Result<Option<CellGroupTransferArchive>> {
+        validate_request(&transition.request)?;
+        self.run(
+            timeout,
+            Box::pin(async {
+                let current = self.inner.current().await?;
+                let permit = self
+                    .managed_transition_permit_at(
+                        &current,
+                        &transition.request,
+                        directory,
+                        &transition.plan,
+                    )
+                    .await?;
+                let closure = self
+                    .inner
+                    .domain
+                    .run(Box::pin(
+                        directory.managed_transfer_archive(&transition.plan, &permit),
+                    ))
+                    .await
+                    .map_err(|_| FleetCatalogError::Closed)?
+                    .map_err(catalog_error)?;
+                if closure.is_some() {
+                    self.verify_managed_transfer_storage_at(
+                        &current, transition, directory, &permit,
+                    )
+                    .await?;
+                }
+                if self.inner.current().await?.token != current.token {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                Ok(closure)
+            }),
+        )
+        .await
+    }
+
+    async fn verify_managed_transfer_storage_at(
+        &self,
+        current: &FleetSnapshot,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        permit: &ManagedTransitionPermit,
+    ) -> Result<()> {
+        let (_, children) = directory
+            .transition_routes(&transition.plan)
+            .map_err(catalog_error)?;
+        for route in &children {
+            self.managed_transfer_install_quorum_at(current, transition, directory, route, permit)
+                .await?
+                .ok_or(FleetCatalogError::Unconfirmed)?;
+        }
+        Ok(())
+    }
+
     async fn active_managed_transition_permit(
         &self,
         request: &FleetRequestIdentity,
@@ -768,13 +890,8 @@ impl FleetCatalog {
                         &transition.plan,
                     )
                     .await?;
-                for route in &children {
-                    self.managed_transfer_install_quorum_at(
-                        &current, transition, directory, route, &permit,
-                    )
-                    .await?
-                    .ok_or(FleetCatalogError::Unconfirmed)?;
-                }
+                self.verify_managed_transfer_storage_at(&current, transition, directory, &permit)
+                    .await?;
                 if self.inner.current().await?.token != current.token {
                     return Err(FleetCatalogError::Conflict);
                 }

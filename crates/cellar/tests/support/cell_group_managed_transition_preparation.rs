@@ -241,7 +241,7 @@ pub(super) async fn verify_sealed_cut(
     old_hold: CellGroupArchiveHold,
     seal: &GroupSourceSeal,
 ) -> Result<()> {
-    let domain = &cluster.fixtures[0].domain;
+    let domain = cluster.fixtures[0].domain.clone();
     let archives = CellGroupArchivePool::new(Default::default())?;
     let tails = CellGroupArchiveTailPool::new(Default::default())?;
     let registry = directory
@@ -252,6 +252,7 @@ pub(super) async fn verify_sealed_cut(
     let source = |label: &str, hold: CellGroupArchiveHold| {
         let base = scratch.path().join(label);
         let route = parent.route().clone();
+        let domain = domain.clone();
         async move {
             let receiver_store = domain
                 .blocking(move || store(base, route, rooted))?
@@ -298,7 +299,7 @@ pub(super) async fn verify_sealed_cut(
     })
     .await
     .context("managed archiver did not publish the sealed cut")??;
-    let held = acquire_hold(domain, &registry).await?;
+    let held = acquire_hold(&domain, &registry).await?;
     ensure!(held.marker().source_seal() == Some(seal));
 
     let first = fleet
@@ -321,7 +322,7 @@ pub(super) async fn verify_sealed_cut(
     let reopened = domain
         .run(directory.sealed_source_holds(&transition.plan))
         .await??;
-    ensure!(reopened == vec![held]);
+    ensure!(reopened == vec![held.clone()]);
     let replay = fleet
         .verify_managed_sealed_sources(
             transition,
@@ -497,6 +498,102 @@ pub(super) async fn verify_sealed_cut(
     }
     verify_managed_installed_decision(cluster, fleet, directory, &transition, parent, proofs)
         .await?;
+    let routes = replay.children().to_vec();
+    drop(replay);
+    ensure!(tails.usage().operations == 0);
+    let root = scratch.path().join("archive");
+    let target_routes = routes.clone();
+    let targets = domain
+        .blocking(move || {
+            target_routes
+                .into_iter()
+                .enumerate()
+                .map(|(index, route)| store(root.join(index.to_string()), route, rooted))
+                .collect::<Result<Vec<_>>>()
+        })?
+        .await??;
+    let inputs = CellGroupTransitionPreparationInputs {
+        archives,
+        tails,
+        restore: recovery_pool()?,
+        sources: vec![source("archive-source", held).await?],
+        targets,
+    };
+    Box::pin(verify_managed_archive_decision(
+        cluster,
+        fleet,
+        directory,
+        &transition,
+        parent,
+        &routes,
+        inputs,
+    ))
+    .await
+}
+
+async fn verify_managed_archive_decision(
+    cluster: &ManagedCluster,
+    fleet: &FleetCatalog,
+    directory: &RangeDirectory,
+    transition: &ReopenedManagedCellGroupTransition,
+    parent: &CellGroupBirth,
+    children: &[GroupRoute],
+    inputs: CellGroupTransitionPreparationInputs,
+) -> Result<()> {
+    let fixture = &cluster.fixtures[0];
+    let domain = &fixture.domain;
+    let hold = inputs.sources[0].hold.clone();
+    let before = domain.run(directory.observe()).await??;
+    ensure!(fleet
+        .reopen_managed_transfer_archive(transition, directory, TIMEOUT)
+        .await?
+        .is_none());
+
+    fixture
+        .store
+        .fail_head_confirmation
+        .store(true, Ordering::Release);
+    ensure!(matches!(
+        fleet
+            .verify_managed_transfer_archive(transition, directory, inputs, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Unconfirmed)
+    ));
+    let reopened = fleet
+        .reopen_managed_transition(directory, transition.plan.operation(), TIMEOUT)
+        .await?
+        .context("archived plan")?;
+    let archived = reopened.journal.as_ref().context("archived journal")?;
+    ensure!(archived.phase() == TransitionPhase::Archived);
+    let closure = fleet
+        .reopen_managed_transfer_archive(&reopened, directory, TIMEOUT)
+        .await?
+        .context("selected managed archive closure")?;
+    ensure!(archived.transfer_archive() == Some(closure.digest));
+    ensure!(closure.source_holds == vec![hold]);
+    ensure!(closure.children.len() == children.len());
+    ensure!(closure
+        .children
+        .iter()
+        .zip(children)
+        .all(|(marker, route)| { marker.route() == route && !marker.is_active() }));
+    ensure!(
+        closure
+            .children
+            .iter()
+            .map(|marker| marker.root().cells())
+            .sum::<u32>()
+            == 2
+    );
+    let after = domain.run(directory.observe()).await??;
+    ensure!(after.revision() == before.revision() && after.groups() == before.groups());
+    ensure!(
+        domain
+            .run(directory.materialize_selected_history(parent.route().history))
+            .await??
+            .route()
+            == parent.route()
+    );
     Ok(())
 }
 
@@ -726,7 +823,7 @@ async fn wait_pending_child(
     voters: &[RaftCells],
     child: GroupHistory,
 ) -> Result<TransferChildQuorum> {
-    Ok(tokio::time::timeout(TIMEOUT, async {
+    tokio::time::timeout(TIMEOUT, async {
         loop {
             let mut applied = true;
             let mut witness = None;
@@ -750,5 +847,5 @@ async fn wait_pending_child(
         }
     })
     .await
-    .context("pending transfer child must commit a fresh term")??)
+    .context("pending transfer child must commit a fresh term")?
 }

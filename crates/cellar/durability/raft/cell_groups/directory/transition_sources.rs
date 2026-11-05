@@ -148,7 +148,7 @@ impl RangeDirectory {
         .await
     }
 
-    async fn verify_and_record_sealed_sources_inner(
+    pub(super) async fn verify_and_record_sealed_sources_inner(
         &self,
         domain: &impl CellGroupArchiveExecution,
         archives: &CellGroupArchivePool,

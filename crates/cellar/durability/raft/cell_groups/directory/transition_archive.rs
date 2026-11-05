@@ -7,6 +7,7 @@ use crate::raft::cell_groups::{
     CellGroupArchiveError, CellGroupArchiveExecution, CellGroupArchiveHold, CellGroupArchivePool,
     GroupManifest,
 };
+use crate::raft::fleet_catalog::ManagedTransitionPermit;
 use serde::{Deserialize, Serialize};
 
 const CLOSURE: u8 = 207;
@@ -41,10 +42,33 @@ impl RangeDirectory {
         inputs: CellGroupTransitionPreparationInputs,
     ) -> Result<TransitionJournal, CellGroupArchiveBindingError> {
         self.unmanaged_birth()?;
+        self.verify_and_record_transfer_archive_inner(domain, plan, inputs, None)
+            .await
+    }
+
+    pub(crate) async fn verify_and_record_managed_transfer_archive(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        plan: &DirectoryMutation,
+        inputs: CellGroupTransitionPreparationInputs,
+        permit: &ManagedTransitionPermit,
+    ) -> Result<TransitionJournal, CellGroupArchiveBindingError> {
+        permit.check(self, plan)?;
+        self.verify_and_record_transfer_archive_inner(domain, plan, inputs, Some(permit))
+            .await
+    }
+
+    async fn verify_and_record_transfer_archive_inner(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        plan: &DirectoryMutation,
+        inputs: CellGroupTransitionPreparationInputs,
+        permit: Option<&ManagedTransitionPermit>,
+    ) -> Result<TransitionJournal, CellGroupArchiveBindingError> {
         domain
             .run(Box::pin(async {
                 let children = self
-                    .installed_transfer_children(plan)
+                    .installed_transfer_children_inner(plan, permit)
                     .await?
                     .ok_or(CatalogError::Fenced)?;
                 let holds = inputs
@@ -52,12 +76,13 @@ impl RangeDirectory {
                     .iter()
                     .map(|source| (source.birth.clone(), source.hold.clone()))
                     .collect::<Vec<_>>();
-                let sources = Box::pin(self.verify_and_record_sealed_sources(
+                let sources = Box::pin(self.verify_and_record_sealed_sources_inner(
                     domain,
                     &inputs.archives,
                     &inputs.tails,
                     plan,
                     inputs.sources,
+                    permit,
                 ))
                 .await?;
                 let journal = sources.journal();
@@ -105,6 +130,7 @@ impl RangeDirectory {
                     sealed_sources,
                     installed_children,
                     digest,
+                    permit,
                 )
                 .await
                 .map_err(Into::into)
@@ -184,6 +210,23 @@ impl RangeDirectory {
         plan: &DirectoryMutation,
     ) -> Result<Option<CellGroupTransferArchive>, CatalogError> {
         self.unmanaged_birth()?;
+        self.transfer_archive_inner(plan, None).await
+    }
+
+    pub(crate) async fn managed_transfer_archive(
+        &self,
+        plan: &DirectoryMutation,
+        permit: &ManagedTransitionPermit,
+    ) -> Result<Option<CellGroupTransferArchive>, CatalogError> {
+        permit.check(self, plan)?;
+        self.transfer_archive_inner(plan, Some(permit)).await
+    }
+
+    async fn transfer_archive_inner(
+        &self,
+        plan: &DirectoryMutation,
+        permit: Option<&ManagedTransitionPermit>,
+    ) -> Result<Option<CellGroupTransferArchive>, CatalogError> {
         self.check_transition_plan(plan)?;
         self.bounded(async {
             let (view, _) = self.current().await?;
@@ -218,7 +261,7 @@ impl RangeDirectory {
                 )
                 .await?;
             let children = self
-                .installed_transfer_children(plan)
+                .installed_transfer_children_inner(plan, permit)
                 .await?
                 .ok_or(CatalogError::Corrupt("missing archived child install set"))?;
             Ok(Some(CellGroupTransferArchive {
