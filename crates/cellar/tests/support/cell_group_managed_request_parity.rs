@@ -142,6 +142,7 @@ pub(super) async fn check(
         let stale = http::Web::send(
             client
                 .get(&url)
+                .header("x-read-consistency", "stale")
                 .header("x-read-policy", "disconnected-historical"),
             format!("historical stale query axum={axum}"),
         )

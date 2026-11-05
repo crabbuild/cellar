@@ -954,6 +954,7 @@ async fn native_axum_command_parity() -> Result<()> {
         let response = client
             .get(url)
             .bearer_auth(secret)
+            .header("x-read-consistency", "stale")
             .header("x-read-policy", "disconnected-historical")
             .send()
             .await?;

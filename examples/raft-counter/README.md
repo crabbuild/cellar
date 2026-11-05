@@ -91,7 +91,7 @@ portable proof. A token does not grant access without the bearer credential.
 
 | Header | Value |
 | --- | --- |
-| `x-read-consistency` | `stale` (default), `at-least`, or `linearizable` |
+| `x-read-consistency` | `linearizable` (default), `at-least`, or `stale` |
 | `x-min-version` | A returned `version_token`; required for `at-least`, rejected for other modes |
 | `x-read-policy` | Stale reads only: `recent-source` (default) or explicitly `disconnected-historical`, which has no age bound |
 | `x-query-timeout-ms` | Total query budget, 1–5000 ms; default 5000 |

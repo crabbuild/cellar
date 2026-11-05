@@ -68,6 +68,11 @@ The internal MR-06 transaction facade supplies a captured Unix-millisecond value
 
 Queries receive no general `Context`, writable `Storage`, normal cell constructor, alarm setter or outbound-network capability. SQLite authorizer/read-only flags must reject writes, schema changes, ATTACH, mutating PRAGMA and writable extension paths even if they arrive through raw SQL. Query functions use stateless services or immutable configuration; application instance fields cannot substitute for replicated state.
 
+Shared-group `QueryOptions::default()` requests a linearizable read. It requires
+a fresh quorum, so a group that has lost its majority refuses the request.
+Use `AtLeast` with a receipt's version token to require a specific committed
+version, or explicitly select `Stale` to permit an older image.
+
 Application flow with an explicit read consistency:
 
 ```text

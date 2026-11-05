@@ -236,9 +236,10 @@ unimplemented. Existing Fleet data requires a separate deployment decision:
 this plan supplies no online Fleet-to-Raft conversion and must not reinterpret
 old data as a new Raft history.
 
-Read consistency remains explicit. Queries currently default to stale reads;
-quorum writes do not make those queries linearizable. Complete and qualify the
-chosen public read policy independently of changing the default storage backend.
+The shared-group SDK and counter ingress default to linearizable reads.
+Callers can select a receipt-based version floor or explicitly permit stale
+reads. Qualify the default and explicit policies through the public request
+path independently of the storage backend cutover.
 
 ## P1: complete the requested architecture
 

@@ -37,6 +37,7 @@ pub enum StaleReadPolicy {
 
 #[derive(Clone, Debug)]
 pub struct QueryOptions {
+    /// Defaults to a fresh quorum read. Historical reads require explicit opt-in.
     pub consistency: QueryConsistency,
     pub stale_policy: StaleReadPolicy,
     pub timeout: Duration,
@@ -47,7 +48,7 @@ pub struct QueryOptions {
 impl Default for QueryOptions {
     fn default() -> Self {
         Self {
-            consistency: QueryConsistency::Stale,
+            consistency: QueryConsistency::Linearizable,
             stale_policy: StaleReadPolicy::RecentSource,
             timeout: Duration::from_secs(5),
             max_attempts: 4,

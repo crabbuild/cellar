@@ -452,15 +452,17 @@ async fn exercise(cluster: &mut nodes::Cluster) -> Result<()> {
     })
     .await
     .context("observe loss of the actual majority")??;
+    let web = cluster.web()?;
     for (address, axum) in [(0, false), (0, true), (INGRESS, false), (INGRESS, true)] {
+        let default_read = http::Web::send(
+            client.get(web.url(address, axum, "one")),
+            format!("default read without quorum node={address} axum={axum}"),
+        )
+        .await?;
         ensure!(
-            cluster
-                .web()?
-                .query(&client, (address, axum), "one", "linearizable", &next, None)
-                .await?
-                .status
-                == 503,
-            "linearizable read succeeded without quorum"
+            default_read.status == 503,
+            "default read without quorum returned HTTP {}",
+            default_read.status
         );
         ensure!(
             cluster

@@ -53,11 +53,13 @@ fn header<'a>(headers: &'a [(String, String)], key: &str) -> Result<Option<&'a s
 }
 
 pub(crate) fn read_options(headers: &[(String, String)]) -> Result<QueryOptions> {
+    let defaults = QueryOptions::default();
     let minimum = header(headers, "x-min-version")?;
-    let consistency = match header(headers, "x-read-consistency")?.unwrap_or("stale") {
-        "stale" => QueryConsistency::Stale,
-        "linearizable" => QueryConsistency::Linearizable,
-        "at-least" => QueryConsistency::AtLeast(CellVersionToken::from_encoded(
+    let consistency = match header(headers, "x-read-consistency")? {
+        None => defaults.consistency,
+        Some("stale") => QueryConsistency::Stale,
+        Some("linearizable") => QueryConsistency::Linearizable,
+        Some("at-least") => QueryConsistency::AtLeast(CellVersionToken::from_encoded(
             minimum.ok_or_else(|| anyhow::anyhow!("provide x-min-version"))?,
         )?),
         _ => anyhow::bail!("invalid read consistency"),
@@ -83,7 +85,6 @@ pub(crate) fn read_options(headers: &[(String, String)]) -> Result<QueryOptions>
     let members = header(headers, "x-query-members")?;
     let attempt = header(headers, "x-query-attempt-ms")?;
     let fallback = header(headers, "x-leader-fallback")?;
-    let defaults = QueryOptions::default();
     let routing = if let Some(members) = members {
         let mut selected = Vec::new();
         let mut unique = BTreeSet::new();
