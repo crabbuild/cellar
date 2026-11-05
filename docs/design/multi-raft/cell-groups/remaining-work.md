@@ -49,7 +49,8 @@ The native and real RustFS cases cover the retired route, joined-voter reads,
 original receipt replay and a fresh quorum write. Cold return after all birth
 voters retire remains open. The public SDK can now provision a declared
 managed standby and reserve, publish and confirm its first full-range group.
-Ordinary CLI and daemon orchestration, archive setup and activation remain open.
+The SDK also prepares and verifies an exact managed group archive. Ordinary
+CLI and daemon orchestration and activation remain open.
 
 CG-07 remains IN_PROGRESS. Four original public gates remain undelivered, including
 complete managed lifecycle and ingress authority. Default/backend and capability

@@ -94,7 +94,7 @@ impl RaftNamespaceProvisioning {
 /// One-use archive setup. An encoded intent is recovery evidence, not a seed,
 /// active membership, local reclamation proof or disaster fencing authority.
 pub struct RaftGroupArchiveInitialization {
-    prepared: PreparedCellGroupArchiveBinding,
+    pub(crate) prepared: PreparedCellGroupArchiveBinding,
 }
 
 impl RaftGroupArchiveInitialization {

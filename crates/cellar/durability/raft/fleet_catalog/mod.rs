@@ -66,7 +66,10 @@ pub use maintenance::{
 pub(crate) use maintenance::{
     RestartActionContext, RestartLeadershipCommand, ResumeLeadershipCommand,
 };
-pub use namespaces::{FleetInventory, RaftManagedFirstGroup, RaftManagedFirstGroupRequest};
+pub use namespaces::{
+    FleetInventory, RaftManagedArchiveProvisioning, RaftManagedFirstGroup,
+    RaftManagedFirstGroupRequest,
+};
 pub use nodes::{
     FleetHostAuthorization, FleetNodeEligibility, FleetNodeSpec, FleetNodeState,
     FleetRequestIdentity,

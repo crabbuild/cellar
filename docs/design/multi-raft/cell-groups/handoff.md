@@ -4,6 +4,16 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## CG-07 managed group archive provisioning
+
+The SDK prepares the one-use archive initializer for a selected managed history
+and verifies a saved intent without writes after setup. The managed native and
+RustFS request fixture uses that path. Port the original daemon process gate
+from per-cell registration to shared groups. Have the operator persist exact
+setup, let each daemon attach its authorized local voter, and gate ingress on
+a fresh quorum observation. Preserve every original refusal and restart oracle.
+[Source and test records](progress.md)
+
 ## CG-07 managed first-group provisioning
 
 The SDK reserves, publishes and confirms the first group from a declared

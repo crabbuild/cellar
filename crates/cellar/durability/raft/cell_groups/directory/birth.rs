@@ -87,46 +87,72 @@ impl RangeDirectory {
         &self,
         history: GroupHistory,
     ) -> Result<CellGroupBirth, CatalogError> {
+        let request = self.selected_history_request(history).await?;
+        if self.namespace.cell_group_owner().await?.is_some() {
+            self.observe_selected_birth(request).await
+        } else {
+            self.materialize_group_birth(&request).await
+        }
+    }
+
+    /// Read an exact managed birth without creating a missing record.
+    pub(crate) async fn open_managed_selected_history(
+        &self,
+        history: GroupHistory,
+        owner: &crate::raft::catalog::ManagedBirthOwner,
+    ) -> Result<CellGroupBirth, CatalogError> {
+        if self.namespace.cell_group_owner().await?.as_ref() != Some(owner) {
+            return Err(CatalogError::ManagedAdmissionRequired);
+        }
+        let request = self.selected_history_request(history).await?;
+        self.observe_selected_birth(request).await
+    }
+
+    async fn selected_history_request(
+        &self,
+        history: GroupHistory,
+    ) -> Result<CellGroupBirthRequest, CatalogError> {
         if history.cluster != self.namespace.config.cluster
             || history.namespace != self.namespace.config.namespace
         {
             return Err(CatalogError::Conflict("group placement namespace"));
         }
-        let request = self
-            .bounded(async {
-                let key = Path::from(format!(
-                    "{}groups/{}",
-                    self.namespace.inner.prefix,
-                    hex::encode(history.group.bytes())
-                ));
-                let (bytes, _) = self
-                    .namespace
-                    .inner
-                    .read_versioned_bounded(&key, wire::LIMIT)
-                    .await?
-                    .ok_or(CatalogError::Corrupt("missing group birth reservation"))?;
-                let reservation: wire::BirthReservation =
-                    record::decode(wire::GROUP_BIRTH_RESERVATION, &bytes, wire::LIMIT)?;
-                if reservation.recovery == Some([0; 32]) {
-                    return Err(CatalogError::Corrupt("recovery reservation identity"));
-                }
-                let request = self.decode_group_birth(&reservation.birth)?;
-                if request.route().history != history {
-                    return Err(CatalogError::Fenced);
-                }
-                Ok(request)
-            })
-            .await?;
-        if self.namespace.cell_group_owner().await?.is_some() {
-            let birth = CellGroupBirth {
-                request: Arc::new(request),
-                owner: self.namespace.inner.owner.clone(),
-            };
-            self.require_current_group_birth(&birth).await?;
-            Ok(birth)
-        } else {
-            self.materialize_group_birth(&request).await
-        }
+        self.bounded(async {
+            let key = Path::from(format!(
+                "{}groups/{}",
+                self.namespace.inner.prefix,
+                hex::encode(history.group.bytes())
+            ));
+            let (bytes, _) = self
+                .namespace
+                .inner
+                .read_versioned_bounded(&key, wire::LIMIT)
+                .await?
+                .ok_or(CatalogError::Corrupt("missing group birth reservation"))?;
+            let reservation: wire::BirthReservation =
+                record::decode(wire::GROUP_BIRTH_RESERVATION, &bytes, wire::LIMIT)?;
+            if reservation.recovery == Some([0; 32]) {
+                return Err(CatalogError::Corrupt("recovery reservation identity"));
+            }
+            let request = self.decode_group_birth(&reservation.birth)?;
+            if request.route().history != history {
+                return Err(CatalogError::Fenced);
+            }
+            Ok(request)
+        })
+        .await
+    }
+
+    async fn observe_selected_birth(
+        &self,
+        request: CellGroupBirthRequest,
+    ) -> Result<CellGroupBirth, CatalogError> {
+        let birth = CellGroupBirth {
+            request: Arc::new(request),
+            owner: self.namespace.inner.owner.clone(),
+        };
+        self.require_current_group_birth(&birth).await?;
+        Ok(birth)
     }
 
     /// Recover the immutable reservation for an already selected range. This

@@ -176,10 +176,34 @@ impl RangeDirectory {
         pool: &CellGroupArchivePool,
         birth: &CellGroupBirth,
     ) -> Result<CellGroupArchiveRegistry> {
+        self.open_selected_archive(domain, pool, birth, None).await
+    }
+
+    pub(crate) async fn verify_group_archive_binding(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        pool: &CellGroupArchivePool,
+        birth: &CellGroupBirth,
+        intent: &[u8],
+    ) -> Result<()> {
+        self.open_selected_archive(domain, pool, birth, Some(intent))
+            .await?;
+        Ok(())
+    }
+
+    async fn open_selected_archive(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        pool: &CellGroupArchivePool,
+        birth: &CellGroupBirth,
+        intent: Option<&[u8]>,
+    ) -> Result<CellGroupArchiveRegistry> {
         domain
             .run(async {
                 self.require_current_group_birth(birth).await?;
-                let registry = self.open_recovery_archive(domain, pool, birth).await?;
+                let registry = self
+                    .open_archive_binding(domain, pool, birth, intent)
+                    .await?;
                 self.require_current_group_birth(birth).await?;
                 Ok(registry)
             })
@@ -195,6 +219,16 @@ impl RangeDirectory {
         pool: &CellGroupArchivePool,
         birth: &CellGroupBirth,
     ) -> Result<CellGroupArchiveRegistry> {
+        self.open_archive_binding(domain, pool, birth, None).await
+    }
+
+    async fn open_archive_binding(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        pool: &CellGroupArchivePool,
+        birth: &CellGroupBirth,
+        intent: Option<&[u8]>,
+    ) -> Result<CellGroupArchiveRegistry> {
         let bytes = self
             .bounded(async {
                 self.namespace
@@ -206,6 +240,9 @@ impl RangeDirectory {
             })
             .await?;
         let binding: Binding = record::decode(wire::GROUP_ARCHIVE, &bytes, wire::LIMIT)?;
+        if intent.is_some_and(|intent| intent != bytes.as_slice()) {
+            return Err(CatalogError::Conflict("group archive intent").into());
+        }
         if binding.namespace != self.namespace.root_digest()
             || binding.creation.route() != birth.route()
         {

@@ -39,7 +39,7 @@ impl FleetCatalog {
     ) -> Result<[u8; 32]> {
         let deadline = Deadline::new(self, timeout)?;
         let directory = self
-            .open_managed_first_group_directory(catalog, registration, limits, &deadline)
+            .open_managed_directory(catalog, registration, limits, &deadline)
             .await?;
         self.run(deadline.remaining()?, async {
             let view = self
@@ -71,7 +71,7 @@ impl FleetCatalog {
         let deadline = Deadline::new(self, timeout)?;
         validate_request(&request.reservation)?;
         let directory = self
-            .open_managed_first_group_directory(catalog, registration, limits, &deadline)
+            .open_managed_directory(catalog, registration, limits, &deadline)
             .await?;
         let preview = directory
             .prepare_fleet_group_birth(request.group.clone(), &self.birth_owner()?)
@@ -165,32 +165,6 @@ impl FleetCatalog {
             prepared.authorization.scope(),
             deadline.remaining()?,
         )
-        .await
-    }
-
-    async fn open_managed_first_group_directory(
-        &self,
-        catalog: &Catalog,
-        registration: &RaftNamespaceRegistration,
-        limits: DirectoryLimits,
-        deadline: &Deadline<'_>,
-    ) -> Result<RangeDirectory> {
-        if registration.namespace.managed_fleet.as_ref() != Some(&self.birth_owner()?) {
-            return Err(FleetCatalogError::Conflict);
-        }
-        self.run(deadline.remaining()?, async {
-            let namespace = self
-                .inner
-                .domain
-                .run(catalog.existing_namespace(registration.namespace.clone()))
-                .await
-                .map_err(|_| FleetCatalogError::Closed)?
-                .map_err(catalog_error)?;
-            let snapshot = self.inner.current().await?;
-            self.require_namespace_declaration(&snapshot, &namespace, Some(&registration.class))
-                .await?;
-            RangeDirectory::new(namespace, limits).map_err(catalog_error)
-        })
         .await
     }
 }

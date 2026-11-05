@@ -612,7 +612,7 @@ impl ManagedCluster {
             .publish_managed_first_group(&reserved, &confirmation, TIMEOUT)
             .await?;
         if archives == ArchiveSetup::Initialized {
-            archives::initialize(f, &directory, history, roots[0].path()).await?;
+            archives::initialize(f, &adapter, history, roots[0].path()).await?;
         }
         let cut = f.catalog.read(TIMEOUT).await?;
         for host in hosts.iter().take(3) {

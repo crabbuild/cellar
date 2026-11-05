@@ -12,6 +12,27 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 managed group archive provisioning
+
+The SDK now opens archive provisioning for an exact declared managed namespace.
+The prepare and verification operations require a live fleet history and its
+selected physical birth. The operator persists and syncs the one-use intent
+before committing. Verification checks the exact saved binding, identity and
+counters without creating metadata. Incomplete initialization still refuses
+admission and requires archive authority recovery.
+
+The managed fixture initializes through the SDK, then reopens the provisioning
+handle and verifies the persisted intent. The native cases cover missing
+archive refusal before activation, rejection of a different intent, archive
+shutdown ownership and the two-cell native/Axum request path. The same request
+case passes against real RustFS in both image modes with host-native voters
+and fixture capacity. Ordinary CLI and daemon startup still need to orchestrate
+these operations and wait for actual voter activation and fresh quorum.
+
+Source manifest `32d407be21812e173179dce6541b33266792937133ee059110596017dc9ef26a`.
+Native record `14462fe3d49d98c6d9500e71d5ad2516f2752b863defdb74fea4d05c08f3bbb9`.
+RustFS record `5644d5020538d0e733fd64e0a38808737bd381bc075cedd433fbfa01823d0c4d`.
+
 ## CG-07 managed first-group provisioning
 
 The public SDK observes the exact managed standby and reserves one full-range

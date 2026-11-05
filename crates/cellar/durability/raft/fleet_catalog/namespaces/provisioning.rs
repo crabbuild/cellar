@@ -1,6 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Publish an exact managed standby before confirming its fleet declaration.
+use super::super::deadline::Deadline;
 use super::*;
 use crate::application::consensus::{RaftClass, RaftNamespaceRegistration};
 use crate::raft::{
@@ -88,6 +89,32 @@ impl FleetCatalog {
                 namespace: config,
                 class: declaration.class,
             })
+        })
+        .await
+    }
+
+    pub(super) async fn open_managed_directory(
+        &self,
+        catalog: &Catalog,
+        registration: &RaftNamespaceRegistration,
+        limits: DirectoryLimits,
+        deadline: &Deadline<'_>,
+    ) -> Result<RangeDirectory> {
+        if registration.namespace.managed_fleet.as_ref() != Some(&self.birth_owner()?) {
+            return Err(FleetCatalogError::Conflict);
+        }
+        self.run(deadline.remaining()?, async {
+            let namespace = self
+                .inner
+                .domain
+                .run(catalog.existing_namespace(registration.namespace.clone()))
+                .await
+                .map_err(|_| FleetCatalogError::Closed)?
+                .map_err(catalog_error)?;
+            let snapshot = self.inner.current().await?;
+            self.require_namespace_declaration(&snapshot, &namespace, Some(&registration.class))
+                .await?;
+            RangeDirectory::new(namespace, limits).map_err(catalog_error)
         })
         .await
     }

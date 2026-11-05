@@ -12,26 +12,44 @@ pub(super) fn configure(config: &mut RaftCellsConfig) {
     });
 }
 
+async fn open_provisioning(
+    fixture: &Fixture,
+    adapter: &Catalog,
+) -> Result<RaftManagedArchiveProvisioning> {
+    Ok(fixture
+        .catalog
+        .open_managed_archive_provisioning(
+            adapter,
+            &fixture.declaration,
+            DirectoryLimits::default(),
+            CellGroupArchiveLimits::default(),
+            TIMEOUT,
+        )
+        .await?)
+}
+
 pub(super) async fn initialize(
     fixture: &Fixture,
-    directory: &RangeDirectory,
+    adapter: &Catalog,
     history: GroupHistory,
     disk: &Path,
 ) -> Result<()> {
-    let birth = fixture
-        .domain
-        .run(directory.materialize_selected_history(history))
-        .await??;
-    let pool = CellGroupArchivePool::new(Default::default())?;
-    let prepared = directory
-        .prepare_group_archive_binding(fixture.domain.as_ref(), &pool, &birth)
+    let prepared = open_provisioning(fixture, adapter)
+        .await?
+        .prepare_archive(history, TIMEOUT)
         .await?;
-    // Explicit operator setup, never an automatic consequence of missing data.
+    // Sync the exact operator intent before entering the one-use operation.
     let intent = disk.join("archive-initialization");
-    std::fs::write(&intent, prepared.encode())?;
-    std::fs::File::open(&intent)?.sync_all()?;
+    use std::io::Write as _;
+    let mut file = std::fs::File::create_new(&intent)?;
+    file.write_all(prepared.encoded_intent())?;
+    file.sync_all()?;
     std::fs::File::open(disk)?.sync_all()?;
     prepared.commit(fixture.domain.as_ref()).await?;
+    open_provisioning(fixture, adapter)
+        .await?
+        .verify_archive(history, &std::fs::read(intent)?, TIMEOUT)
+        .await?;
     Ok(())
 }
 
@@ -163,13 +181,28 @@ async fn managed_dynamic_group_requires_explicit_archive_initialization() -> Res
                 .open_group_archive(f.domain.as_ref(), &pool, &birth)
                 .await
                 .is_err());
-            initialize(
-                f,
-                &cluster.directory,
-                cluster.history,
-                cluster.roots[0].path(),
-            )
-            .await?;
+            let adapter = Catalog::new(
+                f.store.clone(),
+                CatalogOptions {
+                    prefix: "managed/".into(),
+                    ..Default::default()
+                },
+            )?;
+            let setup = open_provisioning(f, &adapter).await?;
+            let candidate = setup.prepare_archive(cluster.history, TIMEOUT).await?;
+            ensure!(matches!(
+                setup
+                    .verify_archive(cluster.history, candidate.encoded_intent(), TIMEOUT)
+                    .await,
+                Err(FleetCatalogError::Corrupt("missing group archive binding"))
+            ));
+            initialize(f, &adapter, cluster.history, cluster.roots[0].path()).await?;
+            ensure!(matches!(
+                setup
+                    .verify_archive(cluster.history, candidate.encoded_intent(), TIMEOUT)
+                    .await,
+                Err(FleetCatalogError::Conflict)
+            ));
             let cut = f.catalog.read(TIMEOUT).await?;
             for host in &cluster.hosts {
                 let authorization = f

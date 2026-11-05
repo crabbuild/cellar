@@ -53,6 +53,19 @@ conflict can use a new confirmation request at the new fleet revision with the
 same operation and prepared reservation. Activation requires the existing
 managed host boot and local member claim.
 
+## Managed group archives
+
+After fleet confirmation, use `FleetCatalog::open_managed_archive_provisioning`
+with the same declared namespace. `prepare_archive` resolves the current live
+fleet history and selected birth. Persist and sync the returned
+`encoded_intent()` before committing the one-use initializer.
+
+After restart or an uncertain commit, reopen the namespace and call
+`verify_archive` with the saved bytes. It verifies that exact binding, identity
+and counters without creating metadata. A different intent conflicts. Missing
+or incomplete metadata refuses and requires archive authority recovery. The
+archive result does not admit voters or establish coverage of a command.
+
 ## Compiled host and birth admission
 
 Managed startup checks every actual prepared namespace and compiled class against

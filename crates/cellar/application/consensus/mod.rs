@@ -97,7 +97,9 @@ pub use crate::raft::fleet_catalog::{
     FleetTopologyIntentRequest, FleetTopologyMovementEntry, FleetTopologyMovementPage,
     FleetTopologyOperation, FleetTopologyPhase,
 };
-pub use crate::raft::fleet_catalog::{RaftManagedFirstGroup, RaftManagedFirstGroupRequest};
+pub use crate::raft::fleet_catalog::{
+    RaftManagedArchiveProvisioning, RaftManagedFirstGroup, RaftManagedFirstGroupRequest,
+};
 pub use crate::raft::fleet_stop::{
     FleetBootBinding, FleetStopAcceptance, FleetStopAction, FleetStopRequest, VerifiedFleetClosure,
 };
