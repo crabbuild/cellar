@@ -131,13 +131,13 @@ pub use crate::raft::catalog::{
     CellGroupBirthSpec, CellGroupBootstrapPermit, CellGroupDirectoryCursor, CellGroupDirectoryPage,
     CellGroupDisasterFenceRequest, CellGroupRecoveryActivationAck,
     CellGroupRecoveryActivationPermit, CellGroupRecoveryError, CellGroupRecoveryRequest,
-    CellGroupSealPermit, CellGroupTransferArchive, CellGroupTransitionPreparationInputs,
-    CellGroupTransitionSource, CellRouteAttempt, CellRouteCacheUsage, CellRouteOperation,
-    CellRouteRequest, CellRoutingError, CellRoutingFailure, CellRoutingLimits, CellRoutingSession,
-    DirectoryLimits, DirectoryMutation, DirectoryPublication, DirectoryView,
-    FencedCellGroupRecovery, FrozenCellGroupInventory, InstalledTransferVoter,
-    PreparedCellGroupArchiveBinding, PreparedManagedCellGroupTransition, RangeDirectory,
-    ResolvedCellRoute, TransferInstallQuorum, TransitionJournal, TransitionPhase,
+    CellGroupSealPermit, CellGroupTransferActivationPermit, CellGroupTransferArchive,
+    CellGroupTransitionPreparationInputs, CellGroupTransitionSource, CellRouteAttempt,
+    CellRouteCacheUsage, CellRouteOperation, CellRouteRequest, CellRoutingError,
+    CellRoutingFailure, CellRoutingLimits, CellRoutingSession, DirectoryLimits, DirectoryMutation,
+    DirectoryPublication, DirectoryView, FencedCellGroupRecovery, FrozenCellGroupInventory,
+    InstalledTransferVoter, PreparedCellGroupArchiveBinding, PreparedManagedCellGroupTransition,
+    RangeDirectory, ResolvedCellRoute, TransferInstallQuorum, TransitionJournal, TransitionPhase,
     VerifiedCellGroupTransitionSources,
 };
 pub use enrollment::{
@@ -151,7 +151,8 @@ pub use root::{GroupManifest, GroupSourceSeal, GroupTransferOrigin, PreparedGrou
 pub use owner::{
     CellGroupApply, CellGroupEffect, CellGroupOwner, CellGroupPersist, CellGroupPersisted,
     CellGroupProposal, CellGroupRecoveryActivation, CellGroupSealOutcome,
-    CellGroupSnapshotAdmission, CellGroupStatus, CellGroupTicket, TransferChildQuorum,
+    CellGroupSnapshotAdmission, CellGroupStatus, CellGroupTicket, CellGroupTransferActivation,
+    TransferChildQuorum,
 };
 
 pub(crate) use dispatch::RemoteMutationRoute;

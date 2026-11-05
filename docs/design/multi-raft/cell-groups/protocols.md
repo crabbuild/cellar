@@ -1106,7 +1106,11 @@ certificate binding the archive closure. An exact retry can recover that
 certificate after a lost response. The same CAS roots a permanent birth fence
 for every child. Ordinary initial bootstrap refuses those children even when a
 separate install receipt is unavailable. Children validate their exact transition
-and refuse replay after later retirement.
+and refuse replay after later retirement. The child Raft owner admits the exact
+certificate and seed commitment only after its fresh-term barrier. Committed
+apply retains the certificate, seed commitment and activation position in the
+child manifest. Subsequent mutations, checkpoints and retained restart preserve
+that evidence. A selected child can serve only after activation applies.
 Source tombstones remain effective across restart, delayed messages and catalog
 unavailability. The whole transition is one fenced owner operation; concurrent
 controllers reconcile the same journal instead of selecting different children.

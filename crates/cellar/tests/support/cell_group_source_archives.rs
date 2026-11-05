@@ -6,6 +6,7 @@ use cellar_ltx::{
     internal::NodeExtentStore,
     stream_snapshot::{ScratchLimits, ScratchPool},
 };
+use sha2::Digest;
 use std::sync::atomic::Ordering;
 
 #[path = "raft_catalog_fault.rs"]
@@ -211,7 +212,8 @@ pub(crate) async fn sealed_source_archives(
         &fixture, &archives, &plan, store, &committed,
     ))
     .await?;
-    reopen_installed_children(&fixture, &plan, &committed).await?;
+    let active = Box::pin(verify_transfer_activation(&mut fixture, &plan, &committed)).await?;
+    reopen_installed_children(&fixture, &plan, &active).await?;
     fixture.close().await
 }
 
@@ -461,6 +463,16 @@ async fn verify_transfer_archive(
             .await,
         Err(CellGroupArchiveBindingError::Catalog(CatalogError::Fenced))
     ));
+    anyhow::ensure!(matches!(
+        domain
+            .run(directory.prepare_transfer_activation(
+                plan,
+                markers[0].route().history,
+                &cluster.voters[0].log,
+            ))
+            .await?,
+        Err(CatalogError::Fenced)
+    ));
     let inputs = archive_inputs(archives, cluster, hold, markers, "closure-outage")?;
     store
         .deny_group_payload_reads
@@ -621,6 +633,175 @@ async fn verify_transfer_publication(
     Ok(())
 }
 
+async fn verify_transfer_activation(
+    fixture: &mut RuntimeCluster,
+    plan: &DirectoryMutation,
+    children: &[GroupManifest],
+) -> Result<Vec<GroupManifest>> {
+    let directory = fixture.cluster.directory.clone();
+    let domain = fixture.cluster.domain.clone();
+    let log = fixture.cluster.voters[0].log.clone();
+    let publication = domain
+        .run(directory.publication(plan))
+        .await??
+        .context("activation publication")?;
+    let mut positions = Vec::with_capacity(children.len());
+    for child in children {
+        let scope = child.route().history;
+        let wrong_engine = domain
+            .run(directory.prepare_transfer_activation(plan, scope, &fixture.cluster.voters[1].log))
+            .await??;
+        anyhow::ensure!(matches!(
+            fixture.runtimes[0].activate_transfer(wrong_engine).await,
+            Err(RuntimeError::StaleCompletion)
+        ));
+        let permit = domain
+            .run(directory.prepare_transfer_activation(plan, scope, &log))
+            .await??;
+        let CellGroupTransferActivation::Accepted(activation) =
+            fixture.runtimes[0].activate_transfer(permit).await?
+        else {
+            anyhow::bail!("expected the first transfer activation proposal");
+        };
+        let duplicate = domain
+            .run(directory.prepare_transfer_activation(plan, scope, &log))
+            .await??;
+        let CellGroupTransferActivation::Accepted(retry) =
+            fixture.runtimes[0].activate_transfer(duplicate).await?
+        else {
+            anyhow::bail!("activation cannot commit before messages are delivered");
+        };
+        anyhow::ensure!(retry.position == activation.position && retry.digest == activation.digest);
+        anyhow::ensure!(matches!(
+            fixture.runtimes[0].propose(scope, vec![1]).await,
+            Err(RuntimeError::NotReady)
+        ));
+        positions.push((scope, activation.position.index));
+    }
+    await_applied(fixture, &positions).await?;
+
+    for (child, (scope, position)) in children.iter().zip(positions) {
+        let retry = domain
+            .run(directory.prepare_transfer_activation(plan, scope, &log))
+            .await??;
+        anyhow::ensure!(matches!(
+            fixture.runtimes[0].activate_transfer(retry).await?,
+            CellGroupTransferActivation::Applied(applied) if applied.index == position
+        ));
+        for voter in &fixture.cluster.voters {
+            let marker = voter
+                .log
+                .cell_group(&scope)?
+                .group_manifest()?
+                .context("active child")?;
+            anyhow::ensure!(marker.is_active() && marker.root() == child.root());
+            let retained = serde_json::to_value(&marker)?;
+            anyhow::ensure!(serde_json::from_value::<GroupManifest>(retained.clone())? == marker);
+            anyhow::ensure!(
+                retained["transfer"]["activation"]["publication"]
+                    == serde_json::to_value(publication.journal_digest())?
+            );
+        }
+    }
+
+    let view = domain.run(directory.observe()).await??;
+    let original_cell = CellId::new("alpha")?;
+    let original_route = domain
+        .run(directory.lookup(&view, &original_cell))
+        .await??;
+    let existing = history(&original_route, "alpha")?;
+    let runtime = fixture.runtimes[0].clone();
+    let deadline = domain
+        .run(async { cellar::asyncrt::mono_ms() })
+        .await?
+        .checked_add(5_000)
+        .context("activation read deadline")?;
+    let read = runtime.read_authority(
+        original_route.history,
+        existing.clone(),
+        CellReadConsistency::Linearizable,
+        deadline,
+    );
+    tokio::pin!(read);
+    let authority = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let std::task::Poll::Ready(result) = futures_util::poll!(&mut read) {
+                return Ok::<_, anyhow::Error>(result?);
+            }
+            fixture.pump(&[], &mut BTreeMap::new()).await?;
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .context("linearizable read after activation")??;
+    anyhow::ensure!(authority.cell().version.history == existing && authority.barrier().is_some());
+    drop(authority);
+
+    let name = CellId::new("after-transfer")?;
+    let route = domain.run(directory.lookup(&view, &name)).await??;
+    let cell = history(&route, name.as_str())?;
+    let encoded = CellGroupEntry {
+        binding: GroupEntryBinding {
+            group: route.history,
+            route_epoch: route.epoch,
+            birth_digest: route.birth_digest,
+            schema_digest: route.schema_digest,
+            proposal: ProposalId::new([91; 16])?,
+        },
+        command: GroupCommand::Enroll {
+            cell: cell.clone(),
+            image: LtxImage {
+                epoch: 1,
+                txid: 0,
+                checksum: 0,
+                commitment: ImageCommitment::Sha256(sha2::Sha256::digest([]).into()),
+            },
+            files: Vec::new(),
+        },
+    }
+    .encode(&route, GroupEntryLimits::default())?;
+    let before = log
+        .cell_group(&route.history)?
+        .group_manifest()?
+        .context("child before write")?;
+    let write = runtime.propose(route.history, encoded).await?;
+    await_applied(fixture, &[(route.history, write.position.index)]).await?;
+    let after = log
+        .cell_group(&route.history)?
+        .group_manifest()?
+        .context("child after write")?;
+    anyhow::ensure!(after.is_active() && after.root().cells() == before.root().cells() + 1);
+    children
+        .iter()
+        .map(|child| {
+            log.cell_group(&child.route().history)?
+                .group_manifest()?
+                .context("retained active child")
+        })
+        .collect()
+}
+
+async fn await_applied(
+    fixture: &mut RuntimeCluster,
+    positions: &[(GroupHistory, LogIndex)],
+) -> Result<()> {
+    tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            fixture.pump(&[], &mut BTreeMap::new()).await?;
+            if positions.iter().all(|(group, position)| {
+                fixture.applied[group]
+                    .iter()
+                    .all(|applied| applied >= position)
+            }) {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .context("replicate child entries")?
+}
+
 fn archive_inputs(
     archives: &Archives,
     cluster: &Cluster,
@@ -677,7 +858,7 @@ async fn reopen_installed_children(
             anyhow::ensure!(
                 group.group_manifest()?.as_ref() == Some(marker)
                     && group.identity().process == ProcessGeneration::new([91; 16])?
-                    && !marker.is_active()
+                    && marker.is_active()
             );
         }
         Ok::<_, anyhow::Error>(())

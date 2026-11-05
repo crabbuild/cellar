@@ -50,27 +50,9 @@ impl Storage {
             if decoded.binding.proposal.bytes() != transition.bytes() {
                 return Err(ExecutionError::Invalid("activation proposal binding"));
             }
-            let state = base
-                .marker()
-                .recovery
-                .as_deref()
-                .ok_or(ExecutionError::Invalid("activation without recovery"))?;
-            let expected = match state.activation_manifest() {
-                Some(manifest) => manifest,
-                None => state.seed_commitment(base.marker()).map_err(storage)?,
-            };
             let mut next = unchanged;
             next.marker
-                .recovery
-                .as_deref_mut()
-                .ok_or(ExecutionError::Invalid("activation without recovery"))?
-                .activate(
-                    transition,
-                    publication,
-                    manifest,
-                    expected,
-                    entry_position(entry),
-                )
+                .activate(transition, publication, manifest)
                 .map_err(storage)?;
             return Ok(next);
         }

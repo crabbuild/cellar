@@ -38,6 +38,8 @@ pub use route_cache::CellRouteCacheUsage;
 pub(crate) use route_cache::RouteCache;
 mod store;
 mod transition;
+mod transition_activation;
+pub use transition_activation::CellGroupTransferActivationPermit;
 mod transition_archive;
 pub use transition_archive::CellGroupTransferArchive;
 mod transition_child_quorum;

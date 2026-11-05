@@ -143,6 +143,7 @@ enum Command {
     RestartLeadership(Box<crate::raft::completion::RestartLeadershipCheck>),
     Configure(CellGroupMembershipChange),
     ActivateRecovery(Box<CellGroupRecoveryActivationPermit>),
+    ActivateTransfer(Box<CellGroupTransferActivationPermit>),
     SealSource(Box<CellGroupSealPermit>),
     Execution(cellar_logic::cell_group::CellHistory),
     NextEffect {
@@ -182,6 +183,7 @@ enum Response {
     Checkpoint(CellGroupSnapshotAdmission),
     Proposal(CellGroupProposal),
     RecoveryActivation(Box<CellGroupRecoveryActivation>),
+    TransferActivation(CellGroupTransferActivation),
     SourceSeal(Box<CellGroupSealOutcome>),
     Submission(crate::raft::execution::CellSubmissionOutcome),
     Execution(Box<CellExecutionAuthority>),
@@ -720,6 +722,24 @@ impl CellGroupRuntime {
 
     /// Admit whole-group leadership handoff; observe status for completion.
     /// Admit the catalog-bound activation on the multiplexed physical owner.
+    pub async fn activate_transfer(
+        &self,
+        permit: CellGroupTransferActivationPermit,
+    ) -> Result<CellGroupTransferActivation, RuntimeError> {
+        let history = permit.history();
+        match self
+            .call(
+                Some(history),
+                Command::ActivateTransfer(Box::new(permit)),
+                4096,
+            )
+            .await?
+        {
+            Response::TransferActivation(result) => Ok(result),
+            _ => Err(RuntimeError::Protocol("transfer activation reply".into())),
+        }
+    }
+
     pub async fn activate_recovery(
         &self,
         permit: CellGroupRecoveryActivationPermit,

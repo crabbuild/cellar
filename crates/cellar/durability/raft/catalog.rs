@@ -30,13 +30,14 @@ pub use range_directory::{
     CellGroupBirthSpec, CellGroupBootstrapPermit, CellGroupDirectoryCursor, CellGroupDirectoryPage,
     CellGroupDisasterFenceRequest, CellGroupRecoveryActivationAck,
     CellGroupRecoveryActivationPermit, CellGroupRecoveryError, CellGroupRecoveryRequest,
-    CellGroupSealPermit, CellGroupTransferArchive, CellGroupTransitionPreparationInputs,
-    CellGroupTransitionSource, CellRouteAttempt, CellRouteCacheUsage, CellRouteOperation,
-    CellRouteRequest, CellRoutingError, CellRoutingFailure, CellRoutingLimits, CellRoutingSession,
-    DirectoryLimits, DirectoryMutation, DirectoryPublication, DirectoryView,
-    FencedCellGroupRecovery, InstalledTransferVoter, PreparedCellGroupArchiveBinding,
-    PreparedManagedCellGroupTransition, RangeDirectory, ResolvedCellRoute, TransferInstallQuorum,
-    TransitionJournal, TransitionPhase, VerifiedCellGroupTransitionSources,
+    CellGroupSealPermit, CellGroupTransferActivationPermit, CellGroupTransferArchive,
+    CellGroupTransitionPreparationInputs, CellGroupTransitionSource, CellRouteAttempt,
+    CellRouteCacheUsage, CellRouteOperation, CellRouteRequest, CellRoutingError,
+    CellRoutingFailure, CellRoutingLimits, CellRoutingSession, DirectoryLimits, DirectoryMutation,
+    DirectoryPublication, DirectoryView, FencedCellGroupRecovery, InstalledTransferVoter,
+    PreparedCellGroupArchiveBinding, PreparedManagedCellGroupTransition, RangeDirectory,
+    ResolvedCellRoute, TransferInstallQuorum, TransitionJournal, TransitionPhase,
+    VerifiedCellGroupTransitionSources,
 };
 pub(crate) use range_directory::{RecoverySeedPermit, TransferSeedPermit};
 

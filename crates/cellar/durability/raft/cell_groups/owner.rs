@@ -186,6 +186,12 @@ pub enum CellGroupRecoveryActivation {
     Applied(Box<super::CellGroupRecoveryActivationAck>),
 }
 
+/// An admitted activation proposal or its durable applied position.
+pub enum CellGroupTransferActivation {
+    Accepted(CellGroupProposal),
+    Applied(LogPosition),
+}
+
 enum Phase {
     Ready(Box<Ready>, Term),
     Light(LightReady),
@@ -229,7 +235,7 @@ pub struct CellGroupOwner {
     proposals: super::proposal_admission::ProposalAdmission,
     pub(super) proposal_budget: Arc<crate::raft::budget::Budget>,
     prepared_only: bool,
-    recovery_activation: Option<Box<(Term, CellGroupProposal)>>,
+    activation_proposal: Option<Box<(Term, CellGroupProposal)>>,
     pending_seal: Option<Box<(Term, [u8; 32], CellGroupProposal)>>,
 }
 
@@ -327,7 +333,7 @@ impl CellGroupOwner {
             failed: None,
             proposals: Default::default(),
             prepared_only: false,
-            recovery_activation: None,
+            activation_proposal: None,
             pending_seal: None,
         })
     }
@@ -348,7 +354,7 @@ impl CellGroupOwner {
         self.leader_term.store(0, Ordering::Release);
         self.source_epoch.store(0, Ordering::Release);
         self.proposals.clear();
-        self.recovery_activation = None;
+        self.activation_proposal = None;
         self.pending_seal = None;
     }
 
@@ -395,7 +401,7 @@ impl CellGroupOwner {
         };
         if self.leader_term.swap(term, Ordering::AcqRel) != term {
             self.proposals.clear();
-            self.recovery_activation = None;
+            self.activation_proposal = None;
         }
     }
 
@@ -806,6 +812,7 @@ impl CellGroupOwner {
         let marker = self.current.marker();
         let cache = self.group.read()?;
         if marker.transfer_origin().is_none()
+            || marker.transfer_activation().is_some()
             || marker.membership_revision() != 1
             || cache.membership.revision().get() != 1
             || !cache.conf_state.voters_outgoing.is_empty()
@@ -849,17 +856,46 @@ impl CellGroupOwner {
         self.live()?;
         permit.check(&self.log, &self.group)?;
         if permit.matches(self.current.marker())? {
-            self.recovery_activation = None;
+            self.activation_proposal = None;
             return Ok(CellGroupRecoveryActivation::Applied(Box::new(
                 permit.acknowledgement(&self.group, self.current.marker())?,
             )));
         }
+        self.propose_activation(|| permit.entry())
+            .map(CellGroupRecoveryActivation::Accepted)
+    }
+
+    pub fn activate_transfer(
+        &mut self,
+        permit: super::CellGroupTransferActivationPermit,
+    ) -> Result<CellGroupTransferActivation, RuntimeError> {
+        self.live()?;
+        permit.check(&self.log, &self.group)?;
+        let marker = self.current.marker();
+        if let Some(position) = permit.applied_position(marker)? {
+            let cache = self.group.read()?;
+            if cache.group_manifest.as_ref() != Some(marker)
+                || cache.hard_state.commit < position.index.get()
+            {
+                return Err(RuntimeError::NotReady);
+            }
+            self.activation_proposal = None;
+            return Ok(CellGroupTransferActivation::Applied(position));
+        }
+        self.propose_activation(|| Ok(permit.into_entry()))
+            .map(CellGroupTransferActivation::Accepted)
+    }
+
+    fn propose_activation(
+        &mut self,
+        entry: impl FnOnce() -> Result<Vec<u8>, RuntimeError>,
+    ) -> Result<CellGroupProposal, RuntimeError> {
         if self.node.raft.state != StateRole::Leader {
             return Err(RuntimeError::NotLeader);
         }
-        if let Some(pending) = &self.recovery_activation {
+        if let Some(pending) = &self.activation_proposal {
             if pending.0.get() == self.node.raft.term {
-                return Ok(CellGroupRecoveryActivation::Accepted(pending.1.clone()));
+                return Ok(pending.1.clone());
             }
         }
         let cache = self.group.read()?;
@@ -871,10 +907,10 @@ impl CellGroupOwner {
             return Err(RuntimeError::NotReady);
         }
         drop(cache);
-        let proposal = self.append_control(permit.entry()?, "recovery activation")?;
-        self.recovery_activation =
+        let proposal = self.append_control(entry()?, "group activation")?;
+        self.activation_proposal =
             Some(Box::new((Term::new(self.node.raft.term), proposal.clone())));
-        Ok(CellGroupRecoveryActivation::Accepted(proposal))
+        Ok(proposal)
     }
 
     /// Drain the selected prefix before appending the irreversible source cut.
@@ -2273,10 +2309,13 @@ impl CellGroupOwner {
         if !next.marker().preserves_transfer(self.current.marker()) {
             return Err(invalid());
         }
+        let same_transfer =
+            next.marker().transfer_origin() == self.current.marker().transfer_origin();
         let same_recovery = next.marker().recovery == self.current.marker().recovery;
         let same_seal = next.marker().source_seal() == self.current.marker().source_seal();
         if entry.get_entry_type() == EntryType::EntryConfChangeV2 {
-            if !self.current.marker().is_active() || !same_recovery || !same_seal {
+            if !self.current.marker().is_active() || !same_recovery || !same_seal || !same_transfer
+            {
                 return Err(invalid());
             }
             let cache = self.group.read()?;
@@ -2303,6 +2342,7 @@ impl CellGroupOwner {
             return if next.marker().root() == self.current.marker().root()
                 && same_recovery
                 && same_seal
+                && same_transfer
             {
                 Ok(())
             } else {
@@ -2316,7 +2356,7 @@ impl CellGroupOwner {
         )
         .map_err(|_| invalid())?;
         if !matches!(&decoded.command, GroupCommand::Activate { .. })
-            && (!self.current.marker().is_active() || !same_recovery)
+            && (!self.current.marker().is_active() || !same_recovery || !same_transfer)
         {
             return Err(invalid());
         }
@@ -2338,22 +2378,9 @@ impl CellGroupOwner {
                     return Err(invalid());
                 }
                 let mut expected = self.current.marker().clone();
-                let commitment = expected
-                    .recovery_commitment()
-                    .map_err(|_| invalid())?
-                    .ok_or_else(invalid)?;
                 expected.position = entry_position(entry);
                 expected
-                    .recovery
-                    .as_deref_mut()
-                    .ok_or_else(invalid)?
-                    .activate(
-                        transition,
-                        publication,
-                        manifest,
-                        commitment,
-                        entry_position(entry),
-                    )
+                    .activate(transition, publication, manifest)
                     .map_err(|_| invalid())?;
                 if next.marker() != &expected {
                     return Err(invalid());

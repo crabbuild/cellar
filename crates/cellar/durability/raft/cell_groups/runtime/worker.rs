@@ -485,6 +485,10 @@ impl Worker {
                                     .owner
                                     .activate_recovery(*permit)
                                     .map(|result| Response::RecoveryActivation(Box::new(result))),
+                                Command::ActivateTransfer(permit) => group
+                                    .owner
+                                    .activate_transfer(*permit)
+                                    .map(Response::TransferActivation),
                                 Command::SealSource(permit) => group
                                     .owner
                                     .seal_source(*permit)

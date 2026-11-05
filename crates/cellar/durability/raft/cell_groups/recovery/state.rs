@@ -20,11 +20,54 @@ pub(in crate::raft::cell_groups) struct RecoveryState {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Activation {
+pub(in crate::raft::cell_groups) struct Activation {
     publication: [u8; 32],
     manifest: [u8; 32],
     index: u64,
     term: u64,
+}
+
+impl Activation {
+    pub(in crate::raft::cell_groups) fn new(
+        publication: [u8; 32],
+        manifest: [u8; 32],
+        position: LogPosition,
+    ) -> Self {
+        Self {
+            publication,
+            manifest,
+            index: position.index.get(),
+            term: position.term.get(),
+        }
+    }
+
+    pub(in crate::raft::cell_groups) fn parts(&self) -> ([u8; 32], [u8; 32], LogPosition) {
+        (
+            self.publication,
+            self.manifest,
+            LogPosition {
+                index: LogIndex::new(self.index),
+                term: Term::new(self.term),
+            },
+        )
+    }
+
+    pub(in crate::raft::cell_groups) fn validate(
+        &self,
+        position: LogPosition,
+    ) -> Result<(), ManifestError> {
+        if self.publication == [0; 32]
+            || self.manifest == [0; 32]
+            || self.index <= 1
+            || self.term <= 1
+            || self.index > position.index.get()
+            || self.term > position.term.get()
+            || (self.index == position.index.get() && self.term != position.term.get())
+        {
+            return Err(ManifestError::Invalid("activation position"));
+        }
+        Ok(())
+    }
 }
 
 fn required_activation<'de, D: serde::Deserializer<'de>>(
@@ -65,16 +108,7 @@ impl RecoveryState {
     pub(in crate::raft::cell_groups) fn activation(
         &self,
     ) -> Option<([u8; 32], [u8; 32], LogPosition)> {
-        self.activation.as_ref().map(|a| {
-            (
-                a.publication,
-                a.manifest,
-                LogPosition {
-                    index: LogIndex::new(a.index),
-                    term: Term::new(a.term),
-                },
-            )
-        })
+        self.activation.as_ref().map(Activation::parts)
     }
 
     pub(in crate::raft::cell_groups) fn succeeds(&self, previous: &Self) -> bool {
@@ -93,17 +127,8 @@ impl RecoveryState {
         if self.request == [0; 32] || ProposalId::new(self.operation).is_err() {
             return Err(ManifestError::Invalid("recovery identity"));
         }
-        if let Some(a) = &self.activation {
-            if a.publication == [0; 32]
-                || a.manifest == [0; 32]
-                || a.index <= 1
-                || a.term <= 1
-                || a.index > position.index.get()
-                || a.term > position.term.get()
-                || (a.index == position.index.get() && a.term != position.term.get())
-            {
-                return Err(ManifestError::Invalid("recovery activation position"));
-            }
+        if let Some(activation) = &self.activation {
+            activation.validate(position)?;
         }
         Ok(())
     }
@@ -130,12 +155,7 @@ impl RecoveryState {
             return self.validate(position);
         }
         let next = Self {
-            activation: Some(Activation {
-                publication,
-                manifest,
-                index: position.index.get(),
-                term: position.term.get(),
-            }),
+            activation: Some(Activation::new(publication, manifest, position)),
             ..self.clone()
         };
         next.validate(position)?;

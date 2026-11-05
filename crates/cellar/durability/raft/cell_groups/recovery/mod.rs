@@ -17,6 +17,7 @@ pub(crate) use partition::StagedCellGroupPartition;
 pub use partition::{
     CellGroupTransferTarget, PreparedCellGroupTransfer, PreparedCellGroupTransferChild,
 };
+pub(super) use state::Activation;
 pub(super) use state::RecoveryState;
 
 #[cfg(test)]

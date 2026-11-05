@@ -31,6 +31,8 @@ pub struct GroupTransferOrigin {
     operation: [u8; 16],
     plan: [u8; 32],
     sealed_sources: [u8; 32],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    activation: Option<super::recovery::Activation>,
 }
 
 impl GroupTransferOrigin {
@@ -39,6 +41,7 @@ impl GroupTransferOrigin {
             operation: operation.bytes(),
             plan,
             sealed_sources,
+            activation: None,
         }
     }
 
@@ -54,7 +57,16 @@ impl GroupTransferOrigin {
         self.sealed_sources
     }
 
-    fn check(&self) -> Result<(), ManifestError> {
+    fn same_provenance(&self, prior: &Self) -> bool {
+        self.operation == prior.operation
+            && self.plan == prior.plan
+            && self.sealed_sources == prior.sealed_sources
+    }
+
+    fn check(&self, position: LogPosition) -> Result<(), ManifestError> {
+        if let Some(activation) = &self.activation {
+            activation.validate(position)?;
+        }
         if ProposalId::new(self.operation).is_err()
             || self.plan == [0; 32]
             || self.sealed_sources == [0; 32]
@@ -120,7 +132,9 @@ impl GroupManifest {
     /// Data imported into a fresh history remains unavailable to application
     /// reads/writes until its replicated activation decision is selected.
     pub fn is_active(&self) -> bool {
-        self.transfer.is_none()
+        self.transfer
+            .as_ref()
+            .is_none_or(|state| state.activation.is_some())
             && self.seal.is_none()
             && self.recovery.as_ref().is_none_or(|state| state.active())
     }
@@ -130,15 +144,95 @@ impl GroupManifest {
     }
 
     pub(crate) fn is_transfer_genesis(&self) -> bool {
-        self.transfer.is_some()
+        self.transfer
+            .as_ref()
+            .is_some_and(|state| state.activation.is_none())
             && self.position.index.get() == 1
             && self.position.term.get() == 1
             && self.membership_revision == 1
     }
 
     pub(crate) fn preserves_transfer(&self, previous: &Self) -> bool {
-        self.transfer == previous.transfer
-            && (previous.transfer.is_none() || self.root == previous.root)
+        match (previous.transfer_origin(), self.transfer_origin()) {
+            (None, None) => true,
+            (Some(prior), Some(next)) if next.same_provenance(prior) => {
+                if prior.activation.is_some() {
+                    return next.activation == prior.activation;
+                }
+                match self.transfer_activation() {
+                    Some((_, manifest, position)) => {
+                        position.index > previous.position.index
+                            && position.term >= previous.position.term
+                            && previous.transfer_commitment().ok().flatten() == Some(manifest)
+                    }
+                    None => self.root == previous.root,
+                }
+            }
+            _ => false,
+        }
+    }
+
+    pub(crate) fn transfer_activation(&self) -> Option<([u8; 32], [u8; 32], LogPosition)> {
+        self.transfer_origin()?
+            .activation
+            .as_ref()
+            .map(super::recovery::Activation::parts)
+    }
+
+    pub(crate) fn transfer_commitment(&self) -> Result<Option<[u8; 32]>, ManifestError> {
+        use sha2::{Digest, Sha256};
+
+        let Some(origin) = self.transfer_origin() else {
+            return Ok(None);
+        };
+        if let Some(activation) = &origin.activation {
+            return Ok(Some(activation.parts().1));
+        }
+        let genesis = Self::transfer_genesis(self.route.clone(), self.root, origin.clone())?;
+        let bytes = serde_json::to_vec(&genesis)
+            .map_err(|_| ManifestError::Invalid("transfer genesis encoding"))?;
+        let mut digest = Sha256::new();
+        digest.update(b"cellar-cell-group-transfer-genesis-1\0");
+        digest.update(bytes);
+        Ok(Some(digest.finalize().into()))
+    }
+
+    pub(super) fn activate(
+        &mut self,
+        transition: TransitionId,
+        publication: [u8; 32],
+        manifest: [u8; 32],
+    ) -> Result<(), ManifestError> {
+        if let Some(expected) = self.recovery_commitment()? {
+            return self
+                .recovery
+                .as_deref_mut()
+                .ok_or(ManifestError::Invalid("recovery activation state"))?
+                .activate(transition, publication, manifest, expected, self.position);
+        }
+        let expected = self.transfer_commitment()?;
+        let origin = self
+            .transfer
+            .as_deref_mut()
+            .ok_or(ManifestError::Invalid("missing transfer activation state"))?;
+        if origin.operation != transition.bytes()
+            || expected != Some(manifest)
+            || publication == [0; 32]
+        {
+            return Err(ManifestError::Invalid("transfer activation binding"));
+        }
+        if let Some(existing) = &origin.activation {
+            if existing.parts().0 != publication {
+                return Err(ManifestError::Conflict);
+            }
+        } else {
+            origin.activation = Some(super::recovery::Activation::new(
+                publication,
+                manifest,
+                self.position,
+            ));
+        }
+        self.check()
     }
 
     pub fn source_seal(&self) -> Option<&GroupSourceSeal> {
@@ -238,8 +332,11 @@ impl GroupManifest {
             }
         }
         if let Some(transfer) = &self.transfer {
-            transfer.check()?;
-            if self.recovery.is_some() || self.seal.is_some() || self.membership_revision != 1 {
+            transfer.check(self.position)?;
+            if self.recovery.is_some()
+                || (transfer.activation.is_none()
+                    && (self.seal.is_some() || self.membership_revision != 1))
+            {
                 return Err(ManifestError::Invalid("pending child transfer lifecycle"));
             }
         }

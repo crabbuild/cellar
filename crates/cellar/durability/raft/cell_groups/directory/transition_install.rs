@@ -285,30 +285,45 @@ impl RangeDirectory {
                 let birth = self
                     .require_ordinary_birth_reservation(proof.genesis.route())
                     .await?;
-                {
+                let activation = {
                     let cache = group.read().map_err(CatalogError::Log)?;
+                    let marker = cache
+                        .group_manifest
+                        .as_ref()
+                        .ok_or(CatalogError::LostStableState)?;
                     let expected_voters = birth.voters().iter().map(|member| member.member.get());
                     let expected_learners =
                         birth.learners().iter().map(|member| member.member.get());
                     if group.identity().member != voter.member
-                        || cache.group_manifest.as_ref().is_none_or(|marker| {
-                            marker.route() != proof.genesis.route()
-                                || marker.is_active()
-                                || !marker.preserves_transfer(&proof.genesis)
-                        })
-                        || cache.membership.revision().get() != 1
-                        || !cache.conf_state.voters.iter().copied().eq(expected_voters)
-                        || !cache
-                            .conf_state
-                            .learners
-                            .iter()
-                            .copied()
-                            .eq(expected_learners)
-                        || !cache.conf_state.voters_outgoing.is_empty()
-                        || !cache.conf_state.learners_next.is_empty()
-                        || cache.conf_state.auto_leave
+                        || marker.route() != proof.genesis.route()
+                        || !marker.preserves_transfer(&proof.genesis)
                     {
                         return Err(CatalogError::LostStableState);
+                    }
+                    let activation = marker.transfer_activation();
+                    if activation.is_none()
+                        && (cache.membership.revision().get() != 1
+                            || !cache.conf_state.voters.iter().copied().eq(expected_voters)
+                            || !cache
+                                .conf_state
+                                .learners
+                                .iter()
+                                .copied()
+                                .eq(expected_learners)
+                            || !cache.conf_state.voters_outgoing.is_empty()
+                            || !cache.conf_state.learners_next.is_empty()
+                            || cache.conf_state.auto_leave)
+                    {
+                        return Err(CatalogError::LostStableState);
+                    }
+                    activation
+                };
+                if let Some((certificate, _, _)) = activation {
+                    let published = self.publication(plan).await?.ok_or(CatalogError::Fenced)?;
+                    if published.transfer_archive().is_none()
+                        || published.journal_digest() != certificate
+                    {
+                        return Err(CatalogError::Fenced);
                     }
                 }
                 super::bootstrap::check_member(&group)?;
