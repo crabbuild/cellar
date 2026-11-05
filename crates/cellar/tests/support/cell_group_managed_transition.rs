@@ -77,12 +77,14 @@ async fn run_plan(rooted: bool, store: Arc<fault::Store>, decision: Decision) ->
         Decision::Cancel => 0,
     };
     let result = Box::pin(exercise(&mut cluster, rooted, decision)).await;
-    let pending_quorums = if result.is_ok() { expected_children } else { 0 };
+    let activated = result.is_ok() && expected_children > 0;
+    let pending_quorums = if activated { expected_children } else { 0 };
     let spares = cluster.nodes.split_off(3);
     let joined = close_group_nodes(cluster.nodes, &cluster.hosts).await;
     let joined_spares = async {
         for (node, host) in spares.into_iter().zip(&cluster.hosts[3..]) {
-            stop_transfer_destination(node, host, expected_children, pending_quorums).await?;
+            stop_transfer_destination(node, host, expected_children, pending_quorums, activated)
+                .await?;
         }
         Ok::<_, anyhow::Error>(())
     }
@@ -98,6 +100,7 @@ async fn stop_transfer_destination(
     host: &RaftCells,
     expected: usize,
     pending_quorums: usize,
+    active: bool,
 ) -> Result<()> {
     ensure!(matches!(
         node.shutdown(ShutdownMode::Preserve).await?,
@@ -111,10 +114,9 @@ async fn stop_transfer_destination(
             && report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers,
         "transfer destination shutdown inventory: {report:?}"
     );
-    ensure!(report
-        .groups
-        .iter()
-        .all(|group| !group.active && !group.failed && group.applied.index == group.committed));
+    ensure!(report.groups.iter().all(|group| group.active == active
+        && !group.failed
+        && group.applied.index == group.committed));
     ensure!(
         report
             .groups
@@ -259,7 +261,7 @@ async fn exercise(cluster: &mut ManagedCluster, rooted: bool, decision: Decision
         Err(FleetCatalogError::Conflict)
     ));
 
-    let (registry, held) = Box::pin(preparation::exercise(
+    let (registry, held, seeded) = Box::pin(preparation::exercise(
         cluster, &reopened, directory, &recovered, &parent, &children, rooted,
     ))
     .await?;
@@ -326,7 +328,10 @@ async fn exercise(cluster: &mut ManagedCluster, rooted: bool, decision: Decision
             cluster, &reopened, directory, &recovered, &parent, held, &seal,
         ))
         .await?;
-        return Ok(());
+        return Box::pin(preparation::verify_transferred_sql(
+            cluster, directory, seeded,
+        ))
+        .await;
     }
     fixture
         .store

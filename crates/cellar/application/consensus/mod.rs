@@ -63,8 +63,9 @@ pub use crate::raft::cell_groups::{
     CellGroupControllerError, CellGroupControllerLimits, CellGroupDisasterFenceRequest,
     CellGroupHostLimits, CellGroupObservation, CellGroupProposal, CellGroupProvisionLimits,
     CellGroupQuorumMembership, CellGroupRecoveryLimits, CellGroupRecoveryPool,
-    CellGroupSealOutcome, CellGroupTransferArchive, CellGroupTransitionSource, CellReceiptRequest,
-    CellReceiptResponse, CellSqlLimits, DirectoryLimits, GroupSourceSeal, InstalledTransferVoter,
+    CellGroupSealOutcome, CellGroupTransferActivation, CellGroupTransferActivationAck,
+    CellGroupTransferArchive, CellGroupTransitionSource, CellReceiptRequest, CellReceiptResponse,
+    CellSqlLimits, DirectoryLimits, DirectoryPublication, GroupSourceSeal, InstalledTransferVoter,
     ManifestLimits, TransferChildQuorum, TransferInstallQuorum, VerifiedCellGroupTransitionSources,
 };
 pub use crate::raft::fleet_catalog::{

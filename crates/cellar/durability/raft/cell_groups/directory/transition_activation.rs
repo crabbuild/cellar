@@ -5,7 +5,14 @@ use crate::application::consensus::group_protocol::{
     CellGroupEntry, GroupCommand, GroupEntryBinding, GroupEntryLimits,
 };
 use crate::raft::{
-    cache::GroupLog, cell_groups::GroupManifest, completion::RuntimeError, storage::ReplicaLog,
+    cache::GroupLog,
+    cell_groups::GroupManifest,
+    completion::RuntimeError,
+    fleet_catalog::{
+        FleetHostAuthorization, ManagedTransitionPermit, ReopenedManagedCellGroupTransition,
+    },
+    fleet_stop::BootBinding,
+    storage::ReplicaLog,
 };
 use cellar_logic::consensus::{EngineInstanceId, LogIndex, LogPosition, Term};
 use serde::{Deserialize, Serialize};
@@ -36,6 +43,7 @@ pub struct CellGroupTransferActivationPermit {
     manifest: [u8; 32],
     deadline: u64,
     entry: Vec<u8>,
+    boot: Option<BootBinding>,
 }
 
 impl CellGroupTransferActivationPermit {
@@ -55,7 +63,25 @@ impl CellGroupTransferActivationPermit {
         {
             return Err(RuntimeError::StaleCompletion);
         }
-        drop(group.read()?);
+        if let Some(boot) = &self.boot {
+            if log
+                .lifecycle_guard()?
+                .is_none_or(|guard| !guard.admits_group_start(boot))
+            {
+                return Err(RuntimeError::StaleCompletion);
+            }
+            let cache = group.read()?;
+            if cache.membership.revision().get() != 1
+                || !cache
+                    .conf_state
+                    .voters
+                    .contains(&group.identity().member.get())
+            {
+                return Err(RuntimeError::StaleCompletion);
+            }
+        } else {
+            drop(group.read()?);
+        }
         Ok(())
     }
 
@@ -112,14 +138,60 @@ impl RangeDirectory {
         let bootstrap = self
             .bootstrap_pending_transfer_voter(plan, history, log)
             .await?;
+        self.prepare_transfer_activation_inner(
+            plan,
+            bootstrap.route(),
+            bootstrap.group().clone(),
+            log,
+            None,
+        )
+        .await
+    }
+
+    pub(crate) async fn prepare_managed_transfer_activation(
+        &self,
+        transition: &ReopenedManagedCellGroupTransition,
+        history: GroupHistory,
+        log: &ReplicaLog,
+        host: &FleetHostAuthorization,
+        deadline: u64,
+    ) -> Result<CellGroupTransferActivationPermit, CatalogError> {
+        let (_, children) = self.transition_routes(&transition.plan)?;
+        let route = children
+            .iter()
+            .find(|route| route.history == history)
+            .ok_or(CatalogError::Fenced)?;
+        let (group, _, boot) = self
+            .require_managed_transfer_voter(transition, route, log, host, deadline)
+            .await?;
+        self.prepare_transfer_activation_inner(
+            &transition.plan,
+            route,
+            group,
+            log,
+            Some((boot, deadline)),
+        )
+        .await
+    }
+
+    async fn prepare_transfer_activation_inner(
+        &self,
+        plan: &DirectoryMutation,
+        route: &GroupRoute,
+        group: GroupLog<GroupHistory>,
+        log: &ReplicaLog,
+        managed: Option<(BootBinding, u64)>,
+    ) -> Result<CellGroupTransferActivationPermit, CatalogError> {
         self.bounded(async {
+            if managed.is_some() {
+                let (view, _) = self.current().await?;
+                self.selected_route_in(&view, route).await?;
+            }
             let publication = self
                 .publication(plan)
                 .await?
                 .filter(|publication| publication.transfer_archive().is_some())
                 .ok_or(CatalogError::Fenced)?;
-            let route = bootstrap.route();
-            let group = bootstrap.group().clone();
             let marker = group
                 .group_manifest()
                 .map_err(CatalogError::Log)?
@@ -147,12 +219,19 @@ impl RangeDirectory {
             }
             .encode(route, GroupEntryLimits::default())
             .map_err(|_| CatalogError::Invalid("transfer activation entry"))?;
-            let deadline = log
+            let now = log
                 .domain()
                 .mono_ms()
-                .map_err(|_| CatalogError::Unconfirmed)?
+                .map_err(|_| CatalogError::Unconfirmed)?;
+            let limit = now
                 .checked_add(self.limits.operation_timeout_ms)
                 .ok_or(CatalogError::Limit)?;
+            let (boot, deadline) = managed.map_or((None, limit), |(boot, deadline)| {
+                (Some(boot), deadline.min(limit))
+            });
+            if deadline <= now {
+                return Err(CatalogError::Unconfirmed);
+            }
             Ok(CellGroupTransferActivationPermit {
                 group,
                 engine: log.storage_instance().map_err(CatalogError::Log)?,
@@ -160,6 +239,7 @@ impl RangeDirectory {
                 manifest,
                 deadline,
                 entry,
+                boot,
             })
         })
         .await
@@ -227,6 +307,27 @@ impl RangeDirectory {
         acknowledgements: Vec<CellGroupTransferActivationAck>,
     ) -> Result<TransitionJournal, CatalogError> {
         self.unmanaged_birth()?;
+        self.record_transfer_activations_inner(plan, acknowledgements, None)
+            .await
+    }
+
+    pub(crate) async fn record_managed_transfer_activations(
+        &self,
+        plan: &DirectoryMutation,
+        acknowledgements: Vec<CellGroupTransferActivationAck>,
+        permit: &ManagedTransitionPermit,
+    ) -> Result<TransitionJournal, CatalogError> {
+        permit.check(self, plan)?;
+        self.record_transfer_activations_inner(plan, acknowledgements, Some(permit))
+            .await
+    }
+
+    async fn record_transfer_activations_inner(
+        &self,
+        plan: &DirectoryMutation,
+        acknowledgements: Vec<CellGroupTransferActivationAck>,
+        permit: Option<&ManagedTransitionPermit>,
+    ) -> Result<TransitionJournal, CatalogError> {
         self.check_transition_plan(plan)?;
         if acknowledgements.len() != plan.request.children.len() {
             return Err(CatalogError::Invalid("incomplete transfer activation set"));
@@ -242,7 +343,7 @@ impl RangeDirectory {
                     .transfer_activation_dependencies(plan, &view.head, &journal)
                     .await?;
                 let markers = self
-                    .installed_transfer_children(plan)
+                    .installed_transfer_children_inner(plan, permit)
                     .await?
                     .ok_or(CatalogError::Fenced)?;
                 let mut children = Vec::with_capacity(markers.len());
@@ -267,7 +368,7 @@ impl RangeDirectory {
                 Ok((publication, installed, digest))
             })
             .await?;
-        self.record_verified_transfer_activations(plan, publication, installed, digest)
+        self.record_verified_transfer_activations(plan, publication, installed, digest, permit)
             .await
     }
 

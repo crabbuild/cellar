@@ -149,16 +149,41 @@ impl RangeDirectory {
         plan: &DirectoryMutation,
     ) -> Result<DirectoryPublication, CellGroupArchiveBindingError> {
         self.unmanaged_birth()?;
+        self.publish_transfer_inner(domain, archives, plan, None)
+            .await
+    }
+
+    pub(crate) async fn publish_managed_transfer(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        archives: &CellGroupArchivePool,
+        plan: &DirectoryMutation,
+        permit: &ManagedTransitionPermit,
+    ) -> Result<DirectoryPublication, CellGroupArchiveBindingError> {
+        permit.check(self, plan)?;
+        self.publish_transfer_inner(domain, archives, plan, Some(permit))
+            .await
+    }
+
+    async fn publish_transfer_inner(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        archives: &CellGroupArchivePool,
+        plan: &DirectoryMutation,
+        permit: Option<&ManagedTransitionPermit>,
+    ) -> Result<DirectoryPublication, CellGroupArchiveBindingError> {
         self.check_transition_plan(plan)?;
         domain
             .run(Box::pin(async {
-                self.namespace.require_cell_group_unmanaged().await?;
+                if permit.is_none() {
+                    self.namespace.require_cell_group_unmanaged().await?;
+                }
                 if let Some(publication) = self.confirmed_transfer_publication(plan).await? {
                     return Ok(publication);
                 }
                 let attempt = async {
                     let closure = self
-                        .transfer_archive(plan)
+                        .transfer_archive_inner(plan, permit)
                         .await?
                         .ok_or(CatalogError::Fenced)?;
                     for hold in &closure.source_holds {

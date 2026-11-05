@@ -24,7 +24,7 @@ pub(super) async fn exercise(
     parent: &CellGroupBirth,
     children: &[GroupRoute],
     rooted: bool,
-) -> Result<(CellGroupArchiveRegistry, CellGroupArchiveHold)> {
+) -> Result<(CellGroupArchiveRegistry, CellGroupArchiveHold, SeededCells)> {
     let seeded = seed_cells(&cluster.hosts, cluster.history).await?;
     let domain = &cluster.fixtures[0].domain;
     let leader = leader(&cluster.hosts[..3], cluster.history).await?;
@@ -134,7 +134,7 @@ pub(super) async fn exercise(
             ensure!(next.result == 10i64.to_be_bytes() && next.version != archived.version);
         }
     }
-    Ok((registry, held))
+    Ok((registry, held, seeded))
 }
 
 fn recovery_pool() -> Result<CellGroupRecoveryPool> {
@@ -542,6 +542,7 @@ async fn verify_managed_archive_decision(
 ) -> Result<()> {
     let fixture = &cluster.fixtures[0];
     let domain = &fixture.domain;
+    let archives = inputs.archives.clone();
     let hold = inputs.sources[0].hold.clone();
     let before = domain.run(directory.observe()).await??;
     ensure!(fleet
@@ -549,6 +550,12 @@ async fn verify_managed_archive_decision(
         .await?
         .is_none());
 
+    ensure!(matches!(
+        fleet
+            .publish_managed_transfer(transition, directory, &archives, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Conflict)
+    ));
     fixture
         .store
         .fail_head_confirmation
@@ -594,6 +601,226 @@ async fn verify_managed_archive_decision(
             .route()
             == parent.route()
     );
+    Box::pin(verify_managed_publication(
+        cluster,
+        fleet,
+        directory,
+        &reopened,
+        &archives,
+        children,
+        closure.digest,
+    ))
+    .await
+}
+
+async fn verify_managed_publication(
+    cluster: &ManagedCluster,
+    fleet: &FleetCatalog,
+    directory: &RangeDirectory,
+    transition: &ReopenedManagedCellGroupTransition,
+    archives: &CellGroupArchivePool,
+    children: &[GroupRoute],
+    closure: [u8; 32],
+) -> Result<()> {
+    let fixture = &cluster.fixtures[0];
+    let domain = &fixture.domain;
+    let voters = &cluster.hosts[DESTINATION..];
+    let before = domain.run(directory.observe()).await??;
+    ensure!(matches!(
+        voters[0]
+            .group(children[0].history)?
+            .activate_managed_transfer_child(transition, TIMEOUT)
+            .await,
+        Err(CellGroupControllerError::Catalog(_))
+    ));
+
+    fixture
+        .store
+        .fail_head_confirmation
+        .store(true, Ordering::Release);
+    let publication = fleet
+        .publish_managed_transfer(transition, directory, archives, TIMEOUT)
+        .await?;
+    ensure!(!fixture.store.fail_head_confirmation.load(Ordering::Acquire));
+    ensure!(publication.transfer_archive() == Some(closure));
+    ensure!(publication.revision() == before.revision() + 1);
+    let after = domain.run(directory.observe()).await??;
+    let selected = domain.run(directory.group_page(&after, None, 3)).await??;
+    ensure!(after.revision() == publication.revision());
+    ensure!(selected.next.is_none() && selected.routes == children);
+    let reopened = fleet
+        .reopen_managed_transition(directory, transition.plan.operation(), TIMEOUT)
+        .await?
+        .context("published managed transfer")?;
+    ensure!(
+        reopened
+            .journal
+            .as_ref()
+            .context("publication journal")?
+            .phase()
+            == TransitionPhase::Published
+    );
+    ensure!(
+        fleet
+            .publish_managed_transfer(&reopened, directory, archives, TIMEOUT)
+            .await?
+            == publication
+    );
+    for route in children {
+        for voter in voters {
+            ensure!(!voter.group(route.history)?.status().await?.ready);
+        }
+    }
+
+    let mut acknowledgements = Vec::with_capacity(children.len());
+    for route in children {
+        acknowledgements.push(wait_managed_activation(voters, &reopened, route.history).await?);
+    }
+    ensure!(matches!(
+        fleet
+            .record_managed_transfer_activations(
+                &reopened,
+                directory,
+                vec![acknowledgements[0].clone()],
+                TIMEOUT
+            )
+            .await,
+        Err(FleetCatalogError::Invalid(_))
+    ));
+    let mut reversed = acknowledgements.clone();
+    reversed.reverse();
+    ensure!(matches!(
+        fleet
+            .record_managed_transfer_activations(&reopened, directory, reversed, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Conflict)
+    ));
+    fixture
+        .store
+        .fail_head_confirmation
+        .store(true, Ordering::Release);
+    ensure!(matches!(
+        fleet
+            .record_managed_transfer_activations(
+                &reopened,
+                directory,
+                acknowledgements.clone(),
+                TIMEOUT
+            )
+            .await,
+        Err(FleetCatalogError::Unconfirmed)
+    ));
+    let active = fleet
+        .reopen_managed_transition(directory, transition.plan.operation(), TIMEOUT)
+        .await?
+        .context("active managed transfer")?;
+    let journal = active.journal.as_ref().context("activation journal")?;
+    ensure!(journal.phase() == TransitionPhase::Active && journal.activated_children().is_some());
+    ensure!(
+        fleet
+            .record_managed_transfer_activations(
+                &active,
+                directory,
+                acknowledgements.clone(),
+                TIMEOUT
+            )
+            .await?
+            == *journal
+    );
+
+    tokio::time::timeout(TIMEOUT, async {
+        loop {
+            let mut applied = true;
+            for (route, acknowledgement) in children.iter().zip(&acknowledgements) {
+                for voter in voters {
+                    applied &= voter.group(route.history)?.status().await?.applied.index
+                        >= acknowledgement.position().index;
+                }
+            }
+            if applied {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?
+}
+
+async fn wait_managed_activation(
+    voters: &[RaftCells],
+    transition: &ReopenedManagedCellGroupTransition,
+    history: GroupHistory,
+) -> Result<CellGroupTransferActivationAck> {
+    use CellGroupTransferActivation::{Accepted, Applied};
+    let end = std::time::Instant::now() + TIMEOUT;
+    loop {
+        for voter in voters {
+            let remaining = end.saturating_duration_since(std::time::Instant::now());
+            ensure!(
+                !remaining.is_zero(),
+                "managed transfer child did not activate"
+            );
+            match voter
+                .group(history)?
+                .activate_managed_transfer_child(transition, remaining)
+                .await
+            {
+                Ok(Applied(acknowledgement)) => return Ok(*acknowledgement),
+                Ok(Accepted(_))
+                | Err(CellGroupControllerError::Runtime(
+                    RuntimeError::NotLeader | RuntimeError::NotReady,
+                )) => (),
+                Err(error) => return Err(error.into()),
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+pub(super) async fn verify_transferred_sql(
+    cluster: &ManagedCluster,
+    directory: &RangeDirectory,
+    seeded: SeededCells,
+) -> Result<()> {
+    let domain = &cluster.fixtures[0].domain;
+    let view = domain.run(directory.observe()).await??;
+    let hosts = &cluster.hosts[DESTINATION..];
+    for (index, (cell, original)) in seeded.cells.into_iter().zip(seeded.receipts).enumerate() {
+        let route = domain.run(directory.lookup(&view, &cell.cell)).await??;
+        let leader = leader(hosts, route.history).await?;
+        let handle = hosts[leader].cell(cell)?;
+        let get = handle.contract("Get")?;
+        let query = handle
+            .query(
+                ProposalId::new([190 + index as u8; 16])?,
+                &get,
+                vec![],
+                QueryOptions::default(),
+            )
+            .await?;
+        let expected = [10i64, 11][index];
+        ensure!(query.result == expected.to_be_bytes());
+        let add = handle.contract("Add")?;
+        let replay = handle
+            .command(
+                &add,
+                original.result.clone(),
+                CommandOptions::new(original.id, seeded.retry),
+            )
+            .await?;
+        ensure!(replay.id == original.id && replay.result == original.result);
+        let next = handle
+            .command(
+                &add,
+                1i64.to_be_bytes().to_vec(),
+                CommandOptions::new(
+                    CommandId::new(original.id.client, [4, 2][index])?,
+                    seeded.retry,
+                ),
+            )
+            .await?;
+        ensure!(next.result == (expected + 1).to_be_bytes() && next.witness.group == route.history);
+    }
     Ok(())
 }
 
@@ -788,7 +1015,7 @@ async fn reopen_transfer_destination(
     let old = cluster.nodes.remove(DESTINATION);
     let old_host = cluster.hosts.remove(DESTINATION);
     let previous = old_host.identity();
-    stop_transfer_destination(old, &old_host, 2, pending_quorums).await?;
+    stop_transfer_destination(old, &old_host, 2, pending_quorums, false).await?;
     let fixture = &cluster.fixtures[DESTINATION];
     let node = start_node(
         cluster.roots[DESTINATION].path(),

@@ -700,46 +700,16 @@ impl RangeDirectory {
         deadline: u64,
     ) -> futures_util::future::BoxFuture<'a, Result<CellGroupBootstrapPermit, CatalogError>> {
         Box::pin(async move {
-            let domain = log.domain();
-            let remaining = || {
-                let now = domain.mono_ms().map_err(|_| CatalogError::Unconfirmed)?;
-                deadline
-                    .checked_sub(now)
-                    .filter(|ms| *ms > 0)
-                    .map(Duration::from_millis)
-                    .ok_or(CatalogError::Runtime(
-                        crate::raft::completion::RuntimeError::DeadlineExceeded,
-                    ))
-            };
-            let proof = host
-                .stop_catalog()
-                .observe_managed_transfer_install_quorum(&transition, self, route, remaining()?)
-                .await
-                .map_err(CatalogError::from)?
-                .ok_or(CatalogError::Unconfirmed)?;
-            let (group, birth) = self
-                .pending_transfer_member(&transition.plan, &proof, log)
+            let (group, birth, _) = self
+                .require_managed_transfer_voter(&transition, route, log, host, deadline)
                 .await?;
-            let authority = host
-                .managed_transfer_install_authority(&transition, self, route, remaining()?)
-                .await
-                .map_err(CatalogError::from)?;
-            let boot = self.require_managed_group_boot(log, host).await?;
-            remaining()?;
-            let cache = group.read().map_err(CatalogError::Log)?;
-            if boot != authority.boot
-                || cache
-                    .membership
-                    .fleet_status()
-                    .is_none_or(|status| status.binding != authority.group)
-                || cache
-                    .group_manifest
-                    .as_ref()
-                    .is_none_or(|marker| marker.transfer_activation().is_some())
+            if group
+                .group_manifest()
+                .map_err(CatalogError::Log)?
+                .is_none_or(|marker| marker.transfer_activation().is_some())
             {
                 return Err(CatalogError::Fenced);
             }
-            drop(cache);
             Ok(CellGroupBootstrapPermit::pending_transfer(
                 group,
                 birth,
@@ -752,6 +722,58 @@ impl RangeDirectory {
                 },
             ))
         })
+    }
+
+    pub(super) async fn require_managed_transfer_voter(
+        &self,
+        transition: &ReopenedManagedCellGroupTransition,
+        route: &GroupRoute,
+        log: &ReplicaLog,
+        host: &FleetHostAuthorization,
+        deadline: u64,
+    ) -> Result<(GroupLog<GroupHistory>, CellGroupBirthRequest, BootBinding), CatalogError> {
+        let domain = log.domain();
+        let remaining = || {
+            let now = domain.mono_ms().map_err(|_| CatalogError::Unconfirmed)?;
+            deadline
+                .checked_sub(now)
+                .filter(|ms| *ms > 0)
+                .map(Duration::from_millis)
+                .ok_or(CatalogError::Runtime(
+                    crate::raft::completion::RuntimeError::DeadlineExceeded,
+                ))
+        };
+        let proof = host
+            .stop_catalog()
+            .observe_managed_transfer_install_quorum(transition, self, route, remaining()?)
+            .await
+            .map_err(CatalogError::from)?
+            .ok_or(CatalogError::Unconfirmed)?;
+        let (group, birth) = self
+            .pending_transfer_member(&transition.plan, &proof, log)
+            .await?;
+        let authority = host
+            .managed_transfer_install_authority(transition, self, route, remaining()?)
+            .await
+            .map_err(CatalogError::from)?;
+        let boot = self.require_managed_group_boot(log, host).await?;
+        remaining()?;
+        let cache = group.read().map_err(CatalogError::Log)?;
+        if boot != authority.boot
+            || cache
+                .membership
+                .fleet_status()
+                .is_none_or(|status| status.binding != authority.group)
+            || cache.membership.revision().get() != 1
+            || !cache
+                .conf_state
+                .voters
+                .contains(&group.identity().member.get())
+        {
+            return Err(CatalogError::Fenced);
+        }
+        drop(cache);
+        Ok((group, birth, boot))
     }
 
     async fn pending_transfer_member(

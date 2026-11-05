@@ -46,6 +46,57 @@ impl RaftGroupHandle {
         }
     }
 
+    /// Submit or observe the exact activation of this published transfer child.
+    /// Accepted identifies a proposal. Applied proves durable activation.
+    /// Retry the same transition to resolve an unknown outcome.
+    pub fn activate_managed_transfer_child<'a>(
+        &self,
+        transition: &'a ReopenedManagedCellGroupTransition,
+        timeout: Duration,
+    ) -> impl Future<Output = Result<CellGroupTransferActivation, CellGroupControllerError>> + Send + 'a
+    {
+        let admitted = self
+            .owner
+            .metadata_admission(timeout, 4096)
+            .map_err(super::startup::admission_error);
+        let owner = self.owner.internal_observer();
+        let history = self.history;
+        async move {
+            let (deadline, _memory) = admitted?;
+            let core = &owner.handle.core;
+            let host = core.managed.as_ref().ok_or_else(|| {
+                super::startup::catalog_error(CatalogError::ManagedAdmissionRequired)
+            })?;
+            let directory = core
+                .host
+                .namespace_directory(history.cluster, history.namespace)
+                .map_err(|_| CellGroupControllerError::Invalid("transfer child namespace"))?;
+            owner
+                .handle
+                .domain
+                .run(Box::pin(crate::asyncrt::timeout_at(
+                    deadline,
+                    Box::pin(async {
+                        owner.startup_live(host, deadline)?;
+                        let permit = directory
+                            .prepare_managed_transfer_activation(
+                                transition, history, &core.log, host, deadline,
+                            )
+                            .await
+                            .map_err(super::startup::catalog_error)?;
+                        owner.startup_live(host, deadline)?;
+                        core.runtime
+                            .activate_transfer(permit)
+                            .await
+                            .map_err(Into::into)
+                    }),
+                )))
+                .await
+                .map_err(|_| CellGroupControllerError::Closed)?
+                .map_err(|_| CellGroupControllerError::Runtime(RuntimeError::DeadlineExceeded))?
+        }
+    }
+
     /// Submit or observe the exact seal authorized for this managed parent.
     /// Accepted identifies a proposal. Applied returns the selected durable cut.
     /// A lost response can follow either outcome. Retry the same fleet plan.
