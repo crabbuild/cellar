@@ -43,6 +43,10 @@ enum ChildData {
 }
 
 impl PreparedCellGroupTransferChild {
+    pub(super) fn store(&self) -> &CellGroupArchiveStore {
+        &self.store
+    }
+
     pub fn route(&self) -> &GroupRoute {
         self.store.route()
     }

@@ -122,16 +122,17 @@ impl MappingRecord {
         self.history.decode()
     }
 
-    /// Recovery persists the actual fresh genesis, including its complete root
-    /// commitment. Ordinary creation cannot later substitute an empty genesis.
-    pub(crate) fn new_recovered_cells(
+    /// An imported genesis permanently binds the complete root and origin.
+    pub(crate) fn new_imported_cells(
         key: u64,
         bootstrap: &CellGroupBootstrap,
         conf: &ConfState,
         genesis: &GroupManifest,
     ) -> Result<Self, LogError> {
         genesis.check().map_err(corrupt)?;
-        if !genesis.is_recovery_genesis() || genesis.route() != &bootstrap.route {
+        if !(genesis.is_recovery_genesis() || genesis.is_transfer_genesis())
+            || genesis.route() != &bootstrap.route
+        {
             return Err(LogError::WrongIdentity);
         }
         let mut mapping = Self::new_cells(key, bootstrap, conf)?;
@@ -181,11 +182,14 @@ impl MappingRecord {
                     return Err(LogError::WrongIdentity);
                 }
                 cache.membership.validate_scope(&history)?;
+                let current = cache
+                    .group_manifest
+                    .as_ref()
+                    .ok_or(LogError::WrongIdentity)?;
+                if !current.preserves_transfer(genesis) {
+                    return Err(LogError::WrongIdentity);
+                }
                 if genesis.recovery_request().is_some() {
-                    let current = cache
-                        .group_manifest
-                        .as_ref()
-                        .ok_or(LogError::WrongIdentity)?;
                     if !genesis.is_recovery_genesis()
                         || !current.preserves_recovery(genesis)
                         || current.recovery_commitment().map_err(corrupt)?
@@ -195,7 +199,7 @@ impl MappingRecord {
                     {
                         return Err(LogError::WrongIdentity);
                     }
-                } else if genesis.as_ref() != &expected {
+                } else if !genesis.is_transfer_genesis() && genesis.as_ref() != &expected {
                     return Err(LogError::WrongIdentity);
                 }
                 Ok(())

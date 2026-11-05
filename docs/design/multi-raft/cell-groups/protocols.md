@@ -1073,6 +1073,10 @@ The final sealed-source partition builds a non-serving child genesis marker.
 It binds the exact transition, plan and sealed-source set. An active-source
 pre-copy carries image pins without this genesis. Ordinary log apply and
 checkpoint install preserve the pending marker and its exact image root.
+The local install binds one child genesis across all its voters and persists a
+member/node/disk/engine intent before syncing the mapping. A matching receipt
+follows the sync. The locally installed child remains pending, with no directory
+publication or startup grant.
 
 Child install receipts bind the source seals, own committed seed, membership and
 manifest digest. Publication also requires the exact verified remote transfer

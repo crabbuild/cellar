@@ -24,7 +24,6 @@ pub use births::BirthDisposition;
 
 #[path = "cell_groups/directory/mod.rs"]
 mod range_directory;
-pub(crate) use range_directory::RecoverySeedPermit;
 pub(crate) use range_directory::RouteCache;
 pub use range_directory::{
     CellGroupArchiveBindingError, CellGroupBirth, CellGroupBirthDisposition, CellGroupBirthRequest,
@@ -38,6 +37,7 @@ pub use range_directory::{
     PreparedManagedCellGroupTransition, RangeDirectory, ResolvedCellRoute, TransitionJournal,
     TransitionPhase, VerifiedCellGroupTransitionSources,
 };
+pub(crate) use range_directory::{RecoverySeedPermit, TransferSeedPermit};
 
 #[path = "catalog_inventory/mod.rs"]
 mod inventory;

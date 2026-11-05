@@ -185,7 +185,7 @@ impl CellGroupApplier {
     }
 }
 
-fn preparation_error(error: ManifestError) -> LogError {
+pub(super) fn preparation_error(error: ManifestError) -> LogError {
     match error {
         ManifestError::Limit => LogError::Overloaded,
         ManifestError::Conflict => LogError::WrongIdentity,

@@ -4,6 +4,8 @@
 //! fencing, physical genesis and a committed serving decision are distinct proofs.
 mod admission;
 mod genesis;
+mod transfer_genesis;
+pub(crate) use transfer_genesis::TransferSeed;
 mod import;
 mod partition;
 mod state;

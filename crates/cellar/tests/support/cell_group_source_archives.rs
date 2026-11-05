@@ -188,7 +188,7 @@ pub(crate) async fn sealed_source_archives(
     })
     .await
     .context("replicate archived source seal")??;
-    Box::pin(verify_sealed_sources(
+    let installed = Box::pin(verify_sealed_sources(
         &fixture,
         &archives,
         store,
@@ -197,6 +197,7 @@ pub(crate) async fn sealed_source_archives(
         seal.position,
     ))
     .await?;
+    reopen_installed_children(&fixture, &installed).await?;
     fixture.close().await
 }
 
@@ -207,7 +208,7 @@ async fn verify_sealed_sources(
     plan: &DirectoryMutation,
     unsealed: CellGroupArchiveHold,
     seal: LogPosition,
-) -> Result<()> {
+) -> Result<Vec<GroupManifest>> {
     let directory = &fixture.cluster.directory;
     let scope = fixture.cluster.birth.route().history;
     let domain = &fixture.cluster.domain;
@@ -315,7 +316,7 @@ async fn verify_sealed_sources(
     anyhow::ensure!(verified.journal() == &journal && verified.sources().len() == 1);
     anyhow::ensure!(verified.sources()[0].marker() == sealed.marker());
     anyhow::ensure!(verified.sources()[0].recovery().manifest().pinned_images() == 3);
-    Box::pin(verify_partition(
+    let installed = Box::pin(verify_partition(
         &fixture.cluster,
         archives,
         &original,
@@ -348,7 +349,44 @@ async fn verify_sealed_sources(
         fixture.runtimes[0].seal_source(permit).await?,
         CellGroupSealOutcome::Applied(_)
     ));
-    Ok(())
+    Ok(installed)
+}
+
+async fn reopen_installed_children(
+    fixture: &RuntimeCluster,
+    installed: &[GroupManifest],
+) -> Result<()> {
+    let cluster = &fixture.cluster;
+    fixture.runtimes[0].close().await?;
+    cluster.voters[0].log.close().await?;
+    let log = cluster
+        .domain
+        .run(ReplicaLog::open(
+            ReplicaLogOptions::new(
+                cluster._root.path().join("node-1/log"),
+                NodeId::new([1; 16])?,
+                DiskLineage::new([11; 16])?,
+                ProcessGeneration::new([91; 16])?,
+                LogOpenMode::Resume,
+            ),
+            Arc::new(DirectFileSystem),
+        ))
+        .await??;
+    let result = async {
+        for marker in installed {
+            let group = log.cell_group(&marker.route().history)?;
+            anyhow::ensure!(
+                group.group_manifest()?.as_ref() == Some(marker)
+                    && group.identity().process == ProcessGeneration::new([91; 16])?
+                    && !marker.is_active()
+            );
+        }
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    let joined = log.close().await;
+    result?;
+    Ok(joined?)
 }
 
 async fn verify_partition(
@@ -356,14 +394,14 @@ async fn verify_partition(
     archives: &Archives,
     plan: &DirectoryMutation,
     verified: VerifiedCellGroupTransitionSources,
-) -> Result<()> {
+) -> Result<Vec<GroupManifest>> {
     let targets = verified
         .children()
         .iter()
         .enumerate()
         .map(|(index, route)| {
             let (store, directory) =
-                archives.store(cluster, route.clone(), &format!("child-{index}"))?;
+                archives.store(cluster, route.clone(), &format!("node-1/child-{index}"))?;
             Ok(CellGroupTransferTarget {
                 store,
                 directory,
@@ -452,6 +490,43 @@ async fn verify_partition(
             _ => anyhow::bail!("wrong staged image representation"),
         }
     }
+    let directory = &cluster.directory;
+    let log = &cluster.voters[0].log;
+    let mut installed = Vec::new();
+    for child in partition.children() {
+        let marker = child.genesis().context("child genesis")?.marker();
+        let first = cluster
+            .domain
+            .run(directory.install_transfer_voter(plan, child, log))
+            .await??;
+        anyhow::ensure!(first.group_manifest()?.as_ref() == Some(marker));
+        let retry = cluster
+            .domain
+            .run(directory.install_transfer_voter(plan, child, log))
+            .await??;
+        anyhow::ensure!(retry.numeric_key() == first.numeric_key());
+        let ordinary = cluster
+            .domain
+            .run(
+                log.create_cell_group(CellGroupBootstrap {
+                    route: child.route().clone(),
+                    member: MemberId::new(1)?,
+                    voters: [1, 2, 3]
+                        .into_iter()
+                        .map(MemberId::new)
+                        .collect::<Result<Vec<_>, _>>()?,
+                    learners: vec![],
+                }),
+            )
+            .await?;
+        anyhow::ensure!(matches!(ordinary, Err(LogError::WrongIdentity)));
+        anyhow::ensure!(cluster
+            .domain
+            .run(directory.materialize_selected_history(child.route().history))
+            .await?
+            .is_err());
+        installed.push(marker.clone());
+    }
     let retained = partition.children()[0]
         .genesis()
         .context("child genesis")?
@@ -460,5 +535,5 @@ async fn verify_partition(
     anyhow::ensure!(pool.usage().operations == 1);
     drop(retained);
     anyhow::ensure!(pool.usage().operations == 0);
-    Ok(())
+    Ok(installed)
 }

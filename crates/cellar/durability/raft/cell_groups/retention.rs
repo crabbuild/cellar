@@ -193,6 +193,21 @@ impl RootRetentions {
         self.begin_owned(permit.owner(), closed, prepared, None, false)
     }
 
+    pub(super) fn begin_transfer_genesis(
+        self: &Arc<Self>,
+        permit: &crate::raft::catalog::TransferSeedPermit,
+        closed: &Arc<AtomicBool>,
+        prepared: &PreparedGroupManifest,
+    ) -> Result<PublicationPin, ManifestError> {
+        if prepared.marker() != &permit.genesis
+            || !Arc::ptr_eq(&prepared.engine_owner, &permit.owner)
+            || !prepared.marker().is_transfer_genesis()
+        {
+            return Err(ManifestError::Invalid("transfer genesis retention grant"));
+        }
+        self.begin_owned(&permit.owner, closed, prepared, None, false)
+    }
+
     fn begin_owned(
         self: &Arc<Self>,
         engine: &Arc<()>,

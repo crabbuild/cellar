@@ -267,6 +267,32 @@ struct ManagedCells {
     boot: super::fleet_stop::BootBinding,
 }
 
+enum ImportedGenesis {
+    Recovery(Box<super::cell_groups::RecoverySeed>),
+    Transfer(Box<super::cell_groups::TransferSeed>),
+}
+
+impl ImportedGenesis {
+    fn binding(&self) -> (&CellGroupBootstrap, &super::cell_groups::GroupManifest) {
+        match self {
+            Self::Recovery(seed) => (seed.bootstrap(), seed.genesis()),
+            Self::Transfer(seed) => (seed.bootstrap(), seed.genesis()),
+        }
+    }
+
+    fn check(
+        &self,
+        owner: &Arc<()>,
+        identity: &ReplicaIdentity<GroupHistory>,
+        engine: EngineInstanceId,
+    ) -> Result<(), LogError> {
+        match self {
+            Self::Recovery(seed) => seed.check(owner, identity, engine),
+            Self::Transfer(seed) => seed.check(owner, identity, engine),
+        }
+    }
+}
+
 enum Work {
     NodeFence(Reply<u64>),
     Lifecycle(Box<LifecycleUpdate>, Reply<Guard>),
@@ -281,10 +307,7 @@ enum Work {
         Option<Box<ManagedCells>>,
         Reply<GroupLog<GroupHistory>>,
     ),
-    RecoverCells(
-        Box<super::cell_groups::RecoverySeed>,
-        Reply<GroupLog<GroupHistory>>,
-    ),
+    ImportCells(ImportedGenesis, Reply<GroupLog<GroupHistory>>),
     Seeded(Box<super::snapshot::PreparedSeed>, Reply<GroupLog>),
     Persist(OperationId, Vec<GroupWrite>, Reply<SyncReceipt>),
     PersistCells(
@@ -749,15 +772,32 @@ impl ReplicaLog {
         &self,
         seed: super::cell_groups::RecoverySeed,
     ) -> Result<GroupLog<GroupHistory>, LogError> {
+        self.install_imported_seed(ImportedGenesis::Recovery(Box::new(seed)))
+            .await
+    }
+
+    pub(crate) async fn install_transfer_seed(
+        &self,
+        seed: super::cell_groups::TransferSeed,
+    ) -> Result<GroupLog<GroupHistory>, LogError> {
+        self.install_imported_seed(ImportedGenesis::Transfer(Box::new(seed)))
+            .await
+    }
+
+    async fn install_imported_seed(
+        &self,
+        seed: ImportedGenesis,
+    ) -> Result<GroupLog<GroupHistory>, LogError> {
+        let (bootstrap, _) = seed.binding();
         let identity = ReplicaIdentity {
-            scope: seed.bootstrap().route.history,
-            member: seed.bootstrap().member,
+            scope: bootstrap.route.history,
+            member: bootstrap.member,
             node: self.limits().node,
             disk: self.limits().disk,
             process: self.limits().process,
         };
         seed.check(&self.owner(), &identity, self.storage_instance()?)?;
-        self.request(96 * 1024, |reply| Work::RecoverCells(Box::new(seed), reply))
+        self.request(96 * 1024, |reply| Work::ImportCells(seed, reply))
             .await
     }
 
@@ -1573,11 +1613,8 @@ impl Worker {
             .cloned()
     }
 
-    fn recover_cells(
-        &mut self,
-        seed: &super::cell_groups::RecoverySeed,
-    ) -> Result<GroupLog<GroupHistory>, LogError> {
-        let bootstrap = seed.bootstrap();
+    fn import_cells(&mut self, seed: &ImportedGenesis) -> Result<GroupLog<GroupHistory>, LogError> {
+        let (bootstrap, marker) = seed.binding();
         seed.check(
             &self.owner,
             &ReplicaIdentity {
@@ -1597,24 +1634,21 @@ impl Worker {
             .get(&bootstrap.route.history)
         {
             let group = group.as_cells()?;
-            let expected =
-                MappingRecord::new_recovered_cells(group.key, bootstrap, &conf, seed.genesis())?;
+            let expected = MappingRecord::new_imported_cells(group.key, bootstrap, &conf, marker)?;
             if self.mappings.get(&group.key) != Some(&expected)
-                || group.group_manifest()?.as_ref() != Some(seed.genesis())
+                || group.group_manifest()?.as_ref() != Some(marker)
             {
                 return Err(LogError::WrongIdentity);
             }
             return Ok(group.clone());
         }
-        let mapping = MappingRecord::new_recovered_cells(
-            self.root.next_key,
-            bootstrap,
-            &conf,
-            seed.genesis(),
-        )?;
+        let mapping =
+            MappingRecord::new_imported_cells(self.root.next_key, bootstrap, &conf, marker)?;
         let mut cache = genesis(conf);
-        cache.group_manifest = Some(seed.genesis().clone());
-        cache.recovery_genesis = Some(Arc::new(seed.genesis().clone()));
+        cache.group_manifest = Some(marker.clone());
+        if marker.is_recovery_genesis() {
+            cache.recovery_genesis = Some(Arc::new(marker.clone()));
+        }
         self.insert_mapping(mapping, cache, None, Some(seed))?
             .as_cells()
             .cloned()
@@ -1625,7 +1659,7 @@ impl Worker {
         mapping: MappingRecord,
         mut cache: CachedGroup,
         seed: Option<&super::snapshot::PreparedSeed>,
-        recovery: Option<&super::cell_groups::RecoverySeed>,
+        imported: Option<&ImportedGenesis>,
     ) -> Result<StoredGroup, LogError> {
         if self.mappings.len() >= self.options.max_groups {
             return Err(LogError::Overloaded);
@@ -1655,16 +1689,18 @@ impl Worker {
         {
             return Err(LogError::Overloaded);
         }
-        if seed.is_some() && recovery.is_some() {
+        if seed.is_some() && imported.is_some() {
             return Err(LogError::WrongIdentity);
         }
-        let mut publication = if let Some(recovery) = recovery {
-            let (root, publication) = recovery.prepare(&self.closed)?;
-            cache.manifest_pins = Some(root.images.clone());
-            Some(publication)
-        } else {
-            None
+        let prepared = match imported {
+            Some(ImportedGenesis::Recovery(seed)) => Some(seed.prepare(&self.closed)?),
+            Some(ImportedGenesis::Transfer(seed)) => Some(seed.prepare(&self.closed)?),
+            None => None,
         };
+        let mut publication = prepared.map(|(root, publication)| {
+            cache.manifest_pins = Some(root.images.clone());
+            publication
+        });
         let mut batch = LogBatch::default();
         batch
             .put(0, mapping.catalog_key()?, records::encode(&mapping)?)
@@ -2020,8 +2056,8 @@ impl Worker {
                     let _ = reply.send(result);
                     fatal
                 }
-                Work::RecoverCells(seed, reply) => {
-                    let result = self.recover_cells(&seed);
+                Work::ImportCells(seed, reply) => {
+                    let result = self.import_cells(&seed);
                     let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
                     if fatal.is_some() {
                         self.closed.store(true, Ordering::Release);

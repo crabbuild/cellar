@@ -129,6 +129,13 @@ impl GroupManifest {
         self.transfer.as_deref()
     }
 
+    pub(crate) fn is_transfer_genesis(&self) -> bool {
+        self.transfer.is_some()
+            && self.position.index.get() == 1
+            && self.position.term.get() == 1
+            && self.membership_revision == 1
+    }
+
     pub(crate) fn preserves_transfer(&self, previous: &Self) -> bool {
         self.transfer == previous.transfer
             && (previous.transfer.is_none() || self.root == previous.root)
@@ -480,6 +487,14 @@ impl PreparedGroupManifest {
     ) -> Result<super::retention::PublicationPin, ManifestError> {
         self.retention.begin_genesis(permit, closed, self)
     }
+
+    pub(super) fn begin_transfer_genesis(
+        &self,
+        permit: &crate::raft::catalog::TransferSeedPermit,
+        closed: &Arc<std::sync::atomic::AtomicBool>,
+    ) -> Result<super::retention::PublicationPin, ManifestError> {
+        self.retention.begin_transfer_genesis(permit, closed, self)
+    }
 }
 
 impl ManifestTree {
@@ -631,18 +646,38 @@ impl ManifestTree {
         {
             return Err(ManifestError::Invalid("recovery genesis physical binding"));
         }
-        self.prepare_physical(
-            store,
-            source.marker.clone(),
-            permit.owner().clone(),
-            &mut |leaf| {
-                source
-                    .pin_cell(&leaf.version.history.cell)
-                    .filter(|(selected, _)| *selected == leaf)
-                    .map(|(_, pin)| pin)
-                    .ok_or(ManifestError::Invalid("recovery genesis closure"))
-            },
-        )
+        self.prepare_imported_genesis(store, source, permit.owner())
+    }
+
+    pub(super) fn prepare_transfer_install(
+        &self,
+        permit: &crate::raft::catalog::TransferSeedPermit,
+        store: &mut ManifestPageStore,
+        source: &PreparedGroupManifest,
+    ) -> Result<PreparedGroupManifest, ManifestError> {
+        if !source.marker.is_transfer_genesis()
+            || source.marker.route != self.route
+            || !Arc::ptr_eq(&source.page_owner, &store.owner)
+            || source.marker != permit.genesis
+        {
+            return Err(ManifestError::Invalid("transfer genesis physical binding"));
+        }
+        self.prepare_imported_genesis(store, source, &permit.owner)
+    }
+
+    fn prepare_imported_genesis(
+        &self,
+        store: &mut ManifestPageStore,
+        source: &PreparedGroupManifest,
+        owner: &Arc<()>,
+    ) -> Result<PreparedGroupManifest, ManifestError> {
+        self.prepare_physical(store, source.marker.clone(), owner.clone(), &mut |leaf| {
+            source
+                .pin_cell(&leaf.version.history.cell)
+                .filter(|(selected, _)| *selected == leaf)
+                .map(|(_, pin)| pin)
+                .ok_or(ManifestError::Invalid("imported genesis closure"))
+        })
     }
 
     fn prepare_physical(
