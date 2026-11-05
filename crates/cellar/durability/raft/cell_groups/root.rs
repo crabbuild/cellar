@@ -21,6 +21,48 @@ pub struct GroupManifest {
     pub(super) root: ManifestRoot,
     pub(super) recovery: Option<Box<super::recovery::RecoveryState>>,
     seal: Option<Box<GroupSourceSeal>>,
+    transfer: Option<Box<GroupTransferOrigin>>,
+}
+
+/// Exact sealed-source provenance for a child prepared before activation.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GroupTransferOrigin {
+    operation: [u8; 16],
+    plan: [u8; 32],
+    sealed_sources: [u8; 32],
+}
+
+impl GroupTransferOrigin {
+    pub(super) fn new(operation: ProposalId, plan: [u8; 32], sealed_sources: [u8; 32]) -> Self {
+        Self {
+            operation: operation.bytes(),
+            plan,
+            sealed_sources,
+        }
+    }
+
+    pub fn operation(&self) -> [u8; 16] {
+        self.operation
+    }
+
+    pub fn plan(&self) -> [u8; 32] {
+        self.plan
+    }
+
+    pub fn sealed_sources(&self) -> [u8; 32] {
+        self.sealed_sources
+    }
+
+    fn check(&self) -> Result<(), ManifestError> {
+        if ProposalId::new(self.operation).is_err()
+            || self.plan == [0; 32]
+            || self.sealed_sources == [0; 32]
+        {
+            return Err(ManifestError::Invalid("child transfer provenance"));
+        }
+        Ok(())
+    }
 }
 
 /// Exact, irreversible cut selected by committed source apply.
@@ -78,7 +120,18 @@ impl GroupManifest {
     /// Data imported into a fresh history remains unavailable to application
     /// reads/writes until its replicated activation decision is selected.
     pub fn is_active(&self) -> bool {
-        self.seal.is_none() && self.recovery.as_ref().is_none_or(|state| state.active())
+        self.transfer.is_none()
+            && self.seal.is_none()
+            && self.recovery.as_ref().is_none_or(|state| state.active())
+    }
+
+    pub fn transfer_origin(&self) -> Option<&GroupTransferOrigin> {
+        self.transfer.as_deref()
+    }
+
+    pub(crate) fn preserves_transfer(&self, previous: &Self) -> bool {
+        self.transfer == previous.transfer
+            && (previous.transfer.is_none() || self.root == previous.root)
     }
 
     pub fn source_seal(&self) -> Option<&GroupSourceSeal> {
@@ -177,6 +230,12 @@ impl GroupManifest {
                 ));
             }
         }
+        if let Some(transfer) = &self.transfer {
+            transfer.check()?;
+            if self.recovery.is_some() || self.seal.is_some() || self.membership_revision != 1 {
+                return Err(ManifestError::Invalid("pending child transfer lifecycle"));
+            }
+        }
         if let Some(seal) = self.source_seal() {
             if TransitionId::new(seal.transition).is_err()
                 || seal.authorization == [0; 32]
@@ -232,6 +291,21 @@ impl GroupManifest {
             root: ManifestRoot::default(),
             recovery: None,
             seal: None,
+            transfer: None,
+        };
+        marker.check()?;
+        Ok(marker)
+    }
+
+    pub(super) fn transfer_genesis(
+        route: GroupRoute,
+        root: ManifestRoot,
+        origin: GroupTransferOrigin,
+    ) -> Result<Self, ManifestError> {
+        let marker = Self {
+            root,
+            transfer: Some(Box::new(origin)),
+            ..Self::genesis(route)?
         };
         marker.check()?;
         Ok(marker)
@@ -456,6 +530,7 @@ impl ManifestTree {
             root,
             recovery: None,
             seal: None,
+            transfer: None,
         };
         // Reopening must retain the selected recovery lifecycle, rather than
         // silently turning a pending imported root into an ordinary active one.
@@ -463,7 +538,9 @@ impl ManifestTree {
         let mut matched = false;
         for selected in [group.group_manifest(), group.checkpoint_manifest()] {
             if let Some(selected) = selected.map_err(|_| ManifestError::Invalid("closed engine"))? {
-                lifecycle_selected |= selected.recovery.is_some() || selected.seal.is_some();
+                lifecycle_selected |= selected.recovery.is_some()
+                    || selected.seal.is_some()
+                    || selected.transfer.is_some();
                 if selected.route == marker.route
                     && selected.position == marker.position
                     && selected.membership_revision == marker.membership_revision
@@ -476,7 +553,7 @@ impl ManifestTree {
             }
         }
         if lifecycle_selected && !matched {
-            return Err(ManifestError::Invalid("complete recovery marker required"));
+            return Err(ManifestError::Invalid("complete lifecycle marker required"));
         }
         self.prepare_bound_complete(group, store, marker, &mut image)
     }
@@ -607,7 +684,7 @@ impl ManifestTree {
             return Err(ManifestError::Invalid("root/page owner"));
         }
         if !previous.marker.is_active() {
-            return Err(ManifestError::Invalid("recovery is not activated"));
+            return Err(ManifestError::Invalid("group is not active"));
         }
         if previous.marker.position.index.get().checked_add(1)
             != Some(leaf.last_mutation.index.get())
@@ -629,6 +706,7 @@ impl ManifestTree {
             root,
             recovery: previous.marker.recovery.clone(),
             seal: None,
+            transfer: None,
         };
         marker.check()?;
         Ok(PreparedGroupManifest {
@@ -665,6 +743,8 @@ struct WireRoot {
     recovery: Option<Box<super::recovery::RecoveryState>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     seal: Option<Box<GroupSourceSeal>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    transfer: Option<Box<GroupTransferOrigin>>,
 }
 
 fn required_recovery<'de, D: serde::Deserializer<'de>>(
@@ -727,6 +807,7 @@ impl From<GroupManifest> for WireRoot {
             root: m.root.0,
             recovery: m.recovery,
             seal: m.seal,
+            transfer: m.transfer,
         }
     }
 }
@@ -762,6 +843,7 @@ impl TryFrom<WireRoot> for GroupManifest {
             root: ManifestRoot(w.root),
             recovery: w.recovery,
             seal: w.seal,
+            transfer: w.transfer,
         };
         result.check()?;
         Ok(result)

@@ -112,6 +112,10 @@ pub(super) async fn exercise(
             )
             .await?;
         ensure!(prepared.journal().phase() == TransitionPhase::Prepared);
+        ensure!(prepared
+            .children()
+            .iter()
+            .all(|child| child.genesis().is_none()));
         let digest = prepared
             .journal()
             .preparation()

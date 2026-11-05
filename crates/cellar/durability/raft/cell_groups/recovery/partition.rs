@@ -33,8 +33,13 @@ pub struct CellGroupTransferTarget {
 /// Prepared physical data under the child's route. No log, membership,
 /// engine or application owner exists at this boundary.
 pub struct PreparedCellGroupTransferChild {
-    pins: ManifestPins,
+    data: ChildData,
     store: CellGroupArchiveStore,
+}
+
+enum ChildData {
+    PreCopy(ManifestPins),
+    Sealed(Box<PreparedGroupManifest>),
 }
 
 impl PreparedCellGroupTransferChild {
@@ -43,12 +48,28 @@ impl PreparedCellGroupTransferChild {
     }
 
     pub fn root(&self) -> ManifestRoot {
-        self.pins.root()
+        match &self.data {
+            ChildData::PreCopy(pins) => pins.root(),
+            ChildData::Sealed(genesis) => genesis.marker().root(),
+        }
     }
 
     pub fn pin_cell(&self, cell: &CellId) -> Option<(&CellManifestLeaf, CellImagePin)> {
-        self.pins
-            .get(&cell_routing_key(self.route().history.namespace, cell))
+        match &self.data {
+            ChildData::PreCopy(pins) => {
+                pins.get(&cell_routing_key(self.route().history.namespace, cell))
+            }
+            ChildData::Sealed(genesis) => genesis.pin_cell(cell),
+        }
+    }
+
+    /// A synced non-serving genesis exists only for the final sealed-source
+    /// partition. The archive store owns it until an engine-bound install.
+    pub fn genesis(&self) -> Option<&PreparedGroupManifest> {
+        match &self.data {
+            ChildData::PreCopy(_) => None,
+            ChildData::Sealed(genesis) => Some(genesis),
+        }
     }
 }
 
@@ -86,12 +107,22 @@ impl CellGroupRecoveryPool {
         sources: VerifiedCellGroupTransitionSources,
         targets: Vec<CellGroupTransferTarget>,
     ) -> Result<PreparedCellGroupTransfer> {
+        let (operation, plan) = sources.transition_plan();
+        let sealed_sources =
+            sources
+                .journal()
+                .sealed_sources()
+                .ok_or(CellGroupArchiveError::Invalid(
+                    "missing sealed transfer sources",
+                ))?;
+        let origin = GroupTransferOrigin::new(operation, plan, sealed_sources);
         let partition = self
             .stage_partition(
                 domain,
                 sources.sources().to_vec(),
                 sources.children().to_vec(),
                 targets,
+                Some(origin),
             )
             .await?;
         Ok(PreparedCellGroupTransfer { partition, sources })
@@ -103,6 +134,7 @@ impl CellGroupRecoveryPool {
         sources: Vec<CellGroupArchiveCoverage>,
         routes: Vec<GroupRoute>,
         targets: Vec<CellGroupTransferTarget>,
+        origin: Option<GroupTransferOrigin>,
     ) -> Result<StagedCellGroupPartition> {
         domain
             .run(Box::pin(async {
@@ -112,7 +144,14 @@ impl CellGroupRecoveryPool {
                 let limits = self.limits;
                 let work = domain
                     .blocking(move || {
-                        let children = partition(&sources, &routes, targets, limits, &cancelled)?;
+                        let children = partition(
+                            &sources,
+                            &routes,
+                            targets,
+                            limits,
+                            &cancelled,
+                            origin.map(|origin| (origin, admission.clone())),
+                        )?;
                         Ok(StagedCellGroupPartition {
                             children,
                             _admission: admission,
@@ -132,6 +171,7 @@ fn partition(
     targets: Vec<CellGroupTransferTarget>,
     limits: CellGroupRecoveryLimits,
     cancelled: &AtomicBool,
+    transfer: Option<(GroupTransferOrigin, Arc<crate::raft::budget::Permit>)>,
 ) -> Result<Vec<PreparedCellGroupTransferChild>> {
     if targets.len() != routes.len()
         || targets
@@ -252,30 +292,53 @@ fn partition(
                 Ok(())
             })?;
     }
-    for ((store, pins), target) in stores.iter_mut().zip(&pins).zip(&targets) {
-        check()?;
-        target.store.require_live()?;
-        store
-            .tree
-            .verify(&store.pages, pins.root(), genesis, |_| Ok(()))
-            .map_err(CellGroupCheckpointError::from)?;
-        store
-            .pages
-            .sync_directory()
-            .map_err(CellGroupCheckpointError::from)?;
-    }
     if pins.iter().map(ManifestPins::len).sum::<usize>() != total_cells {
         return Err(CellGroupArchiveError::Invalid(
             "transition partition cell count",
         ));
     }
-    drop(stores);
-    Ok(targets
-        .into_iter()
-        .zip(pins)
-        .map(|(target, pins)| PreparedCellGroupTransferChild {
-            pins,
-            store: target.store,
-        })
-        .collect())
+    let mut children = Vec::with_capacity(targets.len());
+    for ((store, pins), target) in stores.iter_mut().zip(pins).zip(&targets) {
+        check()?;
+        target.store.require_live()?;
+        let apply::Storage { tree, pages, .. } = &mut **store;
+        let data = match &transfer {
+            Some((origin, admission)) => {
+                let marker = GroupManifest::transfer_genesis(
+                    target.store.route().clone(),
+                    pins.root(),
+                    origin.clone(),
+                )
+                .map_err(CellGroupCheckpointError::from)?;
+                let mut prepared = tree
+                    .prepare_archive_complete(&target.store.owner, pages, marker, &mut |leaf| {
+                        check().map_err(|_| ManifestError::Quarantined)?;
+                        let key = cell_routing_key(
+                            leaf.version.history.namespace,
+                            &leaf.version.history.cell,
+                        );
+                        pins.get(&key)
+                            .filter(|(selected, _)| *selected == leaf)
+                            .map(|(_, pin)| pin)
+                            .ok_or(ManifestError::Invalid("child transfer image closure"))
+                    })
+                    .map_err(CellGroupCheckpointError::from)?;
+                prepared.recovery_admission = Some(admission.clone());
+                ChildData::Sealed(Box::new(prepared))
+            }
+            None => {
+                tree.verify(pages, pins.root(), genesis, |_| Ok(()))
+                    .map_err(CellGroupCheckpointError::from)?;
+                pages
+                    .sync_directory()
+                    .map_err(CellGroupCheckpointError::from)?;
+                ChildData::PreCopy(pins)
+            }
+        };
+        children.push(PreparedCellGroupTransferChild {
+            data,
+            store: target.store.clone(),
+        });
+    }
+    Ok(children)
 }

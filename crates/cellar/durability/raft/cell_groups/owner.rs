@@ -2218,6 +2218,9 @@ impl CellGroupOwner {
         next: &PreparedGroupManifest,
     ) -> Result<(), RuntimeError> {
         let invalid = || RuntimeError::Invalid("group apply does not match committed entry".into());
+        if !next.marker().preserves_transfer(self.current.marker()) {
+            return Err(invalid());
+        }
         let same_recovery = next.marker().recovery == self.current.marker().recovery;
         let same_seal = next.marker().source_seal() == self.current.marker().source_seal();
         if entry.get_entry_type() == EntryType::EntryConfChangeV2 {

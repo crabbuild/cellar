@@ -315,7 +315,13 @@ async fn verify_sealed_sources(
     anyhow::ensure!(verified.journal() == &journal && verified.sources().len() == 1);
     anyhow::ensure!(verified.sources()[0].marker() == sealed.marker());
     anyhow::ensure!(verified.sources()[0].recovery().manifest().pinned_images() == 3);
-    Box::pin(verify_partition(&fixture.cluster, archives, verified)).await?;
+    Box::pin(verify_partition(
+        &fixture.cluster,
+        archives,
+        &original,
+        verified,
+    ))
+    .await?;
     let intent = archives.registry.prepare_acquire(domain).await?;
     let alternate = archives.registry.acquire(domain, &intent).await?;
     anyhow::ensure!(alternate != sealed);
@@ -348,6 +354,7 @@ async fn verify_sealed_sources(
 async fn verify_partition(
     cluster: &Cluster,
     archives: &Archives,
+    plan: &DirectoryMutation,
     verified: VerifiedCellGroupTransitionSources,
 ) -> Result<()> {
     let targets = verified
@@ -370,6 +377,10 @@ async fn verify_partition(
         max_restore_bytes: 4 * 1024 * 1024,
         ..Default::default()
     })?;
+    let sources = verified
+        .journal()
+        .sealed_sources()
+        .context("sealed source set missing")?;
     let partition = pool
         .prepare_transfer_partition(&cluster.domain, verified, targets)
         .await?;
@@ -383,6 +394,27 @@ async fn verify_partition(
             .sum::<u32>()
             == 3
     );
+    for child in partition.children() {
+        let genesis = child.genesis().context("missing final child genesis")?;
+        let marker = genesis.marker();
+        let origin = marker.transfer_origin().context("child origin missing")?;
+        anyhow::ensure!(
+            !marker.is_active()
+                && marker.recovery_request().is_none()
+                && marker.route() == child.route()
+                && marker.root() == child.root()
+                && marker.position().index.get() == 1
+                && marker.position().term.get() == 1
+                && marker.membership_revision() == 1
+                && origin.operation() == plan.operation().bytes()
+                && origin.plan() == plan.digest()
+                && origin.sealed_sources() == sources
+        );
+        let mut encoded = serde_json::to_value(marker)?;
+        anyhow::ensure!(serde_json::from_value::<GroupManifest>(encoded.clone())? == *marker);
+        encoded["transfer"]["sealed_sources"] = serde_json::to_value([0u8; 32])?;
+        anyhow::ensure!(serde_json::from_value::<GroupManifest>(encoded).is_err());
+    }
     let source = partition.sources().sources()[0].recovery().manifest();
     for name in ["alpha", "beta", "empty"] {
         let cell = CellId::new(name)?;
@@ -420,7 +452,13 @@ async fn verify_partition(
             _ => anyhow::bail!("wrong staged image representation"),
         }
     }
+    let retained = partition.children()[0]
+        .genesis()
+        .context("child genesis")?
+        .clone();
     drop(partition);
+    anyhow::ensure!(pool.usage().operations == 1);
+    drop(retained);
     anyhow::ensure!(pool.usage().operations == 0);
     Ok(())
 }

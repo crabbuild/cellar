@@ -144,7 +144,7 @@ pub use enrollment::{
 pub use enrollment_apply::{EnrollmentApply, EnrollmentApplyError, EnrollmentImage};
 pub use image_pin::{cell_image_history_digest, CellImagePin};
 pub(crate) use pins::ManifestPins;
-pub use root::{GroupManifest, GroupSourceSeal, PreparedGroupManifest};
+pub use root::{GroupManifest, GroupSourceSeal, GroupTransferOrigin, PreparedGroupManifest};
 
 pub use owner::{
     CellGroupApply, CellGroupEffect, CellGroupOwner, CellGroupPersist, CellGroupPersisted,

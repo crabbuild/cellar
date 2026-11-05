@@ -726,6 +726,9 @@ impl CachedGroup {
                             "snapshot recovery lineage changed".into(),
                         ));
                     }
+                    if !marker.preserves_transfer(previous) {
+                        return Err(LogError::Invalid("snapshot child transfer changed".into()));
+                    }
                     if !marker.preserves_source_seal(previous) {
                         return Err(LogError::Invalid("snapshot source seal changed".into()));
                     }
@@ -884,6 +887,9 @@ impl CachedGroup {
             if let Some(previous) = &self.group_manifest {
                 if !marker.preserves_recovery(previous) {
                     return Err(LogError::Invalid("applied recovery lineage changed".into()));
+                }
+                if !marker.preserves_transfer(previous) {
+                    return Err(LogError::Invalid("applied child transfer changed".into()));
                 }
                 if !marker.preserves_source_seal(previous) {
                     return Err(LogError::Invalid("applied source seal changed".into()));

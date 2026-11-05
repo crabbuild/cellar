@@ -27,12 +27,18 @@ pub struct CellGroupTransitionSource {
 /// Independently recovered source images and their selected catalog decision.
 /// This grants no child boot, installation, publication or serving authority.
 pub struct VerifiedCellGroupTransitionSources {
+    operation: ProposalId,
+    plan: [u8; 32],
     journal: TransitionJournal,
     sources: Vec<CellGroupArchiveCoverage>,
     children: Vec<GroupRoute>,
 }
 
 impl VerifiedCellGroupTransitionSources {
+    pub(crate) fn transition_plan(&self) -> (ProposalId, [u8; 32]) {
+        (self.operation, self.plan)
+    }
+
     pub fn journal(&self) -> &TransitionJournal {
         &self.journal
     }
@@ -128,6 +134,8 @@ impl RangeDirectory {
                     .record_verified_sources(mutation, verified.digest)
                     .await?;
                 Ok(VerifiedCellGroupTransitionSources {
+                    operation: mutation.operation,
+                    plan: mutation.digest,
                     journal,
                     sources: verified.sources,
                     children: verified.children,

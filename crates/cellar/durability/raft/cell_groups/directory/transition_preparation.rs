@@ -98,6 +98,7 @@ impl RangeDirectory {
             verified.sources.clone(),
             verified.children,
             inputs.targets,
+            None,
         ))
         .await?;
         let record = Preparation {

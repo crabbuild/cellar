@@ -1069,6 +1069,11 @@ operation retains its historical decision and plan.
 | Active | Each child commits activation binding the retained publication certificate. Serving requires that activation plus current-term quorum authority. |
 | Retired | Parents persist retirement/redirect tombstones. Release old data only after child archive coverage and all dependency pins are safe. |
 
+The final sealed-source partition builds a non-serving child genesis marker.
+It binds the exact transition, plan and sealed-source set. An active-source
+pre-copy carries image pins without this genesis. Ordinary log apply and
+checkpoint install preserve the pending marker and its exact image root.
+
 Child install receipts bind the source seals, own committed seed, membership and
 manifest digest. Publication also requires the exact verified remote transfer
 closure, so losing every voter immediately afterward can still recover all prior
