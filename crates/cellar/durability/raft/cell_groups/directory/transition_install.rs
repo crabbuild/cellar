@@ -264,6 +264,7 @@ impl RangeDirectory {
         })
         .await
     }
+
     /// Install one reserved voter from the final sealed-source partition. The
     /// returned engine mapping grants no startup, voting or serving authority.
     /// Retrying the exact disk and engine reconciles an unknown result.
