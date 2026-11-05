@@ -55,18 +55,7 @@ impl Fixture {
         let domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
         let catalog = Self::open_catalog(&domain, store.clone(), ClusterId::new([1; 16])?)?;
         catalog.initialize(TIMEOUT).await?;
-        let schema = class.schema_digest();
-        let mut config = NamespaceConfig::new(
-            ClusterId::new([1; 16])?,
-            NamespaceId::new([2; 16])?,
-            NamespaceMode::Raft,
-            schema,
-        );
-        config.image_storage = if rooted {
-            RaftImageStorage::Extents
-        } else {
-            RaftImageStorage::Materialized
-        };
+        let namespace = NamespaceId::new([2; 16])?;
         let namespace_catalog = Catalog::new(
             store.clone(),
             CatalogOptions {
@@ -75,16 +64,38 @@ impl Fixture {
             },
         )?;
         let cut = catalog.read(TIMEOUT).await?;
-        let declaration = catalog
-            .provision_managed_namespace(
-                &request(1, cut.revision()),
-                &namespace_catalog,
-                config,
-                &class,
-                DirectoryLimits::default(),
-                TIMEOUT,
-            )
-            .await?;
+        let identity = request(1, cut.revision());
+        let directory_limits = DirectoryLimits::default();
+        let declaration = if rooted {
+            let mut config = NamespaceConfig::new(
+                ClusterId::new([1; 16])?,
+                namespace,
+                NamespaceMode::Raft,
+                class.schema_digest(),
+            );
+            config.image_storage = RaftImageStorage::Extents;
+            catalog
+                .provision_managed_namespace(
+                    &identity,
+                    &namespace_catalog,
+                    config,
+                    &class,
+                    directory_limits,
+                    TIMEOUT,
+                )
+                .await?
+        } else {
+            catalog
+                .provision_managed_sql_namespace(
+                    &identity,
+                    &namespace_catalog,
+                    namespace,
+                    &class,
+                    directory_limits,
+                    TIMEOUT,
+                )
+                .await?
+        };
         let application: Arc<dyn Application> =
             Arc::new(Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_class(class)?);
         let spec = FleetNodeSpec {

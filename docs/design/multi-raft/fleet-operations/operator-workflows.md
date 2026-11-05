@@ -104,10 +104,14 @@ The API routes use `/api/v1/fleets/{fleet}/raft`:
 
 ## First managed group workflow
 
-Configure the admin fleet with the exact declared managed namespace. Use the
-application SDK to provision its compiled namespace as standby. Bring up the
-three enrolled hosts and qualify and activate their capacity through the
-workflow below. Read the current catalog generation and revision before
+Provision a new native SQL namespace with
+`FleetCatalog::provision_managed_sql_namespace` and its compiled `RaftClass`.
+The SDK binds the fleet cluster and class schema, and declares a shared Raft
+standby with three voters, quorum writes and materialized images. Use
+`provision_managed_namespace` for an explicit namespace policy such as extent
+images. Configure the admin fleet with the resulting exact declaration. Bring
+up the three enrolled hosts and qualify and activate their capacity through
+the workflow below. Read the current catalog generation and revision before
 preparing the first group.
 
 ```sh

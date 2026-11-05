@@ -8,9 +8,37 @@ use crate::raft::{
     catalog::{Catalog, CatalogError, NamespaceConfig},
     cell_groups::{DirectoryLimits, RangeDirectory},
 };
-use cellar_logic::consensus::ProposalId;
+use cellar_logic::{
+    consensus::{ClusterId, NamespaceId, ProposalId},
+    NamespaceMode,
+};
 
 impl FleetCatalog {
+    /// Declare a new managed SQL namespace using the fleet's cluster and the
+    /// compiled Raft class. Defaults are three voters, quorum durability and
+    /// materialized images. The declaration creates an empty standby and
+    /// retains the supplied request identity through retries.
+    pub async fn provision_managed_sql_namespace(
+        &self,
+        request: &FleetRequestIdentity,
+        catalog: &Catalog,
+        namespace: NamespaceId,
+        class: &RaftClass,
+        directory_limits: DirectoryLimits,
+        timeout: Duration,
+    ) -> Result<RaftNamespaceRegistration> {
+        let cluster = ClusterId::new(self.inner.cluster)
+            .map_err(|_| FleetCatalogError::Corrupt("fleet cluster identity"))?;
+        let config = NamespaceConfig::new(
+            cluster,
+            namespace,
+            NamespaceMode::Raft,
+            class.schema_digest(),
+        );
+        self.provision_managed_namespace(request, catalog, config, class, directory_limits, timeout)
+            .await
+    }
+
     /// Provision a declared managed standby using the compiled class and the
     /// original fleet request. Persist that request and the catalog settings
     /// before calling. An exact retry resumes the same immutable setup. If

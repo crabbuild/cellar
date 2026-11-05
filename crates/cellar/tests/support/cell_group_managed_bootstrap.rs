@@ -73,11 +73,11 @@ async fn managed_namespace_provisioning_replays_lost_confirmation() -> Result<()
         )?;
         let before = f.catalog.read(TIMEOUT).await?.revision();
         let identity = request(94, before);
-        let provision = |config| {
-            f.catalog.provision_managed_namespace(
+        let provision = |namespace| {
+            f.catalog.provision_managed_sql_namespace(
                 &identity,
                 &adapter,
-                config,
+                namespace,
                 &class,
                 DirectoryLimits::default(),
                 TIMEOUT,
@@ -87,7 +87,7 @@ async fn managed_namespace_provisioning_replays_lost_confirmation() -> Result<()
             .fail_fleet_confirmation
             .store(true, Ordering::Release);
         ensure!(matches!(
-            provision(config.clone()).await,
+            provision(config.namespace).await,
             Err(FleetCatalogError::Storage(_))
         ));
         ensure!(!f.store.fail_fleet_confirmation.load(Ordering::Acquire));
@@ -96,7 +96,7 @@ async fn managed_namespace_provisioning_replays_lost_confirmation() -> Result<()
         let mut changed = config.clone();
         changed.namespace = NamespaceId::new([7; 16])?;
         ensure!(matches!(
-            provision(changed.clone()).await,
+            provision(changed.namespace).await,
             Err(FleetCatalogError::PayloadConflict)
         ));
         ensure!(f
@@ -104,8 +104,14 @@ async fn managed_namespace_provisioning_replays_lost_confirmation() -> Result<()
             .run(adapter.existing_namespace(changed))
             .await?
             .is_err());
-        let replay = provision(config.clone()).await?;
+        let replay = provision(config.namespace).await?;
         ensure!(replay.class == class.name() && replay.namespace == config);
+        ensure!(
+            replay.namespace.mode == NamespaceMode::Raft
+                && replay.namespace.minimum_durability == Durability::Quorum
+                && replay.namespace.voters == VoterPolicy::ThreeVoters
+                && replay.namespace.image_storage == RaftImageStorage::Materialized
+        );
         ensure!(f.catalog.read(TIMEOUT).await?.revision() == after);
         let opened = f
             .domain

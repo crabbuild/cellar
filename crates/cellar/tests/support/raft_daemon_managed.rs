@@ -132,17 +132,37 @@ pub(super) async fn initialize(root: &Path) -> Result<()> {
         .run(async {
             let operator = Operator::open(domain.clone(), root)?;
             let snapshot = operator.fleet.initialize(TIMEOUT).await?;
-            let declaration = operator
-                .fleet
-                .provision_managed_namespace(
-                    &request(10, snapshot.revision()),
-                    &operator.adapter,
-                    operator.namespace.clone(),
-                    &counter::definition()?,
-                    configuration::limits().directory,
-                    TIMEOUT,
-                )
-                .await?;
+            let identity = request(10, snapshot.revision());
+            let class = counter::definition()?;
+            let limits = configuration::limits().directory;
+            let declaration = match operator.namespace.image_storage {
+                RaftImageStorage::Materialized => {
+                    operator
+                        .fleet
+                        .provision_managed_sql_namespace(
+                            &identity,
+                            &operator.adapter,
+                            operator.namespace.namespace,
+                            &class,
+                            limits,
+                            TIMEOUT,
+                        )
+                        .await?
+                }
+                RaftImageStorage::Extents => {
+                    operator
+                        .fleet
+                        .provision_managed_namespace(
+                            &identity,
+                            &operator.adapter,
+                            operator.namespace.clone(),
+                            &class,
+                            limits,
+                            TIMEOUT,
+                        )
+                        .await?
+                }
+            };
             let capability_digest = RaftManagedHostOptions::capability_digest(&[declaration])?;
             for index in 0..3 {
                 let snapshot = operator.fleet.read(TIMEOUT).await?;
