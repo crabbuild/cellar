@@ -10,6 +10,8 @@ mod counter;
 mod http;
 #[path = "cell_group_managed_request_nodes.rs"]
 mod nodes;
+#[path = "cell_group_managed_request_parity.rs"]
+mod parity;
 
 pub async fn run_native() -> Result<()> {
     for rooted in [false, true] {
@@ -51,7 +53,7 @@ async fn exercise(cluster: &mut nodes::Cluster) -> Result<()> {
         "one",
     )?;
     cluster.managed.hosts[first]
-        .cell(one_history)?
+        .cell(one_history.clone())?
         .enroll(
             CellEnrollmentRequest {
                 creation: ProposalId::new([181; 16])?,
@@ -179,6 +181,14 @@ async fn exercise(cluster: &mut nodes::Cluster) -> Result<()> {
     ensure!(archived.record() == &original);
     drop(archived);
     cluster.inventory().await?;
+    Box::pin(parity::check(
+        cluster.web()?,
+        &client,
+        first,
+        &cluster.managed.hosts[first].cell(one_history)?,
+        retry,
+    ))
+    .await?;
     let one = cluster
         .web()?
         .command(&client, ((first + 1) % 3, false), "one", 7, 1, retry)

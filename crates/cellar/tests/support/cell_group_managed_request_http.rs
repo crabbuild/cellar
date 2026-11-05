@@ -89,7 +89,7 @@ impl Web {
         Ok(web)
     }
 
-    fn url(&self, node: usize, axum: bool, name: &str) -> String {
+    pub(super) fn url(&self, node: usize, axum: bool, name: &str) -> String {
         let base = if axum {
             &self.axum[node]
         } else {
@@ -98,7 +98,7 @@ impl Web {
         format!("{base}/counters/{name}")
     }
 
-    async fn send(request: reqwest::RequestBuilder, label: String) -> Result<Reply> {
+    pub(super) async fn send(request: reqwest::RequestBuilder, label: String) -> Result<Reply> {
         let response = request.bearer_auth(SECRET).send().await?;
         let status = response.status().as_u16();
         let body = response.text().await?;
