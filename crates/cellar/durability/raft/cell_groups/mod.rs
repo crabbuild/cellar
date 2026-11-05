@@ -101,7 +101,8 @@ mod read_authority;
 mod recovery;
 pub(crate) use recovery::RecoverySeed;
 pub use recovery::{
-    CellGroupRecoveryLimits, CellGroupRecoveryPool, PreparedCellGroupRecovery,
+    CellGroupRecoveryLimits, CellGroupRecoveryPool, CellGroupTransferTarget,
+    PreparedCellGroupRecovery, PreparedCellGroupTransfer, PreparedCellGroupTransferChild,
     SeededCellGroupRecovery,
 };
 pub(crate) mod reclaim;

@@ -5,11 +5,15 @@
 mod admission;
 mod genesis;
 mod import;
+mod partition;
 mod state;
 pub use admission::{CellGroupRecoveryLimits, CellGroupRecoveryPool};
 pub(crate) use genesis::RecoverySeed;
 pub use genesis::SeededCellGroupRecovery;
 pub use import::PreparedCellGroupRecovery;
+pub use partition::{
+    CellGroupTransferTarget, PreparedCellGroupTransfer, PreparedCellGroupTransferChild,
+};
 pub(super) use state::RecoveryState;
 
 #[cfg(test)]

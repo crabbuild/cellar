@@ -45,6 +45,16 @@ impl Archives {
         cluster: &Cluster,
         label: &str,
     ) -> Result<CellGroupArchiveCheckpointReceiver> {
+        let (store, base) = self.store(cluster, cluster.birth.route().clone(), label)?;
+        Ok(self.checkpoints.receive_archive(store, scratch()?, base)?)
+    }
+
+    fn store(
+        &self,
+        cluster: &Cluster,
+        route: GroupRoute,
+        label: &str,
+    ) -> Result<(CellGroupArchiveStore, std::path::PathBuf)> {
         let base = cluster._root.path().join(label);
         let filesystem = Arc::new(DirectFileSystem);
         let pages = ManifestPageStore::open(
@@ -61,21 +71,14 @@ impl Archives {
             .then(|| NodeExtentStore::open(base.join("extents"), filesystem, Default::default()))
             .transpose()?;
         let store = CellGroupArchiveStore::new(
-            cluster.birth.route().clone(),
+            route,
             pages,
             checkpoint_receive::config(images, extents, &base)?,
             ManifestLimits::default(),
             GroupEntryLimits::default(),
             100,
         )?;
-        Ok(self.checkpoints.receive_archive(
-            store,
-            ScratchPool::new(ScratchLimits {
-                max_bytes: 32 * 1024 * 1024,
-                max_files: 1,
-            })?,
-            base,
-        )?)
+        Ok((store, base))
     }
 
     async fn publish(&self, fixture: &RuntimeCluster, label: &str) -> Result<CellGroupArchiveHold> {
@@ -115,6 +118,13 @@ impl Archives {
             receiver: self.receiver(cluster, label)?,
         })
     }
+}
+
+fn scratch() -> Result<ScratchPool> {
+    Ok(ScratchPool::new(ScratchLimits {
+        max_bytes: 32 * 1024 * 1024,
+        max_files: 1,
+    })?)
 }
 
 pub(crate) async fn sealed_source_archives(
@@ -305,7 +315,7 @@ async fn verify_sealed_sources(
     anyhow::ensure!(verified.journal() == &journal && verified.sources().len() == 1);
     anyhow::ensure!(verified.sources()[0].marker() == sealed.marker());
     anyhow::ensure!(verified.sources()[0].recovery().manifest().pinned_images() == 3);
-    drop(verified);
+    Box::pin(verify_partition(&fixture.cluster, archives, verified)).await?;
     let intent = archives.registry.prepare_acquire(domain).await?;
     let alternate = archives.registry.acquire(domain, &intent).await?;
     anyhow::ensure!(alternate != sealed);
@@ -332,5 +342,85 @@ async fn verify_sealed_sources(
         fixture.runtimes[0].seal_source(permit).await?,
         CellGroupSealOutcome::Applied(_)
     ));
+    Ok(())
+}
+
+async fn verify_partition(
+    cluster: &Cluster,
+    archives: &Archives,
+    verified: VerifiedCellGroupTransitionSources,
+) -> Result<()> {
+    let targets = verified
+        .children()
+        .iter()
+        .enumerate()
+        .map(|(index, route)| {
+            let (store, directory) =
+                archives.store(cluster, route.clone(), &format!("child-{index}"))?;
+            Ok(CellGroupTransferTarget {
+                store,
+                directory,
+                scratch: scratch()?,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let pool = CellGroupRecoveryPool::new(CellGroupRecoveryLimits {
+        max_cells: 3,
+        max_image_bytes: 1024 * 1024,
+        max_restore_bytes: 4 * 1024 * 1024,
+        ..Default::default()
+    })?;
+    let partition = pool
+        .prepare_transfer_partition(&cluster.domain, verified, targets)
+        .await?;
+    anyhow::ensure!(pool.usage().operations == 1);
+    anyhow::ensure!(partition.children().len() == 2);
+    anyhow::ensure!(
+        partition
+            .children()
+            .iter()
+            .map(|child| child.root().cells())
+            .sum::<u32>()
+            == 3
+    );
+    let source = partition.sources().sources()[0].recovery().manifest();
+    for name in ["alpha", "beta", "empty"] {
+        let cell = CellId::new(name)?;
+        let (original, _) = source.pin_cell(&cell).context("sealed cell missing")?;
+        let mut assigned = partition.children().iter().filter_map(|child| {
+            child
+                .pin_cell(&cell)
+                .map(|(leaf, pin)| (child.route(), leaf, pin))
+        });
+        let (route, staged, pin) = assigned.next().context("staged cell missing")?;
+        anyhow::ensure!(assigned.next().is_none());
+        anyhow::ensure!(route
+            .range
+            .contains(&cell_routing_key(route.history.namespace, &cell)));
+        let mut expected = original.clone();
+        expected.last_mutation = LogPosition {
+            index: LogIndex::new(1),
+            term: Term::new(1),
+        };
+        anyhow::ensure!(staged == &expected);
+        match pin {
+            CellImagePin::Materialized(pin) if !archives.rooted && name != "empty" => {
+                pin.verify_and_sync()?
+            }
+            CellImagePin::Extents(pin) if archives.rooted && name != "empty" => {
+                anyhow::ensure!(
+                    pin.reference().root().bytes()
+                        == match staged.version.image.commitment {
+                            CellImageCommitment::Extents { root, .. } => root,
+                            _ => anyhow::bail!("staged extent image commitment"),
+                        }
+                );
+            }
+            CellImagePin::Empty if name == "empty" => (),
+            _ => anyhow::bail!("wrong staged image representation"),
+        }
+    }
+    drop(partition);
+    anyhow::ensure!(pool.usage().operations == 0);
     Ok(())
 }

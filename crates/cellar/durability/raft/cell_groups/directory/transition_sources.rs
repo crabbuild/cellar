@@ -29,6 +29,7 @@ pub struct CellGroupTransitionSource {
 pub struct VerifiedCellGroupTransitionSources {
     journal: TransitionJournal,
     sources: Vec<CellGroupArchiveCoverage>,
+    children: Vec<GroupRoute>,
 }
 
 impl VerifiedCellGroupTransitionSources {
@@ -38,6 +39,10 @@ impl VerifiedCellGroupTransitionSources {
 
     pub fn sources(&self) -> &[CellGroupArchiveCoverage] {
         &self.sources
+    }
+
+    pub fn children(&self) -> &[GroupRoute] {
+        &self.children
     }
 }
 
@@ -89,6 +94,12 @@ impl RangeDirectory {
         if sources.len() != mutation.request.parents.len() {
             return Err(CatalogError::Invalid("incomplete transition source set").into());
         }
+        let children = mutation
+            .request
+            .children
+            .iter()
+            .map(|route| route.decode(self))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
         domain
             .run(Box::pin(async {
                 let (view, journal) = self
@@ -156,6 +167,7 @@ impl RangeDirectory {
                 Ok(VerifiedCellGroupTransitionSources {
                     journal,
                     sources: verified,
+                    children,
                 })
             }))
             .await

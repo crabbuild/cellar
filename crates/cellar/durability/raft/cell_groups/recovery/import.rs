@@ -51,7 +51,7 @@ impl PreparedCellGroupRecovery {
     }
 }
 
-struct Stop(Arc<AtomicBool>);
+pub(super) struct Stop(pub(super) Arc<AtomicBool>);
 
 impl Drop for Stop {
     fn drop(&mut self) {
@@ -220,7 +220,7 @@ fn physical(error: impl Into<CellGroupCheckpointError>) -> CellGroupArchiveError
     error.into().into()
 }
 
-fn copy_image(
+pub(super) fn copy_image(
     images: &CellGroupApplyImages,
     source: &CellImagePin,
     leaf: &mut CellManifestLeaf,
@@ -233,8 +233,9 @@ fn copy_image(
         (CellGroupApplyImages::Materialized { images, .. }, CellImagePin::Materialized(source)) => {
             source.verify_and_sync().map_err(physical)?;
             let state = source.state();
-            let id = apply::images::image_id(&leaf.version.history, 1, state)
-                .map_err(CellGroupArchiveError::Replay)?;
+            let id =
+                apply::images::image_id(&leaf.version.history, leaf.version.sequence.get(), state)
+                    .map_err(CellGroupArchiveError::Replay)?;
             let mut receive = images
                 .receive_image(id, state, scratch, directory)
                 .map_err(physical)?;
