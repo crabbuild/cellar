@@ -3,6 +3,7 @@
 //! Reconstruct exact admitted work; cached descriptors never mint a lease.
 use super::*;
 use crate::raft::fleet_catalog::deadline::Deadline;
+use crate::raft::inspection::InspectionError;
 use cellar_logic::consensus::MemberId;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -145,46 +146,58 @@ impl FleetCatalog {
             }
         }
         nodes.push(row.node);
-        for node in nodes {
-            let boot = match self
-                .run(
-                    deadline.remaining()?,
-                    self.movement_boot(snapshot, row, node),
-                )
-                .await
-            {
-                Ok(boot) => boot,
-                Err(FleetCatalogError::Conflict) => continue,
-                Err(error) => return Err(error),
-            };
-            let observed = observer
-                .observe_peer_fleet_membership(
-                    node,
-                    authorization.clone(),
-                    snapshot.revision(),
-                    deadline.remaining()?.min(Duration::from_millis(500)),
-                )
-                .await;
-            let sample = match observed {
-                Ok(sample) => sample,
-                Err(crate::raft::inspection::InspectionError::Overloaded) => {
-                    return Err(FleetCatalogError::Overloaded)
+        // A lost observation or a concurrent leader change can leave one
+        // sweep empty despite a live quorum. Resample once within the original
+        // turn budget; the caller still dispatches each action only once.
+        for _ in 0..2 {
+            let mut retryable = false;
+            for &node in &nodes {
+                let boot = match self
+                    .run(
+                        deadline.remaining()?,
+                        self.movement_boot(snapshot, row, node),
+                    )
+                    .await
+                {
+                    Ok(boot) => boot,
+                    Err(FleetCatalogError::Conflict) => continue,
+                    Err(error) => return Err(error),
+                };
+                let sample = match observer
+                    .observe_peer_fleet_membership(
+                        node,
+                        authorization.clone(),
+                        snapshot.revision(),
+                        deadline.remaining()?.min(Duration::from_millis(500)),
+                    )
+                    .await
+                {
+                    Ok(sample) => sample,
+                    Err(InspectionError::Overloaded) => return Err(FleetCatalogError::Overloaded),
+                    Err(InspectionError::Unreachable | InspectionError::Unavailable) => {
+                        retryable = true;
+                        continue;
+                    }
+                    Err(InspectionError::Refused | InspectionError::StalePeer) => continue,
+                };
+                if sample.sample_age_ms() > MAX_SAMPLE_AGE_MS
+                    || sample.node().fleet_boot.as_ref() != Some(&boot)
+                    || sample.membership().status().binding != *permit.binding()
+                {
+                    return Err(FleetCatalogError::Unconfirmed);
                 }
-                Err(_) => continue,
-            };
-            if sample.sample_age_ms() > MAX_SAMPLE_AGE_MS
-                || sample.node().fleet_boot.as_ref() != Some(&boot)
-                || sample.membership().status().binding != *permit.binding()
-            {
-                return Err(FleetCatalogError::Unconfirmed);
+                if sample
+                    .progress()
+                    .member
+                    .as_ref()
+                    .is_some_and(|member| member.is_leader)
+                {
+                    return Ok(sample);
+                }
+                retryable = true;
             }
-            if sample
-                .progress()
-                .member
-                .as_ref()
-                .is_some_and(|member| member.is_leader)
-            {
-                return Ok(sample);
+            if !retryable {
+                break;
             }
         }
         Err(FleetCatalogError::Unconfirmed)

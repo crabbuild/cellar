@@ -146,7 +146,11 @@ async fn target_leader(cluster: &ManagedCluster, target: usize) -> Result<()> {
     Ok(())
 }
 
-async fn handoff_to(cluster: &ManagedCluster, obsolete: usize, target: usize) -> Result<()> {
+pub(super) async fn handoff_to(
+    cluster: &ManagedCluster,
+    obsolete: usize,
+    target: usize,
+) -> Result<()> {
     let member = MemberId::new(target as u64 + 1)?;
     let end = tokio::time::Instant::now() + TIMEOUT;
     tokio::time::timeout(TIMEOUT, async {

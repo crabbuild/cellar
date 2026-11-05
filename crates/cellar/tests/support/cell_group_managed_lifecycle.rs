@@ -3,6 +3,9 @@
 //! Resource-backed whole-group replacement through the public managed APIs.
 use super::*;
 
+#[path = "cell_group_managed_discovery.rs"]
+mod discovery;
+
 #[path = "cell_group_managed_controls.rs"]
 mod controls;
 
@@ -232,17 +235,22 @@ async fn replace_with_source(
     Box::pin(replace_with_retry(cluster, from_s3, false)).await
 }
 
-async fn replace_with_retry(
+async fn reserve_replacement(
     cluster: &ManagedCluster,
     from_s3: bool,
-    refuse_then_failover: bool,
-) -> Result<(SeededCells, usize)> {
+) -> Result<(
+    SeededCells,
+    usize,
+    usize,
+    MemberId,
+    FleetMovementExecutionRequest,
+)> {
     let seed = seed_cells(&cluster.hosts, cluster.history).await?;
     discover(cluster).await?;
     let f = &cluster.fixtures[0];
     let index = leader(&cluster.hosts[..3], cluster.history).await?;
     let obsolete = (index + 1) % 3;
-    let mut observer = &cluster.hosts[index];
+    let observer = &cluster.hosts[index];
     let membership = observer
         .group(cluster.history)?
         .quorum_membership(TIMEOUT)
@@ -311,6 +319,18 @@ async fn replace_with_retry(
         attestation: movement.resources.attestation.clone(),
         from_s3,
     };
+    Ok((seed, index, obsolete, movement.plan.obsolete, execution))
+}
+
+async fn replace_with_retry(
+    cluster: &ManagedCluster,
+    from_s3: bool,
+    refuse_then_failover: bool,
+) -> Result<(SeededCells, usize)> {
+    let (seed, index, obsolete, obsolete_member, execution) =
+        Box::pin(reserve_replacement(cluster, from_s3)).await?;
+    let f = &cluster.fixtures[0];
+    let mut observer = &cluster.hosts[index];
     let stopped_source = if refuse_then_failover {
         ensure!(from_s3);
         let next = Box::pin(s3::refuse_then_failover(cluster, &execution, index)).await?;
@@ -448,7 +468,7 @@ async fn replace_with_retry(
     ensure!(
         !retained.in_configuration()
             && retained.completed_sequence() == 1
-            && retained.member() == movement.plan.obsolete
+            && retained.member() == obsolete_member
     );
     ensure!(
         cluster.hosts[obsolete]

@@ -12,6 +12,45 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 lost movement observation
+
+A managed regression drops the first foreground catalog read while the leader
+and quorum stay live. The old movement discovery samples each candidate once
+and misses the leader. The fixed turn allows one more read-only sweep within
+the original deadline. Boot, group binding, sample age and current-root guards
+still apply; no membership action is retried within the turn. The test verifies
+fresh quorum evidence of durable Seeding, an unchanged physical debit and no
+learner activation in both image forms.
+
+The exact red run fails on missing durable Begin; the green run passes in
+14.37 seconds. Record SHA256 values:
+
+- Red: `4e141feda39aee045607e844708fcae42e64e85df408099728a95179669a491b`
+- Green: `a22c8eef63fb0761e61e44c0ab7e66dd57ad9d8e97c6319c74f9333cdb2080d8`
+
+The complete managed native target passes 19 cases with eight explicit backend
+skips in 371.39 seconds. This includes the two lifecycle cases
+that failed in the earlier eleven-target campaign. The current source manifest
+binds 2,727 inputs to `c719c603552528b9252773b332c601e3a5f6cbe6083bac03257ef63d5618f65d`. The managed record SHA256
+is `bec0485c1a712f0773e8d96b9ca0ead487903698efa4df7258230bead7e5e436`.
+
+The real RustFS matrix fails overall. The lost-observation case passes in
+17.30 seconds and archived maintenance passes in
+82.90 seconds. The S3 source failover case fails
+in 14.21 seconds. Both surviving voters report term
+2 with no leader at the original five-second readiness deadline. The staged
+destination again reports Unobserved on close. The failure logs and disks
+are retained. The RustFS record SHA256 is `f6443912bc12a44f2112807756d5c0fcd28afa2f38d2ba28e011796742c5b7a7`. The signed
+readiness and conditional probes pass. The dedicated constrained RustFS
+container and VM are stopped with data retained. Voters are host-native
+embedded Nodes.
+
+The intermittent maintenance and successor-readiness failures passed isolated
+replays on the prior source, including the temporary instrumented runs. The
+RustFS recurrence leaves successor liveness and the destination close report
+open. The discovery fix establishes behavior under a lost observation.
+The earlier full native campaign remains failed at its recorded source.
+
 ## CG-07 managed public command routing
 
 A public SDK command sent to a follower previously attempted local SQL and

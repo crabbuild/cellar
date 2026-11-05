@@ -4,6 +4,20 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## CG-07 movement discovery and basic request priorities
+
+The lost-observation regression proves durable movement Begin within the
+original deadline. It preserves the debit and leaves the learner inactive.
+The full managed native target passes. Real RustFS confirms the regression
+and archived maintenance, and reproduces the successor readiness timeout.
+The [progress record](progress.md) retains all three backend outcomes.
+
+The [basic request acceptance sequence](remaining-work.md) starts with
+trusted route discovery from ingress hosting no replica, then exercises normal
+namespace provisioning, failover, retained restart and quorum-loss refusal.
+Keep the original successor deadline and staged-target close oracle while
+isolating the RustFS failure.
+
 ## Managed request routing checkpoint
 
 A public SDK command sent to a follower previously attempted local SQL and

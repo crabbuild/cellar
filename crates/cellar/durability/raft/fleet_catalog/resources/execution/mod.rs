@@ -144,7 +144,8 @@ impl FleetCatalog {
     /// Reconcile one exact admitted move through the authenticated control lane.
     /// Recreated callers discover the same work from pending_movements. A lost
     /// action reply requires another fresh observation; it never releases debt.
-    /// No internal retry loop or application traffic is needed for progress.
+    /// Read-only leader discovery may resample within the turn deadline.
+    /// Actions are not retried within a turn; progress needs no application traffic.
     pub fn reconcile_movement<'a>(
         &'a self,
         snapshot: &'a FleetSnapshot,

@@ -50,6 +50,33 @@ coverage, plan/lint/CI modes, production fencing, constrained independent voters
 and sustained-load qualification remain unfinished. CG-09–16 stay TODO. No
 production legacy/shared switch or old-data migration is part of the target.
 
+## First delivery: basic SQL reads and writes through public ingress
+
+1. **Route without a local replica.** Resolve the tenant and cell to the current
+   group history, then discover the leader from trusted directory members
+   within the original request deadline. Forward a command with its original
+   ID and input. Recheck route and execution authority at the receiver, and
+   preserve an ambiguous result when delivery may have happened.
+2. **Provision through the public namespace path.** Use the normal
+   CLI/daemon/SDK path to start a three-voter shared group and enroll two cells
+   through Raft. Carry the same tenant and cell binding through native, Axum
+   and admin entry points. Scope this first delivery to supported native SQL
+   classes; preserve typed refusals for unsupported capabilities.
+3. **Prove the whole path.** From an ingress process hosting no replica,
+   write to both cells and check independence and quorum receipts. Read with
+   the returned version token and with explicit linearizable consistency;
+   retain the stale read option and qualify its policy separately. Stop the
+   leader and repeat through its successor, including an exact retry and a
+   cross-cell authority refusal. Restart retained voters, check the old
+   receipts, then lose quorum and verify writes and linearizable reads refuse.
+   Run the same flow with a real RustFS archive and verify that a quorum write
+   can succeed during an archive outage while an explicit S3 write needs
+   coverage.
+
+Clear the existing managed lifecycle failures and remaining public merge gates
+before enabling the default broadly. The basic request slice gives those gates
+a single public path to exercise.
+
 ## P0: finish the MVP and its merge gates
 
 The public group-control prerequisite now has an implementation:
