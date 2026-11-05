@@ -639,7 +639,7 @@ async fn verify_transfer_activation(
     children: &[GroupManifest],
 ) -> Result<Vec<GroupManifest>> {
     let directory = fixture.cluster.directory.clone();
-    let domain = fixture.cluster.domain.clone();
+    let domain = &fixture.cluster.domain;
     let log = fixture.cluster.voters[0].log.clone();
     let publication = domain
         .run(directory.publication(plan))
@@ -680,6 +680,7 @@ async fn verify_transfer_activation(
     }
     await_applied(fixture, &positions).await?;
 
+    let domain = &fixture.cluster.domain;
     for (child, (scope, position)) in children.iter().zip(positions) {
         let retry = domain
             .run(directory.prepare_transfer_activation(plan, scope, &log))
@@ -737,6 +738,7 @@ async fn verify_transfer_activation(
     anyhow::ensure!(authority.cell().version.history == existing && authority.barrier().is_some());
     drop(authority);
 
+    let domain = &fixture.cluster.domain;
     let name = CellId::new("after-transfer")?;
     let route = domain.run(directory.lookup(&view, &name)).await??;
     let cell = history(&route, name.as_str())?;
