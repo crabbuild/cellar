@@ -4,7 +4,9 @@
 use super::*;
 use crate::raft::{
     cache::GroupLog,
-    cell_groups::{GroupManifest, PreparedCellGroupTransferChild, TransferSeed},
+    cell_groups::{
+        GroupManifest, PreparedCellGroupTransferChild, PreparedGroupManifest, TransferSeed,
+    },
     fleet_catalog::{FleetHostAuthorization, ReopenedManagedCellGroupTransition},
     fleet_stop::{BootBinding, Guard},
     member_state::FleetGroupBinding,
@@ -50,7 +52,10 @@ struct ManagedSeed {
 
 enum InstallData<'a> {
     Prepared(&'a PreparedCellGroupTransferChild),
-    Retained(&'a GroupManifest),
+    Retained {
+        marker: &'a GroupManifest,
+        closure: Option<&'a PreparedGroupManifest>,
+    },
 }
 
 impl InstallData<'_> {
@@ -64,7 +69,7 @@ impl InstallData<'_> {
                         "transfer requires final child genesis",
                     ))
             }
-            Self::Retained(marker) => Ok(marker),
+            Self::Retained { marker, .. } => Ok(marker),
         }
     }
 }
@@ -144,7 +149,121 @@ fn install_prefix(route: &GroupRoute) -> String {
     )
 }
 
+struct InstallRecords {
+    prefix: String,
+    member: String,
+    binding: Vec<u8>,
+    intent: Vec<u8>,
+}
+
 impl RangeDirectory {
+    fn install_records(
+        &self,
+        genesis: &GroupManifest,
+        local: &ReplicaIdentity<GroupHistory>,
+        engine: EngineInstanceId,
+    ) -> Result<InstallRecords, CatalogError> {
+        let prefix = install_prefix(genesis.route());
+        let binding = record::encode(
+            BINDING,
+            &InstallBinding {
+                namespace: self.namespace.root_digest,
+                genesis: genesis.clone(),
+            },
+            wire::LIMIT,
+        )?;
+        let intent = record::encode(
+            INTENT,
+            &InstallIntent {
+                binding: record::digest(&binding),
+                member: local.member.get(),
+                node: local.node.bytes(),
+                disk: local.disk.bytes(),
+                engine: engine.bytes(),
+            },
+            wire::LIMIT,
+        )?;
+        let member = format!("{prefix}/{:016x}", local.member.get());
+        Ok(InstallRecords {
+            prefix,
+            member,
+            binding,
+            intent,
+        })
+    }
+
+    async fn require_install_intent(&self, records: &InstallRecords) -> Result<(), CatalogError> {
+        if self
+            .read(&format!("{}/binding", records.prefix))
+            .await?
+            .as_deref()
+            != Some(records.binding.as_slice())
+            || self
+                .read(&format!("{}/intent", records.member))
+                .await?
+                .as_deref()
+                != Some(records.intent.as_slice())
+        {
+            return Err(CatalogError::Fenced);
+        }
+        Ok(())
+    }
+
+    /// Before a managed boot can park a pending child, recheck the exact
+    /// operation and durable install intent. The receipt may still be missing
+    /// after a lost reply. This path issues no permit and verifies no images.
+    pub(crate) async fn require_parked_managed_transfer(
+        &self,
+        transition: &ReopenedManagedCellGroupTransition,
+        group: &GroupLog<GroupHistory>,
+        marker: &GroupManifest,
+        engine: EngineInstanceId,
+    ) -> Result<(), CatalogError> {
+        let owner = self
+            .namespace
+            .config
+            .managed_fleet
+            .as_ref()
+            .ok_or(CatalogError::ManagedAdmissionRequired)?;
+        let local = group.identity();
+        if marker.route().history != local.scope
+            || group
+                .membership()
+                .map_err(CatalogError::Log)?
+                .fleet_status()
+                .is_none_or(|status| {
+                    status.binding.fleet() != owner.fleet
+                        || !status.binding.matches_scope(&local.scope)
+                })
+        {
+            return Err(CatalogError::Fenced);
+        }
+        self.bounded(async {
+            self.require_open_transfer_install(&transition.plan, marker)
+                .await?;
+            let birth = self
+                .require_ordinary_birth_reservation(marker.route())
+                .await?;
+            if !birth
+                .voters()
+                .iter()
+                .any(|voter| voter.node == local.node && voter.member == local.member)
+            {
+                return Err(CatalogError::NotInitialMember);
+            }
+            let records = self.install_records(marker, local, engine)?;
+            self.require_install_intent(&records).await?;
+            if self
+                .read(&format!("{}/receipt", records.member))
+                .await?
+                .is_some_and(|receipt| receipt != records.intent)
+            {
+                return Err(CatalogError::Fenced);
+            }
+            Ok(())
+        })
+        .await
+    }
     /// Install one reserved voter from the final sealed-source partition. The
     /// returned engine mapping grants no startup, voting or serving authority.
     /// Retrying the exact disk and engine reconciles an unknown result.
@@ -196,6 +315,7 @@ impl RangeDirectory {
         log: &ReplicaLog,
         host: &FleetHostAuthorization,
         deadline: u64,
+        closure: Option<&PreparedGroupManifest>,
     ) -> Result<Option<InstalledTransferVoter>, CatalogError> {
         let group = match log.cell_group(&route.history) {
             Ok(group) => group,
@@ -209,7 +329,10 @@ impl RangeDirectory {
             .ok_or(CatalogError::Fenced)?;
         self.sync_managed_transfer_voter(
             transition,
-            InstallData::Retained(&marker),
+            InstallData::Retained {
+                marker: &marker,
+                closure,
+            },
             log,
             host,
             deadline,
@@ -303,45 +426,25 @@ impl RangeDirectory {
                 disk: log.limits().disk,
                 process: log.limits().process,
             };
-            let prefix = install_prefix(route);
-            let binding = record::encode(
-                BINDING,
-                &InstallBinding {
-                    namespace: self.namespace.root_digest,
-                    genesis: genesis.clone(),
-                },
-                wire::LIMIT,
-            )?;
-            let intent = record::encode(
-                INTENT,
-                &InstallIntent {
-                    binding: record::digest(&binding),
-                    member: voter.member.get(),
-                    node: voter.node.bytes(),
-                    disk: local.disk.bytes(),
-                    engine: engine.bytes(),
-                },
-                wire::LIMIT,
-            )?;
-            let member = format!("{prefix}/{:016x}", voter.member.get());
-            let binding_key = format!("{prefix}/binding");
-            let intent_key = format!("{member}/intent");
+            let records = self.install_records(genesis, &local, engine)?;
             match &data {
                 InstallData::Prepared(_) => {
-                    self.exact_install_record(&binding_key, &binding).await?;
-                    self.exact_install_record(&intent_key, &intent).await?;
+                    self.exact_install_record(
+                        &format!("{}/binding", records.prefix),
+                        &records.binding,
+                    )
+                    .await?;
+                    self.exact_install_record(
+                        &format!("{}/intent", records.member),
+                        &records.intent,
+                    )
+                    .await?;
                 }
-                InstallData::Retained(_) => {
-                    if self.read(&binding_key).await?.as_deref() != Some(binding.as_slice())
-                        || self.read(&intent_key).await?.as_deref() != Some(intent.as_slice())
-                    {
-                        return Err(CatalogError::Fenced);
-                    }
-                }
+                InstallData::Retained { .. } => self.require_install_intent(&records).await?,
             }
-            let receipt = format!("{member}/receipt");
+            let receipt = format!("{}/receipt", records.member);
             if let Some(observed) = self.read(&receipt).await? {
-                if observed != intent {
+                if observed != records.intent {
                     return Err(CatalogError::Conflict("transfer install receipt"));
                 }
                 match log.cell_group(&route.history) {
@@ -394,7 +497,7 @@ impl RangeDirectory {
                         .await
                         .map_err(CatalogError::Log)?
                 }
-                InstallData::Retained(_) => {
+                InstallData::Retained { closure, .. } => {
                     let group = log.cell_group(&route.history).map_err(CatalogError::Log)?;
                     let guard = log.lifecycle_guard().map_err(CatalogError::Log)?;
                     let now = log
@@ -415,10 +518,16 @@ impl RangeDirectory {
                     {
                         return Err(CatalogError::Fenced);
                     }
-                    if cache
-                        .manifest_pins
-                        .as_ref()
-                        .is_none_or(|pins| pins.root() != genesis.root())
+                    let reopened = closure.is_some_and(|verified| {
+                        Arc::ptr_eq(&verified.engine_owner, &group.owner)
+                            && verified.marker() == genesis
+                            && verified.images.root() == genesis.root()
+                    });
+                    if !reopened
+                        && cache
+                            .manifest_pins
+                            .as_ref()
+                            .is_none_or(|pins| pins.root() != genesis.root())
                     {
                         return Err(CatalogError::Runtime(
                             crate::raft::completion::RuntimeError::NotReady,
@@ -429,7 +538,7 @@ impl RangeDirectory {
                 }
             };
             self.require_open_transfer_install(plan, genesis).await?;
-            self.exact_install_record(&receipt, &intent).await?;
+            self.exact_install_record(&receipt, &records.intent).await?;
             Ok(group)
         })
         .await

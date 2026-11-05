@@ -82,9 +82,9 @@ SUITES = {
         "native_cell_groups_managed",
         ("bootstrap::transition::rustfs_managed_split_plan",
          "bootstrap::transition::rustfs_managed_split_authorization"),
-        "managed split cancellation, sealed archive replay and local child installation",
-        "Host-native voters and fixture capacity. Retained restart, child attachment, "
-        "fresh quorum, publication and activation remain separate gates.",
+        "managed split cancellation, sealed archive replay, child installation and retained restart",
+        "Host-native voters and fixture capacity. Child attachment, fresh quorum, publication "
+        "and activation remain separate gates.",
     ),
     "managed-liveness": (
         "native_cell_groups_managed",

@@ -233,7 +233,7 @@ async fn acquire_hold(
 }
 
 pub(super) async fn verify_sealed_cut(
-    cluster: &ManagedCluster,
+    cluster: &mut ManagedCluster,
     fleet: &FleetCatalog,
     directory: &RangeDirectory,
     transition: &ReopenedManagedCellGroupTransition,
@@ -371,6 +371,13 @@ pub(super) async fn verify_sealed_cut(
             .sum::<u32>()
             == 2
     );
+    let first = prepared
+        .children()
+        .iter()
+        .find(|child| child.root().cells() > 0)
+        .context("retained restart requires a nonempty child")?
+        .route()
+        .history;
     drop(prepared);
     let transition = Arc::new(
         fleet
@@ -379,7 +386,6 @@ pub(super) async fn verify_sealed_cut(
             .context("reopen managed sealed transition for install")?,
     );
     let recovery = recovery_pool()?;
-    let first = replay.children()[0].history;
     ensure!(matches!(
         cluster.hosts[0]
             .install_managed_transfer_child(
@@ -396,6 +402,7 @@ pub(super) async fn verify_sealed_cut(
         cluster.hosts[0].group(first),
         Err(RuntimeError::NotFound)
     ));
+    let mut retained = None;
     for route in replay.children() {
         for (index, host) in cluster.hosts[3..].iter().enumerate() {
             let receipt = host
@@ -419,11 +426,92 @@ pub(super) async fn verify_sealed_cut(
                 )
                 .await?;
             ensure!(repeated == receipt);
+            if route.history == first && index == 0 {
+                retained = Some(receipt);
+            }
             ensure!(matches!(
                 host.group(route.history)?.status().await,
                 Err(RuntimeError::NotFound)
             ));
         }
     }
+    Box::pin(restart_destination(
+        cluster,
+        directory,
+        transition,
+        replay,
+        first,
+        recovery,
+        retained.context("first destination receipt")?,
+    ))
+    .await?;
+    Ok(())
+}
+
+async fn restart_destination(
+    cluster: &mut ManagedCluster,
+    directory: &RangeDirectory,
+    transition: Arc<ReopenedManagedCellGroupTransition>,
+    sources: VerifiedCellGroupTransitionSources,
+    child: GroupHistory,
+    recovery: CellGroupRecoveryPool,
+    expected: InstalledTransferVoter,
+) -> Result<()> {
+    const DESTINATION: usize = 3;
+    let old = cluster.nodes.remove(DESTINATION);
+    let old_host = cluster.hosts.remove(DESTINATION);
+    let previous = old_host.identity();
+    stop_transfer_destination(old, &old_host, 2).await?;
+    let fixture = &cluster.fixtures[DESTINATION];
+    let node = start_node(
+        cluster.roots[DESTINATION].path(),
+        fixture.application.clone(),
+        &fixture.spec.label,
+    )
+    .await?;
+    let startup = async {
+        let (mut config, services) = fixture.config(&node, LogOpenMode::Resume, 109).await?;
+        crate::managed_fixture::archives::configure(&mut config);
+        node.start_raft_cells(config, services).await
+    }
+    .await;
+    let host = match startup {
+        Ok(host) => host,
+        Err(error) => {
+            let stopped = node.shutdown(ShutdownMode::Preserve).await;
+            return Err(error.context(format!("retained transfer startup, shutdown={stopped:?}")));
+        }
+    };
+    cluster.nodes.insert(DESTINATION, node);
+    cluster.hosts.insert(DESTINATION, host);
+    let host = &cluster.hosts[DESTINATION];
+    ensure!(host.identity().process != previous.process);
+    ensure!(host.observe_node(TIMEOUT).await?.node.groups == 2);
+    for route in sources.children() {
+        ensure!(matches!(
+            host.group(route.history)?.status().await,
+            Err(RuntimeError::NotFound)
+        ));
+    }
+    ensure!(matches!(
+        host.install_managed_transfer_child(
+            transition.clone(),
+            sources.clone(),
+            child,
+            recovery.clone(),
+            TIMEOUT,
+        )
+        .await,
+        Err(CellGroupControllerError::Catalog(_))
+    ));
+    admit_capacity(fixture, host, directory, 225).await?;
+    let reopened = host
+        .install_managed_transfer_child(transition, sources, child, recovery, TIMEOUT)
+        .await?;
+    ensure!(reopened == expected);
+    ensure!(matches!(
+        host.group(child)?.status().await,
+        Err(RuntimeError::NotFound)
+    ));
     Ok(())
 }

@@ -200,11 +200,12 @@ pub(crate) async fn start(
     // This initialization owns several nested catalog/recovery futures. Keep
     // that state off callers' native stacks, including nested node startup.
     let result = Box::pin(async {
-        if options.managed.is_some() {
+        if let Some(managed) = &options.managed {
             registration::discover_retained_placements(
                 &mut prepared,
                 &log,
-                limits.controller.max_groups,
+                &managed.authorization.stop_catalog(),
+                limits,
             )
             .await?;
         }

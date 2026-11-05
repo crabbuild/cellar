@@ -1093,7 +1093,10 @@ also require the exact transition's reserved child, a current capacity proof
 for the running destination boot, and the same local boot guard at the engine
 write. The controller prepares only its assigned child in the retained node
 stores. A retry can reconcile the exact synced mapping while the node retains
-its pins. After restart, the node must verify the retained images again.
+its pins. Startup parks an exact pending child after checking the rooted
+transition and install intent. Its physical mapping remains charged to the
+node. Receipt reconciliation after restart requires new capacity evidence and
+reopens the retained pages and images under the new engine owner.
 The child retains its fleet binding while pending. A matching receipt
 follows the sync. A read-only check confirms a majority of reserved voters
 from matching intents and receipts on distinct pinned disks and engines.

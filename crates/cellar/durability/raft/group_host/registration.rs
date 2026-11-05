@@ -260,13 +260,15 @@ async fn select_assignment(
 pub(super) async fn discover_retained_placements(
     prepared: &mut Prepared,
     log: &crate::raft::storage::ReplicaLog,
-    limit: usize,
+    fleet: &crate::raft::fleet_catalog::FleetCatalog,
+    limits: CellGroupNodeLimits,
 ) -> anyhow::Result<()> {
     let configured: BTreeMap<_, _> = prepared
         .groups
         .iter()
         .map(|assignment| (assignment.birth.route().history, assignment.placement))
         .collect();
+    let mut parked = 0;
     for retained in log.cell_groups()? {
         let history = retained.identity().scope;
         match configured.get(&history) {
@@ -277,9 +279,39 @@ pub(super) async fn discover_retained_placements(
             None => (),
         }
         anyhow::ensure!(
-            prepared.groups.len() < limit,
+            prepared.groups.len().saturating_add(parked) < limits.controller.max_groups,
             "retained group capacity exceeded"
         );
+        if let Some(marker) = retained
+            .group_manifest()?
+            .filter(|marker| marker.is_transfer_genesis())
+        {
+            let directory = prepared
+                .namespaces
+                .iter()
+                .find(|namespace| {
+                    let config = namespace.directory.namespace_config();
+                    config.cluster == history.cluster && config.namespace == history.namespace
+                })
+                .map(|namespace| &namespace.directory)
+                .ok_or(CatalogError::ManagedAdmissionRequired)?;
+            let origin = marker.transfer_origin().ok_or(CatalogError::Fenced)?;
+            let operation = cellar_logic::consensus::ProposalId::new(origin.operation())?;
+            let transition = fleet
+                .reopen_managed_transition(directory, operation, std::time::Duration::from_secs(5))
+                .await?
+                .ok_or(CatalogError::Fenced)?;
+            directory
+                .require_parked_managed_transfer(
+                    &transition,
+                    &retained,
+                    &marker,
+                    log.storage_instance()?,
+                )
+                .await?;
+            parked += 1;
+            continue;
+        }
         let group = select_assignment(
             &prepared.namespaces,
             RaftGroupAssignment {

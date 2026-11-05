@@ -76,7 +76,7 @@ async fn run_plan(rooted: bool, store: Arc<fault::Store>, decision: Decision) ->
         Decision::Authorize => 2,
         Decision::Cancel => 0,
     };
-    let result = Box::pin(exercise(&cluster, rooted, decision)).await;
+    let result = Box::pin(exercise(&mut cluster, rooted, decision)).await;
     let spares = cluster.nodes.split_off(3);
     let joined = close_group_nodes(cluster.nodes, &cluster.hosts).await;
     let joined_spares = async {
@@ -114,7 +114,7 @@ async fn stop_transfer_destination(node: Node, host: &RaftCells, expected: usize
     Ok(())
 }
 
-async fn exercise(cluster: &ManagedCluster, rooted: bool, decision: Decision) -> Result<()> {
+async fn exercise(cluster: &mut ManagedCluster, rooted: bool, decision: Decision) -> Result<()> {
     let fixture = &cluster.fixtures[0];
     let fleet = &fixture.catalog;
     let directory = &cluster.directory;
