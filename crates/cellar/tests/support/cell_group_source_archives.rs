@@ -678,7 +678,9 @@ async fn verify_transfer_activation(
         ));
         positions.push((scope, activation.position.index));
     }
-    await_applied(fixture, &positions).await?;
+    await_applied(fixture, &positions)
+        .await
+        .context("commit transfer activations")?;
 
     let domain = &fixture.cluster.domain;
     for (child, (scope, position)) in children.iter().zip(positions) {
@@ -767,7 +769,9 @@ async fn verify_transfer_activation(
         .group_manifest()?
         .context("child before write")?;
     let write = runtime.propose(route.history, encoded).await?;
-    await_applied(fixture, &[(route.history, write.position.index)]).await?;
+    await_applied(fixture, &[(route.history, write.position.index)])
+        .await
+        .context("commit post-activation enrollment")?;
     let after = log
         .cell_group(&route.history)?
         .group_manifest()?

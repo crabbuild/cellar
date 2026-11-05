@@ -838,7 +838,7 @@ impl ManifestTree {
             root,
             recovery: previous.marker.recovery.clone(),
             seal: None,
-            transfer: None,
+            transfer: previous.marker.transfer.clone(),
         };
         marker.check()?;
         Ok(PreparedGroupManifest {
