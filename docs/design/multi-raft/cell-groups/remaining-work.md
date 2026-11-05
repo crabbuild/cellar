@@ -13,34 +13,33 @@ and validation boundaries and [handoff](handoff.md) for executor context.
 
 ## Current boundary
 
-CG-01–06 and CG-08 passed their recorded component gates. Shared owners preserve
-cell-specific SQLite histories, receipts, effects and versions; complete group
-manifests/checkpoints, S3 archives/reclamation and fenced fresh-history recovery
-have scoped coverage. Managed startup, directory refresh, membership send fences,
-capacity admission, peer/S3 replacement, maintenance stop/return/resume and retained
-initial/joined restart pass component cases. Idle/restart seed retirement keeps
-unknown ownership and uncertain outcomes fenced and charged.
+CG-01–06 and CG-08 passed their recorded component gates. Shared group owners,
+cell-specific SQLite histories/receipts/effects/versions, complete checkpoints,
+archives/reclamation and fenced fresh-history recovery have scoped coverage.
+Managed startup, directory refresh, membership send fences, capacity admission,
+peer/S3 replacement, stop/return/resume and retained initial/joined restart pass
+component cases. Automatic S3 voter recovery reaches terminal removal while
+retaining the obsolete engine and disk. These are fixture isolation/capacity
+results, not production platform fencing or a completed public lifecycle gate.
 
-Automatic failed-voter recovery now passes both image forms through the Node-owned
-service: joined isolation cancellation, exact-operation restart, S3 replacement,
-fresh RF3, archive-outage refusal, independent replay and terminal removal.
-Duplicate workers refuse; shutdown releases control admission; the removed engine
-and disk remain retained. This is fixture isolation, not a production fence.
+The latest affected managed target passes 17 cases/6 backend-only skips. Four
+current-source RustFS invocations pass: lost-observation renewal, the original
+full maintenance case twice, and automatic recovery. Renewal retries a lost
+read-only observation within the original five-second envelope and requires all
+three fresh observations. Test handoffs re-observe actual leadership and preserve
+term/revision guards. Earlier unseeded proof, ambiguous-write, transfer/readiness,
+eight-turn replacement, enrollment and inspection failures remain unwaived.
 
-The latest frozen campaign passes 267 native cases/36 explicit skips plus the
-public SDK/native/Axum process/restart gate. Four same-source real RustFS cases
-pass across the campaign and a separate disk-loss run, including automatic
-recovery and all-old-voter-directory/verifier-cache-erased fresh-incarnation
-recovery. Joined-voter archived maintenance FAILS its original five-second
-survivor-proof renewal after handoff; retained evidence remains unwaived. See [progress](progress.md) for source/binary
-hashes, exact results and limits. Earlier unexplained failures remain open.
+Earlier seven-target native, SDK/native/Axum process/restart and all-voter-directory/
+verifier-cache-erased recovery results retain their own source hashes; they are
+not relabeled as the latest complete campaign. See [progress](progress.md) for
+exact current and historical source/binary results and limits.
 
-CG-07 stays IN_PROGRESS. Four original public gates remain undelivered, including
-the complete managed lifecycle and ingress authority gates. Default backend and
-capability coverage are incomplete. Host-native fixtures do not qualify permanent
-Docker fencing, constrained independent voters, sustained load or a release.
-CG-09–16 remain TODO. No legacy/shared production switch or old-data migration is
-part of the target.
+CG-07 remains IN_PROGRESS. Four original public gates remain undelivered, including
+complete managed lifecycle and ingress authority. Default/backend and capability
+coverage, plan/lint/CI modes, production fencing, constrained independent voters
+and sustained-load qualification remain unfinished. CG-09–16 stay TODO. No
+production legacy/shared switch or old-data migration is part of the target.
 
 ## P0: finish the MVP and its merge gates
 
@@ -180,10 +179,10 @@ full hard cutover.
 | CG-15 | Full load/crash, transition, wakeup and disaster-recovery matrix. Measure the documented profiles and failure schedules; no capacity or TiKV performance-parity claim follows from correctness tests. |
 | CG-16 | Delete remaining predecessor consumers/codecs, finish feature-off/full release checks, publish the unified API/runbooks and qualified operating envelope. No one-cell special path, compatibility reader or production mode toggle. |
 
-The immediate functional gap is the current RustFS joined-maintenance proof
-timeout under the original five-second bound. Then deliver the public managed
-lifecycle and ingress authority gates, retained surviving-voter-debt orchestration
-and deployment-level fencing qualification, followed by default-backend/capability
-integration and the complete MVP public/backend gates, then
+The next functional slice is the public managed lifecycle and ingress authority
+gates, retained debt on surviving original voters and deployment fencing
+qualification. Investigate the unseeded read/write/transfer and eight-turn
+replacement failures without changing their bounds. Then finish default/backend
+and capability integration and the complete MVP public/backend gates, then
 transition/topology/wake features and the final managed recovery/load/release matrix. Passing one layer
 does not mark another layer or the end-to-end goal complete.

@@ -254,12 +254,44 @@ impl ManagedCluster {
         archives: ArchiveSetup,
         store: Arc<fault::Store>,
     ) -> Result<Self> {
+        Box::pin(Self::start_with_catalog_clients(
+            rooted, spares, archives, store, false,
+        ))
+        .await
+    }
+
+    async fn start_with_catalog_clients(
+        rooted: bool,
+        spares: &[u8],
+        archives: ArchiveSetup,
+        store: Arc<fault::Store>,
+        independent: bool,
+    ) -> Result<Self> {
         let first = Fixture::with_store(rooted, counter_class()?, store).await?;
         let second = peer_fixture(&first, 5).await?;
         let third = peer_fixture(&first, 6).await?;
         let mut fixtures = vec![first, second, third];
         for id in spares {
             fixtures.push(peer_fixture(&fixtures[0], *id).await?);
+        }
+        if independent {
+            for fixture in fixtures.iter_mut().skip(1) {
+                let bucket = Bucket::from_clients(
+                    fixture.store.clone(),
+                    fixture.store.clone(),
+                    Arc::new(NoListing),
+                    StorageBackend::S3,
+                    "managed-component".into(),
+                    "tenant/".into(),
+                )?;
+                fixture.catalog = FleetCatalog::new(
+                    &fixture.domain,
+                    bucket,
+                    fixture.declaration.namespace.cluster,
+                    IncarnationId::new([80; 16])?,
+                    "hosts/",
+                )?;
+            }
         }
         let f = &fixtures[0];
         let namespace = f

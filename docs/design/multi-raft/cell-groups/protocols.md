@@ -304,6 +304,14 @@ that isolation proof only for the exact obsolete boot, after fresh stable RF3
 excludes it. Surviving original voters still need live physical-inventory and
 worker-exit proofs; settlement leaves the obsolete disk and disruption retained.
 
+Managed live voting observations share one original deadline. Each read-only
+member attempt receives a share of the remaining time, reserving time for other
+members and final validation. A lost reply retains the unverified history and
+allows the owning walk to retry fresh observations. No partial member set or
+historical sample can satisfy the final proof; all three safe ReadIndex/durable
+apply observations and current rooted inputs remain required. Mutation ambiguity
+and retry rules are unchanged.
+
 The explicitly started Node-owned failure service can drive exclusion, exact-boot
 platform isolation, S3 replacement, fresh RF3 and terminal survivor/archive
 verification. Its private verifier initializes durable scratch storage before

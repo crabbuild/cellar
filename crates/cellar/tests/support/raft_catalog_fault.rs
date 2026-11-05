@@ -12,6 +12,20 @@ tokio::task_local! {
     static READ_COUNTS: std::cell::RefCell<std::collections::BTreeMap<String, usize>>;
     static MISSING_READ: String;
     static GATED_READ: (String, std::sync::Arc<RegistryGate>);
+    static GATED_STORE_READ: (std::sync::Arc<()>, String, std::sync::Arc<RegistryGate>);
+}
+
+// Keep a lost observation on one foreground client's store, without delaying
+// background trust refresh or the controller's independent catalog client.
+pub async fn gate_store_read<T>(
+    store: &Store,
+    suffix: String,
+    gate: std::sync::Arc<RegistryGate>,
+    work: impl std::future::Future<Output = T>,
+) -> T {
+    GATED_STORE_READ
+        .scope((store.gate_identity.clone(), suffix, gate), work)
+        .await
 }
 
 // Keep a read fault local to one verifier; running nodes still see the store.
@@ -71,6 +85,7 @@ impl RegistryGate {
 #[derive(Debug, Default)]
 pub struct Store {
     external: Option<std::sync::Arc<dyn ObjectStore>>,
+    gate_identity: std::sync::Arc<()>,
     pub group_payload_reads: AtomicUsize,
     pub denied_group_payload_reads: AtomicUsize,
     pub deny_group_payload_reads: AtomicBool,
@@ -540,6 +555,17 @@ impl ObjectStore for Store {
     }
 
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
+        let gate = GATED_STORE_READ
+            .try_with(|(identity, suffix, gate)| {
+                (std::sync::Arc::ptr_eq(identity, &self.gate_identity)
+                    && path.as_ref().ends_with(suffix))
+                .then(|| gate.clone())
+            })
+            .ok()
+            .flatten();
+        if let Some(gate) = gate {
+            gate.pause().await;
+        }
         if path.as_ref().contains("/cell-group-archives/") && path.as_ref().contains("/chunks/") {
             self.group_payload_reads.fetch_add(1, Ordering::AcqRel);
             if self.deny_group_payload_reads.load(Ordering::Acquire) {

@@ -9,6 +9,9 @@ use cellar::application::consensus::verification::{
     FleetRestartReturnRequest, FleetRestartRuntimeProgress, FleetRestartStopRequest,
 };
 
+#[path = "cell_group_managed_maintenance_loss.rs"]
+mod loss;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn managed_group_maintenance_stop_return_and_resume() -> Result<()> {
     for rooted in [false, true] {
@@ -50,11 +53,21 @@ async fn rustfs_managed_archive_maintenance_stop_return_and_resume() -> Result<(
 }
 
 async fn maintained_with_store(rooted: bool, joined: bool, store: Arc<fault::Store>) -> Result<()> {
-    let mut cluster = Box::pin(ManagedCluster::start_with_store(
+    Box::pin(maintained_with_loss(rooted, joined, store, false)).await
+}
+
+async fn maintained_with_loss(
+    rooted: bool,
+    joined: bool,
+    store: Arc<fault::Store>,
+    lose_observation: bool,
+) -> Result<()> {
+    let mut cluster = Box::pin(ManagedCluster::start_with_catalog_clients(
         rooted,
         &[7],
         ArchiveSetup::Initialized,
         store,
+        lose_observation,
     ))
     .await?;
     let work = async {
@@ -66,9 +79,24 @@ async fn maintained_with_store(rooted: bool, joined: bool, store: Arc<fault::Sto
         } else {
             leader(&cluster.hosts[..3], cluster.history).await?
         };
-        cycle(&mut cluster, &seed, obsolete, target).await
+        cycle(&mut cluster, &seed, obsolete, target, lose_observation).await
     }
     .await;
+    if work.is_err() {
+        // Preserve actual local status before cleanup joins the hosts. These
+        // bounded read-only samples never replace or clear the original error.
+        for (index, host) in cluster.hosts.iter().enumerate() {
+            let usage = host.resource_usage();
+            eprintln!(
+                "maintenance failure: host {index} control={:?} runtime={:?} host={:?}",
+                usage.control, usage.runtime, usage.host
+            );
+            if let Ok(group) = host.group(cluster.history) {
+                let sample = tokio::time::timeout(TIMEOUT, group.status()).await;
+                eprintln!("maintenance failure: host {index} status={sample:?}");
+            }
+        }
+    }
     let joined = close(std::mem::take(&mut cluster.nodes), &cluster.hosts).await;
     cluster.fixtures[0].domain.shutdown().await;
     if work.is_err() || joined.is_err() {
@@ -118,6 +146,67 @@ async fn target_leader(cluster: &ManagedCluster, target: usize) -> Result<()> {
     Ok(())
 }
 
+async fn handoff_to(cluster: &ManagedCluster, obsolete: usize, target: usize) -> Result<()> {
+    let member = MemberId::new(target as u64 + 1)?;
+    let end = tokio::time::Instant::now() + TIMEOUT;
+    tokio::time::timeout(TIMEOUT, async {
+        loop {
+            let target_status = cluster.hosts[target]
+                .group(cluster.history)?
+                .status()
+                .await?;
+            if target_status.ready && target_status.leader == Some(member.get()) {
+                return Ok::<_, anyhow::Error>(());
+            }
+            // A previous survivor sample is historical. Re-observe the actual
+            // leader and current term/revision before each guarded admission.
+            for (index, host) in cluster.hosts.iter().enumerate() {
+                if index == obsolete || index == target {
+                    continue;
+                }
+                let remaining = end
+                    .checked_duration_since(tokio::time::Instant::now())
+                    .context("maintenance handoff deadline")?;
+                let group = host.group(cluster.history)?;
+                let progress = match group.replication_status(remaining).await {
+                    Ok(progress) => progress,
+                    Err(
+                        RuntimeError::NotLeader | RuntimeError::NotReady | RuntimeError::Overloaded,
+                    ) => continue,
+                    Err(error) => return Err(error.into()),
+                };
+                let remaining = end
+                    .checked_duration_since(tokio::time::Instant::now())
+                    .context("maintenance handoff deadline")?;
+                match group
+                    .transfer_leadership(
+                        LeadershipTransfer {
+                            target: member,
+                            expected_term: progress.term,
+                            expected_revision: progress.membership_revision,
+                        },
+                        remaining,
+                    )
+                    .await
+                {
+                    Ok(())
+                    | Err(
+                        RuntimeError::NotReady
+                        | RuntimeError::NotLeader
+                        | RuntimeError::Overloaded
+                        | RuntimeError::DeadlineExceeded,
+                    ) => (),
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("observe actual maintenance target leadership")??;
+    Ok(())
+}
+
 async fn paused_write_refuses(host: &RaftCells, seed: &SeededCells) -> Result<()> {
     let cell = host.cell(seed.cells[0].clone())?;
     let id = CommandId::new(ClientId::new([202; 16])?, 1)?;
@@ -143,18 +232,12 @@ async fn cycle(
     seed: &SeededCells,
     obsolete: usize,
     target_index: usize,
+    lose_observation: bool,
 ) -> Result<()> {
     let member = MemberId::new(target_index as u64 + 1)?;
     let catalog = cluster.fixtures[0].catalog.clone();
     discover(cluster).await?;
-    let initial = leader(&cluster.hosts[..3], cluster.history).await?;
-    if initial != target_index {
-        cluster.hosts[initial]
-            .group(cluster.history)?
-            .transfer_leader(member)
-            .await?;
-    }
-    target_leader(cluster, target_index).await?;
+    handoff_to(cluster, obsolete, target_index).await?;
     eprintln!(
         "maintenance: target member {} leader established",
         member.get()
@@ -164,7 +247,7 @@ async fn cycle(
     let node = NodeId::new(boot.node)?;
     let process = ProcessGeneration::new(boot.process)?;
     let observer_index = (0..4)
-        .find(|i| *i != obsolete && *i != target_index)
+        .find(|i| *i != obsolete && *i != target_index && (!lose_observation || *i > 0))
         .context("surviving observer")?;
     let observer = cluster.hosts[observer_index].clone();
     let cut = catalog.read(TIMEOUT).await?;
@@ -245,54 +328,93 @@ async fn cycle(
     }
     eprintln!("maintenance: complete target inventory, start survivor verification");
     let mut handoffs = 0;
+    let mut verified = 0;
     let mut waiting = false;
-    tokio::time::timeout(TIMEOUT, async {
-        loop {
-            match walk.reconcile_next(TIMEOUT).await {
-                Ok(Some(FleetRestartRuntimeProgress::HandoffRequested {
-                    group, from, to, ..
-                })) => {
-                    ensure!(group == cluster.history && from == member && to != from);
-                    handoffs += 1;
-                    eprintln!("maintenance: survivor handoff requested");
-                }
-                Ok(Some(FleetRestartRuntimeProgress::Verified(
-                    FleetRestartHistoryProgress::Voting {
+    let lost = Arc::new(fault::RegistryGate::default());
+    let mut armed = false;
+    let mut refused = false;
+    let renew = async {
+        tokio::time::timeout(TIMEOUT, async {
+            loop {
+                match walk.reconcile_next(TIMEOUT).await {
+                    Ok(Some(FleetRestartRuntimeProgress::HandoffRequested {
                         group,
-                        member,
-                        survivors,
-                    },
-                ))) => {
-                    ensure!(
-                        group == cluster.history
-                            && member == MemberId::new(target_index as u64 + 1)?
-                            && survivors[0] != survivors[1]
-                            && !survivors.contains(&node)
-                    );
-                }
-                Ok(None) => break,
-                Err(
-                    FleetCatalogError::Unconfirmed
-                    | FleetCatalogError::Overloaded
-                    | FleetCatalogError::InventoryIncomplete,
-                )
-                | Err(FleetCatalogError::Observation(
-                    InspectionError::Unavailable | InspectionError::Overloaded,
-                )) => {
-                    if !waiting {
-                        eprintln!("maintenance: survivor proof not yet available");
-                        waiting = true;
+                        from,
+                        to,
+                        ..
+                    })) => {
+                        ensure!(group == cluster.history && from == member && to != from);
+                        handoffs += 1;
+                        eprintln!("maintenance: survivor handoff requested");
+                        if lose_observation && !armed {
+                            // The next foreground local-member observation loses
+                            // its catalog reply. It is never resumed by the test.
+                            lost.armed.store(true, Ordering::Release);
+                            armed = true;
+                        }
                     }
-                    tokio::time::sleep(Duration::from_millis(10)).await;
+                    Ok(Some(FleetRestartRuntimeProgress::Verified(
+                        FleetRestartHistoryProgress::Voting {
+                            group,
+                            member,
+                            survivors,
+                        },
+                    ))) => {
+                        ensure!(
+                            group == cluster.history
+                                && member == MemberId::new(target_index as u64 + 1)?
+                                && survivors[0] != survivors[1]
+                                && !survivors.contains(&node)
+                        );
+                        verified += 1;
+                    }
+                    Ok(None) => break,
+                    Err(
+                        FleetCatalogError::Unconfirmed
+                        | FleetCatalogError::Overloaded
+                        | FleetCatalogError::InventoryIncomplete,
+                    )
+                    | Err(FleetCatalogError::Observation(
+                        InspectionError::Unavailable | InspectionError::Overloaded,
+                    )) => {
+                        refused = true;
+                        if !waiting {
+                            eprintln!("maintenance: survivor proof not yet available");
+                            waiting = true;
+                        }
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                    other => anyhow::bail!("joined maintenance verification: {other:?}"),
                 }
-                other => anyhow::bail!("joined maintenance verification: {other:?}"),
             }
-        }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        .context("renew joined maintenance survivor proof")??;
         Ok::<_, anyhow::Error>(())
-    })
-    .await
-    .context("renew joined maintenance survivor proof")??;
+    };
+    if lose_observation {
+        fault::gate_store_read(
+            cluster.fixtures[observer_index].store.as_ref(),
+            "/fleet/head".into(),
+            lost.clone(),
+            renew,
+        )
+        .await?;
+        ensure!(
+            armed && refused && !lost.armed.load(Ordering::Acquire),
+            "lost member observation was not entered and retried"
+        );
+    } else {
+        renew.await?;
+    }
     ensure!(handoffs == 1);
+    if lose_observation {
+        // This regression ends at its owning renewal boundary. Full
+        // stop/return/resume remains required by the original lifecycle case.
+        ensure!(verified == 1);
+        return Ok(());
+    }
     let cut = catalog.read(TIMEOUT).await?;
     let ready = FleetRestartReadyRequest {
         identity: intent(223, cut.revision()),
@@ -663,11 +785,7 @@ async fn cycle(
     let capacity = catalog.authorize_capacity(&cut, node, TIMEOUT).await?;
     ensure!(capacity.receive_replicas() && capacity.attestation() == &attestation);
     discover(cluster).await?;
-    survivor
-        .group(cluster.history)?
-        .transfer_leader(member)
-        .await?;
-    target_leader(cluster, target_index).await?;
+    handoff_to(cluster, obsolete, target_index).await?;
     verify_cells(&cluster.hosts[target_index], seed, 5)
         .await
         .context("actual resumed owner serves both cells")?;

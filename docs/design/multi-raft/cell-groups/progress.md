@@ -12,6 +12,62 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 bounded member observation renewal
+
+A deterministic managed regression now reproduces one lost local-member
+observation after leadership handoff. Its foreground catalog client is independent
+of the controller and background trust refresh, over the same actual backend.
+Before the fix, that read consumes the entire original five-second renewal budget;
+local snapshots show a healthy quorum and empty work banks. The peer observation
+now receives a share of the remaining time, reserving time for other members and
+final validation. A transient refusal leaves the history pending; retry obtains
+all three fresh safe ReadIndex/durable-apply observations. Both image forms pass
+without resuming the lost read. Root, boot, configuration and proof-age checks
+remain intact. No write retry, stale proof or longer deadline is introduced.
+
+The lifecycle harness also reconciles actual leadership before/after maintenance
+using fresh term/revision guards, rather than treating a historical survivor and
+one admitted handoff as completed election. It observes actual target leadership
+inside one original five-second envelope. The eight movement turns and all
+durability/capacity assertions remain unchanged. Bounded local status/admission
+snapshots are recorded on failure before cleanup; the original error still fails.
+Temporary tagged tracing and its focused prototype are removed.
+
+Source-final-02 binds 2,722 Rust/Python/manifest inputs above
+6b70a5357a470f75b7e36ec201f44f31ea7da536 to SHA256
+7ad7649846ca9405e6be33738b6d851f256a887e4af08c4f86004c590039554b.
+The complete affected managed target passes **17 cases with 6 explicit backend
+skips**, in 307.21s. Native record SHA256 is
+e589e438c251e71d8ddba76abf8eb9055b63b7a08abec06526a402b431424441.
+
+Four same-source RustFS invocations pass: the lost-observation regression
+32.19s, the unchanged full archived maintenance case
+twice (85.71s and 100.80s),
+and automatic S3 voter recovery through terminal removal
+40.46s. Both image forms run; maintenance additionally
+covers initial and joined voters. Record SHA256 is
+d3c69d70f2e2fe99a840582cdf7248f5c833abbeb939a54b125ea95fa18e4040.
+The immutable-ID/owner/resource/mount-verified one-CPU/two-GiB backend is reused
+with fresh buckets/prefixes because retained Docker networks exhausted default
+subnets. No retained resource is deleted; backend and dedicated VM are stopped
+with data retained. Nodes remain host-native with fixture capacity/isolation;
+independent constrained Linux voters and production fencing/load remain unqualified.
+
+The earlier unseeded renewal timeout was not captured at a causal low-level seam.
+An instrumented full case also failed an ambiguous sequence-4 S3 command before
+owned resume; another diagnostic run missed restored-target leadership. Those
+failures and the initial final-source 15-pass/2-fail campaign (NotReady maintenance
+and eight-turn peer replacement) are retained and unwaived. The new regression
+proves recovery from a lost observation, not every prior failure's root cause.
+
+Format/layout/dependencies/docs, native-only Cellar/Python-library and diff checks
+pass. Strict library Clippy and plan tests/validate/preflight remain red; diagnostic
+comparison adds no key. Reviewed source anchors are not refreshed and no lint is
+suppressed. The earlier seven-target/SDK and disk-erasure results remain bound to
+their recorded source; this checkpoint qualifies the affected managed boundary.
+CG-07 stays IN_PROGRESS; four public gates, default/capability cutover, CI/load,
+unexplained failures and CG-09–16 remain open.
+
 ## CG-07 automatic shared-group failure recovery
 
 The Node-owned automatic failure service now passes the complete local

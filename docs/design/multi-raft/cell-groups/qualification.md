@@ -42,6 +42,7 @@ The managed native target now implements these explicit backend cases:
 
 - `bootstrap::lifecycle::rustfs_managed_s3_group_replacement_and_joined_restart`
 - `bootstrap::lifecycle::maintenance::rustfs_managed_archive_maintenance_stop_return_and_resume`
+- `bootstrap::lifecycle::maintenance::loss::rustfs_managed_maintenance_recovers_one_lost_membership_observation`
 - `bootstrap::lifecycle::s3::rustfs_managed_s3_seed_refusal_and_source_failover`
 - `bootstrap::lifecycle::isolation::rustfs_managed_isolated_voter_s3_replacement_retains_disk_and_fence`
 - `bootstrap::lifecycle::recovery::rustfs_managed_failure_recovery_restarts_and_verifies_s3_before_removal`
@@ -82,8 +83,8 @@ removal. Keep the original eight reconciliation turns and five-second calls.
 
 The automatic recovery case uses the Node-owned failure service with the original
 failure grace, probe interval and five-second turn limits. Hold an exact-boot
-isolation callback,
-verify repair has not begun, refuse a duplicate worker, then shut down and require
+isolation callback, verify repair has not begun, refuse a duplicate worker, then
+shut down and require
 joined callback cancellation and released control admission. Restart the service
 through S3 replacement while the independent verifier refuses payload GETs.
 Require fresh replacement inventory, no terminal receipt and unchanged obsolete
@@ -93,6 +94,24 @@ and reservation books, original receipts/new S3 writes and unchanged retained
 obsolete disk. Both image forms start with cold private verifier inventories;
 no business mutation drives the repair. These fixture attestations do not qualify
 Docker launch revocation or the complete public lifecycle gate.
+
+The lost-observation regression uses independently owned catalog clients over the
+same actual backend. After handoff, hold one foreground local-member catalog read
+without resuming it; background trust refresh and the controller's client remain
+unaffected. The walk must return a transient refusal, retry that pending history,
+and verify all three members within the original five-second renewal envelope.
+Both image forms require one handoff and exactly one verified history. This case
+ends at renewal; the unchanged full lifecycle case separately qualifies owned
+stop, return, resume and capacity settlement. On failure, bounded read-only local
+status and admission snapshots are recorded before cleanup; the original error
+still fails the test.
+
+Initial/final test handoffs reconcile actual leadership under one original
+five-second envelope. Re-observe the current leader, capture its term and
+membership revision, and use guarded transfer admission. NotReady or a lost
+admission response requires observing actual state again; acceptance alone is
+not election completion. Successful handoff still requires the target's actual
+ready leader state. The original eight movement turns remain unchanged.
 
 The fault case also blocks actual registry mutations after target payload
 refusal. Require a witnessed denied write, retained pending journal and observable

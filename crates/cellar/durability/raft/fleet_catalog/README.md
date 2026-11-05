@@ -573,6 +573,14 @@ placement and original-member identity, then invokes the existing guarded
 registration and initial-member pipeline. An imported birth, dynamic member,
 retired slot or claimed blank engine cannot grant fresh genesis.
 
+Live voting verification divides its remaining observation budget among the
+unobserved members and final validation. A lost read-only membership reply can
+therefore return Unavailable before consuming the complete turn. The pending
+history remains unverified; the owning walk must obtain all three fresh safe
+ReadIndex/durable-apply observations again. Root-input, boot, configuration and
+proof-age checks remain mandatory. This allocation extends no deadline and
+introduces no mutation retry or stale-proof fallback.
+
 The shared fleet action lane now carries explicit Movement and RestartGenesis
 variants. Their receiving authorities remain separate; a movement permit cannot
 authorize genesis. TLS exporter/purpose binding, route, nonce, body digest,

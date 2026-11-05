@@ -340,6 +340,9 @@ pub(in crate::raft::fleet_catalog::maintenance) fn observe_current_voting<'a>(
             observer,
             paused,
         } = cut;
+        if expected.len() != 3 {
+            return Err(FleetCatalogError::InventoryIncomplete);
+        }
         let first = if expected.contains_key(&target) {
             target
         } else {
@@ -361,12 +364,22 @@ pub(in crate::raft::fleet_catalog::maintenance) fn observe_current_voting<'a>(
         for peer in
             std::iter::once(first).chain(expected.keys().copied().filter(|peer| *peer != first))
         {
+            // One lost metadata reply must leave time for the owning walk to
+            // retry. Divide only this read-only observation budget; the final
+            // validation and original freshness/deadline checks stay intact.
+            let shares =
+                u32::try_from(4 - observations.len()).map_err(|_| FleetCatalogError::Limit)?;
+            let timeout = deadline
+                .remaining()?
+                .checked_div(shares)
+                .filter(|budget| budget.as_millis() > 0)
+                .ok_or(FleetCatalogError::Unconfirmed)?;
             let observation = observer
                 .observe_peer_fleet_membership(
                     peer,
                     authorization.clone(),
                     snapshot.revision(),
-                    deadline.remaining()?,
+                    timeout,
                 )
                 .await
                 .map_err(FleetCatalogError::Observation)?;
