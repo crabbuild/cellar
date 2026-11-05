@@ -591,6 +591,17 @@ impl RangeDirectory {
             .await
     }
 
+    pub(super) async fn record_managed_preparation(
+        &self,
+        mutation: &DirectoryMutation,
+        permit: &ManagedTransitionPermit,
+        preparation: [u8; 32],
+    ) -> Result<TransitionJournal, CatalogError> {
+        permit.check(self, mutation)?;
+        self.advance_transition_inner(mutation, Advance::Prepare(preparation), false)
+            .await
+    }
+
     pub async fn authorize_transition_seal(
         &self,
         mutation: &DirectoryMutation,

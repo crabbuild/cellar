@@ -46,6 +46,19 @@ impl VerifiedCellGroupTransitionSources {
     }
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum TransitionSourceCut {
+    Active,
+    Sealed,
+}
+
+pub(super) struct VerifiedTransitionSourceSet {
+    pub(super) journal: TransitionJournal,
+    pub(super) digest: [u8; 32],
+    pub(super) sources: Vec<CellGroupArchiveCoverage>,
+    pub(super) children: Vec<GroupRoute>,
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SourceSet {
@@ -61,14 +74,24 @@ impl RangeDirectory {
         journal: &TransitionJournal,
         route: &GroupRoute,
         marker: &GroupManifest,
+        cut: TransitionSourceCut,
     ) -> std::result::Result<(), CatalogError> {
+        if marker.route() != route {
+            return Err(CatalogError::Fenced);
+        }
+        if matches!(cut, TransitionSourceCut::Active) {
+            return if marker.is_active() {
+                Ok(())
+            } else {
+                Err(CatalogError::Fenced)
+            };
+        }
         let (transition, authorization, entry) =
             self.source_seal_entry(mutation, journal, route)?;
         let payload = Sha256::digest(&entry).into();
-        if marker.route() != route
-            || marker
-                .source_seal()
-                .is_none_or(|seal| !seal.matches(transition, authorization, payload))
+        if marker
+            .source_seal()
+            .is_none_or(|seal| !seal.matches(transition, authorization, payload))
         {
             return Err(CatalogError::Fenced);
         }
@@ -90,88 +113,123 @@ impl RangeDirectory {
         sources: Vec<CellGroupTransitionSource>,
     ) -> Result<VerifiedCellGroupTransitionSources> {
         self.unmanaged_birth()?;
-        self.check_transition_plan(mutation)?;
-        if sources.len() != mutation.request.parents.len() {
-            return Err(CatalogError::Invalid("incomplete transition source set").into());
-        }
-        let children = mutation
-            .request
-            .children
-            .iter()
-            .map(|route| route.decode(self))
-            .collect::<std::result::Result<Vec<_>, _>>()?;
         domain
             .run(Box::pin(async {
-                let (view, journal) = self
-                    .bounded(async {
-                        let (view, _) = self.current().await?;
-                        let journal = self
-                            .matching_transition(&view.head, mutation)
-                            .await?
-                            .ok_or(CatalogError::Fenced)?;
-                        journal.seal_authorization()?;
-                        Ok((view, journal))
-                    })
-                    .await?;
-                let mut encoded = Vec::with_capacity(sources.len());
-                let mut admitted = Vec::with_capacity(sources.len());
-                for (parent, source) in mutation.request.parents.iter().zip(sources) {
-                    let route = parent.decode(self)?;
-                    if source.birth.route() != &route {
-                        return Err(CatalogError::Fenced.into());
-                    }
-                    self.bounded(self.selected_route_in(&view, &route)).await?;
-                    source.hold.check_reference()?;
-                    self.check_source_marker(mutation, &journal, &route, source.hold.marker())?;
-                    let bytes = record::encode(SOURCE_HOLD, &source.hold, wire::LIMIT)?;
-                    encoded.push((record::digest(&bytes), bytes));
-                    admitted.push(source);
-                }
-                let set = SourceSet {
-                    namespace: self.namespace.root_digest,
-                    request: mutation.digest,
-                    holds: encoded.iter().map(|(digest, _)| *digest).collect(),
-                };
-                let bytes = record::encode(SOURCE_SET, &set, wire::LIMIT)?;
-                let digest = record::digest(&bytes);
-                if journal
-                    .sealed_sources()
-                    .is_some_and(|selected| selected != digest)
-                {
-                    return Err(CatalogError::Conflict("transition source set changed").into());
-                }
-                let mut verified = Vec::with_capacity(admitted.len());
-                for source in admitted {
-                    let registry = self
-                        .open_group_archive(domain, archives, &source.birth)
-                        .await?;
-                    let coverage = registry
-                        .verify_hold(domain, &source.hold, tails, source.receiver)
-                        .await?;
-                    self.check_source_marker(
-                        mutation,
-                        &journal,
-                        source.birth.route(),
-                        coverage.marker(),
-                    )?;
-                    verified.push(coverage);
-                }
-                self.bounded(async {
-                    for (id, bytes) in encoded {
-                        self.immutable(HOLDS, id, &bytes).await?;
-                    }
-                    self.immutable(SETS, digest, &bytes).await
-                })
+                let verified = Box::pin(self.verify_transition_source_set(
+                    domain,
+                    archives,
+                    tails,
+                    mutation,
+                    sources,
+                    TransitionSourceCut::Sealed,
+                ))
                 .await?;
-                let journal = self.record_verified_sources(mutation, digest).await?;
+                let journal = self
+                    .record_verified_sources(mutation, verified.digest)
+                    .await?;
                 Ok(VerifiedCellGroupTransitionSources {
                     journal,
-                    sources: verified,
-                    children,
+                    sources: verified.sources,
+                    children: verified.children,
                 })
             }))
             .await
             .map_err(|_| crate::raft::cell_groups::CellGroupArchiveError::Stopped)?
+    }
+
+    pub(super) async fn verify_transition_source_set(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        archives: &CellGroupArchivePool,
+        tails: &CellGroupArchiveTailPool,
+        mutation: &DirectoryMutation,
+        sources: Vec<CellGroupTransitionSource>,
+        cut: TransitionSourceCut,
+    ) -> Result<VerifiedTransitionSourceSet> {
+        let (parents, children) = self.transition_routes(mutation)?;
+        if sources.len() != parents.len() {
+            return Err(CatalogError::Invalid("incomplete transition source set").into());
+        }
+        let (view, journal) = self
+            .bounded(async {
+                let (view, _) = self.current().await?;
+                let journal = self
+                    .matching_transition(&view.head, mutation)
+                    .await?
+                    .ok_or(CatalogError::Fenced)?;
+                match cut {
+                    TransitionSourceCut::Active
+                        if !matches!(
+                            journal.phase(),
+                            TransitionPhase::Planned | TransitionPhase::Prepared
+                        ) =>
+                    {
+                        return Err(CatalogError::Fenced)
+                    }
+                    TransitionSourceCut::Sealed => {
+                        journal.seal_authorization()?;
+                    }
+                    TransitionSourceCut::Active => (),
+                }
+                Ok((view, journal))
+            })
+            .await?;
+        let mut encoded = Vec::with_capacity(sources.len());
+        let mut admitted = Vec::with_capacity(sources.len());
+        for (route, source) in parents.iter().zip(sources) {
+            if source.birth.route() != route {
+                return Err(CatalogError::Fenced.into());
+            }
+            self.bounded(self.selected_route_in(&view, route)).await?;
+            source.hold.check_reference()?;
+            self.check_source_marker(mutation, &journal, route, source.hold.marker(), cut)?;
+            let bytes = record::encode(SOURCE_HOLD, &source.hold, wire::LIMIT)?;
+            encoded.push((record::digest(&bytes), bytes));
+            admitted.push(source);
+        }
+        let set = SourceSet {
+            namespace: self.namespace.root_digest,
+            request: mutation.digest,
+            holds: encoded.iter().map(|(digest, _)| *digest).collect(),
+        };
+        let bytes = record::encode(SOURCE_SET, &set, wire::LIMIT)?;
+        let digest = record::digest(&bytes);
+        if journal
+            .sealed_sources()
+            .is_some_and(|selected| selected != digest)
+        {
+            return Err(CatalogError::Conflict("transition source set changed").into());
+        }
+        let mut verified = Vec::with_capacity(admitted.len());
+        for source in admitted {
+            let registry = self
+                .open_group_archive(domain, archives, &source.birth)
+                .await?;
+            let coverage = registry
+                .verify_hold(domain, &source.hold, tails, source.receiver)
+                .await?;
+            self.check_source_marker(
+                mutation,
+                &journal,
+                source.birth.route(),
+                coverage.marker(),
+                cut,
+            )?;
+            verified.push(coverage);
+        }
+        self.bounded(async {
+            for (id, bytes) in encoded {
+                self.immutable(HOLDS, id, &bytes).await?;
+            }
+            self.immutable(SETS, digest, &bytes).await
+        })
+        .await?;
+        Ok(VerifiedTransitionSourceSet {
+            journal,
+            digest,
+            sources: verified,
+            children,
+        })
     }
 
     /// Reopen the original hold descriptors after a lost controller. They are
@@ -188,38 +246,54 @@ impl RangeDirectory {
                 .await?
                 .ok_or(CatalogError::Fenced)?;
             let digest = journal.sealed_sources().ok_or(CatalogError::Fenced)?;
-            let bytes = self
-                .read(&format!("{SETS}/{}", hex::encode(digest)))
-                .await?
-                .ok_or(CatalogError::Corrupt("missing transition source set"))?;
-            if record::digest(&bytes) != digest {
-                return Err(CatalogError::Corrupt("transition source set digest"));
-            }
-            let set: SourceSet = record::decode(SOURCE_SET, &bytes, wire::LIMIT)?;
-            if set.namespace != self.namespace.root_digest
-                || set.request != mutation.digest
-                || set.holds.len() != mutation.request.parents.len()
-            {
-                return Err(CatalogError::Corrupt("transition source set binding"));
-            }
-            let mut holds = Vec::with_capacity(set.holds.len());
-            for (parent, id) in mutation.request.parents.iter().zip(set.holds) {
-                let bytes = self
-                    .read(&format!("{HOLDS}/{}", hex::encode(id)))
-                    .await?
-                    .ok_or(CatalogError::Corrupt("missing transition source hold"))?;
-                if record::digest(&bytes) != id {
-                    return Err(CatalogError::Corrupt("transition source hold digest"));
-                }
-                let hold: CellGroupArchiveHold = record::decode(SOURCE_HOLD, &bytes, wire::LIMIT)?;
-                hold.check_reference()
-                    .map_err(|_| CatalogError::Corrupt("transition source hold"))?;
-                self.check_source_marker(mutation, &journal, &parent.decode(self)?, hold.marker())?;
-                holds.push(hold);
-            }
-            Ok(holds)
+            self.read_transition_source_holds(
+                mutation,
+                &journal,
+                digest,
+                TransitionSourceCut::Sealed,
+            )
+            .await
         })
         .await
         .map_err(Into::into)
+    }
+
+    pub(super) async fn read_transition_source_holds(
+        &self,
+        mutation: &DirectoryMutation,
+        journal: &TransitionJournal,
+        digest: [u8; 32],
+        cut: TransitionSourceCut,
+    ) -> std::result::Result<Vec<CellGroupArchiveHold>, CatalogError> {
+        let bytes = self
+            .read(&format!("{SETS}/{}", hex::encode(digest)))
+            .await?
+            .ok_or(CatalogError::Corrupt("missing transition source set"))?;
+        if record::digest(&bytes) != digest {
+            return Err(CatalogError::Corrupt("transition source set digest"));
+        }
+        let set: SourceSet = record::decode(SOURCE_SET, &bytes, wire::LIMIT)?;
+        if set.namespace != self.namespace.root_digest
+            || set.request != mutation.digest
+            || set.holds.len() != mutation.request.parents.len()
+        {
+            return Err(CatalogError::Corrupt("transition source set binding"));
+        }
+        let mut holds = Vec::with_capacity(set.holds.len());
+        for (parent, id) in mutation.request.parents.iter().zip(set.holds) {
+            let bytes = self
+                .read(&format!("{HOLDS}/{}", hex::encode(id)))
+                .await?
+                .ok_or(CatalogError::Corrupt("missing transition source hold"))?;
+            if record::digest(&bytes) != id {
+                return Err(CatalogError::Corrupt("transition source hold digest"));
+            }
+            let hold: CellGroupArchiveHold = record::decode(SOURCE_HOLD, &bytes, wire::LIMIT)?;
+            hold.check_reference()
+                .map_err(|_| CatalogError::Corrupt("transition source hold"))?;
+            self.check_source_marker(mutation, journal, &parent.decode(self)?, hold.marker(), cut)?;
+            holds.push(hold);
+        }
+        Ok(holds)
     }
 }

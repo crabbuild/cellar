@@ -56,14 +56,18 @@ impl PreparedCellGroupTransferChild {
 /// new child pins held until joined use ends. The transition owner retains
 /// the original remote holds separately until their durable retirement.
 pub struct PreparedCellGroupTransfer {
-    children: Vec<PreparedCellGroupTransferChild>,
+    partition: StagedCellGroupPartition,
     sources: VerifiedCellGroupTransitionSources,
+}
+
+pub(crate) struct StagedCellGroupPartition {
+    pub(crate) children: Vec<PreparedCellGroupTransferChild>,
     _admission: Arc<crate::raft::budget::Permit>,
 }
 
 impl PreparedCellGroupTransfer {
     pub fn children(&self) -> &[PreparedCellGroupTransferChild] {
-        &self.children
+        &self.partition.children
     }
 
     pub fn sources(&self) -> &VerifiedCellGroupTransitionSources {
@@ -82,6 +86,24 @@ impl CellGroupRecoveryPool {
         sources: VerifiedCellGroupTransitionSources,
         targets: Vec<CellGroupTransferTarget>,
     ) -> Result<PreparedCellGroupTransfer> {
+        let partition = self
+            .stage_partition(
+                domain,
+                sources.sources().to_vec(),
+                sources.children().to_vec(),
+                targets,
+            )
+            .await?;
+        Ok(PreparedCellGroupTransfer { partition, sources })
+    }
+
+    pub(crate) async fn stage_partition(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        sources: Vec<CellGroupArchiveCoverage>,
+        routes: Vec<GroupRoute>,
+        targets: Vec<CellGroupTransferTarget>,
+    ) -> Result<StagedCellGroupPartition> {
         domain
             .run(Box::pin(async {
                 let admission = self.admit()?;
@@ -90,10 +112,9 @@ impl CellGroupRecoveryPool {
                 let limits = self.limits;
                 let work = domain
                     .blocking(move || {
-                        let children = partition(&sources, targets, limits, &cancelled)?;
-                        Ok(PreparedCellGroupTransfer {
+                        let children = partition(&sources, &routes, targets, limits, &cancelled)?;
+                        Ok(StagedCellGroupPartition {
                             children,
-                            sources,
                             _admission: admission,
                         })
                     })
@@ -106,15 +127,16 @@ impl CellGroupRecoveryPool {
 }
 
 fn partition(
-    sources: &VerifiedCellGroupTransitionSources,
+    sources: &[CellGroupArchiveCoverage],
+    routes: &[GroupRoute],
     targets: Vec<CellGroupTransferTarget>,
     limits: CellGroupRecoveryLimits,
     cancelled: &AtomicBool,
 ) -> Result<Vec<PreparedCellGroupTransferChild>> {
-    if targets.len() != sources.children().len()
+    if targets.len() != routes.len()
         || targets
             .iter()
-            .zip(sources.children())
+            .zip(routes)
             .any(|(target, route)| target.store.route() != route || !target.directory.is_absolute())
     {
         return Err(CellGroupArchiveError::Invalid(
@@ -130,7 +152,7 @@ fn partition(
     check()?;
     let mut total_cells = 0usize;
     let mut total_bytes = 0u64;
-    for source in sources.sources() {
+    for source in sources {
         let root = source.recovery().manifest();
         total_cells = total_cells
             .checked_add(root.pinned_images())
@@ -172,7 +194,7 @@ fn partition(
         term: Term::new(1),
     };
     let mut child = 0;
-    for source in sources.sources() {
+    for source in sources {
         let source_store = source.recovery().checkpoint().checkpoint().store();
         source_store.require_live()?;
         source

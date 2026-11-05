@@ -6,7 +6,10 @@ use super::histories::{catalog_error, history_mutation, validate_request, Origin
 use super::*;
 use crate::raft::{
     catalog::CatalogError,
-    cell_groups::{DirectoryMutation, RangeDirectory, TransitionJournal},
+    cell_groups::{
+        CellGroupArchiveBindingError, CellGroupTransitionPreparationInputs, DirectoryMutation,
+        PreparedManagedCellGroupTransition, RangeDirectory, TransitionJournal,
+    },
 };
 
 use serde::Deserialize;
@@ -237,6 +240,62 @@ impl FleetCatalog {
             }),
         )
         .await
+    }
+
+    /// Independently replay the planned active parent holds and sync all
+    /// non-serving child partitions. The directory selects the resulting
+    /// immutable preparation under the same CAS as pre-seal cancellation.
+    /// A replacement controller replays the exact recorded source holds.
+    pub async fn prepare_managed_transition(
+        &self,
+        request: &FleetRequestIdentity,
+        directory: &RangeDirectory,
+        plan: &DirectoryMutation,
+        inputs: CellGroupTransitionPreparationInputs,
+        timeout: Duration,
+    ) -> Result<PreparedManagedCellGroupTransition> {
+        validate_request(request)?;
+        let deadline = deadline::Deadline::new(self, timeout)?;
+        let permit = self
+            .run(
+                deadline.remaining()?,
+                Box::pin(async {
+                    let current = self.inner.current().await?;
+                    let Some(Disruption::Transition(active)) =
+                        self.active_disruption(&current).await?
+                    else {
+                        return Err(FleetCatalogError::Conflict);
+                    };
+                    if active.request != *request {
+                        return Err(FleetCatalogError::PayloadConflict);
+                    }
+                    let permit = ManagedTransitionPermit(active);
+                    permit.check(directory, plan).map_err(catalog_error)?;
+                    Ok(permit)
+                }),
+            )
+            .await?;
+        // The catalog turn ends before replay/copy. The directory's final CAS
+        // still arbitrates cancellation, including release by another controller.
+        let remaining = deadline.remaining()?;
+        let domain = &self.inner.domain;
+        domain
+            .run(Box::pin(async {
+                crate::asyncrt::timeout(
+                    remaining,
+                    Box::pin(
+                        directory.prepare_managed_transition_data(domain, plan, &permit, inputs),
+                    ),
+                )
+                .await
+            }))
+            .await
+            .map_err(|_| FleetCatalogError::Closed)?
+            .map_err(|_| FleetCatalogError::Unconfirmed)?
+            .map_err(|error| match error {
+                CellGroupArchiveBindingError::Catalog(error) => catalog_error(error),
+                CellGroupArchiveBindingError::Archive(error) => error.into(),
+            })
     }
 
     /// Cancel the exact pre-seal plan and only then release its fleet slot.

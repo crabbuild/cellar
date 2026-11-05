@@ -100,6 +100,7 @@ pub use log_retention::{
 mod read_authority;
 mod recovery;
 pub(crate) use recovery::RecoverySeed;
+pub(crate) use recovery::StagedCellGroupPartition;
 pub use recovery::{
     CellGroupRecoveryLimits, CellGroupRecoveryPool, CellGroupTransferTarget,
     PreparedCellGroupRecovery, PreparedCellGroupTransfer, PreparedCellGroupTransferChild,
@@ -130,12 +131,12 @@ pub use crate::raft::catalog::{
     CellGroupBirthSpec, CellGroupBootstrapPermit, CellGroupDirectoryCursor, CellGroupDirectoryPage,
     CellGroupDisasterFenceRequest, CellGroupRecoveryActivationAck,
     CellGroupRecoveryActivationPermit, CellGroupRecoveryError, CellGroupRecoveryRequest,
-    CellGroupSealPermit, CellGroupTransitionSource, CellRouteAttempt, CellRouteCacheUsage,
-    CellRouteOperation, CellRouteRequest, CellRoutingError, CellRoutingFailure, CellRoutingLimits,
-    CellRoutingSession, DirectoryLimits, DirectoryMutation, DirectoryPublication, DirectoryView,
-    FencedCellGroupRecovery, FrozenCellGroupInventory, PreparedCellGroupArchiveBinding,
-    RangeDirectory, ResolvedCellRoute, TransitionJournal, TransitionPhase,
-    VerifiedCellGroupTransitionSources,
+    CellGroupSealPermit, CellGroupTransitionPreparationInputs, CellGroupTransitionSource,
+    CellRouteAttempt, CellRouteCacheUsage, CellRouteOperation, CellRouteRequest, CellRoutingError,
+    CellRoutingFailure, CellRoutingLimits, CellRoutingSession, DirectoryLimits, DirectoryMutation,
+    DirectoryPublication, DirectoryView, FencedCellGroupRecovery, FrozenCellGroupInventory,
+    PreparedCellGroupArchiveBinding, PreparedManagedCellGroupTransition, RangeDirectory,
+    ResolvedCellRoute, TransitionJournal, TransitionPhase, VerifiedCellGroupTransitionSources,
 };
 pub use enrollment::{
     decide_enrollment, EnrollmentDecision, EnrollmentError, EnrollmentPhase, EnrollmentRecord,

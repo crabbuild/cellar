@@ -7,6 +7,9 @@ use cellar::application::consensus::verification::{
     FleetChange, FleetMutation, FleetTable,
 };
 
+#[path = "cell_group_managed_transition_preparation.rs"]
+mod preparation;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn managed_split_plan_fences_membership_and_replays_cancellation() -> Result<()> {
     Box::pin(run_plan(false, Arc::new(fault::Store::default()))).await
@@ -36,7 +39,7 @@ async fn run_plan(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
         FirstGroupSetup::Normal,
     ))
     .await?;
-    let result = Box::pin(exercise(&cluster)).await;
+    let result = Box::pin(exercise(&cluster, rooted)).await;
     let spares = cluster.nodes.split_off(3);
     let joined = close_group_nodes(cluster.nodes, &cluster.hosts).await;
     let joined_spares = async {
@@ -52,7 +55,7 @@ async fn run_plan(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
     joined_spares
 }
 
-async fn exercise(cluster: &ManagedCluster) -> Result<()> {
+async fn exercise(cluster: &ManagedCluster, rooted: bool) -> Result<()> {
     let fixture = &cluster.fixtures[0];
     let fleet = &fixture.catalog;
     let directory = &cluster.directory;
@@ -150,6 +153,11 @@ async fn exercise(cluster: &ManagedCluster) -> Result<()> {
         Err(CatalogError::ManagedAdmissionRequired)
     ));
 
+    let (registry, held) = Box::pin(preparation::exercise(
+        cluster, &reopened, &original, &plan, &parent, &children, rooted,
+    ))
+    .await?;
+
     let admitted = fleet.read(TIMEOUT).await?;
     let other = identity(235, admitted.revision());
     let mutation = FleetMutation {
@@ -199,6 +207,13 @@ async fn exercise(cluster: &ManagedCluster) -> Result<()> {
             == TransitionPhase::Cancelled
     );
     ensure!(domain.run(directory.active_transition()).await??.is_none());
+    ensure!(matches!(
+        domain
+            .run(directory.managed_preparation_holds(&plan))
+            .await?,
+        Err(CatalogError::Fenced)
+    ));
+    registry.release(domain.as_ref(), &held).await?;
     let view = domain.run(directory.observe()).await??;
     ensure!(view.groups() == 1);
     Ok(())
