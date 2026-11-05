@@ -132,7 +132,7 @@ impl FleetCatalog {
                     return Ok(FleetRestartSettlementProgress::Blocked(
                         FleetRestartSettlementBlocker::MovementServicesUnavailable {
                             reservation: movement.reservation,
-                            group: movement.group.clone(),
+                            group: movement.group,
                         },
                     ));
                 };
@@ -157,7 +157,7 @@ impl FleetCatalog {
                 return Ok(FleetRestartSettlementProgress::Blocked(
                     FleetRestartSettlementBlocker::ResourceOnly {
                         reservation: reservation.reservation,
-                        group: reservation.group.clone(),
+                        group: reservation.group,
                     },
                 ));
             } else {

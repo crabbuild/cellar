@@ -290,10 +290,7 @@ impl RangeDirectory {
                     (Some(authorization), Some(status))
                         if &status.binding == authorization.binding()
                             && authorization
-                                .matches_replica(group.identity(), &cache.membership) =>
-                    {
-                        ()
-                    }
+                                .matches_replica(group.identity(), &cache.membership) => {}
                     (None, None) => (),
                     _ => return Err(CatalogError::ManagedAdmissionRequired),
                 }

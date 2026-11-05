@@ -423,20 +423,6 @@ impl CellQueryInvocation {
         Ok(())
     }
 
-    // The destination still needs fresh catalog binding until replicated transfer
-    // seals are integrated. Caller-side hints cannot replace that admission check.
-    pub(crate) async fn begin_current(&mut self) -> Result<(), CellDispatchError> {
-        self.dispatched = true;
-        let attempt = self
-            .session
-            .begin_current()
-            .await
-            .map_err(CellDispatchError::Routing)?;
-        self.attempt = Some(attempt);
-        self.dispatched = false;
-        Ok(())
-    }
-
     pub async fn retry(&mut self) -> Result<(), CellDispatchError> {
         let previous = self
             .attempt

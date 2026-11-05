@@ -86,35 +86,37 @@ pub(super) struct Request {
 #[derive(Clone)]
 enum Authority {
     Initial,
-    Managed {
-        learner: Option<learner::Admission>,
-        host: crate::raft::fleet_catalog::FleetHostAuthorization,
-        deadline: u64,
-    },
+    Managed(Box<ManagedAuthority>),
+}
+
+#[derive(Clone)]
+struct ManagedAuthority {
+    learner: Option<learner::Admission>,
+    host: crate::raft::fleet_catalog::FleetHostAuthorization,
+    deadline: u64,
 }
 
 impl Authority {
+    fn managed(&self) -> Option<&ManagedAuthority> {
+        match self {
+            Self::Initial => None,
+            Self::Managed(authority) => Some(authority),
+        }
+    }
+
     fn same_owner(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Initial, Self::Initial) => true,
-            (
-                Self::Managed {
-                    host: a,
-                    learner: x,
-                    ..
-                },
-                Self::Managed {
-                    host: b,
-                    learner: y,
-                    ..
-                },
-            ) => a.same_boot_owner(b) && learner::same_admission(x.as_ref(), y.as_ref()),
+            (Self::Managed(a), Self::Managed(b)) => {
+                a.host.same_boot_owner(&b.host)
+                    && learner::same_admission(a.learner.as_ref(), b.learner.as_ref())
+            }
             _ => false,
         }
     }
 
     fn check_live(&self, runtime: &CellGroupRuntime) -> Result<(), CellGroupControllerError> {
-        if let Self::Managed { host, deadline, .. } = self {
+        if let Some(ManagedAuthority { host, deadline, .. }) = self.managed() {
             let now = runtime
                 .log()
                 .domain()
@@ -211,11 +213,11 @@ impl CellGroupController {
         self.provision_authorized(
             directory,
             route,
-            Authority::Managed {
+            Authority::Managed(Box::new(ManagedAuthority {
                 host,
                 deadline,
                 learner: None,
-            },
+            })),
         )
     }
 
@@ -247,11 +249,11 @@ impl CellGroupController {
         self.provision_authorized(
             directory,
             route,
-            Authority::Managed {
+            Authority::Managed(Box::new(ManagedAuthority {
                 host,
                 deadline,
                 learner: Some(learner),
-            },
+            })),
         )
     }
 
@@ -281,7 +283,7 @@ impl CellGroupController {
         let (reply, receiver) = oneshot::channel();
         let deadline = match &authority {
             Authority::Initial => None,
-            Authority::Managed { deadline, .. } => Some((shared.domain.clone(), *deadline)),
+            Authority::Managed(authority) => Some((shared.domain.clone(), authority.deadline)),
         };
         shared
             .requests

@@ -52,7 +52,7 @@ impl CellGroupBirthRequest {
 /// This grants neither membership nor permission to initialize a blank disk.
 #[derive(Clone)]
 pub struct CellGroupBirth {
-    pub(super) request: CellGroupBirthRequest,
+    pub(super) request: Arc<CellGroupBirthRequest>,
     pub(super) owner: Arc<()>,
 }
 
@@ -118,7 +118,7 @@ impl RangeDirectory {
             .await?;
         if self.namespace.cell_group_owner().await?.is_some() {
             let birth = CellGroupBirth {
-                request,
+                request: Arc::new(request),
                 owner: self.namespace.inner.owner.clone(),
             };
             self.require_current_group_birth(&birth).await?;
@@ -495,7 +495,7 @@ impl RangeDirectory {
             }
             self.selected_birth_route(request.route()).await?;
             Ok(CellGroupBirth {
-                request: request.clone(),
+                request: Arc::new(request.clone()),
                 owner: self.namespace.inner.owner.clone(),
             })
         })

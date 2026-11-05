@@ -410,8 +410,10 @@ struct StoredEntry {
     evidence: StoredEvidence,
 }
 
+type StoredEntryObjects = (Vec<u8>, Option<([u8; 32], Vec<u8>)>);
+
 impl Entry {
-    fn stored(&self) -> Result<(Vec<u8>, Option<([u8; 32], Vec<u8>)>)> {
+    fn stored(&self) -> Result<StoredEntryObjects> {
         let (evidence, object) = match &self.evidence {
             Evidence::Cancelled { operation } => (
                 StoredEvidence::Cancelled {

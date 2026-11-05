@@ -19,15 +19,14 @@ impl RaftTransport {
 
     /// Seed an admitted managed learner under this exact installed physical
     /// boot. A fresh catalog reservation and live quorum grant are both required.
-    pub async fn prepare_managed_group_seed(
+    pub(crate) async fn prepare_managed_group_seed(
         &self,
         local: ReplicaIdentity<GroupHistory>,
         source: RaftPeer<GroupHistory>,
         directory: RangeDirectory,
         birth: CellGroupBirth,
         deadline: u64,
-        host: crate::raft::fleet_catalog::FleetHostAuthorization,
-        expected: crate::raft::fleet_catalog::FleetPermitAuthorization,
+        authority: ManagedPeerSeed,
     ) -> Result<CellGroupSeedSession, CellGroupSeedError> {
         self.prepare_seed(
             local,
@@ -36,8 +35,8 @@ impl RaftTransport {
             birth,
             deadline,
             Some(ManagedSeed {
-                host,
-                expected,
+                host: authority.host,
+                expected: authority.authorization,
                 archive: None,
             }),
         )
@@ -264,31 +263,24 @@ impl RaftTransport {
         });
         let group = state
             .seed_process_until(&grant.process, deadline, async {
-                Ok::<_, TransportError>(
-                    state
-                        .domain
-                        .run(async {
-                            match &host {
-                                Some(host) => {
-                                    directory
-                                        .stage_managed_group_learner(
-                                            &birth,
-                                            &log,
-                                            grant.clone(),
-                                            host,
-                                        )
-                                        .await
-                                }
-                                None => {
-                                    directory
-                                        .stage_group_learner(&birth, &log, grant.clone())
-                                        .await
-                                }
+                state
+                    .domain
+                    .run(async {
+                        match &host {
+                            Some(host) => {
+                                directory
+                                    .stage_managed_group_learner(&birth, &log, grant.clone(), host)
+                                    .await
                             }
-                        })
-                        .await
-                        .map_err(|_| TransportError::Closed)?,
-                )
+                            None => {
+                                directory
+                                    .stage_group_learner(&birth, &log, grant.clone())
+                                    .await
+                            }
+                        }
+                    })
+                    .await
+                    .map_err(|_| TransportError::Closed)
             })
             .await??;
         grant.check_log(&log)?;

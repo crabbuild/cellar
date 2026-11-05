@@ -158,17 +158,27 @@ impl Clone for RaftCells {
     }
 }
 
+/// Physical services transferred together into the SDK's joined close owner.
+pub(crate) struct Infrastructure {
+    pub runtime: CellGroupRuntime,
+    pub log: ReplicaLog,
+    pub transport: crate::raft::transport::RaftTransport,
+}
+
 impl RaftCells {
     pub(crate) fn from_shared(
         host: CellGroupHost,
         controller: CellGroupController,
-        runtime: CellGroupRuntime,
-        log: ReplicaLog,
+        infrastructure: Infrastructure,
         admission: Arc<super::admission::Admission>,
         resources: resources::Resources,
-        transport: crate::raft::transport::RaftTransport,
         options: &crate::raft::host::RaftHostOptions,
     ) -> Result<Self, CellGroupControllerError> {
+        let Infrastructure {
+            runtime,
+            log,
+            transport,
+        } = infrastructure;
         let domain = log.domain();
         let node = NodeIdentity {
             node: log.limits().node,

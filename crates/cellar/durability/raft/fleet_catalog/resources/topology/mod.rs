@@ -164,7 +164,7 @@ impl FleetTopologyPreview {
         Ok(Some(FleetMovementRequest {
             resources: FleetResourceRequest {
                 identity,
-                group: selected.group.clone(),
+                group: selected.group,
                 attestation: attestation.clone(),
                 peak: group.resources.peak,
             },
@@ -491,7 +491,7 @@ impl FleetTopologyVerification {
             .groups
             .iter()
             .map(|group| {
-                let scope = group.resources.group.clone();
+                let scope = group.resources.group;
                 let mut occupied = Vec::new();
                 for node in &self.nodes {
                     if node

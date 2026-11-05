@@ -264,7 +264,7 @@ impl Planning<'_, '_> {
                 max_work: 1_000_000,
             });
         let view = IsolatedRepairView {
-            scope: context.group.clone(),
+            scope: context.group,
             revision: sample.membership().membership_revision(),
             high_water: sample.membership().member_high_water(),
             voters: voters
@@ -312,7 +312,7 @@ impl Planning<'_, '_> {
             request: FleetMovementRequest {
                 resources: FleetResourceRequest {
                     identity,
-                    group: context.group.clone(),
+                    group: context.group,
                     attestation,
                     peak: bounds.peak,
                 },

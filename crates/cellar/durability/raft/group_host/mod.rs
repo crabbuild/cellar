@@ -475,11 +475,13 @@ pub(crate) async fn start(
         let service = RaftCells::from_shared(
             host,
             controller.clone(),
-            runtime.clone(),
-            log.clone(),
+            crate::application::consensus::group_client::Infrastructure {
+                runtime: runtime.clone(),
+                log: log.clone(),
+                transport: transport.clone(),
+            },
             admission,
             resources,
-            transport.clone(),
             &options,
         )?;
         startup.public = Some(service.clone());

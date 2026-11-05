@@ -9,7 +9,6 @@ use std::{path::Path, sync::Arc};
 pub(super) struct Startup<'a> {
     pub domain: DomainToken,
     pub data_dir: &'a Path,
-    pub node: &'a str,
     pub auth: Arc<PeerAuth>,
 }
 

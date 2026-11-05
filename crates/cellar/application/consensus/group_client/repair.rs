@@ -251,7 +251,7 @@ impl RaftGroupHandle {
                 )));
             }
             let result = owner
-                .change_membership(MembershipChange::Repair(change), deadline)
+                .change_membership(MembershipChange::Repair(Box::new(change)), deadline)
                 .await?;
             if owner.owner.is_closed() {
                 return Err(CellGroupControlError::Unconfirmed(RuntimeError::Closed));

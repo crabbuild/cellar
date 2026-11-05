@@ -723,7 +723,6 @@ impl Node {
                         .domain_token()
                         .ok_or(crate::asyncrt::DomainClosed)?,
                     data_dir: &self.info.data_dir,
-                    node: &self.info.node,
                     auth: self.raft_auth.clone(),
                 }
                 .start(config, services)
@@ -748,7 +747,6 @@ impl Node {
                 .domain_token()
                 .ok_or(crate::asyncrt::DomainClosed)?,
             data_dir: &self.info.data_dir,
-            node: &self.info.node,
             auth: self.raft_auth.clone(),
         }
         .infrastructure(config, listeners, tls, None)

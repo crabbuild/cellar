@@ -385,7 +385,6 @@ impl RaftClass {
     /// Register schema initialization for shared-group enrollment. The digest
     /// participates in voting compatibility. Initialization runs once on a
     /// private SQL transaction; only its committed creation record is success.
-    /// The old cell-scoped host refuses this registration until its replacement.
     pub fn initializer(
         mut self,
         digest: [u8; 32],
@@ -516,17 +515,6 @@ impl RaftClass {
 
     pub(crate) fn outbox_definition(&self) -> Option<&Arc<super::RaftOutbox>> {
         self.outbox.as_ref()
-    }
-
-    pub(crate) fn validate_host(
-        &self,
-        host: &crate::raft::host::RaftHostOptions,
-    ) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            self.initializer.is_none(),
-            "registered initializers require the shared cell-group controller"
-        );
-        self.validate_shared_host(host)
     }
 
     /// Shared groups support initializers. All other declared capabilities
@@ -765,10 +753,6 @@ impl RaftClass {
 
     pub(crate) fn has_system_commands(&self) -> bool {
         !self.system_commands.is_empty()
-    }
-
-    pub(crate) fn has_queries(&self) -> bool {
-        !self.queries.is_empty()
     }
 
     pub(crate) fn validate_system_operation(

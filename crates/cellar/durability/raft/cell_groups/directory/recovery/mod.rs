@@ -181,7 +181,7 @@ impl RangeDirectory {
             return Err(CatalogError::Corrupt("recovery source birth binding"));
         }
         Ok(CellGroupBirth {
-            request: request.source().clone(),
+            request: Arc::new(request.source().clone()),
             owner: self.namespace.inner.owner.clone(),
         })
     }

@@ -41,8 +41,8 @@ pub(super) enum Change {
         authorization: FleetGroupAuthorization,
         expected: LogIndex,
     },
-    Fence(FleetPermitAuthorization),
-    Repair(super::repair::Change),
+    Fence(Box<FleetPermitAuthorization>),
+    Repair(Box<super::repair::Change>),
 }
 
 impl Change {
@@ -250,7 +250,7 @@ impl RaftGroupHandle {
             }
             owner
                 .change_membership(
-                    Change::Fence(authorization),
+                    Change::Fence(Box::new(authorization)),
                     deadline.map_err(CellGroupControlError::Refused)?,
                 )
                 .await

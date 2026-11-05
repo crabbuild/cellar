@@ -26,7 +26,7 @@ use crate::peer_auth::PeerAuth;
 use ::raft::prelude::{Message, MessageType};
 use cellar_logic::consensus::{ClusterId, GroupScope, NamespaceId, NodeId, ReplicaIdentity};
 pub(crate) use group_snapshots::seed::Grant as CellGroupSeedGrant;
-pub(crate) use group_snapshots::seed::ManagedArchiveSeed;
+pub(crate) use group_snapshots::seed::{ManagedArchiveSeed, ManagedPeerSeed};
 pub use group_snapshots::{
     CellGroupCheckpointRegistration, CellGroupSeedError, CellGroupSeedSession,
 };

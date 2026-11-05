@@ -130,6 +130,11 @@ impl From<crate::raft::cell_groups::CellGroupArchiveBindingError> for CellGroupS
     }
 }
 
+pub(crate) struct ManagedPeerSeed {
+    pub host: crate::raft::fleet_catalog::FleetHostAuthorization,
+    pub authorization: crate::raft::fleet_catalog::FleetPermitAuthorization,
+}
+
 pub(crate) struct ManagedArchiveSeed {
     pub host: crate::raft::fleet_catalog::FleetHostAuthorization,
     pub authorization: crate::raft::fleet_catalog::FleetPermitAuthorization,

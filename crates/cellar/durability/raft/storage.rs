@@ -1540,10 +1540,7 @@ impl Worker {
                         && cache.applied.position.index.get() == 1
                         && cache.group_manifest.as_ref().is_some_and(|root| {
                             root.root().cells() == 0 && root.position().index.get() == 1
-                        }) =>
-                {
-                    ()
-                }
+                        }) => {}
                 (None, None) => (),
                 _ => return Err(LogError::WrongIdentity),
             }

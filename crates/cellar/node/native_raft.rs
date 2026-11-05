@@ -92,7 +92,6 @@ impl Startup {
                 .domain_token()
                 .ok_or(crate::asyncrt::DomainClosed)?,
             data_dir: &data_dir,
-            node: &node,
             auth: app.peer_auth.clone(),
         }
         .start(

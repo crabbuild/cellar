@@ -147,127 +147,146 @@ impl Staged {
     }
 }
 
-pub(super) async fn recover(
-    directory: &RangeDirectory,
-    birth: &CellGroupBirth,
-    config: &Arc<Config>,
-    runtime: &CellGroupRuntime,
-    transport: &RaftTransport,
-    host: &FleetHostAuthorization,
-    admission: &Admission,
-    deadline: u64,
-    resources: prepare::Resources,
-    parallel: tokio::sync::OwnedSemaphorePermit,
-) -> Result<prepare::Recovery, CellGroupControllerError> {
-    let prepare::Resources { existing, archive } = resources;
-    let log = runtime.log();
-    let installed = match log.cell_group(&birth.route().history) {
-        Ok(group) => group
-            .read()
-            .map_err(RuntimeError::from)?
-            .group_seed
-            .is_some(),
-        Err(LogError::NotFound) => false,
-        Err(error) => return Err(RuntimeError::from(error).into()),
-    };
-    let images = config.images(directory)?;
-    if installed {
-        // A lost install response cannot authorize downloading/reinitializing a
-        // different cut. The durable receipt and permanent claim select restart.
-        let permit = directory
-            .bootstrap_managed_joined_group_member(birth, admission.member, log, host)
-            .await
-            .map_err(catalog_error)?;
-        admission.check_installed(permit.group())?;
-        let prepared =
-            prepare::recover_pages(config, runtime, permit.group().clone(), images, existing)
-                .await?;
-        let route = physical_route(
+pub(super) struct Recovery<'a> {
+    pub directory: &'a RangeDirectory,
+    pub birth: &'a CellGroupBirth,
+    pub config: &'a Arc<Config>,
+    pub runtime: &'a CellGroupRuntime,
+    pub transport: &'a RaftTransport,
+    pub host: &'a FleetHostAuthorization,
+    pub admission: &'a Admission,
+    pub deadline: u64,
+}
+
+impl Recovery<'_> {
+    pub(super) async fn recover(
+        self,
+        resources: prepare::Resources,
+        parallel: tokio::sync::OwnedSemaphorePermit,
+    ) -> Result<prepare::Recovery, CellGroupControllerError> {
+        let Self {
+            directory,
             birth,
-            permit.group(),
             config,
+            runtime,
             transport,
-            admission.authorization.minimum_trust_revision(),
-        )?;
-        return Ok(prepare::Recovery::Ready(CellGroupRegistration {
-            permit,
-            current: prepared.current,
-            applier: prepared.applier,
-            transport: route,
-        }));
-    }
-    let peer = transport
-        .managed_group_peer(
-            &birth.route().history,
-            admission.source_node,
-            admission.authorization.minimum_trust_revision(),
-        )
-        .map_err(CellGroupControllerError::Transport)?;
-    let local = log.limits();
-    let target = ReplicaIdentity {
-        scope: birth.route().history,
-        member: admission.member,
-        node: local.node,
-        disk: local.disk,
-        process: local.process,
-    };
-    let source = RaftPeer {
-        replica: ReplicaIdentity {
-            scope: target.scope,
-            member: admission.source,
-            node: peer.node,
-            disk: peer.disk,
-            process: peer.process,
-        },
-        label: peer.label,
-        server_name: peer.server_name,
-        control_address: peer.control_address,
-        data_address: peer.data_address,
-        query_address: peer.query_address,
-    };
-    let session = if admission.from_s3 {
-        let archive = archive.ok_or(CellGroupControllerError::Invalid(
-            "S3 learner resources unavailable",
-        ))?;
-        transport
-            .prepare_managed_group_archive_seed(
-                target,
-                source,
-                directory.clone(),
-                birth.clone(),
-                deadline,
-                crate::raft::transport::ManagedArchiveSeed {
-                    host: host.clone(),
-                    authorization: admission.authorization.clone(),
-                    archive,
-                },
+            host,
+            admission,
+            deadline,
+        } = self;
+        let prepare::Resources { existing, archive } = resources;
+        let log = runtime.log();
+        let installed = match log.cell_group(&birth.route().history) {
+            Ok(group) => group
+                .read()
+                .map_err(RuntimeError::from)?
+                .group_seed
+                .is_some(),
+            Err(LogError::NotFound) => false,
+            Err(error) => return Err(RuntimeError::from(error).into()),
+        };
+        let images = config.images(directory)?;
+        if installed {
+            // A lost install response cannot authorize downloading/reinitializing a
+            // different cut. The durable receipt and permanent claim select restart.
+            let permit = directory
+                .bootstrap_managed_joined_group_member(birth, admission.member, log, host)
+                .await
+                .map_err(catalog_error)?;
+            admission.check_installed(permit.group())?;
+            let prepared =
+                prepare::recover_pages(config, runtime, permit.group().clone(), images, existing)
+                    .await?;
+            let route = physical_route(
+                birth,
+                permit.group(),
+                config,
+                transport,
+                admission.authorization.minimum_trust_revision(),
+            )?;
+            return Ok(prepare::Recovery::Ready(CellGroupRegistration {
+                permit,
+                current: prepared.current,
+                applier: prepared.applier,
+                transport: route,
+            }));
+        }
+        let peer = transport
+            .managed_group_peer(
+                &birth.route().history,
+                admission.source_node,
+                admission.authorization.minimum_trust_revision(),
             )
-            .await
-    } else {
-        transport
-            .prepare_managed_group_seed(
-                target,
-                source,
-                directory.clone(),
-                birth.clone(),
-                deadline,
-                host.clone(),
-                admission.authorization.clone(),
-            )
-            .await
+            .map_err(CellGroupControllerError::Transport)?;
+        let local = log.limits();
+        let target = ReplicaIdentity {
+            scope: birth.route().history,
+            member: admission.member,
+            node: local.node,
+            disk: local.disk,
+            process: local.process,
+        };
+        let source = RaftPeer {
+            replica: ReplicaIdentity {
+                scope: target.scope,
+                member: admission.source,
+                node: peer.node,
+                disk: peer.disk,
+                process: peer.process,
+            },
+            label: peer.label,
+            server_name: peer.server_name,
+            control_address: peer.control_address,
+            data_address: peer.data_address,
+            query_address: peer.query_address,
+        };
+        let session = if admission.from_s3 {
+            let archive = archive.ok_or(CellGroupControllerError::Invalid(
+                "S3 learner resources unavailable",
+            ))?;
+            transport
+                .prepare_managed_group_archive_seed(
+                    target,
+                    source,
+                    directory.clone(),
+                    birth.clone(),
+                    deadline,
+                    crate::raft::transport::ManagedArchiveSeed {
+                        host: host.clone(),
+                        authorization: admission.authorization.clone(),
+                        archive,
+                    },
+                )
+                .await
+        } else {
+            transport
+                .prepare_managed_group_seed(
+                    target,
+                    source,
+                    directory.clone(),
+                    birth.clone(),
+                    deadline,
+                    crate::raft::transport::ManagedPeerSeed {
+                        host: host.clone(),
+                        authorization: admission.authorization.clone(),
+                    },
+                )
+                .await
+        }
+        .map_err(seed_error)?;
+        let prepared =
+            prepare::recover_pages(config, runtime, session.group().clone(), images, existing)
+                .await?;
+        Ok(prepare::Recovery::Seed(Staged {
+            prepared,
+            session,
+            birth: birth.clone(),
+            config: config.clone(),
+            transport: transport.clone(),
+            admission: admission.clone(),
+            _parallel: parallel,
+        }))
     }
-    .map_err(seed_error)?;
-    let prepared =
-        prepare::recover_pages(config, runtime, session.group().clone(), images, existing).await?;
-    Ok(prepare::Recovery::Seed(Staged {
-        prepared,
-        session,
-        birth: birth.clone(),
-        config: config.clone(),
-        transport: transport.clone(),
-        admission: admission.clone(),
-        _parallel: parallel,
-    }))
 }
 
 fn physical_route(

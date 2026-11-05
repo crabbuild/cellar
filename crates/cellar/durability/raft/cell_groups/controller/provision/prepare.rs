@@ -40,31 +40,30 @@ pub(super) async fn recover(
         .await
         .map_err(|_| CellGroupControllerError::Closed)?;
     let birth = resolve(&directory, &route, &runtime, &authority).await?;
-    if let Authority::Managed {
+    if let Some(ManagedAuthority {
         host,
         deadline,
         learner: Some(admission),
-    } = &authority
+    }) = authority.managed()
     {
-        return learner::recover(
-            &directory,
-            &birth,
-            &config,
-            &runtime,
-            &transport,
+        return learner::Recovery {
+            directory: &directory,
+            birth: &birth,
+            config: &config,
+            runtime: &runtime,
+            transport: &transport,
             host,
             admission,
-            *deadline,
-            Resources { existing, archive },
-            _parallel,
-        )
+            deadline: *deadline,
+        }
+        .recover(Resources { existing, archive }, _parallel)
         .await;
     }
     // Check complete trusted placement before creating genesis or page files.
     let mut peers = Vec::new();
     for member in birth.voters().iter().chain(birth.learners()) {
         let discovered;
-        let node = if matches!(&authority, Authority::Managed { .. }) {
+        let node = if matches!(&authority, Authority::Managed(_)) {
             discovered = transport
                 .observed_peer(member.node)
                 .map_err(CellGroupControllerError::Transport)?;
@@ -121,7 +120,7 @@ pub(super) async fn resolve(
     authority: &Authority,
 ) -> Result<crate::raft::cell_groups::CellGroupBirth, CellGroupControllerError> {
     authority.check_live(runtime)?;
-    if let Authority::Managed { host, .. } = authority {
+    if let Some(ManagedAuthority { host, .. }) = authority.managed() {
         let boot = host
             .boot_binding()
             .map_err(CatalogError::from)
@@ -138,7 +137,7 @@ pub(super) async fn resolve(
     }
     let birth = match authority {
         Authority::Initial => directory.materialize_selected_group(route).await,
-        Authority::Managed { .. } => directory.materialize_selected_history(route.history).await,
+        Authority::Managed(_) => directory.materialize_selected_history(route.history).await,
     }
     .map_err(catalog_error)?;
     if birth.route() != route {
@@ -155,22 +154,22 @@ async fn bootstrap(
     authority: &Authority,
 ) -> Result<crate::raft::cell_groups::CellGroupBootstrapPermit, CellGroupControllerError> {
     authority.check_live(runtime)?;
-    let permit = match authority {
-        Authority::Initial => directory.bootstrap_group_member(birth, runtime.log()).await,
-        Authority::Managed {
+    let permit = match authority.managed() {
+        None => directory.bootstrap_group_member(birth, runtime.log()).await,
+        Some(ManagedAuthority {
             host,
             learner: Some(admission),
             ..
-        } => {
+        }) => {
             directory
                 .bootstrap_managed_joined_group_member(birth, admission.member, runtime.log(), host)
                 .await
         }
-        Authority::Managed {
+        Some(ManagedAuthority {
             host,
             learner: None,
             ..
-        } => {
+        }) => {
             directory
                 .bootstrap_managed_group_member(birth, runtime.log(), host)
                 .await
@@ -245,10 +244,10 @@ pub(super) async fn validate(
         .map_err(|_| CellGroupControllerError::Closed)?;
     let birth = resolve(&directory, route, &runtime, &authority).await?;
     let permit = bootstrap(&directory, &birth, &runtime, &authority).await?;
-    if let Authority::Managed {
+    if let Some(ManagedAuthority {
         learner: Some(admission),
         ..
-    } = &authority
+    }) = authority.managed()
     {
         admission.check_installed(permit.group())?;
     }

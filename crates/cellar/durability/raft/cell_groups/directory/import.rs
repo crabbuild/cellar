@@ -268,7 +268,7 @@ impl RangeDirectory {
     ) -> Result<CellGroupBirthDisposition, CatalogError> {
         if bytes == request.encode() {
             return Ok(CellGroupBirthDisposition::Live(CellGroupBirth {
-                request: request.clone(),
+                request: Arc::new(request.clone()),
                 owner: self.namespace.inner.owner.clone(),
             }));
         }

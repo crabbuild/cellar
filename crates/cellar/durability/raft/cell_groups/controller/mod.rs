@@ -142,12 +142,14 @@ pub struct CellGroupControllerUsage {
     pub archive_seed_cleanup_errors: usize,
 }
 
+type HostResourceRelease = Box<dyn FnOnce() -> Result<(), CellGroupControllerError> + Send>;
+
 struct Shared {
     admission_configuration: Mutex<()>,
     public: OnceLock<admission::Public>,
     // One-shot physical release is opaque to break the ownership type graph:
     // bindings contain weak archive clients back to this same shared owner.
-    host_resources: Mutex<Option<Box<dyn FnOnce() -> Result<(), CellGroupControllerError> + Send>>>,
+    host_resources: Mutex<Option<HostResourceRelease>>,
     runtime: CellGroupRuntime,
     sql: crate::raft::host_sql::cell_groups::WeakCellGroupSqlPool,
     groups: Arc<GroupRoster>,

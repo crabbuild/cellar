@@ -116,7 +116,7 @@ impl Manager {
             }
             return;
         }
-        if ready && matches!(authority, Authority::Managed { .. }) {
+        if ready && matches!(authority, Authority::Managed(_)) {
             // Observe an existing controller-owned attachment without adopting
             // its applier, roster reservation or physical route lifecycle.
             self.validate_attached(directory, route, config, authority, waiter, shared);
