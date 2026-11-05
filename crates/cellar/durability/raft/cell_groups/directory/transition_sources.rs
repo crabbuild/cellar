@@ -102,7 +102,8 @@ impl RangeDirectory {
                     })
                     .await?;
                 let mut encoded = Vec::with_capacity(sources.len());
-                for (parent, source) in mutation.request.parents.iter().zip(&sources) {
+                let mut admitted = Vec::with_capacity(sources.len());
+                for (parent, source) in mutation.request.parents.iter().zip(sources) {
                     let route = parent.decode(self)?;
                     if source.birth.route() != &route {
                         return Err(CatalogError::Fenced.into());
@@ -112,6 +113,7 @@ impl RangeDirectory {
                     self.check_source_marker(mutation, &journal, &route, source.hold.marker())?;
                     let bytes = record::encode(SOURCE_HOLD, &source.hold, wire::LIMIT)?;
                     encoded.push((record::digest(&bytes), bytes));
+                    admitted.push(source);
                 }
                 let set = SourceSet {
                     namespace: self.namespace.root_digest,
@@ -126,8 +128,8 @@ impl RangeDirectory {
                 {
                     return Err(CatalogError::Conflict("transition source set changed").into());
                 }
-                let mut verified = Vec::with_capacity(sources.len());
-                for source in sources {
+                let mut verified = Vec::with_capacity(admitted.len());
+                for source in admitted {
                     let registry = self
                         .open_group_archive(domain, archives, &source.birth)
                         .await?;
