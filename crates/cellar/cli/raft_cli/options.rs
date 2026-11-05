@@ -24,6 +24,7 @@ cellar raft fleet first-group standby NAMESPACE_HEX
 cellar raft fleet first-group reserve NAMESPACE_HEX --plan PLAN.json
 cellar raft fleet first-group publish NAMESPACE_HEX --plan PLAN.json --request-id ID --expected-revision R
 cellar raft fleet first-group archive NAMESPACE_HEX --plan PLAN.json --request-id ID --expected-revision R
+cellar raft fleet first-group apply NAMESPACE_HEX --plan SETUP.json
 cellar raft fleet status --fleet F --admin-url URL [--json]
 cellar raft fleet rebalance --keep NODE_HEX,... --policy POLICY.json --operation-id OP_HEX --expected-revision R [--wait]
 cellar raft fleet operation status OP_HEX
@@ -51,6 +52,7 @@ pub(super) enum Action {
     FirstGroupReserve(Box<RaftFleetFirstGroupPlan>),
     FirstGroupPublish(Box<RaftFleetFirstGroupPublish>),
     FirstGroupArchive(Box<RaftFleetFirstGroupMutation>),
+    FirstGroupApply(Box<first_group::ApplyPlan>),
     NodeStatus(String),
     EvacuationStatus(String),
     Evacuate(String, Box<RaftFleetNodeOperation>),
@@ -190,17 +192,7 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
                 &mut policy,
                 json_file::<crate::raft::fleet_catalog::FleetTopologyPolicy>(&value)?,
             )?,
-            "--plan"
-                if matches!(
-                    command.as_str(),
-                    "first_group_reserve" | "first_group_publish" | "first_group_archive"
-                ) =>
-            {
-                set(
-                    &mut first_group_plan,
-                    json_file::<RaftFleetFirstGroupPlan>(&value)?,
-                )?
-            }
+            "--plan" => set(&mut first_group_plan, value)?,
             "--cursor" => set(&mut cursor, value)?,
             "--limit" => limit = value.parse().map_err(|_| invalid("invalid page limit"))?,
             "--timeout-seconds" => {
@@ -236,11 +228,21 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
             }
             Action::FirstGroupStandby(namespace)
         }
+        ("first_group_apply", Some(namespace)) if !wait && cursor.is_none() => {
+            let path = first_group_plan.take().ok_or_else(|| invalid("--plan is required"))?;
+            let plan = json_file::<first_group::ApplyPlan>(&path)?;
+            let catalog = catalog_id
+                .as_deref()
+                .ok_or_else(|| invalid("--catalog-id from fleet status is required"))?;
+            plan.validate(&namespace, catalog)?;
+            Action::FirstGroupApply(Box::new(plan))
+        }
         (
             verb @ ("first_group_reserve" | "first_group_publish" | "first_group_archive"),
             Some(namespace),
         ) if !wait && cursor.is_none() && operation_id.is_none() => {
-            let plan = first_group_plan.ok_or_else(|| invalid("--plan is required"))?;
+            let path = first_group_plan.take().ok_or_else(|| invalid("--plan is required"))?;
+            let plan = json_file::<RaftFleetFirstGroupPlan>(&path)?;
             plan.validate(&namespace)?;
             let catalog = catalog_id
                 .as_deref()
@@ -503,6 +505,7 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
         || cursor.is_some()
         || descriptor.is_some()
         || attestation.is_some()
+        || first_group_plan.is_some()
         || request_id.is_some()
         || expected_process.is_some()
         || next_process.is_some()

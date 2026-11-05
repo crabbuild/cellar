@@ -149,6 +149,26 @@ Each voter has a registered `node_id` and a nonzero numeric `member_id`.
 List voters in increasing member ID order. Hex identities use lowercase and
 the same lengths as the node and fleet operations below.
 
+For an uninterrupted first-group setup, persist a single `setup.json` with
+`reservation` set to the full `first-group.json` object. Add `publication` and
+`archive`, each containing its own `request_id` and `expected_revision`. With
+exclusive fleet mutation during setup, use the reservation's revision plus one
+for publication and plus two for archive initialization.
+
+```sh
+cellar raft fleet first-group apply "$NAMESPACE" --fleet F --catalog-id "$CATALOG" \
+  --plan setup.json --json
+```
+
+The CLI validates all three identities and the catalog pin before submission.
+It runs the existing authenticated operations in order under one 30-second
+deadline and returns the three verified receipts. An error from a specific
+stage describes that stage's outcome. Earlier stages may already be committed.
+Replay the saved plan after an unknown outcome. If a concurrent fleet change
+causes a definite revision conflict, use the individual stage commands to
+reconcile with the latest revision. Daemon readiness still requires the local
+member claim and a fresh quorum.
+
 Reserve checks live capacity and replica separation and binds the exact range
 mutation. Confirm with a distinct request ID at the observed fleet revision.
 Publish uses the original reservation and plan. Retry an uncertain reply with

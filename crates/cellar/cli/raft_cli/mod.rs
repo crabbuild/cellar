@@ -49,6 +49,7 @@ async fn execute(options: &options::Options) -> Result<Value> {
             first_group::standby(&client, catalog, namespace, timeout).await
         }
         Action::FirstGroupReserve(plan) => first_group::reserve(&client, plan).await,
+        Action::FirstGroupApply(plan) => first_group::apply(&client, plan, timeout).await,
         Action::FirstGroupPublish(request) => {
             first_group::mutate(
                 &client,

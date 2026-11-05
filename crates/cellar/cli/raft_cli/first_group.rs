@@ -2,6 +2,84 @@
 
 //! Operator receipts must match the exact first-group request.
 use super::*;
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ApplyPlan {
+    reservation: RaftFleetFirstGroupPlan,
+    publication: MutationIdentity,
+    archive: MutationIdentity,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MutationIdentity {
+    request_id: String,
+    expected_revision: u64,
+}
+
+impl ApplyPlan {
+    pub fn validate(&self, namespace: &str, catalog: &str) -> Result<()> {
+        if self.reservation.catalog_id != catalog {
+            return Err(invalid("first group plan belongs to another catalog"));
+        }
+        self.publication.request(&self.reservation).validate(namespace)?;
+        self.archive.request(&self.reservation).validate(namespace)?;
+        if self.archive.request_id == self.publication.request_id
+            || self.archive.expected_revision <= self.publication.expected_revision
+        {
+            return Err(invalid("first group archive must follow publication with its own identity"));
+        }
+        Ok(())
+    }
+}
+
+impl MutationIdentity {
+    fn request(&self, plan: &RaftFleetFirstGroupPlan) -> RaftFleetFirstGroupMutation {
+        RaftFleetFirstGroupMutation {
+            plan: plan.clone(),
+            request_id: self.request_id.clone(),
+            expected_revision: self.expected_revision,
+        }
+    }
+}
+
+pub(super) async fn apply(
+    client: &http::Client,
+    plan: &ApplyPlan,
+    timeout: Duration,
+) -> Result<Value> {
+    crate::asyncrt::timeout(timeout, async {
+        let reservation = reserve(client, &plan.reservation)
+            .await
+            .map_err(|error| stage_error("reserve", error))?;
+        let publication = mutate(
+            client,
+            &plan.publication.request(&plan.reservation),
+            "publish",
+            RaftFleetFirstGroupStage::Published,
+        )
+        .await
+        .map_err(|error| stage_error("publish", error))?;
+        let archive = mutate(
+            client,
+            &plan.archive.request(&plan.reservation),
+            "archive",
+            RaftFleetFirstGroupStage::ArchiveInitialized,
+        )
+        .await
+        .map_err(|error| stage_error("archive", error))?;
+        Ok(json!({ "reservation": reservation, "publication": publication, "archive": archive }))
+    })
+    .await
+    .map_err(|_| unavailable())?
+}
+
+fn stage_error(stage: &str, mut error: RaftFleetFailure) -> RaftFleetFailure {
+    error.message = format!("First group {stage} stage. {}", error.message);
+    error
+}
 
 pub(super) async fn standby(
     client: &http::Client,

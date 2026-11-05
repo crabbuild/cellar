@@ -88,6 +88,30 @@ async fn exercise(
         "--expected-revision",
         &archive_revision,
     ];
+    let apply_path = root.join("setup.json");
+    let mut setup = serde_json::json!({
+        "reservation": plan,
+        "publication": {
+            "request_id": confirmation_id,
+            "expected_revision": confirmation_revision,
+        },
+        "archive": {
+            "request_id": confirmation_id,
+            "expected_revision": confirmation_revision + 1,
+        },
+    });
+    let apply = [
+        "first-group",
+        "apply",
+        namespace,
+        "--plan",
+        apply_path.to_str().context("UTF-8 setup path")?,
+    ];
+    std::fs::write(&apply_path, serde_json::to_vec(&setup)?)?;
+    ensure!(cli.call(&apply, OWNER).await?.code == 2);
+    ensure!(cli.revision().await? == plan.expected_revision);
+    setup["archive"]["request_id"] = serde_json::Value::String(archive_id.clone());
+    std::fs::write(&apply_path, serde_json::to_vec(&setup)?)?;
     ensure!(cli.call(&archive, READER).await?.code == 4);
     ensure!(cli.call(&archive, OWNER).await?.code == 3);
     let denied = cli.call(&reserve, READER).await?;
@@ -179,8 +203,11 @@ async fn exercise(
     f.store
         .fail_fleet_confirmation
         .store(true, Ordering::Release);
-    let lost = cli.call(&publish, OWNER).await?;
+    let lost = cli.call(&apply, OWNER).await?;
     ensure!(lost.code == 5 && lost.value["error"]["outcome"] == "unknown");
+    ensure!(lost.value["error"]["message"]
+        .as_str()
+        .is_some_and(|message| message.starts_with("First group publish stage.")));
     ensure!(!f.store.fail_fleet_confirmation.load(Ordering::Acquire));
     let selected = cli.call(&publish, OWNER).await?.success()?;
     ensure!(selected["stage"] == "published");
@@ -198,6 +225,14 @@ async fn exercise(
     ensure!(archive_receipt["stage"] == "archive_initialized");
     let writes = f.store.registry_writes.load(Ordering::Acquire);
     ensure!(cli.call(&archive, OWNER).await?.success()? == archive_receipt);
+    let completed_revision = cli.revision().await?;
+    let replay = cli.call(&apply, OWNER).await?.success()?;
+    ensure!(
+        replay["reservation"] == reservation
+            && replay["publication"] == selected
+            && replay["archive"] == archive_receipt
+    );
+    ensure!(cli.revision().await? == completed_revision);
     ensure!(f.store.registry_writes.load(Ordering::Acquire) == writes);
     let changed_id = hex::encode([63; 16]);
     let mut competing = archive;

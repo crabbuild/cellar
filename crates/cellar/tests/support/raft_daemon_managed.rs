@@ -592,67 +592,30 @@ async fn provision_group_metadata(
             },
         },
     )?;
-    let plan_file = "first-group-plan.json";
-    persist(root, plan_file, &serde_json::to_vec(&plan)?)?;
-    let plan_path = root.join(plan_file);
-    let plan_path = plan_path.to_str().context("UTF-8 first group plan path")?;
-    let reserved = cli
-        .call(
-            &["first-group", "reserve", &namespace, "--plan", plan_path],
-            OWNER,
-        )
+    let file = "first-group-setup.json";
+    let plan_path = root.join(file);
+    let path = plan_path.to_str().context("UTF-8 first group setup path")?;
+    let setup = serde_json::json!({
+        "reservation": plan,
+        "publication": {
+            "request_id": hex::encode([31; 16]),
+            "expected_revision": plan.expected_revision + 1,
+        },
+        "archive": {
+            "request_id": hex::encode([34; 16]),
+            "expected_revision": plan.expected_revision + 2,
+        },
+    });
+    persist(root, file, &serde_json::to_vec(&setup)?)?;
+    let applied = cli
+        .call(&["first-group", "apply", &namespace, "--plan", path], OWNER)
         .await?
         .success()?;
-    ensure!(reserved["stage"] == "reserved");
-    let confirmation = request(31, cli.revision().await?);
-    persist(
-        root,
-        "first-group-confirmation",
-        &serde_json::to_vec(&confirmation)?,
-    )?;
-    let published = cli
-        .call(
-            &[
-                "first-group",
-                "publish",
-                &namespace,
-                "--plan",
-                plan_path,
-                "--request-id",
-                &hex::encode(confirmation.id),
-                "--expected-revision",
-                &confirmation.expected_revision.to_string(),
-            ],
-            OWNER,
-        )
-        .await?
-        .success()?;
-    ensure!(published["stage"] == "published");
-
-    let archive_request = request(34, cli.revision().await?);
-    persist(
-        root,
-        "first-group-archive-request",
-        &serde_json::to_vec(&archive_request)?,
-    )?;
-    let archived = cli
-        .call(
-            &[
-                "first-group",
-                "archive",
-                &namespace,
-                "--plan",
-                plan_path,
-                "--request-id",
-                &hex::encode(archive_request.id),
-                "--expected-revision",
-                &archive_request.expected_revision.to_string(),
-            ],
-            OWNER,
-        )
-        .await?
-        .success()?;
-    ensure!(archived["stage"] == "archive_initialized");
+    ensure!(
+        applied["reservation"]["stage"] == "reserved"
+            && applied["publication"]["stage"] == "published"
+            && applied["archive"]["stage"] == "archive_initialized"
+    );
     Ok(())
 }
 
