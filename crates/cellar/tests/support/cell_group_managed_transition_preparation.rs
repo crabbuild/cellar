@@ -431,9 +431,14 @@ pub(super) async fn verify_sealed_cut(
                     recovery.clone(),
                     TIMEOUT,
                 )
-                .await?;
+                .await
+                .with_context(|| format!("install pending voter {}", index + 1))?;
             ensure!(receipt.member.get() == index as u64 + 1);
             ensure!(receipt.node == host.identity().node && receipt.disk == host.identity().disk);
+            ensure!(
+                recovery.usage().operations == 0,
+                "a completed install retained the recovery slot"
+            );
             installed.push(receipt.clone());
             let observed = fleet
                 .observe_managed_transfer_install_quorum(&transition, directory, route, TIMEOUT)

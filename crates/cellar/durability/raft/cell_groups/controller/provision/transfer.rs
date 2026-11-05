@@ -14,8 +14,26 @@ use std::time::Duration;
 
 #[derive(Clone)]
 pub(super) enum PendingTransferOwner {
-    Recovered(prepare::Prepared),
+    Recovered(Arc<prepare::Prepared>),
     Seeded(Arc<PreparedCellGroupTransferChild>),
+    Synced(Arc<CellGroupApplier>),
+}
+
+impl Config {
+    fn retain_synced_transfer(
+        &self,
+        log: &crate::raft::storage::ReplicaLog,
+        child: &PreparedCellGroupTransferChild,
+    ) -> Result<(), CellGroupControllerError> {
+        let history = child.route().history;
+        let group = log.cell_group(&history).map_err(RuntimeError::from)?;
+        let applier = child.installed_applier_on(&group)?;
+        self.parked
+            .lock()
+            .map_err(|_| CellGroupControllerError::Closed)?
+            .insert(history, PendingTransferOwner::Synced(Arc::new(applier)));
+        Ok(())
+    }
 }
 
 impl CellGroupController {
@@ -62,18 +80,12 @@ impl CellGroupController {
             .cloned()
             .ok_or_else(|| catalog_error(CatalogError::LostStableState))?;
         let prepared = match owner {
-            PendingTransferOwner::Recovered(owner) => owner,
+            PendingTransferOwner::Recovered(owner) => owner.as_ref().clone(),
+            PendingTransferOwner::Synced(applier) => {
+                recover_transfer_owner(log, applier.as_ref().clone()).await?
+            }
             PendingTransferOwner::Seeded(child) => {
-                let applier = child.installed_applier(&permit)?;
-                log.domain()
-                    .blocking(move || {
-                        let current = applier.recover_selected()?;
-                        Ok(prepare::Prepared { applier, current })
-                    })
-                    .map_err(|_| CellGroupControllerError::Closed)?
-                    .await
-                    .map_err(|_| CellGroupControllerError::Closed)?
-                    .map_err(apply_error)?
+                recover_transfer_owner(log, child.installed_applier(&permit)?).await?
             }
         };
         if *stop.borrow() || shared.closing.load(Ordering::Acquire) {
@@ -177,17 +189,24 @@ impl CellGroupController {
             .await
             .map_err(catalog_error)?
         {
+            if let Some(PendingTransferOwner::Seeded(prepared)) = &previous {
+                config.retain_synced_transfer(log, prepared)?;
+            }
             return Ok(receipt);
         }
         match previous {
-            Some(PendingTransferOwner::Recovered(_)) => {
+            Some(PendingTransferOwner::Recovered(_) | PendingTransferOwner::Synced(_)) => {
                 return Err(catalog_error(CatalogError::LostStableState))
             }
             Some(PendingTransferOwner::Seeded(prepared)) => {
-                return directory
+                let result = directory
                     .install_managed_transfer_voter(transition, &prepared, log, host, remaining()?)
                     .await
                     .map_err(catalog_error);
+                let owner = config.retain_synced_transfer(log, &prepared);
+                let receipt = result?;
+                owner?;
+                return Ok(receipt);
             }
             None => (),
         }
@@ -256,9 +275,30 @@ impl CellGroupController {
                 route.history,
                 PendingTransferOwner::Seeded(prepared.clone()),
             );
-        directory
+        let result = directory
             .install_managed_transfer_voter(transition, &prepared, log, host, remaining)
             .await
-            .map_err(catalog_error)
+            .map_err(catalog_error);
+        // A lost receipt can follow durable sync. Keep the applier but release
+        // the sealed-source preparation's admission when a mapping exists.
+        let owner = config.retain_synced_transfer(log, &prepared);
+        let receipt = result?;
+        owner?;
+        Ok(receipt)
     }
+}
+
+async fn recover_transfer_owner(
+    log: &crate::raft::storage::ReplicaLog,
+    applier: CellGroupApplier,
+) -> Result<prepare::Prepared, CellGroupControllerError> {
+    log.domain()
+        .blocking(move || {
+            let current = applier.recover_selected()?;
+            Ok(prepare::Prepared { applier, current })
+        })
+        .map_err(|_| CellGroupControllerError::Closed)?
+        .await
+        .map_err(|_| CellGroupControllerError::Closed)?
+        .map_err(apply_error)
 }

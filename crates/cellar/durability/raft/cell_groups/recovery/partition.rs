@@ -8,7 +8,7 @@ use super::{
 };
 use crate::application::consensus::cell_routing_key;
 use cellar_logic::{
-    cell_group::{CellId, GroupRoute},
+    cell_group::{CellId, GroupHistory, GroupRoute},
     consensus::{LogIndex, LogPosition, Term},
 };
 use cellar_ltx::stream_snapshot::ScratchPool;
@@ -92,9 +92,18 @@ impl PreparedCellGroupTransferChild {
         &self,
         permit: &CellGroupBootstrapPermit,
     ) -> std::result::Result<CellGroupApplier, crate::raft::completion::RuntimeError> {
+        if permit.route() != self.route() {
+            return Err(crate::raft::completion::RuntimeError::StaleCompletion);
+        }
+        self.installed_applier_on(permit.group())
+    }
+
+    pub(crate) fn installed_applier_on(
+        &self,
+        group: &crate::raft::cache::GroupLog<GroupHistory>,
+    ) -> std::result::Result<CellGroupApplier, crate::raft::completion::RuntimeError> {
         use crate::raft::completion::RuntimeError;
-        let group = permit.group();
-        if permit.route() != self.route()
+        if group.identity().scope != self.route().history
             || !self
                 .install_owner()
                 .and_then(|engine| engine.get())

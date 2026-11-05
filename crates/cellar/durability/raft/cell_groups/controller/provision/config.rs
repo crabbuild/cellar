@@ -242,10 +242,9 @@ impl Config {
                     .map(|(applier, current)| {
                         (
                             applier.history(),
-                            transfer::PendingTransferOwner::Recovered(prepare::Prepared {
-                                applier,
-                                current,
-                            }),
+                            transfer::PendingTransferOwner::Recovered(Arc::new(
+                                prepare::Prepared { applier, current },
+                            )),
                         )
                     })
                     .collect(),
