@@ -299,12 +299,41 @@ async fn verify_sealed_sources(
     let birth = domain
         .run(reopened.materialize_selected_history(scope))
         .await??;
+    // The exact verified source retains the only checkpoint receiver slot.
+    // Exercise the alternate reference before pinning the selected source.
+    let intent = archives.registry.prepare_acquire(domain).await?;
+    let alternate = archives.registry.acquire(domain, &intent).await?;
+    anyhow::ensure!(alternate != sealed);
+    let mut source = archives.source(&fixture.cluster, alternate.clone(), "reject-alternate")?;
+    source.birth = birth.clone();
+    anyhow::ensure!(matches!(
+        reopened
+            .verify_and_record_sealed_sources(
+                domain,
+                &archives.pool,
+                &archives.tails,
+                &original,
+                vec![source]
+            )
+            .await,
+        Err(CellGroupArchiveBindingError::Catalog(
+            CatalogError::Conflict(_)
+        ))
+    ));
+    archives.registry.release(domain, &alternate).await?;
+    let permit = domain
+        .run(reopened.prepare_source_seal(&original, scope, &fixture.cluster.voters[0].log))
+        .await??;
+    anyhow::ensure!(matches!(
+        fixture.runtimes[0].seal_source(permit).await?,
+        CellGroupSealOutcome::Applied(_)
+    ));
     let mut source = archives.source(
         &fixture.cluster,
         holds.pop().context("retained hold")?,
         "verify-reopened",
     )?;
-    source.birth = birth.clone();
+    source.birth = birth;
     let verified = reopened
         .verify_and_record_sealed_sources(
             domain,
@@ -324,32 +353,6 @@ async fn verify_sealed_sources(
         verified,
     ))
     .await?;
-    let intent = archives.registry.prepare_acquire(domain).await?;
-    let alternate = archives.registry.acquire(domain, &intent).await?;
-    anyhow::ensure!(alternate != sealed);
-    let mut source = archives.source(&fixture.cluster, alternate, "reject-alternate")?;
-    source.birth = birth;
-    anyhow::ensure!(matches!(
-        reopened
-            .verify_and_record_sealed_sources(
-                domain,
-                &archives.pool,
-                &archives.tails,
-                &original,
-                vec![source]
-            )
-            .await,
-        Err(CellGroupArchiveBindingError::Catalog(
-            CatalogError::Conflict(_)
-        ))
-    ));
-    let permit = domain
-        .run(reopened.prepare_source_seal(&original, scope, &fixture.cluster.voters[0].log))
-        .await??;
-    anyhow::ensure!(matches!(
-        fixture.runtimes[0].seal_source(permit).await?,
-        CellGroupSealOutcome::Applied(_)
-    ));
     Ok(installed)
 }
 
