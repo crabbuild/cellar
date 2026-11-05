@@ -17,7 +17,9 @@ const ACTIVE: &str = "transition/active";
 const PLANS: &str = "transition-plans";
 const COUNT: &str = "transition/count";
 const JOURNAL: u8 = 198;
-const LIMIT: usize = 1024;
+// A retired journal can carry nine 32-byte digests. Each JSON byte array
+// takes up to 129 bytes, before field names, phase and the record envelope.
+const JOURNAL_LIMIT: usize = 1536;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -129,7 +131,7 @@ impl TransitionJournal {
         Ok(record::digest(&record::encode(
             JOURNAL,
             &authorized,
-            LIMIT,
+            JOURNAL_LIMIT,
         )?))
     }
 }
@@ -354,7 +356,7 @@ impl RangeDirectory {
             .lookup(head.operations, &key(operation))
             .await?
             .map(|bytes| {
-                let journal: TransitionJournal = record::decode(JOURNAL, &bytes, LIMIT)?;
+                let journal: TransitionJournal = record::decode(JOURNAL, &bytes, JOURNAL_LIMIT)?;
                 let required = matches!(
                     journal.phase,
                     TransitionPhase::Prepared
@@ -525,7 +527,7 @@ impl RangeDirectory {
             .update(
                 operations,
                 &key(mutation.operation),
-                Some(record::encode(JOURNAL, &journal, LIMIT)?),
+                Some(record::encode(JOURNAL, &journal, JOURNAL_LIMIT)?),
                 0,
             )
             .await
@@ -655,7 +657,7 @@ impl RangeDirectory {
                 (ACTIVE, mutation.operation.bytes().to_vec()),
                 (
                     &key(mutation.operation),
-                    record::encode(JOURNAL, &journal, LIMIT)?,
+                    record::encode(JOURNAL, &journal, JOURNAL_LIMIT)?,
                 ),
             ] {
                 view.head.operations = index
@@ -1101,7 +1103,7 @@ impl RangeDirectory {
                 return Ok(before);
             }
             let index = Index::new(self);
-            let bytes = record::encode(JOURNAL, &requested, LIMIT)?;
+            let bytes = record::encode(JOURNAL, &requested, JOURNAL_LIMIT)?;
             view.head.operations = index
                 .update(
                     view.head.operations,
@@ -1159,7 +1161,7 @@ impl RangeDirectory {
             .update(
                 view.head.operations,
                 &key(mutation.operation),
-                Some(record::encode(JOURNAL, &journal, LIMIT)?),
+                Some(record::encode(JOURNAL, &journal, JOURNAL_LIMIT)?),
                 0,
             )
             .await?;

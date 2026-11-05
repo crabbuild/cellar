@@ -1168,20 +1168,18 @@ async fn verify_child_archive_coverage(
     let verified =
         child_archive_inputs(cluster, archives, directory, &holds, "coverage-verify").await?;
     store.fail_head_confirmation.store(true, Ordering::Release);
-    anyhow::ensure!(matches!(
-        directory
-            .verify_and_record_child_archives(
-                domain,
-                &archives.pool,
-                &archives.tails,
-                plan,
-                verified
-            )
-            .await,
-        Err(CellGroupArchiveBindingError::Catalog(
-            CatalogError::Unconfirmed
-        ))
-    ));
+    let lost = directory
+        .verify_and_record_child_archives(domain, &archives.pool, &archives.tails, plan, verified)
+        .await;
+    anyhow::ensure!(
+        matches!(
+            lost,
+            Err(CellGroupArchiveBindingError::Catalog(
+                CatalogError::Unconfirmed
+            ))
+        ),
+        "expected unconfirmed child archive coverage, got {lost:?}"
+    );
     let catalog = Catalog::new(store, CatalogOptions::default())?;
     let namespace = domain
         .run(catalog.existing_namespace(directory.namespace_config().clone()))
