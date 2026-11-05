@@ -5,6 +5,9 @@ use super::*;
 use crate::raft::{
     cache::GroupLog,
     cell_groups::{GroupManifest, PreparedCellGroupTransferChild, TransferSeed},
+    fleet_catalog::{FleetHostAuthorization, ReopenedManagedCellGroupTransition},
+    fleet_stop::{BootBinding, Guard},
+    member_state::FleetGroupBinding,
     storage::{CellGroupBootstrap, LogError, ReplicaLog},
 };
 use cellar_logic::consensus::{DiskLineage, EngineInstanceId, MemberId, NodeId, ReplicaIdentity};
@@ -36,6 +39,33 @@ pub(crate) struct TransferSeedPermit {
     pub(crate) genesis: GroupManifest,
     local: ReplicaIdentity<GroupHistory>,
     engine: EngineInstanceId,
+    managed: Option<ManagedSeed>,
+}
+
+struct ManagedSeed {
+    group: FleetGroupBinding,
+    boot: BootBinding,
+    deadline: u64,
+}
+
+struct ManagedInstall<'a> {
+    transition: &'a ReopenedManagedCellGroupTransition,
+    host: &'a FleetHostAuthorization,
+    deadline: u64,
+}
+
+impl ManagedInstall<'_> {
+    fn remaining(&self, log: &ReplicaLog) -> Result<Duration, CatalogError> {
+        let now = log
+            .domain()
+            .mono_ms()
+            .map_err(|_| CatalogError::Unconfirmed)?;
+        self.deadline
+            .checked_sub(now)
+            .filter(|ms| *ms > 0)
+            .map(Duration::from_millis)
+            .ok_or(CatalogError::Unconfirmed)
+    }
 }
 
 impl TransferSeedPermit {
@@ -49,6 +79,23 @@ impl TransferSeedPermit {
             return Err(LogError::WrongIdentity);
         }
         Ok(())
+    }
+
+    pub(crate) fn managed_binding(
+        &self,
+        guard: Option<&Guard>,
+        now: u64,
+    ) -> Result<Option<&FleetGroupBinding>, LogError> {
+        let Some(managed) = &self.managed else {
+            return Ok(None);
+        };
+        if now >= managed.deadline
+            || guard.is_none_or(|guard| !guard.admits_group_start(&managed.boot))
+            || !managed.group.matches_scope(&self.local.scope)
+        {
+            return Err(LogError::WrongIdentity);
+        }
+        Ok(Some(&managed.group))
     }
 }
 
@@ -87,6 +134,65 @@ impl RangeDirectory {
         log: &ReplicaLog,
     ) -> Result<GroupLog<GroupHistory>, CatalogError> {
         self.unmanaged_birth()?;
+        self.install_transfer_voter_inner(plan, child, log, None)
+            .await
+    }
+
+    /// Sync a prepared child into its reserved managed voter engine.
+    /// The receiver must own the destination's retained page and image stores.
+    /// A durable install receipt grants no attachment or serving authority.
+    pub async fn install_managed_transfer_voter(
+        &self,
+        transition: &ReopenedManagedCellGroupTransition,
+        child: &PreparedCellGroupTransferChild,
+        log: &ReplicaLog,
+        host: &FleetHostAuthorization,
+        timeout: Duration,
+    ) -> Result<InstalledTransferVoter, CatalogError> {
+        if timeout.as_millis() == 0 || timeout > Duration::from_secs(60) {
+            return Err(CatalogError::Invalid("managed transfer install timeout"));
+        }
+        let deadline = log
+            .domain()
+            .mono_ms()
+            .map_err(|_| CatalogError::Unconfirmed)?
+            .checked_add(timeout.as_millis() as u64)
+            .ok_or(CatalogError::Limit)?;
+        let managed = ManagedInstall {
+            transition,
+            host,
+            deadline,
+        };
+        let group = log
+            .domain()
+            .run(Box::pin(crate::asyncrt::timeout_at(
+                deadline,
+                Box::pin(self.install_transfer_voter_inner(
+                    &transition.plan,
+                    child,
+                    log,
+                    Some(managed),
+                )),
+            )))
+            .await
+            .map_err(|_| CatalogError::Unconfirmed)?
+            .map_err(|_| CatalogError::Unconfirmed)??;
+        let local = group.identity();
+        Ok(InstalledTransferVoter {
+            member: local.member,
+            node: local.node,
+            disk: local.disk,
+            engine: log.storage_instance().map_err(CatalogError::Log)?,
+        })
+    }
+
+    async fn install_transfer_voter_inner(
+        &self,
+        plan: &DirectoryMutation,
+        child: &PreparedCellGroupTransferChild,
+        log: &ReplicaLog,
+        managed: Option<ManagedInstall<'_>>,
+    ) -> Result<GroupLog<GroupHistory>, CatalogError> {
         let genesis = child
             .genesis()
             .ok_or(CatalogError::Conflict(
@@ -94,7 +200,27 @@ impl RangeDirectory {
             ))?
             .marker();
         self.bounded(async {
-            self.namespace.require_cell_group_unmanaged().await?;
+            let authority = if let Some(managed) = &managed {
+                let boot = self.require_managed_group_boot(log, managed.host).await?;
+                let authority = managed
+                    .host
+                    .managed_transfer_install_authority(
+                        managed.transition,
+                        self,
+                        genesis.route(),
+                        managed.remaining(log)?,
+                    )
+                    .await
+                    .map_err(CatalogError::from)?;
+                authority.transition.check(self, plan)?;
+                if authority.boot != boot {
+                    return Err(CatalogError::Fenced);
+                }
+                Some(authority)
+            } else {
+                self.namespace.require_cell_group_unmanaged().await?;
+                None
+            };
             self.require_open_transfer_install(plan, genesis).await?;
             let birth = self
                 .require_ordinary_birth_reservation(genesis.route())
@@ -151,6 +277,29 @@ impl RangeDirectory {
                 }
             }
             self.require_open_transfer_install(plan, genesis).await?;
+            let managed = if let Some((managed, original)) = managed.zip(authority) {
+                let authority = managed
+                    .host
+                    .managed_transfer_install_authority(
+                        managed.transition,
+                        self,
+                        route,
+                        managed.remaining(log)?,
+                    )
+                    .await
+                    .map_err(CatalogError::from)?;
+                authority.transition.check(self, plan)?;
+                if authority.group != original.group || authority.boot != original.boot {
+                    return Err(CatalogError::Fenced);
+                }
+                Some(ManagedSeed {
+                    group: authority.group,
+                    boot: authority.boot,
+                    deadline: managed.deadline,
+                })
+            } else {
+                None
+            };
             let permit = TransferSeedPermit {
                 owner: log.owner(),
                 bootstrap: CellGroupBootstrap {
@@ -162,6 +311,7 @@ impl RangeDirectory {
                 genesis: genesis.clone(),
                 local,
                 engine,
+                managed,
             };
             let seed = TransferSeed::new(permit, child).map_err(CatalogError::Log)?;
             let group = log

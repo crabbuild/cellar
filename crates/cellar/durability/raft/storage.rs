@@ -1613,7 +1613,11 @@ impl Worker {
             .cloned()
     }
 
-    fn import_cells(&mut self, seed: &ImportedGenesis) -> Result<GroupLog<GroupHistory>, LogError> {
+    fn import_cells(
+        &mut self,
+        seed: &ImportedGenesis,
+        domain: &crate::asyncrt::DomainToken,
+    ) -> Result<GroupLog<GroupHistory>, LogError> {
         let (bootstrap, marker) = seed.binding();
         seed.check(
             &self.owner,
@@ -1627,6 +1631,18 @@ impl Worker {
             EngineInstanceId::new(self.root.identity.storage_instance).map_err(records::corrupt)?,
         )?;
         let conf = bootstrap.configuration()?;
+        let managed = match seed {
+            ImportedGenesis::Recovery(_) => None,
+            ImportedGenesis::Transfer(seed) => seed
+                .managed_binding(
+                    self.lifecycle.guard.as_ref(),
+                    domain.mono_ms().map_err(|_| LogError::Closed)?,
+                )?
+                .map(|binding| {
+                    super::member_state::GroupMembership::managed_initial(&conf, binding.clone())
+                })
+                .transpose()?,
+        };
         if let Some(group) = self
             .groups
             .read()
@@ -1635,8 +1651,12 @@ impl Worker {
         {
             let group = group.as_cells()?;
             let expected = MappingRecord::new_imported_cells(group.key, bootstrap, &conf, marker)?;
+            let cache = group.read()?;
             if self.mappings.get(&group.key) != Some(&expected)
-                || group.group_manifest()?.as_ref() != Some(marker)
+                || cache.group_manifest.as_ref() != Some(marker)
+                || managed
+                    .as_ref()
+                    .is_some_and(|membership| membership != &cache.membership)
             {
                 return Err(LogError::WrongIdentity);
             }
@@ -1645,6 +1665,9 @@ impl Worker {
         let mapping =
             MappingRecord::new_imported_cells(self.root.next_key, bootstrap, &conf, marker)?;
         let mut cache = genesis(conf);
+        if let Some(membership) = managed {
+            cache.membership = membership;
+        }
         cache.group_manifest = Some(marker.clone());
         if marker.is_recovery_genesis() {
             cache.recovery_genesis = Some(Arc::new(marker.clone()));
@@ -2057,7 +2080,7 @@ impl Worker {
                     fatal
                 }
                 Work::ImportCells(seed, reply) => {
-                    let result = self.import_cells(&seed);
+                    let result = self.import_cells(&seed, domain);
                     let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
                     if fatal.is_some() {
                         self.closed.store(true, Ordering::Release);

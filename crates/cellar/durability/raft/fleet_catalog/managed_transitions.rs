@@ -12,9 +12,14 @@ use crate::raft::{
         PreparedManagedCellGroupTransition, RangeDirectory, TransitionJournal,
         VerifiedCellGroupTransitionSources,
     },
+    fleet_stop::BootBinding,
+    member_state::FleetGroupBinding,
 };
 
-use cellar_logic::{cell_group::GroupHistory, consensus::ProposalId};
+use cellar_logic::{
+    cell_group::{GroupHistory, GroupRoute},
+    consensus::ProposalId,
+};
 use serde::Deserialize;
 
 pub(super) const KIND: u8 = 201;
@@ -418,7 +423,18 @@ impl FleetCatalog {
         plan: &DirectoryMutation,
     ) -> Result<ManagedTransitionPermit> {
         let current = self.inner.current().await?;
-        let Some(Disruption::Transition(active)) = self.active_disruption(&current).await? else {
+        self.managed_transition_permit_at(&current, request, directory, plan)
+            .await
+    }
+
+    async fn managed_transition_permit_at(
+        &self,
+        current: &FleetSnapshot,
+        request: &FleetRequestIdentity,
+        directory: &RangeDirectory,
+        plan: &DirectoryMutation,
+    ) -> Result<ManagedTransitionPermit> {
+        let Some(Disruption::Transition(active)) = self.active_disruption(current).await? else {
             return Err(FleetCatalogError::Conflict);
         };
         if active.request != *request {
@@ -617,7 +633,68 @@ impl FleetCatalog {
     }
 }
 
+pub(crate) struct ManagedTransferInstallAuthority {
+    pub(crate) transition: ManagedTransitionPermit,
+    pub(crate) group: FleetGroupBinding,
+    pub(crate) boot: BootBinding,
+}
+
 impl FleetHostAuthorization {
+    pub(crate) async fn managed_transfer_install_authority(
+        &self,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        route: &GroupRoute,
+        timeout: Duration,
+    ) -> Result<ManagedTransferInstallAuthority> {
+        validate_request(&transition.request)?;
+        let catalog = &self.catalog;
+        catalog
+            .run(
+                timeout,
+                Box::pin(async {
+                    let current = catalog.inner.current().await?;
+                    let host = catalog.host_from_record(&current, self.node()).await?;
+                    self.require_running_successor(&host)?;
+                    let boot = self.boot_binding()?;
+                    let permit = catalog
+                        .managed_transition_permit_at(
+                            &current,
+                            &transition.request,
+                            directory,
+                            &transition.plan,
+                        )
+                        .await?;
+                    let group = catalog.binding(&route.history)?;
+                    let key = group
+                        .key()
+                        .map_err(|_| FleetCatalogError::Invalid("transfer child binding"))?;
+                    let history = catalog.history_inner(&current, &key).await?;
+                    if history.origin != Origin::Managed
+                        || history.state != FleetHistoryState::Reserved
+                        || history.operation != transition.request.operation
+                        || !history.check_route(directory, route)
+                        || !history.voters.iter().any(|voter| voter.node == boot.node)
+                    {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                    let capacity = catalog.capacity_from(&current, self.node()).await?;
+                    if !capacity.receive_replicas()
+                        || capacity.attestation().boot != boot
+                        || catalog.inner.current().await?.token != current.token
+                    {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                    Ok(ManagedTransferInstallAuthority {
+                        transition: permit,
+                        group,
+                        boot,
+                    })
+                }),
+            )
+            .await
+    }
+
     pub(crate) async fn managed_source_seal_authority(
         &self,
         transition: &ReopenedManagedCellGroupTransition,

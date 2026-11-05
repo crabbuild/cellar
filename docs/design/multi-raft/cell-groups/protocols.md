@@ -1088,7 +1088,10 @@ It binds the exact transition, plan and sealed-source set. An active-source
 pre-copy carries image pins without this genesis. Ordinary log apply and
 checkpoint install preserve the pending marker and its exact image root.
 The local install binds one child genesis across all its voters and persists a
-member/node/disk/engine intent before syncing the mapping. A matching receipt
+member/node/disk/engine intent before syncing the mapping. Managed installs
+also require the exact transition's reserved child, a current capacity proof
+for the running destination boot, and the same local boot guard at the engine
+write. The synced child retains its fleet binding while pending. A matching receipt
 follows the sync. A read-only check confirms a majority of reserved voters
 from matching intents and receipts on distinct pinned disks and engines.
 A pending voter can attach after rechecking this majority and its own receipt.

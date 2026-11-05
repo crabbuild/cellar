@@ -54,6 +54,14 @@ impl TransferSeed {
         self.permit.check(owner, identity, engine)
     }
 
+    pub(crate) fn managed_binding(
+        &self,
+        guard: Option<&crate::raft::fleet_stop::Guard>,
+        now: u64,
+    ) -> Result<Option<&crate::raft::member_state::FleetGroupBinding>, LogError> {
+        self.permit.managed_binding(guard, now)
+    }
+
     pub(crate) fn prepare(
         &self,
         closed: &Arc<AtomicBool>,
