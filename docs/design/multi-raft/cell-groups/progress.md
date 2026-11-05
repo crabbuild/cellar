@@ -12,6 +12,35 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 managed first-group provisioning
+
+The public SDK observes the exact managed standby and reserves one full-range
+RF3 group through existing capacity and separation checks. The prepared
+reservation retains the original standby digest and range operation. It can
+be reopened from the original request after selection or a lost response.
+Publication resolves the immutable birth decision before the directory CAS.
+A cancellation cannot displace that Live decision, and an unselected birth
+cannot admit a voter. Confirmation and physical activation remain separate.
+
+The cold-start case pauses before range publication and verifies that a
+concurrent cancellation sees the same Live birth. A conflicting confirmation
+leaves the selected range without Live fleet authorization. The test then
+loses an actual confirmation reply, reopens the original reservation and
+replays confirmation. It also verifies that a missing published birth refuses
+without recreating metadata. The pre-capacity refusal, inventory debt,
+physical activation and retained restart assertions remain in place.
+
+Three native cases and the native/Axum request case against real RustFS pass.
+The request fixture uses the SDK first-group path from a fresh standby. Both
+image forms run in the request and cold-capacity cases. RustFS uses host-native
+voters with fixture capacity, and the backend and VM stop with data retained.
+The ordinary CLI and daemon workflow still needs archive setup, capacity
+admission and activation wiring.
+
+Source manifest `442c44e9b2712f1a911ab187d9906b8301ff76ad620cb6bbdfa44be96567552d`.
+Native record `414decd4610f9933539b1697c1d74d0ff7eccc8c2b5f6c22e4ebca6fb55581bf`.
+RustFS record `fd4922bb25e0e88fe8c3ff436755f1f631e1659f770f05e855e0b512af87f22e`.
+
 ## CG-07 managed namespace standby provisioning
 
 `FleetCatalog::provision_managed_namespace` validates the compiled class and

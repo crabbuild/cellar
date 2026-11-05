@@ -35,6 +35,24 @@ the same logical operation and configuration. The operation identifies the
 original standby publication. A confirmed replay verifies existing metadata,
 including the historical standby receipt if a group was selected later.
 
+## First full-range group
+
+Use `observe_managed_standby` to read the exact empty root. Persist a
+`RaftManagedFirstGroupRequest` with that digest, the original fleet reservation
+identity, the range operation and the full-range RF3 birth. The reservation API
+rechecks current capacity and placement against the fleet root. Reopening uses
+the same request, including the original range operation.
+
+`publish_managed_first_group` first resolves the immutable birth decision,
+then selects the range and confirms the fleet history. The directory cannot
+select a birth whose cancellation won. If the range CAS loses, the exact birth
+remains inventoried and cannot start a replica outside the selected map. A
+confirmed range with missing birth metadata refuses replay. Persist and retry
+the exact confirmation request after an uncertain reply. A confirmed revision
+conflict can use a new confirmation request at the new fleet revision with the
+same operation and prepared reservation. Activation requires the existing
+managed host boot and local member claim.
+
 ## Compiled host and birth admission
 
 Managed startup checks every actual prepared namespace and compiled class against

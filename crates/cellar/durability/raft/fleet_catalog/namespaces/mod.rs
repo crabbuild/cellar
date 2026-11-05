@@ -6,9 +6,11 @@ use crate::raft::catalog::{NamespaceCatalog, VoterPolicy};
 use cellar_logic::consensus::NamespaceId;
 use serde::Deserialize;
 
+mod first_group;
 mod inventory;
 mod provisioning;
 mod records;
+pub use first_group::{RaftManagedFirstGroup, RaftManagedFirstGroupRequest};
 use records::{Declaration, Registry};
 
 pub(super) const KEY: &str = "compiled-namespaces";

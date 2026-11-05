@@ -261,6 +261,83 @@ impl RangeDirectory {
         self.request(operation, Some(standby.digest), &[], ranges)
     }
 
+    pub(crate) fn prepare_managed_first_group(
+        &self,
+        standby: [u8; 32],
+        operation: ProposalId,
+        route: &GroupRoute,
+    ) -> Result<DirectoryMutation, CatalogError> {
+        if self.namespace.config().managed_fleet.is_none() || standby == [0; 32] {
+            return Err(CatalogError::Invalid("managed standby identity"));
+        }
+        self.request(operation, Some(standby), &[], std::slice::from_ref(route))
+    }
+
+    /// Accept the original empty root or the exact operation's durable receipt.
+    pub(crate) async fn check_managed_first_group(
+        &self,
+        mutation: &DirectoryMutation,
+    ) -> Result<(), CatalogError> {
+        self.check_request(&mutation.request)?;
+        self.bounded(self.first_group_publication(mutation)).await?;
+        Ok(())
+    }
+
+    async fn first_group_publication(
+        &self,
+        mutation: &DirectoryMutation,
+    ) -> Result<Option<DirectoryPublication>, CatalogError> {
+        let (view, _) = self.current().await?;
+        if view.head.revision == 1
+            && view.head.tree.is_none()
+            && mutation.request.expected == Some(view.digest)
+        {
+            return Ok(None);
+        }
+        self.confirmed(&view.head, mutation)
+            .await?
+            .map(Some)
+            .ok_or(CatalogError::Conflict("managed first group standby"))
+    }
+
+    /// Resolve cancellation at the immutable birth decision before selecting the
+    /// range. A Live decision alone cannot admit a member. A losing range CAS
+    /// leaves the exact birth inventoried, without granting serving authority.
+    pub(crate) async fn publish_managed_first_group(
+        &self,
+        mutation: &DirectoryMutation,
+        authorization: &crate::raft::fleet_catalog::FleetBirthAuthorization,
+    ) -> Result<(), CatalogError> {
+        self.check_request(&mutation.request)?;
+        authorization.check_namespace(&self.namespace)?;
+        self.bounded(async {
+            let request = &mutation.request;
+            let [child] = request.children.as_slice() else {
+                return Err(CatalogError::Invalid("managed first group range"));
+            };
+            if self.namespace.cell_group_owner().await?.as_ref() != Some(authorization.owner())
+                || request.expected.is_none()
+                || !request.parents.is_empty()
+                || child.decode(self)? != *authorization.route()
+            {
+                return Err(CatalogError::ManagedAdmissionRequired);
+            }
+            let proposal = authorization.proposal();
+            let birth = if self.first_group_publication(mutation).await?.is_some() {
+                match self.group_birth_disposition(&proposal).await? {
+                    Some(CellGroupBirthDisposition::Live(birth)) => birth,
+                    _ => return Err(CatalogError::Corrupt("missing published first group birth")),
+                }
+            } else {
+                let birth = self.decide_live_birth(&proposal).await?;
+                self.publish_inner(mutation, None).await?;
+                birth
+            };
+            self.require_current_group_birth(&birth).await
+        })
+        .await
+    }
+
     /// Prepare metadata for one exact contiguous replacement. The topology
     /// owner must separately obtain seal/install/archive/activation proofs before
     /// using this publication; this staging API does not perform a transfer.

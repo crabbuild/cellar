@@ -378,6 +378,18 @@ impl FleetBirthAuthorization {
         self.history.check_birth(directory, birth)
     }
 
+    pub(super) fn matches_active_reservation(&self, history: &FleetHistory) -> bool {
+        match history.state() {
+            FleetHistoryState::Reserved => history == &self.history,
+            FleetHistoryState::Live => {
+                let mut expected = self.history.clone();
+                expected.state = FleetHistoryState::Live;
+                history == &expected
+            }
+            FleetHistoryState::Cancelled { .. } => false,
+        }
+    }
+
     pub fn scope(&self) -> &GroupHistory {
         &self.proposal.route().history
     }

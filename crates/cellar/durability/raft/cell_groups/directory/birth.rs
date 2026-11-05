@@ -6,6 +6,7 @@
 use super::super::InitialMember;
 use super::*;
 
+#[derive(Clone)]
 pub struct CellGroupBirthSpec {
     pub history: GroupHistory,
     pub range: CellRange,
@@ -477,29 +478,31 @@ impl RangeDirectory {
         self.decode_group_birth(request.encode())?;
         self.bounded(async {
             self.selected_birth_route(request.route()).await?;
-            self.verify_birth_reservation(request.route()).await?;
-            let observed = self
-                .namespace
-                .inner
-                .create_and_observe_bounded(
-                    &self.group_birth_key(request.route()),
-                    request.encode(),
-                    wire::LIMIT,
-                )
-                .await?;
-            match self.decode_group_disposition(request, &observed)? {
-                CellGroupBirthDisposition::Live(_) => (),
-                CellGroupBirthDisposition::Cancelled { .. } => {
-                    return Err(CatalogError::BirthCancelled)
-                }
-            }
+            let birth = self.decide_live_birth(request).await?;
             self.selected_birth_route(request.route()).await?;
-            Ok(CellGroupBirth {
-                request: Arc::new(request.clone()),
-                owner: self.namespace.inner.owner.clone(),
-            })
+            Ok(birth)
         })
         .await
+    }
+
+    pub(super) async fn decide_live_birth(
+        &self,
+        request: &CellGroupBirthRequest,
+    ) -> Result<CellGroupBirth, CatalogError> {
+        self.verify_birth_reservation(request.route()).await?;
+        let observed = self
+            .namespace
+            .inner
+            .create_and_observe_bounded(
+                &self.group_birth_key(request.route()),
+                request.encode(),
+                wire::LIMIT,
+            )
+            .await?;
+        match self.decode_group_disposition(request, &observed)? {
+            CellGroupBirthDisposition::Live(birth) => Ok(birth),
+            CellGroupBirthDisposition::Cancelled { .. } => Err(CatalogError::BirthCancelled),
+        }
     }
 
     /// Recheck a birth observation's current directory and immutable metadata.

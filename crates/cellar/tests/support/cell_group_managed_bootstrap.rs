@@ -359,6 +359,11 @@ enum ArchiveSetup {
     Missing,
 }
 
+enum FirstGroupSetup {
+    Normal,
+    ExerciseReplay,
+}
+
 struct ManagedCluster {
     fixtures: Vec<Fixture>,
     roots: Vec<tempfile::TempDir>,
@@ -419,6 +424,7 @@ impl ManagedCluster {
             archives,
             independent,
             None,
+            FirstGroupSetup::Normal,
         ))
         .await
     }
@@ -429,6 +435,7 @@ impl ManagedCluster {
         archives: ArchiveSetup,
         independent: bool,
         applications: Option<Vec<Arc<dyn Application>>>,
+        first_group: FirstGroupSetup,
     ) -> Result<Self> {
         let second = peer_fixture(&first, 5).await?;
         let third = peer_fixture(&first, 6).await?;
@@ -462,22 +469,29 @@ impl ManagedCluster {
             }
         }
         let f = &fixtures[0];
+        let adapter = Catalog::new(
+            f.store.clone(),
+            CatalogOptions {
+                prefix: "managed/".into(),
+                ..Default::default()
+            },
+        )?;
         let namespace = f
             .domain
-            .run(
-                Catalog::new(
-                    f.store.clone(),
-                    CatalogOptions {
-                        prefix: "managed/".into(),
-                        ..Default::default()
-                    },
-                )?
-                .existing_namespace(f.declaration.namespace.clone()),
-            )
+            .run(adapter.existing_namespace(f.declaration.namespace.clone()))
             .await??;
         let directory = RangeDirectory::new(namespace, DirectoryLimits::default())?;
-        let standby = f.domain.run(directory.observe()).await??;
-        ensure!(standby.revision() == 1 && standby.groups() == 0);
+        let standby = f
+            .catalog
+            .observe_managed_standby(
+                &adapter,
+                &f.declaration,
+                DirectoryLimits::default(),
+                TIMEOUT,
+            )
+            .await?;
+        let observed = f.domain.run(directory.observe()).await??;
+        ensure!(observed.revision() == 1 && observed.groups() == 0 && observed.digest() == standby);
         let history = GroupHistory {
             cluster: f.declaration.namespace.cluster,
             namespace: f.declaration.namespace.namespace,
@@ -532,16 +546,23 @@ impl ManagedCluster {
             nodes.push(node);
             hosts.push(host);
         }
+        let reserve = |reservation| -> Result<RaftManagedFirstGroupRequest> {
+            Ok(RaftManagedFirstGroupRequest {
+                reservation,
+                standby,
+                publication: ProposalId::new([121; 16])?,
+                group: proposal()?,
+            })
+        };
         let cut = f.catalog.read(TIMEOUT).await?;
         ensure!(matches!(
             f.catalog
-                .reserve_birth(
-                    &cut,
-                    &request(59, cut.revision()),
-                    &directory,
-                    proposal()?,
-                    "Counter",
-                    TIMEOUT
+                .reserve_managed_first_group(
+                    &adapter,
+                    &f.declaration,
+                    reserve(request(59, cut.revision()))?,
+                    DirectoryLimits::default(),
+                    TIMEOUT,
                 )
                 .await,
             Err(FleetCatalogError::Conflict)
@@ -551,14 +572,14 @@ impl ManagedCluster {
             admit_capacity(fixture, &hosts[i], &directory, 40 + 2 * i as u8).await?;
         }
         let cut = f.catalog.read(TIMEOUT).await?;
-        let reservation = f
+        let reserve_identity = request(60, cut.revision());
+        let reserved = f
             .catalog
-            .reserve_birth(
-                &cut,
-                &request(60, cut.revision()),
-                &directory,
-                proposal()?,
-                "Counter",
+            .reserve_managed_first_group(
+                &adapter,
+                &f.declaration,
+                reserve(reserve_identity.clone())?,
+                DirectoryLimits::default(),
                 TIMEOUT,
             )
             .await?;
@@ -571,21 +592,24 @@ impl ManagedCluster {
                 == 1,
             "unselected reservation must retain its physical references"
         );
-        let ranges = directory.prepare_initialization_at(
-            &standby,
-            ProposalId::new([121; 16])?,
-            std::slice::from_ref(reservation.authorization.route()),
-        )?;
-        f.domain.run(directory.publish(&ranges)).await??;
-        let cut = f.catalog.read(TIMEOUT).await?;
-        f.catalog
-            .confirm_birth(
-                &cut,
-                &request(61, cut.revision()),
+        let confirmation = request(61, cut.revision());
+        let reserved = if matches!(first_group, FirstGroupSetup::ExerciseReplay) {
+            verify_first_group_replay(
+                f,
+                &adapter,
                 &directory,
-                &reservation.authorization,
-                TIMEOUT,
+                &reserved,
+                &confirmation,
+                reserve(reserve_identity)?,
+                history,
             )
+            .await?
+        } else {
+            reserved
+        };
+        let authorization = f
+            .catalog
+            .publish_managed_first_group(&reserved, &confirmation, TIMEOUT)
             .await?;
         if archives == ArchiveSetup::Initialized {
             archives::initialize(f, &directory, history, roots[0].path()).await?;
@@ -595,9 +619,8 @@ impl ManagedCluster {
             for fixture in &fixtures {
                 inspect_current(host, fixture.spec.node, cut.revision()).await?;
             }
-            let authorization = f.catalog.authorize_group(&cut, &history, TIMEOUT).await?;
             let result = host
-                .activate_managed_initial_group(authorization, TIMEOUT)
+                .activate_managed_initial_group(authorization.clone(), TIMEOUT)
                 .await;
             if archives == ArchiveSetup::Missing {
                 ensure!(
@@ -631,6 +654,94 @@ struct SeededCells {
     cells: Vec<CellHistory>,
     receipts: Vec<CommandReceipt>,
     retry: u64,
+}
+
+async fn verify_first_group_replay(
+    f: &Fixture,
+    adapter: &Catalog,
+    directory: &RangeDirectory,
+    prepared: &RaftManagedFirstGroup,
+    confirmation: &FleetRequestIdentity,
+    request_plan: RaftManagedFirstGroupRequest,
+    history: GroupHistory,
+) -> Result<RaftManagedFirstGroup> {
+    let cut = f.catalog.read(TIMEOUT).await?;
+    let reservation = f
+        .catalog
+        .recover_birth_reservation(&cut, directory, &history, TIMEOUT)
+        .await?;
+    let gate = &f.store.first_group_birth_after;
+    gate.armed.store(true, Ordering::Release);
+    let conflicting = request(62, cut.revision() + 1);
+    let (publication, cancellation) = tokio::time::timeout(TIMEOUT, async {
+        tokio::join!(
+            f.catalog.publish_managed_first_group(prepared, &conflicting, TIMEOUT),
+            async {
+                gate.entered.notified().await;
+                let result = async {
+                    let view = f.domain.run(directory.observe()).await??;
+                    ensure!(view.groups() == 0 && view.digest() == request_plan.standby);
+                    let winner = f.domain.run(directory.cancel_fleet_group_birth(
+                        &reservation, ProposalId::new([124; 16])?,
+                    )).await??;
+                    ensure!(matches!(winner, cellar::application::consensus::verification::cell_groups::CellGroupBirthDisposition::Live(birth) if birth.route() == reservation.route()));
+                    Ok::<_, anyhow::Error>(())
+                }.await;
+                gate.resume.notify_one();
+                result
+            }
+        )
+    }).await?;
+    cancellation?;
+    ensure!(matches!(publication, Err(FleetCatalogError::Conflict)));
+    ensure!(f.domain.run(directory.observe()).await??.groups() == 1);
+    ensure!(f.catalog.read(TIMEOUT).await?.revision() == cut.revision());
+    ensure!(matches!(
+        f.catalog.authorize_group(&cut, &history, TIMEOUT).await,
+        Err(FleetCatalogError::Conflict)
+    ));
+    f.store
+        .fail_fleet_confirmation
+        .store(true, Ordering::Release);
+    ensure!(matches!(
+        f.catalog
+            .publish_managed_first_group(prepared, confirmation, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Storage(_))
+    ));
+    ensure!(!f.store.fail_fleet_confirmation.load(Ordering::Acquire));
+    ensure!(f.catalog.read(TIMEOUT).await?.revision() == cut.revision() + 1);
+    // A confirmed range with a lost immutable birth must refuse rather than
+    // reconstructing it from the operator's retained setup.
+    use object_store::{path::Path as ObjectPath, ObjectStore};
+    let key = ObjectPath::from(format!(
+        "managed/namespaces/{}/cell-groups/births/{}/{}",
+        hex::encode(history.namespace.bytes()),
+        hex::encode(history.group.bytes()),
+        hex::encode(history.incarnation.bytes()),
+    ));
+    let saved = f.store.inner.get(&key).await?.bytes().await?;
+    f.store.inner.delete(&key).await?;
+    let replay = f
+        .catalog
+        .publish_managed_first_group(prepared, confirmation, TIMEOUT)
+        .await;
+    let missing = matches!(
+        f.store.inner.get(&key).await,
+        Err(object_store::Error::NotFound { .. })
+    );
+    f.store.inner.put(&key, saved.into()).await?;
+    ensure!(matches!(replay, Err(FleetCatalogError::Corrupt(_))) && missing);
+    ensure!(f.catalog.read(TIMEOUT).await?.revision() == cut.revision() + 1);
+    Ok(f.catalog
+        .reserve_managed_first_group(
+            adapter,
+            &f.declaration,
+            request_plan,
+            DirectoryLimits::default(),
+            TIMEOUT,
+        )
+        .await?)
 }
 
 async fn seed_cells(hosts: &[RaftCells], history: GroupHistory) -> Result<SeededCells> {
@@ -693,6 +804,7 @@ async fn seed_cells(hosts: &[RaftCells], history: GroupHistory) -> Result<Seeded
 }
 
 async fn cold_group(rooted: bool) -> Result<()> {
+    let first = Fixture::with_class(rooted, counter_class()?).await?;
     let ManagedCluster {
         fixtures,
         roots,
@@ -701,7 +813,15 @@ async fn cold_group(rooted: bool) -> Result<()> {
         directory,
         history,
         ..
-    } = Box::pin(ManagedCluster::start(rooted, &[])).await?;
+    } = Box::pin(ManagedCluster::start_with_applications(
+        first,
+        &[],
+        ArchiveSetup::Initialized,
+        false,
+        None,
+        FirstGroupSetup::ExerciseReplay,
+    ))
+    .await?;
     let f = &fixtures[0];
     let proposal = || -> Result<CellGroupBirthSpec> {
         Ok(CellGroupBirthSpec {

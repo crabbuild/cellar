@@ -4,6 +4,18 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## CG-07 managed first-group provisioning
+
+The SDK reserves, publishes and confirms the first group from a declared
+standby. The test keeps the Live birth decision across cancellation, verifies
+conflicting and lost confirmation outcomes and reopens the exact reservation.
+The managed request path passes on native storage and real RustFS.
+[Source and test records](progress.md)
+
+Next, integrate the public first-group operations into ordinary CLI and daemon
+setup. Keep the archive creation intent distinct from retained open and require
+actual voter activation and quorum before public serving.
+
 ## CG-07 managed namespace standby provisioning
 
 The public SDK checks the compiled schema, publishes the standby and confirms

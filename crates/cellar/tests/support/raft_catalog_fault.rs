@@ -96,6 +96,7 @@ pub struct Store {
     pub registry_denial_on_payload_refusal: std::sync::Mutex<Option<std::sync::Arc<AtomicBool>>>,
     pub range_before: RegistryGate,
     pub range_genesis_after: RegistryGate,
+    pub first_group_birth_after: RegistryGate,
     pub range_page_puts: AtomicUsize,
     pub fail_closure_after: AtomicBool,
     pub fail_fleet_after: AtomicBool,
@@ -452,7 +453,12 @@ impl ObjectStore for Store {
             path.as_ref().ends_with("/fleet/head") && matches!(options.mode, PutMode::Update(_));
         let range_genesis =
             path.as_ref().ends_with("/cell-groups/head") && matches!(options.mode, PutMode::Create);
+        let group_birth = path.as_ref().contains("/cell-groups/births/")
+            && matches!(options.mode, PutMode::Create);
         let result = self.backend().put_opts(path, payload, options).await?;
+        if group_birth {
+            self.first_group_birth_after.pause().await;
+        }
         if range_genesis {
             self.range_genesis_after.pause().await;
         }

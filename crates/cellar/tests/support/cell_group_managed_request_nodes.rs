@@ -36,6 +36,7 @@ impl Cluster {
             ArchiveSetup::Initialized,
             true,
             Some(applications),
+            FirstGroupSetup::Normal,
         ))
         .await?;
         let nodes = std::mem::take(&mut managed.nodes)
