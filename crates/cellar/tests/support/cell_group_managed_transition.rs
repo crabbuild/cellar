@@ -77,12 +77,12 @@ async fn run_plan(rooted: bool, store: Arc<fault::Store>, decision: Decision) ->
         Decision::Cancel => 0,
     };
     let result = Box::pin(exercise(&mut cluster, rooted, decision)).await;
-    let pending_quorum = expected_children == 2 && result.is_ok();
+    let pending_quorums = if result.is_ok() { expected_children } else { 0 };
     let spares = cluster.nodes.split_off(3);
     let joined = close_group_nodes(cluster.nodes, &cluster.hosts).await;
     let joined_spares = async {
         for (node, host) in spares.into_iter().zip(&cluster.hosts[3..]) {
-            stop_transfer_destination(node, host, expected_children, pending_quorum).await?;
+            stop_transfer_destination(node, host, expected_children, pending_quorums).await?;
         }
         Ok::<_, anyhow::Error>(())
     }
@@ -97,7 +97,7 @@ async fn stop_transfer_destination(
     node: Node,
     host: &RaftCells,
     expected: usize,
-    pending_quorum: bool,
+    pending_quorums: usize,
 ) -> Result<()> {
     ensure!(matches!(
         node.shutdown(ShutdownMode::Preserve).await?,
@@ -121,7 +121,7 @@ async fn stop_transfer_destination(
             .iter()
             .filter(|group| group.applied.index.get() > 1)
             .count()
-            == usize::from(pending_quorum)
+            == pending_quorums
     );
     Ok(())
 }

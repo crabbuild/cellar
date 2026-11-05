@@ -1,7 +1,10 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 use super::*;
-use crate::raft::cell_groups::{GroupManifest, TransferChildQuorum};
+use crate::raft::{
+    cell_groups::{GroupManifest, TransferChildQuorum},
+    fleet_catalog::ManagedTransitionPermit,
+};
 use serde::{Deserialize, Serialize};
 
 const CHILD: u8 = 205;
@@ -49,6 +52,27 @@ impl RangeDirectory {
         proofs: Vec<TransferChildQuorum>,
     ) -> Result<TransitionJournal, CatalogError> {
         self.unmanaged_birth()?;
+        self.record_transfer_child_quorums_inner(plan, proofs, None)
+            .await
+    }
+
+    pub(crate) async fn record_managed_transfer_child_quorums(
+        &self,
+        plan: &DirectoryMutation,
+        proofs: Vec<TransferChildQuorum>,
+        permit: &ManagedTransitionPermit,
+    ) -> Result<TransitionJournal, CatalogError> {
+        permit.check(self, plan)?;
+        self.record_transfer_child_quorums_inner(plan, proofs, Some(permit))
+            .await
+    }
+
+    async fn record_transfer_child_quorums_inner(
+        &self,
+        plan: &DirectoryMutation,
+        proofs: Vec<TransferChildQuorum>,
+        permit: Option<&ManagedTransitionPermit>,
+    ) -> Result<TransitionJournal, CatalogError> {
         let (_, children) = self.transition_routes(plan)?;
         if proofs.len() != children.len() {
             return Err(CatalogError::Invalid(
@@ -64,7 +88,7 @@ impl RangeDirectory {
                 };
                 for (route, proof) in children.iter().zip(proofs) {
                     let proof = ChildQuorum::from(proof);
-                    self.check_child_quorum(plan, route, &proof).await?;
+                    self.check_child_quorum(plan, route, &proof, permit).await?;
                     let bytes = record::encode(CHILD, &proof, wire::LIMIT)?;
                     let digest = record::digest(&bytes);
                     self.immutable(CHILDREN, digest, &bytes).await?;
@@ -76,7 +100,8 @@ impl RangeDirectory {
                 Ok(digest)
             })
             .await?;
-        self.record_verified_child_quorums(plan, digest).await
+        self.record_verified_child_quorums(plan, digest, permit)
+            .await
     }
 
     /// Recover the exact child markers selected by the installation CAS.
@@ -85,7 +110,18 @@ impl RangeDirectory {
         &self,
         plan: &DirectoryMutation,
     ) -> Result<Option<Vec<GroupManifest>>, CatalogError> {
-        self.unmanaged_birth()?;
+        self.installed_transfer_children_inner(plan, None).await
+    }
+
+    pub(super) async fn installed_transfer_children_inner(
+        &self,
+        plan: &DirectoryMutation,
+        permit: Option<&ManagedTransitionPermit>,
+    ) -> Result<Option<Vec<GroupManifest>>, CatalogError> {
+        match permit {
+            Some(permit) => permit.check(self, plan)?,
+            None => self.unmanaged_birth()?,
+        }
         let (_, children) = self.transition_routes(plan)?;
         self.bounded(async {
             let (view, _) = self.current().await?;
@@ -108,7 +144,7 @@ impl RangeDirectory {
             for (route, digest) in children.iter().zip(set.children) {
                 let bytes = self.read_child_quorum_record(CHILDREN, digest).await?;
                 let proof: ChildQuorum = record::decode(CHILD, &bytes, wire::LIMIT)?;
-                self.check_child_quorum(plan, route, &proof).await?;
+                self.check_child_quorum(plan, route, &proof, permit).await?;
                 markers.push(proof.marker);
             }
             Ok(Some(markers))
@@ -138,6 +174,7 @@ impl RangeDirectory {
         plan: &DirectoryMutation,
         route: &GroupRoute,
         proof: &ChildQuorum,
+        permit: Option<&ManagedTransitionPermit>,
     ) -> Result<(), CatalogError> {
         let marker = &proof.marker;
         let position = marker.position();
@@ -149,10 +186,17 @@ impl RangeDirectory {
         {
             return Err(CatalogError::Fenced);
         }
-        let installed = self
-            .observe_transfer_install_quorum(plan, route.history)
-            .await?
-            .ok_or(CatalogError::Unconfirmed)?;
+        let installed = match permit {
+            Some(permit) => {
+                self.observe_managed_transfer_install_quorum(plan, permit, route.history)
+                    .await?
+            }
+            None => {
+                self.observe_transfer_install_quorum(plan, route.history)
+                    .await?
+            }
+        }
+        .ok_or(CatalogError::Unconfirmed)?;
         if !marker.preserves_transfer(&installed.genesis)
             || !installed.voters.iter().any(|voter| {
                 voter.member.get() == proof.member

@@ -9,8 +9,8 @@ use crate::raft::{
     cell_groups::{
         CellGroupArchiveBindingError, CellGroupArchivePool, CellGroupArchiveTailPool,
         CellGroupTransitionPreparationInputs, CellGroupTransitionSource, DirectoryMutation,
-        PreparedManagedCellGroupTransition, RangeDirectory, TransferInstallQuorum,
-        TransitionJournal, VerifiedCellGroupTransitionSources,
+        PreparedManagedCellGroupTransition, RangeDirectory, TransferChildQuorum,
+        TransferInstallQuorum, TransitionJournal, VerifiedCellGroupTransitionSources,
     },
     fleet_stop::BootBinding,
     member_state::FleetGroupBinding,
@@ -685,38 +685,109 @@ impl FleetCatalog {
                         &transition.plan,
                     )
                     .await?;
-                let child = self
-                    .reserved_transfer_child(&current, transition, directory, route)
-                    .await?;
                 let proof = self
-                    .inner
-                    .domain
-                    .run(Box::pin(directory.observe_managed_transfer_install_quorum(
-                        &transition.plan,
-                        &permit,
-                        route.history,
-                    )))
-                    .await
-                    .map_err(|_| FleetCatalogError::Closed)?
-                    .map_err(catalog_error)?;
-                if let Some(proof) = &proof {
-                    for voter in &proof.voters {
-                        let host = self.host_from(&current, voter.node).await?;
-                        if host.disk() != voter.disk
-                            || host.storage_instance() != Some(voter.engine)
-                            || !child.voters.iter().any(|member| {
-                                member.node == voter.node.bytes()
-                                    && member.member == voter.member.get()
-                            })
-                        {
-                            return Err(FleetCatalogError::Conflict);
-                        }
-                    }
-                }
+                    .managed_transfer_install_quorum_at(
+                        &current, transition, directory, route, &permit,
+                    )
+                    .await?;
                 if self.inner.current().await?.token != current.token {
                     return Err(FleetCatalogError::Conflict);
                 }
                 Ok(proof)
+            }),
+        )
+        .await
+    }
+
+    async fn managed_transfer_install_quorum_at(
+        &self,
+        current: &FleetSnapshot,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        route: &GroupRoute,
+        permit: &ManagedTransitionPermit,
+    ) -> Result<Option<TransferInstallQuorum>> {
+        let child = self
+            .reserved_transfer_child(current, transition, directory, route)
+            .await?;
+        let proof = self
+            .inner
+            .domain
+            .run(Box::pin(directory.observe_managed_transfer_install_quorum(
+                &transition.plan,
+                permit,
+                route.history,
+            )))
+            .await
+            .map_err(|_| FleetCatalogError::Closed)?
+            .map_err(catalog_error)?;
+        if let Some(proof) = &proof {
+            for voter in &proof.voters {
+                let host = self.host_from(current, voter.node).await?;
+                if host.disk() != voter.disk
+                    || host.storage_instance() != Some(voter.engine)
+                    || !child.voters.iter().any(|member| {
+                        member.node == voter.node.bytes() && member.member == voter.member.get()
+                    })
+                {
+                    return Err(FleetCatalogError::Conflict);
+                }
+            }
+        }
+        Ok(proof)
+    }
+
+    /// Select the exact ordered set of managed child fresh-term witnesses.
+    /// The fleet reservation and physical storage claims must still match.
+    /// The resulting Installed decision leaves routing and serving fenced.
+    pub async fn record_managed_transfer_child_quorums(
+        &self,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        proofs: Vec<TransferChildQuorum>,
+        timeout: Duration,
+    ) -> Result<TransitionJournal> {
+        validate_request(&transition.request)?;
+        let (_, children) = directory
+            .transition_routes(&transition.plan)
+            .map_err(catalog_error)?;
+        if proofs.len() != children.len() {
+            return Err(FleetCatalogError::Invalid(
+                "incomplete transfer child quorum set",
+            ));
+        }
+        self.run(
+            timeout,
+            Box::pin(async {
+                let current = self.inner.current().await?;
+                let permit = self
+                    .managed_transition_permit_at(
+                        &current,
+                        &transition.request,
+                        directory,
+                        &transition.plan,
+                    )
+                    .await?;
+                for route in &children {
+                    self.managed_transfer_install_quorum_at(
+                        &current, transition, directory, route, &permit,
+                    )
+                    .await?
+                    .ok_or(FleetCatalogError::Unconfirmed)?;
+                }
+                if self.inner.current().await?.token != current.token {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                self.inner
+                    .domain
+                    .run(Box::pin(directory.record_managed_transfer_child_quorums(
+                        &transition.plan,
+                        proofs,
+                        &permit,
+                    )))
+                    .await
+                    .map_err(|_| FleetCatalogError::Closed)?
+                    .map_err(catalog_error)
             }),
         )
         .await

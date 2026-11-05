@@ -476,13 +476,99 @@ pub(super) async fn verify_sealed_cut(
     Box::pin(restart_destination(
         cluster,
         directory,
-        transition,
-        replay,
+        transition.clone(),
+        replay.clone(),
         first,
         recovery,
         retained.context("first destination receipt")?,
     ))
     .await?;
+    let voters = &cluster.hosts[DESTINATION..];
+    let mut proofs = Vec::with_capacity(replay.children().len());
+    for route in replay.children() {
+        if route.history != first {
+            for voter in voters {
+                voter
+                    .attach_managed_transfer_child(transition.clone(), route.clone(), TIMEOUT)
+                    .await?;
+            }
+        }
+        proofs.push(wait_pending_child(voters, route.history).await?);
+    }
+    verify_managed_installed_decision(cluster, fleet, directory, &transition, parent, proofs)
+        .await?;
+    Ok(())
+}
+
+async fn verify_managed_installed_decision(
+    cluster: &ManagedCluster,
+    fleet: &FleetCatalog,
+    directory: &RangeDirectory,
+    transition: &ReopenedManagedCellGroupTransition,
+    parent: &CellGroupBirth,
+    proofs: Vec<TransferChildQuorum>,
+) -> Result<()> {
+    let fixture = &cluster.fixtures[0];
+    let domain = &fixture.domain;
+    let before = domain.run(directory.observe()).await??;
+    ensure!(matches!(
+        fleet
+            .record_managed_transfer_child_quorums(
+                transition,
+                directory,
+                vec![proofs[0].clone()],
+                TIMEOUT
+            )
+            .await,
+        Err(FleetCatalogError::Invalid(_))
+    ));
+    let mut reversed = proofs.clone();
+    reversed.reverse();
+    ensure!(matches!(
+        fleet
+            .record_managed_transfer_child_quorums(transition, directory, reversed, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Conflict)
+    ));
+    let operation = transition.plan.operation();
+    let prior = fleet
+        .reopen_managed_transition(directory, operation, TIMEOUT)
+        .await?
+        .context("sealed plan")?;
+    ensure!(prior.journal.context("sealed journal")?.phase() == TransitionPhase::Sealed);
+    fixture
+        .store
+        .fail_head_confirmation
+        .store(true, Ordering::Release);
+    ensure!(matches!(
+        fleet
+            .record_managed_transfer_child_quorums(transition, directory, proofs.clone(), TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Unconfirmed)
+    ));
+    let reopened = fleet
+        .reopen_managed_transition(directory, operation, TIMEOUT)
+        .await?
+        .context("installed plan")?;
+    let installed = reopened.journal.as_ref().context("installed journal")?;
+    ensure!(
+        installed.phase() == TransitionPhase::Installed && installed.installed_children().is_some()
+    );
+    ensure!(
+        fleet
+            .record_managed_transfer_child_quorums(&reopened, directory, proofs, TIMEOUT)
+            .await?
+            == *installed
+    );
+    let after = domain.run(directory.observe()).await??;
+    ensure!(after.revision() == before.revision() && after.groups() == before.groups());
+    ensure!(
+        domain
+            .run(directory.materialize_selected_history(parent.route().history))
+            .await??
+            .route()
+            == parent.route()
+    );
     Ok(())
 }
 
@@ -495,7 +581,7 @@ async fn restart_destination(
     recovery: CellGroupRecoveryPool,
     expected: InstalledTransferVoter,
 ) -> Result<()> {
-    reopen_transfer_destination(cluster, 109, false).await?;
+    reopen_transfer_destination(cluster, 109, 0).await?;
     let fixture = &cluster.fixtures[DESTINATION];
     let host = &cluster.hosts[DESTINATION];
     for route in sources.children() {
@@ -571,7 +657,7 @@ async fn restart_destination(
             .attach_managed_transfer_child(transition.clone(), route.clone(), TIMEOUT)
             .await?;
     }
-    reopen_transfer_destination(cluster, 110, true).await?;
+    reopen_transfer_destination(cluster, 110, 1).await?;
     let fixture = &cluster.fixtures[DESTINATION];
     let host = &cluster.hosts[DESTINATION];
     ensure!(matches!(
@@ -600,12 +686,12 @@ const DESTINATION: usize = 3;
 async fn reopen_transfer_destination(
     cluster: &mut ManagedCluster,
     generation: u8,
-    pending_quorum: bool,
+    pending_quorums: usize,
 ) -> Result<()> {
     let old = cluster.nodes.remove(DESTINATION);
     let old_host = cluster.hosts.remove(DESTINATION);
     let previous = old_host.identity();
-    stop_transfer_destination(old, &old_host, 2, pending_quorum).await?;
+    stop_transfer_destination(old, &old_host, 2, pending_quorums).await?;
     let fixture = &cluster.fixtures[DESTINATION];
     let node = start_node(
         cluster.roots[DESTINATION].path(),
@@ -636,31 +722,33 @@ async fn reopen_transfer_destination(
     Ok(())
 }
 
-async fn wait_pending_child(voters: &[RaftCells], child: GroupHistory) -> Result<()> {
-    tokio::time::timeout(TIMEOUT, async {
+async fn wait_pending_child(
+    voters: &[RaftCells],
+    child: GroupHistory,
+) -> Result<TransferChildQuorum> {
+    Ok(tokio::time::timeout(TIMEOUT, async {
         loop {
             let mut applied = true;
-            let mut witness = false;
+            let mut witness = None;
             for voter in voters {
                 let group = voter.group(child)?;
                 let status = group.status().await?;
                 ensure!(!status.ready, "a pending child served before publication");
                 applied &= status.applied.index.get() > 1;
                 match group.managed_pending_transfer_quorum(TIMEOUT).await {
-                    Ok(_) => witness = true,
+                    Ok(proof) => witness = Some(proof),
                     Err(CellGroupControllerError::Runtime(
                         RuntimeError::NotLeader | RuntimeError::NotReady,
                     )) => (),
                     Err(error) => return Err(error.into()),
                 }
             }
-            if applied && witness {
-                return Ok::<_, anyhow::Error>(());
+            if let (true, Some(witness)) = (applied, witness) {
+                return Ok::<_, anyhow::Error>(witness);
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
     .await
-    .context("pending transfer child must commit a fresh term")??;
-    Ok(())
+    .context("pending transfer child must commit a fresh term")??)
 }

@@ -1117,7 +1117,8 @@ stable initial voter configuration committed and durably applied a fresh-term
 position with the exact pending manifest. The directory verifies the witness
 against the installed genesis and the leader's physical receipt. It roots the
 whole ordered child set in one CAS and can reopen the selected set after an
-ambiguous response. Installed children remain fenced and the parent routes
+ambiguous response. The managed catalog rechecks each reserved child and its
+voters' permanent fleet storage claims before that CAS. Installed children remain fenced and the parent routes
 stay selected. Directory publication and activation require their own proofs.
 
 Child install receipts bind the source seals, own committed seed, membership and
