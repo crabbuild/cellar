@@ -338,7 +338,10 @@ impl RangeDirectory {
             .ok_or(CatalogError::Fenced)?;
         let origin = genesis.transfer_origin().ok_or(CatalogError::Fenced)?;
         if !genesis.is_transfer_genesis()
-            || journal.phase() != TransitionPhase::Sealed
+            || !matches!(
+                journal.phase(),
+                TransitionPhase::Sealed | TransitionPhase::Installed
+            )
             || journal.sealed_sources() != Some(origin.sealed_sources())
             || origin.operation() != plan.operation().bytes()
             || origin.plan() != plan.digest()

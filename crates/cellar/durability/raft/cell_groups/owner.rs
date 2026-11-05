@@ -160,6 +160,20 @@ pub struct CellGroupStatus {
     pub ready: bool,
 }
 
+/// A historical witness that a pending child committed and durably applied
+/// a fresh-term barrier. Only its Raft owner can construct this proof.
+#[derive(Clone)]
+pub struct TransferChildQuorum {
+    marker: GroupManifest,
+    leader: super::InstalledTransferVoter,
+}
+
+impl TransferChildQuorum {
+    pub(crate) fn into_parts(self) -> (GroupManifest, super::InstalledTransferVoter) {
+        (self.marker, self.leader)
+    }
+}
+
 /// Admission is distinct from a seal committed and selected by this owner.
 pub enum CellGroupSealOutcome {
     Accepted(CellGroupProposal),
@@ -785,6 +799,44 @@ impl CellGroupOwner {
             && self.current.marker().position().term.get() == self.node.raft.term
             && cache.hard_state.term == self.node.raft.term
             && cache.group_manifest.as_ref() == Some(self.current.marker())
+    }
+
+    pub(super) fn pending_transfer_quorum(&self) -> Result<TransferChildQuorum, RuntimeError> {
+        self.live()?;
+        let marker = self.current.marker();
+        let cache = self.group.read()?;
+        if marker.transfer_origin().is_none()
+            || marker.membership_revision() != 1
+            || cache.membership.revision().get() != 1
+            || !cache.conf_state.voters_outgoing.is_empty()
+            || !cache.conf_state.learners_next.is_empty()
+            || cache.conf_state.auto_leave
+        {
+            return Err(RuntimeError::NotReady);
+        }
+        if self.node.raft.state != StateRole::Leader {
+            return Err(RuntimeError::NotLeader);
+        }
+        let position = marker.position();
+        if !self.protocol_ready(&cache)
+            || position.term.get() <= 1
+            || position.index.get() <= 1
+            || position.index.get() != cache.hard_state.commit
+            || !self.apply.is_empty()
+            || self.applying.is_some()
+        {
+            return Err(RuntimeError::NotReady);
+        }
+        let local = self.group.identity();
+        Ok(TransferChildQuorum {
+            marker: marker.clone(),
+            leader: super::InstalledTransferVoter {
+                member: local.member,
+                node: local.node,
+                disk: local.disk,
+                engine: self.log.storage_instance()?,
+            },
+        })
     }
 
     /// Admit only the selected recovery's exact activation. Retries in the same

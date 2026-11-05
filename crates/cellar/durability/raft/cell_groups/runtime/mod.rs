@@ -170,6 +170,7 @@ enum Command {
     Apply(CellGroupTicket, Box<PreparedGroupManifest>),
     CaptureCheckpoint(CellGroupCheckpointPool),
     Status,
+    PendingTransferQuorum,
     Observe,
     LeadershipBatch(Option<GroupHistory>),
     ReplicationStatus,
@@ -189,6 +190,7 @@ enum Response {
     EnrollmentState(Box<CellEnrollmentState>),
     Reconciliation(Box<CellReconciliationAuthority>),
     Status(CellGroupStatus),
+    PendingTransferQuorum(Box<TransferChildQuorum>),
     Observation(Box<CellGroupObservation>),
     LeadershipBatch(LeadershipBatch),
     ReplicationStatus(crate::raft::completion::ReplicationStatus<GroupHistory>),
@@ -971,6 +973,21 @@ impl CellGroupRuntime {
         match self.call(Some(history), Command::Status, 4096).await? {
             Response::Status(status) => Ok(status),
             _ => Err(RuntimeError::Protocol("status reply".into())),
+        }
+    }
+
+    /// Observe the pending child's durable fresh-term commit. The witness can
+    /// record installation and never grants serving authority.
+    pub async fn pending_transfer_quorum(
+        &self,
+        history: GroupHistory,
+    ) -> Result<TransferChildQuorum, RuntimeError> {
+        match self
+            .call(Some(history), Command::PendingTransferQuorum, 4096)
+            .await?
+        {
+            Response::PendingTransferQuorum(proof) => Ok(*proof),
+            _ => Err(RuntimeError::Protocol("pending child quorum reply".into())),
         }
     }
 

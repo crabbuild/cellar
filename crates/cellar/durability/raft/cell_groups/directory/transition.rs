@@ -26,6 +26,7 @@ pub enum TransitionPhase {
     Prepared,
     SealAuthorized,
     Sealed,
+    Installed,
     Cancelled,
 }
 
@@ -38,6 +39,8 @@ pub struct TransitionJournal {
     preparation: Option<[u8; 32]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     source_set: Option<[u8; 32]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    installed_set: Option<[u8; 32]>,
     phase: TransitionPhase,
 }
 
@@ -54,16 +57,21 @@ impl TransitionJournal {
         self.source_set
     }
 
+    pub fn installed_children(&self) -> Option<[u8; 32]> {
+        self.installed_set
+    }
+
     pub(super) fn seal_authorization(&self) -> Result<[u8; 32], CatalogError> {
         if !matches!(
             self.phase,
-            TransitionPhase::SealAuthorized | TransitionPhase::Sealed
+            TransitionPhase::SealAuthorized | TransitionPhase::Sealed | TransitionPhase::Installed
         ) {
             return Err(CatalogError::Fenced);
         }
         let authorized = Self {
             phase: TransitionPhase::SealAuthorized,
             source_set: None,
+            installed_set: None,
             ..self.clone()
         };
         Ok(record::digest(&record::encode(
@@ -129,6 +137,7 @@ enum Advance {
     Prepare([u8; 32]),
     Authorize,
     RecordSources([u8; 32]),
+    RecordInstalled([u8; 32]),
     Cancel,
 }
 
@@ -140,16 +149,23 @@ impl Advance {
                 journal.preparation = Some(digest);
                 journal.phase = Prepared;
             }
-            (Self::Prepare(digest), Prepared | SealAuthorized | Sealed)
+            (Self::Prepare(digest), Prepared | SealAuthorized | Sealed | Installed)
                 if journal.preparation == Some(digest) => {}
             (Self::Authorize, Prepared) => journal.phase = SealAuthorized,
             (Self::RecordSources(digest), SealAuthorized) if digest != [0; 32] => {
                 journal.phase = Sealed;
                 journal.source_set = Some(digest);
             }
-            (Self::RecordSources(digest), Sealed) if journal.source_set == Some(digest) => {}
+            (Self::RecordSources(digest), Sealed | Installed)
+                if journal.source_set == Some(digest) => {}
+            (Self::RecordInstalled(digest), Sealed) if digest != [0; 32] => {
+                journal.installed_set = Some(digest);
+                journal.phase = Installed;
+            }
+            (Self::RecordInstalled(digest), Installed) if journal.installed_set == Some(digest) => {
+            }
             (Self::Cancel, Planned | Prepared) => journal.phase = Cancelled,
-            (Self::Authorize, SealAuthorized | Sealed) | (Self::Cancel, Cancelled) => {}
+            (Self::Authorize, SealAuthorized | Sealed | Installed) | (Self::Cancel, Cancelled) => {}
             _ => return Err(CatalogError::Conflict("transition decision")),
         }
         Ok(journal)
@@ -192,11 +208,18 @@ impl RangeDirectory {
                     TransitionPhase::Prepared
                         | TransitionPhase::SealAuthorized
                         | TransitionPhase::Sealed
+                        | TransitionPhase::Installed
                 );
                 if journal.request == [0; 32]
                     || journal.preparation == Some([0; 32])
                     || journal.source_set == Some([0; 32])
-                    || (journal.phase == TransitionPhase::Sealed) != journal.source_set.is_some()
+                    || journal.installed_set == Some([0; 32])
+                    || matches!(
+                        journal.phase,
+                        TransitionPhase::Sealed | TransitionPhase::Installed
+                    ) != journal.source_set.is_some()
+                    || (journal.phase == TransitionPhase::Installed)
+                        != journal.installed_set.is_some()
                     || (required && journal.preparation.is_none())
                     || (journal.phase == TransitionPhase::Planned && journal.preparation.is_some())
                 {
@@ -325,6 +348,7 @@ impl RangeDirectory {
                 request: mutation.digest,
                 preparation: None,
                 source_set: None,
+                installed_set: None,
                 phase: TransitionPhase::Planned,
             };
             for (key, value) in [
@@ -608,6 +632,15 @@ impl RangeDirectory {
             .await
     }
 
+    pub(super) async fn record_verified_child_quorums(
+        &self,
+        mutation: &DirectoryMutation,
+        digest: [u8; 32],
+    ) -> Result<TransitionJournal, CatalogError> {
+        self.advance_transition(mutation, Advance::RecordInstalled(digest))
+            .await
+    }
+
     /// Record the exact digest of the controller's child preparation evidence.
     /// This metadata boundary does not verify copied images or admit a child.
     pub async fn prepare_transition(
@@ -724,6 +757,7 @@ impl RangeDirectory {
             request: mutation.digest,
             preparation: None,
             source_set: None,
+            installed_set: None,
             phase: TransitionPhase::Cancelled,
         };
         let count = self.available_transition_slot(&view.head).await?;

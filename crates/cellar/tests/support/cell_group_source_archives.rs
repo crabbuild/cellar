@@ -191,14 +191,19 @@ pub(crate) async fn sealed_source_archives(
     let installed = Box::pin(verify_sealed_sources(
         &fixture,
         &archives,
-        store,
+        store.clone(),
         &plan,
         unsealed,
         seal.position,
     ))
     .await?;
-    let committed = Box::pin(verify_pending_child_raft(&mut fixture, &plan, installed)).await?;
-    reopen_installed_children(&fixture, &committed).await?;
+    let (committed, proofs) =
+        Box::pin(verify_pending_child_raft(&mut fixture, &plan, installed)).await?;
+    Box::pin(verify_installed_decision(
+        &fixture, &plan, store, &committed, proofs,
+    ))
+    .await?;
+    reopen_installed_children(&fixture, &plan, &committed).await?;
     fixture.close().await
 }
 
@@ -356,8 +361,78 @@ async fn verify_sealed_sources(
     Ok(installed)
 }
 
+async fn verify_installed_decision(
+    fixture: &RuntimeCluster,
+    plan: &DirectoryMutation,
+    store: Arc<catalog_fault::Store>,
+    markers: &[GroupManifest],
+    proofs: Vec<TransferChildQuorum>,
+) -> Result<()> {
+    let domain = &fixture.cluster.domain;
+    let directory = &fixture.cluster.directory;
+    anyhow::ensure!(domain
+        .run(directory.installed_transfer_children(plan))
+        .await??
+        .is_none());
+    let before = domain.run(directory.observe()).await??;
+    anyhow::ensure!(matches!(
+        domain
+            .run(directory.record_transfer_child_quorums(plan, vec![proofs[0].clone()]))
+            .await?,
+        Err(CatalogError::Invalid(_))
+    ));
+    let mut reversed = proofs.clone();
+    reversed.reverse();
+    anyhow::ensure!(matches!(
+        domain
+            .run(directory.record_transfer_child_quorums(plan, reversed))
+            .await?,
+        Err(CatalogError::Fenced)
+    ));
+    store.fail_head_confirmation.store(true, Ordering::Release);
+    anyhow::ensure!(matches!(
+        domain
+            .run(directory.record_transfer_child_quorums(plan, proofs.clone()))
+            .await?,
+        Err(CatalogError::Unconfirmed)
+    ));
+    let catalog = Catalog::new(store, CatalogOptions::default())?;
+    let namespace = domain
+        .run(catalog.existing_namespace(directory.namespace_config().clone()))
+        .await??;
+    let reopened = RangeDirectory::new(namespace, DirectoryLimits::default())?;
+    let (original, decision) = domain
+        .run(reopened.active_transition())
+        .await??
+        .context("retained installed decision")?;
+    anyhow::ensure!(original.encode() == plan.encode());
+    anyhow::ensure!(decision.phase() == TransitionPhase::Installed);
+    anyhow::ensure!(decision.installed_children().is_some());
+    anyhow::ensure!(
+        domain
+            .run(reopened.installed_transfer_children(&original))
+            .await??
+            .as_deref()
+            == Some(markers)
+    );
+    anyhow::ensure!(
+        domain
+            .run(reopened.record_transfer_child_quorums(&original, proofs))
+            .await??
+            == decision
+    );
+    let after = domain.run(reopened.observe()).await??;
+    anyhow::ensure!(after.revision() == before.revision() && after.groups() == before.groups());
+    let cell = CellId::new("alpha")?;
+    anyhow::ensure!(
+        domain.run(reopened.lookup(&after, &cell)).await?? == *fixture.cluster.birth.route()
+    );
+    Ok(())
+}
+
 async fn reopen_installed_children(
     fixture: &RuntimeCluster,
+    plan: &DirectoryMutation,
     installed: &[GroupManifest],
 ) -> Result<()> {
     let cluster = &fixture.cluster;
@@ -378,7 +453,15 @@ async fn reopen_installed_children(
         .await??;
     let result = async {
         for marker in installed {
-            let group = log.cell_group(&marker.route().history)?;
+            let permit = cluster
+                .domain
+                .run(cluster.directory.bootstrap_pending_transfer_voter(
+                    plan,
+                    marker.route().history,
+                    &log,
+                ))
+                .await??;
+            let group = permit.group();
             anyhow::ensure!(
                 group.group_manifest()?.as_ref() == Some(marker)
                     && group.identity().process == ProcessGeneration::new([91; 16])?
@@ -402,7 +485,7 @@ async fn verify_pending_child_raft(
     fixture: &mut RuntimeCluster,
     plan: &DirectoryMutation,
     installed: InstalledChildPartitions,
-) -> Result<Vec<GroupManifest>> {
+) -> Result<(Vec<GroupManifest>, Vec<TransferChildQuorum>)> {
     let cluster = &fixture.cluster;
     let directory = &cluster.directory;
     let domain = &cluster.domain;
@@ -454,9 +537,16 @@ async fn verify_pending_child_raft(
     }
 
     for genesis in &installed.genesis {
-        fixture.runtimes[0]
-            .campaign(genesis.route().history)
-            .await?;
+        let history = genesis.route().history;
+        anyhow::ensure!(matches!(
+            fixture.runtimes[0].pending_transfer_quorum(history).await,
+            Err(RuntimeError::NotLeader)
+        ));
+        fixture.runtimes[0].campaign(history).await?;
+        anyhow::ensure!(matches!(
+            fixture.runtimes[0].pending_transfer_quorum(history).await,
+            Err(RuntimeError::NotLeader | RuntimeError::NotReady)
+        ));
     }
     tokio::time::timeout(Duration::from_secs(20), async {
         loop {
@@ -476,6 +566,7 @@ async fn verify_pending_child_raft(
     .context("commit pending child Raft barriers")??;
 
     let mut committed = Vec::with_capacity(installed.genesis.len());
+    let mut proofs = Vec::with_capacity(installed.genesis.len());
     for genesis in installed.genesis {
         let history = genesis.route().history;
         let status = fixture.runtimes[0].status(history).await?;
@@ -507,9 +598,14 @@ async fn verify_pending_child_raft(
                 && marker.transfer_origin() == genesis.transfer_origin()
                 && !marker.is_active()
         );
+        proofs.push(fixture.runtimes[0].pending_transfer_quorum(history).await?);
+        anyhow::ensure!(matches!(
+            fixture.runtimes[1].pending_transfer_quorum(history).await,
+            Err(RuntimeError::NotLeader)
+        ));
         committed.push(marker);
     }
-    Ok(committed)
+    Ok((committed, proofs))
 }
 
 async fn verify_partition(

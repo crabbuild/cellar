@@ -150,7 +150,7 @@ pub use root::{GroupManifest, GroupSourceSeal, GroupTransferOrigin, PreparedGrou
 pub use owner::{
     CellGroupApply, CellGroupEffect, CellGroupOwner, CellGroupPersist, CellGroupPersisted,
     CellGroupProposal, CellGroupRecoveryActivation, CellGroupSealOutcome,
-    CellGroupSnapshotAdmission, CellGroupStatus, CellGroupTicket,
+    CellGroupSnapshotAdmission, CellGroupStatus, CellGroupTicket, TransferChildQuorum,
 };
 
 pub(crate) use dispatch::RemoteMutationRoute;

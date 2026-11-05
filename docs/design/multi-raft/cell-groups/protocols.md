@@ -1080,8 +1080,13 @@ from matching intents and receipts on distinct pinned disks and engines.
 A pending voter can attach after rechecking this majority and its own receipt.
 The local applier uses the exact page and image owner handed to its engine.
 Raft can elect a leader and commit in a fresh term while the pending manifest
-fences cell commands and reads. Directory publication and activation require
-their own proofs.
+fences cell commands and reads. Only the child leader can attest that its
+stable initial voter configuration committed and durably applied a fresh-term
+position with the exact pending manifest. The directory verifies the witness
+against the installed genesis and the leader's physical receipt. It roots the
+whole ordered child set in one CAS and can reopen the selected set after an
+ambiguous response. Installed children remain fenced and the parent routes
+stay selected. Directory publication and activation require their own proofs.
 
 Child install receipts bind the source seals, own committed seed, membership and
 manifest digest. Publication also requires the exact verified remote transfer

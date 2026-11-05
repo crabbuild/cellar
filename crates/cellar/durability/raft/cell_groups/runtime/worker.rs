@@ -263,6 +263,16 @@ impl Worker {
             reply(request, group.owner.status().map(Response::Status));
             return;
         }
+        if matches!(request.command, Command::PendingTransferQuorum) {
+            reply(
+                request,
+                group
+                    .owner
+                    .pending_transfer_quorum()
+                    .map(|proof| Response::PendingTransferQuorum(Box::new(proof))),
+            );
+            return;
+        }
         if matches!(request.command, Command::Observe) {
             reply(
                 request,
