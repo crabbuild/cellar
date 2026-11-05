@@ -39,10 +39,6 @@ impl CellGroupController {
             .ok_or(CellGroupControllerError::Invalid(
                 "transfer provisioning owner",
             ))?;
-        let _turn = config
-            .transfer_turn
-            .try_lock()
-            .map_err(|_| RuntimeError::Overloaded)?;
         config.images(directory)?;
         let permit = directory
             .bootstrap_managed_pending_transfer_voter(transition, route, log, host, deadline)
@@ -141,10 +137,6 @@ impl CellGroupController {
             .ok_or(CellGroupControllerError::Invalid(
                 "transfer provisioning owner",
             ))?;
-        let _turn = config
-            .transfer_turn
-            .try_lock()
-            .map_err(|_| RuntimeError::Overloaded)?;
         let images = config.images(directory)?;
         let _preparation = config
             .preparations

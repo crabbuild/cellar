@@ -282,10 +282,9 @@ pub(super) async fn discover_retained_placements(
             prepared.groups.len().saturating_add(parked.len()) < limits.controller.max_groups,
             "retained group capacity exceeded"
         );
-        if let Some(marker) = retained
-            .group_manifest()?
-            .filter(|marker| marker.is_transfer_genesis())
-        {
+        if let Some(marker) = retained.group_manifest()?.filter(|marker| {
+            marker.transfer_origin().is_some() && marker.transfer_activation().is_none()
+        }) {
             let namespace = prepared
                 .namespaces
                 .iter()

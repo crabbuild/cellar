@@ -490,36 +490,9 @@ async fn restart_destination(
     recovery: CellGroupRecoveryPool,
     expected: InstalledTransferVoter,
 ) -> Result<()> {
-    const DESTINATION: usize = 3;
-    let old = cluster.nodes.remove(DESTINATION);
-    let old_host = cluster.hosts.remove(DESTINATION);
-    let previous = old_host.identity();
-    stop_transfer_destination(old, &old_host, 2, false).await?;
+    reopen_transfer_destination(cluster, 109, false).await?;
     let fixture = &cluster.fixtures[DESTINATION];
-    let node = start_node(
-        cluster.roots[DESTINATION].path(),
-        fixture.application.clone(),
-        &fixture.spec.label,
-    )
-    .await?;
-    let startup = async {
-        let (mut config, services) = fixture.config(&node, LogOpenMode::Resume, 109).await?;
-        crate::managed_fixture::archives::configure(&mut config);
-        node.start_raft_cells(config, services).await
-    }
-    .await;
-    let host = match startup {
-        Ok(host) => host,
-        Err(error) => {
-            let stopped = node.shutdown(ShutdownMode::Preserve).await;
-            return Err(error.context(format!("retained transfer startup, shutdown={stopped:?}")));
-        }
-    };
-    cluster.nodes.insert(DESTINATION, node);
-    cluster.hosts.insert(DESTINATION, host);
     let host = &cluster.hosts[DESTINATION];
-    ensure!(host.identity().process != previous.process);
-    ensure!(host.observe_node(TIMEOUT).await?.node.groups == 2);
     for route in sources.children() {
         ensure!(matches!(
             host.group(route.history)?.status().await,
@@ -556,7 +529,13 @@ async fn restart_destination(
     ));
     admit_capacity(fixture, host, directory, 225).await?;
     let reopened = host
-        .install_managed_transfer_child(transition.clone(), sources, child, recovery, TIMEOUT)
+        .install_managed_transfer_child(
+            transition.clone(),
+            sources.clone(),
+            child,
+            recovery.clone(),
+            TIMEOUT,
+        )
         .await?;
     ensure!(reopened == expected);
     ensure!(matches!(
@@ -581,6 +560,78 @@ async fn restart_destination(
             .attach_managed_transfer_child(transition.clone(), route.clone(), TIMEOUT)
             .await?;
     }
+    wait_pending_child(voters, child).await?;
+    for voter in voters {
+        voter
+            .attach_managed_transfer_child(transition.clone(), route.clone(), TIMEOUT)
+            .await?;
+    }
+    reopen_transfer_destination(cluster, 110, true).await?;
+    let fixture = &cluster.fixtures[DESTINATION];
+    let host = &cluster.hosts[DESTINATION];
+    ensure!(matches!(
+        host.group(child)?.status().await,
+        Err(RuntimeError::NotFound)
+    ));
+    ensure!(matches!(
+        host.attach_managed_transfer_child(transition.clone(), route.clone(), TIMEOUT)
+            .await,
+        Err(CellGroupControllerError::Catalog(_))
+    ));
+    admit_capacity(fixture, host, directory, 227).await?;
+    ensure!(
+        host.install_managed_transfer_child(transition.clone(), sources, child, recovery, TIMEOUT)
+            .await?
+            == expected
+    );
+    host.attach_managed_transfer_child(transition, route, TIMEOUT)
+        .await?;
+    wait_pending_child(&cluster.hosts[DESTINATION..], child).await?;
+    Ok(())
+}
+
+const DESTINATION: usize = 3;
+
+async fn reopen_transfer_destination(
+    cluster: &mut ManagedCluster,
+    generation: u8,
+    pending_quorum: bool,
+) -> Result<()> {
+    let old = cluster.nodes.remove(DESTINATION);
+    let old_host = cluster.hosts.remove(DESTINATION);
+    let previous = old_host.identity();
+    stop_transfer_destination(old, &old_host, 2, pending_quorum).await?;
+    let fixture = &cluster.fixtures[DESTINATION];
+    let node = start_node(
+        cluster.roots[DESTINATION].path(),
+        fixture.application.clone(),
+        &fixture.spec.label,
+    )
+    .await?;
+    let startup = async {
+        let (mut config, services) = fixture
+            .config(&node, LogOpenMode::Resume, generation)
+            .await?;
+        crate::managed_fixture::archives::configure(&mut config);
+        node.start_raft_cells(config, services).await
+    }
+    .await;
+    let host = match startup {
+        Ok(host) => host,
+        Err(error) => {
+            let stopped = node.shutdown(ShutdownMode::Preserve).await;
+            return Err(error.context(format!("retained transfer startup, shutdown={stopped:?}")));
+        }
+    };
+    cluster.nodes.insert(DESTINATION, node);
+    cluster.hosts.insert(DESTINATION, host);
+    let host = &cluster.hosts[DESTINATION];
+    ensure!(host.identity().process != previous.process);
+    ensure!(host.observe_node(TIMEOUT).await?.node.groups == 2);
+    Ok(())
+}
+
+async fn wait_pending_child(voters: &[RaftCells], child: GroupHistory) -> Result<()> {
     tokio::time::timeout(TIMEOUT, async {
         loop {
             let mut applied = true;
@@ -606,10 +657,5 @@ async fn restart_destination(
     })
     .await
     .context("pending transfer child must commit a fresh term")??;
-    for voter in voters {
-        voter
-            .attach_managed_transfer_child(transition.clone(), route.clone(), TIMEOUT)
-            .await?;
-    }
     Ok(())
 }

@@ -77,7 +77,6 @@ pub(in super::super) struct Config {
     // Startup verified these physical owners before enabling image collection.
     // They have no controller roster or transport registration.
     pub(super) parked: Mutex<BTreeMap<GroupHistory, transfer::PendingTransferOwner>>,
-    pub(super) transfer_turn: tokio::sync::Mutex<()>,
 }
 
 impl Config {
@@ -251,7 +250,6 @@ impl Config {
                     })
                     .collect(),
             ),
-            transfer_turn: tokio::sync::Mutex::new(()),
             archives,
             settings,
         })

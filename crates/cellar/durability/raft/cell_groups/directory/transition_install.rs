@@ -54,6 +54,7 @@ enum InstallData<'a> {
     Prepared(&'a PreparedCellGroupTransferChild),
     Retained {
         marker: &'a GroupManifest,
+        selected: &'a GroupManifest,
         closure: Option<&'a PreparedGroupManifest>,
     },
 }
@@ -149,6 +150,15 @@ fn install_prefix(route: &GroupRoute) -> String {
     )
 }
 
+fn pending_genesis(marker: &GroupManifest) -> Result<GroupManifest, CatalogError> {
+    let origin = marker.transfer_origin().ok_or(CatalogError::Fenced)?;
+    if marker.transfer_activation().is_some() || marker.membership_revision() != 1 {
+        return Err(CatalogError::Fenced);
+    }
+    GroupManifest::transfer_genesis(marker.route().clone(), marker.root(), origin.clone())
+        .map_err(|_| CatalogError::Corrupt("pending transfer genesis"))
+}
+
 struct InstallRecords {
     prefix: String,
     member: String,
@@ -239,7 +249,8 @@ impl RangeDirectory {
             return Err(CatalogError::Fenced);
         }
         self.bounded(async {
-            self.require_open_transfer_install(&transition.plan, marker)
+            let genesis = pending_genesis(marker)?;
+            self.require_open_transfer_install(&transition.plan, &genesis)
                 .await?;
             let birth = self
                 .require_ordinary_birth_reservation(marker.route())
@@ -251,7 +262,7 @@ impl RangeDirectory {
             {
                 return Err(CatalogError::NotInitialMember);
             }
-            let records = self.install_records(marker, local, engine)?;
+            let records = self.install_records(&genesis, local, engine)?;
             self.require_install_intent(&records).await?;
             if self
                 .read(&format!("{}/receipt", records.member))
@@ -323,15 +334,17 @@ impl RangeDirectory {
             Err(LogError::NotFound) => return Ok(None),
             Err(error) => return Err(CatalogError::Log(error)),
         };
-        let marker = group
+        let selected = group
             .group_manifest()
             .map_err(CatalogError::Log)?
             .filter(|marker| marker.route() == route)
             .ok_or(CatalogError::Fenced)?;
+        let marker = pending_genesis(&selected)?;
         self.sync_managed_transfer_voter(
             transition,
             InstallData::Retained {
                 marker: &marker,
+                selected: &selected,
                 closure,
             },
             log,
@@ -498,7 +511,9 @@ impl RangeDirectory {
                         .await
                         .map_err(CatalogError::Log)?
                 }
-                InstallData::Retained { closure, .. } => {
+                InstallData::Retained {
+                    selected, closure, ..
+                } => {
                     let group = log.cell_group(&route.history).map_err(CatalogError::Log)?;
                     let guard = log.lifecycle_guard().map_err(CatalogError::Log)?;
                     let now = log
@@ -511,7 +526,7 @@ impl RangeDirectory {
                         .ok_or(CatalogError::ManagedAdmissionRequired)?;
                     let cache = group.read().map_err(CatalogError::Log)?;
                     if group.identity() != &permit.local
-                        || cache.group_manifest.as_ref() != Some(genesis)
+                        || cache.group_manifest.as_ref() != Some(*selected)
                         || cache
                             .membership
                             .fleet_status()
@@ -521,7 +536,7 @@ impl RangeDirectory {
                     }
                     let reopened = closure.is_some_and(|verified| {
                         Arc::ptr_eq(&verified.engine_owner, &group.owner)
-                            && verified.marker() == genesis
+                            && verified.marker() == *selected
                             && verified.images.root() == genesis.root()
                     });
                     if !reopened
