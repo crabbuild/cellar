@@ -26,8 +26,12 @@ async fn managed_cold_inventory_bootstrap() -> Result<()> {
         )
         .await??;
     let directory = RangeDirectory::new(namespace, DirectoryLimits::default())?;
-    let initialization = directory.prepare_standby_initialization(ProposalId::new([120; 16])?)?;
-    let publication = f.domain.run(directory.publish(&initialization)).await??;
+    let initialization = directory.prepare_standby_initialization(ProposalId::new([100; 16])?)?;
+    let publication = f
+        .domain
+        .run(directory.publication(&initialization))
+        .await??
+        .context("SDK provisioning must publish standby before declaring the namespace")?;
     ensure!(publication.tree_digest().is_none());
     let root = tempfile::tempdir()?;
     let node = start_node(root.path(), f.application.clone(), &f.spec.label).await?;
@@ -43,6 +47,143 @@ async fn managed_cold_inventory_bootstrap() -> Result<()> {
     let inventory = inventory.context("cold namespace inventory before capacity/birth")?;
     ensure!(inventory.namespaces() == 1 && inventory.histories() == 0);
     Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn managed_namespace_provisioning_replays_lost_confirmation() -> Result<()> {
+    let f = Fixture::new(false).await?;
+    let result = async {
+        let class = counter_class()?;
+        let mut config = f.declaration.namespace.clone();
+        config.namespace = NamespaceId::new([3; 16])?;
+        config.schema_digest = class.schema_digest();
+        let adapter = Catalog::new(
+            f.store.clone(),
+            CatalogOptions {
+                prefix: "managed/".into(),
+                ..Default::default()
+            },
+        )?;
+        let before = f.catalog.read(TIMEOUT).await?.revision();
+        let identity = request(94, before);
+        let provision = |config| {
+            f.catalog.provision_managed_namespace(
+                &identity,
+                &adapter,
+                config,
+                &class,
+                DirectoryLimits::default(),
+                TIMEOUT,
+            )
+        };
+        f.store
+            .fail_fleet_confirmation
+            .store(true, Ordering::Release);
+        ensure!(matches!(
+            provision(config.clone()).await,
+            Err(FleetCatalogError::Storage(_))
+        ));
+        ensure!(!f.store.fail_fleet_confirmation.load(Ordering::Acquire));
+        let after = f.catalog.read(TIMEOUT).await?.revision();
+        ensure!(after == before + 1);
+        let mut changed = config.clone();
+        changed.namespace = NamespaceId::new([7; 16])?;
+        ensure!(matches!(
+            provision(changed.clone()).await,
+            Err(FleetCatalogError::PayloadConflict)
+        ));
+        ensure!(f
+            .domain
+            .run(adapter.existing_namespace(changed))
+            .await?
+            .is_err());
+        let replay = provision(config.clone()).await?;
+        ensure!(replay.class == class.name() && replay.namespace == config);
+        ensure!(f.catalog.read(TIMEOUT).await?.revision() == after);
+        let opened = f
+            .domain
+            .run(adapter.existing_namespace(replay.namespace))
+            .await??;
+        let directory = RangeDirectory::new(opened, DirectoryLimits::default())?;
+        let view = f.domain.run(directory.observe()).await??;
+        ensure!(view.revision() == 1 && view.groups() == 0);
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    f.domain.shutdown().await;
+    result
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn managed_namespace_provisioning_reuses_standby_after_root_conflict() -> Result<()> {
+    let f = Fixture::new(false).await?;
+    let result = async {
+        let class = counter_class()?;
+        let mut config = f.declaration.namespace.clone();
+        config.namespace = NamespaceId::new([3; 16])?;
+        config.schema_digest = class.schema_digest();
+        let adapter = Catalog::new(
+            f.store.clone(),
+            CatalogOptions {
+                prefix: "managed/".into(),
+                ..Default::default()
+            },
+        )?;
+        let provisioner = Fixture::open_catalog(&f.domain, f.store.clone(), config.cluster)?;
+        let revision = f.catalog.read(TIMEOUT).await?.revision();
+        let original = request(94, revision);
+        let gate = &f.store.range_genesis_after;
+        gate.armed.store(true, Ordering::Release);
+        let (submitted, concurrent) = tokio::time::timeout(TIMEOUT, async {
+            tokio::join!(
+                provisioner.provision_managed_namespace(
+                    &original,
+                    &adapter,
+                    config.clone(),
+                    &class,
+                    DirectoryLimits::default(),
+                    TIMEOUT,
+                ),
+                async {
+                    gate.entered.notified().await;
+                    let result = peer_fixture(&f, 8).await;
+                    gate.resume.notify_one();
+                    result
+                }
+            )
+        })
+        .await?;
+        concurrent?;
+        ensure!(matches!(submitted, Err(FleetCatalogError::Conflict)));
+        let advanced = f.catalog.read(TIMEOUT).await?.revision();
+        ensure!(advanced == revision + 1);
+        let reopened = f
+            .domain
+            .run(adapter.existing_namespace(config.clone()))
+            .await??;
+        let directory = RangeDirectory::new(reopened, DirectoryLimits::default())?;
+        let standby = f.domain.run(directory.observe()).await??;
+        ensure!(standby.revision() == 1 && standby.groups() == 0);
+        let retry = request(95, advanced);
+        ensure!(retry.operation == original.operation && retry.id != original.id);
+        let declaration = provisioner
+            .provision_managed_namespace(
+                &retry,
+                &adapter,
+                config.clone(),
+                &class,
+                DirectoryLimits::default(),
+                TIMEOUT,
+            )
+            .await?;
+        ensure!(declaration.namespace == config && declaration.class == class.name());
+        ensure!(f.catalog.read(TIMEOUT).await?.revision() == advanced + 1);
+        ensure!(f.domain.run(directory.observe()).await??.digest() == standby.digest());
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    f.domain.shutdown().await;
+    result
 }
 
 fn counter_class() -> Result<RaftClass> {
@@ -335,9 +476,8 @@ impl ManagedCluster {
             )
             .await??;
         let directory = RangeDirectory::new(namespace, DirectoryLimits::default())?;
-        let empty = directory.prepare_standby_initialization(ProposalId::new([120; 16])?)?;
-        f.domain.run(directory.publish(&empty)).await??;
         let standby = f.domain.run(directory.observe()).await??;
+        ensure!(standby.revision() == 1 && standby.groups() == 0);
         let history = GroupHistory {
             cluster: f.declaration.namespace.cluster,
             namespace: f.declaration.namespace.namespace,

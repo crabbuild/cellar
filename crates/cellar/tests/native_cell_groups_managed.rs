@@ -4,7 +4,6 @@
 //! Deployment bounds use fixture attestations; the full lifecycle gate is separate.
 #![allow(clippy::disallowed_methods)]
 use anyhow::{ensure, Context as _, Result};
-use cellar::application::consensus::verification::{Catalog, FleetCatalog, FleetCatalogError};
 use cellar::bucket::{Bucket, StorageBackend};
 use cellar::sdk::{consensus::*, *};
 use object_store::list::*;
@@ -21,6 +20,8 @@ mod fault;
 #[path = "support/html.rs"]
 #[allow(dead_code)]
 mod graph;
+#[path = "support/cell_group_managed_registry.rs"]
+mod registry;
 #[path = "support/cell_group_rustfs.rs"]
 #[allow(dead_code)]
 mod rustfs;
@@ -71,25 +72,9 @@ impl Fixture {
 
     async fn with_store(rooted: bool, class: RaftClass, store: Arc<fault::Store>) -> Result<Self> {
         let domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
-        let bucket = Bucket::from_clients(
-            store.clone(),
-            store.clone(),
-            Arc::new(NoListing),
-            StorageBackend::S3,
-            "managed-component".into(),
-            "tenant/".into(),
-        )?;
-        let catalog = FleetCatalog::new(
-            &domain,
-            bucket,
-            ClusterId::new([1; 16])?,
-            IncarnationId::new([80; 16])?,
-            "hosts/",
-        )?;
+        let catalog = Self::open_catalog(&domain, store.clone(), ClusterId::new([1; 16])?)?;
         catalog.initialize(TIMEOUT).await?;
         let schema = class.schema_digest();
-        let application: Arc<dyn Application> =
-            Arc::new(Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_class(class)?);
         let mut config = NamespaceConfig::new(
             ClusterId::new([1; 16])?,
             NamespaceId::new([2; 16])?,
@@ -101,33 +86,26 @@ impl Fixture {
         } else {
             RaftImageStorage::Materialized
         };
-        config = catalog.bind_namespace(config)?;
-        let declaration = RaftNamespaceRegistration {
-            namespace: config.clone(),
-            class: "Counter".into(),
-        };
-        let namespace = domain
-            .run(
-                Catalog::new(
-                    store.clone(),
-                    CatalogOptions {
-                        prefix: "managed/".into(),
-                        ..Default::default()
-                    },
-                )?
-                .open_namespace(config),
-            )
-            .await??;
+        let namespace_catalog = Catalog::new(
+            store.clone(),
+            CatalogOptions {
+                prefix: "managed/".into(),
+                ..Default::default()
+            },
+        )?;
         let cut = catalog.read(TIMEOUT).await?;
-        catalog
-            .declare_namespace(
-                &cut,
+        let declaration = catalog
+            .provision_managed_namespace(
                 &request(1, cut.revision()),
-                &namespace,
-                "Counter",
+                &namespace_catalog,
+                config,
+                &class,
+                DirectoryLimits::default(),
                 TIMEOUT,
             )
             .await?;
+        let application: Arc<dyn Application> =
+            Arc::new(Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_class(class)?);
         let spec = FleetNodeSpec {
             node: NodeId::new([4; 16])?,
             disk: DiskLineage::new([14; 16])?,
@@ -151,6 +129,28 @@ impl Fixture {
             application,
             spec,
         })
+    }
+
+    fn open_catalog(
+        domain: &ExecutionDomain,
+        store: Arc<fault::Store>,
+        cluster: ClusterId,
+    ) -> Result<FleetCatalog> {
+        let bucket = Bucket::from_clients(
+            store.clone(),
+            store,
+            Arc::new(NoListing),
+            StorageBackend::S3,
+            "managed-component".into(),
+            "tenant/".into(),
+        )?;
+        Ok(FleetCatalog::new(
+            domain,
+            bucket,
+            cluster,
+            IncarnationId::new([80; 16])?,
+            "hosts/",
+        )?)
     }
 
     async fn config(

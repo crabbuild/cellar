@@ -47,7 +47,9 @@ path and preserves the exact creation record at both durability minima.
 A configured managed router now refreshes its voter routes after a replacement.
 The native and real RustFS cases cover the retired route, joined-voter reads,
 original receipt replay and a fresh quorum write. Cold return after all birth
-voters retire and ordinary namespace provisioning remain open.
+voters retire remains open. The public SDK can now provision a declared
+managed standby. Ordinary first-group provisioning through CLI and daemon
+startup remains open.
 
 CG-07 remains IN_PROGRESS. Four original public gates remain undelivered, including
 complete managed lifecycle and ingress authority. Default/backend and capability
@@ -57,8 +59,9 @@ production legacy/shared switch or old-data migration is part of the target.
 
 ## First delivery: basic SQL reads and writes through public ingress
 
-1. **Provision through the public namespace path.** Use the normal
-   CLI, daemon and SDK path to start a three-voter shared group and exercise
+1. **Provision through the public namespace path.** Start from the SDK-created
+   managed standby. Wire the normal CLI and daemon path to reserve and activate
+   the first three-voter shared group and exercise
    the SDK enrollment path for two independent cells. Carry the tenant and
    cell binding through native, Axum and admin entry points. Preserve typed
    capability refusals.

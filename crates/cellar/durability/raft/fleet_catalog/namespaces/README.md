@@ -20,6 +20,21 @@ and journal determine its original applied revision. A changed request payload
 conflicts. An unadmitted stale candidate cannot overwrite a newer root. A
 different request cannot replace an earlier declaration.
 
+## Fresh managed standby
+
+`FleetCatalog::provision_managed_namespace` checks the compiled class and
+binds the immutable namespace to this fleet. It pins the canonical declaration
+request before namespace writes, publishes the standby directory and commits
+the declaration. The returned registration selects a namespace for managed
+startup. Capacity admission and an authorized birth select the first group.
+
+Persist the request identity and catalog settings before submitting. Replay
+the same request after an uncertain reply. If an unrelated fleet CAS advances
+the root before declaration, a new request ID at the current revision may use
+the same logical operation and configuration. The operation identifies the
+original standby publication. A confirmed replay verifies existing metadata,
+including the historical standby receipt if a group was selected later.
+
 ## Compiled host and birth admission
 
 Managed startup checks every actual prepared namespace and compiled class against

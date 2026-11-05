@@ -44,12 +44,12 @@ pub use crate::raft::physical_inventory::{RaftPhysicalHistory, RaftPhysicalInven
 pub use crate::raft::receipt_maintenance::ReceiptMaintenanceLimits;
 
 pub use crate::raft::archive::ArchiveReference;
-pub use crate::raft::catalog::CatalogError;
 pub use crate::raft::catalog::{
     BirthDisposition, BirthProposal, CatalogOptions, DisasterFenceAuthority, DisasterFenceRequest,
     DisasterRecoveryRequest, InitialMember, ManagedBirthOwner, NamespaceConfig, RaftImageStorage,
     VoterPolicy,
 };
+pub use crate::raft::catalog::{Catalog, CatalogError};
 pub use crate::raft::disaster::S3DisasterRecovery;
 pub use cellar_logic::raft_leadership::LeaderPolicy;
 pub use cellar_logic::raft_placement::PlacementPolicy;
@@ -67,15 +67,15 @@ pub use crate::raft::cell_groups::{
 pub use crate::raft::fleet_catalog::{
     fleet_capacity_profile_digest, FleetAbortedMovementCompletion, FleetCapacityAction,
     FleetCapacityAdmission, FleetCapacityAttestation, FleetCapacityAuthorization,
-    FleetCapacityRequest, FleetFencedMovementCompletion, FleetGroupArchiveReplayOptions,
-    FleetGroupArchiveVerifier, FleetGroupAuthorization, FleetHostAuthorization,
-    FleetIsolationAttestation, FleetMovementAdmission, FleetMovementCompletion,
-    FleetMovementCompletionRequest, FleetMovementExecutionRequest, FleetMovementPhase,
-    FleetMovementProgress, FleetMovementRequest, FleetNodeEligibility, FleetNodeIsolation,
-    FleetNodeIsolationRequest, FleetNodeSpec, FleetNodeState, FleetPendingMovement,
-    FleetPendingReservation, FleetPermitAuthorization, FleetReplicaSeparation,
-    FleetRequestIdentity, FleetResourceAdmission, FleetResourceAttestation, FleetResourceBounds,
-    FleetResourceRequest,
+    FleetCapacityRequest, FleetCatalog, FleetCatalogError, FleetFencedMovementCompletion,
+    FleetGroupArchiveReplayOptions, FleetGroupArchiveVerifier, FleetGroupAuthorization,
+    FleetHostAuthorization, FleetIsolationAttestation, FleetMovementAdmission,
+    FleetMovementCompletion, FleetMovementCompletionRequest, FleetMovementExecutionRequest,
+    FleetMovementPhase, FleetMovementProgress, FleetMovementRequest, FleetNodeEligibility,
+    FleetNodeIsolation, FleetNodeIsolationRequest, FleetNodeSpec, FleetNodeState,
+    FleetPendingMovement, FleetPendingReservation, FleetPermitAuthorization,
+    FleetReplicaSeparation, FleetRequestIdentity, FleetResourceAdmission, FleetResourceAttestation,
+    FleetResourceBounds, FleetResourceRequest,
 };
 pub use crate::raft::fleet_catalog::{
     FleetDockerIsolation, FleetDockerResourcePolicy, FleetDockerResources,

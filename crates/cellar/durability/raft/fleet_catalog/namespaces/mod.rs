@@ -7,6 +7,7 @@ use cellar_logic::consensus::NamespaceId;
 use serde::Deserialize;
 
 mod inventory;
+mod provisioning;
 mod records;
 use records::{Declaration, Registry};
 
@@ -67,80 +68,91 @@ impl FleetCatalog {
         validate_request(request)?;
         let declaration = Declaration::new(self, namespace, class)?;
         self.run(timeout, async {
-            // A reopened adapter may reconcile the original immutable candidate
-            // after later root changes, without reconstructing its former index.
-            let prior = self
-                .inner
-                .read::<FleetMutation>(
-                    &format!("requests/{}", hex::encode(request.id)),
-                    REQUEST_KIND,
-                    REQUEST_LIMIT,
-                )
+            let mutation = self
+                .prepare_namespace_declaration(snapshot, request, &declaration)
                 .await?;
-            if let Some((candidate, _)) = prior {
-                candidate.validate()?;
-                if candidate.id != request.id
-                    || candidate.operation != request.operation
-                    || candidate.principal != request.principal
-                    || candidate.expected_revision != request.expected_revision
-                    || candidate.changes.len() != 1
-                    || candidate.changes[0].table != FleetTable::Policy
-                    || candidate.changes[0].key != KEY
-                {
-                    return Err(FleetCatalogError::PayloadConflict);
-                }
-                let registry = Registry::decode(
-                    candidate.changes[0]
-                        .value
-                        .as_deref()
-                        .ok_or(FleetCatalogError::PayloadConflict)?,
-                )?;
-                let bytes = self
-                    .inner
-                    .lookup(registry.index, &declaration.key())
-                    .await?
-                    .ok_or(FleetCatalogError::PayloadConflict)?;
-                if decode::<Declaration>(DECLARATION_KIND, &bytes, 4096)? != declaration {
-                    return Err(FleetCatalogError::PayloadConflict);
-                }
-                return self.commit_inner(snapshot, &candidate).await;
-            }
-            let mut registry = self.registry(snapshot).await?.unwrap_or(Registry {
-                count: 0,
-                index: None,
-            });
-            if self
-                .inner
-                .lookup(registry.index, &declaration.key())
-                .await?
-                .is_some()
-            {
-                return Err(FleetCatalogError::Conflict);
-            }
-            if registry.count >= MAX_NAMESPACES {
-                return Err(FleetCatalogError::Limit);
-            }
-            registry.index = self
-                .inner
-                .update(
-                    registry.index,
-                    &declaration.key(),
-                    Some(encode(DECLARATION_KIND, &declaration, 4096)?),
-                    0,
-                )
-                .await?;
-            registry.count += 1;
-            let mutation = history_mutation(
-                request,
-                vec![FleetChange {
-                    table: FleetTable::Policy,
-                    key: KEY.into(),
-                    value: Some(encode(REGISTRY_KIND, &registry, 4096)?),
-                }],
-            );
             self.commit_inner(snapshot, &mutation).await
         })
         .await
+    }
+
+    async fn prepare_namespace_declaration(
+        &self,
+        snapshot: &FleetSnapshot,
+        request: &FleetRequestIdentity,
+        declaration: &Declaration,
+    ) -> Result<FleetMutation> {
+        // A reopened adapter may reconcile the original immutable candidate
+        // after later root changes, without reconstructing its former index.
+        let prior = self
+            .inner
+            .read::<FleetMutation>(
+                &format!("requests/{}", hex::encode(request.id)),
+                REQUEST_KIND,
+                REQUEST_LIMIT,
+            )
+            .await?;
+        if let Some((candidate, _)) = prior {
+            candidate.validate()?;
+            if candidate.id != request.id
+                || candidate.operation != request.operation
+                || candidate.principal != request.principal
+                || candidate.expected_revision != request.expected_revision
+                || candidate.changes.len() != 1
+                || candidate.changes[0].table != FleetTable::Policy
+                || candidate.changes[0].key != KEY
+            {
+                return Err(FleetCatalogError::PayloadConflict);
+            }
+            let registry = Registry::decode(
+                candidate.changes[0]
+                    .value
+                    .as_deref()
+                    .ok_or(FleetCatalogError::PayloadConflict)?,
+            )?;
+            let bytes = self
+                .inner
+                .lookup(registry.index, &declaration.key())
+                .await?
+                .ok_or(FleetCatalogError::PayloadConflict)?;
+            if decode::<Declaration>(DECLARATION_KIND, &bytes, 4096)? != *declaration {
+                return Err(FleetCatalogError::PayloadConflict);
+            }
+            return Ok(candidate);
+        }
+        let mut registry = self.registry(snapshot).await?.unwrap_or(Registry {
+            count: 0,
+            index: None,
+        });
+        if self
+            .inner
+            .lookup(registry.index, &declaration.key())
+            .await?
+            .is_some()
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        if registry.count >= MAX_NAMESPACES {
+            return Err(FleetCatalogError::Limit);
+        }
+        registry.index = self
+            .inner
+            .update(
+                registry.index,
+                &declaration.key(),
+                Some(encode(DECLARATION_KIND, declaration, 4096)?),
+                0,
+            )
+            .await?;
+        registry.count += 1;
+        Ok(history_mutation(
+            request,
+            vec![FleetChange {
+                table: FleetTable::Policy,
+                key: KEY.into(),
+                value: Some(encode(REGISTRY_KIND, &registry, 4096)?),
+            }],
+        ))
     }
 
     async fn registry(&self, snapshot: &FleetSnapshot) -> Result<Option<Registry>> {

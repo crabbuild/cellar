@@ -12,6 +12,35 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 managed namespace standby provisioning
+
+`FleetCatalog::provision_managed_namespace` validates the compiled class and
+fleet-bound namespace before pinning the exact declaration request. The same
+operation publishes the empty directory and commits the fleet declaration.
+The returned registration can be used for managed host startup. Group birth
+still requires the existing capacity and placement proofs.
+
+The tests lose the declaration reply after the actual CAS, refuse changed
+payload under that identity and replay the exact declaration. A separate cut
+commits an unrelated fleet update while the standby head is publishing. A new
+request at the new fleet revision reuses the original logical operation and
+proves that the standby root is identical. Cold inventory reads the published
+standby directly. The managed native/Axum path starts from this SDK setup, then
+exercises the existing RF3 birth, activation and two-cell request path.
+
+Six focused native cases and the managed request case against real RustFS
+pass. Two existing registry cases now run on the shared fixture and retain
+their original replay, scope, missing-page and rollback assertions. The older
+legacy target still fails to compile against the retired per-cell host API.
+The backend case runs both image formats with host-native voters and fixture
+capacity. The backend and dedicated VM stop with their data retained.
+Normal CLI/daemon orchestration of first-group reservation and activation
+remains open.
+
+Source manifest `c9926108e4504b1ff9a4f220e0b1551824f02108f612f1e3878b23c558b494fe`.
+Native record `2dc3943876d3a235550fc1bf76ab432980ebee49b2f98c18f9cf9d854ae10f5c`.
+RustFS record `c8193186b5410d301ecbcb7bc5d31f8506cbe4a0996b00922f103e2047a299c5`.
+
 ## CG-07 managed router membership refresh
 
 A configured ingress without a local group refreshes its routes through the

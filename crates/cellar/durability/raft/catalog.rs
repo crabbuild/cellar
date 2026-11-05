@@ -320,32 +320,12 @@ impl Catalog {
         config: NamespaceConfig,
         create: bool,
     ) -> Result<NamespaceCatalog, CatalogError> {
-        if config.schema_digest == [0; 32] {
-            return Err(CatalogError::Invalid("namespace schema digest"));
-        }
-        let data_prefix = match config.mode {
-            NamespaceMode::Raft => format!(
-                "{}raft/{}/{}/",
-                self.inner.prefix,
-                hex::encode(config.cluster.bytes()),
-                hex::encode(config.namespace.bytes())
-            ),
-            NamespaceMode::Fleet => format!("{}cells/", self.inner.prefix),
-        };
-        let expected = wire::Root::new(&config, data_prefix.clone());
-        expected.validate()?;
+        let (namespace, expected, bytes) = self.namespace_candidate(config)?;
         let key = Path::from(format!(
             "{}namespaces/{}/root",
             self.inner.prefix,
-            hex::encode(config.namespace.bytes())
+            hex::encode(namespace.config.namespace.bytes())
         ));
-        let bytes = wire::encode(wire::ROOT, &expected, self.inner.limit)?;
-        let namespace = NamespaceCatalog {
-            inner: self.inner.clone(),
-            config,
-            root_digest: wire::digest(&bytes),
-            data_prefix,
-        };
         let found = self.inner.read(&key).await?;
         let observed = match found {
             Some(bytes) => bytes,
@@ -374,6 +354,43 @@ impl Catalog {
             namespace.require_birth_inventory().await?;
         }
         Ok(namespace)
+    }
+
+    /// Derive the exact descriptor before publishing any namespace objects.
+    pub(super) fn describe_namespace(
+        &self,
+        config: NamespaceConfig,
+    ) -> Result<NamespaceCatalog, CatalogError> {
+        self.namespace_candidate(config)
+            .map(|(namespace, _, _)| namespace)
+    }
+
+    fn namespace_candidate(
+        &self,
+        config: NamespaceConfig,
+    ) -> Result<(NamespaceCatalog, wire::Root, Vec<u8>), CatalogError> {
+        if config.schema_digest == [0; 32] {
+            return Err(CatalogError::Invalid("namespace schema digest"));
+        }
+        let data_prefix = match config.mode {
+            NamespaceMode::Raft => format!(
+                "{}raft/{}/{}/",
+                self.inner.prefix,
+                hex::encode(config.cluster.bytes()),
+                hex::encode(config.namespace.bytes())
+            ),
+            NamespaceMode::Fleet => format!("{}cells/", self.inner.prefix),
+        };
+        let expected = wire::Root::new(&config, data_prefix.clone());
+        expected.validate()?;
+        let bytes = wire::encode(wire::ROOT, &expected, self.inner.limit)?;
+        let namespace = NamespaceCatalog {
+            inner: self.inner.clone(),
+            config,
+            root_digest: wire::digest(&bytes),
+            data_prefix,
+        };
+        Ok((namespace, expected, bytes))
     }
 }
 

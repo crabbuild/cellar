@@ -4,6 +4,19 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## CG-07 managed namespace standby provisioning
+
+The public SDK checks the compiled schema, publishes the standby and confirms
+its fleet declaration. Exact retries recover lost replies. A new fleet request
+at the new revision can reuse the same standby operation after a root race.
+The managed native/Axum path starts from that standby and passes on native
+storage and real RustFS. Existing registry replay and reset oracles also pass
+on the shared fixture. [Source and test records](progress.md)
+
+Next, wire CLI and daemon setup to the first-group reservation, exact range
+publication, archive initialization and voter activation. Preserve the existing
+capacity proofs and immutable operation identities through each boundary.
+
 ## CG-07 managed router membership refresh
 
 The managed directory learns actual replacement membership for configured
