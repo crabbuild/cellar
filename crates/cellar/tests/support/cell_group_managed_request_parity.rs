@@ -13,14 +13,28 @@ pub(super) async fn check(
 ) -> Result<()> {
     let client_bytes = [199; 16];
     let options = CommandOptions::new(CommandId::new(ClientId::new(client_bytes)?, 1)?, retry);
+    let increment = cell.contract("Increment")?;
     let original = cell
-        .command(
-            &cell.contract("Increment")?,
-            0i64.to_be_bytes().to_vec(),
-            options,
-        )
+        .command(&increment, 0i64.to_be_bytes().to_vec(), options.clone())
         .await?;
     ensure!(original.result == 0i64.to_be_bytes() && original.durability == Durability::Quorum);
+    let conflict = cell
+        .command(&increment, 1i64.to_be_bytes().to_vec(), options)
+        .await
+        .err()
+        .context("SDK accepted a conflicting payload for the original command")?;
+    ensure!(conflict.command == original.id && conflict.ambiguous);
+    ensure!(matches!(
+        conflict.cause.refusal(),
+        Some(CommandFailure::CommandConflict)
+    ));
+    let conflict_body = format!(
+        "{:?}; cause={:?}",
+        CommandFailure::Ambiguous {
+            command: conflict.command
+        },
+        CommandFailure::CommandConflict,
+    );
     let token = original.version_token.as_str();
     let mut forged = URL_SAFE_NO_PAD.decode(token)?;
     *forged.last_mut().context("version signature")? ^= 1;
@@ -174,7 +188,7 @@ pub(super) async fn check(
             format!("conflicting SDK command replay axum={axum}"),
         )
         .await?
-        .refused(409, "CommandConflict")?;
+        .refused(409, &conflict_body)?;
         http::Web::send(
             command(0).header("x-read-consistency", "linearizable"),
             format!("read options on command axum={axum}"),
