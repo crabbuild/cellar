@@ -179,12 +179,14 @@ before submitting the archive request with its own ID. The archive command roots
 the exact initializer intent before creating registry state. Reconcile an unknown
 reply with the same request. An incomplete archive refuses verification and
 requires authority recovery. An archive receipt supplies no coverage or voter
-authority. In the compiled application, use `NativeDaemon::raft_cells_with_startup`
-and call `cells.start_managed_namespace_first_group(cluster, namespace, timeout).await?`.
-The call discovers the first full-range group through the managed directory,
-waits for its rooted archive and complete registry under the startup deadline,
-then validates or attaches the local initial voter and establishes fresh quorum.
-Bind the application's ingress handles after it returns the selected history.
+authority. For a compiled SQL application on its initial voters, use
+`NativeDaemon::managed_sql_namespace` with the cluster and namespace IDs, the
+startup timeout, resource preparation and the application binding. The daemon
+discovers the first full-range group, waits for the rooted archive and complete
+registry, validates or attaches the local voter and establishes fresh quorum
+under the same deadline. The binding receives the selected history after that
+barrier. The same entry point can reopen a retained initial voter while the
+first group and its membership remain selected.
 Managed retained boot discovers local replicas from its opened engine within
 the declared namespaces. Each replica still requires its selected catalog
 history, exact boot and membership authorization before attachment. Configure

@@ -1,7 +1,10 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 use super::*;
-use crate::application::Application;
+use crate::application::{
+    consensus::{ClusterId, GroupHistory, NamespaceId, RaftCells},
+    Application,
+};
 use crate::generation::GenerationId;
 use std::collections::{BTreeSet, HashMap};
 
@@ -131,6 +134,38 @@ impl NativeDaemon {
     {
         self.raft_cells_with_startup(script, prepare, move |cells| {
             std::future::ready(bind(cells))
+        })
+    }
+
+    /// Serve a newly provisioned managed SQL namespace from an initial voter.
+    /// The daemon discovers the first full-range group, checks its rooted archive,
+    /// and establishes a fresh quorum before handing the selected history to
+    /// `bind`. The same path can reopen a retained initial voter while that
+    /// first group and membership remain selected.
+    ///
+    /// Use the operator workflow to admit capacity and provision the group.
+    /// `timeout` bounds archive observation, local attachment and quorum together.
+    /// A failed or interrupted barrier closes the installed host before exit.
+    pub fn managed_sql_namespace<F, Fut, Bind, Bound>(
+        self,
+        script: impl Into<String>,
+        namespace: (ClusterId, NamespaceId),
+        timeout: std::time::Duration,
+        prepare: F,
+        bind: Bind,
+    ) -> anyhow::Result<Self>
+    where
+        F: FnOnce(super::NativeRaftNode) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = anyhow::Result<super::NativeRaftCells>> + Send + 'static,
+        Bind: FnOnce(RaftCells, GroupHistory) -> Bound + Send + 'static,
+        Bound: std::future::Future<Output = anyhow::Result<()>> + Send + 'static,
+    {
+        self.raft_cells_with_startup(script, prepare, move |cells| async move {
+            let (cluster, namespace) = namespace;
+            let history = cells
+                .start_managed_namespace_first_group(cluster, namespace, timeout)
+                .await?;
+            bind(cells, history).await
         })
     }
 

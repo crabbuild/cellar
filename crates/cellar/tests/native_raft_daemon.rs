@@ -761,25 +761,17 @@ async fn qualify() -> Result<()> {
     cellar::bucket::Bucket::open_dev(&root.path().join("fleet.sqlite"))?;
     managed::initialize(root.path()).await?;
     let mut cluster = Vec::new();
-    for i in 0..3 {
-        let disk = docker::disk(root.path(), i);
+    for i in 0u8..3 {
+        let disk = docker::disk(root.path(), usize::from(i));
         let mut process = Process::spawn(
             root.path(),
             &format!("cluster-{i}"),
             &[std::ffi::OsStr::new("--data-dir"), disk.as_os_str()],
             false,
         )?;
-        // The boot CAS serializes independent voter processes. Wait for each
-        // installed owner before starting the next, while all ingress is gated.
-        let deadline = Instant::now() + Duration::from_secs(15);
-        while !root.path().join(format!("standby-{i}")).exists() {
-            ensure!(
-                process.child.try_wait()?.is_none() && Instant::now() < deadline,
-                "managed voter {i} did not enter standby\n{}",
-                process.logs()?
-            );
-            tokio::time::sleep(Duration::from_millis(25)).await;
-        }
+        // Serialize the independent boot CAS operations by observing the
+        // rooted engine. The operator checks each live standby over peer RPC.
+        managed::wait_for_cold_boot(root.path(), i, &mut process).await?;
         if i < 2 {
             ensure!(
                 !process.logs()?.contains("cellar listening on ")

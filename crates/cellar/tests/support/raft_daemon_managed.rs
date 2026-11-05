@@ -317,40 +317,68 @@ pub(super) fn child(root: PathBuf, mode: &str) -> Result<()> {
     let axum_runtime = runtime.handle().clone();
     let (axum_stop, mut axum_stopping) = tokio::sync::watch::channel(false);
     let (axum_started, axum_task) = tokio::sync::oneshot::channel();
-    let result = Host::local(graph::graph("raft-cli", "", vec![]))
-        .register("raft-cli", "test", move || {
-            counter::application(serving.clone(), counter::definition()?)
+    let host = Host::local(graph::graph("raft-cli", "", vec![])).register(
+        "raft-cli",
+        "test",
+        move || counter::application(serving.clone(), counter::definition()?),
+    )?;
+    let prepare = move |node| boot_operator.prepare(node, index, retained);
+    let fixture_operator = operator.clone();
+    let bind = move |service: RaftCells, discovered: GroupHistory| async move {
+        ensure!(discovered == history, "unexpected managed namespace group");
+        if !retained {
+            let cut = operator.fleet.read(TIMEOUT).await?;
+            for index in 0..3 {
+                inspect_current(&service, node(index)?, cut.revision()).await?;
+            }
+        }
+        ready_counter(&service, history, MemberId::new(u64::from(index) + 1)?).await?;
+        *api.cells
+            .lock()
+            .map_err(|_| anyhow::anyhow!("binding poisoned"))? = Some(service);
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        listener.set_nonblocking(true)?;
+        let address = listener.local_addr()?;
+        let router = counter::router(api);
+        let task = axum_runtime.spawn(async move {
+            let listener = tokio::net::TcpListener::from_std(listener)?;
+            cellar::note!("cellar axum listening on {address}");
+            axum::serve(listener, router)
+                .with_graceful_shutdown(async move {
+                    let _ = axum_stopping.changed().await;
+                })
+                .await
+        });
+        axum_started.send(task).map_err(|task| {
+            task.abort();
+            anyhow::anyhow!("Axum join owner dropped during startup")
+        })?;
+        Ok(())
+    };
+    let host = if !retained && index == 0 {
+        // The fixture's first process also runs the independent operator.
+        host.raft_cells_with_startup("raft-cli", prepare, move |service| async move {
+            ensure!(service.observe_node(TIMEOUT).await?.node.groups == 0);
+            provision_first_group(&fixture_operator, &service, &root, history).await?;
+            let discovered = service
+                .start_managed_namespace_first_group(history.cluster, history.namespace, TIMEOUT)
+                .await?;
+            bind(service, discovered).await
         })?
-        .raft_cells_with_startup(
+    } else {
+        host.managed_sql_namespace(
             "raft-cli",
-            move |node| boot_operator.prepare(node, index, retained),
-            move |service| async move {
-                ready(&operator, &service, &root, index, retained).await?;
-                ready_counter(&service, history, MemberId::new(u64::from(index) + 1)?).await?;
-                *api.cells
-                    .lock()
-                    .map_err(|_| anyhow::anyhow!("binding poisoned"))? = Some(service);
-                let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
-                listener.set_nonblocking(true)?;
-                let address = listener.local_addr()?;
-                let router = counter::router(api);
-                let task = axum_runtime.spawn(async move {
-                    let listener = tokio::net::TcpListener::from_std(listener)?;
-                    cellar::note!("cellar axum listening on {address}");
-                    axum::serve(listener, router)
-                        .with_graceful_shutdown(async move {
-                            let _ = axum_stopping.changed().await;
-                        })
-                        .await
-                });
-                axum_started.send(task).map_err(|task| {
-                    task.abort();
-                    anyhow::anyhow!("Axum join owner dropped during startup")
-                })?;
-                Ok(())
+            (history.cluster, history.namespace),
+            if retained {
+                TIMEOUT
+            } else {
+                Duration::from_secs(20)
             },
+            prepare,
+            bind,
         )?
-        .run_until(std::future::pending());
+    };
+    let result = host.run_until(std::future::pending());
     let _ = axum_stop.send(true);
     let axum_result = runtime.block_on(async {
         let joined = match axum_task.await {
@@ -469,39 +497,40 @@ impl Operator {
     }
 }
 
-async fn ready(
-    operator: &Operator,
-    service: &RaftCells,
+pub(super) async fn wait_for_cold_boot(
     root: &Path,
     index: u8,
-    retained: bool,
+    process: &mut Process,
 ) -> Result<()> {
-    let history = history()?;
-    if !retained {
-        // This marker is only a process rendezvous. Inspect rooted boot and
-        // capacity independently before reserving or attaching a voter.
-        ensure!(service.observe_node(TIMEOUT).await?.node.groups == 0);
-        persist(root, &format!("standby-{index}"), b"entered")?;
-        if index == 0 {
-            provision_first_group(operator, service, root, history).await?;
-        }
-    }
-    let timeout = if !retained && index != 0 {
-        Duration::from_secs(20)
-    } else {
-        TIMEOUT
-    };
-    let discovered = service
-        .start_managed_namespace_first_group(history.cluster, history.namespace, timeout)
-        .await?;
-    ensure!(discovered == history, "unexpected managed namespace group");
-    if !retained {
-        let cut = operator.fleet.read(TIMEOUT).await?;
-        for index in 0..3 {
-            inspect_current(service, node(index)?, cut.revision()).await?;
-        }
-    }
-    Ok(())
+    let domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
+    let result = domain
+        .run(async {
+            let operator = Operator::open(domain.clone(), root)?;
+            let node = node(index)?;
+            let deadline = Instant::now() + Duration::from_secs(15);
+            loop {
+                let remaining = deadline
+                    .saturating_duration_since(Instant::now())
+                    .min(TIMEOUT);
+                ensure!(
+                    process.child.try_wait()?.is_none() && !remaining.is_zero(),
+                    "managed voter {index} did not root its cold boot\n{}",
+                    process.logs()?
+                );
+                let cut = operator.fleet.read(remaining).await?;
+                let remaining = deadline
+                    .saturating_duration_since(Instant::now())
+                    .min(TIMEOUT);
+                let boot = operator.fleet.authorize_host(&cut, node, remaining).await?;
+                if boot.storage_instance().is_some() {
+                    return Ok(());
+                }
+                cellar::asyncrt::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await;
+    domain.shutdown().await;
+    result?
 }
 
 fn persist(root: &Path, name: &str, bytes: &[u8]) -> Result<()> {
@@ -529,14 +558,18 @@ async fn provision_first_group(
         )
         .await??;
     let directory = RangeDirectory::new(selected, limits)?;
-    let deadline = Instant::now() + Duration::from_secs(15);
-    while (1..3).any(|index| !root.join(format!("standby-{index}")).exists()) {
-        ensure!(
-            Instant::now() < deadline,
-            "voters did not publish standby boots"
-        );
-        cellar::asyncrt::sleep(Duration::from_millis(20)).await;
-    }
+    let cut = operator.fleet.read(TIMEOUT).await?;
+    cellar::asyncrt::timeout(Duration::from_secs(15), async {
+        for index in 1..3 {
+            let observed = inspect_current(service, node(index)?, cut.revision()).await?;
+            ensure!(
+                observed.node.groups == 0,
+                "standby already attached a group"
+            );
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await??;
     let control = RaftFleetControl::new(&operator.domain, operator.fleet.clone(), vec![directory])?
         .with_node_observer(service.clone());
     let cli = OperatorCli::start(
@@ -646,6 +679,10 @@ async fn admit_capacity(
 ) -> Result<()> {
     let node = node(index)?;
     let observed = inspect_current(service, node, cli.revision().await?).await?;
+    ensure!(
+        observed.node.groups == 0,
+        "capacity must observe an empty standby"
+    );
     let attestation = FleetCapacityAttestation {
         boot: observed.fleet_boot.context("capacity boot")?,
         profile_revision: 1,
