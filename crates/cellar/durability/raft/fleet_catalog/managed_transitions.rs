@@ -9,6 +9,8 @@ use crate::raft::{
     cell_groups::{DirectoryMutation, RangeDirectory, TransitionJournal},
 };
 
+use serde::Deserialize;
+
 pub(super) const KIND: u8 = 201;
 const OPERATION_PREFIX: &str = "managed-transition/";
 const RECORD_LIMIT: usize = 4096;
