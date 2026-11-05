@@ -16,6 +16,17 @@ pub(super) struct Reply {
 }
 
 impl Reply {
+    pub fn refused(self, status: u16, body: &str) -> Result<()> {
+        ensure!(
+            self.status == status && self.body == body,
+            "{}: expected HTTP {status} ({body}), got {} ({})",
+            self.label,
+            self.status,
+            self.body
+        );
+        Ok(())
+    }
+
     pub fn success(self) -> Result<serde_json::Value> {
         ensure!(
             self.status == 200,

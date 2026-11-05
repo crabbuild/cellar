@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-"""Qualify shared-group archive setup and local/remote command/enrollment/receipt responses against local RustFS.
+"""Qualify shared-group archives, effects and managed requests against local RustFS.
 
 Uses only the recorded owned backend. Each invocation owns a new evidence
 directory and remote prefix. Credentials are passed through the child environment,
@@ -52,11 +52,24 @@ SUITES = {
     "archive": (
         TARGET, CASES,
         "shared-group RustFS archive/setup and local/remote command/enrollment/receipt S3 settlement",
+        "The bounded full-backend outage case controls only this owned container. "
+        "Logical retained-entry admission and controlled-geometry Raft file purge are tested. "
+        "Global physical disk bounds, process-kill restart, fencing/DR and sustained performance "
+        "remain separate gates.",
     ),
     "effects": (
         "native_cell_groups_effects",
         ("rustfs_claim_receiver_and_completion_use_verified_coverage",),
         "shared-group RustFS outbox claim, receiver receipt/deduplication and complete S3 recovery closure",
+        "Live effect S3 settlement and independent complete archive replay. Backend outage, "
+        "live group transfer, external-effects disaster recovery and sustained load remain separate gates.",
+    ),
+    "managed-ingress": (
+        "native_cell_groups_managed",
+        ("bootstrap::requests::rustfs_managed_native_axum_read_write_and_retained_restart",),
+        "managed operator provisioning, native/Axum authority, quorum requests and retained restart",
+        "Managed boot and capacity attestations use fixture inputs. Separate voter processes, "
+        "production peer authentication and sustained load remain separate gates.",
     ),
 }
 
@@ -81,12 +94,13 @@ def sha(path):
     return digest.hexdigest()
 
 
-def sources():
+def sources(suite):
     result = subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT)
     return [
         {"path": name, "sha256": sha(ROOT / name)}
         for name in result.decode().split("\0")
-        if name and not name.startswith(("docs/", "plans/", "packages/", "examples/"))
+        if name and (not name.startswith(("docs/", "plans/", "packages/", "examples/"))
+                     or (suite == "managed-ingress" and name == "examples/raft-counter/counter.rs"))
         and (ROOT / name).is_file()
     ]
 
@@ -133,7 +147,7 @@ def main():
     parser.add_argument("--target-directory", type=Path, required=True,
                         help="absolute checkout-private Cargo target on the workspace volume")
     args = parser.parse_args()
-    target, cases, scope = SUITES[args.suite]
+    target, cases, scope, limitations = SUITES[args.suite]
     if not args.target_directory.is_absolute():
         parser.error("--target-directory must be absolute and unique to this checkout")
     subprocess.run(["git", "diff", "--exit-code", "HEAD", "--", ".",
@@ -150,16 +164,9 @@ def main():
         "format": 1, "status": "RUNNING", "scope": scope,
         "suite": args.suite, "test_target": target,
         "source_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
-        "source_inputs": sources(), "backend": remote, "prefix": prefix, "commands": [],
-        "limitations": ("Host-native three-voter TLS fixture, both image forms; RustFS runs in one local VM. "
-                        "The bounded full-backend outage case controls only this owned container. "
-                        "Logical retained-entry admission and controlled-geometry Raft file purge are tested; "
-                        "global physical disk bounds, process-kill restart, fencing/DR, sustained performance "
-                        "and independent hosts remain separate gates." if args.suite == "archive" else
-                        "Host-native three-voter TLS fixture, both image forms; RustFS runs in one local VM. "
-                        "This suite covers live effect S3 settlement and independent complete archive replay. "
-                        "It does not qualify a backend outage, public SDK/fleet cutover, live group transfer, "
-                        "external-effects disaster recovery, sustained load or independent hosts."),
+        "source_inputs": sources(args.suite), "backend": remote, "prefix": prefix, "commands": [],
+        "limitations": ("Host-native three-voter TLS fixture, both image forms, with RustFS in one local VM. "
+                        + limitations + " Independent hosts remain a separate gate."),
     }
 
     def save():
@@ -187,6 +194,7 @@ def main():
             CARGO_PROFILE_DEV_DEBUG="0", CARGO_PROFILE_TEST_DEBUG="0",
         )
         cargo = ["cargo", "+1.98.1", "test", "-p", "cellar", "--locked", "--test", target, "--"]
+        operator_cli = None
         for number, selection in enumerate(("--list", *cases)):
             argv = cargo + ([selection] if number == 0 else [selection, "--exact", "--ignored", "--test-threads=1"])
             print(f"START {number + 1}/{len(cases) + 1}: {selection}", flush=True)
@@ -219,6 +227,17 @@ def main():
                 destination = out / executable.name
                 shutil.copy2(executable, destination)
                 record["executable"] = {"path": destination.name, "sha256": selected_hash}
+            if args.suite == "managed-ingress" and result.returncode == 0:
+                current_cli = executable.parent.parent / "cellar" if match else None
+                if current_cli is None or not current_cli.is_file():
+                    raise RuntimeError("missing managed operator CLI provenance")
+                cli_hash = sha(current_cli)
+                if operator_cli is None:
+                    operator_cli = out / "cellar"
+                    shutil.copy2(current_cli, operator_cli)
+                    record["operator_cli"] = {"path": operator_cli.name, "sha256": cli_hash}
+                if cli_hash != record["operator_cli"]["sha256"] or sha(operator_cli) != cli_hash:
+                    raise RuntimeError("managed operator CLI changed during qualification")
             save()
             if result.returncode:
                 raise RuntimeError(f"{selection} failed; see {log}")
@@ -231,7 +250,7 @@ def main():
             if not match:
                 raise RuntimeError("missing executable provenance")
             print(f"PASS {selection}", flush=True)
-        if sources() != record["source_inputs"]:
+        if sources(args.suite) != record["source_inputs"]:
             raise RuntimeError("source changed during qualification")
         backend(args.backend.resolve())
         record["status"] = "PASSED"

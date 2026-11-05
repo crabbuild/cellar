@@ -56,6 +56,24 @@ preparations retain their environment record for diagnosis. A separate cleanup
 step can remove the exact recorded resources after their data is no longer
 needed; never use a global Docker prune or delete a Colima profile as cleanup.
 
+## Shared cell-group managed ingress checks
+
+Use the same owned loopback RustFS backend and a fresh output directory.
+
+```sh
+python3 tools/multi-raft/cell_groups.py --suite managed-ingress \
+  --backend /tmp/cellar-raft-local-001 \
+  --output /tmp/cellar-managed-ingress-rustfs-001 \
+  --target-directory "$HOME/Workspace/crabbuild-target/cellar-my-checkout"
+```
+
+The suite runs the managed native and Axum request drill in both image modes.
+It records the operator CLI and test executable hashes. The fixture provisions
+the group and archive through the admin API and CLI, enrolls two cells, and
+checks routed requests, exact retries, retained restart and quorum-loss refusals.
+The voters and ingress run on the development host, with fixture boot ordering
+and capacity attestation.
+
 ## Shared cell-group archive checks
 
 Commit the test and harness sources, then run the native three-voter TLS fixture

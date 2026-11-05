@@ -247,6 +247,7 @@ async fn exercise(cluster: &mut nodes::Cluster) -> Result<()> {
             );
         }
     }
+    Box::pin(check_routed_authority(cluster.web()?, &client, retry, &one)).await?;
     let routed = cluster
         .web()?
         .command(&client, (INGRESS, false), "two", 1, 2, retry)
@@ -474,6 +475,45 @@ async fn exercise(cluster: &mut nodes::Cluster) -> Result<()> {
                 == 503,
             "write succeeded without quorum"
         );
+    }
+    Ok(())
+}
+
+async fn check_routed_authority(
+    web: &http::Web,
+    client: &reqwest::Client,
+    retry: u64,
+    one: &serde_json::Value,
+) -> Result<()> {
+    for axum in [false, true] {
+        let ingress = (INGRESS, axum);
+        for name in ["unlisted", "foreign-cluster", "foreign-namespace"] {
+            web.command(client, ingress, name, 9, 2, retry)
+                .await?
+                .refused(400, "invalid request or unavailable cell")?;
+            web.query(client, ingress, name, "linearizable", one, None)
+                .await?
+                .refused(400, "invalid request or unavailable cell")?;
+        }
+        web.query(client, ingress, "two", "at-least", one, None)
+            .await?
+            .refused(409, "WrongIncarnation")?;
+        let replay = web
+            .command(client, ingress, "one", 7, 1, retry)
+            .await?
+            .success()?;
+        http::same_receipt(one, &replay)?;
+        ensure!(
+            replay["group"] == one["group"]
+                && replay["group_incarnation"] == one["group_incarnation"],
+            "retry selected a different group history"
+        );
+        let read = web
+            .query(client, ingress, "one", "linearizable", one, None)
+            .await?
+            .success()?;
+        http::value(&read, "one", 7)?;
+        ensure!(read["sequence"] == one["sequence"]);
     }
     Ok(())
 }

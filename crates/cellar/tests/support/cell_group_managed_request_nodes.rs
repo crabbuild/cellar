@@ -66,12 +66,21 @@ impl Cluster {
     async fn start_ingress(&mut self) -> Result<()> {
         let mut fixture = peer_fixture(&self.managed.fixtures[0], 7).await?;
         let class = counter::definition()?;
-        let api = counter::CounterApi::new(
-            http::secret(),
-            self.managed.history.cluster,
-            self.managed.history.namespace,
-            &class,
-        )?;
+        let group = self.managed.history;
+        let api =
+            counter::CounterApi::with_history_resolver(http::secret(), &class, move |name| {
+                // Submit canonical cell IDs with an out-of-scope cluster or
+                // namespace so the SDK must enforce its own namespace binding.
+                match name {
+                    "foreign-cluster" => {
+                        counter::history(ClusterId::new([211; 16])?, group.namespace, "one")
+                    }
+                    "foreign-namespace" => {
+                        counter::history(group.cluster, NamespaceId::new([211; 16])?, "one")
+                    }
+                    _ => counter::history(group.cluster, group.namespace, name),
+                }
+            })?;
         fixture.application = counter::application(api.clone(), class)?;
         let root = tempfile::tempdir()?;
         let node = start_node(

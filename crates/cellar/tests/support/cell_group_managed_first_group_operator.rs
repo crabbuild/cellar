@@ -148,23 +148,65 @@ async fn exercise(
     ensure!(f.catalog.read(TIMEOUT).await?.revision() == plan.expected_revision);
     ensure!(cli.revision().await? == plan.expected_revision);
 
-    let wrong = reqwest::Client::builder()
+    let client = reqwest::Client::builder()
         .no_proxy()
-        .build()?
-        .post(format!(
-            "{url}/api/v1/fleets/{FLEET}/raft/namespaces/{}/first-group/reserve",
-            hex::encode([77; 16])
-        ))
-        .bearer_auth(OWNER)
-        .json(&plan)
-        .send()
-        .await?;
-    ensure!(wrong.status() == reqwest::StatusCode::BAD_REQUEST);
+        .timeout(TIMEOUT)
+        .build()?;
+    let foreign_namespace = hex::encode([77; 16]);
+    for (fleet, namespace, status) in [
+        (
+            "foreign-fleet",
+            namespace.as_str(),
+            reqwest::StatusCode::FORBIDDEN,
+        ),
+        (
+            FLEET,
+            foreign_namespace.as_str(),
+            reqwest::StatusCode::BAD_REQUEST,
+        ),
+    ] {
+        let response = client
+            .post(format!(
+                "{url}/api/v1/fleets/{fleet}/raft/namespaces/{namespace}/first-group/reserve"
+            ))
+            .bearer_auth(OWNER)
+            .json(&plan)
+            .send()
+            .await?;
+        ensure!(
+            response.status() == status,
+            "foreign fleet or namespace route"
+        );
+    }
+    ensure!(f.catalog.read(TIMEOUT).await?.revision() == plan.expected_revision);
 
     let reservation = cli.call(&reserve, OWNER).await?.success()?;
     ensure!(reservation["stage"] == "reserved");
     ensure!(cli.call(&reserve, OWNER).await?.success()? == reservation);
     ensure!(f.catalog.read(TIMEOUT).await?.revision() == confirmation_revision);
+
+    let mut forged_plan = plan.clone();
+    forged_plan.group_id = hex::encode([125; 16]);
+    let forged = client
+        .post(format!(
+            "{url}/api/v1/fleets/{FLEET}/raft/namespaces/{namespace}/first-group/publish"
+        ))
+        .bearer_auth(OWNER)
+        .json(&RaftFleetFirstGroupPublish {
+            plan: forged_plan,
+            request_id: hex::encode([126; 16]),
+            expected_revision: confirmation_revision,
+        })
+        .send()
+        .await?;
+    ensure!(
+        forged.status() == reqwest::StatusCode::CONFLICT,
+        "forged group confirmation: {}",
+        forged.status()
+    );
+    let failure = forged.json::<serde_json::Value>().await?;
+    ensure!(failure["error"]["code"] == "conflict");
+    ensure!(cli.call(&reserve, OWNER).await?.success()? == reservation);
 
     let mut changed = plan.clone();
     changed.publication_id = hex::encode([126; 16]);
