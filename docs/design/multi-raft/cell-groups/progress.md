@@ -12,6 +12,33 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 cold router return after birth-voter replacement
+
+A retained voter whose durable configuration excludes it refuses quorum reads
+without waiting out the read deadline. The earlier single-replacement fixture
+reproduced on both the published and candidate binaries. Instrumentation showed
+that settlement observed the exact retired history with one outstanding work
+reservation. Prompt read refusal preserves the original physical-debt check,
+five-second calls and eight reconciliation turns.
+
+The cold router returns from its retained disk after all three birth voters
+have been replaced and their processes have joined shutdown. It installs routes
+from the surviving membership, reads from a joined voter and replays the
+original receipt before committing a new quorum write. The router retains
+zero local replicas and the stopped voter disks and capacity records remain.
+
+Three focused native cases and two real RustFS cases pass. Both router cases
+exercise materialized and extent images. The entire managed native target
+passes with 26 passed and 10 explicit skips. These are
+embedded same-host voters and fixture capacity. The earlier broad campaign
+retains its original failure record and source scope. The RustFS backend and
+VM stop with data retained.
+
+Source manifest `6e912fc3b1ec80705ec0daf1800a9808b2fcaeefb843f591dc70d0a948f396dc`.
+Focused native record `ae1960871364f6c176e18f0c3acb50545bd720f781cd24117508689b73469200`.
+Full managed native record `03412bfc51fb49ff1c21754cede3e6728030b2ac48e09e28c7295a4fe565e845`.
+RustFS record `48ab59d5a250cebe899b4d01b6b3569ff548dc6308dfdf49acbfd3da137b9ed8`.
+
 ## CG-07 catalog-driven startup and public request qualification
 
 Managed startup waits on the exact rooted archive and registry under its

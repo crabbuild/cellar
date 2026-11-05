@@ -4,6 +4,14 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## CG-07 cold router return after birth-voter replacement
+
+The router returns after three rooted moves and joined retirement of the birth
+processes. Preserve the prompt refusal of quorum reads on durably retired
+voters and the physical settlement proof. Complete the original public
+lifecycle and authority gates and qualify constrained voters.
+[Source and test records](progress.md)
+
 ## CG-07 catalog-driven startup and public request qualification
 
 The combined fresh RustFS prefix case now uses public provisioning and archive

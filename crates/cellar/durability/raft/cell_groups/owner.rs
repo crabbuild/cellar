@@ -1474,6 +1474,17 @@ impl CellGroupOwner {
     pub(super) fn membership_read_ready(&self) -> Result<bool, RuntimeError> {
         self.require_application_active()?;
         let cache = self.group.read()?;
+        let member = self.group.identity().member.get();
+        let conf = &cache.conf_state;
+        // Retained history still binds its old identity. A replica removed
+        // from the durable configuration cannot complete a quorum read.
+        if !conf.voters.contains(&member)
+            && !conf.voters_outgoing.contains(&member)
+            && !conf.learners.contains(&member)
+            && !conf.learners_next.contains(&member)
+        {
+            return Err(RuntimeError::NotFound);
+        }
         // Leaders drop ReadIndex before committing their first entry in the
         // current term. Local durable apply proves that point on followers too.
         Ok(matches!(

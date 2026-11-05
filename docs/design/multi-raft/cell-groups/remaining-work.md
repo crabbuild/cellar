@@ -47,7 +47,8 @@ path and preserves the exact creation record at both durability minima.
 A configured managed router now refreshes its voter routes after a replacement.
 The native and real RustFS cases cover the retired route, joined-voter reads,
 original receipt replay and a fresh quorum write. Cold return after all birth
-voters retire remains open. The public SDK can now provision a declared
+voters are replaced and stopped passes the focused native and RustFS cases.
+The public SDK can now provision a declared
 managed standby and reserve, publish and confirm its first full-range group.
 The SDK also prepares and verifies an exact managed group archive. The
 native daemon process gate exercises cold managed startup, two-cell requests
@@ -77,9 +78,9 @@ production legacy/shared switch or old-data migration is part of the target.
    ingress without a replica, failover, retained restart and quorum loss in
    both image formats. Real RustFS also verifies quorum acknowledgement
    during archive write denial and S3 receipt replay after restoration.
-   Extend this evidence to cold router return after birth-voter retirement,
-   constrained voters and the remaining ingress authority cases. Keep read
-   consistency explicit.
+   Cold router return after birth-voter retirement now passes on RustFS.
+   Extend the evidence to constrained voters and the remaining ingress authority
+   cases. Keep read consistency explicit.
 
 Clear the existing managed lifecycle failures and remaining public merge gates
 before enabling the default broadly. The basic request slice gives those gates

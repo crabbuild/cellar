@@ -9,6 +9,9 @@ mod discovery;
 #[path = "cell_group_managed_router.rs"]
 mod router;
 
+#[path = "cell_group_managed_cold_router.rs"]
+mod cold_router;
+
 #[path = "cell_group_managed_controls.rs"]
 mod controls;
 
@@ -250,19 +253,41 @@ async fn reserve_replacement(
 )> {
     let seed = seed_cells(&cluster.hosts, cluster.history).await?;
     discover(cluster).await?;
-    let f = &cluster.fixtures[0];
     let index = leader(&cluster.hosts[..3], cluster.history).await?;
     let obsolete = (index + 1) % 3;
-    let observer = &cluster.hosts[index];
+    let target = ReplacementTarget {
+        source: index,
+        obsolete,
+        spare: 3,
+    };
+    let (obsolete_member, execution) =
+        admit_replacement(cluster, target, [210, 211], from_s3).await?;
+    Ok((seed, index, obsolete, obsolete_member, execution))
+}
+
+struct ReplacementTarget {
+    source: usize,
+    obsolete: usize,
+    spare: usize,
+}
+
+async fn admit_replacement(
+    cluster: &ManagedCluster,
+    target: ReplacementTarget,
+    ids: [u8; 2],
+    from_s3: bool,
+) -> Result<(MemberId, FleetMovementExecutionRequest)> {
+    let f = &cluster.fixtures[0];
+    let observer = &cluster.hosts[target.source];
     let membership = observer
         .group(cluster.history)?
         .quorum_membership(TIMEOUT)
         .await?;
-    let local = cluster.hosts[3].observe_node(TIMEOUT).await?;
+    let local = cluster.hosts[target.spare].observe_node(TIMEOUT).await?;
     let cut = f.catalog.read(TIMEOUT).await?;
     let movement = FleetMovementRequest {
         resources: FleetResourceRequest {
-            identity: request(210, cut.revision()),
+            identity: request(ids[0], cut.revision()),
             group: cluster.history,
             attestation: FleetResourceAttestation {
                 boot: local.fleet_boot.context("spare boot")?,
@@ -281,16 +306,16 @@ async fn reserve_replacement(
                 memory_bytes: 8 * 1024 * 1024,
             },
         },
-        source: cluster.fixtures[index].spec.node,
+        source: cluster.fixtures[target.source].spec.node,
         plan: RepairPlan {
-            id: ProposalId::new([211; 16])?,
+            id: ProposalId::new([ids[1]; 16])?,
             policy_revision: 1,
             expected_revision: membership.membership().revision(),
-            obsolete: MemberId::new(obsolete as u64 + 1)?,
+            obsolete: MemberId::new(target.obsolete as u64 + 1)?,
             replacement: JoiningMember {
-                member: MemberId::new(4)?,
-                node: cluster.fixtures[3].spec.node,
-                disk: cluster.fixtures[3].spec.disk,
+                member: MemberId::new(target.spare as u64 + 1)?,
+                node: cluster.fixtures[target.spare].spec.node,
+                disk: cluster.fixtures[target.spare].spec.disk,
             },
         },
     };
@@ -322,7 +347,7 @@ async fn reserve_replacement(
         attestation: movement.resources.attestation.clone(),
         from_s3,
     };
-    Ok((seed, index, obsolete, movement.plan.obsolete, execution))
+    Ok((movement.plan.obsolete, execution))
 }
 
 async fn replace_with_retry(
