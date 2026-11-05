@@ -165,7 +165,10 @@ pub(super) async fn hard_kill_and_resume(
         "both cells need acknowledged commands"
     );
     let killed = acknowledged[0].leader;
-    let old_pid = processes[killed].child.id();
+    let old_pid = processes[killed].voter.as_ref().map_or_else(
+        || Ok(u64::from(processes[killed].child.id())),
+        docker::Voter::pid,
+    )?;
     ledger.record(
         serde_json::json!({"phase":"before_hard_kill", "pid":old_pid, "member":killed + 1}),
     )?;
@@ -176,10 +179,10 @@ pub(super) async fn hard_kill_and_resume(
         process.child.kill()?;
     }
     let status = process.child.wait()?;
-    ensure!(!status.success(), "injected hard kill exited successfully");
     if let Some(voter) = &process.voter {
         voter.killed()?;
     } else {
+        ensure!(!status.success(), "injected hard kill exited successfully");
         #[cfg(unix)]
         {
             use std::os::unix::process::ExitStatusExt as _;

@@ -7,7 +7,7 @@ const RUN: &str = "CELLAR_RAFT_DOCKER_RUN";
 const IMAGE: &str = "CELLAR_RAFT_DOCKER_IMAGE";
 const LABEL: &str = "io.cellar.daemon.run";
 pub(super) const VOTER: &str = "CELLAR_RAFT_DOCKER_VOTER";
-const INSPECT: &str = r#"{"id":{{json .Id}},"image":{{json .Image}},"run":{{json (index .Config.Labels "io.cellar.daemon.run")}},"running":{{json .State.Running}},"exit_code":{{json .State.ExitCode}},"cpu":{{json .HostConfig.NanoCpus}},"memory":{{json .HostConfig.Memory}},"swap":{{json .HostConfig.MemorySwap}},"restart":{{json .HostConfig.RestartPolicy.Name}},"network":{{json .HostConfig.NetworkMode}},"mounts":{{json .Mounts}}}"#;
+const INSPECT: &str = r#"{"id":{{json .Id}},"image":{{json .Image}},"run":{{json (index .Config.Labels "io.cellar.daemon.run")}},"running":{{json .State.Running}},"pid":{{json .State.Pid}},"exit_code":{{json .State.ExitCode}},"cpu":{{json .HostConfig.NanoCpus}},"memory":{{json .HostConfig.Memory}},"swap":{{json .HostConfig.MemorySwap}},"restart":{{json .HostConfig.RestartPolicy.Name}},"network":{{json .HostConfig.NetworkMode}},"mounts":{{json .Mounts}}}"#;
 
 pub(super) fn enabled() -> bool {
     std::env::var_os(RUN).is_some()
@@ -215,13 +215,44 @@ impl Voter {
     }
 
     pub(super) fn running(&self) -> Result<()> {
-        let state = self.inspect()?;
+        let mut state = self.inspect()?;
         ensure!(state["running"] == true, "voter exited before readiness");
+        let limits = output(
+            docker().args([
+                "exec",
+                &self.id,
+                "cat",
+                "/sys/fs/cgroup/cpu.max",
+                "/sys/fs/cgroup/memory.max",
+                "/sys/fs/cgroup/memory.swap.max",
+            ]),
+            "read effective voter cgroup limits",
+        )?;
+        let values = limits
+            .split_whitespace()
+            .map(str::parse::<u64>)
+            .collect::<Result<Vec<_>, _>>()?;
+        let [quota, period, memory, swap] = values.as_slice() else {
+            anyhow::bail!("invalid voter cgroup limit inventory");
+        };
+        ensure!(
+            *quota > 0 && quota == period && *memory == 3 * 1024u64.pow(3) && *swap == 0,
+            "effective voter cgroup limits differ"
+        );
+        state["cgroup"] = serde_json::json!({"cpu_quota_us":quota, "cpu_period_us":period, "memory_bytes":memory, "swap_bytes":swap});
         std::fs::write(
             self.root.join(format!("{}-docker.json", self.mode)),
             serde_json::to_vec_pretty(&state)?,
         )?;
         Ok(())
+    }
+
+    pub(super) fn pid(&self) -> Result<u64> {
+        let pid = self.inspect()?["pid"]
+            .as_u64()
+            .context("voter guest PID absent")?;
+        ensure!(pid > 0, "voter process is not running");
+        Ok(pid)
     }
 
     pub(super) fn kill_if_running(&self) -> Result<()> {

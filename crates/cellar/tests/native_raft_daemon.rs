@@ -345,7 +345,9 @@ struct Process {
 impl Drop for Process {
     fn drop(&mut self) {
         if let Some(voter) = &self.voter {
-            let _ = voter.kill_if_running();
+            if voter.kill_if_running().is_err() {
+                let _ = self.child.kill();
+            }
         } else if self.child.try_wait().ok().flatten().is_none() {
             let _ = self.child.kill();
         }

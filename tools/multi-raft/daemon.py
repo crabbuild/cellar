@@ -36,7 +36,7 @@ def docker(*args):
 def guest(script):
     return subprocess.run(["colima", "ssh", "--profile", PROFILE, "--", "sh", "-s"],
                           input=script, text=True, stdout=subprocess.PIPE,
-                          stderr=subprocess.STDOUT, check=False)
+                          stderr=subprocess.STDOUT, timeout=14 * 60, check=False)
 
 
 def verify_image(image):
@@ -101,7 +101,7 @@ def execute(mode, output, remote, credentials, build, engine):
             lines += [f'docker cp "$helper:{BIN}/{name}" {shlex.quote(path)}',
                       f"printf '%s  %s\\n' {digest} {shlex.quote(path)} | sha256sum --check -"]
         lines += [f"export {key}={shlex.quote(value)}" for key, value in env.items()]
-        lines += [f"exec {quoted}/cellar-raft-daemon"]
+        lines += [f"exec timeout --signal=TERM --kill-after=10s 12m {quoted}/cellar-raft-daemon"]
         completed = guest("\n".join(lines) + "\n")
         log = completed.stdout.replace(access, "[REDACTED]").replace(secret, "[REDACTED]")
         (output / f"{mode}.log").write_text(log)
@@ -144,7 +144,10 @@ def main():
     args = parser.parse_args()
     remote, credentials = backend(args.backend.resolve())
     require(remote["context"] == CONTEXT, "requires the dedicated daemon lab context")
-    engine, os_type, cpus, memory = docker("info", "--format", "{{.ID}} {{.OSType}} {{.NCPU}} {{.MemTotal}}").split()
+    engine, os_type, cgroups, cpus, memory = docker(
+        "info", "--format", "{{.ID}} {{.OSType}} {{.CgroupVersion}} {{.NCPU}} {{.MemTotal}}"
+    ).split()
+    require(cgroups == "2", "effective voter limit proof requires cgroup v2")
     require(os_type == "linux" and int(cpus) >= 6 and int(memory) >= 12 * 1024**3, "insufficient Linux VM resources")
     require(not docker("ps", "-q", "--filter", f"label={LABEL}"), "another daemon campaign is active")
     build = verify_image(args.image)
