@@ -332,20 +332,7 @@ impl FleetCatalog {
         let permit = self
             .run(
                 deadline.remaining()?,
-                Box::pin(async {
-                    let current = self.inner.current().await?;
-                    let Some(Disruption::Transition(active)) =
-                        self.active_disruption(&current).await?
-                    else {
-                        return Err(FleetCatalogError::Conflict);
-                    };
-                    if active.request != *request {
-                        return Err(FleetCatalogError::PayloadConflict);
-                    }
-                    let permit = ManagedTransitionPermit(active);
-                    permit.check(directory, plan).map_err(catalog_error)?;
-                    Ok(permit)
-                }),
+                Box::pin(self.active_managed_transition_permit(request, directory, plan)),
             )
             .await?;
         // The catalog turn ends before replay/copy. The directory's final CAS
@@ -369,6 +356,54 @@ impl FleetCatalog {
                 CellGroupArchiveBindingError::Catalog(error) => catalog_error(error),
                 CellGroupArchiveBindingError::Archive(error) => error.into(),
             })
+    }
+
+    async fn active_managed_transition_permit(
+        &self,
+        request: &FleetRequestIdentity,
+        directory: &RangeDirectory,
+        plan: &DirectoryMutation,
+    ) -> Result<ManagedTransitionPermit> {
+        let current = self.inner.current().await?;
+        let Some(Disruption::Transition(active)) = self.active_disruption(&current).await? else {
+            return Err(FleetCatalogError::Conflict);
+        };
+        if active.request != *request {
+            return Err(FleetCatalogError::PayloadConflict);
+        }
+        let permit = ManagedTransitionPermit(active);
+        permit.check(directory, plan).map_err(catalog_error)?;
+        Ok(permit)
+    }
+
+    /// Select the irreversible seal decision for a physically prepared plan.
+    /// The exact admitted request is retryable. Cancellation competes on the
+    /// same directory head. This decision alone grants no replica authority.
+    pub async fn authorize_managed_transition_seal(
+        &self,
+        request: &FleetRequestIdentity,
+        directory: &RangeDirectory,
+        plan: &DirectoryMutation,
+        timeout: Duration,
+    ) -> Result<TransitionJournal> {
+        validate_request(request)?;
+        self.run(
+            timeout,
+            Box::pin(async {
+                let permit = self
+                    .active_managed_transition_permit(request, directory, plan)
+                    .await?;
+                self.inner
+                    .domain
+                    .run(Box::pin(
+                        directory.authorize_managed_transition_seal(plan, &permit),
+                    ))
+                    .await
+                    .map_err(|_| FleetCatalogError::Closed)?
+                    .map_err(catalog_error)
+            }),
+        )
+        .await
     }
 
     /// Cancel the exact pre-seal plan and only then release its fleet slot.

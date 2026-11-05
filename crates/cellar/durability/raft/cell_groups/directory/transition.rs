@@ -310,7 +310,10 @@ impl Advance {
                 journal.parent_holds_released = true;
             }
             (Self::Cancel, Planned | Prepared) => journal.phase = Cancelled,
-            (Self::Authorize, SealAuthorized | Sealed | Installed | Archived)
+            (
+                Self::Authorize,
+                SealAuthorized | Sealed | Installed | Archived | Published | Active | Retired,
+            )
             | (Self::Cancel, Cancelled) => {}
             _ => return Err(CatalogError::Conflict("transition decision")),
         }
@@ -1050,6 +1053,16 @@ impl RangeDirectory {
         mutation: &DirectoryMutation,
     ) -> Result<TransitionJournal, CatalogError> {
         self.advance_transition(mutation, Advance::Authorize).await
+    }
+
+    pub(crate) async fn authorize_managed_transition_seal(
+        &self,
+        mutation: &DirectoryMutation,
+        permit: &ManagedTransitionPermit,
+    ) -> Result<TransitionJournal, CatalogError> {
+        permit.check(self, mutation)?;
+        self.advance_transition_inner(mutation, Advance::Authorize, false)
+            .await
     }
 
     pub async fn cancel_transition(

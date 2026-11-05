@@ -12,7 +12,12 @@ mod preparation;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn managed_split_plan_fences_membership_and_replays_cancellation() -> Result<()> {
-    Box::pin(run_plan(false, Arc::new(fault::Store::default()))).await
+    Box::pin(run_plan(
+        false,
+        Arc::new(fault::Store::default()),
+        Decision::Cancel,
+    ))
+    .await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -23,12 +28,40 @@ async fn rustfs_managed_split_plan() -> Result<()> {
             "managed-transition",
             rooted,
         )?));
-        Box::pin(run_plan(rooted, store)).await?;
+        Box::pin(run_plan(rooted, store, Decision::Cancel)).await?;
     }
     Ok(())
 }
 
-async fn run_plan(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn managed_split_authorizes_only_the_prepared_plan() -> Result<()> {
+    Box::pin(run_plan(
+        false,
+        Arc::new(fault::Store::default()),
+        Decision::Authorize,
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_managed_split_authorization() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(fault::Store::around(rustfs::store(
+            "managed-transition-authorize",
+            rooted,
+        )?));
+        Box::pin(run_plan(rooted, store, Decision::Authorize)).await?;
+    }
+    Ok(())
+}
+
+enum Decision {
+    Authorize,
+    Cancel,
+}
+
+async fn run_plan(rooted: bool, store: Arc<fault::Store>, decision: Decision) -> Result<()> {
     let first = Fixture::with_store(rooted, counter_class()?, store).await?;
     let mut cluster = Box::pin(ManagedCluster::start_with_applications(
         first,
@@ -39,7 +72,7 @@ async fn run_plan(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
         FirstGroupSetup::Normal,
     ))
     .await?;
-    let result = Box::pin(exercise(&cluster, rooted)).await;
+    let result = Box::pin(exercise(&cluster, rooted, decision)).await;
     let spares = cluster.nodes.split_off(3);
     let joined = close_group_nodes(cluster.nodes, &cluster.hosts).await;
     let joined_spares = async {
@@ -55,7 +88,7 @@ async fn run_plan(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
     joined_spares
 }
 
-async fn exercise(cluster: &ManagedCluster, rooted: bool) -> Result<()> {
+async fn exercise(cluster: &ManagedCluster, rooted: bool, decision: Decision) -> Result<()> {
     let fixture = &cluster.fixtures[0];
     let fleet = &fixture.catalog;
     let directory = &cluster.directory;
@@ -181,6 +214,13 @@ async fn exercise(cluster: &ManagedCluster, rooted: bool) -> Result<()> {
         Err(CatalogError::ManagedAdmissionRequired)
     ));
 
+    ensure!(matches!(
+        reopened
+            .authorize_managed_transition_seal(original, directory, plan, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Conflict)
+    ));
+
     let (registry, held) = Box::pin(preparation::exercise(
         cluster, &reopened, directory, &recovered, &parent, &children, rooted,
     ))
@@ -204,6 +244,47 @@ async fn exercise(cluster: &ManagedCluster, rooted: bool) -> Result<()> {
         Err(FleetCatalogError::DisruptionInProgress { operation: actual }) if actual == operation.bytes()
     ));
     let cancel = identity(236, admitted.revision());
+    if matches!(decision, Decision::Authorize) {
+        ensure!(matches!(
+            reopened
+                .authorize_managed_transition_seal(&cancel, directory, plan, TIMEOUT)
+                .await,
+            Err(FleetCatalogError::PayloadConflict)
+        ));
+        let authorized = reopened
+            .authorize_managed_transition_seal(original, directory, plan, TIMEOUT)
+            .await?;
+        ensure!(authorized.phase() == TransitionPhase::SealAuthorized);
+        ensure!(authorized.preparation().is_some());
+        ensure!(
+            fleet
+                .authorize_managed_transition_seal(original, directory, plan, TIMEOUT)
+                .await?
+                == authorized
+        );
+        ensure!(matches!(
+            fleet
+                .cancel_managed_transition(&admitted, &cancel, directory, plan, TIMEOUT)
+                .await,
+            Err(FleetCatalogError::Conflict)
+        ));
+        ensure!(fleet.read(TIMEOUT).await?.revision() == admitted.revision());
+        ensure!(
+            domain
+                .run(directory.active_transition())
+                .await??
+                .context("authorized plan still owns the topology")?
+                .1
+                == authorized
+        );
+        ensure!(
+            domain
+                .run(directory.managed_preparation_holds(plan))
+                .await??
+                == vec![held]
+        );
+        return Ok(());
+    }
     fixture
         .store
         .fail_fleet_confirmation
@@ -235,6 +316,12 @@ async fn exercise(cluster: &ManagedCluster, rooted: bool) -> Result<()> {
             == TransitionPhase::Cancelled
     );
     ensure!(domain.run(directory.active_transition()).await??.is_none());
+    ensure!(matches!(
+        reopened
+            .authorize_managed_transition_seal(original, directory, plan, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Conflict)
+    ));
     let cancelled_plan = reopened
         .reopen_managed_transition(directory, operation, TIMEOUT)
         .await?

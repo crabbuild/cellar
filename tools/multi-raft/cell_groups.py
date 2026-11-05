@@ -80,8 +80,9 @@ SUITES = {
     ),
     "managed-transition": (
         "native_cell_groups_managed",
-        ("bootstrap::transition::rustfs_managed_split_plan",),
-        "exact managed split planning, fleet disruption fence and durable cancellation",
+        ("bootstrap::transition::rustfs_managed_split_plan",
+         "bootstrap::transition::rustfs_managed_split_authorization"),
+        "managed split planning, fleet disruption fence, cancellation and seal decision",
         "Host-native voters, fixture capacity and pre-seal state only. Managed source sealing, "
         "child installation and publication remain separate gates.",
     ),

@@ -1055,6 +1055,10 @@ its digest. A replacement controller can reopen the exact admitted plan by
 operation ID. If the fleet selected the plan before the directory CAS, the
 controller can replay the original request from the reopened record. A cancelled
 operation retains its historical decision and plan.
+The fleet can authorize a seal only for the exact active request and plan
+after verified child preparation. Authorization and cancellation contend on
+the same directory CAS. Once authorization wins, retrying the original request
+returns the recorded decision and cancellation leaves the fleet slot owned.
 
 | State | Durable action and admission rule |
 | --- | --- |
