@@ -4,6 +4,14 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## CG-07 daemon-owned first-group readiness
+
+The daemon callback verifies the rooted archive, attaches the authorized local
+voter and establishes fresh quorum before binding ingress. Replace the fixture
+archive-ready rendezvous with bounded observation of the exact rooted intent and
+registry. Preserve capacity attestation and boot trust checks.
+[Source and test records](progress.md)
+
 ## CG-07 rooted first-group archive initialization
 
 Archive setup runs through the CLI and admin API. Preserve the exact rooted

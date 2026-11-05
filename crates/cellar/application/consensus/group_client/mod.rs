@@ -115,6 +115,7 @@ struct Core {
     managed: Option<crate::raft::fleet_catalog::FleetHostAuthorization>,
     fleet_inspection: Option<crate::raft::fleet_catalog::FleetTrustReader>,
     transport: crate::raft::transport::RaftTransport,
+    archive_io: Option<crate::raft::cell_groups::CellGroupArchivePool>,
     node_profile: Option<crate::raft::inspection::RaftNodeProfile>,
     startup_bounds: crate::raft::host::RaftHostStartupBounds,
     stale_source_timeout_ms: u64,
@@ -164,6 +165,7 @@ pub(crate) struct Infrastructure {
     pub runtime: CellGroupRuntime,
     pub log: ReplicaLog,
     pub transport: crate::raft::transport::RaftTransport,
+    pub archive_io: Option<crate::raft::cell_groups::CellGroupArchivePool>,
 }
 
 impl RaftCells {
@@ -179,6 +181,7 @@ impl RaftCells {
             runtime,
             log,
             transport,
+            archive_io,
         } = infrastructure;
         let domain = log.domain();
         let node = NodeIdentity {
@@ -218,6 +221,7 @@ impl RaftCells {
                 .as_ref()
                 .map(|managed| managed.authorization.trust_reader()),
             transport,
+            archive_io,
             node_profile: options.node_profile.clone(),
             startup_bounds,
             stale_source_timeout_ms: options.stale_source_timeout_ms,

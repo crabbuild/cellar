@@ -419,6 +419,9 @@ pub(crate) async fn start(
         } else {
             (None, None)
         };
+        let archive_io = archive_provisioning
+            .as_ref()
+            .map(|archive| archive.io.clone());
         controller.configure_provisioning_with_archives(
             CellGroupProvisioning {
                 directory: directory.clone(),
@@ -495,6 +498,7 @@ pub(crate) async fn start(
                 runtime: runtime.clone(),
                 log: log.clone(),
                 transport: transport.clone(),
+                archive_io,
             },
             admission,
             resources,

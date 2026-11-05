@@ -137,8 +137,13 @@ published receipt describes catalog admission. Read the current revision again
 before submitting the archive request with its own ID. The archive command roots
 the exact initializer intent before creating registry state. Reconcile an unknown
 reply with the same request. An incomplete archive refuses verification and
-requires authority recovery. Each voter verifies the rooted archive, attaches
-locally and establishes fresh quorum before serving ingress.
+requires authority recovery. An archive receipt supplies no coverage or voter
+authority. In the compiled application, use `NativeDaemon::raft_cells_with_startup`
+and call `cells.start_managed_first_group(history, timeout).await?` after the
+archive operation is confirmed. The daemon readiness call uses the installed
+boot, directory and archive pool, validates or attaches the local initial voter,
+and waits for a fresh quorum. Bind the application's ingress handles after it
+returns.
 
 | Method and suffix under `/api/v1/fleets/{fleet}/raft` | Permission and result |
 | --- | --- |

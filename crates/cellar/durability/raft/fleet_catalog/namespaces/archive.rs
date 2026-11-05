@@ -81,7 +81,7 @@ impl FleetCatalog {
         let publication = group.mutation.digest();
         self.run(timeout, async {
             let snapshot = self.inner.current().await?;
-            let birth = provisioning.selected_birth_at(&snapshot, history).await?;
+            let (birth, _) = provisioning.selected_birth_at(&snapshot, history).await?;
             if let Some(intent) = self.first_group_archive_intent(&snapshot, &key).await? {
                 if intent.request != *request || intent.publication != publication {
                     return Err(FleetCatalogError::PayloadConflict);
@@ -202,6 +202,25 @@ impl FleetCatalog {
     }
 }
 
+impl FleetHostAuthorization {
+    pub(crate) async fn verify_first_group_archive(
+        &self,
+        directory: RangeDirectory,
+        archives: CellGroupArchivePool,
+        history: GroupHistory,
+        timeout: Duration,
+    ) -> Result<FleetGroupAuthorization> {
+        self.check_namespace(directory.namespace_config())?;
+        RaftManagedArchiveProvisioning {
+            fleet: self.catalog.clone(),
+            directory,
+            archives,
+        }
+        .verified_first_group(history, timeout)
+        .await
+    }
+}
+
 impl RaftManagedArchiveProvisioning {
     /// Prepare the one-use initializer for a confirmed managed group. Persist
     /// and sync the encoded intent before committing it.
@@ -247,17 +266,29 @@ impl RaftManagedArchiveProvisioning {
         history: GroupHistory,
         timeout: Duration,
     ) -> Result<()> {
+        self.verified_first_group(history, timeout)
+            .await
+            .map(|_| ())
+    }
+
+    async fn verified_first_group(
+        &self,
+        history: GroupHistory,
+        timeout: Duration,
+    ) -> Result<FleetGroupAuthorization> {
         let key = self.fleet.first_group_archive_key(history)?;
         self.fleet
             .run(timeout, async {
                 let snapshot = self.fleet.inner.current().await?;
-                let birth = self.selected_birth_at(&snapshot, history).await?;
+                let (birth, authority) = self.selected_birth_at(&snapshot, history).await?;
                 let intent = self
                     .fleet
                     .first_group_archive_intent(&snapshot, &key)
                     .await?
                     .ok_or(FleetCatalogError::Conflict)?;
-                self.verify_birth_archive(&birth, &intent.binding()?).await
+                self.verify_birth_archive(&birth, &intent.binding()?)
+                    .await?;
+                Ok(authority)
             })
             .await
     }
@@ -276,14 +307,16 @@ impl RaftManagedArchiveProvisioning {
 
     async fn selected_birth(&self, history: GroupHistory) -> Result<CellGroupBirth> {
         let snapshot = self.fleet.inner.current().await?;
-        self.selected_birth_at(&snapshot, history).await
+        self.selected_birth_at(&snapshot, history)
+            .await
+            .map(|(birth, _)| birth)
     }
 
     async fn selected_birth_at(
         &self,
         snapshot: &FleetSnapshot,
         history: GroupHistory,
-    ) -> Result<CellGroupBirth> {
+    ) -> Result<(CellGroupBirth, FleetGroupAuthorization)> {
         let binding = self.fleet.binding(&history)?;
         let key = binding
             .key()
@@ -307,7 +340,7 @@ impl RaftManagedArchiveProvisioning {
         if !authority.check_birth(&self.directory, &birth) {
             return Err(FleetCatalogError::Conflict);
         }
-        Ok(birth)
+        Ok((birth, authority))
     }
 }
 

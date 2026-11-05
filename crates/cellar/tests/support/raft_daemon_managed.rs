@@ -118,20 +118,6 @@ impl Operator {
             class: "Counter".into(),
         })
     }
-
-    async fn archive(&self) -> Result<RaftManagedArchiveProvisioning> {
-        let limits = configuration::limits();
-        Ok(self
-            .fleet
-            .open_managed_archive_provisioning(
-                &self.adapter,
-                &self.declaration()?,
-                limits.directory,
-                limits.archive.context("managed archive options")?.io,
-                TIMEOUT,
-            )
-            .await?)
-    }
 }
 
 fn catalog_options() -> CatalogOptions {
@@ -365,24 +351,13 @@ async fn ready(
             cellar::asyncrt::sleep(Duration::from_millis(20)).await;
         }
     }
-    operator
-        .archive()
-        .await?
-        .verify_first_group_archive(history, TIMEOUT)
-        .await?;
     if !retained {
         let cut = operator.fleet.read(TIMEOUT).await?;
         for index in 0..3 {
             inspect_current(service, node(index)?, cut.revision()).await?;
         }
-        let authorization = operator
-            .fleet
-            .authorize_group(&cut, &history, TIMEOUT)
-            .await?;
-        service
-            .activate_managed_initial_group(authorization, TIMEOUT)
-            .await?;
     }
+    service.start_managed_first_group(history, TIMEOUT).await?;
     Ok(())
 }
 

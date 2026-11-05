@@ -27,7 +27,8 @@ impl Ledger {
         };
         ledger.record(serde_json::json!({
             "format": 1, "phase": "started", "scope": "retained_disk_hard_kill",
-            "store": backend, "operator": "cli_admin", "archive_setup": "cli_admin", "qualified_10gb": false,
+            "store": backend, "operator": "cli_admin", "archive_setup": "cli_admin",
+            "voter_startup": "owned_fresh_quorum", "qualified_10gb": false,
         }))?;
         cellar_ltx::FileSystem::sync_all(&cellar_ltx::DirectFileSystem, parent)?;
         Ok(ledger)

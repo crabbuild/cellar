@@ -12,6 +12,29 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 daemon-owned first-group readiness
+
+The daemon startup callback uses the installed managed boot, directory and
+archive pool. It verifies the rooted first-group archive, attaches or validates
+the exact local initial voter and establishes fresh quorum under the original
+startup deadline. The post-barrier check binds the membership to the current
+fleet history, local boot and engine. Ingress binding follows the barrier.
+The shared read gate waits for a durably applied entry in the current term
+before asking for ReadIndex. The prior standalone case timed out when its
+first request was issued before Raft accepted current-term reads.
+
+Four native cases and both real RustFS image modes pass. The native operator
+case verifies that a retained attachment refuses readiness after loss of its
+majority. The RustFS cases verify cold startup, leader loss and retained
+restart with the daemon-owned barrier. The fixture supplies capacity attestation
+and startup rendezvous. Voters share a host and use development peer
+authentication. The backend and VM stop with data retained.
+
+Source manifest `c05e1ebae002008ebd1e84f1ebed98e4a594fe0d0790f493d403ef55c98f8cb6`.
+Native record `9adde470d0947965c1b80d6d2642cdfea344fb9aa1553a91447028040cc55095`.
+RustFS record `f786339f658c83094826062e2fc8df381e2e145745e78367c566729f8846c91f`.
+CLI binary `0ebce06b8f6bffad7035799949a058b126a6474fff817b9acd50a4014eaa97bf`.
+
 ## CG-07 rooted first-group archive initialization
 
 The authenticated archive command verifies the original first-group plan and

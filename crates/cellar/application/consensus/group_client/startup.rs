@@ -53,7 +53,102 @@ pub(super) fn catalog_error(error: CatalogError) -> CellGroupControllerError {
     CellGroupControllerError::Catalog(Arc::new(error))
 }
 
+fn startup_directory_error(error: CellDispatchError) -> CellGroupControllerError {
+    match error {
+        CellDispatchError::Runtime(error) => error.into(),
+        _ => CellGroupControllerError::Invalid("group startup namespace capability"),
+    }
+}
+
 impl RaftCells {
+    /// Start the exact operator-provisioned first group on this initial voter.
+    /// Verify the rooted archive, attach or validate the retained local replica,
+    /// and wait for a fresh quorum behind one startup deadline. Call this from
+    /// daemon readiness before opening application ingress. The result is a
+    /// point-in-time barrier and supplies no ongoing serving lease.
+    pub fn start_managed_first_group(
+        &self,
+        history: GroupHistory,
+        timeout: Duration,
+    ) -> impl Future<Output = Result<(), CellGroupStartupError>> + Send + 'static {
+        use CellGroupStartupError::{Refused, Unconfirmed};
+        let admitted = (|| {
+            let (deadline, memory) = self
+                .metadata_admission(timeout, STARTUP_BYTES)
+                .map_err(admission_error)?;
+            let core = &self.handle.core;
+            let host = core
+                .managed
+                .clone()
+                .ok_or(CellGroupControllerError::Invalid(
+                    "managed group startup owner",
+                ))?;
+            let archives = core
+                .archive_io
+                .clone()
+                .ok_or(CellGroupControllerError::Invalid(
+                    "managed first group archive pool",
+                ))?;
+            let directory = core
+                .host
+                .directory(history)
+                .map_err(startup_directory_error)?;
+            Ok((deadline, memory, host, directory, archives))
+        })();
+        let owner = self.internal_observer();
+        async move {
+            let (deadline, memory, host, directory, archives) = admitted.map_err(Refused)?;
+            owner.startup_live(&host, deadline).map_err(Refused)?;
+            let remaining = owner.startup_remaining(deadline).map_err(Refused)?;
+            let authorization = owner
+                .handle
+                .domain
+                .run(host.verify_first_group_archive(directory, archives, history, remaining))
+                .await
+                .map_err(|_| Refused(CellGroupControllerError::Closed))?
+                .map_err(|error| Refused(catalog_error(CatalogError::from(error))))?;
+            drop(memory);
+            let remaining = owner.startup_remaining(deadline).map_err(Refused)?;
+            let attachment = owner
+                .activate_managed_initial_group(authorization, remaining)
+                .await?;
+            let core = &owner.handle.core;
+            let observed = core
+                .runtime
+                .quorum_membership(history, deadline)
+                .await
+                .map_err(|error| Unconfirmed(error.into()))?;
+            let remaining = owner.startup_remaining(deadline).map_err(Unconfirmed)?;
+            let fresh = owner
+                .handle
+                .domain
+                .run(host.group_authorization(&history, remaining))
+                .await
+                .map_err(|_| Unconfirmed(CellGroupControllerError::Closed))?
+                .map_err(|error| Unconfirmed(catalog_error(CatalogError::from(error))))?;
+            let local = observed.replica();
+            if fresh.binding() != &attachment.binding
+                || observed.engine() != core.engine
+                || local.node_identity() != core.node
+                || !observed
+                    .configuration()
+                    .voters
+                    .contains(&local.member.get())
+                || !fresh.matches_replica(local, observed.membership())
+                || fresh.history_digests()
+                    != (
+                        observed.root().route().birth_digest,
+                        observed.root().route().schema_digest,
+                    )
+            {
+                return Err(Unconfirmed(CellGroupControllerError::Invalid(
+                    "managed first group quorum membership",
+                )));
+            }
+            owner.startup_live(&host, deadline).map_err(Unconfirmed)
+        }
+    }
+
     /// Recover or initialize this exact admitted initial voter. Namespace lookup
     /// allocates no cell/group identity; the rooted directory selects its birth.
     /// Success describes a durable local attachment, never quorum readiness.
@@ -86,17 +181,12 @@ impl RaftCells {
                     "managed genesis authority",
                 ));
             }
-            let directory =
-                self.handle
-                    .core
-                    .host
-                    .directory(history)
-                    .map_err(|error| match error {
-                        CellDispatchError::Runtime(error) => error.into(),
-                        _ => {
-                            CellGroupControllerError::Invalid("group startup namespace capability")
-                        }
-                    })?;
+            let directory = self
+                .handle
+                .core
+                .host
+                .directory(history)
+                .map_err(startup_directory_error)?;
             Ok((deadline, memory, host, history, directory))
         })();
         let owner = self.internal_observer();

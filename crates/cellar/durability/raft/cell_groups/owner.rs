@@ -1474,6 +1474,8 @@ impl CellGroupOwner {
     pub(super) fn membership_read_ready(&self) -> Result<bool, RuntimeError> {
         self.require_application_active()?;
         let cache = self.group.read()?;
+        // Leaders drop ReadIndex before committing their first entry in the
+        // current term. Local durable apply proves that point on followers too.
         Ok(matches!(
             self.node.raft.state,
             StateRole::Leader | StateRole::Follower
@@ -1482,6 +1484,7 @@ impl CellGroupOwner {
             && self.phase.is_none()
             && self.checkpoint.is_none()
             && cache.hard_state.term == self.node.raft.term
+            && self.current.marker().position().term.get() == self.node.raft.term
             && cache.group_manifest.as_ref() == Some(self.current.marker())
             && cache.membership.permits_group(self.group.identity()))
     }
