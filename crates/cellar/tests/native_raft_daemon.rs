@@ -372,6 +372,14 @@ impl Process {
         if mode.starts_with("cluster-") {
             cmd.env("CELLAR_TEST_BUCKET", "cellar-dev")
                 .env("CELLAR_INTERNAL_DEV_STORE", root.join("fleet.sqlite"));
+            if std::env::var_os(managed::RUSTFS_ENDPOINT).is_some() {
+                for key in managed::RUSTFS_ENV {
+                    cmd.env(
+                        key,
+                        std::env::var_os(key).with_context(|| format!("missing {key}"))?,
+                    );
+                }
+            }
         }
         if override_dir {
             cmd.env("CELLAR_TEST_DATA_DIR", root.join("override"));
@@ -702,7 +710,12 @@ async fn qualify() -> Result<()> {
             }
         }
     }
-    let mut ledger = recovery::Ledger::new(root.path())?;
+    let ledger_backend = if std::env::var_os(managed::RUSTFS_ENDPOINT).is_some() {
+        "rustfs_catalog_and_archives"
+    } else {
+        "shared_dev_sqlite"
+    };
+    let mut ledger = recovery::Ledger::new(root.path(), ledger_backend)?;
     let mut acknowledged = Vec::new();
     for name in ["one", "two"] {
         let command = format!("{}:1", hex::encode([90; 16]));

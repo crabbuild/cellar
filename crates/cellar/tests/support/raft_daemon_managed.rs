@@ -3,13 +3,51 @@
 //! Cold RF3 startup on the daemon's public SDK boundary with fixture capacity.
 use super::*;
 use cellar::application::consensus::verification::cell_groups::RangeDirectory;
-use cellar::bucket::Bucket;
+use cellar::bucket::{Bucket, StaticCredentials};
 use std::io::Write;
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 const PRINCIPAL: &str = "daemon-process-fixture";
 const STANDBY_READY: &str = "first-group-ready";
 const ARCHIVE_INTENT: &str = "archive-intent";
+
+pub(super) const RUSTFS_ENDPOINT: &str = "CELLAR_CELL_GROUPS_RUSTFS_ENDPOINT";
+pub(super) const RUSTFS_ENV: [&str; 6] = [
+    RUSTFS_ENDPOINT,
+    "CELLAR_CELL_GROUPS_RUSTFS_BUCKET",
+    "CELLAR_CELL_GROUPS_RUSTFS_PREFIX",
+    "CELLAR_RAFT_PROCESS_IMAGE_MODE",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+];
+
+fn open_bucket(root: &Path) -> Result<Bucket> {
+    if std::env::var_os(RUSTFS_ENDPOINT).is_none() {
+        return Bucket::open_dev(&root.join("catalog.sqlite"));
+    }
+    let endpoint = std::env::var(RUSTFS_ENDPOINT)?;
+    ensure!(
+        endpoint.starts_with("http://127.0.0.1:"),
+        "expected a loopback RustFS endpoint"
+    );
+    let bucket = std::env::var("CELLAR_CELL_GROUPS_RUSTFS_BUCKET")?;
+    let prefix = std::env::var("CELLAR_CELL_GROUPS_RUSTFS_PREFIX")?;
+    ensure!(
+        !bucket.is_empty() && !prefix.is_empty(),
+        "isolated RustFS bucket and prefix required"
+    );
+    Bucket::open(
+        &format!("s3://{bucket}/{prefix}"),
+        Some(&endpoint),
+        "us-east-1",
+        Some(StaticCredentials {
+            access_key_id: std::env::var("AWS_ACCESS_KEY_ID")?,
+            secret_access_key: std::env::var("AWS_SECRET_ACCESS_KEY")?,
+            session_token: None,
+        }),
+        None,
+    )
+}
 
 fn request(id: u8, revision: u64) -> FleetRequestIdentity {
     FleetRequestIdentity {
@@ -39,7 +77,7 @@ struct Operator {
 impl Operator {
     fn open(domain: Arc<ExecutionDomain>, root: &Path) -> Result<Self> {
         let history = history()?;
-        let bucket = Bucket::open_dev(&root.join("catalog.sqlite"))?;
+        let bucket = open_bucket(root)?;
         let fleet = FleetCatalog::new(
             &domain,
             bucket.clone(),
@@ -48,12 +86,20 @@ impl Operator {
             "daemon-control/",
         )?;
         let adapter = Catalog::new(bucket.raft_store(), catalog_options())?;
-        let namespace = NamespaceConfig::new(
+        let mut namespace = NamespaceConfig::new(
             history.cluster,
             history.namespace,
             NamespaceMode::Raft,
             counter::definition()?.schema_digest(),
         );
+        if std::env::var_os(RUSTFS_ENDPOINT).is_some() {
+            namespace.image_storage =
+                match std::env::var("CELLAR_RAFT_PROCESS_IMAGE_MODE")?.as_str() {
+                    "materialized" => RaftImageStorage::Materialized,
+                    "extents" => RaftImageStorage::Extents,
+                    _ => anyhow::bail!("invalid RustFS process image mode"),
+                };
+        }
         Ok(Self {
             domain,
             bucket,
@@ -239,6 +285,9 @@ impl Operator {
             }),
             ..Default::default()
         };
+        if declaration.namespace.image_storage == RaftImageStorage::Extents {
+            host.extents = Some(Default::default());
+        }
         host.node_profile = Some(RaftNodeProfile {
             pool: "daemon-fixture".into(),
             region: "local".into(),

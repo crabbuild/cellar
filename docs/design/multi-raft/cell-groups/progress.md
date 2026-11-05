@@ -12,6 +12,27 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 independent managed daemon voters on RustFS
+
+The native daemon process fixture accepts an explicit loopback RustFS endpoint,
+bucket and isolated prefix. The same binary passes the development-store
+baseline and both RustFS image modes. The RustFS provider hosts the Raft
+catalog, fleet coordination and archive records. Daemon peer authentication
+uses the fixture's development store. Voters are separate host-native
+processes with fixture capacity on one machine.
+
+Both runs start from declared standbys, verify cold RF3 activation before
+ingress, and exercise independent reads and writes for two cells in the same
+group. Their separate recovery ledgers verify exact retries after a leader
+hard kill, retained-disk resume and fresh writes for both cells. The dedicated
+backend and VM stop with data retained. Public operator orchestration,
+independent constrained voter hosts and sustained-load qualification remain
+open.
+
+Source manifest `ef2417a12645458942d9b63bfd53e0ccc52845291e581979889d6fc1f6f20b53`.
+Native record `8ecfdf060e7f7b4e03033f673a8a1f06f80b739866638253723a7e253f7aedbc`.
+RustFS record `f777af781135ab70da22c164fa3791c00f07f0edf44992fc8c882d359ad53556`.
+
 ## CG-07 managed daemon startup and request path
 
 The native daemon now installs its shutdown channel before the Raft host starts.

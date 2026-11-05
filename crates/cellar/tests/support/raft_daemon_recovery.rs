@@ -12,7 +12,7 @@ pub(super) struct Ledger {
 }
 
 impl Ledger {
-    pub(super) fn new(root: &Path) -> Result<Self> {
+    pub(super) fn new(root: &Path, backend: &str) -> Result<Self> {
         let path = std::env::var_os("CELLAR_RAFT_PROCESS_EVIDENCE")
             .map(PathBuf::from)
             .unwrap_or_else(|| root.join("process-recovery-ledger.jsonl"));
@@ -27,7 +27,7 @@ impl Ledger {
         };
         ledger.record(serde_json::json!({
             "format": 1, "phase": "started", "scope": "retained_disk_hard_kill",
-            "store": "shared_dev_sqlite", "qualified_10gb": false,
+            "store": backend, "qualified_10gb": false,
         }))?;
         cellar_ltx::FileSystem::sync_all(&cellar_ltx::DirectFileSystem, parent)?;
         Ok(ledger)

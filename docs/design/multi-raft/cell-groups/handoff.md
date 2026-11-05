@@ -4,6 +4,16 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## CG-07 independent managed daemon voters on RustFS
+
+The real-backend process case now passes with both materialized images and
+extents. It retains exact request and recovery ledgers. The fixture still
+supplies capacity and the operator steps. Move these steps into public
+management while preserving the exact standby, reservation, confirmation
+and archive intent. Qualify constrained voter processes and the wider
+lifecycle gates separately.
+[Source and test records](progress.md)
+
 ## CG-07 managed daemon startup and request path
 
 The normal native daemon starts three independent managed voters from standby

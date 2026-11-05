@@ -51,8 +51,9 @@ voters retire remains open. The public SDK can now provision a declared
 managed standby and reserve, publish and confirm its first full-range group.
 The SDK also prepares and verifies an exact managed group archive. The
 native daemon process gate exercises cold managed startup, two-cell requests
-and retained restart through a fixture operator. Public operator orchestration
-and the process gate on real RustFS remain open.
+and retained restart on the development store and real RustFS in both image
+modes. The process fixture still supplies capacity and operator steps. Public
+operator orchestration and constrained voter qualification remain open.
 
 CG-07 remains IN_PROGRESS. Four original public gates remain undelivered, including
 complete managed lifecycle and ingress authority. Default/backend and capability
