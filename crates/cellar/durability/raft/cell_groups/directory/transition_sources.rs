@@ -6,6 +6,7 @@ use crate::raft::cell_groups::{
     CellGroupArchiveCheckpointReceiver, CellGroupArchiveCoverage, CellGroupArchiveExecution,
     CellGroupArchiveHold, CellGroupArchivePool, CellGroupArchiveTailPool, GroupManifest,
 };
+use crate::raft::fleet_catalog::ManagedTransitionPermit;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -120,6 +121,42 @@ impl RangeDirectory {
         sources: Vec<CellGroupTransitionSource>,
     ) -> Result<VerifiedCellGroupTransitionSources> {
         self.unmanaged_birth()?;
+        self.verify_and_record_sealed_sources_inner(
+            domain, archives, tails, mutation, sources, None,
+        )
+        .await
+    }
+
+    pub(crate) async fn verify_and_record_managed_sealed_sources(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        archives: &CellGroupArchivePool,
+        tails: &CellGroupArchiveTailPool,
+        mutation: &DirectoryMutation,
+        sources: Vec<CellGroupTransitionSource>,
+        permit: &ManagedTransitionPermit,
+    ) -> Result<VerifiedCellGroupTransitionSources> {
+        permit.check(self, mutation)?;
+        self.verify_and_record_sealed_sources_inner(
+            domain,
+            archives,
+            tails,
+            mutation,
+            sources,
+            Some(permit),
+        )
+        .await
+    }
+
+    async fn verify_and_record_sealed_sources_inner(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        archives: &CellGroupArchivePool,
+        tails: &CellGroupArchiveTailPool,
+        mutation: &DirectoryMutation,
+        sources: Vec<CellGroupTransitionSource>,
+        permit: Option<&ManagedTransitionPermit>,
+    ) -> Result<VerifiedCellGroupTransitionSources> {
         domain
             .run(Box::pin(async {
                 let verified = Box::pin(self.verify_transition_source_set(
@@ -132,7 +169,7 @@ impl RangeDirectory {
                 ))
                 .await?;
                 let journal = self
-                    .record_verified_sources(mutation, verified.digest)
+                    .record_verified_sources(mutation, verified.digest, permit)
                     .await?;
                 Ok(VerifiedCellGroupTransitionSources {
                     operation: mutation.operation,
@@ -210,6 +247,7 @@ impl RangeDirectory {
             return Err(CatalogError::Conflict("transition source set changed").into());
         }
         let mut verified = Vec::with_capacity(admitted.len());
+        let mut registries = Vec::with_capacity(admitted.len());
         for source in admitted {
             let registry = self
                 .open_group_archive(domain, archives, &source.birth)
@@ -225,6 +263,7 @@ impl RangeDirectory {
                 cut,
             )?;
             verified.push(coverage);
+            registries.push(registry);
         }
         self.bounded(async {
             for (id, bytes) in encoded {
@@ -233,6 +272,11 @@ impl RangeDirectory {
             self.immutable(SETS, digest, &bytes).await
         })
         .await?;
+        for (registry, coverage) in registries.iter().zip(&verified) {
+            registry
+                .require_retained_hold(domain, coverage.hold())
+                .await?;
+        }
         Ok(VerifiedTransitionSourceSet {
             journal,
             digest,

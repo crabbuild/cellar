@@ -7,8 +7,10 @@ use super::*;
 use crate::raft::{
     catalog::CatalogError,
     cell_groups::{
-        CellGroupArchiveBindingError, CellGroupTransitionPreparationInputs, DirectoryMutation,
+        CellGroupArchiveBindingError, CellGroupArchivePool, CellGroupArchiveTailPool,
+        CellGroupTransitionPreparationInputs, CellGroupTransitionSource, DirectoryMutation,
         PreparedManagedCellGroupTransition, RangeDirectory, TransitionJournal,
+        VerifiedCellGroupTransitionSources,
     },
 };
 
@@ -346,6 +348,57 @@ impl FleetCatalog {
                     Box::pin(
                         directory.prepare_managed_transition_data(domain, plan, &permit, inputs),
                     ),
+                )
+                .await
+            }))
+            .await
+            .map_err(|_| FleetCatalogError::Closed)?
+            .map_err(|_| FleetCatalogError::Unconfirmed)?
+            .map_err(|error| match error {
+                CellGroupArchiveBindingError::Catalog(error) => catalog_error(error),
+                CellGroupArchiveBindingError::Archive(error) => error.into(),
+            })
+    }
+
+    /// Verify and select the exact committed parent cuts of a managed transition.
+    /// Supply an independently configured receiver per held archive in plan
+    /// order. Retain every hold through retirement and retry with the same
+    /// descriptors after an unknown directory outcome.
+    pub async fn verify_managed_sealed_sources(
+        &self,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        archives: &CellGroupArchivePool,
+        tails: &CellGroupArchiveTailPool,
+        sources: Vec<CellGroupTransitionSource>,
+        timeout: Duration,
+    ) -> Result<VerifiedCellGroupTransitionSources> {
+        validate_request(&transition.request)?;
+        let deadline = deadline::Deadline::new(self, timeout)?;
+        let permit = self
+            .run(
+                deadline.remaining()?,
+                Box::pin(self.active_managed_transition_permit(
+                    &transition.request,
+                    directory,
+                    &transition.plan,
+                )),
+            )
+            .await?;
+        let remaining = deadline.remaining()?;
+        let domain = &self.inner.domain;
+        domain
+            .run(Box::pin(async {
+                crate::asyncrt::timeout(
+                    remaining,
+                    Box::pin(directory.verify_and_record_managed_sealed_sources(
+                        domain,
+                        archives,
+                        tails,
+                        &transition.plan,
+                        sources,
+                        &permit,
+                    )),
                 )
                 .await
             }))

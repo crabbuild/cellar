@@ -45,26 +45,9 @@ pub(super) async fn exercise(
     let registry = directory
         .open_group_archive(domain.as_ref(), &archives, parent)
         .await?;
-    let held = tokio::time::timeout(TIMEOUT, async {
-        let mut intent = registry.prepare_acquire(domain.as_ref()).await?;
-        loop {
-            match registry.acquire(domain.as_ref(), &intent).await {
-                Ok(hold) => return Ok(hold),
-                // A newer registry revision has fenced this exact intent.
-                Err(CellGroupArchiveError::Expired) => {
-                    intent = registry.prepare_acquire(domain.as_ref()).await?;
-                }
-                // Reconcile the same allocation until a hold or definite
-                // expiry is observed. The archive publisher is still live.
-                Err(CellGroupArchiveError::Conflict | CellGroupArchiveError::Unconfirmed) => {
-                    tokio::task::yield_now().await;
-                }
-                Err(error) => return Err(error),
-            }
-        }
-    })
-    .await
-    .context("acquire active source archive hold before pre-copy")??;
+    let held = acquire_hold(domain, &registry)
+        .await
+        .context("acquire active source archive hold before pre-copy")?;
     let scratch = tempfile::tempdir()?;
     let mut selected = None;
     for stage in ["first", "reopened"] {
@@ -95,12 +78,7 @@ pub(super) async fn exercise(
                 CellGroupTransitionPreparationInputs {
                     archives: archives.clone(),
                     tails: CellGroupArchiveTailPool::new(Default::default())?,
-                    restore: CellGroupRecoveryPool::new(CellGroupRecoveryLimits {
-                        max_cells: 4,
-                        max_image_bytes: 1024 * 1024,
-                        max_restore_bytes: 4 * 1024 * 1024,
-                        ..Default::default()
-                    })?,
+                    restore: recovery_pool()?,
                     sources: vec![CellGroupTransitionSource {
                         birth: parent.clone(),
                         hold: held.clone(),
@@ -157,6 +135,15 @@ pub(super) async fn exercise(
         }
     }
     Ok((registry, held))
+}
+
+fn recovery_pool() -> Result<CellGroupRecoveryPool> {
+    Ok(CellGroupRecoveryPool::new(CellGroupRecoveryLimits {
+        max_cells: 4,
+        max_image_bytes: 1024 * 1024,
+        max_restore_bytes: 4 * 1024 * 1024,
+        ..Default::default()
+    })?)
 }
 
 fn store(
@@ -218,4 +205,166 @@ fn store(
         scratch,
         directory: base,
     })
+}
+
+async fn acquire_hold(
+    domain: &ExecutionDomain,
+    registry: &CellGroupArchiveRegistry,
+) -> Result<CellGroupArchiveHold> {
+    Ok(tokio::time::timeout(TIMEOUT, async {
+        let mut intent = registry.prepare_acquire(domain).await?;
+        loop {
+            match registry.acquire(domain, &intent).await {
+                Ok(hold) => return Ok(hold),
+                // A newer registry revision has fenced this exact intent.
+                Err(CellGroupArchiveError::Expired) => {
+                    intent = registry.prepare_acquire(domain).await?;
+                }
+                // Reconcile the same allocation until a hold or definite
+                // expiry is observed. The archive publisher is still live.
+                Err(CellGroupArchiveError::Conflict | CellGroupArchiveError::Unconfirmed) => {
+                    tokio::task::yield_now().await;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    })
+    .await??)
+}
+
+pub(super) async fn verify_sealed_cut(
+    cluster: &ManagedCluster,
+    fleet: &FleetCatalog,
+    directory: &RangeDirectory,
+    transition: &ReopenedManagedCellGroupTransition,
+    parent: &CellGroupBirth,
+    old_hold: CellGroupArchiveHold,
+    seal: &GroupSourceSeal,
+) -> Result<()> {
+    let domain = &cluster.fixtures[0].domain;
+    let archives = CellGroupArchivePool::new(Default::default())?;
+    let tails = CellGroupArchiveTailPool::new(Default::default())?;
+    let registry = directory
+        .open_group_archive(domain.as_ref(), &archives, parent)
+        .await?;
+    let scratch = tempfile::tempdir()?;
+    let rooted = directory.namespace_config().image_storage == RaftImageStorage::Extents;
+    let source = |label: &str, hold: CellGroupArchiveHold| {
+        let base = scratch.path().join(label);
+        let route = parent.route().clone();
+        async move {
+            let receiver_store = domain
+                .blocking(move || store(base, route, rooted))?
+                .await??;
+            let receiver = CellGroupCheckpointPool::new(checkpoint_limits())?.receive_archive(
+                receiver_store.store,
+                receiver_store.scratch,
+                receiver_store.directory,
+            )?;
+            Ok::<_, anyhow::Error>(CellGroupTransitionSource {
+                birth: parent.clone(),
+                hold,
+                receiver,
+            })
+        }
+    };
+    ensure!(matches!(
+        fleet
+            .verify_managed_sealed_sources(
+                transition,
+                directory,
+                &archives,
+                &tails,
+                vec![source("pre-copy", old_hold).await?],
+                TIMEOUT,
+            )
+            .await,
+        Err(FleetCatalogError::Conflict)
+    ));
+    tokio::time::timeout(TIMEOUT, async {
+        loop {
+            for host in &cluster.hosts[..3] {
+                let group = host.group(parent.route().history)?;
+                if group
+                    .archive_status()?
+                    .and_then(|status| status.published)
+                    .is_some_and(|marker| marker.source_seal() == Some(seal))
+                {
+                    return Ok::<_, anyhow::Error>(());
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("managed archiver did not publish the sealed cut")??;
+    let held = acquire_hold(domain, &registry).await?;
+    ensure!(held.marker().source_seal() == Some(seal));
+
+    let first = fleet
+        .verify_managed_sealed_sources(
+            transition,
+            directory,
+            &archives,
+            &tails,
+            vec![source("verify", held.clone()).await?],
+            TIMEOUT,
+        )
+        .await?;
+    ensure!(first.journal().phase() == TransitionPhase::Sealed);
+    ensure!(first.sources().len() == 1 && first.sources()[0].marker().source_seal() == Some(seal));
+    let reopened = domain
+        .run(directory.sealed_source_holds(&transition.plan))
+        .await??;
+    ensure!(reopened == vec![held]);
+    let replay = fleet
+        .verify_managed_sealed_sources(
+            transition,
+            directory,
+            &archives,
+            &tails,
+            vec![
+                source(
+                    "reopen",
+                    reopened
+                        .into_iter()
+                        .next()
+                        .context("selected source hold")?,
+                )
+                .await?,
+            ],
+            TIMEOUT,
+        )
+        .await?;
+    ensure!(replay.journal() == first.journal());
+    ensure!(replay.sources()[0].marker() == first.sources()[0].marker());
+
+    let root = scratch.path().join("final");
+    let routes = replay.children().to_vec();
+    let targets = domain
+        .blocking(move || {
+            routes
+                .into_iter()
+                .enumerate()
+                .map(|(index, route)| store(root.join(index.to_string()), route, rooted))
+                .collect::<Result<Vec<_>>>()
+        })?
+        .await??;
+    let prepared = recovery_pool()?
+        .prepare_transfer_partition(domain.as_ref(), replay, targets)
+        .await?;
+    ensure!(prepared.children().len() == 2);
+    ensure!(prepared
+        .children()
+        .iter()
+        .all(|child| child.genesis().is_some()));
+    ensure!(
+        prepared
+            .children()
+            .iter()
+            .map(|child| child.root().cells())
+            .sum::<u32>()
+            == 2
+    );
+    Ok(())
 }

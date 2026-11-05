@@ -1064,6 +1064,11 @@ An operator can submit that decision to the parent through
 selected birth and applied voter membership before minting a local permit.
 The Raft owner rechecks the permit and drains the accepted prefix. A proposal
 acknowledgement is provisional. An exact retry can return the applied seal cut.
+The managed archive owner can publish the applied cut while business admission
+is sealed. The fleet verifies each held cut independently against the exact
+authorized plan and rechecks the complete hold set before selecting Sealed.
+A replacement controller can reopen those exact holds and replay them to
+prepare the non-serving child genesis images.
 
 | State | Durable action and admission rule |
 | --- | --- |

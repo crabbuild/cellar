@@ -1035,9 +1035,16 @@ impl RangeDirectory {
         &self,
         mutation: &DirectoryMutation,
         digest: [u8; 32],
+        permit: Option<&ManagedTransitionPermit>,
     ) -> Result<TransitionJournal, CatalogError> {
-        self.advance_transition(mutation, Advance::RecordSources(digest))
-            .await
+        let advance = Advance::RecordSources(digest);
+        if let Some(permit) = permit {
+            permit.check(self, mutation)?;
+            self.advance_transition_inner(mutation, advance, false)
+                .await
+        } else {
+            self.advance_transition(mutation, advance).await
+        }
     }
 
     pub(super) async fn record_verified_child_quorums(

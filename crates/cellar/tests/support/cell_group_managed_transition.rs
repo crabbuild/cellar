@@ -281,9 +281,13 @@ async fn exercise(cluster: &ManagedCluster, rooted: bool, decision: Decision) ->
             domain
                 .run(directory.managed_preparation_holds(plan))
                 .await??
-                == vec![held]
+                == vec![held.clone()]
         );
-        Box::pin(commit_source_seal(cluster, &recovered, scope)).await?;
+        let seal = Box::pin(commit_source_seal(cluster, &recovered, scope)).await?;
+        Box::pin(preparation::verify_sealed_cut(
+            cluster, &reopened, directory, &recovered, &parent, held, &seal,
+        ))
+        .await?;
         return Ok(());
     }
     fixture
@@ -351,7 +355,7 @@ async fn commit_source_seal(
     cluster: &ManagedCluster,
     transition: &ReopenedManagedCellGroupTransition,
     history: GroupHistory,
-) -> Result<()> {
+) -> Result<GroupSourceSeal> {
     let voter = leader(&cluster.hosts[..3], history).await?;
     let follower = cluster.hosts[(voter + 1) % 3].group(history)?;
     ensure!(matches!(
@@ -382,5 +386,5 @@ async fn commit_source_seal(
         anyhow::bail!("managed seal replay attempted another proposal");
     };
     ensure!(replayed == applied);
-    Ok(())
+    Ok(applied)
 }
