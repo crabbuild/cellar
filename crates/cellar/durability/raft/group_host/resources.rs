@@ -77,6 +77,30 @@ impl CollectibleExtents {
 }
 
 impl Images {
+    pub async fn recover_group(
+        &self,
+        log: &ReplicaLog,
+        group: crate::raft::cache::GroupLog<GroupHistory>,
+        namespace: &NamespaceConfig,
+        options: &RaftHostOptions,
+        limits: CellGroupNodeLimits,
+    ) -> anyhow::Result<(CellGroupApplier, PreparedGroupManifest)> {
+        let path = ManifestPageStore::group_pages_path(&self.directory, group.identity().scope);
+        let backend = self.apply(namespace, options)?;
+        log.domain()
+            .blocking(move || {
+                Ok::<_, anyhow::Error>(CellGroupApplier::recover(
+                    group,
+                    pages(&path, limits)?,
+                    backend,
+                    limits.manifest,
+                    limits.entries,
+                    limits.max_effect_rows,
+                )?)
+            })?
+            .await?
+    }
+
     pub async fn open(
         log: &ReplicaLog,
         directory: PathBuf,
@@ -142,17 +166,22 @@ impl Images {
         &self,
         log: &ReplicaLog,
         appliers: &[CellGroupApplier],
+        parked: &[(CellGroupApplier, PreparedGroupManifest)],
     ) -> anyhow::Result<Option<CollectibleExtents>> {
         let inventory = log.cell_groups()?;
+        let owners: Vec<_> = appliers
+            .iter()
+            .chain(parked.iter().map(|(applier, _)| applier))
+            .cloned()
+            .collect();
         anyhow::ensure!(
-            inventory.len() == appliers.len()
-                && inventory.iter().all(|group| appliers
+            inventory.len() == owners.len()
+                && inventory
                     .iter()
-                    .any(|a| a.history() == group.identity().scope)),
+                    .all(|group| owners.iter().any(|a| a.history() == group.identity().scope)),
             "image adoption requires complete physical group inventory"
         );
         let images = self.clone();
-        let retained = appliers.to_vec();
         log.domain()
             .blocking(move || -> anyhow::Result<_> {
                 if let Some(store) = &images.materialized {
@@ -162,7 +191,7 @@ impl Images {
                     store.retain_only(&[])?;
                 }
                 let inventory = images.extents.map(CollectibleExtents::serving);
-                drop(retained);
+                drop(owners);
                 Ok(inventory)
             })?
             .await?

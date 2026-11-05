@@ -73,6 +73,9 @@ pub(in super::super) struct Config {
     pub parallel: Arc<tokio::sync::Semaphore>,
     pub bytes: usize,
     pub configuration_bytes: usize,
+    // Startup verified these physical owners before enabling image collection.
+    // They have no controller roster or transport registration.
+    pub parked: Vec<(CellGroupApplier, PreparedGroupManifest)>,
 }
 
 impl Config {
@@ -80,6 +83,7 @@ impl Config {
         mut settings: CellGroupProvisioning,
         shared: &Shared,
         archives: Option<archive::Provisioning>,
+        parked: Vec<(CellGroupApplier, PreparedGroupManifest)>,
     ) -> Result<Self, CellGroupControllerError> {
         let invalid = || CellGroupControllerError::Invalid("group provisioning configuration");
         settings.manifest.validate().map_err(|_| invalid())?;
@@ -231,6 +235,7 @@ impl Config {
             )),
             bytes,
             configuration_bytes,
+            parked,
             archives,
             settings,
         })

@@ -262,13 +262,13 @@ pub(super) async fn discover_retained_placements(
     log: &crate::raft::storage::ReplicaLog,
     fleet: &crate::raft::fleet_catalog::FleetCatalog,
     limits: CellGroupNodeLimits,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Vec<(usize, crate::raft::cache::GroupLog<GroupHistory>)>> {
     let configured: BTreeMap<_, _> = prepared
         .groups
         .iter()
         .map(|assignment| (assignment.birth.route().history, assignment.placement))
         .collect();
-    let mut parked = 0;
+    let mut parked = Vec::new();
     for retained in log.cell_groups()? {
         let history = retained.identity().scope;
         match configured.get(&history) {
@@ -279,22 +279,22 @@ pub(super) async fn discover_retained_placements(
             None => (),
         }
         anyhow::ensure!(
-            prepared.groups.len().saturating_add(parked) < limits.controller.max_groups,
+            prepared.groups.len().saturating_add(parked.len()) < limits.controller.max_groups,
             "retained group capacity exceeded"
         );
         if let Some(marker) = retained
             .group_manifest()?
             .filter(|marker| marker.is_transfer_genesis())
         {
-            let directory = prepared
+            let namespace = prepared
                 .namespaces
                 .iter()
-                .find(|namespace| {
+                .position(|namespace| {
                     let config = namespace.directory.namespace_config();
                     config.cluster == history.cluster && config.namespace == history.namespace
                 })
-                .map(|namespace| &namespace.directory)
                 .ok_or(CatalogError::ManagedAdmissionRequired)?;
+            let directory = &prepared.namespaces[namespace].directory;
             let origin = marker.transfer_origin().ok_or(CatalogError::Fenced)?;
             let operation = cellar_logic::consensus::ProposalId::new(origin.operation())?;
             let transition = fleet
@@ -309,7 +309,7 @@ pub(super) async fn discover_retained_placements(
                     log.storage_instance()?,
                 )
                 .await?;
-            parked += 1;
+            parked.push((namespace, retained));
             continue;
         }
         let group = select_assignment(
@@ -322,7 +322,7 @@ pub(super) async fn discover_retained_placements(
         .await?;
         prepared.groups.push(group);
     }
-    Ok(())
+    Ok(parked)
 }
 
 /// Resolve the complete physical placement after managed discovery has accepted

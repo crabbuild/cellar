@@ -76,32 +76,17 @@ impl CellGroupController {
         {
             return Err(catalog_error(CatalogError::Fenced));
         }
-        match directory
-            .reconcile_managed_transfer_voter(transition, route, log, host, deadline, None)
+        let recovered = config
+            .parked
+            .iter()
+            .find(|(applier, _)| applier.history() == route.history)
+            .map(|(_, root)| root);
+        if let Some(receipt) = directory
+            .reconcile_managed_transfer_voter(transition, route, log, host, deadline, recovered)
             .await
+            .map_err(catalog_error)?
         {
-            Ok(Some(receipt)) => return Ok(receipt),
-            Ok(None) => (),
-            Err(CatalogError::Runtime(RuntimeError::NotReady)) => {
-                remaining()?;
-                let group = log.cell_group(&route.history).map_err(RuntimeError::from)?;
-                let recovered =
-                    prepare::recover_pages(&config, &shared.runtime, group, images, None).await?;
-                remaining()?;
-                return directory
-                    .reconcile_managed_transfer_voter(
-                        transition,
-                        route,
-                        log,
-                        host,
-                        deadline,
-                        Some(&recovered.current),
-                    )
-                    .await
-                    .map_err(catalog_error)?
-                    .ok_or_else(|| catalog_error(CatalogError::LostStableState));
-            }
-            Err(error) => return Err(catalog_error(error)),
+            return Ok(receipt);
         }
         remaining()?;
         let target_route = route.clone();

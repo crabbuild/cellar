@@ -11,7 +11,11 @@ pub use config::{CellGroupProvisionLimits, CellGroupProvisionNamespace, CellGrou
 pub(super) use manager::Manager;
 
 use super::{calls::Delivery, *};
-use crate::raft::{budget::Permit, catalog::CatalogError, cell_groups::RangeDirectory};
+use crate::raft::{
+    budget::Permit,
+    catalog::CatalogError,
+    cell_groups::{PreparedGroupManifest, RangeDirectory},
+};
 use cellar_logic::cell_group::GroupRoute;
 use tokio::sync::oneshot;
 
@@ -164,16 +168,17 @@ impl CellGroupController {
         &self,
         settings: CellGroupProvisioning,
     ) -> Result<(), CellGroupControllerError> {
-        self.configure_provisioning_with_archives(settings, None)
+        self.configure_provisioning_with_archives(settings, None, Vec::new())
     }
 
     pub(crate) fn configure_provisioning_with_archives(
         &self,
         settings: CellGroupProvisioning,
         archives: Option<archive::Provisioning>,
+        parked: Vec<(CellGroupApplier, PreparedGroupManifest)>,
     ) -> Result<(), CellGroupControllerError> {
         let shared = &self.handle.0;
-        let config = Arc::new(Config::new(settings, shared, archives)?);
+        let config = Arc::new(Config::new(settings, shared, archives, parked)?);
         let mut slot = shared
             .provisioning
             .lock()

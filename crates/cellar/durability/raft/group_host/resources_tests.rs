@@ -83,7 +83,7 @@ async fn collection_close_joins_held_deletion_and_retains_admission() -> anyhow:
     };
     // The engine has no groups: its complete recovered reference set is empty.
     let inventories = images
-        .adopt_recovered(&node.log, &[])
+        .adopt_recovered(&node.log, &[], &[])
         .await?
         .into_iter()
         .collect();

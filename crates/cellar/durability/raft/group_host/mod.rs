@@ -200,15 +200,17 @@ pub(crate) async fn start(
     // This initialization owns several nested catalog/recovery futures. Keep
     // that state off callers' native stacks, including nested node startup.
     let result = Box::pin(async {
-        if let Some(managed) = &options.managed {
+        let parked = if let Some(managed) = &options.managed {
             registration::discover_retained_placements(
                 &mut prepared,
                 &log,
                 &managed.authorization.stop_catalog(),
                 limits,
             )
-            .await?;
-        }
+            .await?
+        } else {
+            Vec::new()
+        };
         let discovery = directory::prepare(&mut prepared, &mut options, &log, &transport).await?;
         registration::refresh_routes(&mut prepared, &log, options.managed.is_some())?;
         let sql = CellGroupSqlPool::start(&log, limits.sql)?;
@@ -330,43 +332,43 @@ pub(crate) async fn start(
                                 .clone(),
                         });
                     }
-                    let pages = ManifestPageStore::group_pages_path(
-                        &directory,
-                        assignment.birth.route().history,
-                    );
-                    let backend = images.apply(namespace.directory.namespace_config(), &options)?;
-                    let (applier, current) = log
-                        .domain()
-                        .blocking(move || {
-                            let pages = resources::pages(&pages, limits)?;
-                            Ok::<_, anyhow::Error>(CellGroupApplier::recover(
-                                group,
-                                pages,
-                                backend,
-                                limits.manifest,
-                                limits.entries,
-                                limits.max_effect_rows,
-                            )?)
-                        })?
-                        .await??;
+                    let (applier, current) = images
+                        .recover_group(
+                            &log,
+                            group,
+                            namespace.directory.namespace_config(),
+                            &options,
+                            limits,
+                        )
+                        .await?;
                     runtime.attach(permit, current).await?;
 
                     appliers.push(applier);
                 }
             }
         }
-        // Refuse incomplete inventories before any collector can consider unpinned
-        // files. Every retained group must have a recovered assignment.
-        for group in log.cell_groups()? {
-            anyhow::ensure!(
-                appliers
-                    .iter()
-                    .any(|a| a.history() == group.identity().scope),
-                "retained group is absent from the node placement inventory"
+        // Recover the pending children before clearing conservative image
+        // references. Their owners stay out of the serving roster and transport.
+        let mut parked_replicas = Vec::with_capacity(parked.len());
+        for (namespace, group) in parked {
+            parked_replicas.push(
+                images
+                    .recover_group(
+                        &log,
+                        group,
+                        prepared.namespaces[namespace].directory.namespace_config(),
+                        &options,
+                        limits,
+                    )
+                    .await?,
             );
         }
         let mut collectible = Vec::new();
-        collectible.extend(images.adopt_recovered(&log, &appliers).await?);
+        collectible.extend(
+            images
+                .adopt_recovered(&log, &appliers, &parked_replicas)
+                .await?,
+        );
         // No physical peer or query route is reachable while a later local group
         // still waits on its permanent claim or physical recovery. The attached
         // owners retain bounded Ready work until the controller starts draining it.
@@ -452,6 +454,7 @@ pub(crate) async fn start(
                 max_waiters: limits.provisioning.max_waiters,
             },
             archive_provisioning,
+            parked_replicas,
         )?;
         let mut registrations = Vec::new();
         let mut effects = Vec::new();
