@@ -408,6 +408,11 @@ async fn verify_pending_child_raft(
     let domain = &cluster.domain;
     for (index, (pool, partition)) in installed.voters.into_iter().enumerate() {
         let log = &cluster.voters[index].log;
+        let (apply_pool, _) = fixture
+            .appliers
+            .get(&(index, cluster.birth.route().history))
+            .context("voter apply pool")?;
+        let apply_pool = apply_pool.clone();
         for child in partition.children() {
             let history = child.route().history;
             let permit = domain
@@ -432,7 +437,7 @@ async fn verify_pending_child_raft(
             fixture.runtimes[index].attach(permit, root).await?;
             fixture
                 .appliers
-                .insert((index, history), (source_seal::apply_pool(log)?, applier));
+                .insert((index, history), (apply_pool.clone(), applier));
             fixture
                 .applied
                 .entry(history)
