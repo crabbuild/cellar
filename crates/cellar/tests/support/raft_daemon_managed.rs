@@ -215,7 +215,14 @@ pub(super) async fn initialize(root: &Path) -> Result<()> {
     let result = domain
         .run(async {
             let operator = Operator::open(domain.clone(), root)?;
-            let snapshot = operator.fleet.initialize(TIMEOUT).await?;
+            let snapshot = if docker::enabled() {
+                operator
+                    .fleet
+                    .initialize_with_replica_separation(FleetReplicaSeparation::Nodes, TIMEOUT)
+                    .await?
+            } else {
+                operator.fleet.initialize(TIMEOUT).await?
+            };
             let identity = request(10, snapshot.revision());
             let class = counter::definition()?;
             let limits = configuration::limits().directory;
@@ -261,7 +268,9 @@ pub(super) async fn initialize(root: &Path) -> Result<()> {
                         &FleetNodeSpec {
                             node: node(index)?,
                             disk: DiskLineage::new([index + 4; 16])?,
-                            physical_host: IncarnationId::new([index + 90; 16])?,
+                            physical_host: IncarnationId::new(
+                                [if docker::enabled() { 90 } else { index + 90 }; 16],
+                            )?,
                             label: format!("raft-cli-cluster-{index}"),
                             server_name: "localhost".into(),
                             capability_digest,
@@ -345,7 +354,12 @@ impl Operator {
             query: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
         };
         let mut process = [0; 16];
-        process[..4].copy_from_slice(&std::process::id().to_be_bytes());
+        if std::env::var_os(docker::VOTER).is_some() {
+            getrandom::fill(&mut process)
+                .map_err(|error| anyhow::anyhow!("process generation: {error}"))?;
+        } else {
+            process[..4].copy_from_slice(&std::process::id().to_be_bytes());
+        }
         let process = ProcessGeneration::new(process)?;
         let peers = vec![RaftPeerNode {
             node: id,

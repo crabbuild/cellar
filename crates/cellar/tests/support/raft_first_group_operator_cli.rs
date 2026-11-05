@@ -85,7 +85,9 @@ impl OperatorCli {
     }
 
     pub async fn call(&self, args: &[&str], token: &str) -> Result<CliReply> {
-        let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_cellar"));
+        let executable = std::env::var_os("CELLAR_RAFT_OPERATOR_CLI")
+            .unwrap_or_else(|| env!("CARGO_BIN_EXE_cellar").into());
+        let mut command = tokio::process::Command::new(executable);
         command
             .args(["raft", "fleet"])
             .args(args)

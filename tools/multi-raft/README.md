@@ -80,6 +80,37 @@ uses both image modes and keeps the obsolete member's physical debt through
 repair. It verifies a guarded handoff, joined stop, paused retained return
 and fresh resume before the returning member serves both cells.
 
+## Constrained Linux managed daemon
+
+The daemon fixture runs from the dedicated Colima guest. It launches each voter
+in its own container with one CPU, 3 GiB memory, no additional swap and a separate
+retained disk mount. The guest loopback network carries real Raft TLS and native
+HTTP. All voters share the guest's physical host identity. The controller runs
+outside the voter containers and keeps the Docker socket out of their mounts.
+
+Start and verify an owned RustFS backend as above, then build and run from a
+committed source revision.
+
+```sh
+revision=$(git rev-parse HEAD)
+git archive "$revision" | docker --context colima-cellar-multi-raft build \
+  --build-arg "SOURCE_REVISION=$revision" \
+  -f tools/multi-raft/daemon.Dockerfile -t cellar-linux-daemon:qualification -
+image=$(docker --context colima-cellar-multi-raft image inspect \
+  --format '{{.Id}}' cellar-linux-daemon:qualification)
+python3 tools/multi-raft/daemon.py --image "$image" \
+  --backend /tmp/cellar-raft-local-001 \
+  --output /tmp/cellar-managed-daemon-linux-001
+```
+
+Both image forms use the real operator CLI, capacity and first-group workflow,
+quorum writes, receipt-backed follower reads, an owned voter SIGKILL, exact
+retry reconciliation and retained restart. The record includes source and
+binary digests, S3 probes, running resource settings, disk mounts and exit
+states. Logs and disks remain available after the run. The lab attests fixture
+capacity and runs on one VM. Cross-host failure, Axum, loss of quorum, archive
+outages and sustained load have separate acceptance gates.
+
 ## Shared cell-group archive checks
 
 Commit the test and harness sources, then run the native three-voter TLS fixture

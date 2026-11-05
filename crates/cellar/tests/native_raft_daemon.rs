@@ -8,6 +8,8 @@ mod configuration;
 #[path = "../../../examples/raft-counter/counter.rs"]
 #[allow(dead_code)]
 mod counter;
+#[path = "support/raft_daemon_docker.rs"]
+mod docker;
 #[path = "support/html.rs"]
 #[allow(dead_code)]
 mod graph;
@@ -335,13 +337,16 @@ async fn ready_counter(service: &RaftCells, history: GroupHistory, local: Member
 
 struct Process {
     child: Child,
+    voter: Option<docker::Voter>,
     log: PathBuf,
     diagnostics: PathBuf,
 }
 
 impl Drop for Process {
     fn drop(&mut self) {
-        if self.child.try_wait().ok().flatten().is_none() {
+        if let Some(voter) = &self.voter {
+            let _ = voter.kill_if_running();
+        } else if self.child.try_wait().ok().flatten().is_none() {
             let _ = self.child.kill();
         }
         let _ = self.child.wait();
@@ -380,9 +385,7 @@ impl Process {
                 "--internal-listen",
                 "127.0.0.1:0",
             ])
-            .args(data_args)
-            .stdout(Stdio::from(File::create(&log)?))
-            .stderr(Stdio::from(File::create(&diagnostics)?));
+            .args(data_args);
         if mode.starts_with("cluster-") {
             cmd.env("CELLAR_TEST_BUCKET", "cellar-dev")
                 .env("CELLAR_INTERNAL_DEV_STORE", root.join("fleet.sqlite"));
@@ -398,8 +401,22 @@ impl Process {
         if override_dir {
             cmd.env("CELLAR_TEST_DATA_DIR", root.join("override"));
         }
+        let stdout = File::create(&log)?;
+        let stderr = File::create(&diagnostics)?;
+        let (child, voter) = if mode.starts_with("cluster-") && docker::enabled() {
+            let voter = docker::Voter::create(root, mode, &cmd)?;
+            (voter.start(stdout, stderr)?, Some(voter))
+        } else {
+            (
+                cmd.stdout(Stdio::from(stdout))
+                    .stderr(Stdio::from(stderr))
+                    .spawn()?,
+                None,
+            )
+        };
         Ok(Self {
-            child: cmd.spawn()?,
+            child,
+            voter,
             log,
             diagnostics,
         })
@@ -448,6 +465,9 @@ impl Process {
                 addr("cellar listening on "),
                 addr("cellar internal listening on "),
             ) {
+                if let Some(voter) = &self.voter {
+                    voter.running()?;
+                }
                 return Ok((public, internal));
             }
             ensure!(
@@ -675,14 +695,15 @@ async fn qualify() -> Result<()> {
     }
     // Three separate production CLI processes use a shared catalog and peer
     // authentication key, one shared group with two independent cells and real TLS replication.
-    let root = tempfile::tempdir()?;
+    let mut root = tempfile::tempdir()?;
+    root.disable_cleanup(docker::enabled());
     // The real dev supervisor initializes its local store before starting
     // children. Concurrent first-open WAL/schema setup is not peer readiness.
     cellar::bucket::Bucket::open_dev(&root.path().join("fleet.sqlite"))?;
     managed::initialize(root.path()).await?;
     let mut cluster = Vec::new();
     for i in 0..3 {
-        let disk = root.path().join(format!("disk-{i}"));
+        let disk = docker::disk(root.path(), i);
         let mut process = Process::spawn(
             root.path(),
             &format!("cluster-{i}"),

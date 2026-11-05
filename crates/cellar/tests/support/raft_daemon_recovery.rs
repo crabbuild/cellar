@@ -169,16 +169,25 @@ pub(super) async fn hard_kill_and_resume(
     ledger.record(
         serde_json::json!({"phase":"before_hard_kill", "pid":old_pid, "member":killed + 1}),
     )?;
-    processes[killed].child.kill()?;
-    let status = processes[killed].child.wait()?;
+    let process = &mut processes[killed];
+    if let Some(voter) = &process.voter {
+        voter.kill_if_running()?;
+    } else {
+        process.child.kill()?;
+    }
+    let status = process.child.wait()?;
     ensure!(!status.success(), "injected hard kill exited successfully");
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::ExitStatusExt as _;
-        ensure!(
-            status.signal() == Some(9),
-            "worker was not killed by SIGKILL: {status}"
-        );
+    if let Some(voter) = &process.voter {
+        voter.killed()?;
+    } else {
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::ExitStatusExt as _;
+            ensure!(
+                status.signal() == Some(9),
+                "worker was not killed by SIGKILL: {status}"
+            );
+        }
     }
     ledger.record(
         serde_json::json!({"phase":"hard_kill_joined", "pid":old_pid, "status":status.to_string()}),
@@ -227,7 +236,7 @@ pub(super) async fn hard_kill_and_resume(
         )?;
         current.push((old, next));
     }
-    let disk = root.join(format!("disk-{killed}"));
+    let disk = docker::disk(root, killed);
     processes[killed] = Process::spawn(
         root,
         &format!("cluster-resume-{killed}"),
