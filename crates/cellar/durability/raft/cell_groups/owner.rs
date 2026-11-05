@@ -189,7 +189,7 @@ pub enum CellGroupRecoveryActivation {
 /// An admitted activation proposal or its durable applied position.
 pub enum CellGroupTransferActivation {
     Accepted(CellGroupProposal),
-    Applied(LogPosition),
+    Applied(Box<super::CellGroupTransferActivationAck>),
 }
 
 enum Phase {
@@ -872,15 +872,11 @@ impl CellGroupOwner {
         self.live()?;
         permit.check(&self.log, &self.group)?;
         let marker = self.current.marker();
-        if let Some(position) = permit.applied_position(marker)? {
-            let cache = self.group.read()?;
-            if cache.group_manifest.as_ref() != Some(marker)
-                || cache.hard_state.commit < position.index.get()
-            {
-                return Err(RuntimeError::NotReady);
-            }
+        if let Some(acknowledgement) = permit.acknowledge(&self.group, marker)? {
             self.activation_proposal = None;
-            return Ok(CellGroupTransferActivation::Applied(position));
+            return Ok(CellGroupTransferActivation::Applied(Box::new(
+                acknowledgement,
+            )));
         }
         self.propose_activation(|| Ok(permit.into_entry()))
             .map(CellGroupTransferActivation::Accepted)

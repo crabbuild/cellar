@@ -209,10 +209,20 @@ pub(crate) async fn sealed_source_archives(
     ))
     .await?;
     Box::pin(verify_transfer_archive(
-        &fixture, &archives, &plan, store, &committed,
+        &fixture,
+        &archives,
+        &plan,
+        store.clone(),
+        &committed,
     ))
     .await?;
-    let active = Box::pin(verify_transfer_activation(&mut fixture, &plan, &committed)).await?;
+    let active = Box::pin(verify_transfer_activation(
+        &mut fixture,
+        &plan,
+        &committed,
+        store,
+    ))
+    .await?;
     reopen_installed_children(&fixture, &plan, &active).await?;
     fixture.close().await
 }
@@ -637,6 +647,7 @@ async fn verify_transfer_activation(
     fixture: &mut RuntimeCluster,
     plan: &DirectoryMutation,
     children: &[GroupManifest],
+    store: Arc<catalog_fault::Store>,
 ) -> Result<Vec<GroupManifest>> {
     let directory = fixture.cluster.directory.clone();
     let domain = &fixture.cluster.domain;
@@ -683,14 +694,20 @@ async fn verify_transfer_activation(
         .context("commit transfer activations")?;
 
     let domain = &fixture.cluster.domain;
+    let mut acknowledgements = Vec::with_capacity(children.len());
+    let mut expected_activations = Vec::with_capacity(children.len());
     for (child, (scope, position)) in children.iter().zip(positions) {
         let retry = domain
             .run(directory.prepare_transfer_activation(plan, scope, &log))
             .await??;
-        anyhow::ensure!(matches!(
-            fixture.runtimes[0].activate_transfer(retry).await?,
-            CellGroupTransferActivation::Applied(applied) if applied.index == position
-        ));
+        let CellGroupTransferActivation::Applied(applied) =
+            fixture.runtimes[0].activate_transfer(retry).await?
+        else {
+            anyhow::bail!("transfer activation did not return durable acknowledgement");
+        };
+        anyhow::ensure!(applied.position().index == position);
+        expected_activations.push((scope, applied.position()));
+        acknowledgements.push(*applied);
         for voter in &fixture.cluster.voters {
             let marker = voter
                 .log
@@ -707,6 +724,15 @@ async fn verify_transfer_activation(
         }
     }
 
+    Box::pin(verify_active_decision(
+        &fixture.cluster,
+        &directory,
+        plan,
+        acknowledgements,
+        &expected_activations,
+        store,
+    ))
+    .await?;
     let view = domain.run(directory.observe()).await??;
     let original_cell = CellId::new("alpha")?;
     let original_route = domain
@@ -785,6 +811,79 @@ async fn verify_transfer_activation(
                 .context("retained active child")
         })
         .collect()
+}
+
+async fn verify_active_decision(
+    cluster: &Cluster,
+    directory: &RangeDirectory,
+    plan: &DirectoryMutation,
+    acknowledgements: Vec<CellGroupTransferActivationAck>,
+    positions: &[(GroupHistory, LogPosition)],
+    store: Arc<catalog_fault::Store>,
+) -> Result<()> {
+    let domain = &cluster.domain;
+    anyhow::ensure!(domain
+        .run(directory.transfer_activations(plan))
+        .await??
+        .is_none());
+    anyhow::ensure!(matches!(
+        domain
+            .run(directory.record_transfer_activations(plan, vec![acknowledgements[0].clone()],))
+            .await?,
+        Err(CatalogError::Invalid(_))
+    ));
+    let mut reversed = acknowledgements.clone();
+    reversed.reverse();
+    anyhow::ensure!(matches!(
+        domain
+            .run(directory.record_transfer_activations(plan, reversed))
+            .await?,
+        Err(CatalogError::Fenced)
+    ));
+    let (_, before) = domain
+        .run(directory.active_transition())
+        .await??
+        .context("published transition before activation settlement")?;
+    anyhow::ensure!(before.phase() == TransitionPhase::Published);
+    store.fail_head_confirmation.store(true, Ordering::Release);
+    anyhow::ensure!(matches!(
+        domain
+            .run(directory.record_transfer_activations(plan, acknowledgements.clone()))
+            .await?,
+        Err(CatalogError::Unconfirmed)
+    ));
+
+    let catalog = Catalog::new(store, CatalogOptions::default())?;
+    let namespace = domain
+        .run(catalog.existing_namespace(directory.namespace_config().clone()))
+        .await??;
+    let reopened = RangeDirectory::new(namespace, DirectoryLimits::default())?;
+    let (original, active) = domain
+        .run(reopened.active_transition())
+        .await??
+        .context("active transition after lost reply")?;
+    anyhow::ensure!(original.encode() == plan.encode());
+    anyhow::ensure!(
+        active.phase() == TransitionPhase::Active && active.activated_children().is_some()
+    );
+    anyhow::ensure!(
+        domain
+            .run(reopened.transfer_activations(&original))
+            .await??
+            .as_deref()
+            == Some(positions)
+    );
+    anyhow::ensure!(
+        domain
+            .run(reopened.record_transfer_activations(&original, acknowledgements))
+            .await??
+            == active
+    );
+    anyhow::ensure!(
+        domain.run(reopened.publication(&original)).await??
+            == domain.run(directory.publication(plan)).await??
+    );
+    Ok(())
 }
 
 async fn await_applied(

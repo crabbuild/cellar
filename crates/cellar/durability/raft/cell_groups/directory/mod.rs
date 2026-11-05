@@ -39,7 +39,9 @@ pub(crate) use route_cache::RouteCache;
 mod store;
 mod transition;
 mod transition_activation;
-pub use transition_activation::CellGroupTransferActivationPermit;
+pub use transition_activation::{
+    CellGroupTransferActivationAck, CellGroupTransferActivationPermit,
+};
 mod transition_archive;
 pub use transition_archive::CellGroupTransferArchive;
 mod transition_child_quorum;

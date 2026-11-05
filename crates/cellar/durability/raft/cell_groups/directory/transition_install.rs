@@ -359,6 +359,7 @@ impl RangeDirectory {
                     | TransitionPhase::Installed
                     | TransitionPhase::Archived
                     | TransitionPhase::Published
+                    | TransitionPhase::Active
             )
             || journal.sealed_sources() != Some(origin.sealed_sources())
             || origin.operation() != plan.operation().bytes()

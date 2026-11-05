@@ -1110,7 +1110,11 @@ and refuse replay after later retirement. The child Raft owner admits the exact
 certificate and seed commitment only after its fresh-term barrier. Committed
 apply retains the certificate, seed commitment and activation position in the
 child manifest. Subsequent mutations, checkpoints and retained restart preserve
-that evidence. A selected child can serve only after activation applies.
+that evidence. A selected child can serve only after activation applies. The
+directory selects Active after receiving one durable acknowledgement for every
+child in plan order. It binds the set to the exact publication and installed
+seed commitments and can reopen it after an ambiguous CAS. The topology lane
+remains owned until parent retirement.
 Source tombstones remain effective across restart, delayed messages and catalog
 unavailability. The whole transition is one fenced owner operation; concurrent
 controllers reconcile the same journal instead of selecting different children.

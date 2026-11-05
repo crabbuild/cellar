@@ -7,7 +7,26 @@ use crate::application::consensus::group_protocol::{
 use crate::raft::{
     cache::GroupLog, cell_groups::GroupManifest, completion::RuntimeError, storage::ReplicaLog,
 };
-use cellar_logic::consensus::{EngineInstanceId, LogPosition};
+use cellar_logic::consensus::{EngineInstanceId, LogIndex, LogPosition, Term};
+use serde::{Deserialize, Serialize};
+
+const ACTIVATIONS: u8 = 208;
+const SETS: &str = "transfer-activation-sets";
+
+/// Historical proof from an engine-bound Raft owner after durable apply.
+#[derive(Clone, Debug)]
+pub struct CellGroupTransferActivationAck {
+    route: GroupRoute,
+    publication: [u8; 32],
+    manifest: [u8; 32],
+    position: LogPosition,
+}
+
+impl CellGroupTransferActivationAck {
+    pub fn position(&self) -> LogPosition {
+        self.position
+    }
+}
 
 /// Exact selected publication and seed, bound to one open voter engine.
 pub struct CellGroupTransferActivationPermit {
@@ -40,10 +59,11 @@ impl CellGroupTransferActivationPermit {
         Ok(())
     }
 
-    pub(crate) fn applied_position(
+    pub(crate) fn acknowledge(
         &self,
+        group: &GroupLog<GroupHistory>,
         marker: &GroupManifest,
-    ) -> Result<Option<LogPosition>, RuntimeError> {
+    ) -> Result<Option<CellGroupTransferActivationAck>, RuntimeError> {
         if marker.route().history != self.history()
             || marker
                 .transfer_commitment()
@@ -56,7 +76,18 @@ impl CellGroupTransferActivationPermit {
             Some((publication, manifest, position))
                 if publication == self.publication && manifest == self.manifest =>
             {
-                Ok(Some(position))
+                let cache = group.read()?;
+                if cache.group_manifest.as_ref() != Some(marker)
+                    || cache.hard_state.commit < position.index.get()
+                {
+                    return Err(RuntimeError::NotReady);
+                }
+                Ok(Some(CellGroupTransferActivationAck {
+                    route: marker.route().clone(),
+                    publication,
+                    manifest,
+                    position,
+                }))
             }
             Some(_) => Err(RuntimeError::StaleCompletion),
             None => Ok(None),
@@ -132,5 +163,180 @@ impl RangeDirectory {
             })
         })
         .await
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ActivationSet {
+    namespace: [u8; 32],
+    plan: [u8; 32],
+    publication: [u8; 32],
+    installed: [u8; 32],
+    children: Vec<ActivationReceipt>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ActivationReceipt {
+    group: [u8; 16],
+    incarnation: [u8; 16],
+    manifest: [u8; 32],
+    index: u64,
+    term: u64,
+}
+
+impl ActivationReceipt {
+    fn new(ack: CellGroupTransferActivationAck) -> Self {
+        Self {
+            group: ack.route.history.group.bytes(),
+            incarnation: ack.route.history.incarnation.bytes(),
+            manifest: ack.manifest,
+            index: ack.position.index.get(),
+            term: ack.position.term.get(),
+        }
+    }
+
+    fn validate(&self, installed: &GroupManifest) -> Result<LogPosition, CatalogError> {
+        let history = installed.route().history;
+        let position = LogPosition {
+            index: LogIndex::new(self.index),
+            term: Term::new(self.term),
+        };
+        let commitment = installed
+            .transfer_commitment()
+            .map_err(|_| CatalogError::Corrupt("installed child seed commitment"))?;
+        if self.group != history.group.bytes()
+            || self.incarnation != history.incarnation.bytes()
+            || commitment != Some(self.manifest)
+            || position.index <= installed.position().index
+            || position.term < installed.position().term
+        {
+            return Err(CatalogError::Fenced);
+        }
+        Ok(position)
+    }
+}
+
+impl RangeDirectory {
+    /// Select a complete set of durable child activations in plan order.
+    /// Keep the topology lane owned until the parents can safely retire.
+    pub async fn record_transfer_activations(
+        &self,
+        plan: &DirectoryMutation,
+        acknowledgements: Vec<CellGroupTransferActivationAck>,
+    ) -> Result<TransitionJournal, CatalogError> {
+        self.unmanaged_birth()?;
+        self.check_transition_plan(plan)?;
+        if acknowledgements.len() != plan.request.children.len() {
+            return Err(CatalogError::Invalid("incomplete transfer activation set"));
+        }
+        let (publication, installed, digest) = self
+            .bounded(async {
+                let (view, _) = self.current().await?;
+                let journal = self
+                    .matching_transition(&view.head, plan)
+                    .await?
+                    .ok_or(CatalogError::Fenced)?;
+                let (publication, installed) = self
+                    .transfer_activation_dependencies(plan, &view.head, &journal)
+                    .await?;
+                let markers = self
+                    .installed_transfer_children(plan)
+                    .await?
+                    .ok_or(CatalogError::Fenced)?;
+                let mut children = Vec::with_capacity(markers.len());
+                for (ack, marker) in acknowledgements.into_iter().zip(markers) {
+                    if ack.publication != publication || &ack.route != marker.route() {
+                        return Err(CatalogError::Fenced);
+                    }
+                    let receipt = ActivationReceipt::new(ack);
+                    receipt.validate(&marker)?;
+                    children.push(receipt);
+                }
+                let set = ActivationSet {
+                    namespace: self.namespace.root_digest,
+                    plan: plan.digest(),
+                    publication,
+                    installed,
+                    children,
+                };
+                let bytes = record::encode(ACTIVATIONS, &set, wire::LIMIT)?;
+                let digest = record::digest(&bytes);
+                self.immutable(SETS, digest, &bytes).await?;
+                Ok((publication, installed, digest))
+            })
+            .await?;
+        self.record_verified_transfer_activations(plan, publication, installed, digest)
+            .await
+    }
+
+    /// Reopen the historical applied positions selected by the Active CAS.
+    pub async fn transfer_activations(
+        &self,
+        plan: &DirectoryMutation,
+    ) -> Result<Option<Vec<(GroupHistory, LogPosition)>>, CatalogError> {
+        self.unmanaged_birth()?;
+        self.check_transition_plan(plan)?;
+        self.bounded(async {
+            let (view, _) = self.current().await?;
+            let journal = self
+                .matching_transition(&view.head, plan)
+                .await?
+                .ok_or(CatalogError::Fenced)?;
+            let Some(digest) = journal.activated_children() else {
+                return Ok(None);
+            };
+            let bytes = self
+                .read(&format!("{SETS}/{}", hex::encode(digest)))
+                .await?
+                .ok_or(CatalogError::Corrupt("missing transfer activation set"))?;
+            if record::digest(&bytes) != digest {
+                return Err(CatalogError::Corrupt("transfer activation set digest"));
+            }
+            let set: ActivationSet = record::decode(ACTIVATIONS, &bytes, wire::LIMIT)?;
+            let (publication, installed) = self
+                .transfer_activation_dependencies(plan, &view.head, &journal)
+                .await?;
+            if set.namespace != self.namespace.root_digest
+                || set.plan != plan.digest()
+                || set.publication != publication
+                || set.installed != installed
+                || set.children.len() != plan.request.children.len()
+            {
+                return Err(CatalogError::Corrupt("transfer activation set binding"));
+            }
+            let markers = self
+                .installed_transfer_children(plan)
+                .await?
+                .ok_or(CatalogError::Corrupt("missing activated child install set"))?;
+            set.children
+                .into_iter()
+                .zip(markers)
+                .map(|(receipt, marker)| Ok((marker.route().history, receipt.validate(&marker)?)))
+                .collect::<Result<Vec<_>, CatalogError>>()
+                .map(Some)
+        })
+        .await
+    }
+
+    async fn transfer_activation_dependencies(
+        &self,
+        plan: &DirectoryMutation,
+        head: &wire::Head,
+        journal: &TransitionJournal,
+    ) -> Result<([u8; 32], [u8; 32]), CatalogError> {
+        let publication = self
+            .confirmed(head, plan)
+            .await?
+            .filter(|publication| {
+                publication.transfer_archive() == journal.transfer_archive()
+                    && publication.transfer_archive().is_some()
+            })
+            .ok_or(CatalogError::Fenced)?;
+        Ok((
+            publication.journal_digest(),
+            journal.installed_children().ok_or(CatalogError::Fenced)?,
+        ))
     }
 }
