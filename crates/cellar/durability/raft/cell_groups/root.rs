@@ -198,6 +198,14 @@ impl GroupManifest {
             && self.membership_revision == 1
     }
 
+    pub(crate) fn pending_transfer_genesis(&self) -> Result<Self, ManifestError> {
+        let origin = self.transfer_origin().ok_or(ManifestError::Conflict)?;
+        if self.transfer_activation().is_some() || self.membership_revision != 1 {
+            return Err(ManifestError::Conflict);
+        }
+        Self::transfer_genesis(self.route.clone(), self.root, origin.clone())
+    }
+
     pub(crate) fn preserves_transfer(&self, previous: &Self) -> bool {
         match (previous.transfer_origin(), self.transfer_origin()) {
             (None, None) => true,

@@ -124,6 +124,7 @@ impl CellGroupBootstrapPermit {
                 host,
                 deadline,
             }) => self
+                .directory
                 .bootstrap_managed_pending_transfer_voter(
                     transition.clone(),
                     self.route(),

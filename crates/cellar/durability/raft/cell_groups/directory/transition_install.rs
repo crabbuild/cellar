@@ -151,12 +151,9 @@ fn install_prefix(route: &GroupRoute) -> String {
 }
 
 fn pending_genesis(marker: &GroupManifest) -> Result<GroupManifest, CatalogError> {
-    let origin = marker.transfer_origin().ok_or(CatalogError::Fenced)?;
-    if marker.transfer_activation().is_some() || marker.membership_revision() != 1 {
-        return Err(CatalogError::Fenced);
-    }
-    GroupManifest::transfer_genesis(marker.route().clone(), marker.root(), origin.clone())
-        .map_err(|_| CatalogError::Corrupt("pending transfer genesis"))
+    marker
+        .pending_transfer_genesis()
+        .map_err(|_| CatalogError::Fenced)
 }
 
 struct InstallRecords {
