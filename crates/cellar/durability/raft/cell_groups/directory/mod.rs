@@ -43,6 +43,7 @@ mod transition_sources;
 pub use transition_sources::{CellGroupTransitionSource, VerifiedCellGroupTransitionSources};
 mod transition_install;
 pub(crate) use transition_install::TransferSeedPermit;
+pub use transition_install::{InstalledTransferVoter, TransferInstallQuorum};
 mod transition_preparation;
 pub use transition_preparation::{
     CellGroupTransitionPreparationInputs, PreparedManagedCellGroupTransition,

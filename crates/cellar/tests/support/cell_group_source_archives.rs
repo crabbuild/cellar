@@ -395,20 +395,6 @@ async fn verify_partition(
     plan: &DirectoryMutation,
     verified: VerifiedCellGroupTransitionSources,
 ) -> Result<Vec<GroupManifest>> {
-    let targets = verified
-        .children()
-        .iter()
-        .enumerate()
-        .map(|(index, route)| {
-            let (store, directory) =
-                archives.store(cluster, route.clone(), &format!("node-1/child-{index}"))?;
-            Ok(CellGroupTransferTarget {
-                store,
-                directory,
-                scratch: scratch()?,
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
     let pool = CellGroupRecoveryPool::new(CellGroupRecoveryLimits {
         max_cells: 3,
         max_image_bytes: 1024 * 1024,
@@ -419,10 +405,94 @@ async fn verify_partition(
         .journal()
         .sealed_sources()
         .context("sealed source set missing")?;
-    let partition = pool
-        .prepare_transfer_partition(&cluster.domain, verified, targets)
-        .await?;
-    anyhow::ensure!(pool.usage().operations == 1);
+    let directory = &cluster.directory;
+    let mut installed = Vec::new();
+    for (voter_index, voter) in cluster.voters.iter().enumerate() {
+        let targets = verified
+            .children()
+            .iter()
+            .enumerate()
+            .map(|(index, route)| {
+                let (store, directory) = archives.store(
+                    cluster,
+                    route.clone(),
+                    &format!("node-{}/child-{index}", voter_index + 1),
+                )?;
+                Ok(CellGroupTransferTarget {
+                    store,
+                    directory,
+                    scratch: scratch()?,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let partition = pool
+            .prepare_transfer_partition(&cluster.domain, verified.clone(), targets)
+            .await?;
+        anyhow::ensure!(pool.usage().operations == 1);
+        if voter_index == 0 {
+            verify_partition_data(archives, plan, &partition, sources)?;
+        }
+        for (child_index, child) in partition.children().iter().enumerate() {
+            let marker = child.genesis().context("child genesis")?.marker();
+            let history = child.route().history;
+            let first = cluster
+                .domain
+                .run(directory.install_transfer_voter(plan, child, &voter.log))
+                .await??;
+            anyhow::ensure!(first.group_manifest()?.as_ref() == Some(marker));
+            if voter_index == 0 {
+                verify_install_retry(cluster, plan, child, &first).await?;
+                installed.push(marker.clone());
+            } else {
+                anyhow::ensure!(&installed[child_index] == marker);
+            }
+            let quorum = cluster
+                .domain
+                .run(directory.observe_transfer_install_quorum(plan, history))
+                .await??;
+            if voter_index == 0 {
+                anyhow::ensure!(quorum.is_none());
+            } else {
+                let proof = quorum.context("missing physical install quorum")?;
+                anyhow::ensure!(
+                    proof.genesis == *marker
+                        && proof.voters.len() == voter_index + 1
+                        && proof
+                            .voters
+                            .iter()
+                            .zip(&cluster.voters)
+                            .all(|(receipt, expected)| {
+                                let group = expected.log.cell_group(&history);
+                                group.is_ok_and(|group| {
+                                    group.identity().member == receipt.member
+                                        && group.identity().node == receipt.node
+                                        && group.identity().disk == receipt.disk
+                                }) && expected
+                                    .log
+                                    .storage_instance()
+                                    .is_ok_and(|engine| engine == receipt.engine)
+                            })
+                );
+            }
+        }
+        let retained = partition.children()[0]
+            .genesis()
+            .context("child genesis")?
+            .clone();
+        drop(partition);
+        anyhow::ensure!(pool.usage().operations == 1);
+        drop(retained);
+        anyhow::ensure!(pool.usage().operations == 0);
+    }
+    Ok(installed)
+}
+
+fn verify_partition_data(
+    archives: &Archives,
+    plan: &DirectoryMutation,
+    partition: &PreparedCellGroupTransfer,
+    sources: [u8; 32],
+) -> Result<()> {
     anyhow::ensure!(partition.children().len() == 2);
     anyhow::ensure!(
         partition
@@ -490,50 +560,41 @@ async fn verify_partition(
             _ => anyhow::bail!("wrong staged image representation"),
         }
     }
+    Ok(())
+}
+
+async fn verify_install_retry(
+    cluster: &Cluster,
+    plan: &DirectoryMutation,
+    child: &PreparedCellGroupTransferChild,
+    first: &GroupLog<GroupHistory>,
+) -> Result<()> {
     let directory = &cluster.directory;
     let log = &cluster.voters[0].log;
-    let mut installed = Vec::new();
-    for child in partition.children() {
-        let marker = child.genesis().context("child genesis")?.marker();
-        let first = cluster
-            .domain
-            .run(directory.install_transfer_voter(plan, child, log))
-            .await??;
-        anyhow::ensure!(first.group_manifest()?.as_ref() == Some(marker));
-        let retry = cluster
-            .domain
-            .run(directory.install_transfer_voter(plan, child, log))
-            .await??;
-        anyhow::ensure!(retry.numeric_key() == first.numeric_key());
-        let ordinary = cluster
-            .domain
-            .run(
-                log.create_cell_group(CellGroupBootstrap {
-                    route: child.route().clone(),
-                    member: MemberId::new(1)?,
-                    voters: [1, 2, 3]
-                        .into_iter()
-                        .map(MemberId::new)
-                        .collect::<Result<Vec<_>, _>>()?,
-                    learners: vec![],
-                }),
-            )
-            .await?;
-        anyhow::ensure!(matches!(ordinary, Err(LogError::WrongIdentity)));
-        anyhow::ensure!(cluster
-            .domain
-            .run(directory.materialize_selected_history(child.route().history))
-            .await?
-            .is_err());
-        installed.push(marker.clone());
-    }
-    let retained = partition.children()[0]
-        .genesis()
-        .context("child genesis")?
-        .clone();
-    drop(partition);
-    anyhow::ensure!(pool.usage().operations == 1);
-    drop(retained);
-    anyhow::ensure!(pool.usage().operations == 0);
-    Ok(installed)
+    let retry = cluster
+        .domain
+        .run(directory.install_transfer_voter(plan, child, log))
+        .await??;
+    anyhow::ensure!(retry.numeric_key() == first.numeric_key());
+    let ordinary = cluster
+        .domain
+        .run(
+            log.create_cell_group(CellGroupBootstrap {
+                route: child.route().clone(),
+                member: MemberId::new(1)?,
+                voters: [1, 2, 3]
+                    .into_iter()
+                    .map(MemberId::new)
+                    .collect::<Result<Vec<_>, _>>()?,
+                learners: vec![],
+            }),
+        )
+        .await?;
+    anyhow::ensure!(matches!(ordinary, Err(LogError::WrongIdentity)));
+    anyhow::ensure!(cluster
+        .domain
+        .run(directory.materialize_selected_history(child.route().history))
+        .await?
+        .is_err());
+    Ok(())
 }

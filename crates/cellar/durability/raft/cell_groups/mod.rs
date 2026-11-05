@@ -135,8 +135,9 @@ pub use crate::raft::catalog::{
     CellRouteAttempt, CellRouteCacheUsage, CellRouteOperation, CellRouteRequest, CellRoutingError,
     CellRoutingFailure, CellRoutingLimits, CellRoutingSession, DirectoryLimits, DirectoryMutation,
     DirectoryPublication, DirectoryView, FencedCellGroupRecovery, FrozenCellGroupInventory,
-    PreparedCellGroupArchiveBinding, PreparedManagedCellGroupTransition, RangeDirectory,
-    ResolvedCellRoute, TransitionJournal, TransitionPhase, VerifiedCellGroupTransitionSources,
+    InstalledTransferVoter, PreparedCellGroupArchiveBinding, PreparedManagedCellGroupTransition,
+    RangeDirectory, ResolvedCellRoute, TransferInstallQuorum, TransitionJournal, TransitionPhase,
+    VerifiedCellGroupTransitionSources,
 };
 pub use enrollment::{
     decide_enrollment, EnrollmentDecision, EnrollmentError, EnrollmentPhase, EnrollmentRecord,

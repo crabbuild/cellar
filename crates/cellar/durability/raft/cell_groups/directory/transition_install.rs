@@ -7,19 +7,21 @@ use crate::raft::{
     cell_groups::{GroupManifest, PreparedCellGroupTransferChild, TransferSeed},
     storage::{CellGroupBootstrap, LogError, ReplicaLog},
 };
-use cellar_logic::consensus::{EngineInstanceId, ReplicaIdentity};
-use serde::Serialize;
+use cellar_logic::consensus::{DiskLineage, EngineInstanceId, MemberId, NodeId, ReplicaIdentity};
+use serde::{Deserialize, Serialize};
 
 const BINDING: u8 = 203;
 const INTENT: u8 = 204;
 
-#[derive(Serialize)]
-struct InstallBinding<'a> {
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct InstallBinding {
     namespace: [u8; 32],
-    genesis: &'a GroupManifest,
+    genesis: GroupManifest,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct InstallIntent {
     binding: [u8; 32],
     member: u64,
@@ -48,6 +50,30 @@ impl TransferSeedPermit {
         }
         Ok(())
     }
+}
+
+/// One reserved voter whose engine sync has an exact durable receipt.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InstalledTransferVoter {
+    pub member: MemberId,
+    pub node: NodeId,
+    pub disk: DiskLineage,
+    pub engine: EngineInstanceId,
+}
+
+/// The selected sealed-source child and its confirmed physical voter majority.
+/// Startup and current-term Raft commitment require separate proof.
+pub struct TransferInstallQuorum {
+    pub genesis: GroupManifest,
+    pub voters: Vec<InstalledTransferVoter>,
+}
+
+fn install_prefix(route: &GroupRoute) -> String {
+    format!(
+        "transfer-installs/{}/{}",
+        hex::encode(route.history.group.bytes()),
+        hex::encode(route.history.incarnation.bytes()),
+    )
 }
 
 impl RangeDirectory {
@@ -88,16 +114,12 @@ impl RangeDirectory {
                 disk: log.limits().disk,
                 process: log.limits().process,
             };
-            let prefix = format!(
-                "transfer-installs/{}/{}",
-                hex::encode(route.history.group.bytes()),
-                hex::encode(route.history.incarnation.bytes()),
-            );
+            let prefix = install_prefix(route);
             let binding = record::encode(
                 BINDING,
                 &InstallBinding {
                     namespace: self.namespace.root_digest,
-                    genesis,
+                    genesis: genesis.clone(),
                 },
                 wire::LIMIT,
             )?;
@@ -149,6 +171,84 @@ impl RangeDirectory {
             self.require_transfer_install(plan, genesis).await?;
             self.exact_install_record(&receipt, &intent).await?;
             Ok(group)
+        })
+        .await
+    }
+
+    /// Observe an exact majority of synced installs for the selected child.
+    /// Missing receipts leave a child below quorum. Corrupt receipts, stale
+    /// storage claims or two receipts sharing physical identity fail closed.
+    pub async fn observe_transfer_install_quorum(
+        &self,
+        plan: &DirectoryMutation,
+        history: GroupHistory,
+    ) -> Result<Option<TransferInstallQuorum>, CatalogError> {
+        self.unmanaged_birth()?;
+        let (_, children) = self.transition_routes(plan)?;
+        let route = children
+            .iter()
+            .find(|route| route.history == history)
+            .ok_or(CatalogError::Conflict("transfer child outside plan"))?;
+        self.bounded(async {
+            self.namespace.require_cell_group_unmanaged().await?;
+            let prefix = install_prefix(route);
+            let Some(binding) = self.read(&format!("{prefix}/binding")).await? else {
+                return Ok(None);
+            };
+            let selected: InstallBinding = record::decode(BINDING, &binding, wire::LIMIT)?;
+            if selected.namespace != self.namespace.root_digest || selected.genesis.route() != route
+            {
+                return Err(CatalogError::Corrupt("transfer install genesis binding"));
+            }
+            self.require_transfer_install(plan, &selected.genesis)
+                .await?;
+            let birth = self.require_ordinary_birth_reservation(route).await?;
+            let digest = record::digest(&binding);
+            let mut voters = Vec::with_capacity(birth.voters().len());
+            let mut disks = BTreeSet::new();
+            let mut engines = BTreeSet::new();
+            for voter in birth.voters() {
+                let member = format!("{prefix}/{:016x}", voter.member.get());
+                let Some(receipt) = self.read(&format!("{member}/receipt")).await? else {
+                    continue;
+                };
+                if self.read(&format!("{member}/intent")).await?.as_ref() != Some(&receipt) {
+                    return Err(CatalogError::Corrupt(
+                        "transfer install receipt without exact intent",
+                    ));
+                }
+                let intent: InstallIntent = record::decode(INTENT, &receipt, wire::LIMIT)?;
+                if intent.binding != digest
+                    || intent.member != voter.member.get()
+                    || intent.node != voter.node.bytes()
+                {
+                    return Err(CatalogError::Corrupt("transfer install voter identity"));
+                }
+                let disk = DiskLineage::new(intent.disk)
+                    .map_err(|_| CatalogError::Corrupt("transfer install disk"))?;
+                let engine = EngineInstanceId::new(intent.engine)
+                    .map_err(|_| CatalogError::Corrupt("transfer install engine"))?;
+                if !disks.insert(disk) || !engines.insert(engine) {
+                    return Err(CatalogError::Conflict("shared transfer install storage"));
+                }
+                self.namespace
+                    .verify_node_storage_identity(voter.node, disk, engine)
+                    .await?;
+                voters.push(InstalledTransferVoter {
+                    member: voter.member,
+                    node: voter.node,
+                    disk,
+                    engine,
+                });
+            }
+            self.require_transfer_install(plan, &selected.genesis)
+                .await?;
+            Ok(
+                (voters.len() > birth.voters().len() / 2).then_some(TransferInstallQuorum {
+                    genesis: selected.genesis,
+                    voters,
+                }),
+            )
         })
         .await
     }

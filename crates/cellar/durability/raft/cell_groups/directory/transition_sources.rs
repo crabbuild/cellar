@@ -26,6 +26,7 @@ pub struct CellGroupTransitionSource {
 
 /// Independently recovered source images and their selected catalog decision.
 /// This grants no child boot, installation, publication or serving authority.
+#[derive(Clone)]
 pub struct VerifiedCellGroupTransitionSources {
     operation: ProposalId,
     plan: [u8; 32],
