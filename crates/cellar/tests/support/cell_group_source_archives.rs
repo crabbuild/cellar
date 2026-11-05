@@ -602,12 +602,13 @@ async fn verify_transfer_publication(
         let birth = domain
             .run(reopened.materialize_selected_history(route.history))
             .await??;
-        anyhow::ensure!(matches!(
-            domain
-                .run(reopened.bootstrap_group_member(&birth, &cluster.voters[0].log))
-                .await?,
-            Err(CatalogError::Fenced)
-        ));
+        let (bootstrap, reads) = domain
+            .run(catalog_fault::count_reads(
+                reopened.bootstrap_group_member(&birth, &cluster.voters[0].log),
+            ))
+            .await?;
+        anyhow::ensure!(matches!(bootstrap, Err(CatalogError::Fenced)));
+        anyhow::ensure!(!reads.keys().any(|key| key.contains("/transfer-installs/")));
         anyhow::ensure!(matches!(
             fixture.runtimes[0].propose(route.history, vec![1]).await,
             Err(RuntimeError::NotReady)

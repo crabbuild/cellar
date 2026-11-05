@@ -213,6 +213,14 @@ fn key(operation: ProposalId) -> String {
     format!("transition/{}", hex::encode(operation.bytes()))
 }
 
+fn child_key(history: GroupHistory) -> String {
+    format!(
+        "transition/child/{}/{}",
+        hex::encode(history.group.bytes()),
+        hex::encode(history.incarnation.bytes()),
+    )
+}
+
 impl RangeDirectory {
     pub(super) async fn transition_active(
         &self,
@@ -361,8 +369,22 @@ impl RangeDirectory {
     ) -> Result<Option<[u8; 32]>, CatalogError> {
         journal.publication = Some(publication);
         journal.phase = TransitionPhase::Published;
+        // Root the birth fence with route selection. Startup must still refuse
+        // ordinary genesis if a detached install receipt goes missing.
+        let index = Index::new(self);
+        let mut operations = operations;
+        for child in &mutation.request.children {
+            operations = index
+                .update(
+                    operations,
+                    &child_key(child.decode(self)?.history),
+                    Some(publication.to_vec()),
+                    0,
+                )
+                .await?;
+        }
         // Keep the operation active until activation and retirement settle.
-        Index::new(self)
+        index
             .update(
                 operations,
                 &key(mutation.operation),
@@ -370,6 +392,21 @@ impl RangeDirectory {
                 0,
             )
             .await
+    }
+
+    pub(super) async fn require_non_transfer_birth(
+        &self,
+        route: &GroupRoute,
+    ) -> Result<(), CatalogError> {
+        let (view, _) = self.current().await?;
+        if Index::new(self)
+            .lookup(view.head.operations, &child_key(route.history))
+            .await?
+            .is_some()
+        {
+            return Err(CatalogError::Fenced);
+        }
+        Ok(())
     }
 
     pub(super) async fn check_confirmed_transfer(
