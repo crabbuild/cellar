@@ -402,6 +402,7 @@ pub(crate) fn group_prefix(
     if a.term < b.term
         || a.index == b.index && current != minimum
         || !current.preserves_recovery(minimum)
+        || !current.preserves_source_seal(minimum)
     {
         return Err(CommandFailure::CorruptState);
     }

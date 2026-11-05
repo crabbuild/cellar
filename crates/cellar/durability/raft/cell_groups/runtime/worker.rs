@@ -475,6 +475,10 @@ impl Worker {
                                     .owner
                                     .activate_recovery(*permit)
                                     .map(|result| Response::RecoveryActivation(Box::new(result))),
+                                Command::SealSource(permit) => group
+                                    .owner
+                                    .seal_source(*permit)
+                                    .map(|result| Response::SourceSeal(Box::new(result))),
                                 Command::Configure(change) => {
                                     group.owner.configure(change).map(Response::Proposal)
                                 }

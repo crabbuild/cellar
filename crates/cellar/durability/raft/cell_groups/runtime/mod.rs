@@ -143,6 +143,7 @@ enum Command {
     RestartLeadership(Box<crate::raft::completion::RestartLeadershipCheck>),
     Configure(CellGroupMembershipChange),
     ActivateRecovery(Box<CellGroupRecoveryActivationPermit>),
+    SealSource(Box<CellGroupSealPermit>),
     Execution(cellar_logic::cell_group::CellHistory),
     NextEffect {
         now: u64,
@@ -180,6 +181,7 @@ enum Response {
     Checkpoint(CellGroupSnapshotAdmission),
     Proposal(CellGroupProposal),
     RecoveryActivation(Box<CellGroupRecoveryActivation>),
+    SourceSeal(Box<CellGroupSealOutcome>),
     Submission(crate::raft::execution::CellSubmissionOutcome),
     Execution(Box<CellExecutionAuthority>),
     NextEffect(Option<Box<CellExecutionAuthority>>),
@@ -733,6 +735,22 @@ impl CellGroupRuntime {
             _ => Err(RuntimeError::Protocol(
                 "recovery activation response".into(),
             )),
+        }
+    }
+
+    /// Submit the exact local source seal to the physical Raft owner.
+    pub async fn seal_source(
+        &self,
+        permit: CellGroupSealPermit,
+    ) -> Result<CellGroupSealOutcome, RuntimeError> {
+        let history = permit.history();
+        let bytes = permit.entry_bytes().saturating_add(4096);
+        match self
+            .call(Some(history), Command::SealSource(Box::new(permit)), bytes)
+            .await?
+        {
+            Response::SourceSeal(result) => Ok(*result),
+            _ => Err(RuntimeError::Protocol("source seal response".into())),
         }
     }
 

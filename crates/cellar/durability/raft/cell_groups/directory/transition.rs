@@ -2,7 +2,13 @@
 
 //! Pre-seal split/merge decisions rooted in the same CAS as the range tree.
 use super::*;
+use crate::application::consensus::group_protocol::{
+    CellGroupEntry, GroupCommand, GroupEntryBinding, GroupEntryLimits,
+};
+use crate::raft::{cache::GroupLog, completion::RuntimeError, storage::ReplicaLog};
+use cellar_logic::consensus::EngineInstanceId;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 // Normal operation keys are 32 lowercase hexadecimal digits. These keys share
 // their immutable index and head CAS without changing its wire shape.
@@ -37,6 +43,56 @@ impl TransitionJournal {
 
     pub fn preparation(&self) -> Option<[u8; 32]> {
         self.preparation
+    }
+}
+
+/// Short-lived local capability minted only from the selected irreversible journal.
+/// It binds the encoded seal to one physically open source replica.
+pub struct CellGroupSealPermit {
+    group: GroupLog<GroupHistory>,
+    engine: EngineInstanceId,
+    deadline: u64,
+    transition: TransitionId,
+    authorization: [u8; 32],
+    payload: [u8; 32],
+    entry: Vec<u8>,
+}
+
+impl CellGroupSealPermit {
+    pub(crate) fn history(&self) -> GroupHistory {
+        self.group.identity().scope
+    }
+
+    pub(crate) fn check(
+        &self,
+        log: &ReplicaLog,
+        group: &GroupLog<GroupHistory>,
+    ) -> Result<(), RuntimeError> {
+        if !Arc::ptr_eq(&group.owner, &self.group.owner)
+            || group.identity() != self.group.identity()
+            || log.storage_instance()? != self.engine
+            || log.domain().mono_ms().map_err(|_| RuntimeError::Closed)? >= self.deadline
+        {
+            return Err(RuntimeError::StaleCompletion);
+        }
+        drop(group.read()?);
+        Ok(())
+    }
+
+    pub(crate) fn matches(&self, seal: &crate::raft::cell_groups::GroupSourceSeal) -> bool {
+        seal.matches(self.transition, self.authorization, self.payload)
+    }
+
+    pub(crate) fn payload(&self) -> [u8; 32] {
+        self.payload
+    }
+
+    pub(crate) fn entry_bytes(&self) -> usize {
+        self.entry.len()
+    }
+
+    pub(crate) fn into_entry(self) -> Vec<u8> {
+        self.entry
     }
 }
 
@@ -290,6 +346,90 @@ impl RangeDirectory {
                 return Err(CatalogError::Corrupt("active transition plan binding"));
             }
             Ok(Some((mutation, journal)))
+        })
+        .await
+    }
+
+    /// Issue the selected transition's exact seal for a local source owner.
+    /// Retrying after a lost response uses the original plan and journal digest.
+    pub async fn prepare_source_seal(
+        &self,
+        mutation: &DirectoryMutation,
+        source: GroupHistory,
+        log: &ReplicaLog,
+    ) -> Result<CellGroupSealPermit, CatalogError> {
+        self.unmanaged_birth()?;
+        self.check_transition_plan(mutation)?;
+        self.bounded(async {
+            let (view, _) = self.current().await?;
+            let journal = self
+                .matching_transition(&view.head, mutation)
+                .await?
+                .filter(|journal| journal.phase == TransitionPhase::SealAuthorized)
+                .ok_or(CatalogError::Fenced)?;
+            let route = mutation
+                .request
+                .parents
+                .iter()
+                .find(|route| {
+                    route.group == source.group.bytes()
+                        && route.incarnation == source.incarnation.bytes()
+                })
+                .ok_or(CatalogError::Fenced)?
+                .decode(self)?;
+            if route.history != source {
+                return Err(CatalogError::Fenced);
+            }
+            self.selected_route_in(&view, &route).await?;
+            let group = log.cell_group(&source).map_err(CatalogError::Log)?;
+            if group
+                .group_manifest()
+                .map_err(CatalogError::Log)?
+                .as_ref()
+                .is_none_or(|manifest| manifest.route() != &route)
+            {
+                return Err(CatalogError::Fenced);
+            }
+            let transition = TransitionId::new(mutation.operation.bytes())
+                .map_err(|_| CatalogError::Invalid("transition identity"))?;
+            let authorization = record::digest(&record::encode(JOURNAL, &journal, LIMIT)?);
+            let children = mutation
+                .request
+                .children
+                .iter()
+                .map(|route| route.decode(self))
+                .collect::<Result<Vec<_>, _>>()?;
+            let entry = CellGroupEntry {
+                binding: GroupEntryBinding {
+                    group: route.history,
+                    route_epoch: route.epoch,
+                    birth_digest: route.birth_digest,
+                    schema_digest: route.schema_digest,
+                    proposal: mutation.operation,
+                },
+                command: GroupCommand::Seal {
+                    transition,
+                    authorization,
+                    children,
+                },
+            }
+            .encode(&route, GroupEntryLimits::default())
+            .map_err(|_| CatalogError::Invalid("source seal entry"))?;
+            let deadline = log
+                .domain()
+                .mono_ms()
+                .map_err(|_| CatalogError::Unconfirmed)?
+                .checked_add(self.limits.operation_timeout_ms)
+                .ok_or(CatalogError::Limit)?;
+            Ok(CellGroupSealPermit {
+                group,
+                engine: log.storage_instance().map_err(CatalogError::Log)?,
+                deadline,
+                transition,
+                authorization,
+                payload: Sha256::digest(&entry).into(),
+                entry,
+            })
         })
         .await
     }

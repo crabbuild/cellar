@@ -201,10 +201,14 @@ same prepared head. Ordinary range publication, import and disaster recovery
 must acquire the topology head without an active transition. Routing continues
 to select the original parent ranges until the verified transfer publishes.
 
-The metadata API records the preparation digest. The managed controller still
-needs to verify child preparation, reserve physical resources, authenticate
-source Seal requests and commit each source's cut. Child install, archive
-closure, publication, activation and retirement follow those committed cuts.
+The unmanaged verification path mints a local source seal permit from the
+selected journal and exact parent replica. The owner drains prior proposals
+before appending the seal, closes application admission while it is pending,
+and persists the selected cut with the complete manifest. Checkpoint and apply
+admission preserve that cut. The managed controller still needs to verify
+child preparation, reserve physical resources and authenticate remote Seal
+requests. Child install, archive closure, publication, activation and retirement
+follow the committed cuts.
 
 ## Default backend, capabilities and deployment
 

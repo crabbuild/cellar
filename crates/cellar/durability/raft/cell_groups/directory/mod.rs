@@ -38,7 +38,7 @@ pub use route_cache::CellRouteCacheUsage;
 pub(crate) use route_cache::RouteCache;
 mod store;
 mod transition;
-pub use transition::{TransitionJournal, TransitionPhase};
+pub use transition::{CellGroupSealPermit, TransitionJournal, TransitionPhase};
 mod tree;
 mod wire;
 

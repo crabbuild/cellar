@@ -17,6 +17,11 @@ mod runtime_fixture;
 include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn source_seal_blocks_delayed_work() -> Result<()> {
+    Box::pin(runtime_fixture::source_seal_blocks_delayed_work()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn namespace_host_many_cells_share_one_physical_group() -> Result<()> {
     for rooted in [false, true] {
         Box::pin(runtime_fixture::host_many_cells(rooted)).await?;

@@ -7,6 +7,7 @@ use crate::application::consensus::group_protocol::{CellGroupEntry, GroupCommand
 use crate::raft::member_state::GroupMembership;
 use cellar_logic::cell_group::CommitWitness;
 use raft::prelude::{ConfState, Entry};
+use sha2::{Digest, Sha256};
 
 impl Storage {
     pub(in crate::raft::cell_groups) fn prepare_entry(
@@ -69,6 +70,25 @@ impl Storage {
                     manifest,
                     expected,
                     entry_position(entry),
+                )
+                .map_err(storage)?;
+            return Ok(next);
+        }
+        if let GroupCommand::Seal {
+            transition,
+            authorization,
+            ..
+        } = decoded.command
+        {
+            if decoded.binding.proposal.bytes() != transition.bytes() {
+                return Err(ExecutionError::Invalid("source seal proposal binding"));
+            }
+            let mut next = unchanged;
+            next.marker
+                .seal_source(
+                    transition,
+                    authorization,
+                    Sha256::digest(&entry.data).into(),
                 )
                 .map_err(storage)?;
             return Ok(next);

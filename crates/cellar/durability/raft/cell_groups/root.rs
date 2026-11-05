@@ -20,6 +20,42 @@ pub struct GroupManifest {
     pub(super) membership_revision: u64,
     pub(super) root: ManifestRoot,
     pub(super) recovery: Option<Box<super::recovery::RecoveryState>>,
+    seal: Option<Box<GroupSourceSeal>>,
+}
+
+/// Exact, irreversible cut selected by committed source apply.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GroupSourceSeal {
+    transition: [u8; 16],
+    authorization: [u8; 32],
+    payload: [u8; 32],
+    index: u64,
+    term: u64,
+}
+
+impl GroupSourceSeal {
+    pub fn position(&self) -> LogPosition {
+        LogPosition {
+            index: LogIndex::new(self.index),
+            term: Term::new(self.term),
+        }
+    }
+
+    pub fn authorization(&self) -> [u8; 32] {
+        self.authorization
+    }
+
+    pub(crate) fn matches(
+        &self,
+        transition: TransitionId,
+        authorization: [u8; 32],
+        payload: [u8; 32],
+    ) -> bool {
+        self.transition == transition.bytes()
+            && self.authorization == authorization
+            && self.payload == payload
+    }
 }
 
 impl GroupManifest {
@@ -42,7 +78,46 @@ impl GroupManifest {
     /// Data imported into a fresh history remains unavailable to application
     /// reads/writes until its replicated activation decision is selected.
     pub fn is_active(&self) -> bool {
-        self.recovery.as_ref().is_none_or(|state| state.active())
+        self.seal.is_none() && self.recovery.as_ref().is_none_or(|state| state.active())
+    }
+
+    pub fn source_seal(&self) -> Option<&GroupSourceSeal> {
+        self.seal.as_deref()
+    }
+
+    pub(super) fn seal_source(
+        &mut self,
+        transition: TransitionId,
+        authorization: [u8; 32],
+        payload: [u8; 32],
+    ) -> Result<(), ManifestError> {
+        if !self.is_active() {
+            return Err(ManifestError::Invalid("source is not active"));
+        }
+        self.seal = Some(Box::new(GroupSourceSeal {
+            transition: transition.bytes(),
+            authorization,
+            payload,
+            index: self.position.index.get(),
+            term: self.position.term.get(),
+        }));
+        self.check()
+    }
+
+    pub(crate) fn preserves_source_seal(&self, previous: &Self) -> bool {
+        match (previous.source_seal(), self.source_seal()) {
+            (Some(previous_seal), Some(next_seal)) => {
+                previous_seal == next_seal
+                    && previous.root == self.root
+                    && previous.membership_revision == self.membership_revision
+            }
+            (Some(_), None) => false,
+            (None, Some(next_seal)) => {
+                next_seal.index > previous.position.index.get()
+                    && next_seal.term >= previous.position.term.get()
+            }
+            (None, None) => true,
+        }
     }
 
     /// Commitment to the immutable recovery intent and retained source archive.
@@ -102,6 +177,22 @@ impl GroupManifest {
                 ));
             }
         }
+        if let Some(seal) = self.source_seal() {
+            if TransitionId::new(seal.transition).is_err()
+                || seal.authorization == [0; 32]
+                || seal.payload == [0; 32]
+                || seal.index < 2
+                || seal.term == 0
+                || seal.index > self.position.index.get()
+                || seal.term > self.position.term.get()
+                || (seal.index == self.position.index.get()
+                    && seal.term != self.position.term.get())
+                || self.membership_revision >= seal.index
+                || self.recovery.as_ref().is_some_and(|state| !state.active())
+            {
+                return Err(ManifestError::Invalid("source seal"));
+            }
+        }
         if let Some(root) = self.root.0 {
             if root.cells == 0
                 || root.cells > 1_000_000
@@ -140,6 +231,7 @@ impl GroupManifest {
             membership_revision: 1,
             root: ManifestRoot::default(),
             recovery: None,
+            seal: None,
         };
         marker.check()?;
         Ok(marker)
@@ -363,14 +455,15 @@ impl ManifestTree {
             membership_revision,
             root,
             recovery: None,
+            seal: None,
         };
         // Reopening must retain the selected recovery lifecycle, rather than
         // silently turning a pending imported root into an ordinary active one.
-        let mut recovery_selected = false;
+        let mut lifecycle_selected = false;
         let mut matched = false;
         for selected in [group.group_manifest(), group.checkpoint_manifest()] {
             if let Some(selected) = selected.map_err(|_| ManifestError::Invalid("closed engine"))? {
-                recovery_selected |= selected.recovery.is_some();
+                lifecycle_selected |= selected.recovery.is_some() || selected.seal.is_some();
                 if selected.route == marker.route
                     && selected.position == marker.position
                     && selected.membership_revision == marker.membership_revision
@@ -382,7 +475,7 @@ impl ManifestTree {
                 }
             }
         }
-        if recovery_selected && !matched {
+        if lifecycle_selected && !matched {
             return Err(ManifestError::Invalid("complete recovery marker required"));
         }
         self.prepare_bound_complete(group, store, marker, &mut image)
@@ -535,6 +628,7 @@ impl ManifestTree {
             membership_revision: previous.marker.membership_revision,
             root,
             recovery: previous.marker.recovery.clone(),
+            seal: None,
         };
         marker.check()?;
         Ok(PreparedGroupManifest {
@@ -569,6 +663,8 @@ struct WireRoot {
     root: Option<super::page_wire::PageRef>,
     #[serde(deserialize_with = "required_recovery")]
     recovery: Option<Box<super::recovery::RecoveryState>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    seal: Option<Box<GroupSourceSeal>>,
 }
 
 fn required_recovery<'de, D: serde::Deserializer<'de>>(
@@ -630,6 +726,7 @@ impl From<GroupManifest> for WireRoot {
             membership_revision: m.membership_revision,
             root: m.root.0,
             recovery: m.recovery,
+            seal: m.seal,
         }
     }
 }
@@ -664,6 +761,7 @@ impl TryFrom<WireRoot> for GroupManifest {
             membership_revision: w.membership_revision,
             root: ManifestRoot(w.root),
             recovery: w.recovery,
+            seal: w.seal,
         };
         result.check()?;
         Ok(result)

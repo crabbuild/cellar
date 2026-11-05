@@ -726,6 +726,9 @@ impl CachedGroup {
                             "snapshot recovery lineage changed".into(),
                         ));
                     }
+                    if !marker.preserves_source_seal(previous) {
+                        return Err(LogError::Invalid("snapshot source seal changed".into()));
+                    }
                     prepared.membership().succeeds(&self.membership)?;
                     next.entries.clear();
                     next.applied = DurableApply {
@@ -881,6 +884,9 @@ impl CachedGroup {
             if let Some(previous) = &self.group_manifest {
                 if !marker.preserves_recovery(previous) {
                     return Err(LogError::Invalid("applied recovery lineage changed".into()));
+                }
+                if !marker.preserves_source_seal(previous) {
+                    return Err(LogError::Invalid("applied source seal changed".into()));
                 }
                 if marker.route() != previous.route() {
                     return Err(LogError::Invalid(

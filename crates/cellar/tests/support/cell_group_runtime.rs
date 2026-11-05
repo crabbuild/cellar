@@ -34,6 +34,10 @@ pub(super) use checkpoint_receive::{install_checkpoint, refuse_checkpoint};
 pub(super) mod tcp;
 pub(super) use tcp::physical_transport;
 
+#[path = "cell_group_source_seal.rs"]
+mod source_seal;
+pub(super) use source_seal::source_seal_blocks_delayed_work;
+
 struct RuntimeCluster {
     snapshot_sources: BTreeMap<(usize, GroupHistory), PreparedGroupManifest>,
     snapshot_transfers: usize,

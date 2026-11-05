@@ -190,7 +190,8 @@ impl MappingRecord {
                         || !current.preserves_recovery(genesis)
                         || current.recovery_commitment().map_err(corrupt)?
                             != genesis.recovery_commitment().map_err(corrupt)?
-                        || (!current.is_active() && current.root() != genesis.root())
+                        || (current.recovery_activation().is_none()
+                            && current.root() != genesis.root())
                     {
                         return Err(LogError::WrongIdentity);
                     }

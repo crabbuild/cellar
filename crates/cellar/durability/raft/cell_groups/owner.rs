@@ -160,6 +160,12 @@ pub struct CellGroupStatus {
     pub ready: bool,
 }
 
+/// Admission is distinct from a seal committed and selected by this owner.
+pub enum CellGroupSealOutcome {
+    Accepted(CellGroupProposal),
+    Applied(super::GroupSourceSeal),
+}
+
 /// Admission is distinct from activation committed and selected by this owner.
 pub enum CellGroupRecoveryActivation {
     Accepted(CellGroupProposal),
@@ -210,6 +216,7 @@ pub struct CellGroupOwner {
     pub(super) proposal_budget: Arc<crate::raft::budget::Budget>,
     prepared_only: bool,
     recovery_activation: Option<Box<(Term, CellGroupProposal)>>,
+    pending_seal: Option<Box<(Term, [u8; 32], CellGroupProposal)>>,
 }
 
 impl CellGroupOwner {
@@ -307,6 +314,7 @@ impl CellGroupOwner {
             proposals: Default::default(),
             prepared_only: false,
             recovery_activation: None,
+            pending_seal: None,
         })
     }
 
@@ -327,6 +335,20 @@ impl CellGroupOwner {
         self.source_epoch.store(0, Ordering::Release);
         self.proposals.clear();
         self.recovery_activation = None;
+        self.pending_seal = None;
+    }
+
+    fn advance_source_epoch(&self) {
+        if self
+            .source_epoch
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |epoch| {
+                (epoch != 0).then(|| epoch.checked_add(1)).flatten()
+            })
+            .is_err()
+        {
+            // Exhaustion or revocation never rearms an old read capability.
+            self.source_epoch.store(0, Ordering::Release);
+        }
     }
 
     fn refresh_execution_fence(&mut self) {
@@ -334,18 +356,16 @@ impl CellGroupOwner {
         if source != self.source_identity {
             self.source_identity = source;
             self.source_observed = None;
-            if self
-                .source_epoch
-                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |epoch| {
-                    (epoch != 0).then(|| epoch.checked_add(1)).flatten()
-                })
-                .is_err()
-            {
-                // Exhaustion or revocation never rearms an old read capability.
-                self.source_epoch.store(0, Ordering::Release);
-            }
+            self.advance_source_epoch();
         }
-        let term = if self.node.raft.state == StateRole::Leader
+        if self.pending_seal.as_ref().is_some_and(|pending| {
+            pending.0.get() != self.node.raft.term || self.node.raft.state != StateRole::Leader
+        }) {
+            self.pending_seal = None;
+        }
+        let term = if self.pending_seal.is_none()
+            && self.current.marker().source_seal().is_none()
+            && self.node.raft.state == StateRole::Leader
             && self.node.raft.lead_transferee.is_none()
             && self
                 .node
@@ -411,7 +431,7 @@ impl CellGroupOwner {
 
     pub(super) fn require_application_active(&self) -> Result<(), RuntimeError> {
         self.live()?;
-        if !self.current.marker().is_active() {
+        if self.pending_seal.is_some() || !self.current.marker().is_active() {
             return Err(RuntimeError::NotReady);
         }
         Ok(())
@@ -669,7 +689,9 @@ impl CellGroupOwner {
             leader: (self.node.raft.leader_id != 0).then_some(self.node.raft.leader_id),
             applied: self.current.marker().position(),
             committed: LogIndex::new(cache.hard_state.commit),
-            ready: self.current.marker().is_active() && self.protocol_ready(cache),
+            ready: self.pending_seal.is_none()
+                && self.current.marker().is_active()
+                && self.protocol_ready(cache),
         }
     }
 
@@ -797,7 +819,68 @@ impl CellGroupOwner {
             return Err(RuntimeError::NotReady);
         }
         drop(cache);
-        let data = permit.entry()?;
+        let proposal = self.append_control(permit.entry()?, "recovery activation")?;
+        self.recovery_activation =
+            Some(Box::new((Term::new(self.node.raft.term), proposal.clone())));
+        Ok(CellGroupRecoveryActivation::Accepted(proposal))
+    }
+
+    /// Drain the selected prefix before appending the irreversible source cut.
+    /// Only the rooted transition lane can supply a permit for this entry.
+    pub fn seal_source(
+        &mut self,
+        permit: super::CellGroupSealPermit,
+    ) -> Result<CellGroupSealOutcome, RuntimeError> {
+        self.live()?;
+        permit.check(&self.log, &self.group)?;
+        let marker = self.current.marker();
+        if let Some(seal) = marker.source_seal() {
+            let cache = self.group.read()?;
+            if !permit.matches(seal)
+                || cache.group_manifest.as_ref() != Some(marker)
+                || cache.hard_state.commit < seal.position().index.get()
+            {
+                return Err(RuntimeError::StaleCompletion);
+            }
+            return Ok(CellGroupSealOutcome::Applied(seal.clone()));
+        }
+        if self.node.raft.state != StateRole::Leader {
+            return Err(RuntimeError::NotLeader);
+        }
+        let term = Term::new(self.node.raft.term);
+        let payload = permit.payload();
+        if let Some(pending) = &self.pending_seal {
+            if pending.0 == term && pending.1 == payload {
+                return Ok(CellGroupSealOutcome::Accepted(pending.2.clone()));
+            }
+            return Err(RuntimeError::StaleCompletion);
+        }
+        let cache = self.group.read()?;
+        let index = marker.position().index.get();
+        if !marker.is_active()
+            || !self.protocol_ready(&cache)
+            || index != cache.hard_state.commit
+            || index != self.node.raft.raft_log.last_index()
+            || !cache.conf_state.voters_outgoing.is_empty()
+            || !cache.conf_state.learners_next.is_empty()
+            || !self.apply.is_empty()
+            || self.applying.is_some()
+        {
+            return Err(RuntimeError::NotReady);
+        }
+        drop(cache);
+        let proposal = self.append_control(permit.into_entry(), "source seal")?;
+        self.pending_seal = Some(Box::new((term, payload, proposal.clone())));
+        self.leader_term.store(0, Ordering::Release);
+        self.advance_source_epoch();
+        Ok(CellGroupSealOutcome::Accepted(proposal))
+    }
+
+    fn append_control(
+        &mut self,
+        data: Vec<u8>,
+        kind: &str,
+    ) -> Result<CellGroupProposal, RuntimeError> {
         if data.len() > self.options.max_proposal_bytes {
             return Err(RuntimeError::Overloaded);
         }
@@ -828,9 +911,9 @@ impl CellGroupOwner {
                 .raft_log
                 .unstable_entries()
                 .last()
-                .ok_or_else(|| RuntimeError::Protocol("missing recovery activation".into()))?;
+                .ok_or_else(|| RuntimeError::Protocol(format!("missing {kind}")))?;
             if entry != &expected {
-                return Err(RuntimeError::Protocol("changed recovery activation".into()));
+                return Err(RuntimeError::Protocol(format!("changed {kind}")));
             }
             Ok(CellGroupProposal {
                 group: self.group.identity().scope,
@@ -846,9 +929,7 @@ impl CellGroupOwner {
                 return Err(error);
             }
         };
-        self.recovery_activation =
-            Some(Box::new((Term::new(self.node.raft.term), proposal.clone())));
-        Ok(CellGroupRecoveryActivation::Accepted(proposal))
+        Ok(proposal)
     }
 
     pub fn campaign(&mut self) -> Result<(), RuntimeError> {
@@ -2138,8 +2219,9 @@ impl CellGroupOwner {
     ) -> Result<(), RuntimeError> {
         let invalid = || RuntimeError::Invalid("group apply does not match committed entry".into());
         let same_recovery = next.marker().recovery == self.current.marker().recovery;
+        let same_seal = next.marker().source_seal() == self.current.marker().source_seal();
         if entry.get_entry_type() == EntryType::EntryConfChangeV2 {
-            if !self.current.marker().is_active() || !same_recovery {
+            if !self.current.marker().is_active() || !same_recovery || !same_seal {
                 return Err(invalid());
             }
             let cache = self.group.read()?;
@@ -2163,7 +2245,10 @@ impl CellGroupOwner {
             return Err(invalid());
         }
         if entry.data.is_empty() {
-            return if next.marker().root() == self.current.marker().root() && same_recovery {
+            return if next.marker().root() == self.current.marker().root()
+                && same_recovery
+                && same_seal
+            {
                 Ok(())
             } else {
                 Err(invalid())
@@ -2178,6 +2263,9 @@ impl CellGroupOwner {
         if !matches!(&decoded.command, GroupCommand::Activate { .. })
             && (!self.current.marker().is_active() || !same_recovery)
         {
+            return Err(invalid());
+        }
+        if !matches!(&decoded.command, GroupCommand::Seal { .. }) && !same_seal {
             return Err(invalid());
         }
         let witness = cellar_logic::cell_group::CommitWitness {
@@ -2210,6 +2298,28 @@ impl CellGroupOwner {
                         manifest,
                         commitment,
                         entry_position(entry),
+                    )
+                    .map_err(|_| invalid())?;
+                if next.marker() != &expected {
+                    return Err(invalid());
+                }
+            }
+            GroupCommand::Seal {
+                transition,
+                authorization,
+                ..
+            } => {
+                if decoded.binding.proposal.bytes() != transition.bytes() {
+                    return Err(invalid());
+                }
+                use sha2::{Digest, Sha256};
+                let mut expected = self.current.marker().clone();
+                expected.position = entry_position(entry);
+                expected
+                    .seal_source(
+                        transition,
+                        authorization,
+                        Sha256::digest(&entry.data).into(),
                     )
                     .map_err(|_| invalid())?;
                 if next.marker() != &expected {
@@ -2363,11 +2473,13 @@ impl CellGroupOwner {
                         return Err(invalid());
                     }
                 }
-                if kind == MessageType::MsgReadIndex
-                    && self.node.raft.read_only.pending_read_count()
+                if kind == MessageType::MsgReadIndex {
+                    self.require_application_active()?;
+                    if self.node.raft.read_only.pending_read_count()
                         >= self.options.max_pending_reads
-                {
-                    return Err(RuntimeError::Overloaded);
+                    {
+                        return Err(RuntimeError::Overloaded);
+                    }
                 }
             }
             _ if !message.entries.is_empty() => return Err(invalid()),

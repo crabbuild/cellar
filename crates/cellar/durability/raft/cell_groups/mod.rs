@@ -129,11 +129,11 @@ pub use crate::raft::catalog::{
     CellGroupBirthSpec, CellGroupBootstrapPermit, CellGroupDirectoryCursor, CellGroupDirectoryPage,
     CellGroupDisasterFenceRequest, CellGroupRecoveryActivationAck,
     CellGroupRecoveryActivationPermit, CellGroupRecoveryError, CellGroupRecoveryRequest,
-    CellRouteAttempt, CellRouteCacheUsage, CellRouteOperation, CellRouteRequest, CellRoutingError,
-    CellRoutingFailure, CellRoutingLimits, CellRoutingSession, DirectoryLimits, DirectoryMutation,
-    DirectoryPublication, DirectoryView, FencedCellGroupRecovery, FrozenCellGroupInventory,
-    PreparedCellGroupArchiveBinding, RangeDirectory, ResolvedCellRoute, TransitionJournal,
-    TransitionPhase,
+    CellGroupSealPermit, CellRouteAttempt, CellRouteCacheUsage, CellRouteOperation,
+    CellRouteRequest, CellRoutingError, CellRoutingFailure, CellRoutingLimits, CellRoutingSession,
+    DirectoryLimits, DirectoryMutation, DirectoryPublication, DirectoryView,
+    FencedCellGroupRecovery, FrozenCellGroupInventory, PreparedCellGroupArchiveBinding,
+    RangeDirectory, ResolvedCellRoute, TransitionJournal, TransitionPhase,
 };
 pub use enrollment::{
     decide_enrollment, EnrollmentDecision, EnrollmentError, EnrollmentPhase, EnrollmentRecord,
@@ -141,12 +141,12 @@ pub use enrollment::{
 pub use enrollment_apply::{EnrollmentApply, EnrollmentApplyError, EnrollmentImage};
 pub use image_pin::{cell_image_history_digest, CellImagePin};
 pub(crate) use pins::ManifestPins;
-pub use root::{GroupManifest, PreparedGroupManifest};
+pub use root::{GroupManifest, GroupSourceSeal, PreparedGroupManifest};
 
 pub use owner::{
     CellGroupApply, CellGroupEffect, CellGroupOwner, CellGroupPersist, CellGroupPersisted,
-    CellGroupProposal, CellGroupRecoveryActivation, CellGroupSnapshotAdmission, CellGroupStatus,
-    CellGroupTicket,
+    CellGroupProposal, CellGroupRecoveryActivation, CellGroupSealOutcome,
+    CellGroupSnapshotAdmission, CellGroupStatus, CellGroupTicket,
 };
 
 pub(crate) use dispatch::RemoteMutationRoute;
