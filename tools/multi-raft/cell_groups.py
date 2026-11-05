@@ -78,6 +78,13 @@ SUITES = {
         "Managed boot and capacity attestations use fixture inputs. Separate voter processes, "
         "production peer authentication and sustained load remain separate gates.",
     ),
+    "managed-transition": (
+        "native_cell_groups_managed",
+        ("bootstrap::transition::rustfs_managed_split_plan",),
+        "exact managed split planning, fleet disruption fence and durable cancellation",
+        "Host-native voters, fixture capacity and pre-seal state only. Managed source sealing, "
+        "child installation and publication remain separate gates.",
+    ),
     "managed-lifecycle": (
         "native_cell_groups_public",
         ("rustfs_managed_group_lifecycle",),

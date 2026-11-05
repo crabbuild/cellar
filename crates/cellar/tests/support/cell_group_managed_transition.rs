@@ -9,7 +9,24 @@ use cellar::application::consensus::verification::{
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn managed_split_plan_fences_membership_and_replays_cancellation() -> Result<()> {
-    let first = Fixture::with_class(false, counter_class()?).await?;
+    Box::pin(run_plan(false, Arc::new(fault::Store::default()))).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_managed_split_plan() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(fault::Store::around(rustfs::store(
+            "managed-transition",
+            rooted,
+        )?));
+        Box::pin(run_plan(rooted, store)).await?;
+    }
+    Ok(())
+}
+
+async fn run_plan(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
+    let first = Fixture::with_store(rooted, counter_class()?, store).await?;
     let mut cluster = Box::pin(ManagedCluster::start_with_applications(
         first,
         &[7, 8, 9],
