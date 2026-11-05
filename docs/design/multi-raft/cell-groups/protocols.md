@@ -304,6 +304,17 @@ that isolation proof only for the exact obsolete boot, after fresh stable RF3
 excludes it. Surviving original voters still need live physical-inventory and
 worker-exit proofs; settlement leaves the obsolete disk and disruption retained.
 
+The explicitly started Node-owned failure service can drive exclusion, exact-boot
+platform isolation, S3 replacement, fresh RF3 and terminal survivor/archive
+verification. Its private verifier initializes durable scratch storage before
+receiving image bytes; serving pins cannot satisfy this proof. Recovery/removal
+phase futures remain owned under the original admission, stop and turn deadline.
+Shutdown joins a pending platform callback. Restart reconciles the rooted
+operation; archive-read failure blocks progression and retains the intent.
+A later controller repeats physical S3 replay before
+the terminal CAS. Removed records retain the old engine and disk; they do not
+authorize reclamation or prove a production platform fence.
+
 An S3 source captures the same fresh-quorum, exact-root checkpoint before catalog
 I/O. A separate purpose-bound, exclusively locked local journal syncs the reserve
 intent before allocating a generation and then syncs the returned upload ticket.

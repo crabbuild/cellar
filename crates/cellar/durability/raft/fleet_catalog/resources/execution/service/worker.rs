@@ -157,7 +157,10 @@ impl MovementServiceWork {
             self.status
                 .send_modify(|status| status.poll_rounds = status.poll_rounds.saturating_add(1));
             let timeout = self.options.turn_timeout;
-            let result = crate::asyncrt::timeout(timeout, self.round())
+            // One complete control turn belongs to this admitted worker. Keep
+            // its mode-specific future state off the enclosing run/select
+            // frames; the same timeout and stop owner retain it through await.
+            let result = crate::asyncrt::timeout(timeout, Box::pin(self.round()))
                 .await
                 .unwrap_or(Err(FleetCatalogError::Unconfirmed));
             let delay = match result {
@@ -190,6 +193,7 @@ impl MovementServiceWork {
                     }
                     self.publish_work();
                     let kind = schedule::classify(&error);
+                    tracing::debug!(failure = ?kind, error = %error, "fleet service round failed");
                     self.status.send_modify(|status| {
                         status.consecutive_round_failures =
                             status.consecutive_round_failures.saturating_add(1);

@@ -36,7 +36,9 @@ async fn rustfs_managed_isolated_voter_s3_replacement_retains_disk_and_fence() -
 
 // The stopped engine must remain byte-for-byte retained. Only hash the Raft
 // subtree, never the surrounding application's credentials or live fleet data.
-fn disk_digest(root: &Path) -> Result<std::collections::BTreeMap<std::path::PathBuf, [u8; 32]>> {
+pub(super) fn disk_digest(
+    root: &Path,
+) -> Result<std::collections::BTreeMap<std::path::PathBuf, [u8; 32]>> {
     fn visit(
         root: &Path,
         directory: &Path,

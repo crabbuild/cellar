@@ -4,6 +4,76 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## Automatic recovery checkpoint
+
+The Node-owned automatic failure service now passes the complete local
+shared-group path in both image forms: default failure detection, rooted
+exclusion, exact-boot fixture isolation, S3 replacement, fresh stable RF3,
+independent archive verification, finalization and journal-confirmed removal.
+The fixture first holds isolation and proves repair has not started. Shutdown
+joins that callback and releases control admission. A duplicate service refuses
+without another charge. Two service restarts preserve the rooted operation;
+archive payload refusal blocks terminal progression, and restored reads require
+new physical S3 GETs before removal. The old engine remains byte-identical and
+retained, active movements/reservations clear, and both cells retain original
+receipts and accept new explicit-S3 writes. No business mutation drives repair.
+
+This new path first aborted on the unchanged default stack. Sanitized poll-frame
+evidence and repeated red binaries are retained. Control turns, recovery/removal
+phases and live verification now retain boxed futures under the existing worker
+owner, admission and original deadline. A subsequent receiver refusal hid the
+actual missing-spool I/O error. Archive download now joins and returns the typed
+consumer failure; the malformed-checkpoint assertion is tightened accordingly.
+A real-RustFS repeat exposed about 1.96 MiB of application poll frames before
+the HTTP client. Catalog turns now own boxed work before their future is
+constructed, shrinking nested control frames without moving lock or deadline
+checks. Managed replay creates and syncs its private scratch directory before receiving
+materialized image bytes. No stack, quota, grace or operation deadline is raised.
+
+Source-automatic-qualified binds 2,721 Rust/Python/manifest inputs
+above 29f277ddf228f33068c229583efb487e01749f07 to SHA256
+e8c8f4379f8587ee70c5b011dcaf11442104fde90915da5359199f95ebfaaa3b. Seven native targets pass **267 cases with 36 explicit skips**;
+the public SDK/native/Axum process/restart gate passes in 64.65s.
+Native/public record SHA256 is
+b5d4f68e12ad56e0676e6f29974ce9035584579e46edf0b8c470816359ef151c.
+
+Three exact lifecycle cases pass against pinned real RustFS in both image
+forms: automatic recovery, isolated replacement and normal replacement/joined
+restart. Their durations are 43.82s, 26.58s, 37.99s.
+The same campaign then FAILS archived joined-voter maintenance after accepting
+leadership handoff: the original five-second survivor-proof renewal expires.
+The 38.54-second failed fixture and all disks are retained; no deadline is
+raised and no later pass waives it. The disk-loss case was not reached there.
+Campaign record SHA256 is
+13b1f1f4a6b88cfd6362e5ad07fe79a6b5bd15e4555b0a580fecf7ce61dc0243.
+
+A separate same-source exact public fresh-incarnation recovery case passes in
+both image forms after every old voter directory and verifier cache is erased,
+in 20.67s. Its record SHA256 is
+f739ea9c2027c50ecfa1c1c02176a59a8a9415f2447ade8128000c24ae836298.
+Signed readiness/conditional probes pass for both owned backends; each one-CPU/
+two-GiB backend and VM is stopped with data retained. These are host-native
+embedded Nodes and fixture isolation, not independent constrained voter containers,
+permanent Docker launch revocation, sustained load or the full public lifecycle.
+The backend matrix is not green.
+
+Format/layout/dependencies/docs, native-only Cellar/Python-library checks and
+diff checks pass. Strict library Clippy and plan tests/validate/preflight remain
+red; the saved diagnostic comparison records 0 added diagnostic
+keys. No lint suppression or source-anchor refresh is applied. Earlier TCP,
+bounded readiness/maintenance, 128-cell enrollment and inspection failures remain
+unexplained and unwaived despite later passes. CG-07 remains IN_PROGRESS;
+CG-09–16, the public/default/capability cutover and the full goal remain unfinished.
+
+Next: diagnose the current RustFS joined-maintenance proof timeout under the
+original five-second bound, then deliver the public managed lifecycle/ingress
+gates and orchestrate retained debt on surviving original voters, including
+joined cancellation and uncertain outcomes.
+Qualify actual Docker isolation/resource providers over independent constrained
+voters. Then finish namespace/SDK/CLI/daemon/admin/example defaults, capability
+coverage and the other public gates, followed by CG-09–16. Preserve live original-
+voter physical closure and quorum admission; no weaker fallback is allowed.
+
 ## Quarantined voter checkpoint
 
 Shared managed startup now verifies current host authority and prepared namespace

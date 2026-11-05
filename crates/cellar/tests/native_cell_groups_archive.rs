@@ -1148,11 +1148,7 @@ async fn checkpoint_archive_untrusted_index_and_cut_binding() -> Result<()> {
                     Err(CellGroupArchiveError::Invalid("checkpoint domain/history"))
                 )),
                 1 => assert!(matches!(result, Err(CellGroupArchiveError::Invalid(_)))),
-                2 => assert!(matches!(
-                    result,
-                    Err(CellGroupArchiveError::Checkpoint(_))
-                        | Err(CellGroupArchiveError::Invalid("receiver refused archive"))
-                )),
+                2 => assert!(matches!(result, Err(CellGroupArchiveError::Checkpoint(_)))),
                 3 => assert!(matches!(
                     result,
                     Err(CellGroupArchiveError::Invalid("archive checkpoint binding"))

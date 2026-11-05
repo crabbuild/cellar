@@ -44,6 +44,7 @@ The managed native target now implements these explicit backend cases:
 - `bootstrap::lifecycle::maintenance::rustfs_managed_archive_maintenance_stop_return_and_resume`
 - `bootstrap::lifecycle::s3::rustfs_managed_s3_seed_refusal_and_source_failover`
 - `bootstrap::lifecycle::isolation::rustfs_managed_isolated_voter_s3_replacement_retains_disk_and_fence`
+- `bootstrap::lifecycle::recovery::rustfs_managed_failure_recovery_restarts_and_verifies_s3_before_removal`
 
 Run each by its exact name with `--ignored --exact --test-threads=1` in
 `native_cell_groups_managed`. Configure an owned local backend with
@@ -78,6 +79,20 @@ images/receipts through replacement-local queries, explicit S3 writes, the
 replacement's physical capacity floor and byte-identical retained obsolete log.
 This fixture does not supply permanent Docker launch fencing or terminal node
 removal. Keep the original eight reconciliation turns and five-second calls.
+
+The automatic recovery case uses the Node-owned failure service with the original
+failure grace, probe interval and five-second turn limits. Hold an exact-boot
+isolation callback,
+verify repair has not begun, refuse a duplicate worker, then shut down and require
+joined callback cancellation and released control admission. Restart the service
+through S3 replacement while the independent verifier refuses payload GETs.
+Require fresh replacement inventory, no terminal receipt and unchanged obsolete
+disk. Stop again, restore reads and restart: require additional physical S3 GETs,
+exact-operation terminal removal, no repeated committed isolation, empty movement
+and reservation books, original receipts/new S3 writes and unchanged retained
+obsolete disk. Both image forms start with cold private verifier inventories;
+no business mutation drives the repair. These fixture attestations do not qualify
+Docker launch revocation or the complete public lifecycle gate.
 
 The fault case also blocks actual registry mutations after target payload
 refusal. Require a witnessed denied write, retained pending journal and observable

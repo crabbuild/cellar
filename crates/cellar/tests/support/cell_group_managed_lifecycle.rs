@@ -12,6 +12,9 @@ mod s3;
 #[path = "cell_group_managed_isolation.rs"]
 mod isolation;
 
+#[path = "cell_group_managed_recovery.rs"]
+mod recovery;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn managed_group_replacement_and_joined_restart() -> Result<()> {
     for rooted in [false, true] {

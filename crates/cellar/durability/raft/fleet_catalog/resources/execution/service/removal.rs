@@ -55,178 +55,183 @@ impl Removal {
         self.session = None;
     }
 
-    pub async fn round(
-        &mut self,
-        catalog: &FleetCatalog,
-        observer: &RaftCells,
-        cut: &FleetSnapshot,
-        target: &Target,
-        deadline: &Deadline<'_>,
-        status: &watch::Sender<FleetMovementServiceStatus>,
-    ) -> Result<()> {
-        let isolation = target.isolation.ok_or(FleetCatalogError::Unconfirmed)?;
-        if self.session.as_ref().is_some_and(|s| {
-            s.snapshot.token != cut.token || s.operation != target.context.operation()
-        }) {
-            self.clear();
-        }
-        let phase = if target.finalizing {
-            FleetFailureRecoveryPhase::VerifyingRemoval
-        } else {
-            FleetFailureRecoveryPhase::VerifyingFinalization
-        };
-        status.send_modify(|s| {
-            if let Some(r) = &mut s.failure_recovery {
-                r.phase = phase;
-                r.verified_histories = self.session.as_ref().map_or(0, |s| s.checked);
-                r.total_histories = cut.head.history_count;
+    pub fn round<'a>(
+        &'a mut self,
+        catalog: &'a FleetCatalog,
+        observer: &'a RaftCells,
+        cut: &'a FleetSnapshot,
+        target: &'a Target,
+        deadline: &'a Deadline<'_>,
+        status: &'a watch::Sender<FleetMovementServiceStatus>,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
+        // Inventory and archive replay own a complete phase. Keep their future
+        // state out of the enclosing recovery poll frames while preserving the
+        // worker's existing admission, original deadline and joined lifetime.
+        Box::pin(async move {
+            let isolation = target.isolation.ok_or(FleetCatalogError::Unconfirmed)?;
+            if self.session.as_ref().is_some_and(|s| {
+                s.snapshot.token != cut.token || s.operation != target.context.operation()
+            }) {
+                self.clear();
             }
-        });
-        let namespaces = self.platform.namespaces(deadline.remaining()?).await?;
-        if self.session.is_none() {
-            let walk = catalog
-                .prepare_evacuation_verification(
-                    cut,
-                    target.context.operation(),
-                    &namespaces,
-                    deadline.remaining()?,
-                )
-                .await?;
-            self.session = Some(Session {
-                snapshot: cut.clone(),
-                operation: target.context.operation(),
-                walk,
-                checked: 0,
-            });
-        }
-        let session = self.session.as_mut().ok_or(FleetCatalogError::Conflict)?;
-        if let Some(history) = session.walk.next_history(deadline.remaining()?).await? {
-            match history.state() {
-                FleetHistoryState::Cancelled { .. } => {
-                    session.walk.verify_cancelled(deadline.remaining()?).await?
-                }
-                FleetHistoryState::Live => {
-                    // Rooted current membership chooses candidates. The walk
-                    // independently authenticates all three and excludes the
-                    // failed node before accepting actual archive replay.
-                    let (voters, _) = catalog
-                        .run(
-                            deadline.remaining()?,
-                            catalog.settled_group_voters(cut, &history),
-                        )
-                        .await?;
-                    let nodes: [NodeId; 3] = voters
-                        .into_keys()
-                        .collect::<Vec<_>>()
-                        .try_into()
-                        .map_err(|_| FleetCatalogError::InventoryIncomplete)?;
-                    let scope = history
-                        .binding()
-                        .scope()
-                        .map_err(|_| FleetCatalogError::Corrupt("recovery removal scope"))?;
-                    let namespace = namespaces
-                        .iter()
-                        .find(|n| n.namespace_config().namespace == scope.namespace)
-                        .ok_or(FleetCatalogError::InventoryIncomplete)?;
-                    let fixed = session
-                        .walk
-                        .freeze_live(observer, nodes, deadline.remaining()?)
-                        .await?;
-                    let registry = catalog
-                        .run(
-                            deadline.remaining()?,
-                            self.archive
-                                .open(&catalog.inner.domain, namespace, &history),
-                        )
-                        .await?;
-                    let hold = session
-                        .walk
-                        .acquire_archive_hold(&registry, deadline.remaining()?)
-                        .await?;
-                    let receiver = catalog
-                        .run(
-                            deadline.remaining()?,
-                            self.archive.receiver(
-                                &catalog.inner.domain,
-                                fixed.root().route(),
-                                namespace.namespace_config().image_storage,
-                            ),
-                        )
-                        .await?;
-                    session
-                        .walk
-                        .verify_live(
-                            observer,
-                            nodes,
-                            FleetEvacuationArchive {
-                                registry: &registry,
-                                hold: &hold,
-                                tails: self.archive.tails(),
-                                receiver,
-                            },
-                            deadline.remaining()?,
-                        )
-                        .await?;
-                }
-                _ => return Err(FleetCatalogError::InventoryIncomplete),
-            }
-            session.checked = session
-                .checked
-                .checked_add(1)
-                .ok_or(FleetCatalogError::Limit)?;
+            let phase = if target.finalizing {
+                FleetFailureRecoveryPhase::VerifyingRemoval
+            } else {
+                FleetFailureRecoveryPhase::VerifyingFinalization
+            };
             status.send_modify(|s| {
                 if let Some(r) = &mut s.failure_recovery {
-                    r.verified_histories = session.checked;
+                    r.phase = phase;
+                    r.verified_histories = self.session.as_ref().map_or(0, |s| s.checked);
+                    r.total_histories = cut.head.history_count;
                 }
             });
-            return Ok(());
-        }
-        let candidate = session
-            .walk
-            .publish_candidate(deadline.remaining()?)
-            .await?;
-        // Include immutable candidate bytes in the request identity. A new
-        // proof after controller loss cannot reuse an earlier payload's ID.
-        // Competing attempts at the same Root can only admit one successor.
-        let request = request(target, cut.revision(), candidate.digest());
-        if target.finalizing {
-            let receipt = catalog
-                .complete_isolated_evacuation(
-                    cut,
-                    &FleetIsolatedRemovalRequest {
-                        identity: request,
+            let namespaces = self.platform.namespaces(deadline.remaining()?).await?;
+            if self.session.is_none() {
+                let walk = catalog
+                    .prepare_evacuation_verification(
+                        cut,
+                        target.context.operation(),
+                        &namespaces,
+                        deadline.remaining()?,
+                    )
+                    .await?;
+                self.session = Some(Session {
+                    snapshot: cut.clone(),
+                    operation: target.context.operation(),
+                    walk,
+                    checked: 0,
+                });
+            }
+            let session = self.session.as_mut().ok_or(FleetCatalogError::Conflict)?;
+            if let Some(history) = session.walk.next_history(deadline.remaining()?).await? {
+                match history.state() {
+                    FleetHistoryState::Cancelled { .. } => {
+                        session.walk.verify_cancelled(deadline.remaining()?).await?
+                    }
+                    FleetHistoryState::Live => {
+                        // Rooted current membership chooses candidates. The walk
+                        // independently authenticates all three and excludes the
+                        // failed node before accepting actual archive replay.
+                        let (voters, _) = catalog
+                            .run(
+                                deadline.remaining()?,
+                                catalog.settled_group_voters(cut, &history),
+                            )
+                            .await?;
+                        let nodes: [NodeId; 3] = voters
+                            .into_keys()
+                            .collect::<Vec<_>>()
+                            .try_into()
+                            .map_err(|_| FleetCatalogError::InventoryIncomplete)?;
+                        let scope = history
+                            .binding()
+                            .scope()
+                            .map_err(|_| FleetCatalogError::Corrupt("recovery removal scope"))?;
+                        let namespace = namespaces
+                            .iter()
+                            .find(|n| n.namespace_config().namespace == scope.namespace)
+                            .ok_or(FleetCatalogError::InventoryIncomplete)?;
+                        let fixed = session
+                            .walk
+                            .freeze_live(observer, nodes, deadline.remaining()?)
+                            .await?;
+                        let registry = catalog
+                            .run(
+                                deadline.remaining()?,
+                                self.archive
+                                    .open(&catalog.inner.domain, namespace, &history),
+                            )
+                            .await?;
+                        let hold = session
+                            .walk
+                            .acquire_archive_hold(&registry, deadline.remaining()?)
+                            .await?;
+                        let receiver = catalog
+                            .run(
+                                deadline.remaining()?,
+                                self.archive.receiver(
+                                    &catalog.inner.domain,
+                                    fixed.root().route(),
+                                    namespace.namespace_config().image_storage,
+                                ),
+                            )
+                            .await?;
+                        session
+                            .walk
+                            .verify_live(
+                                observer,
+                                nodes,
+                                FleetEvacuationArchive {
+                                    registry: &registry,
+                                    hold: &hold,
+                                    tails: self.archive.tails(),
+                                    receiver,
+                                },
+                                deadline.remaining()?,
+                            )
+                            .await?;
+                    }
+                    _ => return Err(FleetCatalogError::InventoryIncomplete),
+                }
+                session.checked = session
+                    .checked
+                    .checked_add(1)
+                    .ok_or(FleetCatalogError::Limit)?;
+                status.send_modify(|s| {
+                    if let Some(r) = &mut s.failure_recovery {
+                        r.verified_histories = session.checked;
+                    }
+                });
+                return Ok(());
+            }
+            let candidate = session
+                .walk
+                .publish_candidate(deadline.remaining()?)
+                .await?;
+            // Include immutable candidate bytes in the request identity. A new
+            // proof after controller loss cannot reuse an earlier payload's ID.
+            // Competing attempts at the same Root can only admit one successor.
+            let request = request(target, cut.revision(), candidate.digest());
+            if target.finalizing {
+                let receipt = catalog
+                    .complete_isolated_evacuation(
+                        cut,
+                        &FleetIsolatedRemovalRequest {
+                            identity: request,
+                            isolation,
+                        },
+                        Some(&mut session.walk),
+                        &namespaces,
+                        deadline.remaining()?,
+                    )
+                    .await?;
+                status.send_modify(|s| {
+                    if let Some(r) = &mut s.failure_recovery {
+                        r.phase = FleetFailureRecoveryPhase::Removed;
+                        r.removed_revision = Some(receipt.applied_revision());
+                    }
+                });
+            } else {
+                candidate
+                    .begin_isolated_finalization(
+                        cut,
+                        &request,
                         isolation,
-                    },
-                    Some(&mut session.walk),
-                    &namespaces,
-                    deadline.remaining()?,
-                )
-                .await?;
-            status.send_modify(|s| {
-                if let Some(r) = &mut s.failure_recovery {
-                    r.phase = FleetFailureRecoveryPhase::Removed;
-                    r.removed_revision = Some(receipt.applied_revision());
-                }
-            });
-        } else {
-            candidate
-                .begin_isolated_finalization(
-                    cut,
-                    &request,
-                    isolation,
-                    &namespaces,
-                    deadline.remaining()?,
-                )
-                .await?;
-            status.send_modify(|s| {
-                if let Some(r) = &mut s.failure_recovery {
-                    r.phase = FleetFailureRecoveryPhase::VerifyingRemoval;
-                    r.verified_histories = 0;
-                }
-            });
-        }
-        self.clear();
-        Ok(())
+                        &namespaces,
+                        deadline.remaining()?,
+                    )
+                    .await?;
+                status.send_modify(|s| {
+                    if let Some(r) = &mut s.failure_recovery {
+                        r.phase = FleetFailureRecoveryPhase::VerifyingRemoval;
+                        r.verified_histories = 0;
+                    }
+                });
+            }
+            self.clear();
+            Ok(())
+        })
     }
 }
 

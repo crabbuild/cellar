@@ -386,54 +386,59 @@ impl FleetEvacuationVerification {
     /// needed, capture that cut first through actual quorum calls under this
     /// same method deadline. Prior freeze_live work remains historical; retry
     /// does not move its business-write boundary or grant a freshness lease.
-    pub async fn verify_live(
-        &mut self,
-        observer: &RaftCells,
+    pub fn verify_live<'a>(
+        &'a mut self,
+        observer: &'a RaftCells,
         nodes: [NodeId; 3],
-        archive: FleetEvacuationArchive<'_>,
+        archive: FleetEvacuationArchive<'a>,
         timeout: Duration,
-    ) -> Result<()> {
-        let catalog = self.catalog.clone();
-        let deadline = Deadline::new(&catalog, timeout)?;
-        let fixed = self
-            .freeze_live(observer, nodes, deadline.remaining()?)
-            .await?;
-        let coverage = catalog
-            .run(deadline.remaining()?, async {
-                archive
-                    .registry
-                    .verify_fleet_published_at(
-                        &catalog.inner.domain,
-                        archive.tails,
-                        archive.hold,
-                        &fixed,
-                        archive.receiver,
-                    )
-                    .await
-                    .map_err(FleetCatalogError::from)
-            })
-            .await?;
-        deadline.remaining()?;
-        if !coverage
-            .covers(&fixed)
-            .map_err(|_| FleetCatalogError::Conflict)?
-        {
-            return Err(FleetCatalogError::Unconfirmed);
-        }
-        self.append(
-            Evidence::Live(Box::new(LiveEvidence {
-                fixed: (&fixed).into(),
-                archive: (&coverage).into(),
-                survivors: self
-                    .frozen
-                    .as_ref()
-                    .ok_or(FleetCatalogError::Unconfirmed)?
-                    .survivors
-                    .clone(),
-            })),
-            &deadline,
-        )
-        .await
+    ) -> futures_util::future::BoxFuture<'a, Result<()>> {
+        // A caller retains this entire physical verification operation. Its
+        // state must not also occupy the caller's control-service poll frame.
+        // Keep the same fixed cut, deadline and post-replay authority checks.
+        Box::pin(async move {
+            let catalog = self.catalog.clone();
+            let deadline = Deadline::new(&catalog, timeout)?;
+            let fixed = self
+                .freeze_live(observer, nodes, deadline.remaining()?)
+                .await?;
+            let coverage = catalog
+                .run(deadline.remaining()?, async {
+                    archive
+                        .registry
+                        .verify_fleet_published_at(
+                            &catalog.inner.domain,
+                            archive.tails,
+                            archive.hold,
+                            &fixed,
+                            archive.receiver,
+                        )
+                        .await
+                        .map_err(FleetCatalogError::from)
+                })
+                .await?;
+            deadline.remaining()?;
+            if !coverage
+                .covers(&fixed)
+                .map_err(|_| FleetCatalogError::Conflict)?
+            {
+                return Err(FleetCatalogError::Unconfirmed);
+            }
+            self.append(
+                Evidence::Live(Box::new(LiveEvidence {
+                    fixed: (&fixed).into(),
+                    archive: (&coverage).into(),
+                    survivors: self
+                        .frozen
+                        .as_ref()
+                        .ok_or(FleetCatalogError::Unconfirmed)?
+                        .survivors
+                        .clone(),
+                })),
+                &deadline,
+            )
+            .await
+        })
     }
 
     async fn append(&mut self, evidence: Evidence, deadline: &Deadline<'_>) -> Result<()> {

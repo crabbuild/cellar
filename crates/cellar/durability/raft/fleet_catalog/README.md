@@ -1502,10 +1502,13 @@ deployment; they are not inferred from Engine block-I/O counters or a filesystem
 scan. This homogeneous-policy provider covers Ready/Active recovery targets;
 departure/return settlement still needs its own retained evidence. Complete
 deployment wiring and resource-limit qualification remain separate gates.
-`FleetFailureRecoveryOptions` supplies detection bounds plus an explicit LTX host,
-archive verifier and archive limits. The embedding runtime owns the verifier's
-private scratch store and disk/memory admission, including extent storage when
-required by its namespace. Startup validates both detection and archive bounds.
+`FleetFailureRecoveryOptions` supplies detection bounds and an explicit
+`FleetGroupArchiveVerifier`. The embedding runtime owns its private image/page
+inventories and shared checkpoint, archive, tail and scratch admission, including
+extent storage when required by its namespace. Receiver setup creates and syncs
+the private spool directory on the execution domain before materialized image
+replay. Startup validates both detection and archive bounds. Serving image pins
+cannot replace physical archive verification.
 
 The worker first advances due admitted movements. During their retry/backoff
 windows it collects direct failure observations and complete namespace handles,
@@ -1558,6 +1561,16 @@ slot; it cannot release that newer operation or authorize data deletion.
 VerifyingRemoval and Removed, with checked/total history counts and the confirmed
 terminal revision. Only Removed follows an accepted terminal receipt. Status
 grants no current health lease; observation timestamps remain local.
+
+Catalog turns box their work before constructing the turn future, keeping large
+replay state out of enclosing poll frames before object-store HTTP calls.
+Control turns, recovery/removal phases and complete live verification retain
+boxed futures under the existing worker admission, stop owner and original
+deadline. This bounds nested poll-frame stack use without increasing the
+worker stack or changing failure grace. Receiver rejection returns its typed
+checkpoint failure after joining the consumer, rather than hiding it behind a
+closed-channel message. An archive outage retains the intent and disruption;
+controller restart repeats physical replay before finalization/removal.
 
 The SDK handoff includes the opt-in Docker/Colima isolation adapter described
 above. Simultaneous-failure policy, deployment startup integration and deployed fleet

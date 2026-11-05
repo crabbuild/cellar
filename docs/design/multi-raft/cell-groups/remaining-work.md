@@ -13,68 +13,33 @@ and validation boundaries and [handoff](handoff.md) for executor context.
 
 ## Current boundary
 
-CG-01–06 and CG-08 have passed their recorded component gates. The implementation
-now has shared group owners, cell-specific SQLite histories and receipts, complete
-manifests/checkpoints, group archives/reclamation, fenced fresh-history recovery,
-indexed effects, bounded caches, canonical namespace/group startup and logical
-SDK handles. Managed boot, directory refresh, Node stop ownership and shared
-membership send fences now pass their recorded component cases. Explicit standby
-inventory, cold capacity admission, first RF3 group startup and retained ordinary
-restart also pass local cases with two independent cells in both image forms.
-Resource-backed peer replacement, joint finish, settlement replay, retained source
-physical debt, actual leader handoff and retained joined-member startup now pass
-the focused managed case. Old-boot learner-grant reuse refuses before submission.
-Catalog maintenance now has a focused local case covering readiness, actual
-leader handoff, owned stop, signed offline confirmation, retained paused return,
-fresh resume and capacity/disruption settlement. Initial and joined current voters run
-in both image forms; both independent cells retain receipts/tokens and serve new
-writes through the returned leader. The complete public lifecycle gate remains
-required, including failure/cancellation ownership. Shared follower reads, source-age policies and actual responder
-metadata advance that cutover. Bounded
-public replica preferences now run through one shared-controller invocation,
-including per-attempt deadlines, an untried observed leader fallback and physical
-SQL/transport retention. Both image forms pass the focused routing cases and the
-complete execution suite. This component result does not qualify the public
-SDK consumers or managed orchestration.
+CG-01–06 and CG-08 passed their recorded component gates. Shared owners preserve
+cell-specific SQLite histories, receipts, effects and versions; complete group
+manifests/checkpoints, S3 archives/reclamation and fenced fresh-history recovery
+have scoped coverage. Managed startup, directory refresh, membership send fences,
+capacity admission, peer/S3 replacement, maintenance stop/return/resume and retained
+initial/joined restart pass component cases. Idle/restart seed retirement keeps
+unknown ownership and uncertain outcomes fenced and charged.
 
-Groups added after startup now retain node-wide archive pools and independent
-verifier resources. Dynamic RF3 S3 writes, refusal of missing archive identity,
-explicit initialization/retry and joined close with a held archive GET pass local
-managed cases in both image forms. Managed S3 learner activation now has a
-data-plane implementation: fresh quorum capture, a journaled protected upload,
-independent destination verification and the existing physical install fences.
-Source hints may change after leader failure while destination boot/member/permit
-and transfer mode remain fixed. Normal archived replacement/maintenance and the
-S3 refusal/failover/debt matrix pass scoped native and real-RustFS cases. The
-current seven-target native campaign passes 266 cases with 35 explicit skips. The
-original TCP retry, bounded readiness and maintenance failures remain unexplained
-despite later passes.
-Authenticated retained seed journals now reconcile automatically during idle
-operation and restart, with source-lock serialization, per-journal admission and
-joined close. Registry failure retains the intent; missing/corrupt/foreign-engine
-state refuses without initialization. Native/RustFS cases cover idle retry,
-source-only restart without quorum and cancellation of a close waiter during
-charged archive I/O. Complete public lifecycle and fenced handling of unknown/lost
-ownership remain required. See the latest [progress checkpoint](progress.md).
+Automatic failed-voter recovery now passes both image forms through the Node-owned
+service: joined isolation cancellation, exact-operation restart, S3 replacement,
+fresh RF3, archive-outage refusal, independent replay and terminal removal.
+Duplicate workers refuse; shutdown releases control admission; the removed engine
+and disk remain retained. This is fixture isolation, not a production fence.
 
-Quarantined obsolete-voter S3 replacement now passes native and real-RustFS
-component cases in both image forms. Current-host preflight refuses saved startup
-authority before engine mutation; physical route refresh omits the quarantined
-initial endpoint while retaining durable votes/debt. Fresh stable RF3, exact
-isolation attribution, lost settlement replay, restored cells/receipts and retained
-old log/target capacity floor are checked. Seven current-source native targets
-pass 266 cases/35 explicit skips, plus the public SDK process gate; four real
-RustFS lifecycle/recovery cases pass. These fixture results do not complete
-automatic failed-voter/terminal-removal orchestration or the public lifecycle gate.
+The latest frozen campaign passes 267 native cases/36 explicit skips plus the
+public SDK/native/Axum process/restart gate. Four same-source real RustFS cases
+pass across the campaign and a separate disk-loss run, including automatic
+recovery and all-old-voter-directory/verifier-cache-erased fresh-incarnation
+recovery. Joined-voter archived maintenance FAILS its original five-second
+survivor-proof renewal after handoff; retained evidence remains unwaived. See [progress](progress.md) for source/binary
+hashes, exact results and limits. Earlier unexplained failures remain open.
 
-CG-07 remains IN_PROGRESS. The native_cell_groups_public target now passes its
-sdk_many_cells_share_group case through public startup, native/Axum ingress and
-retained process restart, including the current-source 132.07-second drill.
-The other four original public acceptance cases remain
-required and have not been delivered.
-CG-09–16 remain TODO. Historical local Docker/RustFS recovery and effects results
-do not qualify the latest combined SDK/fleet source, independent hosts, sustained
-load or a release. No production legacy/shared switch or old-format migration is
+CG-07 stays IN_PROGRESS. Four original public gates remain undelivered, including
+the complete managed lifecycle and ingress authority gates. Default backend and
+capability coverage are incomplete. Host-native fixtures do not qualify permanent
+Docker fencing, constrained independent voters, sustained load or a release.
+CG-09–16 remain TODO. No legacy/shared production switch or old-data migration is
 part of the target.
 
 ## P0: finish the MVP and its merge gates
@@ -215,9 +180,10 @@ full hard cutover.
 | CG-15 | Full load/crash, transition, wakeup and disaster-recovery matrix. Measure the documented profiles and failure schedules; no capacity or TiKV performance-parity claim follows from correctness tests. |
 | CG-16 | Delete remaining predecessor consumers/codecs, finish feature-off/full release checks, publish the unified API/runbooks and qualified operating envelope. No one-cell special path, compatibility reader or production mode toggle. |
 
-The next functional slice is automatic fenced failed-voter recovery and retained
-surviving-voter-debt orchestration, including terminal survivor/archive
-verification, followed by public lifecycle/default-backend
-integration and complete MVP public/backend gates, then
+The immediate functional gap is the current RustFS joined-maintenance proof
+timeout under the original five-second bound. Then deliver the public managed
+lifecycle and ingress authority gates, retained surviving-voter-debt orchestration
+and deployment-level fencing qualification, followed by default-backend/capability
+integration and the complete MVP public/backend gates, then
 transition/topology/wake features and the final managed recovery/load/release matrix. Passing one layer
 does not mark another layer or the end-to-end goal complete.

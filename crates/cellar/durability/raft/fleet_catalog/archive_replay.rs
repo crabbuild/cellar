@@ -171,6 +171,11 @@ impl FleetGroupArchiveVerifier {
         let scratch = self.scratch.clone();
         domain
             .blocking(move || {
+                let directory = options.directory.join("scratch");
+                // Image receivers require an existing spool parent. Initialize
+                // our private inventory before admitting any physical replay.
+                cellar_ltx::host::create_dir_all_durable(options.filesystem.as_ref(), &directory)
+                    .map_err(|e| FleetCatalogError::Storage(e.into()))?;
                 let pages = ManifestPageStore::open(
                     &pages,
                     options.filesystem.clone(),
@@ -189,7 +194,7 @@ impl FleetGroupArchiveVerifier {
                 )
                 .map_err(|e| FleetCatalogError::Storage(e.into()))?;
                 admission
-                    .receive(store, scratch, options.directory.join("scratch"))
+                    .receive(store, scratch, directory)
                     .map_err(checkpoint_error)
             })
             .map_err(|_| FleetCatalogError::Closed)?

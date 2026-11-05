@@ -341,7 +341,7 @@ impl CellGroupArchive {
         let download: Result<()> = async {
             for chunk in index.chunks {
                 let bytes = self.get("chunks", &chunk.object, CHUNK_BYTES).await?;
-                sender
+                if sender
                     .send(wire::Chunk {
                         part: chunk.part,
                         offset: chunk.offset,
@@ -349,7 +349,12 @@ impl CellGroupArchive {
                         bytes,
                     })
                     .await
-                    .map_err(|_| CellGroupArchiveError::Invalid("receiver refused archive"))?;
+                    .is_err()
+                {
+                    // The consumer owns the checkpoint failure. Join it below
+                    // so a rejected chunk keeps its typed cause.
+                    break;
+                }
             }
             Ok(())
         }

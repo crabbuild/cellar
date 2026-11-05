@@ -375,36 +375,46 @@ impl FleetCatalog {
         Ok(())
     }
 
-    async fn run<T>(&self, timeout: Duration, work: impl Future<Output = Result<T>>) -> Result<T> {
-        if timeout.is_zero() || timeout > Duration::from_secs(60) {
-            return Err(FleetCatalogError::Invalid("timeout"));
+    fn run<'a, T: 'a>(
+        &'a self,
+        timeout: Duration,
+        work: impl Future<Output = Result<T>> + 'a,
+    ) -> impl Future<Output = Result<T>> + 'a {
+        // Retain admitted work behind one owned pointer before constructing the
+        // catalog turn. Large replay futures must not inflate the turn and each
+        // caller's poll frame on the way into the object-store HTTP client.
+        let work = Box::pin(work);
+        async move {
+            if timeout.is_zero() || timeout > Duration::from_secs(60) {
+                return Err(FleetCatalogError::Invalid("timeout"));
+            }
+            let _turn = self
+                .inner
+                .turn
+                .try_lock()
+                .map_err(|_| FleetCatalogError::Overloaded)?;
+            let deadline = self
+                .inner
+                .domain
+                .mono_ms()
+                .map_err(|_| FleetCatalogError::Closed)?
+                .checked_add(timeout.as_millis() as u64)
+                .ok_or(FleetCatalogError::Limit)?;
+            let timer = self
+                .inner
+                .domain
+                .sleep_until(deadline)
+                .map_err(|_| FleetCatalogError::Closed)?;
+            let result = crate::asyncrt::select! {
+                _=timer=>Err(FleetCatalogError::Unconfirmed),
+                result=work=>result,
+            };
+            self.inner
+                .domain
+                .mono_ms()
+                .map_err(|_| FleetCatalogError::Closed)?;
+            result
         }
-        let _turn = self
-            .inner
-            .turn
-            .try_lock()
-            .map_err(|_| FleetCatalogError::Overloaded)?;
-        let deadline = self
-            .inner
-            .domain
-            .mono_ms()
-            .map_err(|_| FleetCatalogError::Closed)?
-            .checked_add(timeout.as_millis() as u64)
-            .ok_or(FleetCatalogError::Limit)?;
-        let timer = self
-            .inner
-            .domain
-            .sleep_until(deadline)
-            .map_err(|_| FleetCatalogError::Closed)?;
-        let result = crate::asyncrt::select! {
-            _=timer=>Err(FleetCatalogError::Unconfirmed),
-            result=work=>result,
-        };
-        self.inner
-            .domain
-            .mono_ms()
-            .map_err(|_| FleetCatalogError::Closed)?;
-        result
     }
 
     async fn commit_inner(
