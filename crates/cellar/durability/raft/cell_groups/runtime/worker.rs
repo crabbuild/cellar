@@ -489,6 +489,10 @@ impl Worker {
                                     .owner
                                     .activate_transfer(*permit)
                                     .map(Response::TransferActivation),
+                                Command::RetireSource(permit) => group
+                                    .owner
+                                    .retire_source(*permit)
+                                    .map(Response::SourceRetirement),
                                 Command::SealSource(permit) => group
                                     .owner
                                     .seal_source(*permit)

@@ -145,6 +145,7 @@ enum Command {
     ActivateRecovery(Box<CellGroupRecoveryActivationPermit>),
     ActivateTransfer(Box<CellGroupTransferActivationPermit>),
     SealSource(Box<CellGroupSealPermit>),
+    RetireSource(Box<CellGroupSourceRetirementPermit>),
     Execution(cellar_logic::cell_group::CellHistory),
     NextEffect {
         now: u64,
@@ -185,6 +186,7 @@ enum Response {
     RecoveryActivation(Box<CellGroupRecoveryActivation>),
     TransferActivation(CellGroupTransferActivation),
     SourceSeal(Box<CellGroupSealOutcome>),
+    SourceRetirement(CellGroupSourceRetirement),
     Submission(crate::raft::execution::CellSubmissionOutcome),
     Execution(Box<CellExecutionAuthority>),
     NextEffect(Option<Box<CellExecutionAuthority>>),
@@ -761,6 +763,20 @@ impl CellGroupRuntime {
     }
 
     /// Submit the exact local source seal to the physical Raft owner.
+    pub async fn retire_source(
+        &self,
+        permit: CellGroupSourceRetirementPermit,
+    ) -> Result<CellGroupSourceRetirement, RuntimeError> {
+        let history = permit.history();
+        match self
+            .call(Some(history), Command::RetireSource(Box::new(permit)), 4096)
+            .await?
+        {
+            Response::SourceRetirement(result) => Ok(result),
+            _ => Err(RuntimeError::Protocol("source retirement reply".into())),
+        }
+    }
+
     pub async fn seal_source(
         &self,
         permit: CellGroupSealPermit,

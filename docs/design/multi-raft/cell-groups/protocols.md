@@ -1114,7 +1114,11 @@ that evidence. A selected child can serve only after activation applies. The
 directory selects Active after receiving one durable acknowledgement for every
 child in plan order. It binds the set to the exact publication and installed
 seed commitments and can reopen it after an ambiguous CAS. The topology lane
-remains owned until parent retirement.
+remains owned until parent retirement. The parent Raft leader can commit its
+tombstone only after the directory selects the complete Active set. The entry
+binds the replacement publication to the original seal, and the manifest and
+checkpoint preserve both. This tombstone leaves the topology lane and parent
+archive holds pinned while child archive coverage is qualified.
 Source tombstones remain effective across restart, delayed messages and catalog
 unavailability. The whole transition is one fenced owner operation; concurrent
 controllers reconcile the same journal instead of selecting different children.

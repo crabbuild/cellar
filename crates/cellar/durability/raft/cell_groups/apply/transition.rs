@@ -75,8 +75,24 @@ impl Storage {
                 .map_err(storage)?;
             return Ok(next);
         }
+        if let GroupCommand::Retire {
+            transition,
+            publication,
+        } = decoded.command
+        {
+            if decoded.binding.proposal.bytes() != transition.bytes() {
+                return Err(ExecutionError::Invalid(
+                    "source retirement proposal binding",
+                ));
+            }
+            let mut next = unchanged;
+            next.marker
+                .retire_source(transition, publication)
+                .map_err(storage)?;
+            return Ok(next);
+        }
         if !base.marker().is_active() {
-            return Err(ExecutionError::Invalid("recovery is not activated"));
+            return Err(ExecutionError::Invalid("group is not active"));
         }
         let witness = CommitWitness {
             group: base.marker().route().history,

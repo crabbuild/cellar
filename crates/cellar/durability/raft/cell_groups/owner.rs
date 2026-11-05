@@ -180,6 +180,12 @@ pub enum CellGroupSealOutcome {
     Applied(super::GroupSourceSeal),
 }
 
+/// The exact retirement is either proposed or durably applied.
+pub enum CellGroupSourceRetirement {
+    Accepted(CellGroupProposal),
+    Applied(super::GroupSourceRetirement),
+}
+
 /// Admission is distinct from activation committed and selected by this owner.
 pub enum CellGroupRecoveryActivation {
     Accepted(CellGroupProposal),
@@ -236,6 +242,7 @@ pub struct CellGroupOwner {
     pub(super) proposal_budget: Arc<crate::raft::budget::Budget>,
     prepared_only: bool,
     activation_proposal: Option<Box<(Term, CellGroupProposal)>>,
+    retirement_proposal: Option<Box<(Term, CellGroupProposal)>>,
     pending_seal: Option<Box<(Term, [u8; 32], CellGroupProposal)>>,
 }
 
@@ -334,6 +341,7 @@ impl CellGroupOwner {
             proposals: Default::default(),
             prepared_only: false,
             activation_proposal: None,
+            retirement_proposal: None,
             pending_seal: None,
         })
     }
@@ -355,6 +363,7 @@ impl CellGroupOwner {
         self.source_epoch.store(0, Ordering::Release);
         self.proposals.clear();
         self.activation_proposal = None;
+        self.retirement_proposal = None;
         self.pending_seal = None;
     }
 
@@ -894,6 +903,46 @@ impl CellGroupOwner {
                 return Ok(pending.1.clone());
             }
         }
+        self.require_control_prefix()?;
+        let proposal = self.append_control(entry()?, "group activation")?;
+        self.activation_proposal =
+            Some(Box::new((Term::new(self.node.raft.term), proposal.clone())));
+        Ok(proposal)
+    }
+
+    pub fn retire_source(
+        &mut self,
+        permit: super::CellGroupSourceRetirementPermit,
+    ) -> Result<CellGroupSourceRetirement, RuntimeError> {
+        self.live()?;
+        permit.check(&self.log, &self.group)?;
+        let marker = self.current.marker();
+        if let Some(retirement) = permit.applied(marker)? {
+            let cache = self.group.read()?;
+            if cache.group_manifest.as_ref() != Some(marker)
+                || cache.hard_state.commit < retirement.position().index.get()
+            {
+                return Err(RuntimeError::NotReady);
+            }
+            self.retirement_proposal = None;
+            return Ok(CellGroupSourceRetirement::Applied(retirement.clone()));
+        }
+        if self.node.raft.state != StateRole::Leader {
+            return Err(RuntimeError::NotLeader);
+        }
+        let term = Term::new(self.node.raft.term);
+        if let Some(pending) = &self.retirement_proposal {
+            if pending.0 == term {
+                return Ok(CellGroupSourceRetirement::Accepted(pending.1.clone()));
+            }
+        }
+        self.require_control_prefix()?;
+        let proposal = self.append_control(permit.into_entry(), "source retirement")?;
+        self.retirement_proposal = Some(Box::new((term, proposal.clone())));
+        Ok(CellGroupSourceRetirement::Accepted(proposal))
+    }
+
+    fn require_control_prefix(&self) -> Result<(), RuntimeError> {
         let cache = self.group.read()?;
         if !self.protocol_ready(&cache)
             || self.current.marker().position().index.get() != cache.hard_state.commit
@@ -902,11 +951,7 @@ impl CellGroupOwner {
         {
             return Err(RuntimeError::NotReady);
         }
-        drop(cache);
-        let proposal = self.append_control(entry()?, "group activation")?;
-        self.activation_proposal =
-            Some(Box::new((Term::new(self.node.raft.term), proposal.clone())));
-        Ok(proposal)
+        Ok(())
     }
 
     /// Drain the selected prefix before appending the irreversible source cut.
@@ -2351,12 +2396,15 @@ impl CellGroupOwner {
             GroupEntryLimits::default(),
         )
         .map_err(|_| invalid())?;
+        let retirement = matches!(&decoded.command, GroupCommand::Retire { .. });
         if !matches!(&decoded.command, GroupCommand::Activate { .. })
-            && (!self.current.marker().is_active() || !same_recovery || !same_transfer)
+            && ((!self.current.marker().is_active() && !retirement)
+                || !same_recovery
+                || !same_transfer)
         {
             return Err(invalid());
         }
-        if !matches!(&decoded.command, GroupCommand::Seal { .. }) && !same_seal {
+        if !matches!(&decoded.command, GroupCommand::Seal { .. }) && !retirement && !same_seal {
             return Err(invalid());
         }
         let witness = cellar_logic::cell_group::CommitWitness {
@@ -2399,6 +2447,22 @@ impl CellGroupOwner {
                         authorization,
                         Sha256::digest(&entry.data).into(),
                     )
+                    .map_err(|_| invalid())?;
+                if next.marker() != &expected {
+                    return Err(invalid());
+                }
+            }
+            GroupCommand::Retire {
+                transition,
+                publication,
+            } => {
+                if decoded.binding.proposal.bytes() != transition.bytes() {
+                    return Err(invalid());
+                }
+                let mut expected = self.current.marker().clone();
+                expected.position = entry_position(entry);
+                expected
+                    .retire_source(transition, publication)
                     .map_err(|_| invalid())?;
                 if next.marker() != &expected {
                     return Err(invalid());

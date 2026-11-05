@@ -163,7 +163,7 @@ impl RangeDirectory {
             .map_err(|_| CellGroupArchiveError::Stopped)?
     }
 
-    async fn confirmed_transfer_publication(
+    pub(super) async fn confirmed_transfer_publication(
         &self,
         plan: &DirectoryMutation,
     ) -> Result<Option<DirectoryPublication>, CatalogError> {

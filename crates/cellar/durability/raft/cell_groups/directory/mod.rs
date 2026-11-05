@@ -52,9 +52,11 @@ mod transition_install;
 pub(crate) use transition_install::TransferSeedPermit;
 pub use transition_install::{InstalledTransferVoter, TransferInstallQuorum};
 mod transition_preparation;
+mod transition_retirement;
 pub use transition_preparation::{
     CellGroupTransitionPreparationInputs, PreparedManagedCellGroupTransition,
 };
+pub use transition_retirement::CellGroupSourceRetirementPermit;
 mod tree;
 mod wire;
 

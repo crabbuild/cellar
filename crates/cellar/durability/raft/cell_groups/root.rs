@@ -86,6 +86,41 @@ pub struct GroupSourceSeal {
     payload: [u8; 32],
     index: u64,
     term: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    retirement: Option<GroupSourceRetirement>,
+}
+
+/// A committed source tombstone. The certificate identifies the replacement
+/// partition, and the original seal keeps the source permanently fenced.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GroupSourceRetirement {
+    publication: [u8; 32],
+    index: u64,
+    term: u64,
+}
+
+impl GroupSourceRetirement {
+    pub fn publication(&self) -> [u8; 32] {
+        self.publication
+    }
+
+    pub fn position(&self) -> LogPosition {
+        LogPosition {
+            index: LogIndex::new(self.index),
+            term: Term::new(self.term),
+        }
+    }
+
+    fn valid_at(&self, sealed: LogPosition, applied: LogPosition) -> bool {
+        let retired = self.position();
+        self.publication != [0; 32]
+            && retired.index > sealed.index
+            && retired.term >= sealed.term
+            && retired.index <= applied.index
+            && retired.term <= applied.term
+            && (retired.index != applied.index || retired.term == applied.term)
+    }
 }
 
 impl GroupSourceSeal {
@@ -98,6 +133,17 @@ impl GroupSourceSeal {
 
     pub fn authorization(&self) -> [u8; 32] {
         self.authorization
+    }
+
+    pub fn retirement(&self) -> Option<&GroupSourceRetirement> {
+        self.retirement.as_ref()
+    }
+
+    fn same_cut(&self, previous: &Self) -> bool {
+        self.transition == previous.transition
+            && self.authorization == previous.authorization
+            && self.payload == previous.payload
+            && self.position() == previous.position()
     }
 
     pub(crate) fn matches(
@@ -254,14 +300,49 @@ impl GroupManifest {
             payload,
             index: self.position.index.get(),
             term: self.position.term.get(),
+            retirement: None,
         }));
+        self.check()
+    }
+
+    pub(super) fn retire_source(
+        &mut self,
+        transition: TransitionId,
+        publication: [u8; 32],
+    ) -> Result<(), ManifestError> {
+        let seal = self
+            .seal
+            .as_deref_mut()
+            .ok_or(ManifestError::Invalid("source retirement without seal"))?;
+        if seal.transition != transition.bytes() || publication == [0; 32] {
+            return Err(ManifestError::Invalid("source retirement binding"));
+        }
+        if let Some(retired) = &seal.retirement {
+            if retired.publication != publication {
+                return Err(ManifestError::Conflict);
+            }
+        } else {
+            seal.retirement = Some(GroupSourceRetirement {
+                publication,
+                index: self.position.index.get(),
+                term: self.position.term.get(),
+            });
+        }
         self.check()
     }
 
     pub(crate) fn preserves_source_seal(&self, previous: &Self) -> bool {
         match (previous.source_seal(), self.source_seal()) {
             (Some(previous_seal), Some(next_seal)) => {
-                previous_seal == next_seal
+                next_seal.same_cut(previous_seal)
+                    && match (previous_seal.retirement(), next_seal.retirement()) {
+                        (Some(prior), next) => next == Some(prior),
+                        (None, Some(next)) => {
+                            next.position().index > previous.position.index
+                                && next.position().term >= previous.position.term
+                        }
+                        (None, None) => true,
+                    }
                     && previous.root == self.root
                     && previous.membership_revision == self.membership_revision
             }
@@ -351,6 +432,9 @@ impl GroupManifest {
                 || (seal.index == self.position.index.get()
                     && seal.term != self.position.term.get())
                 || self.membership_revision >= seal.index
+                || seal
+                    .retirement()
+                    .is_some_and(|retired| !retired.valid_at(seal.position(), self.position))
                 || self.recovery.as_ref().is_some_and(|state| !state.active())
             {
                 return Err(ManifestError::Invalid("source seal"));

@@ -223,7 +223,8 @@ pub(crate) async fn sealed_source_archives(
         store,
     ))
     .await?;
-    reopen_installed_children(&fixture, &plan, &active).await?;
+    let retired = Box::pin(verify_parent_retirement(&mut fixture, &plan)).await?;
+    reopen_installed_children(&fixture, &plan, &active, &retired).await?;
     fixture.close().await
 }
 
@@ -620,6 +621,16 @@ async fn verify_transfer_publication(
         retained.source_holds == closure.source_holds && retained.children == closure.children
     );
 
+    anyhow::ensure!(matches!(
+        domain
+            .run(reopened.prepare_source_retirement(
+                &original,
+                cluster.birth.route().history,
+                &cluster.voters[0].log,
+            ))
+            .await?,
+        Err(CatalogError::Fenced)
+    ));
     for route in &new.routes {
         let birth = domain
             .run(reopened.materialize_selected_history(route.history))
@@ -907,6 +918,116 @@ async fn await_applied(
     .context("replicate child entries")?
 }
 
+async fn verify_parent_retirement(
+    fixture: &mut RuntimeCluster,
+    plan: &DirectoryMutation,
+) -> Result<GroupManifest> {
+    let directory = fixture.cluster.directory.clone();
+    let scope = fixture.cluster.birth.route().history;
+    let log = fixture.cluster.voters[0].log.clone();
+    let domain = &fixture.cluster.domain;
+    let before = log
+        .cell_group(&scope)?
+        .group_manifest()?
+        .context("sealed parent")?;
+    let published = domain
+        .run(directory.publication(plan))
+        .await??
+        .context("retirement publication")?;
+    let wrong = domain
+        .run(directory.prepare_source_retirement(plan, scope, &fixture.cluster.voters[1].log))
+        .await??;
+    anyhow::ensure!(matches!(
+        fixture.runtimes[0].retire_source(wrong).await,
+        Err(RuntimeError::StaleCompletion)
+    ));
+    let permit = domain
+        .run(directory.prepare_source_retirement(plan, scope, &log))
+        .await??;
+    let CellGroupSourceRetirement::Accepted(retirement) =
+        fixture.runtimes[0].retire_source(permit).await?
+    else {
+        anyhow::bail!("expected first retirement proposal");
+    };
+    let retry = domain
+        .run(directory.prepare_source_retirement(plan, scope, &log))
+        .await??;
+    let CellGroupSourceRetirement::Accepted(duplicate) =
+        fixture.runtimes[0].retire_source(retry).await?
+    else {
+        anyhow::bail!("retirement cannot commit before Raft delivery");
+    };
+    anyhow::ensure!(
+        duplicate.position == retirement.position && duplicate.digest == retirement.digest
+    );
+    await_applied(fixture, &[(scope, retirement.position.index)])
+        .await
+        .context("commit the sealed parent's tombstone")?;
+
+    let domain = &fixture.cluster.domain;
+    let retry = domain
+        .run(directory.prepare_source_retirement(plan, scope, &log))
+        .await??;
+    let CellGroupSourceRetirement::Applied(tombstone) =
+        fixture.runtimes[0].retire_source(retry).await?
+    else {
+        anyhow::bail!("retirement retry lost its applied tombstone");
+    };
+    anyhow::ensure!(tombstone.position() == retirement.position);
+    anyhow::ensure!(tombstone.publication() == published.journal_digest());
+    for (voter, runtime) in fixture.cluster.voters.iter().zip(&fixture.runtimes) {
+        let marker = voter
+            .log
+            .cell_group(&scope)?
+            .group_manifest()?
+            .context("retired parent")?;
+        anyhow::ensure!(!marker.is_active() && marker.root() == before.root());
+        let seal = marker.source_seal().context("retired source seal")?;
+        anyhow::ensure!(
+            seal.position() == before.source_seal().context("original seal")?.position()
+        );
+        anyhow::ensure!(seal.retirement() == Some(&tombstone));
+        anyhow::ensure!(matches!(
+            runtime.propose(scope, vec![1]).await,
+            Err(RuntimeError::NotReady)
+        ));
+        anyhow::ensure!(matches!(
+            runtime.read_index(scope, vec![1]).await,
+            Err(RuntimeError::NotReady)
+        ));
+    }
+
+    let pool = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
+    let snapshot = fixture.runtimes[0].capture_checkpoint(scope, &pool).await?;
+    let selected = snapshot.marker().clone();
+    anyhow::ensure!(selected.source_seal().and_then(|seal| seal.retirement()) == Some(&tombstone));
+    fixture.runtimes[0]
+        .publish_checkpoint(scope, snapshot.prepare_publication()?)
+        .await?;
+    let group = log.cell_group(&scope)?;
+    tokio::time::timeout(Duration::from_secs(20), async {
+        while group.checkpoint_manifest()?.as_ref() != Some(&selected) {
+            fixture.pump(&[], &mut BTreeMap::new()).await?;
+            tokio::task::yield_now().await;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .context("persist the parent tombstone checkpoint")??;
+    let domain = &fixture.cluster.domain;
+    let (_, journal) = domain
+        .run(directory.active_transition())
+        .await??
+        .context("topology still owns parent archive holds")?;
+    anyhow::ensure!(journal.phase() == TransitionPhase::Active);
+    let hold = domain.run(directory.sealed_source_holds(plan)).await??;
+    anyhow::ensure!(hold.len() == 1);
+    let held = hold[0].marker();
+    anyhow::ensure!(held.route() == fixture.cluster.birth.route());
+    anyhow::ensure!(held.root() == before.root() && held.source_seal() == before.source_seal());
+    Ok(selected)
+}
+
 fn archive_inputs(
     archives: &Archives,
     cluster: &Cluster,
@@ -932,6 +1053,7 @@ async fn reopen_installed_children(
     fixture: &RuntimeCluster,
     plan: &DirectoryMutation,
     installed: &[GroupManifest],
+    retired: &GroupManifest,
 ) -> Result<()> {
     let cluster = &fixture.cluster;
     fixture.runtimes[0].close().await?;
@@ -950,6 +1072,9 @@ async fn reopen_installed_children(
         ))
         .await??;
     let result = async {
+        let parent = log.cell_group(&retired.route().history)?;
+        anyhow::ensure!(parent.group_manifest()?.as_ref() == Some(retired));
+        anyhow::ensure!(parent.checkpoint_manifest()?.as_ref() == Some(retired));
         for marker in installed {
             let permit = cluster
                 .domain
