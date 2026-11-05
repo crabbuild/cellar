@@ -35,7 +35,7 @@ def docker(*args):
 
 def guest(script):
     return subprocess.run(["colima", "ssh", "--profile", PROFILE, "--", "sh", "-s"],
-                          input=script, text=True, stdout=subprocess.PIPE,
+                          input=script, text=True, stdout=subprocess.PIPE, cwd=Path.home(),
                           stderr=subprocess.STDOUT, timeout=14 * 60, check=False)
 
 
