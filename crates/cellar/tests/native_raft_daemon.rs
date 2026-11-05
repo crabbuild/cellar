@@ -32,6 +32,20 @@ use std::{
 const SECRET: &str = "fixture-secret-raft-cli";
 
 fn child(root: PathBuf, mode: String) -> Result<()> {
+    if mode == "provision-sql" {
+        return Host::local(graph::graph("raft-cli", "", vec![]))
+            .register("raft-cli", "test", || {
+                let class = counter::definition()?;
+                let api = counter::CounterApi::new(
+                    SECRET.into(),
+                    ClusterId::new([1; 16])?,
+                    NamespaceId::new([2; 16])?,
+                    &class,
+                )?;
+                counter::application(api, class)
+            })?
+            .run();
+    }
     if mode.starts_with("cluster-") {
         return managed::child(root, &mode);
     }

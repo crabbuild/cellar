@@ -126,6 +126,90 @@ fn catalog_options() -> CatalogOptions {
     }
 }
 
+async fn provision_call(root: &Path, plan: &Value) -> Result<std::process::Output> {
+    let path = root.join("sql-namespace.json");
+    std::fs::write(&path, serde_json::to_vec(plan)?)?;
+    let bucket = std::env::var("CELLAR_CELL_GROUPS_RUSTFS_BUCKET")?;
+    let prefix = std::env::var("CELLAR_CELL_GROUPS_RUSTFS_PREFIX")?;
+    let mut command = tokio::process::Command::new(std::env::current_exe()?);
+    command
+        .env_clear()
+        .env("CELLAR_RAFT_CLI_CHILD", "provision-sql")
+        .env("CELLAR_RAFT_CLI_ROOT", root)
+        .arg("--provision-sql-namespace")
+        .arg(path)
+        .arg("--bucket")
+        .arg(format!("s3://{bucket}/{prefix}"))
+        .arg("--endpoint")
+        .arg(std::env::var(RUSTFS_ENDPOINT)?)
+        .arg("--region")
+        .arg("us-east-1")
+        .kill_on_drop(true);
+    for name in ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"] {
+        command.env(
+            name,
+            std::env::var_os(name).with_context(|| format!("missing {name}"))?,
+        );
+    }
+    Ok(tokio::time::timeout(Duration::from_secs(30), command.output()).await??)
+}
+
+async fn provision_from_compiled_cli(
+    root: &Path,
+    operator: &Operator,
+    identity: &FleetRequestIdentity,
+) -> Result<RaftNamespaceRegistration> {
+    let id = hex::encode(operator.fleet.catalog_id()?);
+    let namespace = hex::encode(operator.namespace.namespace.bytes());
+    let plan = serde_json::json!({
+        "catalog_id": id,
+        "cluster_id": hex::encode(operator.namespace.cluster.bytes()),
+        "incarnation_id": hex::encode([81; 16]),
+        "coordination_prefix": "daemon-control/",
+        "catalog_prefix": "daemon-managed/",
+        "namespace_id": namespace,
+        "script": "raft-cli",
+        "version": "test",
+        "class": "Counter",
+        "principal": identity.principal,
+        "request_id": hex::encode(identity.id),
+        "operation_id": hex::encode(identity.operation),
+        "expected_revision": identity.expected_revision,
+    });
+    for (field, value) in [
+        ("catalog_id", hex::encode([77; 32])),
+        ("class", "Absent".into()),
+    ] {
+        let mut wrong = plan.clone();
+        wrong[field] = value.into();
+        let refused = provision_call(root, &wrong).await?;
+        ensure!(
+            !refused.status.success(),
+            "invalid SQL namespace plan was admitted"
+        );
+        ensure!(operator.fleet.read(TIMEOUT).await?.revision() == identity.expected_revision);
+    }
+    let admitted = provision_call(root, &plan).await?;
+    ensure!(
+        admitted.status.success(),
+        "compiled SQL namespace command failed"
+    );
+    let receipt: Value = serde_json::from_slice(&admitted.stdout)?;
+    ensure!(
+        receipt["catalog_id"] == id
+            && receipt["namespace_id"] == namespace
+            && receipt["class"] == "Counter"
+            && receipt["schema_digest"] == hex::encode(operator.namespace.schema_digest)
+            && receipt["request_id"] == plan["request_id"]
+            && receipt["operation_id"] == plan["operation_id"]
+    );
+    ensure!(operator.fleet.read(TIMEOUT).await?.revision() == identity.expected_revision + 1);
+    let replay = provision_call(root, &plan).await?;
+    ensure!(replay.status.success() && replay.stdout == admitted.stdout);
+    ensure!(operator.fleet.read(TIMEOUT).await?.revision() == identity.expected_revision + 1);
+    operator.declaration()
+}
+
 pub(super) async fn initialize(root: &Path) -> Result<()> {
     let domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
     let result = domain
@@ -136,6 +220,9 @@ pub(super) async fn initialize(root: &Path) -> Result<()> {
             let class = counter::definition()?;
             let limits = configuration::limits().directory;
             let declaration = match operator.namespace.image_storage {
+                RaftImageStorage::Materialized if std::env::var_os(RUSTFS_ENDPOINT).is_some() => {
+                    provision_from_compiled_cli(root, &operator, &identity).await?
+                }
                 RaftImageStorage::Materialized => {
                     operator
                         .fleet

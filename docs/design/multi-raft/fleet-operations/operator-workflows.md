@@ -114,6 +114,21 @@ up the three enrolled hosts and qualify and activate their capacity through
 the workflow below. Read the current catalog generation and revision before
 preparing the first group.
 
+A compiled application's one-shot bootstrap command can provision the same
+default standby before starting any voter. Run it with write access to the
+selected storage scope and an existing fleet catalog.
+
+```sh
+application --provision-sql-namespace sql-namespace.json --bucket "$FLEET_BUCKET"
+```
+
+The JSON plan contains `catalog_id`, `cluster_id`, `incarnation_id`,
+`coordination_prefix`, `catalog_prefix`, `namespace_id`, `script`, `version`,
+`class`, `principal`, `request_id`, `operation_id` and `expected_revision`.
+Use the exact compiled script version and Raft class. The application supplies
+the schema digest in the receipt for the admin and voter configuration.
+Retain the plan and retry it byte for byte after an unknown result.
+
 ```sh
 cellar raft fleet first-group standby "$NAMESPACE" --fleet F --catalog-id "$CATALOG" --json
 cellar raft fleet first-group reserve "$NAMESPACE" --fleet F --catalog-id "$CATALOG" \

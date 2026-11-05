@@ -13,6 +13,7 @@ pub(super) fn print_help() -> anyhow::Result<()> {
          USAGE:\n\
            APPLICATION [NODE OPTIONS]\n\
            APPLICATION cell|sql|kv|queue|outbox|blob [COMMAND OPTIONS]\n\
+           APPLICATION --provision-sql-namespace PLAN.json --bucket NAME [OPTIONS]\n\n\
            APPLICATION diagnose --bucket NAME [OPTIONS]\n\n\
          NODE OPTIONS:\n\
            --bucket [s3://|gs://|az://]NAME[/PREFIX]  Fleet storage\n\
@@ -202,6 +203,12 @@ impl NativeDaemon {
         let arguments: Vec<_> = std::env::args_os().skip(1).collect();
         if arguments
             .first()
+            .is_some_and(|arg| arg == super::native_namespace::FLAG)
+        {
+            return super::native_namespace::run(self.applications, arguments.into_iter().skip(1));
+        }
+        if arguments
+            .first()
             .is_some_and(|arg| arg == "--check-native-package")
         {
             anyhow::ensure!(
@@ -334,6 +341,31 @@ impl CompiledApplications {
         );
         self.factories.insert(key, Arc::new(factory));
         Ok(self)
+    }
+
+    pub(super) fn namespace_class(
+        &self,
+        script: &str,
+        version: &str,
+        class: &str,
+    ) -> anyhow::Result<Arc<crate::application::consensus::RaftClass>> {
+        let factory = self
+            .factories
+            .get(&(script.to_owned(), version.to_owned()))
+            .ok_or_else(|| {
+                anyhow::anyhow!("no compiled application registered for {script} at {version}")
+            })?;
+        let application = factory()?;
+        anyhow::ensure!(
+            !application.supports_cell(class) && !application.supports_workflow(class),
+            crate::application::consensus::RegistrationError::UnsupportedFactory(class.into())
+        );
+        let definition = application.resolve_raft_class(class)?;
+        anyhow::ensure!(
+            definition.name() == class,
+            "compiled Raft class differs from the plan"
+        );
+        Ok(definition)
     }
 
     fn check_package(&self, package: &crate::native_deploy::Package) -> anyhow::Result<()> {

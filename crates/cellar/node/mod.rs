@@ -84,6 +84,7 @@ pub use embedded::*;
 #[cfg(not(cellar_internal_tests))]
 pub use ingress::{IngressBody, IngressHandle, IngressResponse};
 mod native;
+mod native_namespace;
 mod native_raft;
 use native::Backend;
 pub use native::{CompiledApplications, NativeDaemon};
