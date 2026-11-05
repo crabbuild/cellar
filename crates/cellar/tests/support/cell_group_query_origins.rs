@@ -36,7 +36,12 @@ pub(crate) async fn nonmember_controller_queries(rooted: bool) -> Result<()> {
         transport,
         peer,
     } = Router::start(&fixture).await?;
-    transport.install_cell_query_group(fixture.tcp_route(route.history)?)?;
+    // The first configured endpoint accepts TCP but never completes TLS. An
+    // automatic query must leave enough of its deadline for the second voter.
+    let silent = TcpListener::bind("127.0.0.1:0").await?;
+    let mut discovery = fixture.tcp_route(route.history)?;
+    discovery.peers[0].query_address = silent.local_addr()?;
+    transport.install_cell_query_group(discovery)?;
     let pool = CellGroupSqlPool::start(
         &log,
         fixture.appliers[&(0, route.history)].0.usage()?.limits,
@@ -51,7 +56,7 @@ pub(crate) async fn nonmember_controller_queries(rooted: bool) -> Result<()> {
     )
     .await?;
     let dispatch = dispatcher(&fixture, class.clone(), keys(190)?)?;
-    let query = |cell: &CellHistory, consistency| -> Result<CellQueryInvocation> {
+    let query = |cell: &CellHistory, consistency, routing| -> Result<CellQueryInvocation> {
         Ok(dispatch.query_routed(
             cell.clone(),
             CellQueryRequest {
@@ -65,18 +70,30 @@ pub(crate) async fn nonmember_controller_queries(rooted: bool) -> Result<()> {
                 max_attempts: 2,
             },
             None,
-            CellQueryRouting::Replicas {
-                members: vec![MemberId::new(2)?, MemberId::new(3)?],
-                attempt_timeout: Duration::from_millis(180),
-                leader_fallback: true,
-            },
+            routing,
         )?)
     };
+    let preferred = || -> Result<CellQueryRouting> {
+        Ok(CellQueryRouting::Replicas {
+            members: vec![MemberId::new(2)?, MemberId::new(3)?],
+            attempt_timeout: Duration::from_millis(180),
+            leader_fallback: true,
+        })
+    };
+    let automatic = cellar::application::consensus::QueryOptions::default().routing;
     assert_eq!(controller.usage().groups, 0);
     assert!(controller
         .query(
-            query(&a, CellQueryConsistency::Linearizable)?,
+            query(&a, CellQueryConsistency::Linearizable, preferred()?)?,
             fixture.cell_options(&a).await?
+        )?
+        .response()
+        .await
+        .is_err());
+    assert!(controller
+        .query(
+            query(&a, CellQueryConsistency::Linearizable, automatic.clone())?,
+            fixture.cell_options(&a).await?,
         )?
         .response()
         .await
@@ -92,7 +109,7 @@ pub(crate) async fn nonmember_controller_queries(rooted: bool) -> Result<()> {
     }
     let response = controller
         .query(
-            query(&a, CellQueryConsistency::Linearizable)?,
+            query(&a, CellQueryConsistency::Linearizable, preferred()?)?,
             fixture.cell_options(&a).await?,
         )?
         .response()
@@ -113,7 +130,11 @@ pub(crate) async fn nonmember_controller_queries(rooted: bool) -> Result<()> {
     assert!(matches!(
         controller
             .query(
-                query(&b, CellQueryConsistency::AtLeast(token))?,
+                query(
+                    &b,
+                    CellQueryConsistency::AtLeast(token.clone()),
+                    preferred()?
+                )?,
                 fixture.cell_options(&b).await?
             )?
             .response()
@@ -124,6 +145,59 @@ pub(crate) async fn nonmember_controller_queries(rooted: bool) -> Result<()> {
         CellDispatchError::Version(cellar::application::consensus::VersionError::WrongHistory)
     ));
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let response = controller
+        .query(
+            query(
+                &a,
+                CellQueryConsistency::AtLeast(token.clone()),
+                automatic.clone(),
+            )?,
+            fixture.cell_options(&a).await?,
+        )?
+        .response()
+        .await?;
+    assert_eq!(response.result(), 0i64.to_be_bytes());
+    assert_eq!(response.observation().version.history, a);
+    assert_eq!(
+        response.replica(),
+        fixture.cluster.voters[1]
+            .log
+            .cell_group(&route.history)?
+            .identity()
+    );
+    drop(response);
+    assert!(matches!(
+        controller
+            .query(
+                query(&b, CellQueryConsistency::AtLeast(token), automatic)?,
+                fixture.cell_options(&b).await?,
+            )?
+            .response()
+            .await
+            .err()
+            .context("automatic wrong cell")?
+            .as_ref(),
+        CellDispatchError::Version(cellar::application::consensus::VersionError::WrongHistory)
+    ));
+    assert!(matches!(
+        controller
+            .query(
+                query(
+                    &a,
+                    CellQueryConsistency::Linearizable,
+                    CellQueryRouting::Local
+                )?,
+                fixture.cell_options(&a).await?,
+            )?
+            .response()
+            .await
+            .err()
+            .context("explicit local route has no replica")?
+            .as_ref(),
+        CellDispatchError::Runtime(RuntimeError::NotFound)
+    ));
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    wait_for(async || Ok(transport.usage().query_items == 0 && dispatch.usage().0 == 0)).await?;
     assert_eq!(controller.usage().groups, 0);
     assert!(log.cell_groups()?.is_empty());
     assert_eq!(transport.usage().groups, 0);
@@ -144,8 +218,8 @@ pub(crate) async fn nonmember_controller_queries(rooted: bool) -> Result<()> {
 
 pub(super) struct Router {
     pub(super) log: ReplicaLog,
-    runtime: CellGroupRuntime,
-    events: CellGroupRuntimeEvents,
+    pub(super) runtime: CellGroupRuntime,
+    pub(super) events: CellGroupRuntimeEvents,
     pub(super) transport: RaftTransport,
     pub(super) peer: RaftPeerNode,
 }

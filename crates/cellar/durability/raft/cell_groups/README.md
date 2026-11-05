@@ -546,24 +546,31 @@ destination must verify the complete route, logical cell incarnation and current
 serving authority. No redirect URL or caller-supplied catalog is followed.
 
 An originating public command may use its local group's observed leader as a
-destination hint. The same controller invocation retains its admission, command
-identity, captured inputs and original deadline through the remote exchange.
-The destination requires an explicit namespace/process write grant and checks
-its own current route and execution authority. Voter membership alone grants no
-write permission. An incoming command always executes locally; it never forwards
-again. A missing leader hint retains the existing typed local refusal.
-Automatic selection currently requires local physical group status. An ingress
-host without a local replica still needs bounded leader discovery; this path
-does not supply that missing public routing integration.
+destination hint. An ingress process with a `QueryRouter` placement can probe
+its configured trusted group peers for the currently ready leader. These
+read-only probes use the namespace command grant, authenticate the exact peer,
+and check the selected group, route epoch, birth and cell range. Discovery shares
+the original deadline and keeps time for the command. It owns no SQL producer
+and marks no mutation submitted.
 
-Managed embedders can call `RaftCells::grant_command_origin` after discovery has
-accepted the peer's actual boot and endpoints. This avoids granting a future boot
-during cold startup. The API checks the host's namespace capability, and the
-transport checks the current peer view and monotonic permission revision.
-`revoke_command_origin` retains a revision tombstone and seals the old grant;
-it does not undo an admitted command. These are trusted host configuration APIs.
-Grants belong to the running transport and must be reapplied from trusted policy
-after restart; neither membership nor an S3 receipt restores write permission.
+The same controller invocation retains its admission, command identity, captured
+inputs and original deadline when it sends the mutation to one peer. The
+destination independently checks its current route and write authority. Voter
+membership grants no write permission. An incoming command always executes locally.
+
+SDK queries use the local replica if present. On an ingress process with a
+trusted group route, automatic selection tries configured members within the
+original attempt limit and deadline. All attempts preserve the requested read
+consistency and version floor. Callers can choose explicit local execution or
+supply member preferences.
+
+Managed embedders can call `RaftCells::grant_query_origin` and
+`RaftCells::grant_command_origin` after discovery has accepted the peer's actual
+boot and endpoints. The host verifies that it owns the namespace. The transport
+checks the current peer view and monotonic permission revision. Read and write
+grants are independent. `revoke_command_origin` retains a revision tombstone and
+seals the old grant while already admitted work remains owned. Reapply these
+trusted host permissions when restarting the transport.
 The lower-level controller `command` API retains local-only execution; SDK
 `dispatch_command` owns the originating routed invocation.
 

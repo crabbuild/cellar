@@ -89,6 +89,8 @@ pub struct Store {
     pub group_payload_reads: AtomicUsize,
     pub denied_group_payload_reads: AtomicUsize,
     pub deny_group_payload_reads: AtomicBool,
+    pub deny_group_archive_writes: AtomicBool,
+    pub denied_group_archive_writes: AtomicUsize,
     pub deny_registry_writes: std::sync::Arc<AtomicBool>,
     pub denied_registry_writes: AtomicUsize,
     pub registry_denial_on_payload_refusal: std::sync::Mutex<Option<std::sync::Arc<AtomicBool>>>,
@@ -405,6 +407,13 @@ impl ObjectStore for Store {
             if self.fail_registry_before.swap(false, Ordering::AcqRel) {
                 return Err(failure());
             }
+        }
+        if path.as_ref().contains("/cell-group-archives/")
+            && self.deny_group_archive_writes.load(Ordering::Acquire)
+        {
+            self.denied_group_archive_writes
+                .fetch_add(1, Ordering::AcqRel);
+            return Err(failure());
         }
         if path.as_ref().contains("/cell-group-archives/")
             && path.as_ref().ends_with("/ownership/registry")

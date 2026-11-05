@@ -1,11 +1,27 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Explicit namespace write grants after managed peers publish their boots.
+//! Explicit namespace origin grants after managed peers publish their boots.
 use super::*;
-use crate::raft::transport_options::NamespaceCommandOrigin;
+use crate::raft::transport_options::{NamespaceCommandOrigin, NamespaceQueryOrigin};
 use cellar_logic::consensus::{ClusterId, NamespaceId, NodeId};
 
 impl RaftCells {
+    /// Permit this exact peer process to originate reads for an owned
+    /// namespace. The destination still proves the requested consistency.
+    /// Managed discovery must verify the current boot and endpoints first.
+    pub fn grant_query_origin(&self, grant: NamespaceQueryOrigin) -> Result<(), CellDispatchError> {
+        self.check_open()?;
+        self.handle
+            .core
+            .host
+            .namespace_directory(grant.cluster, grant.namespace)?;
+        self.handle
+            .core
+            .transport
+            .grant_query_origin(grant)
+            .map_err(CellDispatchError::Transport)
+    }
+
     /// Permit this exact peer process to originate commands for an owned
     /// namespace. Managed discovery must already have verified its current boot
     /// and endpoints. Membership supplies no permission. Repeating the exact

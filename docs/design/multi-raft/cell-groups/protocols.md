@@ -128,6 +128,10 @@ request still owns its gateway data and physical SQL work.
 Allocate authenticated wire sequence numbers in the single peer sender after
 dequeueing. Concurrent callers can enqueue in a different order from admission;
 that must not cause a valid request to be refused as a replay.
+When the peer closes its bounded idle header read, the sender retires the
+connection before sending the next queued request. An idle connection has
+no valid response bytes. Once an exchange starts, a transport error still
+preserves the original mutation's ambiguity.
 Consume each catalog attempt once. Carry its remaining duration across hosts;
 never compare unrelated monotonic clocks or replenish the original caller's
 deadline/attempt budget. Confirm relocation hints through the trusted catalog.
@@ -157,8 +161,9 @@ node-process refresh and endpoint consistency, and releases unused pools when
 removed. A replaced discovery view refuses captured requests and late replies;
 removal does not revoke the destination's independently managed namespace grant.
 Grant revocation cancels read waiters without releasing physically entered SQL.
-The public host must supply trusted discovery and explicit permissions; automatic
-discovery/SDK binding and dynamic group lifecycle remain
+The public host supplies trusted discovery and explicit permissions. Automatic
+SDK reads use the local replica when present and otherwise try configured members
+within the original budget. Dynamic membership refresh for ingress remains
 integration work.
 
 Remote commands use the same bounded application RPC lane with a mandatory,
@@ -168,6 +173,11 @@ an explicit namespace/process permission with bounded revision tombstones;
 endpoint checks, rooted process refresh and fleet revocation include these grants.
 A host-owned command gateway binds the exact node controller. Dropping its final
 registration closes new admission without rolling back accepted work.
+
+An ingress process can probe configured peers for a ready leader before
+submitting a command. Probes use command permission and bind the complete route.
+They open no SQL work. The origin retains time for a single mutation exchange
+after destination selection.
 
 Carry the caller's captured time/random inputs, command identity, request contract,
 retry horizon and remaining deadline to the destination. The controller verifies

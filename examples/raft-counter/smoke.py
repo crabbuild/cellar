@@ -145,7 +145,7 @@ def run(binary, work):
                         if consistency == "at-least":
                             headers["x-min-version"] = latest["version_token"]
                         status, body = request(base, read_headers=headers)
-                        assert status == 200, (status, body)
+                        assert status == 200, (phase, i, consistency, remote, status, body)
                         read = json.loads(body)
                         assert read["value"] == expected, read
                         assert read["served_by"] == remote, read

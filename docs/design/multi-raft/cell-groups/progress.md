@@ -12,6 +12,62 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 ingress without a local replica
+
+The combined candidate adds automatic read routing and a read-only command
+probe on trusted group routes. The probe uses the command grant and selects
+one peer before any mutation is submitted. SDK queries preserve consistency
+and tokens through bounded replica attempts. Managed hosts can grant reads
+after the ingress process has published its current boot.
+
+The first combined candidate on 1b3eac2e passes five routing cases and the
+four-process managed native/Axum request case. Both image forms run. The
+managed case proves a zero-group ingress, separate read and command permissions,
+quorum writes, version floor and linearizable reads, cross-cell refusal, exact
+receipt replay after leader stop and retained restart, and refusals after quorum
+loss. It runs in 55.56 seconds. The standalone SDK
+counter process case fails at the explicit remote strong read with HTTP 503
+Unavailable. The earlier read-only candidate fails at the same assertion after
+retained restart. The combined failure occurs before the first normal stop.
+The runs retain their logs, disk roots and original bounds.
+
+The first combined record SHA256 is `a1216231b0c7128bd2c1c3e5720ade8e83cd2b9636c3bf330cfb800ed9d21114` and its source manifest
+SHA256 is `19725e7b24a05bdceba9eb31eef09fd2c762a899ecc4c2a6d1b63312bc06b391`. This candidate awaits real RustFS
+qualification. The source manifest and full test outcomes remain tied to this
+checkpoint.
+
+The archive denial variant receives a quorum acknowledgement and refuses the
+explicit S3 acknowledgement during denied writes. Its exact S3 retry after
+restoration fails with a TLS EOF. The temporary counter trace captures that
+same transport error on a phase-zero version-floor read to member 1. The
+receiver bounds its idle header read, but the original sender retains its
+socket while waiting for a request. A focused regression waits through that
+idle interval and fails at the first exact retry with no leader selected.
+The red record SHA256 is `06b8f40441466b7906a763698555afc60c5ad6a61961d28420ce20d9d599cd48`.
+
+The idle socket fix observes peer closure before the next queued request.
+It retires the old connection before transmission and sends each mutation once.
+The same expiry regression passes in both image formats. All seven native cases
+pass on the final source. The managed HTTP case takes
+67.83 seconds and the original counter process
+drill takes 140.34 seconds. The managed case returns
+a quorum receipt while archive writes are refused, withholds the explicit S3
+acknowledgement and returns that acknowledgement on the exact retry after
+archive access is restored.
+
+The same managed binary passes against the verified real RustFS backend in
+71.19 seconds. Both image formats run with the
+archive-write fault limited to the archive prefix. Signed readiness and
+conditional probes pass. The dedicated RustFS container and VM are stopped
+with their data retained. Voters remain host-native with fixture capacity.
+The earlier RustFS successor readiness failure remains open on its recorded
+source.
+
+The final source manifest SHA256 is `be85dfd746e849ce98ed0dbe5c8b48ec5b1da83ef0bdd3c4d23e84dc05a3721c`.
+The native record SHA256 is `db5a0bf906cdebf2886af58afe92d0ee1111a044050a5b6e1787bab09610be82`. The RustFS record SHA256 is
+`91a4a9ff56009aed4281c587f39d1d26d48b1f765298ee881d8184866444fda4`. The subsequent CI-only commit changes no frozen build or harness
+inputs. Earlier failed runs retain their original assertions, logs and disks.
+
 ## CG-07 lost movement observation
 
 A managed regression drops the first foreground catalog read while the leader

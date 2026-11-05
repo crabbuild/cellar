@@ -4,6 +4,21 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## CG-07 nonmember ingress and idle connection retirement
+
+The configured ingress path passes the seven scoped native cases and the
+managed request case against real RustFS. It serves both read and write
+requests through an ingress with zero local groups. The archive denial case
+separates quorum acknowledgement from explicit S3 coverage. The sender now
+retires a connection after the receiver's idle timeout before sending the
+next queued request. The focused expiry regression and original counter
+process case pass with their existing operation bounds.
+
+Next, qualify SDK enrollment through this path and connect ordinary namespace
+provisioning. Refresh router membership across replacement, complete the
+public lifecycle and authority cases, and keep the earlier RustFS successor
+readiness failure open. [Source and test records](progress.md)
+
 ## CG-07 movement discovery and basic request priorities
 
 The lost-observation regression proves durable movement Begin within the

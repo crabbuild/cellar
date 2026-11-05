@@ -98,7 +98,7 @@ impl CellCommandInvocation {
                 status = runtime.status(history) => status,
                 _ = timer => return Err(self.error(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded))),
             };
-            match status {
+            let remote = match status {
                 Ok(status) => {
                     if let Some(leader) = status.leader {
                         let local = runtime
@@ -110,21 +110,26 @@ impl CellCommandInvocation {
                             .identity()
                             .member;
                         if leader != local.get() {
-                            let member =
-                                cellar_logic::consensus::MemberId::new(leader).map_err(|_| {
-                                    self.error(CellDispatchError::Invalid(
-                                        "command leader identity",
-                                    ))
-                                })?;
-                            let response = self.execute_remote(transport, member).await?;
-                            return Ok(CellCommandResponse {
-                                output: CommandOutput::Remote(Box::new(response)),
-                            });
+                            Some(cellar_logic::consensus::MemberId::new(leader).map_err(|_| {
+                                self.error(CellDispatchError::Invalid("command leader identity"))
+                            })?)
+                        } else {
+                            None
                         }
+                    } else {
+                        None
                     }
                 }
-                Err(RuntimeError::NotFound) => (),
+                Err(RuntimeError::NotFound) => {
+                    Box::pin(self.discover_remote_leader(transport)).await?
+                }
                 Err(error) => return Err(self.error(CellDispatchError::Runtime(error))),
+            };
+            if let Some(member) = remote {
+                let response = self.execute_remote(transport, member).await?;
+                return Ok(CellCommandResponse {
+                    output: CommandOutput::Remote(Box::new(response)),
+                });
             }
         }
         let result = self.run_at(runtime, sql, options, roster, progress).await;

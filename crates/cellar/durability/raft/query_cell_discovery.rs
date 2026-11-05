@@ -3,8 +3,32 @@
 //! Read-only physical discovery; no local RawNode, membership or write authority.
 use super::*;
 use crate::raft::storage::LogError;
+use cellar_logic::consensus::MemberId;
 
 impl RaftTransport {
+    pub(crate) fn cell_query_router_members(
+        &self,
+        route: &cellar_logic::cell_group::GroupRoute,
+        limit: usize,
+    ) -> Result<Vec<MemberId>, TransportError> {
+        let state = &self.handle.0;
+        let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
+        state.admit(&registry)?;
+        let view = registry
+            .cell_query_groups
+            .get(&route.history)
+            .ok_or(TransportError::UnknownGroup)?;
+        if view.schema_digest != route.schema_digest {
+            return Err(TransportError::Identity);
+        }
+        Ok(view
+            .peers
+            .iter()
+            .take(limit)
+            .map(|p| p.replica.member)
+            .collect())
+    }
+
     /// Install trusted read destinations for a physical group absent from this
     /// node. The caller supplies discovery; each destination independently checks
     /// namespace permission, live membership and the requested cell read proof.

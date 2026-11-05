@@ -511,12 +511,36 @@ impl State {
     ) {
         let mut stop = self.stop.subscribe();
         let mut peer_stop = pool.stop.subscribe();
-        let mut connection = None;
+        let mut connection: Option<QueryConnection> = None;
         loop {
             if *stop.borrow() || *peer_stop.borrow() {
                 return;
             }
-            let request = crate::asyncrt::select! { _ = stop.changed() => return, _ = peer_stop.changed() => return, request = requests.recv() => match request { Some(request) => request, None => return } };
+            // The server bounds its idle header read. Observe peer closure
+            // while the lane is idle so the next request can connect afresh.
+            // No response bytes are valid before the next request is sent.
+            let idle_read = async {
+                if let Some((stream, _, _)) = connection.as_mut() {
+                    let mut unexpected = [0];
+                    let _ = stream.read(&mut unexpected).await;
+                } else {
+                    std::future::pending::<()>().await;
+                }
+            };
+            let next = crate::asyncrt::select_biased! {
+                "retire a closed idle connection before sending a queued request";
+                _ = stop.changed() => return,
+                _ = peer_stop.changed() => return,
+                _ = idle_read => None,
+                request = requests.recv() => match request {
+                    Some(request) => Some(request),
+                    None => return,
+                },
+            };
+            let Some(request) = next else {
+                connection = None;
+                continue;
+            };
             let failed = match request {
                 SendQuery::Write(request) => {
                     self.send_cell_write(&pool, *request, &mut connection).await

@@ -174,7 +174,6 @@ pub(crate) async fn remote_commands() -> Result<()> {
         );
         assert_eq!(calls.load(Ordering::SeqCst), 0);
         drop(follower);
-        drop(follower_gateway);
         let result = command
             .execute_remote(&router.transport, MemberId::new(1)?)
             .await?;
@@ -213,6 +212,74 @@ pub(crate) async fn remote_commands() -> Result<()> {
         ));
         drop(conflict);
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        // Queue through the SDK's controller entry point on a node that owns
+        // no group. The first peer is a live follower, so discovery must reach
+        // the actual leader before sending a single mutation.
+        let mut discovery = fixture.tcp_route(route.history)?;
+        discovery.revision += 1;
+        discovery.peers.swap(0, 1);
+        router.transport.install_cell_query_group(discovery)?;
+        let sql = CellGroupSqlPool::start(
+            &router.log,
+            fixture.appliers[&(0, route.history)].0.usage()?.limits,
+        )?;
+        let ingress = CellGroupController::start(
+            router.runtime,
+            router.events,
+            router.transport.clone(),
+            sql,
+            vec![],
+            controller::limits(),
+        )
+        .await?;
+        let options = fixture.cell_options(&a).await?;
+        let request = CellCommandRequest {
+            id: CommandId::new(ClientId::new([211; 16])?, 2)?,
+            contract: class.contract("Add").context("Add")?,
+            input: b"routed-once".to_vec(),
+            durability: Durability::Quorum,
+            retry_until_ms: retry_until,
+        };
+        let routing = CellRoutingLimits {
+            timeout: Duration::from_secs(5),
+            max_attempts: 3,
+        };
+        let response = ingress
+            .dispatch_command(
+                &dispatch,
+                a.clone(),
+                request.clone(),
+                routing,
+                options.clone(),
+            )?
+            .response()
+            .await?;
+        assert!(response.local_receipt().is_none());
+        assert_eq!(response.observation().version.history, a);
+        assert_eq!(response.observation().version.sequence.get(), 3);
+        assert!(response.result().ends_with(b"routed-once"));
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        let saved = response.result().to_vec();
+        drop(response);
+        // The receiver bounds its idle header read. The sender must discard
+        // the expired socket before it sends the next probe or command.
+        tokio::time::sleep(Duration::from_millis(
+            TransportOptions::default().io_timeout_ms + 250,
+        ))
+        .await;
+        assert_eq!(
+            ingress
+                .dispatch_command(&dispatch, a.clone(), request, routing, options)?
+                .response()
+                .await
+                .context("exact retry after query connection idle expiry")?
+                .result(),
+            saved
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert_eq!(ingress.usage().groups, 0);
+        drop(follower_gateway);
         drop(gateway);
         command.retry().await?;
         assert!(command
@@ -222,7 +289,8 @@ pub(crate) async fn remote_commands() -> Result<()> {
         drop(command);
         assert!(router.log.cell_groups()?.is_empty());
         assert_eq!(dispatch.usage(), (0, 0));
-        router.close().await?;
+        ingress.close().await?;
+        router.log.close().await?;
         for controller in controllers {
             controller.close().await?;
         }

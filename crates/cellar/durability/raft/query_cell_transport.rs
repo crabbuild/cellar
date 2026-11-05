@@ -377,6 +377,7 @@ impl State {
 pub(super) enum IncomingCall {
     Shared(CellQueryCall),
     Command(crate::raft::query_wire::command::CellCommandCall),
+    CommandProbe(crate::raft::query_wire::command::CellCommandProbe),
     Enrollment(crate::raft::query_wire::enrollment::CellEnrollmentCall),
     Receipt(crate::raft::query_wire::receipt::CellReceiptCall),
 }
@@ -397,6 +398,11 @@ impl IncomingCall {
                 crate::raft::query_wire::enrollment::CellEnrollmentCall::decode(bytes, limit)?,
             ));
         }
+        if route.is_command_probe() {
+            return Ok(Self::CommandProbe(
+                crate::raft::query_wire::command::CellCommandProbe::decode(bytes, limit)?,
+            ));
+        }
         if route.is_command() {
             return Ok(Self::Command(
                 crate::raft::query_wire::command::CellCommandCall::decode(bytes, limit)?,
@@ -409,6 +415,7 @@ impl IncomingCall {
         match self {
             Self::Shared(call) => call.timeout_ms,
             Self::Command(call) => call.timeout_ms,
+            Self::CommandProbe(call) => call.timeout_ms,
             Self::Enrollment(call) => call.timeout_ms,
             Self::Receipt(call) => call.timeout_ms,
         }
@@ -421,6 +428,7 @@ impl IncomingCall {
     ) -> Result<super::query_replies::Reply, TransportError> {
         match self {
             Self::Command(call) => state.execute_cell_command(route, call).await,
+            Self::CommandProbe(call) => state.execute_cell_command_probe(route, call).await,
             Self::Enrollment(call) => state.execute_cell_enrollment(route, call).await,
             Self::Receipt(call) => state.execute_cell_receipt(route, call).await,
             Self::Shared(call) => {

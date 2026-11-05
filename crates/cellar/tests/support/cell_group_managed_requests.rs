@@ -2,6 +2,7 @@
 
 //! Public HTTP requests over cold managed birth, failover and retained restart.
 use super::*;
+use nodes::INGRESS;
 
 #[path = "../../../../examples/raft-counter/counter.rs"]
 mod counter;
@@ -89,6 +90,33 @@ async fn exercise(cluster: &mut nodes::Cluster) -> Result<()> {
             == 503,
         "membership alone granted a command origin"
     );
+    for axum in [false, true] {
+        ensure!(
+            cluster
+                .web()?
+                .query(
+                    &client,
+                    (INGRESS, axum),
+                    "one",
+                    "linearizable",
+                    &serde_json::Value::Null,
+                    None,
+                )
+                .await?
+                .status
+                == 503,
+            "an ingress process without a read grant served a query"
+        );
+        ensure!(
+            cluster
+                .web()?
+                .command(&client, (INGRESS, axum), "two", 1, 2, retry)
+                .await?
+                .status
+                == 503,
+            "an ingress process without a command grant submitted a write"
+        );
+    }
     let empty = cluster
         .web()?
         .query(
@@ -117,6 +145,23 @@ async fn exercise(cluster: &mut nodes::Cluster) -> Result<()> {
         .grant_command_origin(foreign)
         .is_err());
     cluster.authorize_commands()?;
+    ensure!(
+        cluster
+            .web()?
+            .query(
+                &client,
+                (INGRESS, true),
+                "one",
+                "linearizable",
+                &serde_json::Value::Null,
+                None,
+            )
+            .await?
+            .status
+            == 503,
+        "a command grant authorized application reads"
+    );
+    cluster.authorize_ingress_reads()?;
     let one = cluster
         .web()?
         .command(&client, ((first + 1) % 3, false), "one", 7, 1, retry)
@@ -171,6 +216,34 @@ async fn exercise(cluster: &mut nodes::Cluster) -> Result<()> {
             );
         }
     }
+    let routed = cluster
+        .web()?
+        .command(&client, (INGRESS, false), "two", 1, 2, retry)
+        .await?
+        .success()?;
+    http::value(&routed, "two", 12)?;
+    ensure!(routed["group"] == one["group"] && routed["cell"] != one["cell"]);
+    for axum in [false, true] {
+        for mode in ["at-least", "linearizable"] {
+            let read = cluster
+                .web()?
+                .query(&client, (INGRESS, axum), "two", mode, &routed, None)
+                .await?
+                .success()?;
+            http::value(&read, "two", 12)?;
+            ensure!(matches!(read["served_by"].as_u64(), Some(1..=3)));
+        }
+        ensure!(
+            cluster
+                .web()?
+                .query(&client, (INGRESS, axum), "one", "at-least", &routed, None)
+                .await?
+                .status
+                == 409,
+            "the routed request used another cell's version token"
+        );
+    }
+
     cluster.managed.hosts[first].revoke_command_origin(
         cluster.managed.history.cluster,
         cluster.managed.history.namespace,
@@ -215,9 +288,50 @@ async fn exercise(cluster: &mut nodes::Cluster) -> Result<()> {
         cluster.managed.history.namespace,
         "one",
     )?;
-    let remote = cluster.managed.hosts[(first + 1) % 3].cell(history)?;
+    let ingress = cluster.managed.hosts[INGRESS].cell(history.clone())?;
+    let archive_store = &cluster.managed.fixtures[0].store;
+    let denied = archive_store
+        .denied_group_archive_writes
+        .load(Ordering::Acquire);
     let mut options = CommandOptions::new(CommandId::new(ClientId::new([204; 16])?, 1)?, retry);
     options.durability = Durability::S3;
+
+    // Leave catalog and Raft traffic live while publication of new archive
+    // objects is refused. The same nonmember path must retain both minima.
+    archive_store
+        .deny_group_archive_writes
+        .store(true, Ordering::Release);
+    let during_outage = async {
+        let contract = ingress.contract("Increment")?;
+        let quorum = ingress
+            .command(
+                &contract,
+                0i64.to_be_bytes().to_vec(),
+                CommandOptions::new(CommandId::new(ClientId::new([203; 16])?, 1)?, retry),
+            )
+            .await?;
+        ensure!(quorum.durability == Durability::Quorum && quorum.result == 10i64.to_be_bytes());
+        let error = ingress
+            .command(&contract, 0i64.to_be_bytes().to_vec(), options.clone())
+            .await
+            .err()
+            .context("S3 command acknowledged without coverage")?;
+        ensure!(error.command == options.id && error.ambiguous);
+        ensure!(
+            archive_store
+                .denied_group_archive_writes
+                .load(Ordering::Acquire)
+                > denied
+        );
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    archive_store
+        .deny_group_archive_writes
+        .store(false, Ordering::Release);
+    during_outage?;
+
+    let remote = cluster.managed.hosts[(first + 1) % 3].cell(history)?;
     let archived = remote
         .command(
             &remote.contract("Increment")?,
@@ -251,6 +365,12 @@ async fn exercise(cluster: &mut nodes::Cluster) -> Result<()> {
         .await?
         .success()?;
     http::value(&read, "one", 10)?;
+    let routed_after_stop = cluster
+        .web()?
+        .command(&client, (INGRESS, true), "two", 1, 2, retry)
+        .await?
+        .success()?;
+    http::same_receipt(&routed, &routed_after_stop)?;
 
     Box::pin(cluster.restart()).await?;
     let resumed = cluster.leader().await?;
@@ -274,6 +394,12 @@ async fn exercise(cluster: &mut nodes::Cluster) -> Result<()> {
         .await?
         .success()?;
     http::value(&old_floor, "one", 10)?;
+    let routed_after_restart = cluster
+        .web()?
+        .command(&client, (INGRESS, false), "two", 1, 2, retry)
+        .await?
+        .success()?;
+    http::same_receipt(&routed, &routed_after_restart)?;
     let next = cluster
         .web()?
         .command(&client, ((resumed + 2) % 3, false), "one", 2, 3, retry)
@@ -298,11 +424,11 @@ async fn exercise(cluster: &mut nodes::Cluster) -> Result<()> {
     })
     .await
     .context("observe loss of the actual majority")??;
-    for axum in [false, true] {
+    for (address, axum) in [(0, false), (0, true), (INGRESS, false), (INGRESS, true)] {
         ensure!(
             cluster
                 .web()?
-                .query(&client, (0, axum), "one", "linearizable", &next, None)
+                .query(&client, (address, axum), "one", "linearizable", &next, None)
                 .await?
                 .status
                 == 503,
@@ -311,7 +437,7 @@ async fn exercise(cluster: &mut nodes::Cluster) -> Result<()> {
         ensure!(
             cluster
                 .web()?
-                .command(&client, (0, axum), "one", 5, 4, retry)
+                .command(&client, (address, axum), "one", 5, 4, retry)
                 .await?
                 .status
                 == 503,

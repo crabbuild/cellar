@@ -51,7 +51,7 @@ impl Default for QueryOptions {
             stale_policy: StaleReadPolicy::RecentSource,
             timeout: Duration::from_secs(5),
             max_attempts: 4,
-            routing: QueryRouting::Local,
+            routing: QueryRouting::Automatic,
         }
     }
 }

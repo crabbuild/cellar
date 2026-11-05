@@ -10,6 +10,7 @@ use crate::raft::host_sql::cell_groups::ReadRetention;
 use crate::raft::storage::LogError;
 use crate::raft::transport::TransportError;
 use cellar_logic::consensus::{CommandFailure, MemberId};
+use std::time::Duration;
 
 struct Destination<'a> {
     runtime: &'a CellGroupRuntime,
@@ -35,20 +36,50 @@ pub(super) async fn execute(
     };
     invocation.begin().await?;
     invocation.validate_minimum().await?;
-    let CellQueryRouting::Replicas {
-        members,
-        attempt_timeout,
-        leader_fallback,
-    } = invocation.routing()
-    else {
-        return destination.local(invocation, options, permit).await;
+    let (members, attempt_timeout, leader_fallback) = match invocation.routing() {
+        CellQueryRouting::Local => return destination.local(invocation, options, permit).await,
+        CellQueryRouting::Automatic => {
+            let route = invocation
+                .attempt()
+                .ok_or(Error::Invalid("missing route"))?
+                .route();
+            match runtime.log().cell_group(&route.history) {
+                Ok(_) => return destination.local(invocation, options, permit).await,
+                Err(LogError::NotFound) => (),
+                Err(error) => return Err(Error::Runtime(RuntimeError::Storage(error))),
+            }
+            let members = transport
+                .cell_query_router_members(route, invocation.maximum_attempts())
+                .map_err(|error| match error {
+                    TransportError::UnknownGroup => Error::Runtime(RuntimeError::NotFound),
+                    other => Error::Transport(other),
+                })?;
+            (members, None, false)
+        }
+        CellQueryRouting::Replicas {
+            members,
+            attempt_timeout,
+            leader_fallback,
+        } => (members, Some(attempt_timeout), leader_fallback),
     };
     let mut last = None;
     for (n, member) in members.iter().enumerate() {
         if n > 0 {
             invocation.retry().await?;
         }
-        invocation.limit_attempt(attempt_timeout)?;
+        let timeout = match attempt_timeout {
+            Some(timeout) => timeout,
+            None => {
+                let now = shared
+                    .domain
+                    .mono_ms()
+                    .map_err(|_| Error::Runtime(RuntimeError::Closed))?;
+                let remaining = invocation.deadline_ms().saturating_sub(now);
+                // Leave time for other trusted replicas after a blackholed peer.
+                Duration::from_millis((remaining / (members.len() - n) as u64).max(1))
+            }
+        };
+        invocation.limit_attempt(timeout)?;
         let result = destination
             .attempt(invocation, *member, options.clone(), permit.clone())
             .await;
@@ -58,7 +89,7 @@ pub(super) async fn execute(
             Err(error) => return Err(error),
         }
     }
-    if leader_fallback {
+    if let Some(attempt_timeout) = attempt_timeout.filter(|_| leader_fallback) {
         let history = invocation
             .attempt()
             .ok_or(Error::Invalid("missing route"))?

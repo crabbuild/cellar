@@ -83,6 +83,7 @@ pub(crate) fn read_options(headers: &[(String, String)]) -> Result<QueryOptions>
     let members = header(headers, "x-query-members")?;
     let attempt = header(headers, "x-query-attempt-ms")?;
     let fallback = header(headers, "x-leader-fallback")?;
+    let defaults = QueryOptions::default();
     let routing = if let Some(members) = members {
         let mut selected = Vec::new();
         let mut unique = BTreeSet::new();
@@ -119,7 +120,7 @@ pub(crate) fn read_options(headers: &[(String, String)]) -> Result<QueryOptions>
             attempt.is_none() && fallback.is_none(),
             "routing policy requires members"
         );
-        QueryRouting::Local
+        defaults.routing
     };
     Ok(QueryOptions {
         consistency,
@@ -127,6 +128,7 @@ pub(crate) fn read_options(headers: &[(String, String)]) -> Result<QueryOptions>
         stale_policy,
         max_attempts: match &routing {
             QueryRouting::Local => 1,
+            QueryRouting::Automatic => defaults.max_attempts,
             QueryRouting::Replicas {
                 members,
                 leader_fallback,

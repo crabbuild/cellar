@@ -2,6 +2,9 @@
 
 //! Managed node owners and physical inventory for the public request drill.
 use super::*;
+use cellar::application::consensus::NamespaceQueryOrigin;
+
+pub(super) const INGRESS: usize = 3;
 
 pub(super) struct Cluster {
     pub managed: ManagedCluster,
@@ -45,7 +48,11 @@ impl Cluster {
             apis,
             web: None,
         };
-        let started = cluster.start_web().await;
+        let started = async {
+            Box::pin(cluster.start_ingress()).await?;
+            cluster.start_web().await
+        }
+        .await;
         if let Err(error) = started {
             let joined = cluster.close().await;
             cluster.managed.fixtures[0].domain.shutdown().await;
@@ -53,6 +60,54 @@ impl Cluster {
             return Err(error);
         }
         Ok(cluster)
+    }
+
+    async fn start_ingress(&mut self) -> Result<()> {
+        let mut fixture = peer_fixture(&self.managed.fixtures[0], 7).await?;
+        let class = counter::definition()?;
+        let api = counter::CounterApi::new(
+            http::secret(),
+            self.managed.history.cluster,
+            self.managed.history.namespace,
+            &class,
+        )?;
+        fixture.application = counter::application(api.clone(), class)?;
+        let root = tempfile::tempdir()?;
+        let node = start_node(
+            root.path(),
+            fixture.application.clone(),
+            &fixture.spec.label,
+        )
+        .await?;
+        let started = async {
+            let (mut config, services) = fixture.config(&node, LogOpenMode::Create, 27).await?;
+            config.groups.push(RaftGroupAssignment {
+                history: self.managed.history,
+                placement: RaftGroupPlacement::QueryRouter,
+            });
+            let peer = config.peers[0].clone();
+            let host = node.start_raft_cells(config, services).await?;
+            Ok::<_, anyhow::Error>((peer, host))
+        }
+        .await;
+        let (peer, host) = match started {
+            Ok(started) => started,
+            Err(error) => {
+                eprintln!(
+                    "retained failed ingress startup disk at {}",
+                    root.keep().display()
+                );
+                node.shutdown(ShutdownMode::Preserve).await?;
+                return Err(error);
+            }
+        };
+        self.managed.fixtures.push(fixture);
+        self.managed.roots.push(root);
+        self.managed.peers.push(peer);
+        self.managed.hosts.push(host);
+        self.nodes.push(Some(node));
+        self.apis.push(api);
+        Ok(())
     }
 
     async fn start_web(&mut self) -> Result<()> {
@@ -97,6 +152,18 @@ impl Cluster {
         Ok(())
     }
 
+    pub fn authorize_ingress_reads(&self) -> Result<()> {
+        for host in &self.managed.hosts[..INGRESS] {
+            host.grant_query_origin(NamespaceQueryOrigin {
+                cluster: self.managed.history.cluster,
+                namespace: self.managed.history.namespace,
+                revision: 1,
+                peer: self.managed.peers[INGRESS].clone(),
+            })?;
+        }
+        Ok(())
+    }
+
     pub fn web(&self) -> Result<&http::Web> {
         self.web.as_ref().context("joined HTTP owner")
     }
@@ -104,7 +171,7 @@ impl Cluster {
     pub async fn leader(&self) -> Result<usize> {
         tokio::time::timeout(TIMEOUT, async {
             loop {
-                for (i, host) in self.managed.hosts.iter().enumerate() {
+                for (i, host) in self.managed.hosts[..INGRESS].iter().enumerate() {
                     if self.nodes[i].is_none() {
                         continue;
                     }
@@ -121,10 +188,17 @@ impl Cluster {
     }
 
     pub async fn inventory(&self) -> Result<()> {
+        let ingress = &self.managed.hosts[INGRESS];
+        ensure!(ingress.observe_node(TIMEOUT).await?.node.groups == 0);
+        ensure!(ingress.resource_usage().host.controller.groups == 0);
+        ensure!(matches!(
+            ingress.group(self.managed.history),
+            Err(RuntimeError::NotFound)
+        ));
         tokio::time::timeout(TIMEOUT, async {
             loop {
                 let mut complete = true;
-                for host in &self.managed.hosts {
+                for host in &self.managed.hosts[..INGRESS] {
                     let local = host.observe_node(TIMEOUT).await?;
                     ensure!(local.fleet_boot.is_some());
                     let observed = host.group(self.managed.history)?.observe(TIMEOUT).await?;
@@ -152,7 +226,10 @@ impl Cluster {
             ));
         }
         let report = self.managed.hosts[index].close().await?;
-        ensure!(report.groups_total == 1 && report.groups.iter().all(|g| !g.failed));
+        ensure!(
+            report.groups_total == usize::from(index != INGRESS)
+                && report.groups.iter().all(|g| !g.failed)
+        );
         ensure!(report.mutation_outcomes == MutationOutcomes::NoUnresolvedLocalProducers);
         Ok(())
     }
@@ -199,10 +276,15 @@ impl Cluster {
             let (mut config, services) = fixture
                 .config(&node, LogOpenMode::Resume, 104 + i as u8)
                 .await?;
-            archives::configure(&mut config);
+            let placement = if i == INGRESS {
+                RaftGroupPlacement::QueryRouter
+            } else {
+                archives::configure(&mut config);
+                RaftGroupPlacement::Replica
+            };
             config.groups.push(RaftGroupAssignment {
                 history: self.managed.history,
-                placement: RaftGroupPlacement::Replica,
+                placement,
             });
             self.managed.peers.push(config.peers[0].clone());
             let host = node.start_raft_cells(config, services).await?;
@@ -211,6 +293,7 @@ impl Cluster {
         }
         self.bind()?;
         self.start_web().await?;
-        self.authorize_commands()
+        self.authorize_commands()?;
+        self.authorize_ingress_reads()
     }
 }

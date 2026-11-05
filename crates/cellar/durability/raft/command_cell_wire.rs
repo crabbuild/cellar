@@ -17,6 +17,71 @@ pub(in crate::raft) struct CellCommandCall {
     pub birth_digest: [u8; 32],
 }
 
+/// A read-only probe under the same origin permission as a command.
+pub(in crate::raft) struct CellCommandProbe {
+    pub timeout_ms: u64,
+    pub route_epoch: u64,
+    pub birth_digest: [u8; 32],
+}
+
+impl CellCommandProbe {
+    pub fn encode(&self, limit: usize) -> Result<Vec<u8>, TransportError> {
+        self.validate()?;
+        if limit < 56 {
+            return Err(TransportError::Limit);
+        }
+        let mut body = b"CLGCPQ01".to_vec();
+        body.extend_from_slice(&self.route_epoch.to_be_bytes());
+        body.extend_from_slice(&self.birth_digest);
+        body.extend_from_slice(&self.timeout_ms.to_be_bytes());
+        Ok(body)
+    }
+
+    pub fn decode(bytes: &[u8], limit: usize) -> Result<Self, TransportError> {
+        if bytes.len() > limit {
+            return Err(TransportError::Limit);
+        }
+        let mut body = Reader(bytes);
+        if body.take(8)? != b"CLGCPQ01" {
+            return Err(TransportError::Protocol);
+        }
+        let probe = Self {
+            route_epoch: u64::from_be_bytes(body.array()?),
+            birth_digest: body.array()?,
+            timeout_ms: u64::from_be_bytes(body.array()?),
+        };
+        if !body.0.is_empty() {
+            return Err(TransportError::Protocol);
+        }
+        probe.validate()?;
+        Ok(probe)
+    }
+
+    fn validate(&self) -> Result<(), TransportError> {
+        if self.route_epoch == 0 || self.birth_digest == [0; 32] {
+            return Err(TransportError::Identity);
+        }
+        if !(1..=60_000).contains(&self.timeout_ms) {
+            return Err(TransportError::Protocol);
+        }
+        Ok(())
+    }
+}
+
+pub(in crate::raft) fn encode_probe_result(leader: bool) -> Vec<u8> {
+    let mut body = b"CLGCPS01".to_vec();
+    body.push(u8::from(leader));
+    body
+}
+
+pub(in crate::raft) fn decode_probe_result(bytes: &[u8]) -> Result<bool, TransportError> {
+    match bytes.strip_prefix(b"CLGCPS01") {
+        Some([0]) => Ok(false),
+        Some([1]) => Ok(true),
+        _ => Err(TransportError::Protocol),
+    }
+}
+
 pub(in crate::raft) struct CellCommandValue {
     pub command: CommandId,
     pub durability: Durability,

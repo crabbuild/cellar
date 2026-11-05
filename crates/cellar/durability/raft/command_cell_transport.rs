@@ -10,7 +10,7 @@ use crate::raft::cell_groups::{
 use crate::raft::query_identity::QueryRoute;
 use crate::raft::query_wire::{
     self as wire,
-    command::{CellCommandCall, CellCommandValue},
+    command::{CellCommandCall, CellCommandProbe, CellCommandValue},
     enrollment::{CellEnrollmentCall, CellEnrollmentValue},
     receipt::{CellReceiptCall, CellReceiptValue},
 };
@@ -153,6 +153,7 @@ impl CellRemoteReceiptResponse {
 
 enum WriteCall {
     Command(CellCommandCall),
+    Probe(CellCommandProbe),
     Enrollment(CellEnrollmentCall),
     Receipt(CellReceiptCall),
 }
@@ -161,6 +162,7 @@ impl WriteCall {
     fn encode(&self, limit: usize) -> Result<Vec<u8>, TransportError> {
         match self {
             Self::Command(c) => c.encode(limit),
+            Self::Probe(c) => c.encode(limit),
             Self::Enrollment(c) => c.encode(limit),
             Self::Receipt(c) => c.encode(limit),
         }
@@ -169,6 +171,7 @@ impl WriteCall {
     fn shorten_timeout(&mut self, remaining: u64) {
         let timeout = match self {
             Self::Command(c) => &mut c.timeout_ms,
+            Self::Probe(c) => &mut c.timeout_ms,
             Self::Enrollment(c) => &mut c.timeout_ms,
             Self::Receipt(c) => &mut c.timeout_ms,
         };
@@ -178,7 +181,7 @@ impl WriteCall {
     fn input_bytes(&self) -> usize {
         match self {
             Self::Command(c) => c.request.input.len(),
-            Self::Enrollment(_) => 0,
+            Self::Enrollment(_) | Self::Probe(_) => 0,
             Self::Receipt(c) => c.request.input.len(),
         }
     }
@@ -186,6 +189,7 @@ impl WriteCall {
 
 enum WriteValue {
     Command(CellCommandValue),
+    Probe(bool),
     Enrollment(CellEnrollmentValue),
     Receipt(CellReceiptValue),
 }
@@ -299,6 +303,45 @@ impl RaftTransport {
             _node: response.node,
             _peer: response.peer,
         })
+    }
+
+    pub(in crate::raft) async fn probe_cell_command_leader(
+        &self,
+        route: &cellar_logic::cell_group::GroupRoute,
+        cell: &CellHistory,
+        member: MemberId,
+        keys: VersionKeys,
+        deadline: u64,
+    ) -> Result<bool, TransportError> {
+        let timeout_ms = deadline
+            .checked_sub(
+                self.handle
+                    .0
+                    .domain
+                    .mono_ms()
+                    .map_err(|_| TransportError::Closed)?,
+            )
+            .filter(|ms| *ms > 0)
+            .ok_or(TransportError::Timeout)?;
+        let call = CellCommandProbe {
+            timeout_ms,
+            route_epoch: route.epoch.get(),
+            birth_digest: route.birth_digest,
+        };
+        let timer = self
+            .handle
+            .0
+            .domain
+            .sleep_until(deadline)
+            .map_err(|_| TransportError::Closed)?;
+        let response = crate::asyncrt::select! {
+            result = self.write_cell(route, cell, member, WriteCall::Probe(call), keys, deadline) => result?,
+            _ = timer => return Err(TransportError::Timeout),
+        };
+        match response.value {
+            WriteValue::Probe(leader) => Ok(leader),
+            _ => Err(TransportError::Protocol),
+        }
     }
 
     pub(in crate::raft) async fn enroll_cell(
@@ -539,6 +582,7 @@ impl State {
                     )?;
                     let route = match &request.call {
                         WriteCall::Command(_) => route.for_command()?,
+                        WriteCall::Probe(_) => route.for_command_probe()?,
                         WriteCall::Enrollment(_) => route.for_enrollment()?,
                         WriteCall::Receipt(_) => route.for_receipt()?,
                     };
@@ -562,6 +606,10 @@ impl State {
                                 request.peer.replica.member,
                             )?
                             .map(WriteValue::Command)
+                        }
+                        WriteCall::Probe(_) => {
+                            return wire::command::decode_probe_result(&body)
+                                .map(WriteValue::Probe);
                         }
                         WriteCall::Receipt(call) => {
                             let now = u64::try_from(crate::asyncrt::wall_ms())
@@ -707,6 +755,56 @@ impl State {
         }
         .await;
         super::query_replies::Reply::enrollment(result, self.options.max_query_response_bytes)
+    }
+
+    pub(super) async fn execute_cell_command_probe(
+        &self,
+        route: &QueryRoute,
+        call: CellCommandProbe,
+    ) -> Result<super::query_replies::Reply, TransportError> {
+        let (_, target, cell) = route.decode_shared()?;
+        let gateway = self
+            .cell_command_gateways
+            .lock()
+            .map_err(|_| TransportError::Closed)?
+            .get(&(cell.cluster, cell.namespace))
+            .and_then(|g| g.upgrade())
+            .ok_or(TransportError::Refused)?;
+        let runtime = self.runtime.shared()?;
+        let status = runtime
+            .status(target.scope)
+            .await
+            .map_err(TransportError::Runtime)?;
+        self.authorize_cell_command(route)?;
+        if !gateway.accepting.load(Ordering::Acquire) {
+            return Err(TransportError::Refused);
+        }
+        let manifest = runtime
+            .log()
+            .cell_group(&target.scope)
+            .and_then(|group| group.group_manifest())
+            .map_err(|error| TransportError::Runtime(error.into()))?
+            .ok_or(TransportError::UnknownGroup)?;
+        let selected = manifest.route();
+        if selected.history != target.scope
+            || selected.schema_digest != route.schema()
+            || selected.epoch.get() != call.route_epoch
+            || selected.birth_digest != call.birth_digest
+            || selected
+                .check_cell(
+                    &cell,
+                    &crate::application::consensus::cell_routing_key(cell.namespace, &cell.cell),
+                )
+                .is_err()
+        {
+            return Err(TransportError::StalePeer);
+        }
+        // The sample selects a destination for one attempt. Command admission
+        // must independently check current local Raft authority.
+        let leader = status.ready && status.leader == Some(target.member.get());
+        Ok(super::query_replies::Reply::plain(
+            wire::command::encode_probe_result(leader),
+        ))
     }
 
     pub(super) async fn execute_cell_command(

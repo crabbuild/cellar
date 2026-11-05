@@ -237,6 +237,10 @@ impl CellRoutingSession {
         self.next(None, false).await
     }
 
+    pub(crate) fn maximum_attempts(&self) -> usize {
+        usize::from(self.maximum)
+    }
+
     pub(crate) fn deadline_ms(&self) -> u64 {
         self.deadline
     }

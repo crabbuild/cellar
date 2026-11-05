@@ -57,6 +57,7 @@ enum History {
 enum Purpose {
     Query,
     Command,
+    CommandProbe,
     Enrollment,
     Receipt,
 }
@@ -166,6 +167,16 @@ impl QueryRoute {
         self.purpose == Purpose::Command
     }
 
+    pub fn for_command_probe(mut self) -> Result<Self, TransportError> {
+        self.decode_shared()?;
+        self.purpose = Purpose::CommandProbe;
+        Ok(self)
+    }
+
+    pub fn is_command_probe(&self) -> bool {
+        self.purpose == Purpose::CommandProbe
+    }
+
     pub fn for_enrollment(mut self) -> Result<Self, TransportError> {
         self.decode_shared()?;
         self.purpose = Purpose::Enrollment;
@@ -187,7 +198,7 @@ impl QueryRoute {
     }
 
     pub fn requires_command_grant(&self) -> bool {
-        self.is_command() || self.is_enrollment() || self.is_receipt()
+        self.is_command() || self.is_command_probe() || self.is_enrollment() || self.is_receipt()
     }
 
     pub fn validate(&self) -> Result<(), TransportError> {

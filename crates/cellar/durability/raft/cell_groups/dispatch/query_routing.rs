@@ -13,6 +13,9 @@ use std::time::Duration;
 pub enum CellQueryRouting {
     #[default]
     Local,
+    /// Use the local replica when present. On an ingress-only node, try
+    /// the installed trusted group route within the original attempt budget.
+    Automatic,
     /// One to eight distinct members; attempt_timeout is positive and no larger
     /// than the original timeout. Missing leader advice never grants authority.
     Replicas {
@@ -49,6 +52,7 @@ impl CellQueryRouting {
     pub(super) fn fingerprint(&self, hash: &mut Sha256) {
         match self {
             Self::Local => hash.update([0]),
+            Self::Automatic => hash.update([2]),
             Self::Replicas {
                 members,
                 attempt_timeout,
@@ -90,6 +94,10 @@ impl CellQueryInvocation {
 
     pub(crate) fn deadline_ms(&self) -> u64 {
         self.session.deadline_ms()
+    }
+
+    pub(crate) fn maximum_attempts(&self) -> usize {
+        self.session.maximum_attempts()
     }
 
     pub(crate) fn routing(&self) -> CellQueryRouting {
