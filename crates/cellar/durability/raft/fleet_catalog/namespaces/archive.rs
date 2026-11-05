@@ -203,13 +203,13 @@ impl FleetCatalog {
 }
 
 impl FleetHostAuthorization {
-    pub(crate) async fn verify_first_group_archive(
+    pub(crate) async fn observe_first_group_archive(
         &self,
         directory: RangeDirectory,
         archives: CellGroupArchivePool,
         history: GroupHistory,
         timeout: Duration,
-    ) -> Result<FleetGroupAuthorization> {
+    ) -> Result<Option<FleetGroupAuthorization>> {
         self.check_namespace(directory.namespace_config())?;
         RaftManagedArchiveProvisioning {
             fleet: self.catalog.clone(),
@@ -267,28 +267,39 @@ impl RaftManagedArchiveProvisioning {
         timeout: Duration,
     ) -> Result<()> {
         self.verified_first_group(history, timeout)
-            .await
-            .map(|_| ())
+            .await?
+            .ok_or(FleetCatalogError::Unconfirmed)?;
+        Ok(())
     }
 
     async fn verified_first_group(
         &self,
         history: GroupHistory,
         timeout: Duration,
-    ) -> Result<FleetGroupAuthorization> {
+    ) -> Result<Option<FleetGroupAuthorization>> {
         let key = self.fleet.first_group_archive_key(history)?;
         self.fleet
             .run(timeout, async {
                 let snapshot = self.fleet.inner.current().await?;
-                let (birth, authority) = self.selected_birth_at(&snapshot, history).await?;
-                let intent = self
+                let Some(intent) = self
                     .fleet
                     .first_group_archive_intent(&snapshot, &key)
                     .await?
-                    .ok_or(FleetCatalogError::Conflict)?;
-                self.verify_birth_archive(&birth, &intent.binding()?)
-                    .await?;
-                Ok(authority)
+                else {
+                    return Ok(None);
+                };
+                let (birth, authority) = self.selected_birth_at(&snapshot, history).await?;
+                let verified = self
+                    .directory
+                    .observe_group_archive_binding(
+                        &self.fleet.inner.domain,
+                        &self.archives,
+                        &birth,
+                        &intent.binding()?,
+                    )
+                    .await
+                    .map_err(binding_error)?;
+                Ok(verified.then_some(authority))
             })
             .await
     }

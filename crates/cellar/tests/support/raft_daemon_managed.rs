@@ -12,7 +12,6 @@ use cli::{first_group_plan, OperatorCli, OWNER};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 const PRINCIPAL: &str = "daemon-process-fixture";
-const STANDBY_READY: &str = "first-group-ready";
 
 pub(super) const RUSTFS_ENDPOINT: &str = "CELLAR_CELL_GROUPS_RUSTFS_ENDPOINT";
 pub(super) const RUSTFS_ENV: [&str; 6] = [
@@ -342,22 +341,19 @@ async fn ready(
         if index == 0 {
             provision_first_group(operator, service, root, history).await?;
         }
-        let deadline = Instant::now() + Duration::from_secs(20);
-        while !root.join(STANDBY_READY).exists() {
-            ensure!(
-                Instant::now() < deadline,
-                "operator did not confirm group and archive"
-            );
-            cellar::asyncrt::sleep(Duration::from_millis(20)).await;
-        }
     }
+    let timeout = if !retained && index != 0 {
+        Duration::from_secs(20)
+    } else {
+        TIMEOUT
+    };
+    service.start_managed_first_group(history, timeout).await?;
     if !retained {
         let cut = operator.fleet.read(TIMEOUT).await?;
         for index in 0..3 {
             inspect_current(service, node(index)?, cut.revision()).await?;
         }
     }
-    service.start_managed_first_group(history, TIMEOUT).await?;
     Ok(())
 }
 
@@ -406,9 +402,7 @@ async fn provision_first_group(
     .await?;
     let result = provision_group_metadata(&cli, service, root, history).await;
     cli.close().await?;
-    result?;
-    persist(root, STANDBY_READY, b"confirmed")?;
-    Ok(())
+    result
 }
 
 async fn provision_group_metadata(

@@ -36,7 +36,7 @@ impl Cluster {
             ArchiveSetup::Initialized,
             true,
             Some(applications),
-            FirstGroupSetup::Normal,
+            FirstGroupSetup::Operator,
         ))
         .await?;
         let nodes = std::mem::take(&mut managed.nodes)
@@ -292,6 +292,12 @@ impl Cluster {
             self.managed.hosts.push(host);
             self.nodes.push(Some(node));
         }
+        futures_util::future::try_join_all(
+            self.managed.hosts[..INGRESS]
+                .iter()
+                .map(|voter| voter.start_managed_first_group(self.managed.history, TIMEOUT)),
+        )
+        .await?;
         self.bind()?;
         self.start_web().await?;
         self.authorize_commands()?;

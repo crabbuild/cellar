@@ -54,9 +54,11 @@ native daemon process gate exercises cold managed startup, two-cell requests
 and retained restart on the development store and real RustFS in both image
 modes. The process gate uses the CLI and admin API for capacity, first-group
 metadata and rooted archive initialization. The daemon owns first-voter
-activation and the fresh-quorum readiness barrier. The process fixture still
-signals archive readiness and supplies capacity attestation. Real deployment
-capacity and constrained voter qualification remain open.
+activation and waits for rooted archive state and fresh quorum. The combined
+native/Axum case uses public group and archive provisioning from a fresh
+RustFS prefix. The process fixture supplies boot ordering and capacity
+attestation. Real deployment capacity and constrained voter qualification
+remain open.
 
 CG-07 remains IN_PROGRESS. Four original public gates remain undelivered, including
 complete managed lifecycle and ingress authority. Default/backend and capability
@@ -68,16 +70,15 @@ production legacy/shared switch or old-data migration is part of the target.
 
 1. **Provision through the public namespace path.** Start from the SDK-created
    managed standby and the public capacity, first-group and archive commands.
-   Replace the fixture readiness signal with bounded rooted archive
-   observation. Exercise the SDK enrollment path for two independent cells. Carry the tenant and
-   cell binding through native, Axum and admin entry points. Preserve typed
-   capability refusals.
+   Bounded rooted archive observation and SDK enrollment for two cells pass
+   the combined fresh RustFS case. Finish tenant and cell binding through
+   native, Axum and admin entry points. Preserve typed capability refusals.
 2. **Qualify the expanded public path.** The managed request test covers
    ingress without a replica, failover, retained restart and quorum loss in
    both image formats. Real RustFS also verifies quorum acknowledgement
    during archive write denial and S3 receipt replay after restoration.
-   Extend this evidence to ordinary provisioning, cold router return after
-   birth-voter retirement and the remaining ingress authority cases. Keep read
+   Extend this evidence to cold router return after birth-voter retirement,
+   constrained voters and the remaining ingress authority cases. Keep read
    consistency explicit.
 
 Clear the existing managed lifecycle failures and remaining public merge gates

@@ -191,6 +191,37 @@ impl RangeDirectory {
         Ok(())
     }
 
+    /// Observe an exact rooted intent during operator startup. Absence only
+    /// delays admission. An invalid identity or binding refuses immediately.
+    pub(crate) async fn observe_group_archive_binding(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        pool: &CellGroupArchivePool,
+        birth: &CellGroupBirth,
+        intent: &[u8],
+    ) -> Result<bool> {
+        domain
+            .run(async {
+                self.require_current_group_birth(birth).await?;
+                let Some(binding) = self.read_archive_binding(birth, Some(intent)).await? else {
+                    return Ok(false);
+                };
+                match self
+                    .group_archive(pool, birth.route())?
+                    .open_registry(domain, &binding.creation)
+                    .await
+                {
+                    Ok(_) => (),
+                    Err(CellGroupArchiveError::MissingRegistry) => return Ok(false),
+                    Err(error) => return Err(error.into()),
+                }
+                self.require_current_group_birth(birth).await?;
+                Ok(true)
+            })
+            .await
+            .map_err(|_| CellGroupArchiveError::Stopped)?
+    }
+
     async fn open_selected_archive(
         &self,
         domain: &impl CellGroupArchiveExecution,
@@ -229,16 +260,31 @@ impl RangeDirectory {
         birth: &CellGroupBirth,
         intent: Option<&[u8]>,
     ) -> Result<CellGroupArchiveRegistry> {
-        let bytes = self
-            .bounded(async {
+        let binding = self
+            .read_archive_binding(birth, intent)
+            .await?
+            .ok_or(CatalogError::Corrupt("missing group archive binding"))?;
+        Ok(self
+            .group_archive(pool, birth.route())?
+            .open_registry(domain, &binding.creation)
+            .await?)
+    }
+
+    async fn read_archive_binding(
+        &self,
+        birth: &CellGroupBirth,
+        intent: Option<&[u8]>,
+    ) -> Result<Option<Binding>> {
+        let Some((bytes, _)) = self
+            .bounded(
                 self.namespace
                     .inner
-                    .read_versioned_bounded(&self.archive_binding_key(birth.route()), wire::LIMIT)
-                    .await?
-                    .map(|(bytes, _)| bytes)
-                    .ok_or(CatalogError::Corrupt("missing group archive binding"))
-            })
-            .await?;
+                    .read_versioned_bounded(&self.archive_binding_key(birth.route()), wire::LIMIT),
+            )
+            .await?
+        else {
+            return Ok(None);
+        };
         let binding: Binding = record::decode(wire::GROUP_ARCHIVE, &bytes, wire::LIMIT)?;
         if intent.is_some_and(|intent| intent != bytes.as_slice()) {
             return Err(CatalogError::Conflict("group archive intent").into());
@@ -248,10 +294,7 @@ impl RangeDirectory {
         {
             return Err(CatalogError::Corrupt("group archive binding identity").into());
         }
-        Ok(self
-            .group_archive(pool, birth.route())?
-            .open_registry(domain, &binding.creation)
-            .await?)
+        Ok(Some(binding))
     }
 
     /// Cleanup may outlive the selected birth. Reopen only the exact immutable

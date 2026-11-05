@@ -62,10 +62,10 @@ fn startup_directory_error(error: CellDispatchError) -> CellGroupControllerError
 
 impl RaftCells {
     /// Start the exact operator-provisioned first group on this initial voter.
-    /// Verify the rooted archive, attach or validate the retained local replica,
-    /// and wait for a fresh quorum behind one startup deadline. Call this from
-    /// daemon readiness before opening application ingress. The result is a
-    /// point-in-time barrier and supplies no ongoing serving lease.
+    /// Wait for the exact rooted archive and registry, attach or validate the
+    /// local replica, and establish fresh quorum behind one startup deadline.
+    /// Call this from daemon readiness before opening application ingress.
+    /// The result is a point-in-time barrier and supplies no serving lease.
     pub fn start_managed_first_group(
         &self,
         history: GroupHistory,
@@ -98,26 +98,50 @@ impl RaftCells {
         let owner = self.internal_observer();
         async move {
             let (deadline, memory, host, directory, archives) = admitted.map_err(Refused)?;
-            owner.startup_live(&host, deadline).map_err(Refused)?;
-            let remaining = owner.startup_remaining(deadline).map_err(Refused)?;
-            let authorization = owner
-                .handle
-                .domain
-                .run(host.verify_first_group_archive(directory, archives, history, remaining))
-                .await
-                .map_err(|_| Refused(CellGroupControllerError::Closed))?
-                .map_err(|error| Refused(catalog_error(CatalogError::from(error))))?;
+            let domain = &owner.handle.domain;
+            let mut backoff_ms = 25u64;
+            let authorization = loop {
+                owner.startup_live(&host, deadline).map_err(Refused)?;
+                let remaining = owner.startup_remaining(deadline).map_err(Refused)?;
+                let result = domain
+                    .run(host.observe_first_group_archive(
+                        directory.clone(),
+                        archives.clone(),
+                        history,
+                        remaining,
+                    ))
+                    .await
+                    .map_err(|_| Refused(CellGroupControllerError::Closed))?;
+                match result {
+                    Ok(Some(authorization)) => break authorization,
+                    Ok(None) | Err(crate::raft::fleet_catalog::FleetCatalogError::Overloaded) => (),
+                    Err(error) => return Err(Refused(catalog_error(CatalogError::from(error)))),
+                }
+                let now = domain
+                    .mono_ms()
+                    .map_err(|_| Refused(CellGroupControllerError::Closed))?;
+                domain
+                    .sleep_until(deadline.min(now.saturating_add(backoff_ms)))
+                    .map_err(|_| Refused(CellGroupControllerError::Closed))?
+                    .await;
+                backoff_ms = (backoff_ms * 2).min(250);
+            };
             drop(memory);
             let remaining = owner.startup_remaining(deadline).map_err(Refused)?;
             let attachment = owner
                 .activate_managed_initial_group(authorization, remaining)
                 .await?;
             let core = &owner.handle.core;
-            let observed = core
-                .runtime
-                .quorum_membership(history, deadline)
-                .await
-                .map_err(|error| Unconfirmed(error.into()))?;
+            let observed = loop {
+                owner.startup_live(&host, deadline).map_err(Unconfirmed)?;
+                match core.runtime.quorum_membership(history, deadline).await {
+                    Ok(observed) => break observed,
+                    // An election invalidates the in-flight barrier. Start a
+                    // new one under this invocation's original deadline.
+                    Err(RuntimeError::NotLeader) => (),
+                    Err(error) => return Err(Unconfirmed(error.into())),
+                }
+            };
             let remaining = owner.startup_remaining(deadline).map_err(Unconfirmed)?;
             let fresh = owner
                 .handle

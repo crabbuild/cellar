@@ -577,10 +577,12 @@ impl ManagedCluster {
         }
         let cut = f.catalog.read(TIMEOUT).await?;
         let reserve_identity = request(60, cut.revision());
-        let authorization = if matches!(first_group, FirstGroupSetup::Operator) {
+        let public_operator = matches!(first_group, FirstGroupSetup::Operator);
+        let authorization = if public_operator {
             Box::pin(first_group_operator::provision(
                 f,
                 &directory,
+                &hosts[0],
                 reserve(reserve_identity)?,
             ))
             .await?
@@ -623,15 +625,16 @@ impl ManagedCluster {
                 .publish_managed_first_group(&reserved, &confirmation, TIMEOUT)
                 .await?
         };
-        if archives == ArchiveSetup::Initialized
-            && !matches!(first_group, FirstGroupSetup::Operator)
-        {
+        if archives == ArchiveSetup::Initialized && !public_operator {
             archives::initialize(f, &adapter, history, roots[0].path()).await?;
         }
         let cut = f.catalog.read(TIMEOUT).await?;
         for host in hosts.iter().take(3) {
             for fixture in &fixtures {
                 inspect_current(host, fixture.spec.node, cut.revision()).await?;
+            }
+            if public_operator {
+                continue;
             }
             let result = host
                 .activate_managed_initial_group(authorization.clone(), TIMEOUT)
@@ -651,6 +654,15 @@ impl ManagedCluster {
             } else {
                 result?;
             }
+        }
+        if public_operator {
+            futures_util::future::try_join_all(
+                hosts
+                    .iter()
+                    .take(3)
+                    .map(|voter| voter.start_managed_first_group(history, TIMEOUT)),
+            )
+            .await?;
         }
         Ok(Self {
             fixtures,

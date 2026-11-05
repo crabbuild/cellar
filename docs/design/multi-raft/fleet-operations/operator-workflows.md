@@ -139,11 +139,11 @@ the exact initializer intent before creating registry state. Reconcile an unknow
 reply with the same request. An incomplete archive refuses verification and
 requires authority recovery. An archive receipt supplies no coverage or voter
 authority. In the compiled application, use `NativeDaemon::raft_cells_with_startup`
-and call `cells.start_managed_first_group(history, timeout).await?` after the
-archive operation is confirmed. The daemon readiness call uses the installed
-boot, directory and archive pool, validates or attaches the local initial voter,
-and waits for a fresh quorum. Bind the application's ingress handles after it
-returns.
+and call `cells.start_managed_first_group(history, timeout).await?` with the
+exact planned history. The call waits for the rooted archive and complete
+registry under the startup deadline. It uses the installed boot, directory and
+archive pool to validate or attach the local initial voter and establish fresh
+quorum. Bind the application's ingress handles after it returns.
 
 | Method and suffix under `/api/v1/fleets/{fleet}/raft` | Permission and result |
 | --- | --- |

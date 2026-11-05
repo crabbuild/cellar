@@ -12,6 +12,27 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 catalog-driven startup and public request qualification
+
+Managed startup waits on the exact rooted archive and registry under its
+original deadline. A missing registry never creates counters or attaches a
+voter. An election supersedes the pending ReadIndex and the same startup
+deadline governs the next fresh quorum observation. The process test uses the
+catalog for archive readiness and retains fixture boot ordering and attestation.
+
+Four native cases, both independent daemon RustFS image modes and the combined
+native/Axum RustFS case pass. The request case starts in an isolated fresh
+prefix, uses the public first-group and archive commands, attaches the voters
+through the SDK readiness owner and then enrolls two independent cells. It
+verifies remote native and Axum reads and writes, preserved receipts, retained
+restart and quorum-loss refusals in both image forms. These are same-host
+process and embedded cases. The RustFS backend and VM stop with data retained.
+
+Source manifest `9352d069e187b5c8d9e039be312609c25c5f2774caa9541c9767c56308f18105`.
+Native record `1cb5c6c9fb4398f18a5e70216c23e19ec81a82fcbed3c6e25216539964a65759`.
+RustFS record `339ec79daa9d92896a9a12a1bcf6178bb54308553db4461e13dfedbf7cd695e3`.
+CLI binary `527fa3d65b291dc8465687f811a4b5178c2ad6713beb39f878a721e1b5fd5e9b`.
+
 ## CG-07 daemon-owned first-group readiness
 
 The daemon startup callback uses the installed managed boot, directory and

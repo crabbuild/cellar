@@ -136,8 +136,9 @@ impl NativeDaemon {
     /// Run asynchronous application readiness after starting the node-owned
     /// Raft transport and before opening public ingress. For the first managed
     /// group, call [`RaftCells::start_managed_first_group`](crate::application::consensus::RaftCells::start_managed_first_group)
-    /// after operator provisioning. Failure or cancellation closes the installed
-    /// Raft owner and joins its work.
+    /// with the planned history. It can wait while the operator provisions the
+    /// group. Failure or cancellation closes the installed Raft owner and joins
+    /// its work.
     pub fn raft_cells_with_startup<F, Fut, Bind, Bound>(
         mut self,
         script: impl Into<String>,

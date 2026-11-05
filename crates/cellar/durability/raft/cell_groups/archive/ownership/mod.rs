@@ -385,9 +385,7 @@ impl CellGroupArchiveRegistry {
             .archive
             .read_versioned(&self.path("registry"), MAX_CONTROL_BYTES)
             .await?
-            .ok_or(CellGroupArchiveError::Invalid(
-                "missing established archive registry",
-            ))?;
+            .ok_or(CellGroupArchiveError::MissingRegistry)?;
         if version.e_tag.as_ref().is_some_and(String::is_empty)
             || version.version.as_ref().is_some_and(String::is_empty)
             || version.e_tag.as_ref().map_or(0, String::len)

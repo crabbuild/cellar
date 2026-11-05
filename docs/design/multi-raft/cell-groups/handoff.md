@@ -4,6 +4,14 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## CG-07 catalog-driven startup and public request qualification
+
+The combined fresh RustFS prefix case now uses public provisioning and archive
+commands, SDK voter readiness and enrollment, and native and Axum ingress.
+Qualify retained cold router return after all birth voters retire and finish
+the remaining managed lifecycle, public gates and constrained voter runs.
+[Source and test records](progress.md)
+
 ## CG-07 daemon-owned first-group readiness
 
 The daemon callback verifies the rooted archive, attaches the authorized local

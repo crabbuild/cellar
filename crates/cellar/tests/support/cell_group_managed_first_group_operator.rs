@@ -16,7 +16,7 @@ async fn managed_first_group_cli_admin_and_cold_quorum() -> Result<()> {
         first,
         &[],
         ArchiveSetup::Initialized,
-        false,
+        true,
         None,
         FirstGroupSetup::Operator,
     ))
@@ -64,6 +64,7 @@ async fn managed_first_group_cli_admin_and_cold_quorum() -> Result<()> {
 pub(super) async fn provision(
     f: &Fixture,
     directory: &RangeDirectory,
+    voter: &RaftCells,
     setup: RaftManagedFirstGroupRequest,
 ) -> Result<FleetGroupAuthorization> {
     let bucket = Bucket::from_clients(
@@ -84,7 +85,7 @@ pub(super) async fn provision(
         &setup.reservation.principal,
     )
     .await?;
-    let result = exercise(f, &cli, root.path(), setup).await;
+    let result = exercise(f, &cli, root.path(), voter, setup).await;
     cli.close().await?;
     result
 }
@@ -93,6 +94,7 @@ async fn exercise(
     f: &Fixture,
     cli: &OperatorCli,
     root: &Path,
+    voter: &RaftCells,
     setup: RaftManagedFirstGroupRequest,
 ) -> Result<FleetGroupAuthorization> {
     let history = setup.group.history;
@@ -205,11 +207,10 @@ async fn exercise(
     let conflict = cli.call(&competing, OWNER).await?;
     ensure!(conflict.code == 3 && conflict.value["error"]["code"] == "payload_conflict");
 
-    // Lose the registry while retaining the fleet intent and archive identity.
-    // Replaying the operator call must never recreate a missing counter.
+    // The fixture owns its store prefix and no voter has attached yet. Remove
+    // its one registry while retaining the fleet intent and archive identity.
     let registry = f
         .store
-        .inner
         .list(None)
         .try_filter(|meta| {
             let is_registry = meta.location.as_ref().contains("/cell-group-archives/")
@@ -222,15 +223,24 @@ async fn exercise(
         anyhow::bail!("one archive registry must exist before activation");
     };
     let key = &registry.location;
-    let bytes = f.store.inner.get(key).await?.bytes().await?;
-    f.store.inner.delete(key).await?;
+    let bytes = f.store.get(key).await?.bytes().await?;
+    f.store.delete(key).await?;
     let replay = cli.call(&archive, OWNER).await?;
     ensure!(replay.code == 5 && replay.value["error"]["outcome"] == "unknown");
     ensure!(matches!(
-        f.store.inner.head(key).await,
+        f.store.head(key).await,
         Err(object_store::Error::NotFound { .. })
     ));
-    f.store.inner.put(key, bytes.into()).await?;
+    let readiness = voter
+        .start_managed_first_group(history, Duration::from_millis(250))
+        .await;
+    ensure!(matches!(readiness, Err(CellGroupStartupError::Refused(_))));
+    ensure!(voter.observe_node(TIMEOUT).await?.node.groups == 0);
+    ensure!(matches!(
+        f.store.head(key).await,
+        Err(object_store::Error::NotFound { .. })
+    ));
+    f.store.put(key, bytes.into()).await?;
     ensure!(cli.call(&archive, OWNER).await?.success()? == archive_receipt);
 
     let cut = f.catalog.read(TIMEOUT).await?;
