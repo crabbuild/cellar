@@ -16,6 +16,10 @@ use std::{
     time::Duration,
 };
 
+#[path = "cell_group_directory_transition.rs"]
+mod transition;
+pub(super) use transition::{seal_authorization_cancel_race, unknown_transition_authorization};
+
 struct Fixture {
     domain: ExecutionDomain,
     store: Arc<fault::Store>,

@@ -16,6 +16,16 @@ mod directory;
 mod fault;
 
 #[tokio::test]
+async fn seal_authorization_cancel_race() -> anyhow::Result<()> {
+    directory::seal_authorization_cancel_race().await
+}
+
+#[tokio::test]
+async fn unknown_transition_authorization_is_irreversible() -> anyhow::Result<()> {
+    directory::unknown_transition_authorization().await
+}
+
+#[tokio::test]
 async fn standby_directory_is_explicit_durable_and_non_serving() -> anyhow::Result<()> {
     directory::standby_initialization().await
 }

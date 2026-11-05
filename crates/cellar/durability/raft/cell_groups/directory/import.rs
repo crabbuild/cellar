@@ -89,10 +89,23 @@ impl RangeDirectory {
     ) -> Result<FrozenCellGroupInventory, CatalogError> {
         self.unmanaged_birth()?;
         self.bounded(async {
+            let (initial, _) = self.current().await?;
+            if self.transition_active(&initial.head).await?.is_some() {
+                return Err(CatalogError::Fenced);
+            }
+            if self
+                .transition_record(&initial.head, operation)
+                .await?
+                .is_some()
+            {
+                return Err(CatalogError::Conflict("transition operation reused"));
+            }
             self.namespace.begin_cell_group_freeze(operation).await?;
             for _ in 0..8 {
                 let (mut view, version) = self.current().await?;
-                if view.head.recovery.is_some() {
+                if view.head.recovery.is_some()
+                    || self.transition_active(&view.head).await?.is_some()
+                {
                     return Err(CatalogError::Fenced);
                 }
                 if let Some(prior) = view.head.import {
@@ -106,6 +119,13 @@ impl RangeDirectory {
                         .namespace
                         .finish_cell_group_freeze(operation, digest)
                         .await;
+                }
+                if self
+                    .transition_record(&view.head, operation)
+                    .await?
+                    .is_some()
+                {
+                    return Err(CatalogError::Conflict("transition operation reused"));
                 }
                 let operation_key = hex::encode(operation.bytes());
                 if Index::new(self)

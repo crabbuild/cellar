@@ -192,6 +192,20 @@ retained restart in both image forms. Under load, verify archive coverage before
 local reclamation and account for accepted, refused and ambiguous outcomes.
 Local loopback qualification must remain labeled as such.
 
+## Source-sealing implementation boundary
+
+The unmanaged verification directory roots an exact split or merge plan in the
+range head CAS. It retains Planned, Prepared, SealAuthorized and Cancelled
+metadata across owner restart. Authorization and cancellation compete on the
+same prepared head. Ordinary range publication, import and disaster recovery
+must acquire the topology head without an active transition. Routing continues
+to select the original parent ranges until the verified transfer publishes.
+
+The metadata API records the preparation digest. The managed controller still
+needs to verify child preparation, reserve physical resources, authenticate
+source Seal requests and commit each source's cut. Child install, archive
+closure, publication, activation and retirement follow those committed cuts.
+
 ## Default backend, capabilities and deployment
 
 Quorum is already the command API default, and the namespace declaration

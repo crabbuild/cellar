@@ -34,7 +34,7 @@ pub use range_directory::{
     CellRouteAttempt, CellRouteCacheUsage, CellRouteOperation, CellRouteRequest, CellRoutingError,
     CellRoutingFailure, CellRoutingLimits, CellRoutingSession, DirectoryLimits, DirectoryMutation,
     DirectoryPublication, DirectoryView, FencedCellGroupRecovery, PreparedCellGroupArchiveBinding,
-    RangeDirectory, ResolvedCellRoute,
+    RangeDirectory, ResolvedCellRoute, TransitionJournal, TransitionPhase,
 };
 
 #[path = "catalog_inventory/mod.rs"]

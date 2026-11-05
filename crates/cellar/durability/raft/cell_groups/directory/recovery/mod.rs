@@ -211,6 +211,9 @@ impl RangeDirectory {
     async fn lock_recovery(&self, request: &CellGroupRecoveryRequest) -> Result<(), CatalogError> {
         self.bounded(async {
             let (mut view, version) = self.current().await?;
+            if self.transition_active(&view.head).await?.is_some() {
+                return Err(CatalogError::Fenced);
+            }
             self.check_recovery_view(&view, request)?;
             if view.head.recovery.is_some() {
                 return Ok(());

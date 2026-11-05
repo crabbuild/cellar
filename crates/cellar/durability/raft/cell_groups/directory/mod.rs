@@ -37,6 +37,8 @@ mod routing;
 pub use route_cache::CellRouteCacheUsage;
 pub(crate) use route_cache::RouteCache;
 mod store;
+mod transition;
+pub use transition::{TransitionJournal, TransitionPhase};
 mod tree;
 mod wire;
 
@@ -654,6 +656,16 @@ impl RangeDirectory {
                     return Ok(publication);
                 }
                 // An interrupted genesis resumes only its identical first head.
+            }
+            if self.transition_active(&view.head).await?.is_some() {
+                return Err(CatalogError::Fenced);
+            }
+            if self
+                .transition_record(&view.head, mutation.operation)
+                .await?
+                .is_some()
+            {
+                return Err(CatalogError::Conflict("transition operation reused"));
             }
             if let Some(recovery) = recovery {
                 recovery.check(self, view, mutation)?;
