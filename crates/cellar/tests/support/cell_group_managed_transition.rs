@@ -104,18 +104,19 @@ async fn exercise(cluster: &ManagedCluster) -> Result<()> {
         .store(true, Ordering::Release);
     ensure!(matches!(
         fleet
-            .plan_managed_transition(&before, &original, directory, &plan, TIMEOUT)
+            .plan_managed_transition(&original, directory, &plan, TIMEOUT)
             .await,
         Err(FleetCatalogError::Unconfirmed)
     ));
     ensure!(domain.run(directory.active_transition()).await??.is_none());
-    let first = fleet
-        .plan_managed_transition(&before, &original, directory, &plan, TIMEOUT)
+    let reopened = Fixture::open_catalog(domain, fixture.store.clone(), scope.cluster)?;
+    let first = reopened
+        .plan_managed_transition(&original, directory, &plan, TIMEOUT)
         .await?;
     ensure!(first.phase() == TransitionPhase::Planned);
     ensure!(
         fleet
-            .plan_managed_transition(&before, &original, directory, &plan, TIMEOUT)
+            .plan_managed_transition(&original, directory, &plan, TIMEOUT)
             .await?
             == first
     );
@@ -166,7 +167,7 @@ async fn exercise(cluster: &ManagedCluster) -> Result<()> {
     );
     ensure!(
         fleet
-            .plan_managed_transition(&before, &original, directory, &plan, TIMEOUT)
+            .plan_managed_transition(&original, directory, &plan, TIMEOUT)
             .await?
             .phase()
             == TransitionPhase::Cancelled

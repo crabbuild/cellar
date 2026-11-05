@@ -234,7 +234,7 @@ impl FleetCatalog {
         }))
     }
 
-    async fn active_restart_operator_inner(
+    pub(in crate::raft::fleet_catalog) async fn active_restart_operator_inner(
         &self,
         snapshot: &FleetSnapshot,
     ) -> Result<Option<FleetRestartOperatorAdmission>> {

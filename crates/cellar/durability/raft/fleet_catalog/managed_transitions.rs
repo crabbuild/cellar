@@ -108,50 +108,41 @@ impl ManagedTransitionPermit {
 impl FleetCatalog {
     /// Acquire the fleet disruption slot and plan the exact range mutation.
     /// Reserve all child births against the same operation before calling.
-    /// Retry with the same fleet snapshot, request and plan after uncertainty.
+    /// Persist the request and plan before submission. Replaying both after
+    /// controller loss recovers the original admission or cancellation.
     /// This step grants no seal, installation or serving authority.
     pub async fn plan_managed_transition(
         &self,
-        snapshot: &FleetSnapshot,
         request: &FleetRequestIdentity,
         directory: &RangeDirectory,
         plan: &DirectoryMutation,
         timeout: Duration,
     ) -> Result<TransitionJournal> {
-        self.check_snapshot(snapshot)?;
-        let deadline = deadline::Deadline::new(self, timeout)?;
-        let record = Record {
-            catalog: self.catalog_id()?,
-            namespace_root: directory.namespace().root_digest(),
-            input_root: root_digest(snapshot)?,
-            plan: plan.digest(),
-            request: request.clone(),
-        };
-        record.validate(self)?;
-        record.check_basis(snapshot)?;
-        let permit = ManagedTransitionPermit(record);
-        permit.check(directory, plan).map_err(catalog_error)?;
+        validate_request(request)?;
         let (parents, children) = directory.transition_routes(plan).map_err(catalog_error)?;
-        if let Some(restart) = self
-            .active_restart_operator(snapshot, deadline.remaining()?)
-            .await?
-        {
-            return Err(FleetCatalogError::DisruptionInProgress {
-                operation: restart.identity().operation,
-            });
-        }
         self.run(
-            deadline.remaining()?,
+            timeout,
             Box::pin(async {
-                let record = &permit.0;
                 let current = self.inner.current().await?;
-                if let Some(admitted) = self
-                    .managed_transition_record(&current, record.operation())
-                    .await?
-                {
-                    if admitted != *record {
-                        return Err(FleetCatalogError::PayloadConflict);
-                    }
+                let original = self
+                    .managed_transition_record(&current, request.operation)
+                    .await?;
+                let replay = original.is_some();
+                let record = match original {
+                    Some(record) if record.request == *request => record,
+                    Some(_) => return Err(FleetCatalogError::PayloadConflict),
+                    None => Record {
+                        catalog: self.catalog_id()?,
+                        namespace_root: directory.namespace().root_digest(),
+                        input_root: root_digest(&current)?,
+                        plan: plan.digest(),
+                        request: request.clone(),
+                    },
+                };
+                let permit = ManagedTransitionPermit(record);
+                permit.check(directory, plan).map_err(catalog_error)?;
+                let record = &permit.0;
+                if replay {
                     if !matches!(
                         self.active_disruption(&current).await?,
                         Some(Disruption::Transition(active)) if active == *record
@@ -173,8 +164,13 @@ impl FleetCatalog {
                             ));
                     }
                 } else {
-                    if current.token != snapshot.token {
-                        return Err(FleetCatalogError::Conflict);
+                    let snapshot = &current;
+                    record.validate(self)?;
+                    record.check_basis(snapshot)?;
+                    if let Some(restart) = self.active_restart_operator_inner(snapshot).await? {
+                        return Err(FleetCatalogError::DisruptionInProgress {
+                            operation: restart.identity().operation,
+                        });
                     }
                     if let Some(active) = self.active_disruption(snapshot).await? {
                         return Err(FleetCatalogError::DisruptionInProgress {
