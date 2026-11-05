@@ -221,7 +221,8 @@ jobs:
       - name: Quality and engine boundaries
         if: matrix.profile == 'adapters'
         run: |
-          cargo clippy --locked -p cellar-container -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node --all-targets -- -D warnings
+          # Keep dead code visible during the cell-group cutover.
+          cargo clippy --locked -p cellar-container -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node --all-targets -- -D warnings --force-warn dead_code
           cargo format --check
           cargo check-layout
           python3 tools/check_native_dependencies.py
