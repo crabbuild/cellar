@@ -172,7 +172,12 @@ impl RangeDirectory {
         let journal = self
             .matching_transition(&view.head, plan)
             .await?
-            .filter(|journal| journal.phase() == TransitionPhase::Active)
+            .filter(|journal| {
+                matches!(
+                    journal.phase(),
+                    TransitionPhase::Active | TransitionPhase::Retired
+                )
+            })
             .ok_or(CatalogError::Fenced)?;
         let publication = self
             .confirmed(&view.head, plan)

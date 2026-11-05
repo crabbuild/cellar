@@ -531,6 +531,24 @@ impl RangeDirectory {
         }
     }
 
+    pub(super) async fn open_historical_birth(
+        &self,
+        route: &GroupRoute,
+    ) -> Result<CellGroupBirth, CatalogError> {
+        let request = self.verify_birth_reservation(route).await?;
+        let bytes = self
+            .namespace
+            .inner
+            .read_versioned_bounded(&self.group_birth_key(route), wire::LIMIT)
+            .await?
+            .ok_or(CatalogError::Corrupt("missing historical group birth"))?
+            .0;
+        match self.decode_group_disposition(&request, &bytes)? {
+            CellGroupBirthDisposition::Live(birth) => Ok(birth),
+            CellGroupBirthDisposition::Cancelled { .. } => Err(CatalogError::BirthCancelled),
+        }
+    }
+
     /// Recheck a birth observation's current directory and immutable metadata.
     /// Future voter admission must additionally verify disk claims and quorum.
     pub async fn require_current_group_birth(

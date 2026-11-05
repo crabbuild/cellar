@@ -183,7 +183,7 @@ pub enum CellGroupSealOutcome {
 /// The exact retirement is either proposed or durably applied.
 pub enum CellGroupSourceRetirement {
     Accepted(CellGroupProposal),
-    Applied(super::GroupSourceRetirement),
+    Applied(Box<super::CellGroupSourceRetirementAck>),
 }
 
 /// Admission is distinct from activation committed and selected by this owner.
@@ -917,15 +917,9 @@ impl CellGroupOwner {
         self.live()?;
         permit.check(&self.log, &self.group)?;
         let marker = self.current.marker();
-        if let Some(retirement) = permit.applied(marker)? {
-            let cache = self.group.read()?;
-            if cache.group_manifest.as_ref() != Some(marker)
-                || cache.hard_state.commit < retirement.position().index.get()
-            {
-                return Err(RuntimeError::NotReady);
-            }
+        if let Some(retirement) = permit.acknowledge(&self.group, marker)? {
             self.retirement_proposal = None;
-            return Ok(CellGroupSourceRetirement::Applied(retirement.clone()));
+            return Ok(CellGroupSourceRetirement::Applied(Box::new(retirement)));
         }
         if self.node.raft.state != StateRole::Leader {
             return Err(RuntimeError::NotLeader);

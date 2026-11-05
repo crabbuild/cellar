@@ -95,7 +95,7 @@ impl RangeDirectory {
             .marker();
         self.bounded(async {
             self.namespace.require_cell_group_unmanaged().await?;
-            self.require_transfer_install(plan, genesis).await?;
+            self.require_open_transfer_install(plan, genesis).await?;
             let birth = self
                 .require_ordinary_birth_reservation(genesis.route())
                 .await?;
@@ -150,7 +150,7 @@ impl RangeDirectory {
                     Err(error) => return Err(CatalogError::Log(error)),
                 }
             }
-            self.require_transfer_install(plan, genesis).await?;
+            self.require_open_transfer_install(plan, genesis).await?;
             let permit = TransferSeedPermit {
                 owner: log.owner(),
                 bootstrap: CellGroupBootstrap {
@@ -168,7 +168,7 @@ impl RangeDirectory {
                 .install_transfer_seed(seed)
                 .await
                 .map_err(CatalogError::Log)?;
-            self.require_transfer_install(plan, genesis).await?;
+            self.require_open_transfer_install(plan, genesis).await?;
             self.exact_install_record(&receipt, &intent).await?;
             Ok(group)
         })
@@ -327,7 +327,11 @@ impl RangeDirectory {
                     }
                 }
                 super::bootstrap::check_member(&group)?;
-                self.require_transfer_install(plan, &proof.genesis).await?;
+                let phase = self.require_transfer_install(plan, &proof.genesis).await?;
+                if phase == TransitionPhase::Retired || activation.is_some() {
+                    let (view, _) = self.current().await?;
+                    self.selected_route_in(&view, proof.genesis.route()).await?;
+                }
                 Ok(CellGroupBootstrapPermit::pending_transfer(
                     group,
                     birth,
@@ -340,11 +344,22 @@ impl RangeDirectory {
         })
     }
 
-    async fn require_transfer_install(
+    async fn require_open_transfer_install(
         &self,
         plan: &DirectoryMutation,
         genesis: &GroupManifest,
     ) -> Result<(), CatalogError> {
+        if self.require_transfer_install(plan, genesis).await? == TransitionPhase::Retired {
+            return Err(CatalogError::Fenced);
+        }
+        Ok(())
+    }
+
+    async fn require_transfer_install(
+        &self,
+        plan: &DirectoryMutation,
+        genesis: &GroupManifest,
+    ) -> Result<TransitionPhase, CatalogError> {
         let (_, children) = self.transition_routes(plan)?;
         let (view, _) = self.current().await?;
         let journal = self
@@ -360,6 +375,7 @@ impl RangeDirectory {
                     | TransitionPhase::Archived
                     | TransitionPhase::Published
                     | TransitionPhase::Active
+                    | TransitionPhase::Retired
             )
             || journal.sealed_sources() != Some(origin.sealed_sources())
             || origin.operation() != plan.operation().bytes()
@@ -368,7 +384,7 @@ impl RangeDirectory {
         {
             return Err(CatalogError::Fenced);
         }
-        Ok(())
+        Ok(journal.phase())
     }
 
     async fn exact_install_record(&self, path: &str, expected: &[u8]) -> Result<(), CatalogError> {

@@ -235,9 +235,33 @@ pub(crate) async fn sealed_source_archives(
         store.clone(),
     ))
     .await?;
-    let retired = Box::pin(verify_parent_retirement(&mut fixture, &plan)).await?;
+    let (retired, acknowledgement) =
+        Box::pin(verify_parent_retirement(&mut fixture, &plan)).await?;
+    anyhow::ensure!(matches!(
+        directory
+            .settle_transfer_retirement(
+                &fixture.cluster.domain,
+                &archives.pool,
+                &plan,
+                vec![acknowledgement.clone()],
+            )
+            .await,
+        Err(CellGroupArchiveBindingError::Catalog(CatalogError::Fenced))
+    ));
     Box::pin(verify_child_archive_coverage(
-        &fixture, &archives, &plan, &active, store,
+        &fixture,
+        &archives,
+        &plan,
+        &active,
+        store.clone(),
+    ))
+    .await?;
+    Box::pin(verify_retirement_settlement(
+        &fixture,
+        &archives,
+        &plan,
+        acknowledgement,
+        store,
     ))
     .await?;
     reopen_installed_children(&fixture, &plan, &active, &retired).await?;
@@ -937,7 +961,7 @@ async fn await_applied(
 async fn verify_parent_retirement(
     fixture: &mut RuntimeCluster,
     plan: &DirectoryMutation,
-) -> Result<GroupManifest> {
+) -> Result<(GroupManifest, CellGroupSourceRetirementAck)> {
     let directory = fixture.cluster.directory.clone();
     let scope = fixture.cluster.birth.route().history;
     let log = fixture.cluster.voters[0].log.clone();
@@ -984,11 +1008,12 @@ async fn verify_parent_retirement(
     let retry = domain
         .run(directory.prepare_source_retirement(plan, scope, &log))
         .await??;
-    let CellGroupSourceRetirement::Applied(tombstone) =
+    let CellGroupSourceRetirement::Applied(acknowledgement) =
         fixture.runtimes[0].retire_source(retry).await?
     else {
         anyhow::bail!("retirement retry lost its applied tombstone");
     };
+    let tombstone = acknowledgement.tombstone();
     anyhow::ensure!(tombstone.position() == retirement.position);
     anyhow::ensure!(tombstone.publication() == published.journal_digest());
     for (voter, runtime) in fixture.cluster.voters.iter().zip(&fixture.runtimes) {
@@ -1002,7 +1027,7 @@ async fn verify_parent_retirement(
         anyhow::ensure!(
             seal.position() == before.source_seal().context("original seal")?.position()
         );
-        anyhow::ensure!(seal.retirement() == Some(&tombstone));
+        anyhow::ensure!(seal.retirement() == Some(tombstone));
         anyhow::ensure!(matches!(
             runtime.propose(scope, vec![1]).await,
             Err(RuntimeError::NotReady)
@@ -1016,7 +1041,7 @@ async fn verify_parent_retirement(
     let pool = CellGroupCheckpointPool::new(checkpoint_fixture::limits())?;
     let snapshot = fixture.runtimes[0].capture_checkpoint(scope, &pool).await?;
     let selected = snapshot.marker().clone();
-    anyhow::ensure!(selected.source_seal().and_then(|seal| seal.retirement()) == Some(&tombstone));
+    anyhow::ensure!(selected.source_seal().and_then(|seal| seal.retirement()) == Some(tombstone));
     fixture.runtimes[0]
         .publish_checkpoint(scope, snapshot.prepare_publication()?)
         .await?;
@@ -1041,7 +1066,7 @@ async fn verify_parent_retirement(
     let held = hold[0].marker();
     anyhow::ensure!(held.route() == fixture.cluster.birth.route());
     anyhow::ensure!(held.root() == before.root() && held.source_seal() == before.source_seal());
-    Ok(selected)
+    Ok((selected, *acknowledgement))
 }
 
 async fn verify_child_archive_coverage(
@@ -1211,6 +1236,124 @@ async fn verify_child_archive_coverage(
         )
         .await?;
     anyhow::ensure!(held.marker() == parent.marker());
+    Ok(())
+}
+
+async fn verify_retirement_settlement(
+    fixture: &RuntimeCluster,
+    archives: &Archives,
+    plan: &DirectoryMutation,
+    acknowledgement: CellGroupSourceRetirementAck,
+    store: Arc<catalog_fault::Store>,
+) -> Result<()> {
+    let cluster = &fixture.cluster;
+    let domain = &cluster.domain;
+    let directory = &cluster.directory;
+    let publication = domain.run(directory.publication(plan)).await??;
+    let parent_holds = domain.run(directory.sealed_source_holds(plan)).await??;
+    let child_holds = domain
+        .run(directory.retirement_child_holds(plan))
+        .await??
+        .context("selected child holds")?;
+    anyhow::ensure!(matches!(
+        directory
+            .release_retired_parent_holds(domain, &archives.pool, plan)
+            .await,
+        Err(CellGroupArchiveBindingError::Catalog(CatalogError::Fenced))
+    ));
+    store.fail_head_confirmation.store(true, Ordering::Release);
+    anyhow::ensure!(matches!(
+        directory
+            .settle_transfer_retirement(domain, &archives.pool, plan, vec![acknowledgement.clone()])
+            .await,
+        Err(CellGroupArchiveBindingError::Catalog(
+            CatalogError::Unconfirmed
+        ))
+    ));
+
+    let catalog = Catalog::new(store.clone(), CatalogOptions::default())?;
+    let namespace = domain
+        .run(catalog.existing_namespace(directory.namespace_config().clone()))
+        .await??;
+    let reopened = RangeDirectory::new(namespace, DirectoryLimits::default())?;
+    let (original, retired) = domain
+        .run(reopened.active_transition())
+        .await??
+        .context("retired transition still owns topology")?;
+    anyhow::ensure!(original.encode() == plan.encode());
+    anyhow::ensure!(
+        retired.phase() == TransitionPhase::Retired && retired.retired_parents().is_some()
+    );
+    anyhow::ensure!(!retired.parent_holds_released());
+    let parent = parent_holds.first().context("retired parent hold")?;
+    let retained = archives
+        .registry
+        .verify_hold(
+            domain,
+            parent,
+            &archives.tails,
+            archives.receiver(cluster, "retired-before-release")?,
+        )
+        .await?;
+    anyhow::ensure!(retained.marker() == parent.marker());
+    drop(retained);
+
+    store.deny_registry_writes.store(true, Ordering::Release);
+    let denied = reopened
+        .release_retired_parent_holds(domain, &archives.pool, &original)
+        .await;
+    store.deny_registry_writes.store(false, Ordering::Release);
+    anyhow::ensure!(matches!(
+        denied,
+        Err(CellGroupArchiveBindingError::Archive(_))
+    ));
+    let (_, pending) = domain
+        .run(reopened.active_transition())
+        .await??
+        .context("release refusal keeps topology owned")?;
+    anyhow::ensure!(pending == retired);
+
+    store.fail_head_confirmation.store(true, Ordering::Release);
+    let completed = reopened
+        .release_retired_parent_holds(domain, &archives.pool, &original)
+        .await?;
+    anyhow::ensure!(!store.fail_head_confirmation.load(Ordering::Acquire));
+    anyhow::ensure!(
+        completed.phase() == TransitionPhase::Retired && completed.parent_holds_released()
+    );
+    anyhow::ensure!(domain.run(reopened.active_transition()).await??.is_none());
+    anyhow::ensure!(
+        reopened
+            .release_retired_parent_holds(domain, &archives.pool, &original)
+            .await?
+            == completed
+    );
+    anyhow::ensure!(
+        reopened
+            .settle_transfer_retirement(domain, &archives.pool, &original, vec![acknowledgement],)
+            .await?
+            == completed
+    );
+    anyhow::ensure!(domain.run(reopened.publication(&original)).await?? == publication);
+    anyhow::ensure!(
+        domain
+            .run(reopened.retirement_child_holds(&original))
+            .await??
+            .as_deref()
+            == Some(child_holds.as_slice())
+    );
+    anyhow::ensure!(matches!(
+        archives
+            .registry
+            .verify_hold(
+                domain,
+                parent,
+                &archives.tails,
+                archives.receiver(cluster, "retired-after-release")?,
+            )
+            .await,
+        Err(CellGroupArchiveError::Expired)
+    ));
     Ok(())
 }
 

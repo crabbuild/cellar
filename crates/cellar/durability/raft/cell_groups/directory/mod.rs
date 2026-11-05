@@ -57,7 +57,7 @@ mod transition_retirement;
 pub use transition_preparation::{
     CellGroupTransitionPreparationInputs, PreparedManagedCellGroupTransition,
 };
-pub use transition_retirement::CellGroupSourceRetirementPermit;
+pub use transition_retirement::{CellGroupSourceRetirementAck, CellGroupSourceRetirementPermit};
 mod tree;
 mod wire;
 

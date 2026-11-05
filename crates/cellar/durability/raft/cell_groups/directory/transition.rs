@@ -30,6 +30,7 @@ pub enum TransitionPhase {
     Archived,
     Published,
     Active,
+    Retired,
     Cancelled,
 }
 
@@ -52,6 +53,10 @@ pub struct TransitionJournal {
     activation_set: Option<[u8; 32]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     child_archives: Option<[u8; 32]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    retirement_set: Option<[u8; 32]>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    parent_holds_released: bool,
     phase: TransitionPhase,
 }
 
@@ -84,6 +89,18 @@ impl TransitionJournal {
         self.child_archives
     }
 
+    pub fn retired_parents(&self) -> Option<[u8; 32]> {
+        self.retirement_set
+    }
+
+    pub fn parent_holds_released(&self) -> bool {
+        self.parent_holds_released
+    }
+
+    fn owns_topology(&self) -> bool {
+        self.phase != TransitionPhase::Cancelled && !self.parent_holds_released
+    }
+
     pub(super) fn seal_authorization(&self) -> Result<[u8; 32], CatalogError> {
         if !matches!(
             self.phase,
@@ -93,6 +110,7 @@ impl TransitionJournal {
                 | TransitionPhase::Archived
                 | TransitionPhase::Published
                 | TransitionPhase::Active
+                | TransitionPhase::Retired
         ) {
             return Err(CatalogError::Fenced);
         }
@@ -104,6 +122,8 @@ impl TransitionJournal {
             publication: None,
             activation_set: None,
             child_archives: None,
+            retirement_set: None,
+            parent_holds_released: false,
             ..self.clone()
         };
         Ok(record::digest(&record::encode(
@@ -185,6 +205,12 @@ enum Advance {
         activations: [u8; 32],
         digest: [u8; 32],
     },
+    RecordRetired {
+        publication: [u8; 32],
+        child_archives: [u8; 32],
+        digest: [u8; 32],
+    },
+    ReleaseParentHolds([u8; 32]),
     Cancel,
 }
 
@@ -259,6 +285,28 @@ impl Advance {
             {
                 journal.child_archives = Some(digest);
             }
+            (
+                Self::RecordRetired {
+                    publication,
+                    child_archives,
+                    digest,
+                },
+                Active | Retired,
+            ) if journal.publication == Some(publication)
+                && journal.child_archives == Some(child_archives)
+                && digest != [0; 32]
+                && journal
+                    .retirement_set
+                    .is_none_or(|selected| selected == digest) =>
+            {
+                journal.retirement_set = Some(digest);
+                journal.phase = Retired;
+            }
+            (Self::ReleaseParentHolds(digest), Retired)
+                if journal.retirement_set == Some(digest) =>
+            {
+                journal.parent_holds_released = true;
+            }
             (Self::Cancel, Planned | Prepared) => journal.phase = Cancelled,
             (Self::Authorize, SealAuthorized | Sealed | Installed | Archived)
             | (Self::Cancel, Cancelled) => {}
@@ -316,6 +364,7 @@ impl RangeDirectory {
                         | TransitionPhase::Archived
                         | TransitionPhase::Published
                         | TransitionPhase::Active
+                        | TransitionPhase::Retired
                 );
                 if journal.request == [0; 32]
                     || journal.preparation == Some([0; 32])
@@ -325,8 +374,17 @@ impl RangeDirectory {
                     || journal.publication == Some([0; 32])
                     || journal.activation_set == Some([0; 32])
                     || journal.child_archives == Some([0; 32])
+                    || journal.retirement_set == Some([0; 32])
                     || (journal.child_archives.is_some()
-                        && journal.phase != TransitionPhase::Active)
+                        && !matches!(
+                            journal.phase,
+                            TransitionPhase::Active | TransitionPhase::Retired
+                        ))
+                    || (journal.phase == TransitionPhase::Retired)
+                        != journal.retirement_set.is_some()
+                    || (journal.phase == TransitionPhase::Retired
+                        && journal.child_archives.is_none())
+                    || (journal.parent_holds_released && journal.phase != TransitionPhase::Retired)
                     || matches!(
                         journal.phase,
                         TransitionPhase::Sealed
@@ -334,6 +392,7 @@ impl RangeDirectory {
                             | TransitionPhase::Archived
                             | TransitionPhase::Published
                             | TransitionPhase::Active
+                            | TransitionPhase::Retired
                     ) != journal.source_set.is_some()
                     || matches!(
                         journal.phase,
@@ -341,19 +400,25 @@ impl RangeDirectory {
                             | TransitionPhase::Archived
                             | TransitionPhase::Published
                             | TransitionPhase::Active
+                            | TransitionPhase::Retired
                     ) != journal.installed_set.is_some()
                     || matches!(
                         journal.phase,
                         TransitionPhase::Archived
                             | TransitionPhase::Published
                             | TransitionPhase::Active
+                            | TransitionPhase::Retired
                     ) != journal.archive.is_some()
                     || matches!(
                         journal.phase,
-                        TransitionPhase::Published | TransitionPhase::Active
+                        TransitionPhase::Published
+                            | TransitionPhase::Active
+                            | TransitionPhase::Retired
                     ) != journal.publication.is_some()
-                    || (journal.phase == TransitionPhase::Active)
-                        != journal.activation_set.is_some()
+                    || matches!(
+                        journal.phase,
+                        TransitionPhase::Active | TransitionPhase::Retired
+                    ) != journal.activation_set.is_some()
                     || (required && journal.preparation.is_none())
                     || (journal.phase == TransitionPhase::Planned && journal.preparation.is_some())
                 {
@@ -406,7 +471,7 @@ impl RangeDirectory {
                 return Err(CatalogError::Conflict("transition operation reused"));
             }
             let active = self.transition_active(head).await? == Some(mutation.operation);
-            if active == (journal.phase == TransitionPhase::Cancelled) {
+            if active != journal.owns_topology() {
                 return Err(CatalogError::Corrupt(
                     "transition owner and journal disagree",
                 ));
@@ -498,11 +563,11 @@ impl RangeDirectory {
             .ok_or(CatalogError::Corrupt("missing published transfer decision"))?;
         if !matches!(
             selected.phase,
-            TransitionPhase::Published | TransitionPhase::Active
+            TransitionPhase::Published | TransitionPhase::Active | TransitionPhase::Retired
         ) || selected.request != journal.request
             || selected.archive != Some(archive)
             || selected.publication != Some(publication)
-            || self.transition_active(head).await? != Some(operation)
+            || (self.transition_active(head).await? == Some(operation)) != selected.owns_topology()
         {
             return Err(CatalogError::Corrupt("transfer publication binding"));
         }
@@ -581,6 +646,8 @@ impl RangeDirectory {
                 publication: None,
                 activation_set: None,
                 child_archives: None,
+                retirement_set: None,
+                parent_holds_released: false,
                 phase: TransitionPhase::Planned,
             };
             for (key, value) in [
@@ -736,7 +803,7 @@ impl RangeDirectory {
             let mutation = self
                 .load_transition_plan(operation, journal.request)
                 .await?;
-            if journal.phase == TransitionPhase::Cancelled {
+            if !journal.owns_topology() {
                 return Err(CatalogError::Corrupt("active transition plan binding"));
             }
             Ok(Some((mutation, journal)))
@@ -927,6 +994,33 @@ impl RangeDirectory {
         .await
     }
 
+    pub(super) async fn record_verified_retirement(
+        &self,
+        mutation: &DirectoryMutation,
+        publication: [u8; 32],
+        child_archives: [u8; 32],
+        digest: [u8; 32],
+    ) -> Result<TransitionJournal, CatalogError> {
+        self.advance_transition(
+            mutation,
+            Advance::RecordRetired {
+                publication,
+                child_archives,
+                digest,
+            },
+        )
+        .await
+    }
+
+    pub(super) async fn record_released_parent_holds(
+        &self,
+        mutation: &DirectoryMutation,
+        digest: [u8; 32],
+    ) -> Result<TransitionJournal, CatalogError> {
+        self.advance_transition(mutation, Advance::ReleaseParentHolds(digest))
+            .await
+    }
+
     /// Record the exact digest of the controller's child preparation evidence.
     /// This metadata boundary does not verify copied images or admit a child.
     pub async fn prepare_transition(
@@ -1016,7 +1110,7 @@ impl RangeDirectory {
                     0,
                 )
                 .await?;
-            if requested.phase == TransitionPhase::Cancelled {
+            if before.owns_topology() && !requested.owns_topology() {
                 view.head.operations = index.update(view.head.operations, ACTIVE, None, 0).await?;
             }
             let after = self.commit_transition_head(&view.head, version).await?;
@@ -1048,6 +1142,8 @@ impl RangeDirectory {
             publication: None,
             activation_set: None,
             child_archives: None,
+            retirement_set: None,
+            parent_holds_released: false,
             phase: TransitionPhase::Cancelled,
         };
         let count = self.available_transition_slot(&view.head).await?;

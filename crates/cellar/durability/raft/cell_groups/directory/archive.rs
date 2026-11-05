@@ -253,6 +253,16 @@ impl RangeDirectory {
         self.open_archive_binding(domain, pool, birth, None).await
     }
 
+    pub(super) async fn open_retired_source_archive(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        pool: &CellGroupArchivePool,
+        route: &GroupRoute,
+    ) -> Result<CellGroupArchiveRegistry> {
+        let birth = self.bounded(self.open_historical_birth(route)).await?;
+        self.open_archive_binding(domain, pool, &birth, None).await
+    }
+
     async fn open_archive_binding(
         &self,
         domain: &impl CellGroupArchiveExecution,
