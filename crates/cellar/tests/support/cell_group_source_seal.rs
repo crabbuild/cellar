@@ -232,7 +232,8 @@ pub(crate) async fn source_seal_blocks_delayed_work() -> Result<()> {
             if converged {
                 break Ok::<_, anyhow::Error>(());
             }
-            resumed.runtimes[0].tick().await?;
+            // Deliver and persist the explicit campaign's messages before
+            // advancing election time. A tight tick loop races disk sync.
             tokio::task::yield_now().await;
         }
     })
