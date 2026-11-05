@@ -45,6 +45,9 @@ catalog, and predecessor per-cell directories are not migrated.
 Cell data and Raft logs persist in each node's directory. `inventory.json`
 records the observed controller group count and manifest cell count per node;
 startup requires one group and two cells on all three replicas.
+Pass `--single-cell` after the token path to enroll and serve just `Counter:one`
+through the same shared group. Use a fresh directory for a different occupancy
+and retain the original option for restarts.
 Keep all of these files for a normal restart. Losing a replica's disk requires
 membership repair; this example cannot reinitialize its old voting identity.
 
@@ -56,6 +59,7 @@ Use a bearer header containing the token file's contents. `POST
 | `Authorization` | `Bearer TOKEN` |
 | `x-command-id` | Nonzero 16-byte client identity in hex, followed by `:1` |
 | `x-retry-until-ms` | Future Unix time in milliseconds, within the configured receipt retention window |
+| `x-write-durability` | `quorum` (default) or `s3` |
 
 The next new command from that client uses sequence 2. Persist a pending command's
 ID, delta and retry deadline before sending it. After a lost response, resend
@@ -113,9 +117,10 @@ forwarded response stays ambiguous: retain the original command ID and input.
 The process drill retries the original receipt through all six public addresses
 before and after retained restart; it cannot pass by finding only the leader.
 
-The example uses Quorum command durability and the bucket's scoped conditional
-client for background archives. Programmatic SDK callers can request S3, which
-waits for a verified complete archive recovery set. An archive image alone cannot activate a member or fence old hosts; this
+Commands default to quorum durability and the bucket's scoped conditional
+client handles background archives. Native HTTP, Axum and SDK callers can
+request S3 durability to wait for a verified complete archive recovery set.
+Command responses report the achieved `durability`. An archive image alone cannot activate a member or fence old hosts; this
 development drill does not qualify learner repair or disaster recovery. Ctrl-C
 closes HTTP servers, lets Node seal admission/drain producers, then checks the
 joined Raft report for no unresolved local producers and no failed groups. Retain replica disks while archive coverage or submitted work is unfinished.
@@ -140,5 +145,7 @@ The drill first occupies the final Axum listener to force a late startup failure
 then resumes the same disks. It checks both ingress paths on all three nodes,
 remote AtLeast/linearizable reads with the requested serving member, cross-cell
 token refusal, joined shutdown, retained tokens/receipts and new writes after restart.
+It requests S3 coverage for the same command ID through the other HTTP surface.
+Pass `--single-cell` to the drill to exercise the same paths at occupancy one.
 A recovered receipt can name a later verified covering image; its stored result
 and history must still match the original command.

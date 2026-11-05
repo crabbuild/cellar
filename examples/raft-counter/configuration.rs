@@ -104,10 +104,12 @@ pub async fn enroll(
     services: &[RaftCells],
     cluster: ClusterId,
     namespace: NamespaceId,
+    cells: &[&str],
 ) -> Result<()> {
+    let expected_cells = u64::try_from(cells.len())?;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     tokio::time::timeout_at(deadline, async {
-        for (ordinal, name) in ["one", "two"].into_iter().enumerate() {
+        for (ordinal, &name) in cells.iter().enumerate() {
             let creation = ProposalId::new([31 + ordinal as u8; 16])?;
             loop {
                 let mut leader = None;
@@ -158,7 +160,7 @@ pub async fn enroll(
                     usage.host.controller.groups == 1,
                     "counter must own exactly one physical group"
                 );
-                ready &= usage.retained_manifest_cells == Some(2);
+                ready &= usage.retained_manifest_cells == Some(expected_cells);
             }
             if ready {
                 return Ok::<_, anyhow::Error>(());

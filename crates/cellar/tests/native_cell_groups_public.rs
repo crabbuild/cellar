@@ -5,19 +5,30 @@
 
 use anyhow::{ensure, Context as _, Result};
 use sha2::{Digest, Sha256};
-use std::{
-    net::{Ipv4Addr, TcpListener},
-    path::Path,
-    process::Command,
-    time::{Duration, Instant},
-};
+use std::{path::Path, process::Command, sync::Mutex};
 
 fn digest(path: &Path) -> Result<Vec<u8>> {
     Ok(Sha256::digest(std::fs::read(path)?).to_vec())
 }
 
+// Both public cases use the same six development listeners.
+static COUNTER_PORTS: Mutex<()> = Mutex::new(());
+
 #[test]
 fn sdk_many_cells_share_group() -> Result<()> {
+    counter_process(false)
+}
+
+#[test]
+fn occupancy_one_uses_shared_path() -> Result<()> {
+    counter_process(true)
+}
+
+fn counter_process(single_cell: bool) -> Result<()> {
+    let _ports = COUNTER_PORTS
+        .lock()
+        .map_err(|_| anyhow::anyhow!("counter port lock poisoned"))?;
+    let expected_cells = if single_cell { 1 } else { 2 };
     let binary = Path::new(env!("CARGO_BIN_EXE_cellar-raft-counter"));
     let expected = digest(binary)?;
     let repository = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -29,31 +40,17 @@ fn sdk_many_cells_share_group() -> Result<()> {
         .tempdir_in(scratch)?
         .keep();
 
-    // The original process drill deliberately binds a non-reusing socket to
-    // force late startup failure. A previous run's TCP TIME_WAIT must settle;
-    // no test assertion, operation timeout or application admission is changed.
-    let deadline = Instant::now() + Duration::from_secs(60);
-    loop {
-        let ports = [9901, 9902, 9903, 9911, 9912, 9913]
-            .into_iter()
-            .map(|port| TcpListener::bind((Ipv4Addr::LOCALHOST, port)))
-            .collect::<std::io::Result<Vec<_>>>();
-        if ports.is_ok() {
-            break;
-        }
-        ensure!(
-            Instant::now() < deadline,
-            "public SDK fixture ports unavailable"
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    }
-
     let data = root.join("replicas");
-    let output = Command::new("python3")
+    let mut command = Command::new("python3");
+    command
         .arg(repository.join("examples/raft-counter/smoke.py"))
         .arg(binary)
         .arg(&data)
-        .current_dir(&repository)
+        .current_dir(&repository);
+    if single_cell {
+        command.arg("--single-cell");
+    }
+    let output = command
         .output()
         .context("start original public native/Axum process drill")?;
     std::fs::write(root.join("stdout.log"), &output.stdout)?;
@@ -71,11 +68,11 @@ fn sdk_many_cells_share_group() -> Result<()> {
     for (i, replica) in replicas.iter().enumerate() {
         ensure!(replica["groups"] == 1, "expected one observed shared group");
         ensure!(
-            replica["cells"] == 2,
-            "expected two independent cell histories"
+            replica["cells"] == expected_cells,
+            "unexpected number of logical cell histories"
         );
         ensure!(
-            replica["observed_cells"] == 2,
+            replica["observed_cells"] == expected_cells,
             "owner occupancy disagrees with resources"
         );
         ensure!(

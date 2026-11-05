@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Three local nodes, one shared group, two cells and native/Axum HTTP.
-//! Usage: cellar-raft-counter DATA_DIR CA.der CERT.der KEY.der TOKEN_FILE
+//! Three local nodes with one shared group and native/Axum HTTP.
+//! Usage: cellar-raft-counter DATA_DIR CA.der CERT.der KEY.der TOKEN_FILE [--single-cell]
 #![allow(clippy::disallowed_methods)]
 mod configuration;
 mod counter;
@@ -51,9 +51,14 @@ fn graph(script: &str) -> DeploymentGraph {
 async fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     ensure!(
-        args.len() == 5,
-        "usage: cellar-raft-counter DATA_DIR CA.der CERT.der KEY.der TOKEN_FILE"
+        args.len() == 5 || (args.len() == 6 && args[5] == "--single-cell"),
+        "usage: cellar-raft-counter DATA_DIR CA.der CERT.der KEY.der TOKEN_FILE [--single-cell]"
     );
+    let cells: &[&str] = if args.len() == 6 {
+        &["one"]
+    } else {
+        &["one", "two"]
+    };
     let root = PathBuf::from(&args[0]);
     std::fs::create_dir_all(root.join("catalog"))?;
     let tls = RaftTls::new(
@@ -82,7 +87,14 @@ async fn main() -> Result<()> {
     for i in 0..3_u8 {
         let label = format!("raft-counter-{}", i + 1);
         let class = counter::definition()?;
-        let api = counter::CounterApi::new(secret.clone(), cluster, namespace, &class)?;
+        let api = if cells.len() == 1 {
+            counter::CounterApi::with_history_resolver(secret.clone(), &class, move |name| {
+                ensure!(cells.contains(&name), "counter cell is not configured");
+                counter::history(cluster, namespace, name)
+            })?
+        } else {
+            counter::CounterApi::new(secret.clone(), cluster, namespace, &class)?
+        };
         let application = counter::application(api.clone(), class)?;
         let public =
             tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 9901 + u16::from(i)))
@@ -213,7 +225,7 @@ async fn main() -> Result<()> {
             .await?;
         services.push(service);
     }
-    configuration::enroll(&services, cluster, namespace).await?;
+    configuration::enroll(&services, cluster, namespace, cells).await?;
     let mut inventory = Vec::new();
     for service in &services {
         let usage = service.resource_usage();
@@ -251,7 +263,7 @@ async fn main() -> Result<()> {
                 .await
         }));
     }
-    cellar::note!("Raft counter: native ports 9901–9903; Axum ports 9911–9913; one group with cells one/two. Ctrl-C joins all nodes. Three replicas share one machine; this is a development example.");
+    cellar::note!("Raft counter: native ports 9901–9903; Axum ports 9911–9913; one group. Ctrl-C joins all nodes. Three replicas share one machine; this is a development example.");
     tokio::signal::ctrl_c().await?;
         Ok::<(), anyhow::Error>(())
     }.await;

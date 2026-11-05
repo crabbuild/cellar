@@ -270,7 +270,9 @@ impl CounterApi {
                     .try_into()
                     .map_err(|_| anyhow::anyhow!("invalid digest"))?;
             }
+            let durability = header(headers, "x-write-durability")?;
             if method == "GET" {
+                ensure!(durability.is_none(), "write durability requires POST");
                 ensure!(
                     url.query().is_none(),
                     "query parameters unsupported for GET"
@@ -302,11 +304,13 @@ impl CounterApi {
             let retry = header(headers, "x-retry-until-ms")?
                 .ok_or_else(|| anyhow::anyhow!("provide x-retry-until-ms"))?
                 .parse()?;
-            Ok((
-                cell,
-                contract,
-                Operation::Command(delta, CommandOptions::new(id, retry)),
-            ))
+            let mut options = CommandOptions::new(id, retry);
+            match durability {
+                None | Some("quorum") => (),
+                Some("s3") => options.durability = Durability::S3,
+                Some(_) => anyhow::bail!("invalid write durability"),
+            }
+            Ok((cell, contract, Operation::Command(delta, options)))
         })();
         let (cell, contract, operation) = match parsed {
             Ok(value) => value,
@@ -323,6 +327,10 @@ impl CounterApi {
                         receipt.witness,
                         receipt.version_token,
                         None,
+                        Some(match receipt.durability {
+                            Durability::Quorum => "quorum",
+                            Durability::S3 => "s3",
+                        }),
                     )
                 })
                 .map_err(|error| {
@@ -342,13 +350,14 @@ impl CounterApi {
                             result.witness,
                             result.version_token,
                             Some(result.served_by.get()),
+                            None,
                         )
                     })
                     .map_err(|error| failure_reply(&error, None))
             }
         };
         match result {
-            Ok((value, version, witness, token, served_by)) => {
+            Ok((value, version, witness, token, served_by, durability)) => {
                 let Ok(value) = value.try_into().map(i64::from_be_bytes) else {
                     return text(500, "invalid counter result");
                 };
@@ -356,7 +365,8 @@ impl CounterApi {
                     "value": value, "index": witness.position.index.get(), "term": witness.position.term.get(),
                     "group": hex::encode(witness.group.group.bytes()), "group_incarnation": hex::encode(witness.group.incarnation.bytes()),
                     "incarnation": hex::encode(version.history.incarnation.bytes()), "cell": version.history.cell.as_str(),
-                    "sequence": version.sequence.get(), "version_token": token.as_str(), "served_by": served_by
+                    "sequence": version.sequence.get(), "version_token": token.as_str(), "served_by": served_by,
+                    "durability": durability
                 }).to_string().into_bytes() }
             }
             Err(reply) => reply,
