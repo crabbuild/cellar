@@ -67,8 +67,9 @@ namespace and physical group requests through the admin API. Valid retries
 preserve the original receipt after those refusals. The named public authority
 and occupancy-one cases pass their recorded native scope.
 
-CG-07 remains IN_PROGRESS. Complete managed lifecycle and the feature-off
-Fleet regression matrix remain open. Default/backend and capability
+CG-07 remains IN_PROGRESS. Complete managed lifecycle remains open. The
+feature-off public case and native Fleet/bucket regression pass their recorded
+local scope. Default/backend and capability
 coverage, plan/lint/CI modes, production fencing, constrained independent voters
 and sustained-load qualification remain unfinished. CG-09–16 stay TODO. No
 production legacy/shared switch or old-data migration is part of the target.

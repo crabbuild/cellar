@@ -15,6 +15,18 @@ async fn ingress_cannot_cross_cell_authority() -> Result<()> {
     Box::pin(managed_fixture::requests::run_native()).await
 }
 
+#[path = "support/native_daemon_counter.rs"]
+pub mod native_daemon_counter;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn feature_off_fleet_contract_unchanged() -> Result<()> {
+    use native_daemon_counter::DurabilityMode;
+    for mode in [DurabilityMode::Bucket, DurabilityMode::Fleet] {
+        Box::pin(native_daemon_counter::run(mode)).await?;
+    }
+    Ok(())
+}
+
 fn digest(path: &Path) -> Result<Vec<u8>> {
     Ok(Sha256::digest(std::fs::read(path)?).to_vec())
 }

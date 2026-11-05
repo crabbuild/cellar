@@ -12,6 +12,23 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 feature-off native Fleet and bucket
+
+`feature_off_fleet_contract_unchanged` runs the compiled native counter
+through both Fleet and bucket durability modes. It verifies two-process
+routing, application reload, graceful ownership handoff and retained
+bucket restoration. The ordinary daemon test uses the same fixture in
+bucket mode. The cases use a local development object store.
+
+The separate fourteen-target native regression ran with
+`--no-default-features` on `7634ac0f` and recorded 172 passes,
+zero failures and 4 explicit skips. It covers Actor, cells,
+Node, LTX replication, storage, log, daemon, events, queue, workflow,
+WebSockets and containers. The broader release matrix remains separate.
+
+Regression log SHA256 `036e58d8505e3d3bd45cd1a32e1f56561341ffbb4dce0aac0a7fdcddb086423d`.
+Public feature-off log SHA256 `71d0c55bad7ae7e3352e13e12b67b03860e87753269a3a286de0ac93acea7c14`.
+
 ## CG-07 public occupancy and ingress authority gates
 
 `native_cell_groups_public` exercises one and two enrolled SQL cells on
