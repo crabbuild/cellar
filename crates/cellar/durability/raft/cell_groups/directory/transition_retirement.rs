@@ -11,6 +11,8 @@ use crate::raft::{
         CellGroupArchivePool, GroupManifest, GroupSourceRetirement,
     },
     completion::RuntimeError,
+    fleet_catalog::{FleetGroupAuthorization, FleetHostAuthorization, ManagedTransitionPermit},
+    fleet_stop::BootBinding,
     storage::ReplicaLog,
 };
 use cellar_logic::consensus::{EngineInstanceId, LogIndex, LogPosition, Term};
@@ -39,6 +41,14 @@ pub struct CellGroupSourceRetirementPermit {
     publication: [u8; 32],
     deadline: u64,
     entry: Vec<u8>,
+    managed: Option<(BootBinding, u64)>,
+}
+
+struct ManagedRetirementAdmission<'a> {
+    permit: &'a ManagedTransitionPermit,
+    host: &'a FleetHostAuthorization,
+    authority: &'a FleetGroupAuthorization,
+    deadline: u64,
 }
 
 impl CellGroupSourceRetirementPermit {
@@ -58,7 +68,25 @@ impl CellGroupSourceRetirementPermit {
         {
             return Err(RuntimeError::StaleCompletion);
         }
-        drop(group.read()?);
+        if let Some((boot, revision)) = &self.managed {
+            if log
+                .lifecycle_guard()?
+                .is_none_or(|guard| !guard.admits_group_start(boot))
+            {
+                return Err(RuntimeError::StaleCompletion);
+            }
+            let cache = group.read()?;
+            if cache.membership.revision().get() != *revision
+                || !cache
+                    .conf_state
+                    .voters
+                    .contains(&group.identity().member.get())
+            {
+                return Err(RuntimeError::StaleCompletion);
+            }
+        } else {
+            drop(group.read()?);
+        }
         Ok(())
     }
 
@@ -96,6 +124,145 @@ impl CellGroupSourceRetirementPermit {
 }
 
 impl RangeDirectory {
+    /// Discover a retained source after its ranges have been replaced. The
+    /// historical birth is usable only for this sealed replica's retirement.
+    pub(crate) async fn discover_managed_sealed_source(
+        &self,
+        marker: &GroupManifest,
+    ) -> Result<Option<(CellGroupBirth, DirectoryMutation)>, CatalogError> {
+        self.bounded(async {
+            let Some((plan, journal)) = self.active_transition().await? else {
+                return Ok(None);
+            };
+            if !matches!(
+                journal.phase(),
+                TransitionPhase::Published | TransitionPhase::Active | TransitionPhase::Retired
+            ) || !self.transition_routes(&plan)?.0.contains(marker.route())
+            {
+                return Ok(None);
+            }
+            let publication = self
+                .confirmed_transfer_publication(&plan)
+                .await?
+                .ok_or(CatalogError::Fenced)?;
+            if journal.transfer_archive() != publication.transfer_archive() {
+                return Err(CatalogError::Fenced);
+            }
+            let sealed = self
+                .transfer_source_marker(&plan, &journal, marker.route().history)
+                .await?;
+            if !marker.preserves_source_seal(&sealed) {
+                return Err(CatalogError::Fenced);
+            }
+            let birth = self.open_historical_birth(marker.route()).await?;
+            Ok(Some((birth, plan)))
+        })
+        .await
+    }
+
+    pub(crate) async fn bootstrap_managed_sealed_source(
+        &self,
+        birth: &CellGroupBirth,
+        log: &ReplicaLog,
+        host: &FleetHostAuthorization,
+    ) -> Result<CellGroupBootstrapPermit, CatalogError> {
+        self.bounded(async {
+            let source = birth.route().history;
+            let group = log.cell_group(&source).map_err(CatalogError::Log)?;
+            let marker = group
+                .group_manifest()
+                .map_err(CatalogError::Log)?
+                .ok_or(CatalogError::LostStableState)?;
+            let (historical, plan) = self
+                .discover_managed_sealed_source(&marker)
+                .await?
+                .ok_or(CatalogError::Fenced)?;
+            if historical.route() != birth.route() {
+                return Err(CatalogError::Fenced);
+            }
+            let timeout = Duration::from_millis(self.limits.operation_timeout_ms);
+            let transition = host
+                .stop_catalog()
+                .reopen_managed_transition(self, plan.operation(), timeout)
+                .await
+                .map_err(CatalogError::from)?
+                .ok_or(CatalogError::Fenced)?;
+            if transition.plan.digest() != plan.digest() {
+                return Err(CatalogError::Fenced);
+            }
+            let (permit, authority) = host
+                .managed_source_authority(&transition, self, source, timeout)
+                .await
+                .map_err(CatalogError::from)?;
+            permit.check(self, &plan)?;
+            self.require_managed_source_voter(log, &group, &historical, host, &authority)
+                .await?;
+            Ok(CellGroupBootstrapPermit::managed_sealed_source(
+                group,
+                historical,
+                self.clone(),
+                log.clone(),
+                host.clone(),
+            ))
+        })
+        .await
+    }
+
+    async fn require_managed_source_voter(
+        &self,
+        log: &ReplicaLog,
+        group: &GroupLog<GroupHistory>,
+        birth: &CellGroupBirth,
+        host: &FleetHostAuthorization,
+        authority: &FleetGroupAuthorization,
+    ) -> Result<(BootBinding, u64), CatalogError> {
+        let boot = self.require_managed_group_boot(log, host).await?;
+        let cache = group.read().map_err(CatalogError::Log)?;
+        let marker = cache
+            .group_manifest
+            .as_ref()
+            .ok_or(CatalogError::LostStableState)?;
+        if !authority.check_birth(self, birth)
+            || marker.route() != birth.route()
+            || marker
+                .source_seal()
+                .is_none_or(|seal| cache.hard_state.commit < seal.position().index.get())
+            || cache
+                .membership
+                .fleet_status()
+                .is_none_or(|status| &status.binding != authority.binding())
+            || !authority.matches_replica(group.identity(), &cache.membership)
+            || !cache
+                .conf_state
+                .voters
+                .contains(&group.identity().member.get())
+        {
+            return Err(CatalogError::Fenced);
+        }
+        Ok((boot, marker.membership_revision()))
+    }
+
+    async fn transfer_source_marker(
+        &self,
+        plan: &DirectoryMutation,
+        journal: &TransitionJournal,
+        source: GroupHistory,
+    ) -> Result<GroupManifest, CatalogError> {
+        self.read_transition_source_holds(
+            plan,
+            journal,
+            journal.sealed_sources().ok_or(CatalogError::Fenced)?,
+            super::transition_sources::TransitionSourceCut::Sealed,
+        )
+        .await?
+        .into_iter()
+        .find(|hold| hold.marker().route().history == source)
+        .map(|hold| hold.marker().clone())
+        .ok_or(CatalogError::Fenced)
+    }
+}
+
+impl RangeDirectory {
     /// Admit the exact source tombstone only after every child activation has
     /// been selected. The source remains sealed while the entry is pending.
     pub async fn prepare_source_retirement(
@@ -105,12 +272,51 @@ impl RangeDirectory {
         log: &ReplicaLog,
     ) -> Result<CellGroupSourceRetirementPermit, CatalogError> {
         self.unmanaged_birth()?;
+        self.prepare_source_retirement_inner(plan, source, log, None)
+            .await
+    }
+
+    pub(crate) async fn prepare_managed_source_retirement(
+        &self,
+        plan: &DirectoryMutation,
+        source: GroupHistory,
+        log: &ReplicaLog,
+        host: &FleetHostAuthorization,
+        authority: (&ManagedTransitionPermit, &FleetGroupAuthorization),
+        deadline: u64,
+    ) -> Result<CellGroupSourceRetirementPermit, CatalogError> {
+        self.prepare_source_retirement_inner(
+            plan,
+            source,
+            log,
+            Some(ManagedRetirementAdmission {
+                permit: authority.0,
+                host,
+                authority: authority.1,
+                deadline,
+            }),
+        )
+        .await
+    }
+
+    async fn prepare_source_retirement_inner(
+        &self,
+        plan: &DirectoryMutation,
+        source: GroupHistory,
+        log: &ReplicaLog,
+        managed: Option<ManagedRetirementAdmission<'_>>,
+    ) -> Result<CellGroupSourceRetirementPermit, CatalogError> {
         self.check_transition_plan(plan)?;
         self.bounded(async {
-            self.namespace.require_cell_group_unmanaged().await?;
-            self.transfer_activations(plan)
-                .await?
-                .ok_or(CatalogError::Fenced)?;
+            if managed.is_none() {
+                self.namespace.require_cell_group_unmanaged().await?;
+            }
+            self.transfer_activations_inner(
+                plan,
+                managed.as_ref().map(|admission| admission.permit),
+            )
+            .await?
+            .ok_or(CatalogError::Fenced)?;
             let publication = self
                 .confirmed_transfer_publication(plan)
                 .await?
@@ -122,26 +328,14 @@ impl RangeDirectory {
                 .await?
                 .filter(|journal| journal.phase() == TransitionPhase::Active)
                 .ok_or(CatalogError::Fenced)?;
-            let held = self
-                .read_transition_source_holds(
-                    plan,
-                    &journal,
-                    journal.sealed_sources().ok_or(CatalogError::Fenced)?,
-                    super::transition_sources::TransitionSourceCut::Sealed,
-                )
-                .await?;
-            let sealed = held
-                .iter()
-                .find(|hold| hold.marker().route().history == source)
-                .ok_or(CatalogError::Fenced)?
-                .marker();
+            let sealed = self.transfer_source_marker(plan, &journal, source).await?;
             let route = sealed.route();
             let group = log.cell_group(&source).map_err(CatalogError::Log)?;
             let marker = group
                 .group_manifest()
                 .map_err(CatalogError::Log)?
                 .ok_or(CatalogError::LostStableState)?;
-            if marker.route() != route || !marker.preserves_source_seal(sealed) {
+            if marker.route() != route || !marker.preserves_source_seal(&sealed) {
                 return Err(CatalogError::Fenced);
             }
             super::bootstrap::check_member(&group)?;
@@ -167,19 +361,39 @@ impl RangeDirectory {
             }
             .encode(route, GroupEntryLimits::default())
             .map_err(|_| CatalogError::Invalid("source retirement entry"))?;
-            let deadline = log
+            let now = log
                 .domain()
                 .mono_ms()
-                .map_err(|_| CatalogError::Unconfirmed)?
+                .map_err(|_| CatalogError::Unconfirmed)?;
+            let limit = now
                 .checked_add(self.limits.operation_timeout_ms)
                 .ok_or(CatalogError::Limit)?;
+            let (managed, deadline) = if let Some(admission) = managed {
+                let birth = self.open_historical_birth(route).await?;
+                let voter = self
+                    .require_managed_source_voter(
+                        log,
+                        &group,
+                        &birth,
+                        admission.host,
+                        admission.authority,
+                    )
+                    .await?;
+                (Some(voter), limit.min(admission.deadline))
+            } else {
+                (None, limit)
+            };
+            if deadline <= now {
+                return Err(CatalogError::Unconfirmed);
+            }
             Ok(CellGroupSourceRetirementPermit {
                 group,
                 engine,
-                sealed: sealed.clone(),
+                sealed,
                 publication,
                 deadline,
                 entry,
+                managed,
             })
         })
         .await

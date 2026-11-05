@@ -1159,10 +1159,13 @@ only after activation applies. The
 directory selects Active after receiving one durable acknowledgement for every
 child in plan order. It binds the set to the exact publication and installed
 seed commitments and can reopen it after an ambiguous CAS. The topology lane
-remains owned until parent retirement. The parent Raft leader can commit its
-tombstone only after the directory selects the complete Active set. The entry
-binds the replacement publication to the original seal, and the manifest and
-checkpoint preserve both. This tombstone leaves the topology lane and parent
+remains owned until parent retirement. After the route switch, a retained
+parent voter reopens from its historical birth only if its synced seal matches
+the exact selected transfer. This keeps the parent fenced and lets it
+participate in the source quorum for retirement. The parent leader can commit
+its tombstone only after the directory selects the complete Active set. The
+entry binds the replacement publication to the original seal, and the manifest
+and checkpoint preserve both. This tombstone leaves the topology lane and parent
 archive holds pinned while child archive coverage is qualified. The directory
 independently replays the exact held archive of every active child. Each cut
 must retain the installed seed and the selected publication and activation

@@ -102,6 +102,7 @@ pub(crate) struct Assignment {
     birth: CellGroupBirth,
     placement: RaftGroupPlacement,
     pending_transfer_archive: bool,
+    sealed_transfer_source: bool,
     transport: super::transport::GroupRoute<GroupHistory>,
 }
 
@@ -263,7 +264,19 @@ pub(crate) async fn start(
                         .transpose()?
                         .flatten()
                         .is_some_and(|marker| marker.transfer_activation().is_some());
-                    let permit = if recovered {
+                    let permit = if assignment.sealed_transfer_source {
+                        let managed = options.managed.as_ref().ok_or_else(|| {
+                            anyhow::anyhow!("sealed source needs managed boot authority")
+                        })?;
+                        namespace
+                            .directory
+                            .bootstrap_managed_sealed_source(
+                                &assignment.birth,
+                                &log,
+                                &managed.authorization,
+                            )
+                            .await?
+                    } else if recovered {
                         anyhow::ensure!(
                             options.managed.is_none(),
                             "managed disaster recovery requires its fleet recovery authority"

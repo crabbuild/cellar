@@ -666,6 +666,13 @@ async fn verify_managed_publication(
             .await?
             == publication
     );
+    ensure!(matches!(
+        cluster.hosts[0]
+            .group(cluster.history)?
+            .retire_managed_source(&reopened, TIMEOUT)
+            .await,
+        Err(CellGroupControllerError::Catalog(_))
+    ));
     for route in children {
         for voter in voters {
             ensure!(!voter.group(route.history)?.status().await?.ready);

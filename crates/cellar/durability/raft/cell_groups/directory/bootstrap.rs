@@ -34,6 +34,7 @@ enum BootstrapOrigin {
     Recovery(Box<recovery::RecoveryStartup>),
     PendingTransfer(PendingTransfer),
     ManagedActivatedTransfer(Box<crate::raft::fleet_catalog::FleetHostAuthorization>),
+    ManagedSealedSource(Box<crate::raft::fleet_catalog::FleetHostAuthorization>),
 }
 
 pub(super) enum PendingTransfer {
@@ -97,6 +98,22 @@ impl CellGroupBootstrapPermit {
         }
     }
 
+    pub(super) fn managed_sealed_source(
+        group: GroupLog<GroupHistory>,
+        birth: CellGroupBirth,
+        directory: RangeDirectory,
+        log: ReplicaLog,
+        host: crate::raft::fleet_catalog::FleetHostAuthorization,
+    ) -> Self {
+        Self {
+            group,
+            birth,
+            directory,
+            log,
+            origin: BootstrapOrigin::ManagedSealedSource(Box::new(host)),
+        }
+    }
+
     pub(crate) fn log(&self) -> &ReplicaLog {
         &self.log
     }
@@ -154,6 +171,11 @@ impl CellGroupBootstrapPermit {
             BootstrapOrigin::ManagedActivatedTransfer(host) => self
                 .directory
                 .bootstrap_managed_activated_transfer_voter(&self.birth, &self.log, host)
+                .await
+                .map(|_| ()),
+            BootstrapOrigin::ManagedSealedSource(host) => self
+                .directory
+                .bootstrap_managed_sealed_source(&self.birth, &self.log, host)
                 .await
                 .map(|_| ()),
             BootstrapOrigin::Initial => self

@@ -65,6 +65,11 @@ impl Pools {
             .iter()
             .filter(|a| a.placement == RaftGroupPlacement::Replica)
         {
+            // The replacement closure owns the sealed source archive. A
+            // historical voter participates in Raft only for retirement.
+            if assignment.sealed_transfer_source {
+                continue;
+            }
             let namespace = &prepared.namespaces[assignment.namespace];
             if assignment.pending_transfer_archive
                 && !namespace

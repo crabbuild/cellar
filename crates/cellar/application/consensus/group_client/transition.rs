@@ -97,6 +97,68 @@ impl RaftGroupHandle {
         }
     }
 
+    /// Retire the sealed parent after the directory selects every child
+    /// activation. A durable tombstone grants no authority to release holds.
+    pub fn retire_managed_source<'a>(
+        &self,
+        transition: &'a ReopenedManagedCellGroupTransition,
+        timeout: Duration,
+    ) -> impl Future<Output = Result<CellGroupSourceRetirement, CellGroupControllerError>> + Send + 'a
+    {
+        let admitted = self
+            .owner
+            .metadata_admission(timeout, 4096)
+            .map_err(super::startup::admission_error);
+        let owner = self.owner.internal_observer();
+        let history = self.history;
+        async move {
+            let (deadline, _memory) = admitted?;
+            let core = &owner.handle.core;
+            let host = core.managed.as_ref().ok_or_else(|| {
+                super::startup::catalog_error(CatalogError::ManagedAdmissionRequired)
+            })?;
+            let directory = core
+                .host
+                .namespace_directory(history.cluster, history.namespace)
+                .map_err(|_| CellGroupControllerError::Invalid("transfer source namespace"))?;
+            owner
+                .handle
+                .domain
+                .run(Box::pin(crate::asyncrt::timeout_at(
+                    deadline,
+                    Box::pin(async {
+                        owner.startup_live(host, deadline)?;
+                        let (permit, group) = host
+                            .managed_source_authority(
+                                transition,
+                                &directory,
+                                history,
+                                owner.startup_remaining(deadline)?,
+                            )
+                            .await
+                            .map_err(CatalogError::from)
+                            .map_err(super::startup::catalog_error)?;
+                        let retire = directory
+                            .prepare_managed_source_retirement(
+                                &transition.plan,
+                                history,
+                                &core.log,
+                                host,
+                                (&permit, &group),
+                                deadline,
+                            )
+                            .await
+                            .map_err(super::startup::catalog_error)?;
+                        owner.startup_live(host, deadline)?;
+                        core.runtime.retire_source(retire).await.map_err(Into::into)
+                    }),
+                )))
+                .await
+                .map_err(|_| CellGroupControllerError::Closed)?
+                .map_err(|_| CellGroupControllerError::Runtime(RuntimeError::DeadlineExceeded))?
+        }
+    }
+
     /// Submit or observe the exact seal authorized for this managed parent.
     /// Accepted identifies a proposal. Applied returns the selected durable cut.
     /// A lost response can follow either outcome. Retry the same fleet plan.
@@ -131,9 +193,7 @@ impl RaftGroupHandle {
                         let remaining = owner.startup_remaining(deadline)?;
                         owner.startup_live(host, deadline)?;
                         let (permit, group) = host
-                            .managed_source_seal_authority(
-                                transition, &directory, source, remaining,
-                            )
+                            .managed_source_authority(transition, &directory, source, remaining)
                             .await
                             .map_err(CatalogError::from)
                             .map_err(super::startup::catalog_error)?;

@@ -1049,7 +1049,7 @@ impl FleetHostAuthorization {
             .await
     }
 
-    pub(crate) async fn managed_source_seal_authority(
+    pub(crate) async fn managed_source_authority(
         &self,
         transition: &ReopenedManagedCellGroupTransition,
         directory: &RangeDirectory,

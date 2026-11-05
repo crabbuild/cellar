@@ -242,18 +242,31 @@ async fn select_assignment(
         .directory
         .materialize_selected_history(assignment.history)
         .await?;
-    Ok(Assignment {
+    Ok(assignment_from_birth(
         namespace,
-        placement: assignment.placement,
+        assignment.placement,
+        birth,
+    ))
+}
+
+fn assignment_from_birth(
+    namespace: usize,
+    placement: RaftGroupPlacement,
+    birth: CellGroupBirth,
+) -> Assignment {
+    Assignment {
+        namespace,
+        placement,
         pending_transfer_archive: false,
+        sealed_transfer_source: false,
         transport: super::super::transport::GroupRoute {
-            scope: assignment.history,
+            scope: birth.route().history,
             schema_digest: birth.route().schema_digest,
             revision: birth.route().epoch.get(),
             peers: Vec::new(),
         },
         birth,
-    })
+    }
 }
 
 /// Recover local placement from the opened engine and selected namespace
@@ -311,6 +324,27 @@ pub(super) async fn discover_retained_placements(
                 .await?;
             parked.push((namespace, retained));
             continue;
+        }
+        if let Some(marker) = retained
+            .group_manifest()?
+            .filter(|marker| marker.source_seal().is_some())
+        {
+            let namespace = prepared
+                .namespaces
+                .iter()
+                .position(|namespace| {
+                    let config = namespace.directory.namespace_config();
+                    config.cluster == history.cluster && config.namespace == history.namespace
+                })
+                .ok_or(CatalogError::ManagedAdmissionRequired)?;
+            let directory = &prepared.namespaces[namespace].directory;
+            if let Some((birth, _)) = directory.discover_managed_sealed_source(&marker).await? {
+                let mut assignment =
+                    assignment_from_birth(namespace, RaftGroupPlacement::Replica, birth);
+                assignment.sealed_transfer_source = true;
+                prepared.groups.push(assignment);
+                continue;
+            }
         }
         let group = select_assignment(
             &prepared.namespaces,

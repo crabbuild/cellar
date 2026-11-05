@@ -10,6 +10,9 @@ use cellar::application::consensus::verification::{
 #[path = "cell_group_managed_transition_preparation.rs"]
 mod preparation;
 
+#[path = "cell_group_managed_transition_retirement.rs"]
+mod retirement;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn managed_split_plan_fences_membership_and_replays_cancellation() -> Result<()> {
     Box::pin(run_plan(
@@ -333,8 +336,12 @@ async fn exercise(cluster: &mut ManagedCluster, rooted: bool, decision: Decision
             cluster, &reopened, directory, &recovered, &parent, held, &seal,
         ))
         .await?;
-        return Box::pin(preparation::verify_transferred_sql(
+        Box::pin(preparation::verify_transferred_sql(
             cluster, directory, seeded,
+        ))
+        .await?;
+        return Box::pin(retirement::reopen_and_retire(
+            cluster, directory, &recovered,
         ))
         .await;
     }

@@ -386,6 +386,17 @@ impl RangeDirectory {
         plan: &DirectoryMutation,
     ) -> Result<Option<Vec<(GroupHistory, LogPosition)>>, CatalogError> {
         self.unmanaged_birth()?;
+        self.transfer_activations_inner(plan, None).await
+    }
+
+    pub(super) async fn transfer_activations_inner(
+        &self,
+        plan: &DirectoryMutation,
+        permit: Option<&ManagedTransitionPermit>,
+    ) -> Result<Option<Vec<(GroupHistory, LogPosition)>>, CatalogError> {
+        if let Some(permit) = permit {
+            permit.check(self, plan)?;
+        }
         self.check_transition_plan(plan)?;
         self.bounded(async {
             let (view, _) = self.current().await?;
@@ -416,7 +427,7 @@ impl RangeDirectory {
                 return Err(CatalogError::Corrupt("transfer activation set binding"));
             }
             let markers = self
-                .installed_transfer_children(plan)
+                .installed_transfer_children_inner(plan, permit)
                 .await?
                 .ok_or(CatalogError::Corrupt("missing activated child install set"))?;
             set.children
