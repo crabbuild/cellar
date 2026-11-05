@@ -118,6 +118,19 @@ def execute(mode, output, remote, credentials, build, engine):
                 and sum(event["phase"] == "post_resume_write_verified" for event in events) == 2,
                 "missing RustFS retained restart proof")
         (output / f"{mode}.jsonl").write_text(ledger.stdout)
+        phases = {"pre_loss_linearizable", "voter_shutdown_joined", "no_quorum_linearizable",
+                  "no_quorum_write_send", "no_quorum_write", "no_quorum_historical"}
+        boundary = [event for event in events if event["phase"] in phases]
+        require([(event["phase"], event.get("member")) for event in boundary] == [
+            ("pre_loss_linearizable", None), ("voter_shutdown_joined", 1),
+            ("voter_shutdown_joined", 2), ("no_quorum_linearizable", 3),
+            ("no_quorum_write_send", 3), ("no_quorum_write", 3),
+            ("no_quorum_historical", 3), ("voter_shutdown_joined", 3),
+        ], "missing observed quorum-loss boundary")
+        require(boundary[3]["status"] == boundary[5]["status"] == 503
+                and boundary[4]["command"] == boundary[5]["command"]
+                and boundary[0]["reply"]["value"] == boundary[6]["reply"]["value"] == 23
+                and boundary[6]["reply"]["served_by"] == 3, "quorum-loss observations differ")
         observations = guest(f'''find {quoted} -maxdepth 2 -name '*-docker.json' -type f -exec sh -c '\nfor file do tr -d "\\n" < "$file"; printf "\\n"; done' sh {{}} +\n''')
         require(observations.returncode == 0, "could not capture cgroup observations")
         proof = [json.loads(line) for line in observations.stdout.splitlines()]

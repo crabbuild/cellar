@@ -855,7 +855,12 @@ async fn qualify() -> Result<()> {
         &mut ledger,
     )
     .await?;
-    for (process, (_, internal)) in cluster.iter_mut().zip(&addresses) {
+    let survivor = cluster.len() - 1;
+    recovery::verify_linearizable_before_loss(&client, &addresses[survivor].0, &mut ledger).await?;
+    for (index, (process, (public, internal))) in cluster.iter_mut().zip(&addresses).enumerate() {
+        if index == survivor {
+            recovery::verify_quorum_loss(&client, public, index, &mut ledger).await?;
+        }
         client
             .post(format!("{internal}/shutdown"))
             .send()
@@ -866,6 +871,7 @@ async fn qualify() -> Result<()> {
             logs.contains("\"owners_closed\":true"),
             "three-voter owner did not join\n{logs}"
         );
+        ledger.record(serde_json::json!({"phase":"voter_shutdown_joined", "member":index + 1}))?;
     }
     cellar::note!("production Raft CLI qualification passed: directory and registration refusals, failed binding joins, two cells in one retained group, linearizable queries, process restart, semantic closure, startup cancellation, and three managed daemon processes with one shared group over TLS and local follower reads");
     Ok(())

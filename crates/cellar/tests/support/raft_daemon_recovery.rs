@@ -348,3 +348,106 @@ async fn local_read(
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
+
+pub(super) async fn verify_linearizable_before_loss(
+    client: &reqwest::Client,
+    public: &str,
+    ledger: &mut Ledger,
+) -> Result<()> {
+    let reply = client
+        .get(format!("{public}/counters/one"))
+        .bearer_auth(SECRET)
+        .header("x-read-consistency", "linearizable")
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<Value>()
+        .await?;
+    ensure!(reply["value"] == 23, "wrong pre-loss read: {reply}");
+    ledger.record(serde_json::json!({"phase":"pre_loss_linearizable", "reply":reply}))
+}
+
+pub(super) async fn verify_quorum_loss(
+    client: &reqwest::Client,
+    public: &str,
+    survivor: usize,
+    ledger: &mut Ledger,
+) -> Result<()> {
+    let url = format!("{public}/counters/one");
+    let response = client
+        .get(&url)
+        .bearer_auth(SECRET)
+        .header("x-read-consistency", "linearizable")
+        .send()
+        .await?;
+    let status = response.status();
+    let cause = response.text().await?;
+    ledger.record(serde_json::json!({
+        "phase":"no_quorum_linearizable", "member":survivor + 1,
+        "status":status.as_u16(), "cause":cause,
+    }))?;
+    ensure!(
+        status == 503 && quorum_refusal(&cause),
+        "linearizable read without quorum returned {status}: {cause}"
+    );
+
+    let client_id = ClientId::new([90; 16])?;
+    let id = CommandId::new(client_id, 4)?;
+    let command = format!("{}:4", hex::encode([90; 16]));
+    let retry = (std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_millis()
+        + 60_000)
+        .to_string();
+    ledger.record(serde_json::json!({
+        "phase":"no_quorum_write_send", "member":survivor + 1,
+        "cell":"one", "command":command, "retry_until":retry, "delta":9,
+    }))?;
+    let response = client
+        .post(format!("{url}?delta=9"))
+        .bearer_auth(SECRET)
+        .header("x-command-id", &command)
+        .header("x-retry-until-ms", &retry)
+        .header("x-write-durability", "quorum")
+        .send()
+        .await?;
+    let status = response.status();
+    let body = response.text().await?;
+    let ambiguity = format!("Ambiguous {{ command: {id:?} }}; cause=");
+    let cause = body.strip_prefix(&ambiguity).unwrap_or(&body);
+    ledger.record(serde_json::json!({
+        "phase":"no_quorum_write", "member":survivor + 1,
+        "command":command, "status":status.as_u16(), "cause":cause, "body":body,
+    }))?;
+    ensure!(
+        status == 503 && quorum_refusal(cause),
+        "quorum write without a majority returned {status}: {body}"
+    );
+
+    // Demonstrate that both refusals came from a still-serving local voter
+    // and that the public historical read mode remains explicitly available.
+    let reply = client
+        .get(&url)
+        .bearer_auth(SECRET)
+        .header("x-read-consistency", "stale")
+        .header("x-read-policy", "disconnected-historical")
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<Value>()
+        .await?;
+    ensure!(
+        reply["value"] == 23 && reply["served_by"] == survivor + 1,
+        "surviving voter returned the wrong historical image: {reply}"
+    );
+    ledger.record(serde_json::json!({
+        "phase":"no_quorum_historical", "member":survivor + 1, "reply":reply,
+    }))
+}
+
+fn quorum_refusal(cause: &str) -> bool {
+    matches!(
+        cause,
+        "Unavailable" | "NotLeader { leader: None }" | "VersionUnavailable"
+    )
+}
