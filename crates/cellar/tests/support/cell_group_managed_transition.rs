@@ -33,7 +33,7 @@ async fn run_plan(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
         ArchiveSetup::Initialized,
         false,
         None,
-        FirstGroupSetup::ExerciseReplay,
+        FirstGroupSetup::Normal,
     ))
     .await?;
     let result = Box::pin(exercise(&cluster)).await;
