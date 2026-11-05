@@ -8,6 +8,7 @@ pub(super) const SLOT_KEY: &str = "active-disruption";
 pub(super) enum Disruption {
     Evacuation(evacuation::Record),
     Restart(maintenance::Record),
+    Transition(managed_transitions::Record),
 }
 
 impl Disruption {
@@ -17,13 +18,21 @@ impl Disruption {
         if let Ok(record) = decode::<evacuation::Record>(evacuation::ADMISSION_KIND, bytes, 4096) {
             return Ok(Self::Evacuation(record));
         }
-        Ok(Self::Restart(decode(maintenance::KIND, bytes, 4096)?))
+        if let Ok(record) = decode::<maintenance::Record>(maintenance::KIND, bytes, 4096) {
+            return Ok(Self::Restart(record));
+        }
+        Ok(Self::Transition(decode(
+            managed_transitions::KIND,
+            bytes,
+            4096,
+        )?))
     }
 
     fn validate(&self, catalog: &FleetCatalog) -> Result<()> {
         match self {
             Self::Evacuation(record) => record.validate(catalog),
             Self::Restart(record) => record.validate(catalog),
+            Self::Transition(record) => record.validate(catalog),
         }
     }
 
@@ -31,14 +40,15 @@ impl Disruption {
         match self {
             Self::Evacuation(record) => record.operation(),
             Self::Restart(record) => record.request.operation,
+            Self::Transition(record) => record.operation(),
         }
     }
 
     pub(super) fn evacuation(self) -> Result<evacuation::Record> {
         match self {
             Self::Evacuation(record) => Ok(record),
-            Self::Restart(record) => Err(FleetCatalogError::DisruptionInProgress {
-                operation: record.request.operation,
+            other => Err(FleetCatalogError::DisruptionInProgress {
+                operation: other.operation(),
             }),
         }
     }
@@ -47,6 +57,7 @@ impl Disruption {
         match self {
             Self::Evacuation(record) => record.mutation(),
             Self::Restart(record) => record.mutation(),
+            Self::Transition(record) => record.mutation(),
         }
     }
 
@@ -54,6 +65,7 @@ impl Disruption {
         match self {
             Self::Evacuation(record) => record.check_basis(snapshot),
             Self::Restart(record) => record.check_basis(snapshot),
+            Self::Transition(record) => record.check_basis(snapshot),
         }
     }
 }
@@ -72,12 +84,13 @@ impl FleetCatalog {
             (Some(digest), Some(bytes)) if hash(&bytes) == digest => {
                 let record = Disruption::decode(&bytes)?;
                 record.validate(self)?;
+                let key = match &record {
+                    Disruption::Transition(record) => record.key(),
+                    _ => hex::encode(record.operation()),
+                };
                 let operation = self
                     .inner
-                    .lookup(
-                        snapshot.head.tables[FleetTable::Operations.slot()],
-                        &hex::encode(record.operation()),
-                    )
+                    .lookup(snapshot.head.tables[FleetTable::Operations.slot()], &key)
                     .await?;
                 if operation.as_deref() != Some(bytes.as_slice()) {
                     return Err(FleetCatalogError::Corrupt("disruption operation reference"));
@@ -88,6 +101,9 @@ impl FleetCatalog {
                     }
                     Disruption::Restart(record) => {
                         self.confirm_restart(snapshot, record).await?;
+                    }
+                    Disruption::Transition(record) => {
+                        self.confirm_managed_transition(snapshot, record).await?;
                     }
                 }
                 Ok(Some(record))
@@ -103,12 +119,18 @@ impl FleetCatalog {
         mutation: &FleetMutation,
         previous: Option<[u8; 32]>,
         bytes: Option<&[u8]>,
+        authority: resources::Authority,
     ) -> Result<[u8; 32]> {
         if previous.is_some() {
             return Err(FleetCatalogError::Invalid("unsettled disruption slot"));
         }
         let bytes = bytes.ok_or(FleetCatalogError::Invalid("disruption slot deletion"))?;
         let record = Disruption::decode(bytes)?;
+        if matches!(record, Disruption::Transition(_))
+            && authority != resources::Authority::ManagedTransition
+        {
+            return Err(FleetCatalogError::Invalid("managed transition authority"));
+        }
         record.validate(self)?;
         record.check_basis(snapshot)?;
         if record.mutation()? != *mutation {

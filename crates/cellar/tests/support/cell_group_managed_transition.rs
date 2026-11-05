@@ -1,0 +1,178 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+//! The fleet slot owns the exact pre-seal directory operation.
+use super::*;
+use cellar::application::consensus::verification::{
+    cell_groups::{cell_routing_key, TransitionPhase},
+    FleetChange, FleetMutation, FleetTable,
+};
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn managed_split_plan_fences_membership_and_replays_cancellation() -> Result<()> {
+    let first = Fixture::with_class(false, counter_class()?).await?;
+    let mut cluster = Box::pin(ManagedCluster::start_with_applications(
+        first,
+        &[7, 8, 9],
+        ArchiveSetup::Initialized,
+        false,
+        None,
+        FirstGroupSetup::ExerciseReplay,
+    ))
+    .await?;
+    let result = Box::pin(exercise(&cluster)).await;
+    let spares = cluster.nodes.split_off(3);
+    let joined = close_group_nodes(cluster.nodes, &cluster.hosts).await;
+    let joined_spares = async {
+        for (node, host) in spares.into_iter().zip(&cluster.hosts[3..]) {
+            stopped(node, host).await?;
+        }
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    cluster.fixtures[0].domain.shutdown().await;
+    result?;
+    joined?;
+    joined_spares
+}
+
+async fn exercise(cluster: &ManagedCluster) -> Result<()> {
+    let fixture = &cluster.fixtures[0];
+    let fleet = &fixture.catalog;
+    let directory = &cluster.directory;
+    let domain = &fixture.domain;
+    let scope = cluster.history;
+    let parent = domain
+        .run(directory.materialize_selected_history(scope))
+        .await??;
+    let view = domain.run(directory.observe()).await??;
+    let (left, right) = parent.route().range.split(cell_routing_key(
+        scope.namespace,
+        &CellId::new("managed-split-pivot")?,
+    ))?;
+    let operation = ProposalId::new([231; 16])?;
+    let identity = |id, revision| FleetRequestIdentity {
+        operation: operation.bytes(),
+        ..request(id, revision)
+    };
+    let voters = cluster.fixtures[3..]
+        .iter()
+        .enumerate()
+        .map(|(index, fixture)| {
+            Ok(InitialMember {
+                member: MemberId::new(index as u64 + 1)?,
+                node: fixture.spec.node,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let mut children = Vec::new();
+    for (id, range) in [(232, left), (233, right)] {
+        let snapshot = fleet.read(TIMEOUT).await?;
+        let reserved = fleet
+            .reserve_birth(
+                &snapshot,
+                &identity(id, snapshot.revision()),
+                directory,
+                CellGroupBirthSpec {
+                    history: GroupHistory {
+                        group: GroupId::new([id; 16])?,
+                        incarnation: IncarnationId::new([id; 16])?,
+                        ..scope
+                    },
+                    range,
+                    epoch: RouteEpoch::new(2)?,
+                    creation: ProposalId::new([id; 16])?,
+                    voters: voters.clone(),
+                    learners: vec![],
+                },
+                "Counter",
+                TIMEOUT,
+            )
+            .await?;
+        children.push(reserved.authorization.route().clone());
+    }
+    let plan = directory.prepare_replacement(
+        &view,
+        operation,
+        std::slice::from_ref(parent.route()),
+        &children,
+    )?;
+    let before = fleet.read(TIMEOUT).await?;
+    let original = identity(234, before.revision());
+    fixture
+        .store
+        .fail_fleet_confirmation
+        .store(true, Ordering::Release);
+    ensure!(matches!(
+        fleet
+            .plan_managed_transition(&before, &original, directory, &plan, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Unconfirmed)
+    ));
+    ensure!(domain.run(directory.active_transition()).await??.is_none());
+    let first = fleet
+        .plan_managed_transition(&before, &original, directory, &plan, TIMEOUT)
+        .await?;
+    ensure!(first.phase() == TransitionPhase::Planned);
+    ensure!(
+        fleet
+            .plan_managed_transition(&before, &original, directory, &plan, TIMEOUT)
+            .await?
+            == first
+    );
+    ensure!(matches!(
+        domain
+            .run(directory.authorize_transition_seal(&plan))
+            .await?,
+        Err(CatalogError::ManagedAdmissionRequired)
+    ));
+
+    let admitted = fleet.read(TIMEOUT).await?;
+    let other = identity(235, admitted.revision());
+    let mutation = FleetMutation {
+        id: other.id,
+        operation: other.operation,
+        expected_revision: other.expected_revision,
+        principal: other.principal,
+        changes: vec![FleetChange {
+            table: FleetTable::Admissions,
+            key: "test-membership".into(),
+            value: None,
+        }],
+    };
+    ensure!(matches!(
+        fleet.commit(&admitted, &mutation, TIMEOUT).await,
+        Err(FleetCatalogError::DisruptionInProgress { operation: actual }) if actual == operation.bytes()
+    ));
+    let cancel = identity(236, admitted.revision());
+    fixture
+        .store
+        .fail_fleet_confirmation
+        .store(true, Ordering::Release);
+    ensure!(matches!(
+        fleet
+            .cancel_managed_transition(&admitted, &cancel, directory, &plan, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Unconfirmed)
+    ));
+    let cancelled = fleet
+        .cancel_managed_transition(&admitted, &cancel, directory, &plan, TIMEOUT)
+        .await?;
+    ensure!(
+        fleet
+            .cancel_managed_transition(&admitted, &cancel, directory, &plan, TIMEOUT)
+            .await?
+            .applied_revision
+            == cancelled.applied_revision
+    );
+    ensure!(
+        fleet
+            .plan_managed_transition(&before, &original, directory, &plan, TIMEOUT)
+            .await?
+            .phase()
+            == TransitionPhase::Cancelled
+    );
+    ensure!(domain.run(directory.active_transition()).await??.is_none());
+    let view = domain.run(directory.observe()).await??;
+    ensure!(view.groups() == 1);
+    Ok(())
+}

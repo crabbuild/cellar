@@ -17,6 +17,8 @@ mod imports;
 mod index;
 mod isolation;
 mod maintenance;
+mod managed_transitions;
+pub(crate) use managed_transitions::ManagedTransitionPermit;
 mod namespaces;
 mod nodes;
 mod permits;
@@ -461,6 +463,7 @@ impl FleetCatalog {
         if current.token != snapshot.token || mutation.expected_revision != snapshot.revision() {
             return Err(FleetCatalogError::Conflict);
         }
+        Box::pin(self.check_managed_transition_mutation(snapshot, mutation, movement)).await?;
         self.check_failure_recovery_mutation(snapshot, mutation, movement)
             .await?;
         self.check_isolation_mutation(snapshot, mutation, movement)
@@ -497,6 +500,7 @@ impl FleetCatalog {
                         mutation,
                         next.disruption,
                         change.value.as_deref(),
+                        movement,
                     )?)
                 };
             }

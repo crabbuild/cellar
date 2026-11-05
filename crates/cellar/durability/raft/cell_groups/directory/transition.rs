@@ -5,6 +5,7 @@ use super::*;
 use crate::application::consensus::group_protocol::{
     CellGroupEntry, GroupCommand, GroupEntryBinding, GroupEntryLimits,
 };
+use crate::raft::fleet_catalog::ManagedTransitionPermit;
 use crate::raft::{cache::GroupLog, completion::RuntimeError, storage::ReplicaLog};
 use cellar_logic::consensus::EngineInstanceId;
 use serde::{Deserialize, Serialize};
@@ -219,6 +220,23 @@ impl RangeDirectory {
         }
     }
 
+    pub(crate) fn transition_routes(
+        &self,
+        mutation: &DirectoryMutation,
+    ) -> Result<(Vec<GroupRoute>, Vec<GroupRoute>), CatalogError> {
+        self.check_transition_plan(mutation)?;
+        let decode = |routes: &[wire::Route]| {
+            routes
+                .iter()
+                .map(|route| route.decode(self))
+                .collect::<Result<_, _>>()
+        };
+        Ok((
+            decode(&mutation.request.parents)?,
+            decode(&mutation.request.children)?,
+        ))
+    }
+
     pub(super) async fn matching_transition(
         &self,
         head: &wire::Head,
@@ -272,63 +290,34 @@ impl RangeDirectory {
         mutation: &DirectoryMutation,
     ) -> Result<TransitionJournal, CatalogError> {
         self.unmanaged_birth()?;
+        self.plan_transition_inner(mutation, false).await
+    }
+
+    pub(crate) async fn plan_managed_transition(
+        &self,
+        mutation: &DirectoryMutation,
+        permit: &ManagedTransitionPermit,
+    ) -> Result<TransitionJournal, CatalogError> {
+        permit.check(self, mutation)?;
+        self.plan_transition_inner(mutation, true).await
+    }
+
+    async fn plan_transition_inner(
+        &self,
+        mutation: &DirectoryMutation,
+        managed: bool,
+    ) -> Result<TransitionJournal, CatalogError> {
         self.check_transition_plan(mutation)?;
         self.bounded(async {
             let (mut view, version) = self.current().await?;
             if let Some(journal) = self.matching_transition(&view.head, mutation).await? {
                 return Ok(journal);
             }
-            if self.namespace.cell_group_owner().await?.is_some() {
+            if self.namespace.cell_group_owner().await?.is_some() != managed {
                 return Err(CatalogError::ManagedAdmissionRequired);
             }
-            if view.head.import.is_some()
-                || view.head.recovery.is_some()
-                || self.transition_active(&view.head).await?.is_some()
-            {
-                return Err(CatalogError::Fenced);
-            }
+            let count = self.check_new_transition(&view, mutation).await?;
             let index = Index::new(self);
-            if mutation.request.expected != Some(view.digest)
-                || index
-                    .lookup(
-                        view.head.operations,
-                        &hex::encode(mutation.operation.bytes()),
-                    )
-                    .await?
-                    .is_some()
-            {
-                return Err(CatalogError::Conflict("stale transition root or operation"));
-            }
-            let count = index
-                .lookup(view.head.operations, COUNT)
-                .await?
-                .map(|value| {
-                    value
-                        .try_into()
-                        .map(u64::from_be_bytes)
-                        .map_err(|_| CatalogError::Corrupt("transition count"))
-                })
-                .transpose()?
-                .unwrap_or(0);
-            if count >= self.limits.max_mutations {
-                return Err(CatalogError::Limit);
-            }
-            for parent in &mutation.request.parents {
-                self.selected_route_in(&view, &parent.decode(self)?).await?;
-            }
-            for child in &mutation.request.children {
-                self.require_ordinary_birth_reservation(&child.decode(self)?)
-                    .await?;
-                if index
-                    .lookup(view.head.groups, &hex::encode(child.group))
-                    .await?
-                    .is_some()
-                {
-                    return Err(CatalogError::Conflict(
-                        "transition child group is already assigned",
-                    ));
-                }
-            }
             self.immutable("transition-plans", mutation.digest, mutation.encode())
                 .await?;
             let journal = TransitionJournal {
@@ -355,6 +344,104 @@ impl RangeDirectory {
                 .ok_or(CatalogError::Unconfirmed)
         })
         .await
+    }
+
+    pub(crate) async fn check_managed_transition_basis(
+        &self,
+        mutation: &DirectoryMutation,
+        permit: &ManagedTransitionPermit,
+    ) -> Result<(), CatalogError> {
+        permit.check(self, mutation)?;
+        self.check_transition_plan(mutation)?;
+        self.bounded(async {
+            let (view, _) = self.current().await?;
+            if self
+                .matching_transition(&view.head, mutation)
+                .await?
+                .is_some()
+            {
+                return Err(CatalogError::Conflict("transition already decided"));
+            }
+            self.check_new_transition(&view, mutation).await?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub(crate) async fn managed_transition_status(
+        &self,
+        mutation: &DirectoryMutation,
+        permit: &ManagedTransitionPermit,
+    ) -> Result<Option<TransitionJournal>, CatalogError> {
+        permit.check(self, mutation)?;
+        self.check_transition_plan(mutation)?;
+        self.bounded(async {
+            let (view, _) = self.current().await?;
+            self.matching_transition(&view.head, mutation).await
+        })
+        .await
+    }
+
+    async fn check_new_transition(
+        &self,
+        view: &DirectoryView,
+        mutation: &DirectoryMutation,
+    ) -> Result<u64, CatalogError> {
+        if view.head.import.is_some()
+            || view.head.recovery.is_some()
+            || self.transition_active(&view.head).await?.is_some()
+        {
+            return Err(CatalogError::Fenced);
+        }
+        let index = Index::new(self);
+        if mutation.request.expected != Some(view.digest)
+            || index
+                .lookup(
+                    view.head.operations,
+                    &hex::encode(mutation.operation.bytes()),
+                )
+                .await?
+                .is_some()
+        {
+            return Err(CatalogError::Conflict("stale transition root or operation"));
+        }
+        let count = self.available_transition_slot(&view.head).await?;
+        for parent in &mutation.request.parents {
+            self.selected_route_in(view, &parent.decode(self)?).await?;
+        }
+        for child in &mutation.request.children {
+            self.require_ordinary_birth_reservation(&child.decode(self)?)
+                .await?;
+            if index
+                .lookup(view.head.groups, &hex::encode(child.group))
+                .await?
+                .is_some()
+            {
+                return Err(CatalogError::Conflict(
+                    "transition child group is already assigned",
+                ));
+            }
+        }
+        Ok(count)
+    }
+
+    async fn available_transition_slot(&self, head: &wire::Head) -> Result<u64, CatalogError> {
+        let index = Index::new(self);
+        let count = index
+            .lookup(head.operations, COUNT)
+            .await?
+            .map(|value| {
+                value
+                    .try_into()
+                    .map(u64::from_be_bytes)
+                    .map_err(|_| CatalogError::Corrupt("transition count"))
+            })
+            .transpose()?
+            .unwrap_or(0);
+        if count >= self.limits.max_mutations {
+            return Err(CatalogError::Limit);
+        }
+        Ok(count)
     }
 
     /// Recover the original request and decision after losing the controller.
@@ -518,19 +605,45 @@ impl RangeDirectory {
         self.advance_transition(mutation, Advance::Cancel).await
     }
 
+    pub(crate) async fn cancel_managed_transition(
+        &self,
+        mutation: &DirectoryMutation,
+        permit: &ManagedTransitionPermit,
+    ) -> Result<TransitionJournal, CatalogError> {
+        permit.check(self, mutation)?;
+        self.advance_transition_inner(mutation, Advance::Cancel, true)
+            .await
+    }
+
     async fn advance_transition(
         &self,
         mutation: &DirectoryMutation,
         advance: Advance,
     ) -> Result<TransitionJournal, CatalogError> {
         self.unmanaged_birth()?;
+        self.advance_transition_inner(mutation, advance, false)
+            .await
+    }
+
+    async fn advance_transition_inner(
+        &self,
+        mutation: &DirectoryMutation,
+        advance: Advance,
+        cancel_unplanned: bool,
+    ) -> Result<TransitionJournal, CatalogError> {
         self.check_transition_plan(mutation)?;
         self.bounded(async {
             let (mut view, version) = self.current().await?;
-            let before = self
-                .matching_transition(&view.head, mutation)
-                .await?
-                .ok_or(CatalogError::Conflict("unplanned transition"))?;
+            let Some(before) = self.matching_transition(&view.head, mutation).await? else {
+                if !cancel_unplanned {
+                    return Err(CatalogError::Conflict("unplanned transition"));
+                }
+                // The fleet slot can commit before the directory plan. Root a
+                // cancellation even then, so a delayed planner cannot reopen it.
+                return self
+                    .cancel_unplanned_transition(mutation, view, version)
+                    .await;
+            };
             let requested = advance.apply(before.clone())?;
             if requested == before {
                 return Ok(before);
@@ -559,5 +672,43 @@ impl RangeDirectory {
             Ok(winner)
         })
         .await
+    }
+
+    async fn cancel_unplanned_transition(
+        &self,
+        mutation: &DirectoryMutation,
+        mut view: DirectoryView,
+        version: UpdateVersion,
+    ) -> Result<TransitionJournal, CatalogError> {
+        let index = Index::new(self);
+        let journal = TransitionJournal {
+            request: mutation.digest,
+            preparation: None,
+            source_set: None,
+            phase: TransitionPhase::Cancelled,
+        };
+        let count = self.available_transition_slot(&view.head).await?;
+        view.head.operations = index
+            .update(
+                view.head.operations,
+                COUNT,
+                Some((count + 1).to_be_bytes().to_vec()),
+                0,
+            )
+            .await?;
+        view.head.operations = index
+            .update(
+                view.head.operations,
+                &key(mutation.operation),
+                Some(record::encode(JOURNAL, &journal, LIMIT)?),
+                0,
+            )
+            .await?;
+        let after = self.commit_transition_head(&view.head, version).await?;
+        let winner = self.matching_transition(&after.head, mutation).await?;
+        if winner.as_ref() != Some(&journal) {
+            return Err(CatalogError::Unconfirmed);
+        }
+        Ok(journal)
     }
 }

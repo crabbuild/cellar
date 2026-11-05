@@ -267,6 +267,17 @@ impl Book {
 }
 
 impl FleetCatalog {
+    pub(in crate::raft::fleet_catalog) async fn require_transition_membership_idle(
+        &self,
+        snapshot: &FleetSnapshot,
+    ) -> Result<()> {
+        let book = self.resource_book(snapshot).await?;
+        if !book.rows.is_empty() {
+            return Err(FleetCatalogError::Conflict);
+        }
+        Ok(())
+    }
+
     pub(in super::super) async fn check_resource_mutation(
         &self,
         snapshot: &FleetSnapshot,

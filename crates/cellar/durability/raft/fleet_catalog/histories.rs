@@ -313,21 +313,26 @@ impl FleetHistory {
         Ok(format!("group/{}", hex::encode(scope.group.bytes())))
     }
 
-    pub(crate) fn check_birth(&self, directory: &RangeDirectory, birth: &CellGroupBirth) -> bool {
+    pub(super) fn check_route(&self, directory: &RangeDirectory, route: &GroupRoute) -> bool {
         let namespace = directory.namespace();
-        directory.decode_group_birth(birth.encode()).is_ok()
-            && namespace
-                .config()
-                .managed_fleet
-                .as_ref()
-                .is_none_or(|owner| owner.fleet == self.binding.fleet())
-            && self.binding.matches_scope(&birth.route().history)
+        namespace
+            .config()
+            .managed_fleet
+            .as_ref()
+            .is_none_or(|owner| owner.fleet == self.binding.fleet())
+            && self.binding.matches_scope(&route.history)
             && self.namespace_root == namespace.root_digest()
             && self.schema_digest == namespace.config().schema_digest
-            && self.birth_digest == birth.route().birth_digest
-            && self.lower == bound_key(birth.route().range.lower())
-            && self.upper == bound_key(birth.route().range.upper())
-            && self.epoch == birth.route().epoch.get()
+            && self.schema_digest == route.schema_digest
+            && self.birth_digest == route.birth_digest
+            && self.lower == bound_key(route.range.lower())
+            && self.upper == bound_key(route.range.upper())
+            && self.epoch == route.epoch.get()
+    }
+
+    pub(crate) fn check_birth(&self, directory: &RangeDirectory, birth: &CellGroupBirth) -> bool {
+        directory.decode_group_birth(birth.encode()).is_ok()
+            && self.check_route(directory, birth.route())
             && self.creation == birth.creation().bytes()
             && self.voters.len() == birth.voters().len()
             && self.learners.len() == birth.learners().len()

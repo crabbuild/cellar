@@ -16,6 +16,9 @@ mod first_group_operator;
 #[path = "cell_group_managed_request_cases.rs"]
 mod requests;
 
+#[path = "cell_group_managed_transition.rs"]
+mod transition;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn managed_cold_inventory_bootstrap() -> Result<()> {
     let f = Fixture::new(false).await?;
