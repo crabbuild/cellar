@@ -11,7 +11,8 @@ pub(super) async fn check(
     cell: &RaftCellHandle,
     retry: u64,
 ) -> Result<()> {
-    let client_bytes = [199; 16];
+    // Keep parity independent of the request fixture's c7 client.
+    let client_bytes = [197; 16];
     let options = CommandOptions::new(CommandId::new(ClientId::new(client_bytes)?, 1)?, retry);
     let increment = cell.contract("Increment")?;
     let original = cell
