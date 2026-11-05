@@ -91,6 +91,7 @@ mod repair;
 mod services;
 mod startup;
 mod stop;
+mod transition;
 pub use membership::CellGroupControlError;
 pub(crate) use services::{ControlServiceCompletion, ControlServiceKind, ControlServiceLease};
 pub use startup::CellGroupStartupError;

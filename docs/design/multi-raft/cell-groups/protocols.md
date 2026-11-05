@@ -1059,6 +1059,11 @@ The fleet can authorize a seal only for the exact active request and plan
 after verified child preparation. Authorization and cancellation contend on
 the same directory CAS. Once authorization wins, retrying the original request
 returns the recorded decision and cancellation leaves the fleet slot owned.
+An operator can submit that decision to the parent through
+`RaftGroupHandle::seal_managed_source`. The handle verifies the running boot,
+selected birth and applied voter membership before minting a local permit.
+The Raft owner rechecks the permit and drains the accepted prefix. A proposal
+acknowledgement is provisional. An exact retry can return the applied seal cut.
 
 | State | Durable action and admission rule |
 | --- | --- |

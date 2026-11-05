@@ -283,6 +283,7 @@ async fn exercise(cluster: &ManagedCluster, rooted: bool, decision: Decision) ->
                 .await??
                 == vec![held]
         );
+        Box::pin(commit_source_seal(cluster, &recovered, scope)).await?;
         return Ok(());
     }
     fixture
@@ -343,5 +344,43 @@ async fn exercise(cluster: &ManagedCluster, rooted: bool, decision: Decision) ->
     registry.release(domain.as_ref(), &held).await?;
     let view = domain.run(directory.observe()).await??;
     ensure!(view.groups() == 1);
+    Ok(())
+}
+
+async fn commit_source_seal(
+    cluster: &ManagedCluster,
+    transition: &ReopenedManagedCellGroupTransition,
+    history: GroupHistory,
+) -> Result<()> {
+    let voter = leader(&cluster.hosts[..3], history).await?;
+    let follower = cluster.hosts[(voter + 1) % 3].group(history)?;
+    ensure!(matches!(
+        follower.seal_managed_source(transition, TIMEOUT).await,
+        Err(CellGroupControllerError::Runtime(RuntimeError::NotLeader))
+    ));
+    let source = cluster.hosts[voter].group(history)?;
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    let applied = tokio::time::timeout_at(deadline, async {
+        loop {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            match source.seal_managed_source(transition, remaining).await {
+                Ok(CellGroupSealOutcome::Applied(seal)) => return Ok(seal),
+                Ok(CellGroupSealOutcome::Accepted(_))
+                | Err(CellGroupControllerError::Runtime(
+                    RuntimeError::NotReady | RuntimeError::Overloaded,
+                )) => tokio::time::sleep(Duration::from_millis(10)).await,
+                Err(error) => return Err(error),
+            }
+        }
+    })
+    .await
+    .context("managed parent did not apply its exact source seal")??;
+    ensure!(applied.position().index.get() > 0 && !source.status().await?.ready);
+    let CellGroupSealOutcome::Applied(replayed) =
+        source.seal_managed_source(transition, TIMEOUT).await?
+    else {
+        anyhow::bail!("managed seal replay attempted another proposal");
+    };
+    ensure!(replayed == applied);
     Ok(())
 }

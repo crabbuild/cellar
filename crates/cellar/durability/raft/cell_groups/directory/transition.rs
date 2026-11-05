@@ -5,8 +5,11 @@ use super::*;
 use crate::application::consensus::group_protocol::{
     CellGroupEntry, GroupCommand, GroupEntryBinding, GroupEntryLimits,
 };
-use crate::raft::fleet_catalog::ManagedTransitionPermit;
 use crate::raft::{cache::GroupLog, completion::RuntimeError, storage::ReplicaLog};
+use crate::raft::{
+    fleet_catalog::{FleetGroupAuthorization, FleetHostAuthorization, ManagedTransitionPermit},
+    fleet_stop::BootBinding,
+};
 use cellar_logic::consensus::EngineInstanceId;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -146,6 +149,18 @@ pub struct CellGroupSealPermit {
     authorization: [u8; 32],
     payload: [u8; 32],
     entry: Vec<u8>,
+    managed: Option<ManagedSealOwner>,
+}
+
+struct ManagedSealOwner {
+    boot: BootBinding,
+    membership_revision: u64,
+}
+
+struct ManagedSealAdmission<'a> {
+    host: &'a FleetHostAuthorization,
+    group: &'a FleetGroupAuthorization,
+    deadline: u64,
 }
 
 impl CellGroupSealPermit {
@@ -165,7 +180,26 @@ impl CellGroupSealPermit {
         {
             return Err(RuntimeError::StaleCompletion);
         }
-        drop(group.read()?);
+        if let Some(managed) = &self.managed {
+            if log
+                .lifecycle_guard()?
+                .is_none_or(|guard| !guard.admits_group_start(&managed.boot))
+            {
+                return Err(RuntimeError::StaleCompletion);
+            }
+            let cache = group.read()?;
+            if cache.group_manifest.as_ref().is_none_or(|manifest| {
+                manifest.membership_revision() != managed.membership_revision
+            }) || !cache
+                .conf_state
+                .voters
+                .contains(&group.identity().member.get())
+            {
+                return Err(RuntimeError::StaleCompletion);
+            }
+        } else {
+            drop(group.read()?);
+        }
         Ok(())
     }
 
@@ -842,6 +876,41 @@ impl RangeDirectory {
         log: &ReplicaLog,
     ) -> Result<CellGroupSealPermit, CatalogError> {
         self.unmanaged_birth()?;
+        self.prepare_source_seal_inner(mutation, source, log, None)
+            .await
+    }
+
+    pub(crate) async fn prepare_managed_source_seal(
+        &self,
+        mutation: &DirectoryMutation,
+        source: GroupHistory,
+        log: &ReplicaLog,
+        host: &FleetHostAuthorization,
+        authority: (&ManagedTransitionPermit, &FleetGroupAuthorization),
+        deadline: u64,
+    ) -> Result<CellGroupSealPermit, CatalogError> {
+        let (permit, group) = authority;
+        permit.check(self, mutation)?;
+        self.prepare_source_seal_inner(
+            mutation,
+            source,
+            log,
+            Some(ManagedSealAdmission {
+                host,
+                group,
+                deadline,
+            }),
+        )
+        .await
+    }
+
+    async fn prepare_source_seal_inner(
+        &self,
+        mutation: &DirectoryMutation,
+        source: GroupHistory,
+        log: &ReplicaLog,
+        managed: Option<ManagedSealAdmission<'_>>,
+    ) -> Result<CellGroupSealPermit, CatalogError> {
         self.check_transition_plan(mutation)?;
         self.bounded(async {
             let (view, _) = self.current().await?;
@@ -874,12 +943,46 @@ impl RangeDirectory {
             }
             let (transition, authorization, entry) =
                 self.source_seal_entry(mutation, &journal, &route)?;
-            let deadline = log
+            let managed_owner = if let Some(admission) = &managed {
+                let birth = self.materialize_selected_history(source).await?;
+                let boot = self.require_managed_group_boot(log, admission.host).await?;
+                let cache = group.read().map_err(CatalogError::Log)?;
+                let manifest = cache.group_manifest.as_ref().ok_or(CatalogError::Fenced)?;
+                if birth.route() != &route
+                    || manifest.route() != &route
+                    || !admission.group.check_birth(self, &birth)
+                    || cache
+                        .membership
+                        .fleet_status()
+                        .is_none_or(|status| &status.binding != admission.group.binding())
+                    || !admission
+                        .group
+                        .matches_replica(group.identity(), &cache.membership)
+                    || !cache
+                        .conf_state
+                        .voters
+                        .contains(&group.identity().member.get())
+                {
+                    return Err(CatalogError::Fenced);
+                }
+                Some(ManagedSealOwner {
+                    boot,
+                    membership_revision: manifest.membership_revision(),
+                })
+            } else {
+                None
+            };
+            let now = log
                 .domain()
                 .mono_ms()
-                .map_err(|_| CatalogError::Unconfirmed)?
+                .map_err(|_| CatalogError::Unconfirmed)?;
+            let deadline = now
                 .checked_add(self.limits.operation_timeout_ms)
                 .ok_or(CatalogError::Limit)?;
+            let deadline = managed.map_or(deadline, |admission| deadline.min(admission.deadline));
+            if deadline <= now {
+                return Err(CatalogError::Unconfirmed);
+            }
             Ok(CellGroupSealPermit {
                 group,
                 engine: log.storage_instance().map_err(CatalogError::Log)?,
@@ -888,6 +991,7 @@ impl RangeDirectory {
                 authorization,
                 payload: Sha256::digest(&entry).into(),
                 entry,
+                managed: managed_owner,
             })
         })
         .await

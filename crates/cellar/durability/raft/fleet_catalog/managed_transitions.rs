@@ -12,7 +12,7 @@ use crate::raft::{
     },
 };
 
-use cellar_logic::consensus::ProposalId;
+use cellar_logic::{cell_group::GroupHistory, consensus::ProposalId};
 use serde::Deserialize;
 
 pub(super) const KIND: u8 = 201;
@@ -561,5 +561,33 @@ impl FleetCatalog {
             }
         }
         Ok(())
+    }
+}
+
+impl FleetHostAuthorization {
+    pub(crate) async fn managed_source_seal_authority(
+        &self,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        source: GroupHistory,
+        timeout: Duration,
+    ) -> Result<(ManagedTransitionPermit, FleetGroupAuthorization)> {
+        validate_request(&transition.request)?;
+        let deadline = deadline::Deadline::new(&self.catalog, timeout)?;
+        let permit = self
+            .catalog
+            .run(
+                deadline.remaining()?,
+                Box::pin(self.catalog.active_managed_transition_permit(
+                    &transition.request,
+                    directory,
+                    &transition.plan,
+                )),
+            )
+            .await?;
+        let group = self
+            .group_authorization(&source, deadline.remaining()?)
+            .await?;
+        Ok((permit, group))
     }
 }
