@@ -4,6 +4,17 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## CG-07 managed daemon startup and request path
+
+The normal native daemon starts three independent managed voters from standby
+through a fixture operator. Their shared group serves two cells after fresh
+quorum and survives a leader hard kill and retained restart. The daemon installs
+shutdown ownership before Raft startup and joins the owner if asynchronous
+readiness is cancelled. Next run the process gate against real RustFS and move
+the fixture operator's capacity and first-group orchestration into the public
+operator path. Preserve the original failures and request bounds.
+[Source and test records](progress.md)
+
 ## CG-07 managed group archive provisioning
 
 The SDK prepares the one-use archive initializer for a selected managed history

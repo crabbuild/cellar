@@ -161,7 +161,7 @@ pub(super) async fn hard_kill_and_resume(
 ) -> Result<()> {
     ensure!(
         acknowledged.len() == 2,
-        "both groups need acknowledged commands"
+        "both cells need acknowledged commands"
     );
     let killed = acknowledged[0].leader;
     let old_pid = processes[killed].child.id();

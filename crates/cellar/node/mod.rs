@@ -5160,7 +5160,7 @@ async fn async_main(
         }
     }
     let durability_owner = durability_owner.select();
-    let channels = driver::Channels::install(websocket_rx);
+    let mut channels = driver::Channels::install(websocket_rx);
     // KV large values live in the fleet bucket. The cloneable handle follows
     // the Blob binding's startup pattern, so independent cells issue bucket I/O
     // independently instead of queueing behind one task. Blob I/O takes no
@@ -5186,6 +5186,7 @@ async fn async_main(
             crate::asyncrt::select! {
                 result = raft.start(&app, data_dir.clone(), node.clone(), fleet_bucket.is_some()) => result,
                 _ = supplied_stop => Err(anyhow::anyhow!("Raft startup cancelled by host")),
+                _ = channels.shutdown_rx.recv() => Err(anyhow::anyhow!("Raft startup interrupted by fleet stop")),
                 _ = sigterm.recv() => Err(anyhow::anyhow!("Raft startup interrupted by SIGTERM")),
                 _ = sigint.recv() => Err(anyhow::anyhow!("Raft startup interrupted by SIGINT")),
             }

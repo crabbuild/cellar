@@ -117,7 +117,7 @@ impl NativeDaemon {
     /// authentication. Raft-enabled daemons pin their deployment until process restart;
     /// live deployment reload does not yet rebind Raft definitions safely.
     pub fn raft_cells<F, Fut>(
-        mut self,
+        self,
         script: impl Into<String>,
         prepare: F,
         bind: impl FnOnce(crate::application::consensus::RaftCells) -> anyhow::Result<()>
@@ -127,6 +127,27 @@ impl NativeDaemon {
     where
         F: FnOnce(super::NativeRaftNode) -> Fut + Send + 'static,
         Fut: std::future::Future<Output = anyhow::Result<super::NativeRaftCells>> + Send + 'static,
+    {
+        self.raft_cells_with_startup(script, prepare, move |cells| {
+            std::future::ready(bind(cells))
+        })
+    }
+
+    /// Run asynchronous application readiness after starting the node-owned
+    /// Raft transport and before opening public ingress. The callback may
+    /// attach authorized voters and wait for fresh quorum. Failure or
+    /// cancellation closes the installed Raft owner and joins its work.
+    pub fn raft_cells_with_startup<F, Fut, Bind, Bound>(
+        mut self,
+        script: impl Into<String>,
+        prepare: F,
+        bind: Bind,
+    ) -> anyhow::Result<Self>
+    where
+        F: FnOnce(super::NativeRaftNode) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = anyhow::Result<super::NativeRaftCells>> + Send + 'static,
+        Bind: FnOnce(crate::application::consensus::RaftCells) -> Bound + Send + 'static,
+        Bound: std::future::Future<Output = anyhow::Result<()>> + Send + 'static,
     {
         anyhow::ensure!(
             self.raft.is_none(),
@@ -140,7 +161,7 @@ impl NativeDaemon {
         self.raft = Some(super::native_raft::Startup {
             script,
             prepare: Box::new(move |node| Box::pin(prepare(node))),
-            bind: Box::new(bind),
+            bind: Box::new(move |cells| Box::pin(bind(cells))),
         });
         Ok(self)
     }

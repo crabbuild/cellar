@@ -12,6 +12,36 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 managed daemon startup and request path
+
+The native daemon now installs its shutdown channel before the Raft host starts.
+The stop reporter and HTTP driver share that channel. The asynchronous startup
+callback runs after transport installation and before ingress. Cancellation
+during that callback closes the installed owner and releases the engine lock.
+
+The process case preserves the original refusal and shutdown checks and now
+uses one physical group for two independent SQLite cells. Three daemon
+processes start as standbys. The fixture admits capacity using authenticated
+observations, confirms the first shared group, persists and verifies the
+archive intent, attaches each voter and requires fresh quorum before ingress.
+The test performs real TLS replication and follower reads, hard-kills the
+leader, verifies exact command retries and resumes the same voter disk.
+
+The first shared-process candidate stalled at enrollment. The first managed
+candidate entered the development catalog outside its execution domain. The
+second revealed that the managed stop reporter could start before a shutdown
+sender existed. The corrected process case and its ledger rerun pass. Three
+embedded regressions pass, including non-Raft daemon routing and handoff.
+The process case uses the development SQLite object store and fixture capacity.
+The earlier RustFS component evidence remains separate. A generic operator
+CLI, RustFS with independent voter processes and the broader lifecycle and
+release gates remain open.
+
+Source manifest `a28c5abbe7fdb6edc0a6ff858bb8a0538b6e403e6fd4a966a1a9d6bd70df3b0c`.
+Process record `357d57f0b5f24c784979cbb9d02ef6ed8cd804252c1d823de92e56c101808f20`.
+Recovery ledger record `f5c4927962d15d4f1b0d21ee147c6dcb5e17bda9f20f89039ffe0079c2702d48`.
+Embedded regression record `6f088fbe58e22c580fefc12f227391638288c1be46a84305922dd4b5d2cd3896`.
+
 ## CG-07 managed group archive provisioning
 
 The SDK now opens archive provisioning for an exact declared managed namespace.
