@@ -424,6 +424,12 @@ impl Process {
         })
     }
 
+    fn pid(&self) -> Result<u64> {
+        self.voter
+            .as_ref()
+            .map_or_else(|| Ok(u64::from(self.child.id())), docker::Voter::pid)
+    }
+
     fn logs(&self) -> Result<String> {
         Ok(format!(
             "{}\n{}",

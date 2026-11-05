@@ -165,10 +165,7 @@ pub(super) async fn hard_kill_and_resume(
         "both cells need acknowledged commands"
     );
     let killed = acknowledged[0].leader;
-    let old_pid = processes[killed].voter.as_ref().map_or_else(
-        || Ok(u64::from(processes[killed].child.id())),
-        docker::Voter::pid,
-    )?;
+    let old_pid = processes[killed].pid()?;
     ledger.record(
         serde_json::json!({"phase":"before_hard_kill", "pid":old_pid, "member":killed + 1}),
     )?;
@@ -246,12 +243,10 @@ pub(super) async fn hard_kill_and_resume(
         &[std::ffi::OsStr::new("--data-dir"), disk.as_os_str()],
         false,
     )?;
-    ensure!(
-        processes[killed].child.id() != old_pid,
-        "resume reused the killed PID"
-    );
     addresses[killed] = processes[killed].addresses().await?;
-    ledger.record(serde_json::json!({"phase":"restarted", "old_pid":old_pid, "new_pid":processes[killed].child.id(), "member":killed + 1}))?;
+    let new_pid = processes[killed].pid()?;
+    ensure!(new_pid != old_pid, "resume reused the killed PID");
+    ledger.record(serde_json::json!({"phase":"restarted", "old_pid":old_pid, "new_pid":new_pid, "member":killed + 1}))?;
     for (old, receipt) in current {
         local_read(
             client,
