@@ -373,7 +373,7 @@ async fn reopen_voters(
             images,
             extents: None,
             tree: ManifestTree::new(birth.route().clone(), ManifestLimits::default())?,
-            gate: Arc::new(fault::Gate::new(None)),
+            gate: fault::Gate::new(None),
             paused: false,
             held: None,
         });
