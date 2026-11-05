@@ -200,7 +200,15 @@ pub(crate) async fn sealed_source_archives(
     let (committed, proofs) =
         Box::pin(verify_pending_child_raft(&mut fixture, &plan, installed)).await?;
     Box::pin(verify_installed_decision(
-        &fixture, &plan, store, &committed, proofs,
+        &fixture,
+        &plan,
+        store.clone(),
+        &committed,
+        proofs,
+    ))
+    .await?;
+    Box::pin(verify_transfer_archive(
+        &fixture, &archives, &plan, store, &committed,
     ))
     .await?;
     reopen_installed_children(&fixture, &plan, &committed).await?;
@@ -430,6 +438,119 @@ async fn verify_installed_decision(
     Ok(())
 }
 
+async fn verify_transfer_archive(
+    fixture: &RuntimeCluster,
+    archives: &Archives,
+    plan: &DirectoryMutation,
+    store: Arc<catalog_fault::Store>,
+    markers: &[GroupManifest],
+) -> Result<()> {
+    let cluster = &fixture.cluster;
+    let domain = &cluster.domain;
+    let directory = &cluster.directory;
+    let holds = domain.run(directory.sealed_source_holds(plan)).await??;
+    let hold = holds.first().context("sealed source hold")?;
+    anyhow::ensure!(domain
+        .run(directory.transfer_archive(plan))
+        .await??
+        .is_none());
+
+    let inputs = archive_inputs(archives, cluster, hold, markers, "closure-outage")?;
+    store
+        .deny_group_payload_reads
+        .store(true, Ordering::Release);
+    let denied = directory
+        .verify_and_record_transfer_archive(domain, plan, inputs)
+        .await;
+    store
+        .deny_group_payload_reads
+        .store(false, Ordering::Release);
+    anyhow::ensure!(matches!(
+        denied,
+        Err(CellGroupArchiveBindingError::Archive(_))
+    ));
+    anyhow::ensure!(store.denied_group_payload_reads.load(Ordering::Acquire) > 0);
+    let (_, installed) = domain
+        .run(directory.active_transition())
+        .await??
+        .context("installed decision after archive refusal")?;
+    anyhow::ensure!(installed.phase() == TransitionPhase::Installed);
+    anyhow::ensure!(installed.transfer_archive().is_none());
+
+    let inputs = archive_inputs(archives, cluster, hold, markers, "closure-verify")?;
+    store.fail_head_confirmation.store(true, Ordering::Release);
+    anyhow::ensure!(matches!(
+        directory
+            .verify_and_record_transfer_archive(domain, plan, inputs)
+            .await,
+        Err(CellGroupArchiveBindingError::Catalog(
+            CatalogError::Unconfirmed
+        ))
+    ));
+
+    let catalog = Catalog::new(store, CatalogOptions::default())?;
+    let namespace = domain
+        .run(catalog.existing_namespace(directory.namespace_config().clone()))
+        .await??;
+    let reopened = RangeDirectory::new(namespace, DirectoryLimits::default())?;
+    let (original, archived) = domain
+        .run(reopened.active_transition())
+        .await??
+        .context("archived decision")?;
+    anyhow::ensure!(original.encode() == plan.encode());
+    anyhow::ensure!(archived.phase() == TransitionPhase::Archived);
+    let closure = domain
+        .run(reopened.transfer_archive(&original))
+        .await??
+        .context("retained transfer archive")?;
+    anyhow::ensure!(archived.transfer_archive() == Some(closure.digest));
+    anyhow::ensure!(closure.source_holds == holds && closure.children == markers);
+
+    let mut inputs = archive_inputs(archives, cluster, hold, markers, "closure-replay")?;
+    inputs.sources[0].birth = domain
+        .run(reopened.materialize_selected_history(cluster.birth.route().history))
+        .await??;
+    anyhow::ensure!(
+        reopened
+            .verify_and_record_transfer_archive(domain, &original, inputs)
+            .await?
+            == archived
+    );
+    anyhow::ensure!(matches!(
+        domain.run(reopened.publish(&original)).await?,
+        Err(CatalogError::Fenced)
+    ));
+    let view = domain.run(reopened.observe()).await??;
+    anyhow::ensure!(
+        domain
+            .run(reopened.lookup(&view, &CellId::new("alpha")?))
+            .await??
+            == *cluster.birth.route()
+    );
+    Ok(())
+}
+
+fn archive_inputs(
+    archives: &Archives,
+    cluster: &Cluster,
+    hold: &CellGroupArchiveHold,
+    markers: &[GroupManifest],
+    label: &str,
+) -> Result<CellGroupTransitionPreparationInputs> {
+    Ok(CellGroupTransitionPreparationInputs {
+        archives: archives.pool.clone(),
+        tails: archives.tails.clone(),
+        restore: transfer_pool()?,
+        sources: vec![archives.source(cluster, hold.clone(), &format!("{label}/source"))?],
+        targets: transfer_targets(
+            archives,
+            cluster,
+            markers.iter().map(GroupManifest::route),
+            label,
+        )?,
+    })
+}
+
 async fn reopen_installed_children(
     fixture: &RuntimeCluster,
     plan: &DirectoryMutation,
@@ -622,29 +743,13 @@ async fn verify_partition(
     let mut installed = Vec::new();
     let mut partitions = Vec::new();
     for (voter_index, voter) in cluster.voters.iter().enumerate() {
-        let pool = CellGroupRecoveryPool::new(CellGroupRecoveryLimits {
-            max_cells: 3,
-            max_image_bytes: 1024 * 1024,
-            max_restore_bytes: 4 * 1024 * 1024,
-            ..Default::default()
-        })?;
-        let targets = verified
-            .children()
-            .iter()
-            .enumerate()
-            .map(|(index, route)| {
-                let (store, directory) = archives.store(
-                    cluster,
-                    route.clone(),
-                    &format!("node-{}/child-{index}", voter_index + 1),
-                )?;
-                Ok(CellGroupTransferTarget {
-                    store,
-                    directory,
-                    scratch: scratch()?,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let pool = transfer_pool()?;
+        let targets = transfer_targets(
+            archives,
+            cluster,
+            verified.children().iter(),
+            &format!("node-{}", voter_index + 1),
+        )?;
         let partition = pool
             .prepare_transfer_partition(&cluster.domain, verified.clone(), targets)
             .await?;
@@ -708,6 +813,35 @@ async fn verify_partition(
         genesis: installed,
         voters: partitions,
     })
+}
+
+fn transfer_pool() -> Result<CellGroupRecoveryPool> {
+    Ok(CellGroupRecoveryPool::new(CellGroupRecoveryLimits {
+        max_cells: 3,
+        max_image_bytes: 1024 * 1024,
+        max_restore_bytes: 4 * 1024 * 1024,
+        ..Default::default()
+    })?)
+}
+
+fn transfer_targets<'a>(
+    archives: &Archives,
+    cluster: &Cluster,
+    routes: impl Iterator<Item = &'a GroupRoute>,
+    label: &str,
+) -> Result<Vec<CellGroupTransferTarget>> {
+    routes
+        .enumerate()
+        .map(|(index, route)| {
+            let (store, directory) =
+                archives.store(cluster, route.clone(), &format!("{label}/child-{index}"))?;
+            Ok(CellGroupTransferTarget {
+                store,
+                directory,
+                scratch: scratch()?,
+            })
+        })
+        .collect()
 }
 
 fn verify_partition_data(

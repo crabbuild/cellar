@@ -610,6 +610,21 @@ impl CellGroupArchiveRegistry {
             .ok_or(CellGroupArchiveError::Expired)
     }
 
+    pub(crate) async fn require_retained_hold(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        hold: &CellGroupArchiveHold,
+    ) -> Result<()> {
+        domain
+            .run(async {
+                let _io = self.archive.admit()?;
+                self.referenced(hold).await?;
+                Ok(())
+            })
+            .await
+            .map_err(|_| CellGroupArchiveError::Stopped)?
+    }
+
     pub async fn release(
         &self,
         domain: &impl CellGroupArchiveExecution,

@@ -1089,9 +1089,15 @@ ambiguous response. Installed children remain fenced and the parent routes
 stay selected. Directory publication and activation require their own proofs.
 
 Child install receipts bind the source seals, own committed seed, membership and
-manifest digest. Publication also requires the exact verified remote transfer
-closure, so losing every voter immediately afterward can still recover all prior
-S3-protected effects under the child partition. A controller observation without
+manifest digest. Archive verification independently replays every selected parent
+hold and rebuilds the child partition in dedicated stores. Every rebuilt root and
+transfer origin must match its installed child. The directory rechecks the live
+holds and selects an immutable closure that binds the two exact evidence sets.
+The closure can be reopened from remote metadata after a lost response or voter
+disk loss. Recovery replays the retained holds and reconstructs the same roots.
+Publication requires this closure so losing every voter immediately afterward
+still leaves a recovery path for prior S3-protected effects under the child
+partition. A controller observation without
 those proofs cannot publish. S3 outage may stall topology changes; it does not
 change ordinary Quorum acknowledgement behavior.
 Publication certificates are immutable journal entries, not a mutable head URL.

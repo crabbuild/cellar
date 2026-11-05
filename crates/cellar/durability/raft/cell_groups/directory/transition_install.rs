@@ -340,7 +340,7 @@ impl RangeDirectory {
         if !genesis.is_transfer_genesis()
             || !matches!(
                 journal.phase(),
-                TransitionPhase::Sealed | TransitionPhase::Installed
+                TransitionPhase::Sealed | TransitionPhase::Installed | TransitionPhase::Archived
             )
             || journal.sealed_sources() != Some(origin.sealed_sources())
             || origin.operation() != plan.operation().bytes()
