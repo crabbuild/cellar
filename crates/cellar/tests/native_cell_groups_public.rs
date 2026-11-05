@@ -27,6 +27,28 @@ async fn feature_off_fleet_contract_unchanged() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn managed_group_lifecycle() -> Result<()> {
+    Box::pin(managed_fixture::maintenance::run_public(|_| {
+        Ok(std::sync::Arc::new(managed_fixture::fault::Store::default()))
+    }))
+    .await
+}
+
+#[path = "support/cell_group_rustfs.rs"]
+pub mod rustfs;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_managed_group_lifecycle() -> Result<()> {
+    Box::pin(managed_fixture::maintenance::run_public(|rooted| {
+        Ok(std::sync::Arc::new(managed_fixture::fault::Store::around(
+            rustfs::store("public-managed-lifecycle", rooted)?,
+        )))
+    }))
+    .await
+}
+
 fn digest(path: &Path) -> Result<Vec<u8>> {
     Ok(Sha256::digest(std::fs::read(path)?).to_vec())
 }

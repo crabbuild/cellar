@@ -20,12 +20,18 @@ mod cluster;
 pub mod fault;
 #[path = "html.rs"]
 pub mod graph;
+#[path = "cell_group_managed_fixture_maintenance.rs"]
+pub mod maintenance;
+#[path = "cell_group_managed_fixture_movement.rs"]
+pub mod movement;
 #[path = "cell_group_managed_fixture_node.rs"]
 mod node;
 #[path = "cell_group_managed_fixture_operator.rs"]
 mod operator;
 #[path = "cell_group_managed_requests.rs"]
 pub mod requests;
+#[path = "cell_group_managed_fixture_seed_failure.rs"]
+pub mod seed_failures;
 
 pub use cluster::*;
 pub use node::{limits, request, start_node, Fixture, NoListing};

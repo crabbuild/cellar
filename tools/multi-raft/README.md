@@ -74,6 +74,12 @@ checks routed requests, exact retries, retained restart and quorum-loss refusals
 The voters and ingress run on the development host, with fixture boot ordering
 and capacity attestation.
 
+For the public repair and maintenance gate, use the same command with
+`--suite managed-lifecycle` and a fresh output directory. The lifecycle case
+uses both image modes and keeps the obsolete member's physical debt through
+repair. It verifies a guarded handoff, joined stop, paused retained return
+and fresh resume before the returning member serves both cells.
+
 ## Shared cell-group archive checks
 
 Commit the test and harness sources, then run the native three-voter TLS fixture

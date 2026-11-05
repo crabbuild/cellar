@@ -71,6 +71,13 @@ SUITES = {
         "Managed boot and capacity attestations use fixture inputs. Separate voter processes, "
         "production peer authentication and sustained load remain separate gates.",
     ),
+    "managed-lifecycle": (
+        "native_cell_groups_public",
+        ("rustfs_managed_group_lifecycle",),
+        "managed operator birth, repair debt, handoff, stop, return and resume",
+        "Managed boot and capacity attestations use fixture inputs. Production peer "
+        "authentication, independent voter processes and sustained load remain separate gates.",
+    ),
 }
 
 
@@ -100,7 +107,7 @@ def sources(suite):
         {"path": name, "sha256": sha(ROOT / name)}
         for name in result.decode().split("\0")
         if name and (not name.startswith(("docs/", "plans/", "packages/", "examples/"))
-                     or (suite == "managed-ingress" and name == "examples/raft-counter/counter.rs"))
+                     or (suite in ("managed-ingress", "managed-lifecycle") and name == "examples/raft-counter/counter.rs"))
         and (ROOT / name).is_file()
     ]
 
@@ -227,7 +234,7 @@ def main():
                 destination = out / executable.name
                 shutil.copy2(executable, destination)
                 record["executable"] = {"path": destination.name, "sha256": selected_hash}
-            if args.suite == "managed-ingress" and result.returncode == 0:
+            if args.suite in ("managed-ingress", "managed-lifecycle") and result.returncode == 0:
                 current_cli = executable.parent.parent / "cellar" if match else None
                 if current_cli is None or not current_cli.is_file():
                     raise RuntimeError("missing managed operator CLI provenance")
