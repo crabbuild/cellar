@@ -121,7 +121,8 @@ def sources(suite):
         {"path": name, "sha256": sha(ROOT / name)}
         for name in result.decode().split("\0")
         if name and (not name.startswith(("docs/", "plans/", "packages/", "examples/"))
-                     or (suite in ("managed-ingress", "managed-lifecycle") and name == "examples/raft-counter/counter.rs"))
+                     or (suite in ("managed-ingress", "managed-lifecycle", "managed-transition")
+                         and name == "examples/raft-counter/counter.rs"))
         and (ROOT / name).is_file()
     ]
 
