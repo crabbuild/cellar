@@ -6,6 +6,7 @@ mod remote;
 
 use super::*;
 use crate::raft::execution::CellEnrollmentAttempt;
+use crate::raft::transport::{CellRemoteEnrollmentResponse, RaftTransport};
 use crate::storage::CommandInputs;
 use cellar_logic::consensus::{CommandFailure, Durability};
 use cellar_ltx::generation::ImageId;
@@ -15,6 +16,45 @@ use tokio::sync::watch;
 pub struct CellEnrollmentRequest {
     pub creation: ProposalId,
     pub durability: Durability,
+}
+
+/// Committed creation metadata. A remote result retains its transport proof
+/// and cannot stand in for a locally inspected SQL or archive result.
+pub struct CellEnrollmentResponse(EnrollmentOutput);
+
+enum EnrollmentOutput {
+    Local(Box<CellSqlEnrollment>),
+    Remote(Box<CellRemoteEnrollmentResponse>),
+}
+
+impl CellEnrollmentResponse {
+    pub fn record(&self) -> &EnrollmentRecord {
+        match &self.0 {
+            EnrollmentOutput::Local(response) => response.record(),
+            EnrollmentOutput::Remote(response) => response.record(),
+        }
+    }
+
+    pub fn durability(&self) -> Durability {
+        match &self.0 {
+            EnrollmentOutput::Local(response) => response.durability(),
+            EnrollmentOutput::Remote(response) => response.durability(),
+        }
+    }
+
+    pub fn local_enrollment(&self) -> Option<&CellSqlEnrollment> {
+        match &self.0 {
+            EnrollmentOutput::Local(response) => Some(response),
+            EnrollmentOutput::Remote(_) => None,
+        }
+    }
+
+    pub(crate) fn into_local(self) -> Option<CellSqlEnrollment> {
+        match self.0 {
+            EnrollmentOutput::Local(response) => Some(*response),
+            EnrollmentOutput::Remote(_) => None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -54,12 +94,19 @@ pub struct CellEnrollmentInvocation {
     inputs: CommandInputs,
     session: CellRoutingSession,
     started: bool,
+    route_remote: bool,
     attempt: Option<CellRouteAttempt>,
     dispatched: bool,
     remote_route: Option<super::RemoteMutationRoute>,
     ambiguous: bool,
     origin: Option<Origin>,
     _admission: Permit,
+}
+
+enum EnrollmentInput {
+    Local,
+    Originating,
+    Received(CommandInputs, ImageId),
 }
 
 impl CellGroupDispatcher {
@@ -72,7 +119,18 @@ impl CellGroupDispatcher {
     ) -> impl std::future::Future<Output = Result<CellEnrollmentInvocation, CellEnrollmentError>>
            + Send
            + 'static {
-        self.enroll_with_inputs(cell, request, limits, cached, None)
+        self.prepare_enrollment(cell, request, limits, cached, EnrollmentInput::Local)
+    }
+
+    pub(crate) fn enroll_routed(
+        &self,
+        cell: CellHistory,
+        request: CellEnrollmentRequest,
+        limits: CellRoutingLimits,
+    ) -> impl std::future::Future<Output = Result<CellEnrollmentInvocation, CellEnrollmentError>>
+           + Send
+           + 'static {
+        self.prepare_enrollment(cell, request, limits, None, EnrollmentInput::Originating)
     }
 
     pub(crate) fn enroll_with_inputs(
@@ -85,6 +143,22 @@ impl CellGroupDispatcher {
     ) -> impl std::future::Future<Output = Result<CellEnrollmentInvocation, CellEnrollmentError>>
            + Send
            + 'static {
+        let input = captured.map_or(EnrollmentInput::Local, |(inputs, preview)| {
+            EnrollmentInput::Received(inputs, preview)
+        });
+        self.prepare_enrollment(cell, request, limits, cached, input)
+    }
+
+    fn prepare_enrollment(
+        &self,
+        cell: CellHistory,
+        request: CellEnrollmentRequest,
+        limits: CellRoutingLimits,
+        cached: Option<ResolvedCellRoute>,
+        input: EnrollmentInput,
+    ) -> impl std::future::Future<Output = Result<CellEnrollmentInvocation, CellEnrollmentError>>
+           + Send
+           + 'static {
         let dispatcher = self.clone();
         let started = self.domain.mono_ms();
         async move {
@@ -94,7 +168,7 @@ impl CellGroupDispatcher {
                 cause: Box::new(closed()),
             })?;
             dispatcher
-                .enroll_captured(cell, request, limits, cached, captured, started)
+                .enroll_captured(cell, request, limits, cached, input, started)
                 .await
         }
     }
@@ -105,7 +179,7 @@ impl CellGroupDispatcher {
         mut request: CellEnrollmentRequest,
         limits: CellRoutingLimits,
         cached: Option<ResolvedCellRoute>,
-        captured: Option<(CommandInputs, ImageId)>,
+        input: EnrollmentInput,
         started: u64,
     ) -> Result<CellEnrollmentInvocation, CellEnrollmentError> {
         let error = |cause| CellEnrollmentError {
@@ -117,7 +191,8 @@ impl CellGroupDispatcher {
         request.durability = request
             .durability
             .max(self.directory.namespace_config().minimum_durability);
-        if request.durability == Durability::S3 && self.s3.is_none() {
+        let route_remote = matches!(input, EnrollmentInput::Originating);
+        if request.durability == Durability::S3 && self.s3.is_none() && !route_remote {
             return Err(error(CellDispatchError::Execution(
                 ExecutionError::Refused(CommandFailure::UnsupportedCapability),
             )));
@@ -129,8 +204,8 @@ impl CellGroupDispatcher {
             .budget
             .acquire(8192)
             .ok_or_else(|| error(CellDispatchError::Runtime(RuntimeError::Overloaded)))?;
-        let (inputs, preview) = if let Some(captured) = captured {
-            captured
+        let (inputs, preview) = if let EnrollmentInput::Received(inputs, preview) = input {
+            (inputs, preview)
         } else {
             let (inputs, preview) = self
                 .domain
@@ -194,6 +269,7 @@ impl CellGroupDispatcher {
             inputs,
             session,
             started: false,
+            route_remote,
             attempt: None,
             dispatched: false,
             remote_route: None,
@@ -244,21 +320,36 @@ impl CellEnrollmentInvocation {
         options: CellSqlOptions,
         roster: &crate::raft::cell_groups::controller::GroupRoster,
         progress: &mut watch::Receiver<()>,
-    ) -> Result<CellSqlEnrollment, CellEnrollmentError> {
+        transport: &RaftTransport,
+    ) -> Result<CellEnrollmentResponse, CellEnrollmentError> {
         self.started = true;
-        self.run_at(runtime, sql, options, roster, progress)
+        let attempt = self.begin_owned().await.map_err(|e| self.error(e))?;
+        if self.route_remote && self.remote_route.is_none() {
+            let member = Box::pin(super::mutation_route::mutation_peer(
+                runtime,
+                transport,
+                &self.session,
+                &attempt,
+                &self.dispatcher.keys,
+                &self.dispatcher.domain,
+            ))
             .await
+            .map_err(|e| self.error(e))?;
+            if let Some(member) = member {
+                self.attempt = Some(attempt);
+                let response = self.execute_remote(transport, member).await?;
+                return Ok(CellEnrollmentResponse(EnrollmentOutput::Remote(Box::new(
+                    response,
+                ))));
+            }
+        }
+        self.run_at(runtime, sql, options, roster, progress, attempt)
+            .await
+            .map(|response| CellEnrollmentResponse(EnrollmentOutput::Local(Box::new(response))))
             .map_err(|e| self.error(e))
     }
 
-    async fn run_at(
-        &mut self,
-        runtime: &CellGroupRuntime,
-        sql: &CellGroupSqlPool,
-        options: CellSqlOptions,
-        roster: &crate::raft::cell_groups::controller::GroupRoster,
-        progress: &mut watch::Receiver<()>,
-    ) -> Result<CellSqlEnrollment, CellDispatchError> {
+    async fn begin_owned(&mut self) -> Result<CellRouteAttempt, CellDispatchError> {
         let attempt = if self.remote_route.is_some() {
             self.session.begin_current().await
         } else {
@@ -277,6 +368,18 @@ impl CellEnrollmentInvocation {
         self.session
             .validate_attempt(&attempt)
             .map_err(CellDispatchError::Routing)?;
+        Ok(attempt)
+    }
+
+    async fn run_at(
+        &mut self,
+        runtime: &CellGroupRuntime,
+        sql: &CellGroupSqlPool,
+        options: CellSqlOptions,
+        roster: &crate::raft::cell_groups::controller::GroupRoster,
+        progress: &mut watch::Receiver<()>,
+        attempt: CellRouteAttempt,
+    ) -> Result<CellSqlEnrollment, CellDispatchError> {
         if !roster
             .contains(&attempt.route().history)
             .map_err(CellDispatchError::Runtime)?
@@ -295,7 +398,9 @@ impl CellEnrollmentInvocation {
                 .dispatcher
                 .s3
                 .as_ref()
-                .ok_or(CellDispatchError::Invalid("S3 enrollment owner"))?;
+                .ok_or(CellDispatchError::Execution(ExecutionError::Refused(
+                    CommandFailure::UnsupportedCapability,
+                )))?;
             owner.require_runtime(runtime)?;
             owner.require_group(attempt.route())?;
         }

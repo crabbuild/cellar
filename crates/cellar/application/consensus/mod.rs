@@ -56,12 +56,13 @@ pub use cellar_logic::raft_placement::PlacementPolicy;
 
 pub use crate::raft::cell_groups::{
     CellCommandError, CellDispatchError, CellDispatchLimits, CellEnrollmentError,
-    CellEnrollmentRequest, CellGroupArchiveControlError, CellGroupArchiveLimits,
-    CellGroupArchiveStatus, CellGroupArchiveTailLimits, CellGroupArchiveUploadLimits,
-    CellGroupBirthSpec, CellGroupCheckpointLimits, CellGroupCheckpointPolicy,
-    CellGroupControllerError, CellGroupControllerLimits, CellGroupDisasterFenceRequest,
-    CellGroupHostLimits, CellGroupObservation, CellGroupProvisionLimits, CellGroupQuorumMembership,
-    CellReceiptRequest, CellReceiptResponse, CellSqlLimits, DirectoryLimits, ManifestLimits,
+    CellEnrollmentRequest, CellEnrollmentResponse, CellGroupArchiveControlError,
+    CellGroupArchiveLimits, CellGroupArchiveStatus, CellGroupArchiveTailLimits,
+    CellGroupArchiveUploadLimits, CellGroupBirthSpec, CellGroupCheckpointLimits,
+    CellGroupCheckpointPolicy, CellGroupControllerError, CellGroupControllerLimits,
+    CellGroupDisasterFenceRequest, CellGroupHostLimits, CellGroupObservation,
+    CellGroupProvisionLimits, CellGroupQuorumMembership, CellReceiptRequest, CellReceiptResponse,
+    CellSqlLimits, DirectoryLimits, ManifestLimits,
 };
 pub use crate::raft::fleet_catalog::{
     fleet_capacity_profile_digest, FleetAbortedMovementCompletion, FleetCapacityAction,

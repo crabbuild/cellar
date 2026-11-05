@@ -344,7 +344,7 @@ impl CellGroupCellHandle {
         &self,
         request: CellEnrollmentRequest,
         limits: CellRoutingLimits,
-    ) -> impl std::future::Future<Output = Result<CellSqlEnrollment, Arc<CellEnrollmentError>>>
+    ) -> impl std::future::Future<Output = Result<CellEnrollmentResponse, Arc<CellEnrollmentError>>>
            + Send
            + 'static {
         let opened = self.host.check_open().map_err(|cause| {
@@ -358,7 +358,7 @@ impl CellGroupCellHandle {
         let invocation =
             self.binding
                 .dispatcher
-                .enroll(self.history.clone(), request, limits, None);
+                .enroll_routed(self.history.clone(), request, limits);
         let host = self.host.clone();
         let binding = self.binding.clone();
         let history = self.history.clone();

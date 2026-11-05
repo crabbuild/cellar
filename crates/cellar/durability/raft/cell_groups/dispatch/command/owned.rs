@@ -88,43 +88,16 @@ impl CellCommandInvocation {
         // Only an originating invocation may forward. An authenticated incoming
         // command stays local, so stale hints cannot create forwarding cycles.
         if let Some(transport) = transport.filter(|_| !self.system && self.remote_route.is_none()) {
-            let history = self.current()?.route().history;
-            let timer = self
-                .dispatcher
-                .domain
-                .sleep_until(self.session.deadline_ms())
-                .map_err(|_| self.error(closed()))?;
-            let status = crate::asyncrt::select! {
-                status = runtime.status(history) => status,
-                _ = timer => return Err(self.error(CellDispatchError::Runtime(RuntimeError::DeadlineExceeded))),
-            };
-            let remote = match status {
-                Ok(status) => {
-                    if let Some(leader) = status.leader {
-                        let local = runtime
-                            .log()
-                            .cell_group(&history)
-                            .map_err(|e| {
-                                self.error(CellDispatchError::Runtime(RuntimeError::Storage(e)))
-                            })?
-                            .identity()
-                            .member;
-                        if leader != local.get() {
-                            Some(cellar_logic::consensus::MemberId::new(leader).map_err(|_| {
-                                self.error(CellDispatchError::Invalid("command leader identity"))
-                            })?)
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                }
-                Err(RuntimeError::NotFound) => {
-                    Box::pin(self.discover_remote_leader(transport)).await?
-                }
-                Err(error) => return Err(self.error(CellDispatchError::Runtime(error))),
-            };
+            let remote = Box::pin(super::super::mutation_route::mutation_peer(
+                runtime,
+                transport,
+                &self.session,
+                self.current()?,
+                &self.dispatcher.keys,
+                &self.dispatcher.domain,
+            ))
+            .await
+            .map_err(|cause| self.error(cause))?;
             if let Some(member) = remote {
                 let response = self.execute_remote(transport, member).await?;
                 return Ok(CellCommandResponse {

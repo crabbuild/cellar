@@ -59,27 +59,38 @@ async fn exercise(cluster: &mut nodes::Cluster) -> Result<()> {
         .timeout(TIMEOUT + Duration::from_secs(1))
         .build()?;
     let first = cluster.leader().await?;
-    for name in ["one", "two"] {
-        let history = counter::history(
-            cluster.managed.history.cluster,
-            cluster.managed.history.namespace,
-            name,
-        )?;
-        cluster.managed.hosts[first]
-            .cell(history)?
-            .enroll(
-                CellEnrollmentRequest {
-                    creation: ProposalId::new([if name == "one" { 181 } else { 182 }; 16])?,
-                    durability: Durability::Quorum,
-                },
-                TIMEOUT,
-            )
-            .await?;
-    }
-    cluster.inventory().await?;
-    // Bind only after actual managed birth and replicated enrollment. Both
-    // HTTP adapters use the same registered application and public SDK handles.
+    let one_history = counter::history(
+        cluster.managed.history.cluster,
+        cluster.managed.history.namespace,
+        "one",
+    )?;
+    cluster.managed.hosts[first]
+        .cell(one_history)?
+        .enroll(
+            CellEnrollmentRequest {
+                creation: ProposalId::new([181; 16])?,
+                durability: Durability::Quorum,
+            },
+            TIMEOUT,
+        )
+        .await?;
     cluster.bind()?;
+    let two_history = counter::history(
+        cluster.managed.history.cluster,
+        cluster.managed.history.namespace,
+        "two",
+    )?;
+    let two_handle = cluster.managed.hosts[INGRESS].cell(two_history.clone())?;
+    let creation = CellEnrollmentRequest {
+        creation: ProposalId::new([182; 16])?,
+        durability: Durability::Quorum,
+    };
+    let denied = two_handle
+        .enroll(creation, TIMEOUT)
+        .await
+        .err()
+        .context("enrollment without command grant")?;
+    ensure!(denied.creation == creation.creation && !denied.ambiguous);
     let origin = (first + 1) % 3;
     ensure!(
         cluster
@@ -162,6 +173,26 @@ async fn exercise(cluster: &mut nodes::Cluster) -> Result<()> {
         "a command grant authorized application reads"
     );
     cluster.authorize_ingress_reads()?;
+    let enrolled = two_handle.enroll(creation, TIMEOUT).await?;
+    ensure!(enrolled.local_enrollment().is_none());
+    ensure!(enrolled.record().cell() == &two_history);
+    ensure!(enrolled.record().creation() == creation.creation);
+    ensure!(enrolled.durability() == Durability::Quorum);
+    let original = enrolled.record().clone();
+    drop(enrolled);
+    let archived = two_handle
+        .enroll(
+            CellEnrollmentRequest {
+                durability: Durability::S3,
+                ..creation
+            },
+            TIMEOUT,
+        )
+        .await?;
+    ensure!(archived.local_enrollment().is_none() && archived.durability() == Durability::S3);
+    ensure!(archived.record() == &original);
+    drop(archived);
+    cluster.inventory().await?;
     let one = cluster
         .web()?
         .command(&client, ((first + 1) % 3, false), "one", 7, 1, retry)

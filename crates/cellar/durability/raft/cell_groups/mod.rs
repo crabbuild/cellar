@@ -60,9 +60,9 @@ pub use dispatch::{
     CellCommandError, CellCommandInvocation, CellCommandPreparation, CellCommandRequest,
     CellCommandResponse, CellCommandSettlement, CellCommandSubmission, CellDispatchError,
     CellDispatchLimits, CellEnrollmentError, CellEnrollmentInvocation, CellEnrollmentRequest,
-    CellGroupDispatcher, CellQueryConsistency, CellQueryInvocation, CellQueryRequest,
-    CellQueryResponse, CellQueryRouting, CellReceiptInvocation, CellReceiptRequest,
-    CellReceiptResponse, CellReceiptSelection,
+    CellEnrollmentResponse, CellGroupDispatcher, CellQueryConsistency, CellQueryInvocation,
+    CellQueryRequest, CellQueryResponse, CellQueryRouting, CellReceiptInvocation,
+    CellReceiptRequest, CellReceiptResponse, CellReceiptSelection,
 };
 pub use host::{
     CellGroupCellHandle, CellGroupHost, CellGroupHostLimits, CellGroupHostRegistration,

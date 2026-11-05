@@ -189,8 +189,11 @@ exact committed command identity/result and an authenticated logical cell token;
 conflict, expiration and sequence-gap refusals remain typed. Retain caller reply
 byte admission through consumption. Retry the same identity and input under the
 original budget; a committed duplicate must not re-execute application code.
-Remote enrollment uses the same bounded write exchange, namespace/process grants
-and exact controller registration. The mandatory authenticated purpose distinguishes
+Originating SDK enrollment uses the same bounded leader selection as commands.
+Incoming enrollment always executes locally. The SDK retains a remote creation
+record as authenticated transport output and preserves local SQL and archive
+ownership separately. Remote enrollment uses the same bounded write exchange,
+namespace and process grants, and exact controller registration. The mandatory authenticated purpose distinguishes
 Query, Command and Enrollment under marker 1. A command payload cannot be decoded
 as an initializer call. Capture creation identity, host inputs and preview identity
 before discovery; retries retain them and the original route/deadline budget.

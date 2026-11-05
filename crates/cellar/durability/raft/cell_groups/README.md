@@ -581,6 +581,15 @@ admission and cannot authorize local effects, local archive settlement or anothe
 forwarding hop. Any possible outbound transmission makes an error ambiguous;
 the owner does not automatically retry it or create a new command identity.
 
+SDK enrollment uses the same leader selection and command grant. One controller
+invocation captures the creation ID, initializer inputs and preview before
+discovery, then admits one local or remote creation. A destination rechecks
+its route and leader authority before entering SQL. `CellEnrollmentResponse`
+returns the exact committed creation record and achieved durability.
+`local_enrollment` exposes the locally inspected result only when this node
+owns that result. An S3 request still requires complete archive coverage at
+the destination.
+
 Attempts are consumed before awaiting reads. Cancellation cannot refund a budget
 or make a delayed ticket current. Read timeouts use the original domain clock,
 even when a waiter is polled elsewhere. Marking a command potentially submitted

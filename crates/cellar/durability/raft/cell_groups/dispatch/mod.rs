@@ -3,6 +3,7 @@
 //! Catalog-bound invocations over the existing consensus and SQL owners.
 //! Routing observations never replace destination authority or ingress grants.
 
+mod mutation_route;
 mod query_routing;
 mod receipt;
 pub use query_routing::CellQueryRouting;
@@ -11,7 +12,9 @@ pub use receipt::{
 };
 
 mod enrollment;
-pub use enrollment::{CellEnrollmentError, CellEnrollmentInvocation, CellEnrollmentRequest};
+pub use enrollment::{
+    CellEnrollmentError, CellEnrollmentInvocation, CellEnrollmentRequest, CellEnrollmentResponse,
+};
 
 mod command;
 pub(crate) use command::PendingCellCommand;

@@ -4,6 +4,17 @@
 
 Purpose: Current implementation checkpoint, evidence transfer and next executor steps.
 
+## CG-07 routed SDK enrollment
+
+The existing ingress path now creates cells through the SDK. It preserves
+creation identity and achieved durability, including exact creation replay at
+S3 durability. Eight native cases and the real RustFS managed case pass.
+[Source and test records](progress.md)
+
+Next, qualify router membership refresh across actual voter replacement.
+Ordinary namespace provisioning, the complete public authority and lifecycle
+gates, reviewed source preflight and the remaining cell-group tasks stay open.
+
 ## CG-07 nonmember ingress and idle connection retirement
 
 The configured ingress path passes the seven scoped native cases and the

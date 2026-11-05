@@ -405,7 +405,9 @@ def check_links(package, root):
 
 def index_text(manifest):
     lines = ["<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->", "",
-             "# Implementation order", "", "Generated from `tasks.json`; print again with `plan.py index` after status changes.",
+             "# Implementation order", "",
+             "Purpose: Dependency order and status of the sixteen cell-group implementation tasks.", "",
+             "Generated from `tasks.json`; print again with `plan.py index` after status changes.",
              "Every implementation task is pending until source-bound evidence passes.", "",
              "Use `python3 docs/design/multi-raft/cell-groups/plan.py show CG-01` for a complete",
              "executor brief. Replace the ID to select another task. Commands are displayed,",

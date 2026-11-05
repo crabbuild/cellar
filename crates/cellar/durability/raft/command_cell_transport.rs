@@ -751,7 +751,9 @@ impl State {
                 .map_err(|error| command_failure(&error.error.cause))?;
             call.response()
                 .await
-                .map_err(|error| command_failure(&error.cause))
+                .map_err(|error| command_failure(&error.cause))?
+                .into_local()
+                .ok_or(CommandFailure::CorruptState)
         }
         .await;
         super::query_replies::Reply::enrollment(result, self.options.max_query_response_bytes)

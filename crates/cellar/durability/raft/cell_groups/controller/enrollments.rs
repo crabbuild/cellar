@@ -5,7 +5,7 @@ use super::admission::Retention;
 use super::calls::Delivery;
 use super::*;
 use crate::raft::cell_groups::{
-    CellDispatchError, CellEnrollmentError, CellEnrollmentInvocation, CellSqlEnrollment,
+    CellDispatchError, CellEnrollmentError, CellEnrollmentInvocation, CellEnrollmentResponse,
     CellSqlOptions,
 };
 use cellar_logic::consensus::ProposalId;
@@ -14,7 +14,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 pub(super) struct Request {
     invocation: CellEnrollmentInvocation,
     options: CellSqlOptions,
-    reply: oneshot::Sender<Delivery<CellSqlEnrollment, CellEnrollmentError, Retention>>,
+    reply: oneshot::Sender<Delivery<CellEnrollmentResponse, CellEnrollmentError, Retention>>,
     permit: Arc<Retention>,
 }
 
@@ -27,7 +27,7 @@ pub(super) struct Completed {
 /// Dropping or timing out this response never cancels the admitted enrollment.
 /// An unpolled reply retains node admission, including error-only replies.
 pub struct CellEnrollmentCall {
-    inner: calls::Call<ProposalId, CellSqlEnrollment, CellEnrollmentError, Retention>,
+    inner: calls::Call<ProposalId, CellEnrollmentResponse, CellEnrollmentError, Retention>,
 }
 
 /// Admission did not transfer ownership. In particular, a rejected non-fresh
@@ -66,14 +66,14 @@ fn error(command: ProposalId, ambiguous: bool, reason: RuntimeError) -> CellEnro
 }
 
 impl CellEnrollmentCall {
-    pub async fn response(self) -> Result<CellSqlEnrollment, Arc<CellEnrollmentError>> {
+    pub async fn response(self) -> Result<CellEnrollmentResponse, Arc<CellEnrollmentError>> {
         self.inner.response().await
     }
 }
 
 impl CellGroupController {
-    /// Admit a fresh local invocation. Discovery and destination authority still
-    /// run inside the owner; catalog routing never grants leader authority.
+    /// Admit a fresh invocation. An SDK origin may select a remote destination
+    /// inside the owner. Incoming and verification invocations remain local.
     pub fn enroll(
         &self,
         invocation: CellEnrollmentInvocation,
@@ -151,6 +151,7 @@ pub(super) async fn drive(
     sql: CellGroupSqlPool,
     shared: Arc<Shared>,
     mut progress: watch::Receiver<()>,
+    transport: RaftTransport,
 ) -> Completed {
     let Request {
         mut invocation,
@@ -159,7 +160,14 @@ pub(super) async fn drive(
         permit,
     } = request;
     let result = invocation
-        .run_owned(&runtime, &sql, options, &shared.groups, &mut progress)
+        .run_owned(
+            &runtime,
+            &sql,
+            options,
+            &shared.groups,
+            &mut progress,
+            &transport,
+        )
         .await
         .map_err(Arc::new);
     let error = result.as_ref().err().cloned();

@@ -483,7 +483,7 @@ impl RaftCellHandle {
         &self,
         request: CellEnrollmentRequest,
         timeout: Duration,
-    ) -> impl Future<Output = Result<CellSqlEnrollment, Arc<CellEnrollmentError>>> + Send + 'static
+    ) -> impl Future<Output = Result<CellEnrollmentResponse, Arc<CellEnrollmentError>>> + Send + 'static
     {
         let response = self.cell.enroll(
             request,

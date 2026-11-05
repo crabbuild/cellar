@@ -12,6 +12,36 @@ CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
 
+## CG-07 SDK enrollment without a local replica
+
+SDK enrollment shares the same trusted leader selection as commands. The
+controller captures the creation identity, initializer inputs and preview before
+routing. The destination still checks the route and its actual leader authority.
+Remote and locally inspected creation results retain separate ownership. The
+SDK returns the exact creation record and achieved durability for either result.
+
+The managed native and Axum case rejects enrollment before the ingress has a
+write grant, then enrolls its second cell through the router. The S3 retry
+returns the exact original creation record after complete archive coverage.
+The ingress has no local replica. Both image formats run. All eight scoped
+native cases pass, including the earlier grant, revocation, deadline and
+archive checks and the original public counter process case. The managed case
+takes 67.41 seconds and the public process case
+takes 137.73 seconds.
+
+The same managed executable passes against real RustFS in
+72.11 seconds. The immutable backend identity and
+signed provider probes pass. The dedicated backend and VM stop with data
+retained. Voters are host-native embedded nodes with fixture capacity. The
+earlier RustFS successor readiness failure remains open on its recorded source.
+
+The source manifest binds 2,728 inputs to
+`7140f54b5c12cfb08195f6cbdaba32588b6fa5ba38828bf77f4b038fe32667c7`.
+The native record SHA256 is `b7f9632bafeb505027114f83f3eed9613fca1d2654bb665fda18e5806328341a`.
+The RustFS record SHA256 is `71e693b794736a74e6e87969271fd2c49a4e6764af28af0d3f2fb33e10cc5bcd`.
+The plan index generator preserves its Purpose line and the index test passes.
+Reviewed source preflight still reports drift.
+
 ## CG-07 ingress without a local replica
 
 The combined candidate adds automatic read routing and a read-only command

@@ -64,7 +64,7 @@ pub(super) async fn drive(
             commands::drive(*request, runtime, sql, shared, progress, transport).await,
         )),
         Request::Enrollment(request) => Completed::Enrollment(Box::new(
-            enrollments::drive(*request, runtime, sql, shared, progress).await,
+            enrollments::drive(*request, runtime, sql, shared, progress, transport).await,
         )),
         Request::Query(request) => {
             queries::drive(*request, runtime, sql, shared, transport).await;

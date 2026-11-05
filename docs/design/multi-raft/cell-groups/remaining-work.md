@@ -42,9 +42,10 @@ Ingress without a local replica can serve reads and writes through trusted group
 routes. SDK command forwarding retains the original owner and deadline and
 requires namespace write permission. Local SQL, effect and archive proof remain
 distinct from authenticated remote output. The managed acceptance exercises
-native and Axum ingress with zero local groups. Automatic refresh of a router's
-member list across replacements, new cell enrollment through ingress and
-ordinary namespace provisioning remain open.
+native and Axum ingress with zero local groups. SDK enrollment now uses that
+path and preserves the exact creation record at both durability minima.
+Automatic refresh of a router's member list across replacements and ordinary
+namespace provisioning remain open.
 
 CG-07 remains IN_PROGRESS. Four original public gates remain undelivered, including
 complete managed lifecycle and ingress authority. Default/backend and capability
@@ -59,10 +60,10 @@ production legacy/shared switch or old-data migration is part of the target.
    Refresh the router's member list after repair and replacement using trusted
    current membership. Preserve the original budget and mutation identity.
 2. **Provision through the public namespace path.** Use the normal
-   CLI, daemon and SDK path to start a three-voter shared group. Route
-   enrollment through the same leader selection as commands, then enroll
-   two independent cells. Carry the tenant and cell binding through native,
-   Axum and admin entry points. Preserve typed capability refusals.
+   CLI, daemon and SDK path to start a three-voter shared group and exercise
+   the SDK enrollment path for two independent cells. Carry the tenant and
+   cell binding through native, Axum and admin entry points. Preserve typed
+   capability refusals.
 3. **Qualify the expanded public path.** The managed request test covers
    ingress without a replica, failover, retained restart and quorum loss in
    both image formats. Real RustFS also verifies quorum acknowledgement
