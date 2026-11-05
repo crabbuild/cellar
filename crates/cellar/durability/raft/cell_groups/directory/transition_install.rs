@@ -554,13 +554,34 @@ impl RangeDirectory {
         history: GroupHistory,
     ) -> Result<Option<TransferInstallQuorum>, CatalogError> {
         self.unmanaged_birth()?;
+        self.observe_transfer_installs(plan, history, false).await
+    }
+
+    pub(crate) async fn observe_managed_transfer_install_quorum(
+        &self,
+        plan: &DirectoryMutation,
+        permit: &crate::raft::fleet_catalog::ManagedTransitionPermit,
+        history: GroupHistory,
+    ) -> Result<Option<TransferInstallQuorum>, CatalogError> {
+        permit.check(self, plan)?;
+        self.observe_transfer_installs(plan, history, true).await
+    }
+
+    async fn observe_transfer_installs(
+        &self,
+        plan: &DirectoryMutation,
+        history: GroupHistory,
+        managed: bool,
+    ) -> Result<Option<TransferInstallQuorum>, CatalogError> {
         let (_, children) = self.transition_routes(plan)?;
         let route = children
             .iter()
             .find(|route| route.history == history)
             .ok_or(CatalogError::Conflict("transfer child outside plan"))?;
         self.bounded(async {
-            self.namespace.require_cell_group_unmanaged().await?;
+            if !managed {
+                self.namespace.require_cell_group_unmanaged().await?;
+            }
             let prefix = install_prefix(route);
             let Some(binding) = self.read(&format!("{prefix}/binding")).await? else {
                 return Ok(None);
@@ -570,8 +591,12 @@ impl RangeDirectory {
             {
                 return Err(CatalogError::Corrupt("transfer install genesis binding"));
             }
-            self.require_transfer_install(plan, &selected.genesis)
+            let phase = self
+                .require_transfer_install(plan, &selected.genesis)
                 .await?;
+            if managed && phase == TransitionPhase::Retired {
+                return Err(CatalogError::Fenced);
+            }
             let birth = self.require_ordinary_birth_reservation(route).await?;
             let digest = record::digest(&binding);
             let mut voters = Vec::with_capacity(birth.voters().len());
@@ -611,8 +636,12 @@ impl RangeDirectory {
                     engine,
                 });
             }
-            self.require_transfer_install(plan, &selected.genesis)
+            let phase = self
+                .require_transfer_install(plan, &selected.genesis)
                 .await?;
+            if managed && phase == TransitionPhase::Retired {
+                return Err(CatalogError::Fenced);
+            }
             Ok(
                 (voters.len() > birth.voters().len() / 2).then_some(TransferInstallQuorum {
                     genesis: selected.genesis,

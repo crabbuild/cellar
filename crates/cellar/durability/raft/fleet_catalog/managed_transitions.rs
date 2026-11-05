@@ -9,8 +9,8 @@ use crate::raft::{
     cell_groups::{
         CellGroupArchiveBindingError, CellGroupArchivePool, CellGroupArchiveTailPool,
         CellGroupTransitionPreparationInputs, CellGroupTransitionSource, DirectoryMutation,
-        PreparedManagedCellGroupTransition, RangeDirectory, TransitionJournal,
-        VerifiedCellGroupTransitionSources,
+        PreparedManagedCellGroupTransition, RangeDirectory, TransferInstallQuorum,
+        TransitionJournal, VerifiedCellGroupTransitionSources,
     },
     fleet_stop::BootBinding,
     member_state::FleetGroupBinding,
@@ -639,6 +639,90 @@ pub(crate) struct ManagedTransferInstallAuthority {
     pub(crate) boot: BootBinding,
 }
 
+impl FleetCatalog {
+    async fn reserved_transfer_child(
+        &self,
+        current: &FleetSnapshot,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        route: &GroupRoute,
+    ) -> Result<FleetHistory> {
+        let key = self
+            .binding(&route.history)?
+            .key()
+            .map_err(|_| FleetCatalogError::Invalid("transfer child binding"))?;
+        let history = self.history_inner(current, &key).await?;
+        if history.origin != Origin::Managed
+            || history.state != FleetHistoryState::Reserved
+            || history.operation != transition.request.operation
+            || !history.check_route(directory, route)
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        Ok(history)
+    }
+
+    /// Observe a majority of physically installed voters of the exact reserved
+    /// managed child. Receipt storage identities must match permanent fleet
+    /// claims. An installation receipt grants no live boot or quorum authority.
+    pub async fn observe_managed_transfer_install_quorum(
+        &self,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        route: &GroupRoute,
+        timeout: Duration,
+    ) -> Result<Option<TransferInstallQuorum>> {
+        validate_request(&transition.request)?;
+        self.run(
+            timeout,
+            Box::pin(async {
+                let current = self.inner.current().await?;
+                let permit = self
+                    .managed_transition_permit_at(
+                        &current,
+                        &transition.request,
+                        directory,
+                        &transition.plan,
+                    )
+                    .await?;
+                let child = self
+                    .reserved_transfer_child(&current, transition, directory, route)
+                    .await?;
+                let proof = self
+                    .inner
+                    .domain
+                    .run(Box::pin(directory.observe_managed_transfer_install_quorum(
+                        &transition.plan,
+                        &permit,
+                        route.history,
+                    )))
+                    .await
+                    .map_err(|_| FleetCatalogError::Closed)?
+                    .map_err(catalog_error)?;
+                if let Some(proof) = &proof {
+                    for voter in &proof.voters {
+                        let host = self.host_from(&current, voter.node).await?;
+                        if host.disk() != voter.disk
+                            || host.storage_instance() != Some(voter.engine)
+                            || !child.voters.iter().any(|member| {
+                                member.node == voter.node.bytes()
+                                    && member.member == voter.member.get()
+                            })
+                        {
+                            return Err(FleetCatalogError::Conflict);
+                        }
+                    }
+                }
+                if self.inner.current().await?.token != current.token {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                Ok(proof)
+            }),
+        )
+        .await
+    }
+}
+
 impl FleetHostAuthorization {
     pub(crate) async fn managed_transfer_install_authority(
         &self,
@@ -665,17 +749,10 @@ impl FleetHostAuthorization {
                             &transition.plan,
                         )
                         .await?;
-                    let group = catalog.binding(&route.history)?;
-                    let key = group
-                        .key()
-                        .map_err(|_| FleetCatalogError::Invalid("transfer child binding"))?;
-                    let history = catalog.history_inner(&current, &key).await?;
-                    if history.origin != Origin::Managed
-                        || history.state != FleetHistoryState::Reserved
-                        || history.operation != transition.request.operation
-                        || !history.check_route(directory, route)
-                        || !history.voters.iter().any(|voter| voter.node == boot.node)
-                    {
+                    let history = catalog
+                        .reserved_transfer_child(&current, transition, directory, route)
+                        .await?;
+                    if !history.voters.iter().any(|voter| voter.node == boot.node) {
                         return Err(FleetCatalogError::Conflict);
                     }
                     let capacity = catalog.capacity_from(&current, self.node()).await?;
@@ -687,7 +764,7 @@ impl FleetHostAuthorization {
                     }
                     Ok(ManagedTransferInstallAuthority {
                         transition: permit,
-                        group,
+                        group: history.binding,
                         boot,
                     })
                 }),

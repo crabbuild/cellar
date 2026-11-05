@@ -1101,7 +1101,9 @@ or publishing a route. Receipt reconciliation reuses that closure and requires
 capacity evidence from the current boot.
 The child retains its fleet binding while pending. A matching receipt
 follows the sync. A read-only check confirms a majority of reserved voters
-from matching intents and receipts on distinct pinned disks and engines.
+from matching intents and receipts on distinct pinned disks and engines. For
+a managed child it verifies the original active fleet plan and reserved route
+and matches the physical receipts to the fleet's permanent storage claims.
 A pending voter can attach after rechecking this majority and its own receipt.
 The local applier uses the exact page and image owner handed to its engine.
 Raft can elect a leader and commit in a fresh term while the pending manifest

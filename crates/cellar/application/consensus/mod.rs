@@ -65,7 +65,7 @@ pub use crate::raft::cell_groups::{
     CellGroupQuorumMembership, CellGroupRecoveryLimits, CellGroupRecoveryPool,
     CellGroupSealOutcome, CellGroupTransitionSource, CellReceiptRequest, CellReceiptResponse,
     CellSqlLimits, DirectoryLimits, GroupSourceSeal, InstalledTransferVoter, ManifestLimits,
-    VerifiedCellGroupTransitionSources,
+    TransferInstallQuorum, VerifiedCellGroupTransitionSources,
 };
 pub use crate::raft::fleet_catalog::{
     fleet_capacity_profile_digest, FleetAbortedMovementCompletion, FleetCapacityAction,

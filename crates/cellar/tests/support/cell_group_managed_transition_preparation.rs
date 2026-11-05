@@ -404,6 +404,24 @@ pub(super) async fn verify_sealed_cut(
     ));
     let mut retained = None;
     for route in replay.children() {
+        let mut foreign_route = route.clone();
+        foreign_route.epoch = RouteEpoch::new(route.epoch.get() + 1)?;
+        ensure!(matches!(
+            fleet
+                .observe_managed_transfer_install_quorum(
+                    &transition,
+                    directory,
+                    &foreign_route,
+                    TIMEOUT,
+                )
+                .await,
+            Err(FleetCatalogError::Conflict)
+        ));
+        ensure!(fleet
+            .observe_managed_transfer_install_quorum(&transition, directory, route, TIMEOUT)
+            .await?
+            .is_none());
+        let mut installed = Vec::new();
         for (index, host) in cluster.hosts[3..].iter().enumerate() {
             let receipt = host
                 .install_managed_transfer_child(
@@ -416,6 +434,16 @@ pub(super) async fn verify_sealed_cut(
                 .await?;
             ensure!(receipt.member.get() == index as u64 + 1);
             ensure!(receipt.node == host.identity().node && receipt.disk == host.identity().disk);
+            installed.push(receipt.clone());
+            let observed = fleet
+                .observe_managed_transfer_install_quorum(&transition, directory, route, TIMEOUT)
+                .await?;
+            if index == 0 {
+                ensure!(observed.is_none());
+            } else {
+                let observed = observed.context("managed install majority")?;
+                ensure!(observed.genesis.route() == route && observed.voters == installed);
+            }
             let repeated = host
                 .install_managed_transfer_child(
                     transition.clone(),
@@ -504,6 +532,17 @@ async fn restart_destination(
         .await,
         Err(CellGroupControllerError::Catalog(_))
     ));
+    let route = sources
+        .children()
+        .iter()
+        .find(|route| route.history == child)
+        .context("retained child route")?;
+    let historical = fixture
+        .catalog
+        .observe_managed_transfer_install_quorum(&transition, directory, route, TIMEOUT)
+        .await?
+        .context("durable receipts survive an ordinary boot")?;
+    ensure!(historical.voters.len() == 3 && historical.voters.contains(&expected));
     admit_capacity(fixture, host, directory, 225).await?;
     let reopened = host
         .install_managed_transfer_child(transition, sources, child, recovery, TIMEOUT)
