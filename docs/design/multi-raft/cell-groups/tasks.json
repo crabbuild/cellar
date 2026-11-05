@@ -2143,7 +2143,7 @@
     {
       "id": "CG-09",
       "title": "Implement irreversible source sealing and destination activation",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "priority": "P1",
       "effort": "L",
       "risk": "HIGH",

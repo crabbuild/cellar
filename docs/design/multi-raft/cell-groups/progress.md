@@ -8,9 +8,25 @@ The executable design and implementation plan is delivered. Remaining
 end-to-end implementation and hard cutover work is specified in the
 [executor handoff](handoff.md).
 CG-01 through CG-06 and CG-08 have passed their scoped native gates.
-CG-07 is IN_PROGRESS; CG-09 through CG-16 remain TODO. Intermediate contracts
+CG-07 and CG-09 are IN_PROGRESS. CG-10 through CG-16 remain TODO. Intermediate contracts
 do not qualify the public shared runtime. No production legacy/shared mode flag
 is being added.
+
+## CG-09 rooted decisions and retained source sealing
+
+The unmanaged source seal consumes a permit bound to the selected directory
+journal, exact parent route and open replica engine. On `ad3797e1`, the native
+three-voter fixture drained the accepted enrollment, rejected delayed work,
+committed the seal, published its checkpoint and reopened all three retained
+disks. A fresh-term no-op committed while the retained cut still refused writes
+and linearizable reads. Replaying the exact permit returned the original cut.
+The catalog and protocol targets passed 25 and 7 tests on the same source.
+
+The first fixture used a direct image helper that rejected the administrative
+entry. The replay uses the production applier. A tight manual tick loop then
+advanced election time faster than disk sync. The passing replay pumps the
+explicit campaign with the original deadline. Managed preparation, source
+archive holds, child install and publication remain open.
 
 ## CG-07 feature-off native Fleet and bucket
 

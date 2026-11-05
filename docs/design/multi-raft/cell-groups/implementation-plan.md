@@ -22,7 +22,7 @@ never executed by the plan runner. Read the [design](design.md),
 | CG-06 | Archive and reclaim the complete group recovery history | CG-04, CG-05 | DONE | 5 |
 | CG-08 | Preserve per-cell effects and bounded idle execution caches | CG-04, CG-05, CG-06 | DONE | 5 |
 | CG-07 | Cut public SDK routing and managed fleet over to shared groups | CG-03, CG-04, CG-05, CG-06, CG-08 | IN_PROGRESS | 5 |
-| CG-09 | Implement irreversible source sealing and destination activation | CG-07, CG-08 | TODO | 7 |
+| CG-09 | Implement irreversible source sealing and destination activation | CG-07, CG-08 | IN_PROGRESS | 7 |
 | CG-10 | Split hot groups and merge compatible adjacent ranges | CG-09 | TODO | 5 |
 | CG-11 | Schedule group placement and adaptive partition size | CG-07, CG-10 | TODO | 5 |
 | CG-12 | Coordinate group hibernation and authority-checked wakeup | CG-08, CG-10, CG-11 | TODO | 5 |

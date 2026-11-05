@@ -71,7 +71,8 @@ CG-07 remains IN_PROGRESS. Complete managed lifecycle remains open. The
 feature-off public case and native Fleet/bucket regression pass their recorded
 local scope. Default/backend and capability
 coverage, plan/lint/CI modes, production fencing, constrained independent voters
-and sustained-load qualification remain unfinished. CG-09–16 stay TODO. No
+and sustained-load qualification remain unfinished. CG-09 is IN_PROGRESS.
+CG-10 through CG-16 stay TODO. No
 production legacy/shared switch or old-data migration is part of the target.
 
 ## First delivery: basic SQL reads and writes through public ingress
