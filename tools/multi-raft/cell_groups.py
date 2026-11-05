@@ -85,6 +85,14 @@ SUITES = {
         "Host-native voters, fixture capacity and pre-seal state only. Managed source sealing, "
         "child installation and publication remain separate gates.",
     ),
+    "managed-liveness": (
+        "native_cell_groups_managed",
+        ("bootstrap::lifecycle::s3::rustfs_managed_s3_seed_refusal_and_source_failover",
+         "bootstrap::lifecycle::maintenance::rustfs_managed_archive_maintenance_stop_return_and_resume"),
+        "bounded successor election after S3 source close and archived maintenance settlement",
+        "The source is stopped through joined close. Fixture capacity and host-native voters "
+        "leave process crash and platform fencing as separate gates.",
+    ),
     "managed-lifecycle": (
         "native_cell_groups_public",
         ("rustfs_managed_group_lifecycle",),
@@ -121,7 +129,7 @@ def sources(suite):
         {"path": name, "sha256": sha(ROOT / name)}
         for name in result.decode().split("\0")
         if name and (not name.startswith(("docs/", "plans/", "packages/", "examples/"))
-                     or (suite in ("managed-ingress", "managed-lifecycle", "managed-transition")
+                     or (suite in ("managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition")
                          and name == "examples/raft-counter/counter.rs"))
         and (ROOT / name).is_file()
     ]
