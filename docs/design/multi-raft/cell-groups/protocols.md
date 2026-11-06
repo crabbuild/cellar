@@ -433,6 +433,10 @@ Raft log truncation nor S3 coverage and does not run during normal serving.
 Normal shared-group startup separately adopts the serving extent inventory after
 recovering every local group's current and checkpoint graph. Those complete graph
 pins replace conservative filename retention before routes become reachable.
+Unmanaged startup pins the images of retained groups in declared namespaces
+even when the replica assignment is omitted. These groups stay out of the
+runtime roster and transport until an authorized attachment. Startup refuses
+when a retained group's namespace is undeclared.
 The independent archive verifier adopts its separately locked cache before
 registering the first receive/replay job; cached filenames provide no recovery
 proof. Disposable empty workspace roots are transient and pinned before sealing.

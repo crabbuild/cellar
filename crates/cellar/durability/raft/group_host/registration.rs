@@ -280,7 +280,7 @@ pub(super) struct RetainedPlacements {
 pub(super) async fn discover_retained_placements(
     prepared: &mut Prepared,
     log: &crate::raft::storage::ReplicaLog,
-    fleet: &crate::raft::fleet_catalog::FleetCatalog,
+    fleet: Option<&crate::raft::fleet_catalog::FleetCatalog>,
     limits: CellGroupNodeLimits,
 ) -> anyhow::Result<RetainedPlacements> {
     let configured: BTreeMap<_, _> = prepared
@@ -315,6 +315,12 @@ pub(super) async fn discover_retained_placements(
                     config.cluster == history.cluster && config.namespace == history.namespace
                 })
                 .ok_or(CatalogError::ManagedAdmissionRequired)
+        };
+        let Some(fleet) = fleet else {
+            // Explicit unmanaged assignments control serving. An omitted
+            // replica in a declared namespace still owns its durable images.
+            placements.parked.push((namespace()?, retained));
+            continue;
         };
         let marker = retained.group_manifest()?;
         if let Some(marker) = marker

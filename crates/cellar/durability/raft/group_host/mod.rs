@@ -202,17 +202,13 @@ pub(crate) async fn start(
     // This initialization owns several nested catalog/recovery futures. Keep
     // that state off callers' native stacks, including nested node startup.
     let result = Box::pin(async {
-        let retained = if let Some(managed) = &options.managed {
-            registration::discover_retained_placements(
-                &mut prepared,
-                &log,
-                &managed.authorization.stop_catalog(),
-                limits,
-            )
-            .await?
-        } else {
-            registration::RetainedPlacements::default()
-        };
+        let fleet = options
+            .managed
+            .as_ref()
+            .map(|managed| managed.authorization.stop_catalog());
+        let retained =
+            registration::discover_retained_placements(&mut prepared, &log, fleet.as_ref(), limits)
+                .await?;
         // Boot binding commits the Fleet root through the object-store client.
         // Keep its nested futures off the caller's startup polling frame.
         let discovery = Box::pin(directory::prepare(
