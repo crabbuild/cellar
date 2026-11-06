@@ -1125,29 +1125,11 @@ async fn run_inner(
         .open_group_archive(domain.as_ref(), &archives.pool, &child_birth)
         .await?;
     let voters = &cluster.hosts[..3];
-    let selected = leader(voters, child.history).await?;
-    if selected != 0 {
-        voters[selected]
-            .group(child.history)?
-            .transfer_leader(MemberId::new(1)?)
-            .await?;
-        let group = voters[0].group(child.history)?;
-        tokio::time::timeout(TIMEOUT, async {
-            loop {
-                let status = group.status().await?;
-                if status.ready && status.leader == Some(1) {
-                    break Ok::<_, anyhow::Error>(());
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .context("archive voter became ready leader")??;
-    }
-    preparation::wait_active_archive(&voters[0], child.history).await?;
+    let archive_leader = &voters[leader(voters, child.history).await?];
+    preparation::wait_active_archive(archive_leader, child.history).await?;
     let older = preparation::acquire_hold(domain, &child_registry).await?;
     let (cell, expected) = &routed[0];
-    let handle = voters[0].cell(cell.clone())?;
+    let handle = archive_leader.cell(cell.clone())?;
     let s3_receipt = handle
         .command(
             &handle.contract("Add")?,
@@ -1163,7 +1145,7 @@ async fn run_inner(
         s3_receipt.result == (expected + 2).to_be_bytes()
             && s3_receipt.durability == cellar_logic::consensus::Durability::S3
     );
-    let applied = preparation::wait_active_archive(&voters[0], child.history).await?;
+    let applied = preparation::wait_active_archive(archive_leader, child.history).await?;
     let current = preparation::acquire_hold(domain, &child_registry).await?;
     ensure!(
         current.marker().position().index >= applied
@@ -1529,7 +1511,9 @@ async fn initialize_merge_child_archive(
                 && initialized.result == RaftFleetTransitionChildSetupResult::ArchiveInitialized
         );
     }
-    Box::pin(restart_voter(cluster, 0, 121, Some(child), 1)).await?;
+    for (index, generation) in [121, 126, 127].into_iter().enumerate() {
+        Box::pin(restart_voter(cluster, index, generation, Some(child), 1)).await?;
+    }
     Ok(())
 }
 
