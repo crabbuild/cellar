@@ -142,7 +142,11 @@ On that clean revision the ordinary split/merge case passed both RustFS
 image modes in 231.58 seconds. It restarted all child voters, verified the
 merged SQL and S3 receipt, and completed retirement. The command log SHA-256
 is `0c4e7ae95007266aee26a778adbd990a24cf0f6280156e16c8f66a08ccb7411f`.
-The recovery case runs separately in the same campaign.
+The separate recovery case passed both modes on the same executable in
+274.03 seconds. It erases test-owned source voter disks and verifies restored
+SQL and receipt continuity through a fresh quorum with fixture fencing.
+The combined real RustFS record SHA-256 is
+`ca843a9c8bf589d64c87801c6960ec99327e54fd438749f99355dcb52b124adb`.
 
 ## CG-12 alarm, peer and minority wake
 
@@ -506,8 +510,11 @@ Four exact native public cases passed at `393bffe4`, including lifecycle,
 multi-cell SDK, occupancy one and the feature-off Fleet contract.
 The remaining ingress case timed out during the first-group standby CLI
 invocation, before the SQL and S3 checks. The campaign retains both that
-result and the earlier full-suite result where ingress passed. An isolated
-ingress rerun uses the same source and original command bounds.
+result and the earlier full-suite result where ingress passed. The exact
+ingress repeat passed in 101.09 seconds on the same executable and original
+command bounds. All five named public cases have individual passes at
+`393bffe4`. The earlier timeout remains recorded. The repeat log SHA-256 is
+`052ce8e5e6323fef7f1ebbc824f31483740fd11b292d42c03fd9e24425ab4bf3`.
 The layout check passed. The format check found one missing declaration
 separator in the shared read test. The repository formatter corrected that
 file on the PR branch. Strict all-target Clippy on `393bffe4` failed with

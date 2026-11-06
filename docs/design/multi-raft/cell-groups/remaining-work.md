@@ -90,12 +90,12 @@ and evidence specified by `plan.py show <task>`.
 
 | Task | Checked-in coverage | Acceptance still required |
 | --- | --- | --- |
-| CG-07 | The isolated constrained RustFS daemon passed both image modes at `393bffe4`. The public suite at that revision passed ingress after archive outage and stalled in extent replacement. The extent-only diagnostic settled replacement and replayed the lost terminal reply. | Pass the exact public cases and build gates at the constrained run's source. Investigate any repeated joint-consensus or maintenance timeout. |
+| CG-07 | The isolated constrained RustFS daemon passed both image modes at `393bffe4`. All five named public cases passed in individual runs on that revision, with an ingress repeat after a standby timeout. | Port the legacy operations callers and clear the all-target build and strict lint gates. Investigate any repeated standby, joint-consensus or maintenance timeout. |
 | CG-09 | `seal_authorization_cancel_race` and `source_seal_blocks_delayed_work` run in the catalog and host targets. Component checkpoints also cover rooted archive holds and managed serving after transfer. | Build the planned transition target. Exercise publication only after destination quorum install and remote closure, restart with one writer, receipt/token/effect continuity, and archive pins through retirement. |
 | CG-10 | The clean operator split-and-merge case passed both RustFS image modes after retained startup moved onto a separate task and fresh commands received their own retry windows. | Qualify the named cases for exact union and adjacency, incompatible placement/durability, partial reservations across restart, writes during movement and bounded precopy. |
 | CG-11 | Placement observations and advisory recommendations exist. | Qualify hysteresis, hot-cell isolation, whole-group scale out and in, failure-domain reserve and bounded controller fanout. |
 | CG-12 | Two of five named cases passed in both native image modes. They cover alarm and peer wake without a client, and refusal of strong reads and quorum writes during minority wake. The constrained daemon also parks and wakes a group. | Qualify all-voter eligibility and pending-work refusal, partial/stale certificates, and the full parked restart and leader-loss case. Measure wake latency in the planned profiles. |
-| CG-13 | Host-native voters have recovered after all owned voter disks were erased against RustFS with a fixture fence. | Qualify interrupted transition closure selection, permanent revocation of every possible old writer, fresh histories and retry under independent Docker voter processes. Exercise the outbox ambiguity refusal. |
+| CG-13 | The clean host-native recovery case passed both RustFS image modes after all owned voter disks were erased, using a fixture fence. | Qualify interrupted transition closure selection, permanent revocation of every possible old writer, fresh histories and retry under independent Docker voter processes. Exercise the outbox ambiguity refusal. |
 | CG-14 | The daemon harness retains scoped evidence from real voters and RustFS. | Build the planned harness acceptance target for real occupancies, ownership, complete ledgers, evidence drift rejection and measured profiles. |
 | CG-15 | Checkpoints cover individual public faults and archive recovery. | Run the history oracle, full crash and transition matrix, archive reclamation under load, wake profiles, soak and independent-domain loss. |
 | CG-16 | Public shared-group SQL has scoped coverage. | Remove predecessor consensus paths, prove full public operations and joined shutdown in all modes, and bind release evidence to one source. |
@@ -115,7 +115,7 @@ through the shared backend and preserve typed refusals for the rest.
    The extent lifecycle case exhausted its bounded turns at joint consensus.
    The isolated diagnostic then settled replacement within the same bound.
    The constrained daemon passed both modes at the pinned executable
-   revision. Rerun ingress authority and port the remaining
+   revision, and the exact ingress repeat passed. Port the remaining
    `native_raft_operations` callers that fail the all-target build. Remove
    unused predecessor code after the replacement cases cover its contracts.
 2. **Pass the combined CG-07 RF3 SQL gate.** Use one source revision for
