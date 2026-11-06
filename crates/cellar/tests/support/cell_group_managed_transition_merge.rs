@@ -1271,21 +1271,26 @@ async fn run_inner(
         ensure!(observed.phase == Some(TransitionPhase::Archived) && observed.fleet_slot_held);
         let page = domain.run(directory.group_page(&locked, None, 2)).await??;
         ensure!(page.routes == parents && page.next.is_none());
-        Box::pin(check_recovery_replacements(
-            fixture,
-            &control,
-            &fresh,
-            &namespace,
-            &fenced,
-            &RecoveryScenario {
-                routed: &routed,
-                receipts: &receipts,
-                authority: &authority,
-            },
-            rooted,
-        ))
-        .await?;
-        drop(fenced);
+        let fixture = fixture.clone();
+        // Replacement is a separate lifecycle phase with its own polling
+        // stack. Keep the cold verifier workspace alive until it joins.
+        let replacement = domain.spawn(Box::pin(async move {
+            Box::pin(check_recovery_replacements(
+                &fixture,
+                &control,
+                &fresh,
+                &namespace,
+                &fenced,
+                &RecoveryScenario {
+                    routed: &routed,
+                    receipts: &receipts,
+                    authority: &authority,
+                },
+                rooted,
+            ))
+            .await
+        }))?;
+        replacement.await??;
         return Ok(None);
     }
     for (registry, hold) in registries.iter().zip(&parent_holds) {
