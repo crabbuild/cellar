@@ -1955,6 +1955,8 @@ async fn check_recovery_voter_reservations(
             namespace, &request, TIMEOUT,
         )).await?;
         let cut = fixture.catalog.read(TIMEOUT).await?;
+        Box::pin(fixture.catalog.check_inventory(&cut, std::slice::from_ref(&directory), TIMEOUT))
+            .await.context("promoted recovery birth inventory")?;
         ensure!(settled.promoted_ranges == plan.births().len()
             && settled.total_ranges == plan.births().len()
             && settled.publication_digest == publication.journal_digest()

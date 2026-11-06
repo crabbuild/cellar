@@ -214,6 +214,15 @@ impl FleetCatalog {
                         FleetHistoryState::Reserved,
                     )
                     .await?;
+                self.inner
+                    .domain
+                    .run(Box::pin(directory.materialize_managed_recovery_births(
+                        &input,
+                        record.last_batch(),
+                    )))
+                    .await
+                    .map_err(|_| FleetCatalogError::Closed)?
+                    .map_err(catalog_error)?;
                 let committed = Box::pin(self.commit_with_disruption(
                     &snapshot,
                     &mutation,

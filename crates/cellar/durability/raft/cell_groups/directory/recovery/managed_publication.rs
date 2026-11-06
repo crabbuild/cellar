@@ -136,6 +136,33 @@ impl RangeDirectory {
         .await
     }
 
+    /// Record the exact selected births before Fleet promotes their histories.
+    /// The recovery lock remains the exclusive startup and routing authority.
+    pub(crate) async fn materialize_managed_recovery_births(
+        &self,
+        input: &ManagedRecoveryPublicationInput<'_>,
+        batch: std::ops::Range<usize>,
+    ) -> Result<(), CatalogError> {
+        self.bounded(async {
+            let (view, _) = self.current().await?;
+            let publication = self
+                .confirmed(&view.head, input.mutation)
+                .await?
+                .ok_or(CatalogError::Fenced)?;
+            let permit = ManagedRecoveryPublication { input };
+            permit.check_published(self, &view, &publication).await?;
+            let births = input.births.get(batch).ok_or(CatalogError::Limit)?;
+            for birth in births {
+                self.require_managed_recovery_identity(birth, input.plan)
+                    .await?;
+                self.decide_live_birth(birth).await?;
+            }
+            let (after, _) = self.current().await?;
+            permit.check_published(self, &after, &publication).await
+        })
+        .await
+    }
+
     pub(crate) async fn publish_managed_recovery(
         &self,
         input: &ManagedRecoveryPublicationInput<'_>,
