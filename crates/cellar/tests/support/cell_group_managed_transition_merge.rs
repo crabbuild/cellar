@@ -11,10 +11,12 @@ use cellar::application::consensus::verification::{
 };
 use cellar::sdk::fleet_operations::{
     RaftFleetControl, RaftFleetFailureCode, RaftFleetFirstGroupVoter, RaftFleetOutcome,
-    RaftFleetTransitionAdmissionRequest, RaftFleetTransitionChild, RaftFleetTransitionGroup,
-    RaftFleetTransitionPartition, RaftFleetTransitionPrepareRequest,
-    RaftFleetTransitionPublishRequest, RaftFleetTransitionResume, RaftFleetTransitionResumeStep,
-    RaftFleetTransitionSealRequest, RaftFleetTransitionSourceSealRequest,
+    RaftFleetTransitionAdmissionRequest, RaftFleetTransitionChild,
+    RaftFleetTransitionChildSetupRequest, RaftFleetTransitionChildSetupResult,
+    RaftFleetTransitionChildStep, RaftFleetTransitionGroup, RaftFleetTransitionPartition,
+    RaftFleetTransitionPrepareRequest, RaftFleetTransitionPublishRequest,
+    RaftFleetTransitionResume, RaftFleetTransitionResumeStep, RaftFleetTransitionSealRequest,
+    RaftFleetTransitionSourceSealRequest,
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -483,6 +485,7 @@ async fn run_inner(
     let mut controller = (fleet.clone(), directory.clone());
     let mut receipts = Vec::with_capacity(2);
     for (index, (parent, (cell, expected))) in parents.iter().zip(&routed).enumerate() {
+        let fixture = &cluster.fixtures[0];
         let voters = &cluster.hosts[3..];
         let voter = leader(voters, parent.history).await?;
         let handle = voters[voter].cell(cell.clone())?;
@@ -791,7 +794,40 @@ async fn run_inner(
             .and_then(|journal| journal.sealed_sources())
             == Some(sealed_digest)
     );
-    for host in &cluster.hosts[..3] {
+    let operator_install = RaftFleetTransitionChildSetupRequest {
+        catalog_id: control.catalog_id().into(),
+        namespace_id: hex::encode(child.history.namespace.bytes()),
+        operation_id: hex::encode(operation.bytes()),
+        request_id: hex::encode([178; 16]),
+        plan_digest: hex::encode(plan.digest()),
+        child: transition_group(child.history),
+        step: RaftFleetTransitionChildStep::Install,
+    };
+    let operator_workspace = tempfile::tempdir()?;
+    let operator_verifier =
+        crate::managed_fixture::verifier::open(fixture, operator_workspace.path(), rooted, limits)
+            .await?;
+    let operator_voter = &cluster.hosts[0];
+    let installed = Box::pin(crate::managed_fixture::operator::setup_transition_child(
+        fixture,
+        &reopened,
+        &request.principal,
+        operator_voter,
+        &operator_install,
+        Some((operator_verifier, recovery.clone())),
+    ))
+    .await?;
+    ensure!(installed.request == operator_install);
+    ensure!(matches!(
+        installed.result,
+        RaftFleetTransitionChildSetupResult::Installed { member: 1, ref node_id, .. }
+            if node_id == &hex::encode(operator_voter.identity().node.bytes())
+    ));
+    ensure!(matches!(
+        operator_voter.group(child.history)?.status().await,
+        Err(RuntimeError::NotFound)
+    ));
+    for host in &cluster.hosts[1..3] {
         host.install_managed_transfer_child(
             transition.clone(),
             sources.clone(),
@@ -806,7 +842,25 @@ async fn run_inner(
     drop(verifier);
     drop(sealed_workspace);
     let voters = &cluster.hosts[..3];
-    for host in voters {
+    let operator_attach = RaftFleetTransitionChildSetupRequest {
+        request_id: hex::encode([179; 16]),
+        step: RaftFleetTransitionChildStep::Attach,
+        ..operator_install
+    };
+    let attached = Box::pin(crate::managed_fixture::operator::setup_transition_child(
+        fixture,
+        &reopened,
+        &request.principal,
+        operator_voter,
+        &operator_attach,
+        None,
+    ))
+    .await?;
+    ensure!(
+        attached.request == operator_attach
+            && attached.result == RaftFleetTransitionChildSetupResult::Attached
+    );
+    for host in &voters[1..] {
         host.attach_managed_transfer_child(transition.clone(), child.clone(), TIMEOUT)
             .await
             .context("attach merged child")?;

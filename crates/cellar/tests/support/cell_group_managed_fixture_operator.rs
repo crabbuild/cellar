@@ -122,7 +122,46 @@ pub(crate) async fn capture_transition_source(
         ];
         ensure!(cli.call(&command, READER).await?.code == 4);
         Ok::<_, anyhow::Error>(serde_json::from_value(
-            cli.call(&command, OWNER).await?.success()?,
+            cli.call_with_timeout(&command, OWNER, Duration::from_secs(32))
+                .await?
+                .success()?,
+        )?)
+    }
+    .await;
+    cli.close().await?;
+    result
+}
+
+pub(crate) async fn setup_transition_child(
+    fixture: &Fixture,
+    directory: &RangeDirectory,
+    principal: &str,
+    observer: &RaftCells,
+    request: &RaftFleetTransitionChildSetupRequest,
+    preparer: Option<(FleetGroupArchiveVerifier, CellGroupRecoveryPool)>,
+) -> Result<RaftFleetTransitionChildSetup> {
+    let root = tempfile::tempdir()?;
+    let (bucket, mut control) = control(fixture, directory)?;
+    control = control.with_node_observer(observer.clone());
+    if let Some((verifier, recovery)) = preparer {
+        control = control.with_transition_preparer(verifier, recovery);
+    }
+    let cli = OperatorCli::start(&fixture.domain, bucket, control, root.path(), principal).await?;
+    let result = async {
+        let plan = root.path().join("transition-setup-child.json");
+        std::fs::write(&plan, serde_json::to_vec(request)?)?;
+        let command = [
+            "transition",
+            "setup-child",
+            &request.namespace_id,
+            "--plan",
+            plan.to_str().context("UTF-8 child setup request path")?,
+        ];
+        ensure!(cli.call(&command, READER).await?.code == 4);
+        Ok::<_, anyhow::Error>(serde_json::from_value(
+            cli.call_with_timeout(&command, OWNER, Duration::from_secs(32))
+                .await?
+                .success()?,
         )?)
     }
     .await;

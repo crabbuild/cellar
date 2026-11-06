@@ -365,6 +365,40 @@ async fn execute(options: &options::Options) -> Result<Value> {
             }
             serde_json::to_value(captured).map_err(|_| unavailable())
         }
+        Action::TransitionSetupChild(request) => {
+            let path = format!(
+                "namespaces/{}/transitions/{}/setup-child",
+                request.namespace_id, request.operation_id,
+            );
+            let setup = client
+                .post::<RaftFleetTransitionChildSetup>(&path, request.as_ref())
+                .await?;
+            let matches_step = match (request.step, &setup.result) {
+                (
+                    RaftFleetTransitionChildStep::Install,
+                    RaftFleetTransitionChildSetupResult::Installed {
+                        member,
+                        node_id,
+                        disk_lineage,
+                        storage_instance,
+                    },
+                ) => {
+                    *member > 0
+                        && [node_id, disk_lineage, storage_instance]
+                            .into_iter()
+                            .all(|id| options::validate_id(id).is_ok())
+                }
+                (
+                    RaftFleetTransitionChildStep::Attach,
+                    RaftFleetTransitionChildSetupResult::Attached,
+                ) => true,
+                _ => false,
+            };
+            if setup.request != **request || !matches_step {
+                return Err(unavailable());
+            }
+            serde_json::to_value(setup).map_err(|_| unavailable())
+        }
         Action::TransitionPublish(request) => {
             let path = format!(
                 "namespaces/{}/transitions/{}/publish",

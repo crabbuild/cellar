@@ -1118,6 +1118,15 @@ The verifier needs bounded capacity to retain one complete cut per parent.
 | Active | Each child commits activation binding the retained publication certificate. Serving requires that activation plus current-term quorum authority. |
 | Retired | Parents persist retirement/redirect tombstones. Release old data only after child archive coverage and all dependency pins are safe. |
 
+Use `cellar raft fleet transition setup-child NAMESPACE_HEX --plan REQUEST.json --catalog-id DIGEST`
+against the management endpoint on each reserved destination voter. The
+`install` step replays the complete selected parent archive set using the
+server's configured verifier and syncs the pending child. Its receipt identifies
+the exact member, disk and engine. After a majority of durable install receipts,
+send a separate request with step `attach` to each voter. Attachment establishes
+the pending Raft roster. The Installed decision still requires a durable
+fresh-term quorum proof for every child.
+
 The final sealed-source partition builds a non-serving child genesis marker.
 It binds the exact transition, plan and sealed-source set. An active-source
 pre-copy carries image pins without this genesis. Ordinary log apply and

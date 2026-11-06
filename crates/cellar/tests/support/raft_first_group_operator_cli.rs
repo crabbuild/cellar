@@ -85,6 +85,16 @@ impl OperatorCli {
     }
 
     pub async fn call(&self, args: &[&str], token: &str) -> Result<CliReply> {
+        self.call_with_timeout(args, token, Duration::from_secs(5))
+            .await
+    }
+
+    pub async fn call_with_timeout(
+        &self,
+        args: &[&str],
+        token: &str,
+        timeout: Duration,
+    ) -> Result<CliReply> {
         let executable = std::env::var_os("CELLAR_RAFT_OPERATOR_CLI")
             .unwrap_or_else(|| env!("CARGO_BIN_EXE_cellar").into());
         let mut command = tokio::process::Command::new(executable);
@@ -105,9 +115,14 @@ impl OperatorCli {
             .env_remove("AWS_SESSION_TOKEN")
             .env("CELLAR_ADMIN_TOKEN", token)
             .kill_on_drop(true);
-        let output = tokio::time::timeout(Duration::from_secs(5), command.output())
+        let output = tokio::time::timeout(timeout, command.output())
             .await
-            .context("managed CLI invocation deadline")??;
+            .with_context(|| {
+                format!(
+                    "managed CLI invocation deadline for {:?}",
+                    &args[..args.len().min(2)]
+                )
+            })??;
         for bytes in [&output.stdout, &output.stderr] {
             ensure!(!String::from_utf8_lossy(bytes).contains(token));
         }

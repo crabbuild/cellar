@@ -34,6 +34,7 @@ cellar raft fleet transition prepare NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet transition authorize-seal NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet transition seal-source NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet transition capture-source NAMESPACE_HEX --plan REQUEST.json
+cellar raft fleet transition setup-child NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet transition publish NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet transition activate NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet transition resume NAMESPACE_HEX --plan REQUEST.json
@@ -83,6 +84,7 @@ pub(super) enum Action {
     TransitionSeal(Box<RaftFleetTransitionSealRequest>),
     TransitionSealSource(Box<RaftFleetTransitionSourceSealRequest>),
     TransitionCaptureSource(Box<RaftFleetTransitionSourceSealRequest>),
+    TransitionSetupChild(Box<RaftFleetTransitionChildSetupRequest>),
     TransitionPublish(Box<RaftFleetTransitionPublishRequest>),
     Progress(String, Option<String>, usize),
     Wait(String),
@@ -321,6 +323,18 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
                 .ok_or_else(|| invalid("--catalog-id from fleet status is required"))?;
             check_catalog(Some(catalog), &plan.catalog_id)?;
             Action::TransitionCaptureSource(Box::new(plan))
+        }
+        ("transition_setup-child", Some(namespace)) if !wait && cursor.is_none() => {
+            let path = first_group_plan
+                .take()
+                .ok_or_else(|| invalid("--plan is required"))?;
+            let plan = json_file::<RaftFleetTransitionChildSetupRequest>(&path)?;
+            plan.validate(&namespace, &plan.operation_id)?;
+            let catalog = catalog_id
+                .as_deref()
+                .ok_or_else(|| invalid("--catalog-id from fleet status is required"))?;
+            check_catalog(Some(catalog), &plan.catalog_id)?;
+            Action::TransitionSetupChild(Box::new(plan))
         }
         ("transition_publish", Some(namespace)) if !wait && cursor.is_none() => {
             let path = first_group_plan
@@ -717,7 +731,7 @@ fn json_file<T: serde::de::DeserializeOwned>(path: &str) -> Result<T> {
     serde_json::from_slice(&read_file(path, 16 * 1024)?).map_err(|_| invalid("invalid JSON input"))
 }
 
-fn validate_id(value: &str) -> Result<()> {
+pub(super) fn validate_id(value: &str) -> Result<()> {
     let mut bytes = [0; 16];
     if value.len() != 32
         || hex::decode_to_slice(value, &mut bytes).is_err()

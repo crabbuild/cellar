@@ -215,6 +215,8 @@ pub mod fleet_operations {
         RaftFleetTransitionActivation, RaftFleetTransitionActivationPosition,
         RaftFleetTransitionActivationRequest, RaftFleetTransitionAdmission,
         RaftFleetTransitionAdmissionRequest, RaftFleetTransitionBasis, RaftFleetTransitionChild,
+        RaftFleetTransitionChildSetup, RaftFleetTransitionChildSetupRequest,
+        RaftFleetTransitionChildSetupResult, RaftFleetTransitionChildStep,
         RaftFleetTransitionGroup, RaftFleetTransitionPartition, RaftFleetTransitionPreparation,
         RaftFleetTransitionPrepareRequest, RaftFleetTransitionPublication,
         RaftFleetTransitionPublishRequest, RaftFleetTransitionResume,
