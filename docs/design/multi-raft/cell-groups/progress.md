@@ -93,6 +93,19 @@ checks that no read owner remains. The command log SHA-256 is `6cb4e5e275690b539
 The `native_raft_reads` and other predecessor consumer targets still require
 ports to the canonical SDK.
 
+## CG-07 constrained Linux failed-voter repair attempt
+
+The separate repair candidate at `c97a5be76b3a05747a52d80d8442260438c900fd`
+booted a managed standby, seeded the archive on real RustFS and recorded
+platform isolation of the failed voter. The materialized campaign reached
+`Repairing` at Fleet revision 59. The worker recorded a blocked history
+with an `Observation` error, zero execution attempts and zero settled
+movements. The run timed out after 161.433 seconds. The extent-backed
+campaign did not start. The run record SHA-256 is
+`147d750bdc98f8cfaea45fe4ccb4065b4666101daee925360c49962f651af812`.
+The failing observation still needs to be isolated before rerunning the
+fresh-quorum and receipt checks.
+
 ## CG-09 rooted decisions and retained source sealing
 
 The unmanaged source seal consumes a permit bound to the selected directory

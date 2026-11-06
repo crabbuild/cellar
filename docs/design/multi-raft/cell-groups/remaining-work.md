@@ -90,26 +90,32 @@ a committed command and its applied receipt. Explicit S3 durability waits for
 archive proof. The release should define which SQL capabilities are available
 through the shared backend and preserve typed refusals for the rest.
 
-1. **Close CG-07 public onboarding and lifecycle.** Exercise namespace creation,
-   enrollment, normal read/write ingress and management through the public SDK,
-   daemon, CLI and admin paths. Close repair, drain, maintenance stop/return/resume
-   and capacity accounting with retained disks and nonvoting inventory. Preserve
-   immutable retry identity and native/Axum authority checks.
-2. **Pass a single current-source RF3 SQL gate.** Run independent constrained
-   voter processes against RustFS with ingress-only routing, leader loss,
-   exact retries, retained restart and quorum loss. Refuse quorum writes and
-   linearizable reads when a majority is unavailable. Verify quorum writes
-   during an archive-payload write outage with catalog access available,
-   plus explicit S3 refusal and recovery. Qualify mixed load and reclaim
-   only archive-covered local history. Fix the open maintenance, successor
-   readiness and CI failures on that source.
-3. **Gate the default for supported SQL on the public quorum result.** Use
-   fresh namespaces for the rollout covered by this plan. For the full hard
-   cutover, close the CG-09/10 split/merge and restart gates, then finish
-   adaptive placement, fenced wake and managed S3 disk-loss recovery in
-   CG-11–13. Complete the CG-14/15 constrained load, crash, reclaim and
-   disk-loss matrix before CG-16 removes predecessor paths and ships one
-   shared-group runtime.
+1. **Close CG-07 failed-voter repair and managed lifecycle.** The constrained
+   Linux RustFS repair candidate fenced the failed voter, then blocked on an
+   observation before admitting replacement. Identify the failing observation
+   and prove standby seeding, promotion, a fresh quorum, receipt replay and
+   capacity settlement. Exercise drain, maintenance stop/return/resume and
+   retained nonvoting inventory through the public operators.
+2. **Pass the combined CG-07 RF3 SQL gate.** Use one source revision for
+   onboarding, enrollment, ingress-only SDK routing, native and Axum reads and
+   writes, leader loss, exact retries, retained restart and quorum refusal.
+   Verify continued quorum writes during archive-payload outage with catalog
+   access available, plus explicit S3 refusal and recovery. The directory
+   suite passed all 16 cases after its shared-group port. Port the reads suite
+   and other remaining native consumers and close the public CI gates before
+   defaulting supported SQL in fresh namespaces to shared groups.
+3. **Finish CG-09/10 operator split and merge.** Connect admission, archive
+   preparation, source sealing and destination publication. Prove restart
+   reconciliation of partial reservations and seals.
+4. **Finish CG-11–13 managed operations.** Qualify adaptive placement, fenced
+   hibernation and wakeup, and S3 recovery of interrupted transitions. Run the
+   Docker-fenced disk-loss drill with all old voter disks deleted and a fresh
+   incarnation serving through quorum. Measure the difference between the
+   last acknowledged quorum write and the recoverable archive cut.
+5. **Qualify and ship through CG-14–16.** Run the constrained mixed-load,
+   reclamation, crash, partition and disk-loss matrix. Reclaim only
+   archive-covered local history. Complete the release cutover and remove the
+   predecessor Raft paths after the combined gate passes.
 
 ## P0: finish the MVP and its merge gates
 
