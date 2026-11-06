@@ -59,9 +59,26 @@ impl RaftFleetVerifiedTransitionRecovery {
 pub struct RaftFleetPreparedRecoveryRange {
     plan: [u8; 32],
     data: PreparedRecoveryData,
+    engine: Option<cellar_logic::consensus::EngineInstanceId>,
 }
 
 impl RaftFleetPreparedRecoveryRange {
+    pub(crate) fn for_node(
+        plan: [u8; 32],
+        data: PreparedRecoveryData,
+        engine: cellar_logic::consensus::EngineInstanceId,
+    ) -> Self {
+        Self {
+            plan,
+            data,
+            engine: Some(engine),
+        }
+    }
+
+    pub(crate) fn engine(&self) -> Option<cellar_logic::consensus::EngineInstanceId> {
+        self.engine
+    }
+
     pub(crate) fn data(&self) -> &PreparedRecoveryData {
         &self.data
     }
@@ -416,6 +433,7 @@ impl RaftFleetControl {
         Ok(RaftFleetPreparedRecoveryRange {
             plan: plan.digest(),
             data,
+            engine: None,
         })
     }
 

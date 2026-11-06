@@ -4,8 +4,9 @@
 use super::*;
 use crate::raft::{
     cell_groups::{
-        CellGroupArchiveStore, CellGroupRecoveryPool, CellGroupTransferTarget,
-        InstalledTransferVoter, ManifestPageStore, PreparedCellGroupTransferChild, TransitionPhase,
+        CellGroupApplyImages, CellGroupArchiveCoverage, CellGroupArchiveStore,
+        CellGroupRecoveryPool, CellGroupTransferTarget, InstalledTransferVoter, ManifestPageStore,
+        PreparedCellGroupTransferChild, PreparedRecoveryData, TransitionPhase,
         VerifiedCellGroupTransitionSources,
     },
     fleet_catalog::{FleetHostAuthorization, ReopenedManagedCellGroupTransition},
@@ -20,6 +21,54 @@ pub(super) enum PendingTransferOwner {
 }
 
 impl Config {
+    async fn open_import_target(
+        self: &Arc<Self>,
+        log: &crate::raft::storage::ReplicaLog,
+        images: CellGroupApplyImages,
+        route: &GroupRoute,
+        spools: &'static str,
+    ) -> Result<CellGroupTransferTarget, CellGroupControllerError> {
+        let domain = log.domain();
+        let target_route = route.clone();
+        let scratch = log.snapshot_scratch();
+        let staging = self.clone();
+        domain
+            .blocking(move || {
+                let settings = &staging.settings;
+                let directory = settings.directory.join(spools);
+                cellar_ltx::host::create_dir_all_durable(settings.filesystem.as_ref(), &directory)
+                    .map_err(crate::raft::execution::storage)?;
+                let path =
+                    ManifestPageStore::group_pages_path(&settings.directory, target_route.history);
+                let pages = ManifestPageStore::open(
+                    &path,
+                    settings.filesystem.clone(),
+                    settings.max_pages,
+                    settings.max_page_bytes,
+                    settings.max_retained_roots,
+                )
+                .map_err(crate::raft::execution::storage)?;
+                let store = CellGroupArchiveStore::new(
+                    target_route,
+                    pages,
+                    images,
+                    settings.manifest,
+                    settings.entries,
+                    settings.max_effect_rows,
+                )
+                .map_err(crate::raft::execution::storage)?;
+                Ok::<_, ExecutionError>(CellGroupTransferTarget {
+                    store,
+                    scratch,
+                    directory,
+                })
+            })
+            .map_err(|_| CellGroupControllerError::Closed)?
+            .await
+            .map_err(|_| CellGroupControllerError::Closed)?
+            .map_err(apply_error)
+    }
+
     fn retain_synced_transfer(
         &self,
         log: &crate::raft::storage::ReplicaLog,
@@ -37,6 +86,42 @@ impl Config {
 }
 
 impl CellGroupController {
+    pub(crate) async fn prepare_managed_recovery_seed(
+        &self,
+        directory: &RangeDirectory,
+        route: &GroupRoute,
+        source: CellGroupArchiveCoverage,
+        identity: ([u8; 32], cellar_logic::consensus::ProposalId),
+        recovery: &CellGroupRecoveryPool,
+    ) -> Result<PreparedRecoveryData, CellGroupControllerError> {
+        let shared = &self.handle.0;
+        let config = shared
+            .provisioning
+            .lock()
+            .map_err(|_| CellGroupControllerError::Closed)?
+            .clone()
+            .ok_or(CellGroupControllerError::Invalid(
+                "recovery provisioning owner",
+            ))?;
+        let images = config.images(directory)?;
+        let _preparation = config
+            .preparations
+            .acquire(config.bytes)
+            .ok_or(RuntimeError::Overloaded)?;
+        let _parallel = config
+            .parallel
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| RuntimeError::Overloaded)?;
+        let log = shared.runtime.log();
+        let target = config
+            .open_import_target(log, images, route, "recovery-spools")
+            .await?;
+        Box::pin(recovery.prepare_cut(&log.domain(), source, target, identity.0, identity.1))
+            .await
+            .map_err(|error| CellGroupControllerError::Archive(Arc::new(error.into())))
+    }
+
     pub(crate) async fn attach_managed_transfer_child(
         &self,
         directory: &RangeDirectory,
@@ -220,44 +305,9 @@ impl CellGroupController {
             return Err(RuntimeError::Overloaded.into());
         }
         remaining()?;
-        let target_route = route.clone();
-        let scratch = log.snapshot_scratch();
-        let staging = config.clone();
-        let target = domain
-            .blocking(move || {
-                let settings = &staging.settings;
-                let directory = settings.directory.join("transfer-spools");
-                cellar_ltx::host::create_dir_all_durable(settings.filesystem.as_ref(), &directory)
-                    .map_err(crate::raft::execution::storage)?;
-                let path =
-                    ManifestPageStore::group_pages_path(&settings.directory, target_route.history);
-                let pages = ManifestPageStore::open(
-                    &path,
-                    settings.filesystem.clone(),
-                    settings.max_pages,
-                    settings.max_page_bytes,
-                    settings.max_retained_roots,
-                )
-                .map_err(crate::raft::execution::storage)?;
-                let store = CellGroupArchiveStore::new(
-                    target_route,
-                    pages,
-                    images,
-                    settings.manifest,
-                    settings.entries,
-                    settings.max_effect_rows,
-                )
-                .map_err(crate::raft::execution::storage)?;
-                Ok::<_, ExecutionError>(CellGroupTransferTarget {
-                    store,
-                    scratch,
-                    directory,
-                })
-            })
-            .map_err(|_| CellGroupControllerError::Closed)?
-            .await
-            .map_err(|_| CellGroupControllerError::Closed)?
-            .map_err(apply_error)?;
+        let target = config
+            .open_import_target(log, images, route, "transfer-spools")
+            .await?;
         remaining()?;
         let prepared = recovery
             .prepare_transfer_child(&domain, sources, target)

@@ -1614,7 +1614,7 @@ async fn check_recovery_replacements(
             .await;
     ensure!(matches!(absent, Err(failure) if failure.code == RaftFleetFailureCode::Conflict));
     Box::pin(check_recovery_voter_reservations(
-        fixture, control, fresh, namespace, fenced, &plan, rooted,
+        fixture, control, fresh, namespace, fenced, &plan,
     ))
     .await?;
 
@@ -1669,7 +1669,6 @@ async fn check_recovery_voter_reservations(
     namespace: &str,
     fenced: &Arc<FleetFencedTransitionRecovery>,
     plan: &Arc<cellar::sdk::fleet_operations::FleetTransitionRecoveryReplacement>,
-    rooted: bool,
 ) -> Result<()> {
     let (_, directory) = reopen_merge_controller(fixture).await?;
     let mut standbys = Vec::new();
@@ -1731,21 +1730,19 @@ async fn check_recovery_voter_reservations(
             replayed.applied_revision() < previous && replayed.voter_boots() == boots.as_slice()
         );
         let revision = fixture.catalog.read(TIMEOUT).await?.revision();
-        for (voter_index, (root, _, host)) in standbys.iter().enumerate() {
+        let recovery = preparation::recovery_pool()?;
+        for (voter_index, (_, _, host)) in standbys.iter().enumerate() {
             let node = NodeId::new(boots[voter_index].node)?;
             inspect_current(host, node, revision).await?;
             for (range_index, reservation) in reserved.iter().enumerate() {
-                let base = root.path().join(format!("recovery-{range_index}"));
-                let route = reservation.route().clone();
-                let target = fixture
-                    .domain
-                    .blocking(move || preparation::store(base, route, rooted))?
-                    .await??;
-                let prepared =
-                    Box::pin(fresh.prepare_transition_recovery_range(
-                        namespace, fenced, plan, target, TIMEOUT,
-                    ))
-                    .await?;
+                let prepared = Box::pin(host.prepare_managed_recovery_seed(
+                    fenced,
+                    plan,
+                    reservation,
+                    &recovery,
+                    TIMEOUT,
+                ))
+                .await?;
                 if voter_index == 0 && range_index == 0 {
                     fixture
                         .store
