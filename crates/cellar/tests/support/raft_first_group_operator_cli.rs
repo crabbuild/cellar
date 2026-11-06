@@ -33,10 +33,45 @@ impl OperatorCli {
         owner_id: &str,
     ) -> Result<Self> {
         let catalog = control.catalog_id().to_owned();
+        let router = Self::router(domain, bucket, control, root, owner_id)?;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let (stop, stopped) = oneshot::channel();
+        let server = domain.spawn(async move {
+            axum::serve(listener, router)
+                .with_graceful_shutdown(async {
+                    let _ = stopped.await;
+                })
+                .await
+        })?;
+        Ok(Self {
+            url,
+            catalog,
+            stop: Some(stop),
+            joined: Some(server),
+        })
+    }
+
+    pub fn connect(url: String, catalog: String) -> Self {
+        Self {
+            url,
+            catalog,
+            stop: None,
+            joined: None,
+        }
+    }
+
+    pub fn router(
+        domain: &Arc<ExecutionDomain>,
+        bucket: Bucket,
+        control: RaftFleetControl,
+        root: &Path,
+        owner_id: &str,
+    ) -> Result<axum::Router> {
         let principal = |id: &str, token: &str, grants| {
             Principal::new(id.into(), token, BTreeMap::from([(FLEET.into(), grants)]))
         };
-        let router = cellar_admin::router(Console {
+        Ok(cellar_admin::router(Console {
             domain: domain.clone(),
             fleets: BTreeMap::from([(
                 FLEET.into(),
@@ -65,23 +100,7 @@ impl OperatorCli {
             audit: AuditStore::open(&root.join("first-group-audit.sqlite"))?,
             assets: root.join("assets"),
             origins: vec![],
-        })?;
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-        let url = format!("http://{}", listener.local_addr()?);
-        let (stop, stopped) = oneshot::channel();
-        let server = domain.spawn(async move {
-            axum::serve(listener, router)
-                .with_graceful_shutdown(async {
-                    let _ = stopped.await;
-                })
-                .await
-        })?;
-        Ok(Self {
-            url,
-            catalog,
-            stop: Some(stop),
-            joined: Some(server),
-        })
+        })?)
     }
 
     pub async fn call(&self, args: &[&str], token: &str) -> Result<CliReply> {

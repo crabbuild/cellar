@@ -9,6 +9,7 @@ mod lifecycle;
 mod maintenance;
 mod nodes;
 mod options;
+mod park;
 use crate::sdk::fleet_operations::*;
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -41,6 +42,7 @@ async fn execute(options: &options::Options) -> Result<Value> {
     let client = http::Client::new(options)?;
     let timeout = Duration::from_secs(30);
     match &options.action {
+        Action::Park(action, request) => park::execute(&client, action, request).await,
         Action::FirstGroupStandby(namespace) => {
             let catalog = options
                 .catalog_id

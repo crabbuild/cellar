@@ -104,8 +104,10 @@ python3 tools/multi-raft/daemon.py --image "$image" \
 ```
 
 Both image forms use the real operator CLI for capacity and first-group
-provisioning. Native and Axum exercise quorum writes, receipt-backed follower
-reads, an owned leader SIGKILL, exact retry reconciliation, retained restart and
+provisioning. The fixture also parks all three voters through the admin CLI,
+verifies that status and replay leave them parked, and checks fresh quorum and
+native and Axum reads after wake. Both ingress paths exercise quorum writes,
+receipt-backed follower reads, an owned leader SIGKILL, exact retry reconciliation, retained restart and
 loss of quorum. Local SDK observations record the leader on all three voters
 before SIGKILL and the new term on both surviving voters before restart. A
 per-voter fault adapter refuses archive writes while catalog traffic and object

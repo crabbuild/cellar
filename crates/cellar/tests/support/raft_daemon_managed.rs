@@ -329,6 +329,7 @@ pub(super) fn child(root: PathBuf, mode: &str) -> Result<()> {
     ));
     let prepare = move |node| boot_operator.prepare(node, index, retained, store);
     let fixture_operator = operator.clone();
+    let admin_root = root.join(format!("park-admin-{index}"));
     let bind = move |service: RaftCells, discovered: GroupHistory| async move {
         ensure!(discovered == history, "unexpected managed namespace group");
         if !retained {
@@ -339,13 +340,30 @@ pub(super) fn child(root: PathBuf, mode: &str) -> Result<()> {
         }
         ready_counter(&service, history, MemberId::new(u64::from(index) + 1)?).await?;
         let group = service.group(history)?;
+        let declaration = operator.declaration()?;
+        let selected = operator
+            .domain
+            .run(operator.adapter.existing_namespace(declaration.namespace))
+            .await??;
+        let directory = RangeDirectory::new(selected, configuration::limits().directory)?;
+        let control =
+            RaftFleetControl::new(&operator.domain, operator.fleet.clone(), vec![directory])?
+                .with_node_observer(service.clone());
+        std::fs::create_dir_all(&admin_root)?;
+        let admin = OperatorCli::router(
+            &operator.domain,
+            operator.bucket.clone(),
+            control,
+            &admin_root,
+            PRINCIPAL,
+        )?;
         *api.cells
             .lock()
             .map_err(|_| anyhow::anyhow!("binding poisoned"))? = Some(service);
         let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
         listener.set_nonblocking(true)?;
         let address = listener.local_addr()?;
-        let router = recovery::observe_voter(counter::router(api), group);
+        let router = recovery::observe_voter(counter::router(api), group).merge(admin);
         let task = axum_runtime.spawn(async move {
             let listener = tokio::net::TcpListener::from_std(listener)?;
             cellar::note!("cellar axum listening on {address}");
@@ -502,6 +520,120 @@ impl Operator {
             versions: fixture_versions()?,
         })
     }
+}
+
+pub(super) async fn verify_park_wake(
+    root: &Path,
+    client: &reqwest::Client,
+    addresses: &[ManagedIngress],
+    receipt: &Value,
+    ledger: &mut recovery::Ledger,
+) -> Result<()> {
+    let (leader, term, _) = recovery::observe_leader(client, addresses, None, 1, receipt).await?;
+    let history = history()?;
+    let domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
+    let operator = Operator::open(domain.clone(), root)?;
+    let catalog = hex::encode(operator.fleet.catalog_id()?);
+    drop(operator);
+    domain.shutdown().await;
+    let cli = OperatorCli::connect(addresses[leader].axum.clone(), catalog.clone());
+    let namespace = hex::encode(history.namespace.bytes());
+    let request = RaftFleetParkRequest {
+        catalog_id: catalog,
+        namespace_id: namespace.clone(),
+        group: RaftFleetTransitionGroup {
+            group_id: hex::encode(history.group.bytes()),
+            incarnation_id: hex::encode(history.incarnation.bytes()),
+        },
+        operation_id: hex::encode([119; 16]),
+        request_id: hex::encode([120; 16]),
+        settlement_request_id: hex::encode([121; 16]),
+        expected_revision: cli.revision().await?,
+    };
+    let plan = root.join("managed-park.json");
+    persist(root, "managed-park.json", &serde_json::to_vec(&request)?)?;
+    let plan = plan.to_str().context("park plan path")?;
+    let send = async |verb: &str| {
+        cli.call_with_timeout(
+            &["group", verb, &namespace, "--plan", plan],
+            OWNER,
+            Duration::from_secs(32),
+        )
+        .await?
+        .success()
+    };
+    let refused = cli
+        .call(&["group", "park", &namespace, "--plan", plan], cli::READER)
+        .await?;
+    ensure!(refused.code == 4, "reader admitted park: {}", refused.value);
+    ensure!(
+        send("park-status").await?.is_null(),
+        "park exists before admission"
+    );
+
+    let parked: RaftFleetParkStatus = serde_json::from_value(send("park").await?)?;
+    ensure!(
+        parked.phase == RaftFleetParkPhase::Delivered,
+        "park delivery did not settle"
+    );
+    let observed: RaftFleetParkStatus = serde_json::from_value(send("park-status").await?)?;
+    let replayed: RaftFleetParkStatus = serde_json::from_value(send("park").await?)?;
+    ensure!(
+        observed == parked && replayed == parked,
+        "park replay changed the rooted decision"
+    );
+    for address in addresses {
+        let status: Value = client
+            .get(format!("{}{}", address.axum, recovery::OBSERVATION))
+            .bearer_auth(SECRET)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        ensure!(
+            status["ready"] == false && status["term"] == term,
+            "status or replay woke a parked voter: {status}"
+        );
+    }
+    ledger.record(serde_json::json!({
+        "phase": "managed_park_delivered", "term": term,
+        "operation": parked.operation_id, "generation": parked.generation,
+        "members": addresses.len(),
+    }))?;
+    let wake: RaftFleetWakeStatus = serde_json::from_value(send("wake").await?)?;
+    ensure!(
+        wake.park == parked && wake.applied_term > term && wake.applied_index > parked.generation,
+        "wake lacks a fresh applied quorum barrier: {wake:?}"
+    );
+    ledger.record(serde_json::json!({
+        "phase": "managed_park_wake", "operation": wake.park.operation_id,
+        "generation": wake.park.generation, "term": wake.applied_term, "index": wake.applied_index,
+    }))?;
+    for ingress in Ingress::ALL {
+        let address = ingress.endpoint(&addresses[leader]);
+        let read: Value = client
+            .get(format!("{address}/counters/one"))
+            .bearer_auth(SECRET)
+            .header("x-read-consistency", "linearizable")
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        ensure!(
+            read["value"] == receipt["value"]
+                && read["group"] == receipt["group"]
+                && read["group_incarnation"] == receipt["group_incarnation"]
+                && read["incarnation"] == receipt["incarnation"],
+            "wake read changed cell state or history: {read}"
+        );
+        ledger.record(serde_json::json!({
+            "phase": "managed_park_read", "operation": wake.park.operation_id,
+            "ingress": ingress.label(), "receipt": read,
+        }))?;
+    }
+    Ok(())
 }
 
 pub(super) async fn wait_for_cold_boot(

@@ -28,6 +28,37 @@ pub struct RaftFleetParkRequest {
     pub expected_revision: u64,
 }
 
+impl RaftFleetParkRequest {
+    pub fn validate(&self, namespace: &str, operation: &str) -> Result<()> {
+        if self.namespace_id != namespace || self.operation_id != operation {
+            return Err(RaftFleetFailure::invalid("park selector mismatch"));
+        }
+        self.ids().map(|_| ())
+    }
+
+    fn ids(&self) -> Result<(ProposalId, [u8; 16], [u8; 16])> {
+        records::catalog_id(&self.catalog_id)?;
+        records::revision(self.expected_revision)?;
+        for id in [
+            &self.namespace_id,
+            &self.group.group_id,
+            &self.group.incarnation_id,
+        ] {
+            records::id(id)?;
+        }
+        let id = records::id(&self.request_id)?;
+        let settlement_id = records::id(&self.settlement_request_id)?;
+        if id == settlement_id {
+            return Err(RaftFleetFailure::invalid(
+                "Park admission and settlement require distinct request IDs.",
+            ));
+        }
+        let operation = ProposalId::new(records::id(&self.operation_id)?)
+            .map_err(|_| RaftFleetFailure::invalid("park operation ID"))?;
+        Ok((operation, id, settlement_id))
+    }
+}
+
 /// Historical outcome of the reservation, independent of current readiness.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -40,6 +71,9 @@ pub enum RaftFleetParkPhase {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RaftFleetParkStatus {
+    pub catalog_id: String,
+    pub namespace_id: String,
+    pub group: RaftFleetTransitionGroup,
     pub operation_id: String,
     pub generation: u64,
     pub phase: RaftFleetParkPhase,
@@ -75,7 +109,7 @@ impl RaftFleetControl {
         let existing = self.observe_park(&selection, &turn).await?;
         let voter = match &existing {
             Some(park) if park.phase != ManagedParkPhase::Negotiating => {
-                return park_status(selection.operation, park);
+                return park_status(request, park);
             }
             _ => self.park_voter(selection.history)?,
         };
@@ -116,7 +150,7 @@ impl RaftFleetControl {
             )
             .await?;
         park_status(
-            selection.operation,
+            request,
             &ManagedParkOperation {
                 permit,
                 phase: ManagedParkPhase::Delivered,
@@ -137,7 +171,7 @@ impl RaftFleetControl {
         self.observe_park(&selection, &turn)
             .await?
             .as_ref()
-            .map(|park| park_status(selection.operation, park))
+            .map(|park| park_status(request, park))
             .transpose()
     }
 
@@ -182,25 +216,15 @@ impl RaftFleetControl {
             park.revision = settled.snapshot.revision();
         }
         Ok(RaftFleetWakeStatus {
-            park: park_status(selection.operation, &park)?,
+            park: park_status(request, &park)?,
             applied_index: applied.index.get(),
             applied_term: applied.term.get(),
         })
     }
 
     fn park_selection(&self, principal: &str, request: &RaftFleetParkRequest) -> Result<Selection> {
-        records::catalog_id(&request.catalog_id)?;
+        let (operation, id, settlement_id) = request.ids()?;
         self.check_catalog(&request.catalog_id)?;
-        records::revision(request.expected_revision)?;
-        let id = records::id(&request.request_id)?;
-        let settlement_id = records::id(&request.settlement_request_id)?;
-        if id == settlement_id {
-            return Err(RaftFleetFailure::invalid(
-                "Park admission and settlement require distinct request IDs.",
-            ));
-        }
-        let operation = ProposalId::new(records::id(&request.operation_id)?)
-            .map_err(|_| RaftFleetFailure::invalid("park operation ID"))?;
         let directory = self.managed_namespace(&request.namespace_id)?;
         Ok(Selection {
             history: request.group.history(directory)?,
@@ -253,14 +277,20 @@ impl Selection {
     }
 }
 
-fn park_status(operation: ProposalId, park: &ManagedParkOperation) -> Result<RaftFleetParkStatus> {
+fn park_status(
+    request: &RaftFleetParkRequest,
+    park: &ManagedParkOperation,
+) -> Result<RaftFleetParkStatus> {
     let phase = match park.phase {
         ManagedParkPhase::Negotiating => RaftFleetParkPhase::Negotiating,
         ManagedParkPhase::Delivered => RaftFleetParkPhase::Delivered,
         ManagedParkPhase::Superseded => RaftFleetParkPhase::Superseded,
     };
     Ok(RaftFleetParkStatus {
-        operation_id: hex::encode(operation.bytes()),
+        catalog_id: request.catalog_id.clone(),
+        namespace_id: request.namespace_id.clone(),
+        group: request.group.clone(),
+        operation_id: request.operation_id.clone(),
         generation: park.permit.generation()?.get(),
         phase,
         observed_revision: park.revision,

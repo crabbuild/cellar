@@ -41,6 +41,7 @@ cellar raft fleet transition verify-child-archives NAMESPACE_HEX --plan REQUEST.
 cellar raft fleet transition publish NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet transition activate NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet transition resume NAMESPACE_HEX --plan REQUEST.json
+cellar raft fleet group park|park-status|wake NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet operation status OP_HEX
 cellar raft fleet operation progress OP_HEX [--cursor TOKEN] [--limit 64]
 cellar raft fleet operation wait OP_HEX [--timeout-seconds 600]
@@ -55,6 +56,12 @@ Wait expiry leaves the operation running. Rebalancing verifies replica placement
 it does not certify leader balance or authorize node/storage deletion.
 Exit codes: 0 success, 2 invalid input, 3 conflict, 4 blocked/cancelled,
 5 unavailable/unknown outcome, 6 wait timeout.";
+
+pub(super) enum ParkAction {
+    Park,
+    Status,
+    Wake,
+}
 
 pub(super) enum Action {
     GrantMaintenance(String, Box<RaftFleetMaintenanceAction>),
@@ -78,6 +85,7 @@ pub(super) enum Action {
     NodeCapacity(String, Box<RaftFleetNodeCapacity>, bool),
     Begin(RaftFleetBegin),
     Operation(String),
+    Park(ParkAction, Box<RaftFleetParkRequest>),
     TransitionStatus(String, String),
     TransitionResume(Box<RaftFleetTransitionResume>),
     TransitionActivate(Box<RaftFleetTransitionActivationRequest>),
@@ -135,6 +143,12 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
             .ok_or_else(|| invalid("missing transition command"))?;
         let namespace = args.next().ok_or_else(|| invalid("missing namespace ID"))?;
         (format!("transition_{verb}"), Some(namespace))
+    } else if command == "group" {
+        let verb = args
+            .next()
+            .ok_or_else(|| invalid("missing group park command"))?;
+        let namespace = args.next().ok_or_else(|| invalid("missing namespace ID"))?;
+        (format!("group_{verb}"), Some(namespace))
     } else if command == "operation" {
         let command = args
             .next()
@@ -255,6 +269,25 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
         validate_catalog(pin)?;
     }
     let action = match (command.as_str(), target) {
+        (verb @ ("group_park" | "group_park-status" | "group_wake"), Some(namespace))
+            if !wait && cursor.is_none() =>
+        {
+            let path = first_group_plan
+                .take()
+                .ok_or_else(|| invalid("--plan is required"))?;
+            let plan = json_file::<RaftFleetParkRequest>(&path)?;
+            plan.validate(&namespace, &plan.operation_id)?;
+            let catalog = catalog_id
+                .as_deref()
+                .ok_or_else(|| invalid("--catalog-id from fleet status is required"))?;
+            check_catalog(Some(catalog), &plan.catalog_id)?;
+            let action = match verb {
+                "group_park" => ParkAction::Park,
+                "group_park-status" => ParkAction::Status,
+                _ => ParkAction::Wake,
+            };
+            Action::Park(action, Box::new(plan))
+        }
         ("transition_status", Some(namespace)) if !wait && cursor.is_none() => {
             validate_id(&namespace)?;
             let operation = operation_id

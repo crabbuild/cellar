@@ -14,6 +14,7 @@ mod raft_first_group;
 mod raft_lifecycle;
 mod raft_maintenance;
 mod raft_nodes;
+mod raft_park;
 
 pub use audit::{AuditStore, Operation};
 pub use auth::{Permission, Principal};
@@ -125,6 +126,10 @@ pub fn router(console: Console) -> Result<Router> {
         .route(
             "/fleets/{fleet}/raft/namespaces/{namespace}/first-group/archive",
             post(raft_first_group::archive),
+        )
+        .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/parks/{operation}/{action}",
+            post(raft_park::dispatch).layer(DefaultBodyLimit::max(16 * 1024)),
         )
         .route(
             "/fleets/{fleet}/raft/namespaces/{namespace}/transitions/{operation}",

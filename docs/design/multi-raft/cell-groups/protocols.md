@@ -1424,6 +1424,14 @@ durable delivery to all voters, or after a quorum observation proves a later
 term or an applied position beyond the reserved park cut. A timeout alone
 does not settle the rooted operation.
 
+On a managed voter, use `cellar raft fleet group park NAMESPACE_HEX --plan REQUEST.json`
+with the fleet catalog ID and an exact group and incarnation. The plan supplies
+distinct admission and settlement request IDs and the fleet revision to reserve.
+`group park-status` reads the rooted operation without contacting voters.
+`group wake` targets the same generation and waits for a fresh quorum read.
+Use the same plan and principal for retries. An interrupted admission can be
+settled by wake after the leader durably advances beyond its reserved cut.
+
 The node keeps parked voters out of the Raft tick roster. Its deadline index
 holds one earliest effect per parked history and releases due wakes in bounded
 batches on the execution-domain timer. A restart may conservatively wake all locally parked groups

@@ -899,6 +899,14 @@ async fn qualify() -> Result<()> {
             && acknowledged[0].receipt["cell"] != acknowledged[1].receipt["cell"],
         "two independent cell histories must share the physical group"
     );
+    managed::verify_park_wake(
+        root.path(),
+        &client,
+        &addresses,
+        &acknowledged[0].receipt,
+        &mut ledger,
+    )
+    .await?;
     archive::verify(
         root.path(),
         &client,

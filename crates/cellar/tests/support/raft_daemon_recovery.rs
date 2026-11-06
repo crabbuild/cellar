@@ -156,10 +156,10 @@ pub(super) fn matching_receipt(actual: &Value, expected: &Value) -> Result<()> {
     Ok(())
 }
 
-const OBSERVATION: &str = "/fixture/raft-observation";
+pub(super) const OBSERVATION: &str = "/fixture/raft-observation";
 
 #[derive(serde::Deserialize, serde::Serialize)]
-struct VoterObservation {
+pub(super) struct VoterObservation {
     member: u64,
     term: u64,
     leader: Option<u64>,
@@ -204,7 +204,7 @@ pub(super) fn observe_voter(router: axum::Router, group: RaftGroupHandle) -> axu
     )
 }
 
-async fn observe_leader(
+pub(super) async fn observe_leader(
     client: &reqwest::Client,
     addresses: &[ManagedIngress],
     killed: Option<usize>,

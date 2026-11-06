@@ -109,6 +109,21 @@ def verify_archive_outage(events):
         ), "S3 recovery did not acknowledge the original result")
 
 
+def verify_park_wake(events):
+    phases = ("managed_park_delivered", "managed_park_wake", "managed_park_read", "managed_park_read")
+    records = [event for event in events if event["phase"] in phases]
+    require(tuple(event["phase"] for event in records) == phases, "missing ordered park and wake proof")
+    parked, wake, native, axum = records
+    require(parked["members"] == 3 and parked["generation"] > 0
+            and wake["generation"] == parked["generation"] and wake["index"] > parked["generation"]
+            and wake["term"] > parked["term"]
+            and all(event["operation"] == parked["operation"] for event in records),
+            "wake did not prove fresh quorum for the parked generation")
+    require([native["ingress"], axum["ingress"]] == ["native", "axum"]
+            and all(event["receipt"]["value"] == 11 for event in (native, axum)),
+            "post-wake reads did not preserve both ingress paths and the cell value")
+
+
 def verify_leader_loss(events):
     phases = ("before_hard_kill", "hard_kill_joined", "successor_before_restart", "restarted")
     records = [event for event in events if event["phase"] in phases]
@@ -179,6 +194,7 @@ def execute(mode, output, remote, credentials, build, engine):
         ledger = guest(f"cat {quoted}/process.jsonl\n")
         require(ledger.returncode == 0, "process ledger missing")
         events = [json.loads(line) for line in ledger.stdout.splitlines()]
+        verify_park_wake(events)
         verify_archive_outage(events)
         verify_leader_loss(events)
         modes = ("native", "axum")
