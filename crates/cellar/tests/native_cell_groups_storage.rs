@@ -16,14 +16,20 @@ mod faults;
 #[allow(dead_code)]
 mod engine_fault;
 
+#[path = "support/cell_group_batch_crash.rs"]
+mod batch_crash;
+#[path = "support/cell_group_crash_fixture.rs"]
+#[allow(dead_code)]
+mod crash_fixture;
 #[path = "support/cell_group_recovery.rs"]
 mod recovery;
 
 use anyhow::Result;
 use cellar::application::consensus::{
-    verification::{cell_groups::*, CommittedImage},
+    verification::{cell_groups::*, Catalog, CatalogOptions, CommittedImage},
     *,
 };
+use cellar::sdk::ExecutionDomain;
 use cellar_ltx::{
     generation::{GenerationLimits, GenerationPin, GenerationStore},
     DirectFileSystem,
@@ -49,6 +55,17 @@ async fn manifest_marker_crash_cuts() -> Result<()> {
 #[ignore = "process-kill fixture, launched only by manifest_marker_crash_cuts"]
 async fn manifest_process_fixture() -> Result<()> {
     recovery::process_fixture().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cross_group_batch_crash() -> Result<()> {
+    batch_crash::run().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "owned process-kill fixture for cross_group_batch_crash"]
+async fn batch_crash_child() -> Result<()> {
+    batch_crash::child().await
 }
 
 fn route() -> GroupRoute {

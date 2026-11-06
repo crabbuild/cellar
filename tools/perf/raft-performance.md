@@ -719,12 +719,16 @@ unchanged.
 
 The focused cases cover a large waiter, mixed leader/follower roles, independent
 progress and election while a hot group is stalled, and process kills before
-sync, after sync and after acknowledgement of a shared three-group batch.
+sync, after sync and after acknowledgement of a shared three-group batch. The
+storage crash case reopens all three group histories and checks that their
+committed entries and applied manifests select the same batch.
 
 ```sh
 python3 tools/perf/raft_run.py --profile tools/perf/raft_profiles.json \
   --profile-name q1-capacity-plan --capacity-only
-cargo test -p cellar --test native_raft_multigroup --locked -- --test-threads=1
+cargo test --locked -p cellar --test native_cell_groups_execution many_groups_mixed_roles
+cargo test --locked -p cellar --test native_cell_groups_execution hot_group_fairness
+cargo test --locked -p cellar --test native_cell_groups_storage cross_group_batch_crash
 python3 -m unittest discover -s tools/perf -p test_raft_run.py
 ```
 
