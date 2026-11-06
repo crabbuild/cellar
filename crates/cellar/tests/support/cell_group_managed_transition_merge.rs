@@ -305,47 +305,9 @@ async fn rustfs_managed_recovery_barrier_fences_transfer_and_reopens() -> Result
     Ok(())
 }
 
-#[derive(Default)]
-struct TransitionFence {
-    stopped: std::sync::Mutex<Option<[u8; 32]>>,
-    fences: std::sync::atomic::AtomicUsize,
-    verifications: std::sync::atomic::AtomicUsize,
-}
-
-impl DisasterFenceAuthority<FleetTransitionRecoveryFenceRequest> for TransitionFence {
-    fn fence<'a>(
-        &'a self,
-        request: &'a FleetTransitionRecoveryFenceRequest,
-    ) -> futures_util::future::BoxFuture<'a, Result<Vec<u8>>> {
-        Box::pin(async move {
-            self.fences.fetch_add(1, Ordering::AcqRel);
-            let mut stopped = self.stopped.lock().unwrap();
-            let digest = request.digest();
-            ensure!(
-                *stopped.get_or_insert(digest) == digest,
-                "different fence scope"
-            );
-            Ok(digest.to_vec())
-        })
-    }
-
-    fn verify<'a>(
-        &'a self,
-        request: &'a FleetTransitionRecoveryFenceRequest,
-        evidence: &'a [u8],
-    ) -> futures_util::future::BoxFuture<'a, Result<()>> {
-        Box::pin(async move {
-            self.verifications.fetch_add(1, Ordering::AcqRel);
-            let digest = request.digest();
-            ensure!(
-                *self.stopped.lock().unwrap() == Some(digest),
-                "fence not effective"
-            );
-            ensure!(evidence == digest, "unbound fence evidence");
-            Ok(())
-        })
-    }
-}
+#[path = "cell_group_managed_transition_fence.rs"]
+mod fence;
+use fence::TransitionFence;
 
 struct ArchiveInputs {
     domain: Arc<ExecutionDomain>,
@@ -1211,7 +1173,13 @@ async fn run_inner(
         ensure!(confirmed.intent_digest() == parent_intent.digest());
         let locked = domain.run(directory.observe()).await??;
         ensure!(locked.digest() == confirmed.directory_digest());
-        let authority = TransitionFence::default();
+        let authority = TransitionFence::own(
+            domain.clone(),
+            &cluster.fixtures,
+            &mut cluster.roots,
+            &mut cluster.nodes,
+            &mut cluster.hosts,
+        )?;
         let foreign = Box::pin(recovery_control.fence_transition_recovery(
             "foreign-operator",
             &namespace,
@@ -1270,6 +1238,10 @@ async fn run_inner(
             .eq(parent_holds.iter()));
         ensure!(authority.fences.load(Ordering::Acquire) == 1);
         ensure!(authority.verifications.load(Ordering::Acquire) == 2);
+        ensure!(authority.erased_disks().await == cluster.fixtures.len());
+        let cut = fleet.read(TIMEOUT).await?;
+        Box::pin(fence::check_old_boot_refused(fixture)).await?;
+        ensure!(fleet.read(TIMEOUT).await?.revision() == cut.revision());
         ensure!(matches!(
             domain
                 .run(directory.require_current_group_birth(&birth))

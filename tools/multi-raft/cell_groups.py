@@ -91,9 +91,10 @@ SUITES = {
         "native_cell_groups_managed",
         ("bootstrap::transition::merge::rustfs_managed_recovery_barrier_fences_transfer_and_reopens",
          "bootstrap::transition::merge::rustfs_managed_split_merge"),
-        "managed split and merge through retirement, with managed recovery seeding and atomic range publication",
-        "Host-native voters, fixture capacity and a test fencing authority. Managed recovery "
-        "activation, physical host fencing and sustained load are separate gates.",
+        "managed split and merge through retirement, with restored SQL after source disk erasure",
+        "Host-native voters, joined source shutdown and erasure of test-owned disks. "
+        "Fixture capacity and fencing authority. Permanent Docker launch revocation "
+        "and sustained load remain separate gates.",
     ),
     "managed-liveness": (
         "native_cell_groups_managed",
