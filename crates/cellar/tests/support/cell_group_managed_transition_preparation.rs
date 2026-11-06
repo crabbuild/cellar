@@ -6,7 +6,8 @@ use cellar::application::consensus::verification::cell_groups::{
     CellGroupApplyImages, CellGroupArchiveError, CellGroupArchiveHold, CellGroupArchiveRegistry,
     CellGroupArchiveStore, CellGroupArchiveTailPool, CellGroupBirth, CellGroupCheckpointPool,
     CellGroupRecoveryLimits, CellGroupRecoveryPool, CellGroupTransferTarget,
-    CellGroupTransitionPreparationInputs, CellGroupTransitionSource, GroupRoute, ManifestPageStore,
+    CellGroupTransitionPreparationInputs, CellGroupTransitionSource, DirectoryMutation, GroupRoute,
+    ManifestPageStore,
 };
 use cellar::application::consensus::verification::FleetHistoryState;
 use cellar_ltx::{
