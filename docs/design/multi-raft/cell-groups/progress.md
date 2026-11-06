@@ -508,6 +508,12 @@ The remaining ingress case timed out during the first-group standby CLI
 invocation, before the SQL and S3 checks. The campaign retains both that
 result and the earlier full-suite result where ingress passed. An isolated
 ingress rerun uses the same source and original command bounds.
+The layout check passed. The format check found one missing declaration
+separator in the shared read test. The repository formatter corrected that
+file on the PR branch. Strict all-target Clippy on `393bffe4` failed with
+202 library errors, beginning with unused predecessor per-cell consensus
+code. Its log SHA-256 is
+`a126388e2ecdd032f4bba27180f100f1ddaa7aa32f6ec4046bbfce91909aecb7`.
 
 ## CG-07 voter and learner read readiness
 
