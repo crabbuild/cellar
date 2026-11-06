@@ -109,12 +109,12 @@ a committed command and its applied receipt. Explicit S3 durability waits for
 archive proof. The release should define which SQL capabilities are available
 through the shared backend and preserve typed refusals for the rest.
 
-1. **Close CG-07 failed-voter repair and managed lifecycle.** The corrected
-   constrained RustFS candidate passed both image modes. It promoted the
-   standby, retained the failed disk, replayed the archived receipt and
-   served fresh quorum SQL through both ingress adapters. Run repair, joined
-   drain, maintenance and retained inventory together on the public PR
-   executable source.
+1. **Close CG-07 failed-voter repair and managed lifecycle.** The PR-source
+   materialized campaign passed repair, maintenance, joined drain and quorum
+   refusal. The extent run stopped when both surviving daemons self-fenced
+   after lease renewal timed out against the shared fixture SQLite store.
+   Verify the new RustFS lease prefix, then pass the combined campaign in
+   both image modes on one executable source.
 2. **Pass the combined CG-07 RF3 SQL gate.** Use one source revision for
    onboarding, enrollment, ingress-only SDK routing, native and Axum reads and
    writes, leader loss, exact retries, retained restart and quorum refusal.
@@ -130,9 +130,10 @@ through the shared backend and preserve typed refusals for the rest.
    making shared groups the default for supported SQL in new namespaces.
 3. **Finish CG-09/10 operator split and merge.** One native case now resumes
    the operator-admitted split after a partial reservation, serves SQL on the
-   activated children and verifies late writes after merging. Requalify this
-   path in both RustFS image modes. Complete the named transition targets,
-   including restart after partial seals and lost publication replies.
+   activated children and verifies late writes after merging. The RustFS
+   extent recovery case hit an unconfirmed startup of a released voter.
+   Resolve that restart, then requalify both image modes. Complete the named
+   transition targets, including partial seals and lost publication replies.
 4. **Finish CG-11–13 managed operations.** Qualify adaptive placement, fenced
    hibernation and wakeup, and S3 recovery of interrupted transitions. Run the
    Docker-fenced disk-loss drill with all old voter disks deleted and a fresh

@@ -89,6 +89,14 @@ recovery log SHA-256 digests are
 `164717789fdb4e43d7e6bad037a3a5220f48af1c26a349c053e05be4e82c9774`
 and `ac3add4a43284ad9fff17d501e02d525038a7f0a2e1c614f207ef9bb0ad7113a`.
 
+The RustFS rerun on `960836c767697277c8a9317c6158506a25933631` completed
+the materialized recovery scenario. The extent mode reached the restart
+of a released recovery voter and received `FleetCatalogError::Unconfirmed`
+during startup. The ordinary split/merge case was skipped after this suite
+failure. The record SHA-256 is
+`cf2fed801695bcceced9af9d115716e66b24b3b52eb834d5d7410dabdf0fbf15`.
+Keep this startup outcome separate from the native operator continuity pass.
+
 ## CG-12 alarm, peer and minority wake
 
 At `a6bd8f64975ffe71842302bf4d1974362abb7eea`, the first two cases in
@@ -350,7 +358,23 @@ replacement leader drain, joined shutdown proof and linearizable SQL on the
 surviving quorum before inducing quorum loss. The native daemon and targeted
 Clippy pass. The native daemon log SHA-256 is
 `4cc00ce662f271e88b11a12c06d9107178044f8f2844a1805a68a0a7fb9473a4`.
-The constrained run of this revision remains pending.
+The constrained materialized campaign passed in 220.838 seconds. Its
+replacement leader handed off in one attempt, and both adapters served
+linearizable reads through the surviving quorum before refusing quorum
+requests after another voter stopped.
+
+The extent campaign stopped after retained restart, before repair. Both
+survivors exhausted their daemon node lease renewal deadlines against the
+fixture's shared SQLite database and self-fenced. Raft catalog and archive
+traffic used RustFS. The extent failure took 98.157 seconds. The combined
+record SHA-256 is
+`4495160cf492f7bf3dd3b94c524fbe040924af022b08c1563bbbc4ac53a50149`.
+
+Candidate `e7a3929f519cf53b773364def3ba6daf079d4746` uses a separate prefix in
+the same isolated RustFS bucket for daemon leases and peer authentication.
+It independently reads all three live leases before SQL. The prior timeout
+and safe fencing remain recorded. The candidate needs the real RustFS
+extent check and both constrained image modes.
 
 ## CG-07 shared cell version key rotation
 
