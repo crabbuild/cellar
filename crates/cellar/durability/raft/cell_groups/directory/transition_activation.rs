@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 
 const ACTIVATIONS: u8 = 208;
 const SETS: &str = "transfer-activation-sets";
+const STAGED_ACTIVATION: u8 = 212;
 
 /// Historical proof from an engine-bound Raft owner after durable apply.
 #[derive(Clone, Debug)]
@@ -266,6 +267,16 @@ struct ActivationSet {
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+struct StagedActivation {
+    namespace: [u8; 32],
+    plan: [u8; 32],
+    publication: [u8; 32],
+    installed: [u8; 32],
+    child: ActivationReceipt,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct ActivationReceipt {
     group: [u8; 16],
     incarnation: [u8; 16],
@@ -275,7 +286,7 @@ struct ActivationReceipt {
 }
 
 impl ActivationReceipt {
-    fn new(ack: CellGroupTransferActivationAck) -> Self {
+    fn new(ack: &CellGroupTransferActivationAck) -> Self {
         Self {
             group: ack.route.history.group.bytes(),
             incarnation: ack.route.history.incarnation.bytes(),
@@ -330,6 +341,146 @@ impl RangeDirectory {
             .await
     }
 
+    /// Persist a local applied acknowledgment and select Active only after
+    /// every installed child has an exact staged acknowledgment.
+    pub(crate) async fn resume_managed_transfer_activation(
+        &self,
+        plan: &DirectoryMutation,
+        history: GroupHistory,
+        acknowledgement: Option<CellGroupTransferActivationAck>,
+        permit: &ManagedTransitionPermit,
+    ) -> Result<Option<(LogPosition, TransitionJournal)>, CatalogError> {
+        permit.check(self, plan)?;
+        let (journal, position, complete) = self
+            .bounded(async {
+                let (view, _) = self.current().await?;
+                let journal = self
+                    .matching_transition(&view.head, plan)
+                    .await?
+                    .filter(|journal| {
+                        matches!(
+                            journal.phase(),
+                            TransitionPhase::Published | TransitionPhase::Active
+                        )
+                    })
+                    .ok_or(CatalogError::Fenced)?;
+                let (publication, installed) = self
+                    .transfer_activation_dependencies(plan, &view.head, &journal)
+                    .await?;
+                let markers = self
+                    .installed_transfer_children_inner(plan, Some(permit))
+                    .await?
+                    .ok_or(CatalogError::Fenced)?;
+                let marker = markers
+                    .iter()
+                    .find(|marker| marker.route().history == history)
+                    .ok_or(CatalogError::Fenced)?;
+                if let Some(ack) = acknowledgement {
+                    let receipt = checked_activation(&ack, marker, publication)?;
+                    self.claim_staged_activation(plan, publication, installed, receipt)
+                        .await?;
+                }
+
+                let mut position = None;
+                let mut children = Vec::with_capacity(markers.len());
+                for marker in &markers {
+                    let child = marker.route().history;
+                    let key =
+                        staged_activation_key(plan, child.group.bytes(), child.incarnation.bytes());
+                    let Some(bytes) = self.read(&key).await? else {
+                        continue;
+                    };
+                    let staged: StagedActivation =
+                        record::decode(STAGED_ACTIVATION, &bytes, wire::LIMIT)?;
+                    if staged.namespace != self.namespace.root_digest
+                        || staged.plan != plan.digest()
+                        || staged.publication != publication
+                        || staged.installed != installed
+                    {
+                        return Err(CatalogError::Corrupt("staged transfer activation binding"));
+                    }
+                    let applied = staged.child.validate(marker)?;
+                    if child == history {
+                        position = Some(applied);
+                    }
+                    children.push(staged.child);
+                }
+                let complete = if children.len() == markers.len() {
+                    let digest = self
+                        .store_activation_set(plan, publication, installed, children)
+                        .await?;
+                    Some((publication, installed, digest))
+                } else {
+                    None
+                };
+                Ok((journal, position, complete))
+            })
+            .await?;
+        let Some(position) = position else {
+            return Ok(None);
+        };
+        let journal = if let Some((publication, installed, digest)) = complete {
+            self.record_verified_transfer_activations(
+                plan,
+                publication,
+                installed,
+                digest,
+                Some(permit),
+            )
+            .await?
+        } else {
+            journal
+        };
+        Ok(Some((position, journal)))
+    }
+
+    async fn claim_staged_activation(
+        &self,
+        plan: &DirectoryMutation,
+        publication: [u8; 32],
+        installed: [u8; 32],
+        child: ActivationReceipt,
+    ) -> Result<(), CatalogError> {
+        let key = self.key(&staged_activation_key(plan, child.group, child.incarnation));
+        let value = StagedActivation {
+            namespace: self.namespace.root_digest,
+            plan: plan.digest(),
+            publication,
+            installed,
+            child,
+        };
+        let bytes = record::encode(STAGED_ACTIVATION, &value, wire::LIMIT)?;
+        let observed = self
+            .namespace
+            .inner
+            .create_and_observe_bounded(&key, &bytes, wire::LIMIT)
+            .await?;
+        if observed != bytes {
+            return Err(CatalogError::Conflict("staged transfer activation changed"));
+        }
+        Ok(())
+    }
+
+    async fn store_activation_set(
+        &self,
+        plan: &DirectoryMutation,
+        publication: [u8; 32],
+        installed: [u8; 32],
+        children: Vec<ActivationReceipt>,
+    ) -> Result<[u8; 32], CatalogError> {
+        let set = ActivationSet {
+            namespace: self.namespace.root_digest,
+            plan: plan.digest(),
+            publication,
+            installed,
+            children,
+        };
+        let bytes = record::encode(ACTIVATIONS, &set, wire::LIMIT)?;
+        let digest = record::digest(&bytes);
+        self.immutable(SETS, digest, &bytes).await?;
+        Ok(digest)
+    }
+
     async fn record_transfer_activations_inner(
         &self,
         plan: &DirectoryMutation,
@@ -354,25 +505,20 @@ impl RangeDirectory {
                     .installed_transfer_children_inner(plan, permit)
                     .await?
                     .ok_or(CatalogError::Fenced)?;
-                let mut children = Vec::with_capacity(markers.len());
-                for (ack, marker) in acknowledgements.into_iter().zip(markers) {
-                    if ack.publication != publication || &ack.route != marker.route() {
-                        return Err(CatalogError::Fenced);
+                let children = acknowledgements
+                    .iter()
+                    .zip(&markers)
+                    .map(|(ack, marker)| checked_activation(ack, marker, publication))
+                    .collect::<Result<Vec<_>, _>>()?;
+                if permit.is_some() && journal.phase() == TransitionPhase::Published {
+                    for receipt in &children {
+                        self.claim_staged_activation(plan, publication, installed, receipt.clone())
+                            .await?;
                     }
-                    let receipt = ActivationReceipt::new(ack);
-                    receipt.validate(&marker)?;
-                    children.push(receipt);
                 }
-                let set = ActivationSet {
-                    namespace: self.namespace.root_digest,
-                    plan: plan.digest(),
-                    publication,
-                    installed,
-                    children,
-                };
-                let bytes = record::encode(ACTIVATIONS, &set, wire::LIMIT)?;
-                let digest = record::digest(&bytes);
-                self.immutable(SETS, digest, &bytes).await?;
+                let digest = self
+                    .store_activation_set(plan, publication, installed, children)
+                    .await?;
                 Ok((publication, installed, digest))
             })
             .await?;
@@ -459,4 +605,30 @@ impl RangeDirectory {
             journal.installed_children().ok_or(CatalogError::Fenced)?,
         ))
     }
+}
+
+fn checked_activation(
+    ack: &CellGroupTransferActivationAck,
+    installed: &GroupManifest,
+    publication: [u8; 32],
+) -> Result<ActivationReceipt, CatalogError> {
+    if ack.publication != publication || &ack.route != installed.route() {
+        return Err(CatalogError::Fenced);
+    }
+    let receipt = ActivationReceipt::new(ack);
+    receipt.validate(installed)?;
+    Ok(receipt)
+}
+
+fn staged_activation_key(
+    plan: &DirectoryMutation,
+    group: [u8; 16],
+    incarnation: [u8; 16],
+) -> String {
+    format!(
+        "transfer-activation-progress/{}/{}/{}",
+        hex::encode(plan.digest()),
+        hex::encode(group),
+        hex::encode(incarnation)
+    )
 }

@@ -111,6 +111,50 @@ pub(crate) async fn resume_transition(
     Ok(serde_json::from_value(result?.success()?)?)
 }
 
+pub(crate) async fn activate_transition_child(
+    fixture: &Fixture,
+    directory: &RangeDirectory,
+    principal: &str,
+    observer: &RaftCells,
+    request: &RaftFleetTransitionActivationRequest,
+) -> Result<RaftFleetTransitionActivation> {
+    let root = tempfile::tempdir()?;
+    let cli = open_cli(fixture, directory, root.path(), principal, Some(observer)).await?;
+    let plan = root.path().join("transition-activation.json");
+    std::fs::write(&plan, serde_json::to_vec(request)?)?;
+    let path = plan
+        .to_str()
+        .context("UTF-8 transition activation plan path")?;
+    let command = [
+        "transition",
+        "activate",
+        &request.namespace_id,
+        "--plan",
+        path,
+    ];
+    let result = async {
+        ensure!(cli.call(&command, READER).await?.code == 4);
+        tokio::time::timeout(TIMEOUT, async {
+            loop {
+                let reply = cli.call(&command, OWNER).await?;
+                if reply.code != 5 {
+                    let applied: RaftFleetTransitionActivation =
+                        serde_json::from_value(reply.success()?)?;
+                    if applied.applied.is_some() {
+                        return Ok::<_, anyhow::Error>(applied);
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .context("operator did not confirm the child activation")?
+    }
+    .await;
+    cli.close().await?;
+    result
+}
+
 async fn exercise(
     f: &Fixture,
     cli: &OperatorCli,

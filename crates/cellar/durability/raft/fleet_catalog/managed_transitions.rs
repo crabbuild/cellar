@@ -22,7 +22,7 @@ use crate::raft::{
 
 use cellar_logic::{
     cell_group::{GroupHistory, GroupRoute},
-    consensus::{NodeId, ProposalId},
+    consensus::{LogPosition, NodeId, ProposalId},
 };
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -590,6 +590,37 @@ impl FleetCatalog {
                     .run(Box::pin(directory.record_managed_transfer_activations(
                         &transition.plan,
                         acknowledgements,
+                        &permit,
+                    )))
+                    .await
+                    .map_err(|_| FleetCatalogError::Closed)?
+                    .map_err(catalog_error)
+            }),
+        )
+        .await
+    }
+
+    pub(crate) async fn resume_managed_transfer_activation(
+        &self,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        history: GroupHistory,
+        acknowledgement: Option<CellGroupTransferActivationAck>,
+        timeout: Duration,
+    ) -> Result<Option<(LogPosition, TransitionJournal)>> {
+        validate_request(&transition.request)?;
+        self.run(
+            timeout,
+            Box::pin(async {
+                let permit = self
+                    .verified_managed_transfer_permit(transition, directory)
+                    .await?;
+                self.inner
+                    .domain
+                    .run(Box::pin(directory.resume_managed_transfer_activation(
+                        &transition.plan,
+                        history,
+                        acknowledgement,
                         &permit,
                     )))
                     .await

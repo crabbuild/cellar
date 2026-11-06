@@ -1170,8 +1170,16 @@ the held source closure remains available for recovery. Explicit S3
 acknowledgement requires child archive coverage. A selected child can serve
 only after activation applies. The
 directory selects Active after receiving one durable acknowledgement for every
-child in plan order. It binds the set to the exact publication and installed
-seed commitments and can reopen it after an ambiguous CAS. The topology lane
+child in plan order. Each applied acknowledgement can be staged independently
+against the exact publication and installed seed. A replacement controller can
+reconcile the stored acknowledgements and select the complete set after an
+ambiguous CAS.
+
+Use `cellar raft fleet transition activate NAMESPACE_HEX --plan REQUEST.json --catalog-id DIGEST`
+against a managed voter endpoint after publication. The request binds the child
+group and incarnation to the admitted plan. An accepted proposal is provisional.
+Retry the exact request to obtain its durable applied position. The operator's
+Fleet topology grant and the original plan's principal are required. The topology lane
 remains owned until parent retirement. After the route switch, a retained
 parent voter reopens from its historical birth only if its synced seal matches
 the exact selected transfer. This keeps the parent fenced and lets it

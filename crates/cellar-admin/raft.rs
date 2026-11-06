@@ -100,6 +100,56 @@ pub(crate) async fn transition(
     })
 }
 
+pub(crate) async fn activate_transition_child(
+    State(console): State<Arc<Console>>,
+    Extension(principal): Extension<Principal>,
+    Path((fleet, namespace, operation)): Path<(String, String, String)>,
+    body: Result<Json<RaftFleetTransitionActivationRequest>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    principal.require(&fleet, Permission::FleetTopology)?;
+    let Ok(Json(request)) = body else {
+        return Ok(failure(RaftFleetFailure::invalid(
+            "invalid child activation",
+        )));
+    };
+    if let Err(error) = request.validate(&namespace, &operation) {
+        return Ok(failure(error));
+    }
+    let fingerprint = match serde_json::to_vec(&request) {
+        Ok(bytes) => hex_digest(&bytes),
+        Err(_) => {
+            return Ok(failure(RaftFleetFailure::invalid(
+                "invalid child activation",
+            )))
+        }
+    };
+    let mut audit = match console.audit.begin(
+        &format!("raft-{}-{}", request.catalog_id, request.request_id),
+        &fleet,
+        &principal.id,
+        &format!("raft/namespaces/{namespace}/transitions/{operation}/activate"),
+        "raft_transition_activate",
+        &fingerprint,
+    ) {
+        Ok(value) => value,
+        Err(error) => return Ok(audit_failure(error)),
+    };
+    let result = match backend(&console, &fleet) {
+        Ok(control) => {
+            control
+                .activate_transition_child(&principal.id, &namespace, &operation, &request, TIMEOUT)
+                .await
+        }
+        Err(error) => Err(error),
+    };
+    let status = if result.as_ref().is_ok_and(|value| value.applied.is_some()) {
+        "applied"
+    } else {
+        "accepted"
+    };
+    finish_with_status(&console, &mut audit, result, status)
+}
+
 pub(crate) async fn resume_transition(
     State(console): State<Arc<Console>>,
     Extension(principal): Extension<Principal>,

@@ -10,6 +10,9 @@ use cellar::application::consensus::verification::cell_groups::{
     ManifestPageStore,
 };
 use cellar::application::consensus::verification::FleetHistoryState;
+use cellar::sdk::fleet_operations::{
+    RaftFleetControl, RaftFleetFailureCode, RaftFleetTransitionActivationRequest,
+};
 use cellar_ltx::{
     generation::{GenerationStore, ReadServices},
     internal::{CacheLimits, NodeExtentStore, EXTENT_BYTES},
@@ -694,6 +697,57 @@ async fn verify_managed_publication(
         }
     }
 
+    let controller = Fixture::open_catalog(domain, fixture.store.clone(), cluster.history.cluster)?;
+    let control = RaftFleetControl::new(domain, controller.clone(), vec![directory.clone()])?;
+    let namespace = hex::encode(cluster.history.namespace.bytes());
+    let operation = hex::encode(reopened.plan.operation().bytes());
+    let principal = &reopened.request.principal;
+    let request = |index: usize| RaftFleetTransitionActivationRequest {
+        catalog_id: control.catalog_id().to_owned(),
+        namespace_id: namespace.clone(),
+        operation_id: operation.clone(),
+        request_id: hex::encode([219 + index as u8; 16]),
+        plan_digest: hex::encode(reopened.plan.digest()),
+        group_id: hex::encode(children[index].history.group.bytes()),
+        incarnation_id: hex::encode(children[index].history.incarnation.bytes()),
+    };
+    let first = request(0);
+    let leader = tokio::time::timeout(TIMEOUT, async {
+        loop {
+            for (index, voter) in voters.iter().enumerate() {
+                if voter.group(children[0].history)?.status().await?.leader
+                    == Some(index as u64 + 1)
+                {
+                    return Ok::<_, anyhow::Error>(voter);
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("operator needs a pending child leader")??;
+    let applied = crate::managed_fixture::operator::activate_transition_child(
+        fixture, directory, principal, leader, &first,
+    )
+    .await?;
+    ensure!(applied.phase == TransitionPhase::Published && applied.applied.is_some());
+    ensure!(
+        control
+            .activate_transition_child(principal, &namespace, &operation, &first, TIMEOUT)
+            .await?
+            == applied
+    );
+    for voter in voters {
+        ensure!(!voter.group(children[1].history)?.status().await?.ready);
+    }
+    ensure!(matches!(
+        cluster.hosts[0]
+            .group(cluster.history)?
+            .retire_managed_source(&reopened, TIMEOUT)
+            .await,
+        Err(CellGroupControllerError::Catalog(_))
+    ));
+
     let mut acknowledgements = Vec::with_capacity(children.len());
     for route in children {
         acknowledgements.push(wait_managed_activation(voters, &reopened, route.history).await?);
@@ -717,21 +771,31 @@ async fn verify_managed_publication(
             .await,
         Err(FleetCatalogError::Conflict)
     ));
+    let second = request(1);
+    let second_leader = crate::managed_fixture::leader(voters, children[1].history).await?;
+    let voter_control = control
+        .clone()
+        .with_node_observer(voters[second_leader].clone());
     fixture
         .store
         .fail_head_confirmation
         .store(true, Ordering::Release);
-    ensure!(matches!(
-        fleet
-            .record_managed_transfer_activations(
-                &reopened,
-                directory,
-                acknowledgements.clone(),
-                TIMEOUT
-            )
-            .await,
-        Err(FleetCatalogError::Unconfirmed)
-    ));
+    let lost = voter_control
+        .activate_transition_child(principal, &namespace, &operation, &second, TIMEOUT)
+        .await;
+    ensure!(matches!(lost, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
+    ensure!(!fixture.store.fail_head_confirmation.load(Ordering::Acquire));
+    let confirmed = control
+        .activate_transition_child(principal, &namespace, &operation, &second, TIMEOUT)
+        .await?;
+    let position = acknowledgements[1].position();
+    ensure!(
+        confirmed.phase == TransitionPhase::Active
+            && confirmed
+                .applied
+                .is_some_and(|applied| applied.index == position.index.get()
+                    && applied.term == position.term.get())
+    );
     let active = fleet
         .reopen_managed_transition(directory, transition.plan.operation(), TIMEOUT)
         .await?
@@ -1518,17 +1582,24 @@ pub(super) async fn wait_pending_child(
     voters: &[RaftCells],
     child: GroupHistory,
 ) -> Result<TransferChildQuorum> {
+    let mut last = vec![None; voters.len()];
     tokio::time::timeout(TIMEOUT, async {
         loop {
             let mut applied = true;
             let mut witness = None;
-            for voter in voters {
+            for (index, voter) in voters.iter().enumerate() {
                 let group = voter.group(child)?;
                 let status = group.status().await?;
                 ensure!(!status.ready, "a pending child served before publication");
                 applied &= status.applied.index.get() > 1;
+                last[index] = Some((status, false));
                 match group.managed_pending_transfer_quorum(TIMEOUT).await {
-                    Ok(proof) => witness = Some(proof),
+                    Ok(proof) => {
+                        if let Some((_, observed)) = &mut last[index] {
+                            *observed = true;
+                        }
+                        witness = Some(proof);
+                    }
                     Err(CellGroupControllerError::Runtime(
                         RuntimeError::NotLeader | RuntimeError::NotReady,
                     )) => (),
@@ -1542,5 +1613,5 @@ pub(super) async fn wait_pending_child(
         }
     })
     .await
-    .context("pending transfer child must commit a fresh term")?
+    .with_context(|| format!("pending transfer child {child:?} must commit a fresh term, last voter status and proof: {last:?}"))?
 }

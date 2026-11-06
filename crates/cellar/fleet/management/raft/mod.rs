@@ -45,8 +45,9 @@ pub use records::{
 };
 use std::{sync::Arc, time::Duration};
 pub use transition::{
-    RaftFleetTransitionResume, RaftFleetTransitionResumeAcceptance, RaftFleetTransitionResumeStep,
-    RaftFleetTransitionStatus,
+    RaftFleetTransitionActivation, RaftFleetTransitionActivationPosition,
+    RaftFleetTransitionActivationRequest, RaftFleetTransitionResume,
+    RaftFleetTransitionResumeAcceptance, RaftFleetTransitionResumeStep, RaftFleetTransitionStatus,
 };
 
 type Result<T> = std::result::Result<T, RaftFleetFailure>;

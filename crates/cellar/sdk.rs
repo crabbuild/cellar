@@ -212,9 +212,11 @@ pub mod fleet_operations {
         RaftFleetNodeCapacity, RaftFleetNodeDescriptor, RaftFleetNodeOperation,
         RaftFleetNodeRemove, RaftFleetNodeState, RaftFleetNodeStatus, RaftFleetNodeStop,
         RaftFleetOperation, RaftFleetOutcome, RaftFleetRegisterNode, RaftFleetStatus,
-        RaftFleetTransitionResume, RaftFleetTransitionResumeAcceptance,
-        RaftFleetTransitionResumeStep, RaftFleetTransitionStatus, RaftFleetVerificationBlocker,
-        RaftFleetVerificationReason, RaftFleetVerificationStage,
+        RaftFleetTransitionActivation, RaftFleetTransitionActivationPosition,
+        RaftFleetTransitionActivationRequest, RaftFleetTransitionResume,
+        RaftFleetTransitionResumeAcceptance, RaftFleetTransitionResumeStep,
+        RaftFleetTransitionStatus, RaftFleetVerificationBlocker, RaftFleetVerificationReason,
+        RaftFleetVerificationStage,
     };
     pub use crate::raft::fleet_catalog::FleetTopologyPolicy;
 }
