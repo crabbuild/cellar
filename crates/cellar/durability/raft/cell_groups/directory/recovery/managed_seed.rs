@@ -7,9 +7,11 @@ use super::{
     *,
 };
 use crate::raft::{
+    cache::GroupLog,
     cell_groups::{CellGroupApplier, GroupManifest, PreparedRecoveryData, RecoverySeed},
     fleet_catalog::ManagedRecoverySeedAuthority,
     fleet_stop::BootBinding,
+    member_state::FleetGroupBinding,
     storage::{LogError, ReplicaLog},
 };
 use cellar_logic::consensus::{DiskLineage, EngineInstanceId, MemberId};
@@ -309,6 +311,47 @@ impl RangeDirectory {
         Ok(binding.genesis)
     }
 
+    /// A crash may leave a synced genesis with only its seed intent. Retain
+    /// that owner, but require a complete receipt separately before voting.
+    pub(super) async fn require_retained_managed_seed_intent(
+        &self,
+        group: &GroupLog<GroupHistory>,
+        route: &GroupRoute,
+        plan: [u8; 32],
+        fleet: &FleetGroupBinding,
+        engine: EngineInstanceId,
+    ) -> Result<(GroupManifest, [u8; 32]), CatalogError> {
+        let local = group.identity();
+        let (binding, digest) = self.managed_seed_binding(route, plan).await?;
+        let member = local.member.get();
+        let intent = self.read_managed_seed_intent(route, member).await?;
+        let receipt: Receipt = record::decode(INTENT, &intent, wire::LIMIT)?;
+        let boot = &receipt.boot;
+        boot.validate().map_err(CatalogError::Log)?;
+        if receipt.binding != digest
+            || receipt.member != member
+            || boot.catalog != fleet.catalog()
+            || boot.fleet != fleet.fleet()
+            || boot.node != local.node.bytes()
+            || boot.disk != local.disk.bytes()
+            || boot.engine != engine.bytes()
+        {
+            return Err(CatalogError::LostStableState);
+        }
+        let expected = record::encode(COMPLETE, &receipt, wire::LIMIT)?;
+        if self
+            .read_managed_seed_complete(route, member)
+            .await?
+            .is_some_and(|complete| complete != expected)
+        {
+            return Err(CatalogError::Corrupt("retained managed seed receipt"));
+        }
+        self.namespace
+            .verify_node_storage_identity(local.node, local.disk, engine)
+            .await?;
+        Ok((binding.genesis, binding.commitment))
+    }
+
     async fn managed_seed_binding(
         &self,
         route: &GroupRoute,
@@ -350,28 +393,44 @@ impl RangeDirectory {
             member,
             boot: boot.clone(),
         };
-        let complete_key = self.managed_seed_key(route, &seed_member_key(member, "complete"));
-        let Some((complete, _)) = self
-            .namespace
-            .inner
-            .read_versioned_bounded(&complete_key, wire::LIMIT)
-            .await?
-        else {
+        let Some(complete) = self.read_managed_seed_complete(route, member).await? else {
             return Ok(false);
         };
-        let intent_key = self.managed_seed_key(route, &seed_member_key(member, "intent"));
-        let (intent, _) = self
-            .namespace
-            .inner
-            .read_versioned_bounded(&intent_key, wire::LIMIT)
-            .await?
-            .ok_or(CatalogError::Corrupt("missing managed seed intent"))?;
+        let intent = self.read_managed_seed_intent(route, member).await?;
         if complete != record::encode(COMPLETE, &receipt, wire::LIMIT)?
             || intent != record::encode(INTENT, &receipt, wire::LIMIT)?
         {
             return Err(CatalogError::Corrupt("managed seed receipt binding"));
         }
         Ok(true)
+    }
+
+    async fn read_managed_seed_complete(
+        &self,
+        route: &GroupRoute,
+        member: u64,
+    ) -> Result<Option<Vec<u8>>, CatalogError> {
+        let key = self.managed_seed_key(route, &seed_member_key(member, "complete"));
+        Ok(self
+            .namespace
+            .inner
+            .read_versioned_bounded(&key, wire::LIMIT)
+            .await?
+            .map(|(bytes, _)| bytes))
+    }
+
+    async fn read_managed_seed_intent(
+        &self,
+        route: &GroupRoute,
+        member: u64,
+    ) -> Result<Vec<u8>, CatalogError> {
+        let key = self.managed_seed_key(route, &seed_member_key(member, "intent"));
+        self.namespace
+            .inner
+            .read_versioned_bounded(&key, wire::LIMIT)
+            .await?
+            .map(|(bytes, _)| bytes)
+            .ok_or(CatalogError::Corrupt("missing managed seed intent"))
     }
 
     fn managed_seed_key(&self, route: &GroupRoute, leaf: &str) -> Path {

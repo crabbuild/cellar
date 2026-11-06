@@ -1678,13 +1678,12 @@ async fn check_recovery_voter_reservations(
         for (id, capacity_request) in [(70, 190), (71, 192), (72, 194)] {
             let peer = peer_fixture(fixture, id).await?;
             let root = tempfile::tempdir()?;
-            let node = start_node(root.path(), peer.application.clone(), &peer.spec.label).await?;
-            let (mut config, services) = peer.config(&node, LogOpenMode::Create, id + 100).await?;
-            crate::managed_fixture::archives::configure(&mut config);
-            let host = Box::pin(node.start_raft_cells(config, services)).await?;
-            standbys.push((root, node, host));
-            let (_, _, host) = standbys.last().context("started recovery voter")?;
-            Box::pin(admit_capacity(&peer, host, &directory, capacity_request)).await?;
+            let (node, host) = Box::pin(start_recovery_voter(
+                &peer, root.path(), LogOpenMode::Create, id + 100,
+            )).await?;
+            standbys.push((root, node, host, peer));
+            let (_, _, host, peer) = standbys.last().context("started recovery voter")?;
+            Box::pin(admit_capacity(peer, host, &directory, capacity_request)).await?;
             let view = host.observe_node(TIMEOUT).await?;
             ensure!(view.node.groups == 0);
             boots.push(view.fleet_boot.context("new recovery voter boot")?);
@@ -1733,7 +1732,7 @@ async fn check_recovery_voter_reservations(
         let revision = fixture.catalog.read(TIMEOUT).await?.revision();
         let recovery = preparation::recovery_pool()?;
         let mut quorum_digest = None;
-        for (voter_index, (_, _, host)) in standbys.iter().enumerate() {
+        for (voter_index, (_, _, host, _)) in standbys.iter().enumerate() {
             let node = NodeId::new(boots[voter_index].node)?;
             inspect_current(host, node, revision).await?;
             for (range_index, reservation) in reserved.iter().enumerate() {
@@ -1820,6 +1819,36 @@ async fn check_recovery_voter_reservations(
             plan_digest: plan.digest(),
             seed_digest: reopened.digest(),
         };
+        let (root, node, host, peer) = standbys.remove(1);
+        ensure!(matches!(node.shutdown(ShutdownMode::Preserve).await?, NodeOutcome::Stopped(_)));
+        let report = host.close().await?;
+        ensure!(
+            report.groups_total == reserved.len() && report.omitted_groups == 0
+                && report.groups.iter().all(|group| !group.active && !group.failed
+                    && group.applied.index.get() == 1 && group.committed == group.applied.index),
+            "closed pending recovery voter inventory: {report:?}"
+        );
+        let (node, host) = Box::pin(start_recovery_voter(
+            &peer, root.path(), LogOpenMode::Resume, 197,
+        )).await.context("restart a selected recovery voter before publication")?;
+        standbys.insert(1, (root, node, host, peer));
+        let (_, _, host, peer) = &standbys[1];
+        let view = host.observe_node(TIMEOUT).await?;
+        ensure!(view.node.groups == reserved.len() as u32 && view.registered_histories == 0);
+        let new_boot = view.fleet_boot.context("restarted recovery voter boot")?;
+        ensure!(
+            new_boot.disk == boots[1].disk && new_boot.engine == boots[1].engine
+                && new_boot.process != boots[1].process && new_boot.boot != boots[1].boot
+        );
+        let unqualified = Box::pin(fresh.select_transition_recovery_seed_quorums(
+            namespace, fenced, plan, TIMEOUT,
+        )).await;
+        ensure!(matches!(unqualified, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
+        Box::pin(admit_capacity(peer, host, &directory, 197)).await?;
+        let confirmed = Box::pin(fresh.select_transition_recovery_seed_quorums(
+            namespace, fenced, plan, TIMEOUT,
+        )).await?;
+        ensure!(confirmed.digest() == reopened.digest());
         let first_host = &standbys[0].2;
         let premature = Box::pin(first_host.attach_managed_recovery_voter(
             request.clone(), first, TIMEOUT,
@@ -1846,7 +1875,8 @@ async fn check_recovery_voter_reservations(
             let denied = fixture.domain.run(directory.materialize_selected_history(birth.route().history)).await?;
             ensure!(matches!(denied, Err(cellar::application::consensus::CatalogError::Fenced)));
         }
-        let hosts: Vec<_> = standbys.iter().map(|(_, _, host)| host).collect();
+        let revision = fixture.catalog.read(TIMEOUT).await?.revision();
+        let hosts: Vec<_> = standbys.iter().map(|(_, _, host, _)| host).collect();
         for host in &hosts {
             for peer in &hosts {
                 inspect_current(host, peer.identity().node, revision).await?;
@@ -1897,7 +1927,7 @@ async fn check_recovery_voter_reservations(
     })
     .await;
     let mut shutdown = Ok(());
-    for (_root, node, host) in standbys {
+    for (_root, node, host, _peer) in standbys {
         let joined = async {
             ensure!(matches!(
                 node.shutdown(ShutdownMode::Preserve).await?,
@@ -1919,6 +1949,28 @@ async fn check_recovery_voter_reservations(
     }
     checked?;
     shutdown
+}
+
+async fn start_recovery_voter(
+    fixture: &Fixture,
+    root: &std::path::Path,
+    mode: LogOpenMode,
+    generation: u8,
+) -> Result<(Node, RaftCells)> {
+    let node = start_node(root, fixture.application.clone(), &fixture.spec.label).await?;
+    let result = async {
+        let (mut config, services) = fixture.config(&node, mode, generation).await?;
+        crate::managed_fixture::archives::configure(&mut config);
+        node.start_raft_cells(config, services).await
+    }
+    .await;
+    match result {
+        Ok(host) => Ok((node, host)),
+        Err(error) => {
+            let stopped = node.shutdown(ShutdownMode::Preserve).await;
+            Err(error.context(format!("start recovery voter, shutdown={stopped:?}")))
+        }
+    }
 }
 
 async fn check_pending_recovery_quorum(

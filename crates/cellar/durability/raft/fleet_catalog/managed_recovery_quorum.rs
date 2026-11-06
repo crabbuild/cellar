@@ -370,7 +370,12 @@ impl FleetCatalog {
                         entry.insert(self.qualified_recovery_boot(snapshot, voter.node).await?)
                     }
                 };
-                if current.as_ref() == Some(boot) {
+                // The seed is bound to durable storage. A newly qualified
+                // boot can retain it only on the exact same disk and engine.
+                if current
+                    .as_ref()
+                    .is_some_and(|current| boot.same_engine_owner(current))
+                {
                     eligible += 1;
                 }
             }

@@ -1513,9 +1513,14 @@ and replacement groups. A lost response reopens that publication without
 selecting another archive cut. The node's recovery attachment entry point
 reopens the selected publication by durable IDs. It checks the voter's original
 seed receipt, the current qualified boot on the same disk and engine, and the
-complete retained page and image closure before starting Raft. The voter can
-replicate a fresh-term barrier while application admission remains closed.
-Committed activation requires a separate fresh-quorum proof.
+complete retained page and image closure before starting Raft. Managed startup
+can reopen a synced seed into its parked image set after process loss. It checks
+the recovery lock, reserved history, seed intent and pinned disk and engine.
+The parked owner keeps its images and capacity charge outside the transport
+roster. A new boot must qualify before its disk's seed can count for publication
+or attach after publication. The voter can then replicate a fresh-term barrier
+while application admission remains closed. Committed activation requires a
+separate fresh-quorum proof.
 
 For an unpublished transition, choose complete archived parent cuts and reconstruct
 their non-overlapping domain under new groups. For a published transition, require

@@ -306,17 +306,40 @@ pub(super) async fn discover_retained_placements(
                 < limits.controller.max_groups,
             "retained group capacity exceeded"
         );
-        if let Some(marker) = retained.group_manifest()?.filter(|marker| {
-            marker.transfer_origin().is_some() && marker.transfer_activation().is_none()
-        }) {
-            let namespace = prepared
+        let namespace = || {
+            prepared
                 .namespaces
                 .iter()
                 .position(|namespace| {
                     let config = namespace.directory.namespace_config();
                     config.cluster == history.cluster && config.namespace == history.namespace
                 })
-                .ok_or(CatalogError::ManagedAdmissionRequired)?;
+                .ok_or(CatalogError::ManagedAdmissionRequired)
+        };
+        let marker = retained.group_manifest()?;
+        if let Some(marker) = marker
+            .as_ref()
+            .filter(|marker| marker.recovery_request().is_some() && !marker.is_active())
+        {
+            let namespace = namespace()?;
+            let directory = &prepared.namespaces[namespace].directory;
+            let timeout = std::time::Duration::from_secs(5);
+            let snapshot = fleet.read(timeout).await?;
+            let birth = fleet.history(&snapshot, &history, timeout).await?;
+            Box::pin(directory.require_parked_managed_recovery(
+                &retained,
+                marker,
+                &birth,
+                log.storage_instance()?,
+            ))
+            .await?;
+            placements.parked.push((namespace, retained));
+            continue;
+        }
+        if let Some(marker) = marker.as_ref().filter(|marker| {
+            marker.transfer_origin().is_some() && marker.transfer_activation().is_none()
+        }) {
+            let namespace = namespace()?;
             let directory = &prepared.namespaces[namespace].directory;
             let origin = marker.transfer_origin().ok_or(CatalogError::Fenced)?;
             let operation = cellar_logic::consensus::ProposalId::new(origin.operation())?;
@@ -328,25 +351,18 @@ pub(super) async fn discover_retained_placements(
                 .require_parked_managed_transfer(
                     &transition,
                     &retained,
-                    &marker,
+                    marker,
                     log.storage_instance()?,
                 )
                 .await?;
             placements.parked.push((namespace, retained));
             continue;
         }
-        if let Some(marker) = retained
-            .group_manifest()?
+        if let Some(marker) = marker
+            .as_ref()
             .filter(|marker| marker.source_seal().is_some())
         {
-            let namespace = prepared
-                .namespaces
-                .iter()
-                .position(|namespace| {
-                    let config = namespace.directory.namespace_config();
-                    config.cluster == history.cluster && config.namespace == history.namespace
-                })
-                .ok_or(CatalogError::ManagedAdmissionRequired)?;
+            let namespace = namespace()?;
             let directory = &prepared.namespaces[namespace].directory;
             if let Some(seal) = marker
                 .source_seal()
@@ -367,14 +383,14 @@ pub(super) async fn discover_retained_placements(
                     .is_some_and(|journal| journal.retired_parents().is_some())
                 {
                     directory
-                        .park_managed_retired_source(&transition.plan, &retained, &marker)
+                        .park_managed_retired_source(&transition.plan, &retained, marker)
                         .await?;
                     placements.retired_sources.push(history);
                     placements.parked.push((namespace, retained));
                     continue;
                 }
             }
-            if let Some((birth, _)) = directory.discover_managed_sealed_source(&marker).await? {
+            if let Some((birth, _)) = directory.discover_managed_sealed_source(marker).await? {
                 let mut assignment =
                     assignment_from_birth(namespace, RaftGroupPlacement::Replica, birth);
                 assignment.sealed_transfer_source = true;
