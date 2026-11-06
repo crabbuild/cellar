@@ -1366,6 +1366,22 @@ In-flight outbox delivery is settled or journaled with the original ID; a lost
 delivery response never authorizes a new identity. The target may retry that ID
 under the receiver's existing dedupe contract.
 
+## Adaptive partition observations
+
+Partition observations read cell count, image bytes and whole-cell pivots
+from the selected manifest. The group owner reports newly admitted writes,
+durably applied cell writes and the age of its oldest committed apply entry.
+Rate calculations require two samples from the same owner, route, term and
+membership. A four-key sketch tracks exact cell names within one-second
+windows. Its counts are lower bounds. A rate sample uses a hot-writer window
+only when it contains the entire window. A two-second sampling cadence allows
+a complete window at every offset.
+
+The controller supplies the current directory digest and measured placement
+pressure. The resulting recommendation goes through managed transition
+admission. The Fleet owner rechecks the source routes, membership and term
+with quorum observations before staging new reservations.
+
 ## Coordinated hibernation
 
 Closing an execution cache is independent from parking the Raft group. For the
