@@ -145,7 +145,28 @@ impl Fixture {
                 TIMEOUT,
             )
             .await?;
-        let initial = increment(&handles[primary], &definition, 1, 1).await?;
+        // Verify every voter can read the committed enrollment locally before
+        // the first write. All fault cases start from this complete RF3 cut.
+        for (index, handle) in handles.iter().enumerate() {
+            let ready = handle
+                .query(
+                    query_id(),
+                    &definition.get,
+                    vec![],
+                    QueryOptions {
+                        routing: QueryRouting::Local,
+                        ..Default::default()
+                    },
+                )
+                .await
+                .with_context(|| format!("verify enrolled cell on voter {index}"))?;
+            assert_eq!(ready.served_by, MemberId::new(index as u64 + 1)?);
+            assert_eq!(ready.result, 0_i64.to_be_bytes());
+        }
+        let primary = cluster.leader(None).await?;
+        let initial = increment(&handles[primary], &definition, 1, 1)
+            .await
+            .context("commit the baseline write")?;
         for handle in &handles {
             let result = handle
                 .query(query_id(), &definition.get, vec![], at_least(&initial))
