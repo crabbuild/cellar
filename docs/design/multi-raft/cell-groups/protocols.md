@@ -1531,16 +1531,22 @@ histories and its commit journal. After the final batch, the directory
 checks the rooted Fleet settlement and every replacement history. One
 directory CAS records the completion receipt and supersedes the original
 transition. Operator status exposes that receipt alongside the held Fleet
-slot. The release step first creates or opens an archive registry for each
-replacement. A partially initialized registry keeps release fenced under the
-same archive authority rules as a new group. A separate CAS selects the
-exact completion receipt for serving and removes the directory recovery lock. A controller can reopen that decision
+slot. The release step first selects or opens the exact archive binding for
+each replacement. Under that fence it creates the empty registry before
+publishing the immutable archive identity. A retried controller can finish
+either step while the history is still fenced. An established identity with
+missing counters refuses to open. A separate CAS selects the exact
+completion receipt for serving and removes the directory recovery lock. A controller can reopen that decision
 after a lost response. Existing fenced owners remain parked for application
 work until they restart. Retained original voters recheck the current route
 and Fleet boot, the same disk and engine, their durable seed, and the exact
 committed activation before joining the serving runtime. Raft must still
-establish current-term quorum authority. The Fleet slot and archive holds
-stay charged until their independent retirement proofs are recorded.
+establish current-term quorum authority. Fleet then verifies the exact
+serving release, the superseded routes, and the permanent infrastructure
+fence before retiring each batch of old histories. The final Fleet CAS
+retires the last batch and releases the original disruption slot. Retried
+completion reopens the recorded cursor and original revision. Retained
+physical occupancy and source archive holds keep their independent charges.
 
 For an unpublished transition, choose complete archived parent cuts and reconstruct
 their non-overlapping domain under new groups. For a published transition, require

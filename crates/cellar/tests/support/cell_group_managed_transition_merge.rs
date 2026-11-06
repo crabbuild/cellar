@@ -305,47 +305,9 @@ async fn rustfs_managed_recovery_barrier_fences_transfer_and_reopens() -> Result
     Ok(())
 }
 
-#[derive(Default)]
-struct TransitionFence {
-    stopped: std::sync::Mutex<Option<[u8; 32]>>,
-    fences: std::sync::atomic::AtomicUsize,
-    verifications: std::sync::atomic::AtomicUsize,
-}
-
-impl DisasterFenceAuthority<FleetTransitionRecoveryFenceRequest> for TransitionFence {
-    fn fence<'a>(
-        &'a self,
-        request: &'a FleetTransitionRecoveryFenceRequest,
-    ) -> futures_util::future::BoxFuture<'a, Result<Vec<u8>>> {
-        Box::pin(async move {
-            self.fences.fetch_add(1, Ordering::AcqRel);
-            let mut stopped = self.stopped.lock().unwrap();
-            let digest = request.digest();
-            ensure!(
-                *stopped.get_or_insert(digest) == digest,
-                "different fence scope"
-            );
-            Ok(digest.to_vec())
-        })
-    }
-
-    fn verify<'a>(
-        &'a self,
-        request: &'a FleetTransitionRecoveryFenceRequest,
-        evidence: &'a [u8],
-    ) -> futures_util::future::BoxFuture<'a, Result<()>> {
-        Box::pin(async move {
-            self.verifications.fetch_add(1, Ordering::AcqRel);
-            let digest = request.digest();
-            ensure!(
-                *self.stopped.lock().unwrap() == Some(digest),
-                "fence not effective"
-            );
-            ensure!(evidence == digest, "unbound fence evidence");
-            Ok(())
-        })
-    }
-}
+#[path = "cell_group_managed_transition_fence.rs"]
+mod fence;
+use fence::TransitionFence;
 
 struct ArchiveInputs {
     domain: Arc<ExecutionDomain>,
@@ -1211,7 +1173,13 @@ async fn run_inner(
         ensure!(confirmed.intent_digest() == parent_intent.digest());
         let locked = domain.run(directory.observe()).await??;
         ensure!(locked.digest() == confirmed.directory_digest());
-        let authority = TransitionFence::default();
+        let authority = TransitionFence::own(
+            domain.clone(),
+            &cluster.fixtures,
+            &mut cluster.roots,
+            &mut cluster.nodes,
+            &mut cluster.hosts,
+        )?;
         let foreign = Box::pin(recovery_control.fence_transition_recovery(
             "foreign-operator",
             &namespace,
@@ -1244,8 +1212,17 @@ async fn run_inner(
             .fail_recovery_record_confirmation
             .load(Ordering::Acquire));
         ensure!(authority.fences.load(Ordering::Acquire) == 1);
-        let fresh =
-            fresh.with_transition_preparer(recovery_verifier, preparation::recovery_pool()?);
+        ensure!(authority.erased_disks().await == cluster.fixtures.len());
+        drop(recovery_control);
+        drop(recovery_verifier);
+        domain
+            .blocking(move || recovery_workspace.close())?
+            .await??;
+        let cold_workspace = tempfile::tempdir()?;
+        let cold_verifier =
+            crate::managed_fixture::verifier::open(fixture, cold_workspace.path(), rooted, limits)
+                .await?;
+        let fresh = fresh.with_transition_preparer(cold_verifier, preparation::recovery_pool()?);
         let fenced = Box::pin(fresh.fence_transition_recovery(
             principal,
             &namespace,
@@ -1270,6 +1247,9 @@ async fn run_inner(
             .eq(parent_holds.iter()));
         ensure!(authority.fences.load(Ordering::Acquire) == 1);
         ensure!(authority.verifications.load(Ordering::Acquire) == 2);
+        let cut = fleet.read(TIMEOUT).await?;
+        Box::pin(fence::check_old_boot_refused(fixture)).await?;
+        ensure!(fleet.read(TIMEOUT).await?.revision() == cut.revision());
         ensure!(matches!(
             domain
                 .run(directory.require_current_group_birth(&birth))
@@ -1291,20 +1271,26 @@ async fn run_inner(
         ensure!(observed.phase == Some(TransitionPhase::Archived) && observed.fleet_slot_held);
         let page = domain.run(directory.group_page(&locked, None, 2)).await??;
         ensure!(page.routes == parents && page.next.is_none());
-        Box::pin(check_recovery_replacements(
-            fixture,
-            &recovery_control,
-            &fresh,
-            &namespace,
-            &fenced,
-            &RecoverySql {
-                routed: &routed,
-                receipts: &receipts,
-            },
-            rooted,
-        ))
-        .await?;
-        drop(fenced);
+        let fixture = fixture.clone();
+        // Replacement is a separate lifecycle phase with its own polling
+        // stack. Keep the cold verifier workspace alive until it joins.
+        let replacement = domain.spawn(Box::pin(async move {
+            Box::pin(check_recovery_replacements(
+                &fixture,
+                &control,
+                &fresh,
+                &namespace,
+                &fenced,
+                &RecoveryScenario {
+                    routed: &routed,
+                    receipts: &receipts,
+                    authority: &authority,
+                },
+                rooted,
+            ))
+            .await
+        }))?;
+        replacement.await??;
         return Ok(None);
     }
     for (registry, hold) in registries.iter().zip(&parent_holds) {
@@ -1524,9 +1510,10 @@ async fn run_inner(
     Ok(Some(child.history))
 }
 
-struct RecoverySql<'a> {
+struct RecoveryScenario<'a> {
     routed: &'a [(CellHistory, i64)],
     receipts: &'a [CommandReceipt],
+    authority: &'a TransitionFence,
 }
 
 async fn check_recovery_replacements(
@@ -1535,7 +1522,7 @@ async fn check_recovery_replacements(
     fresh: &RaftFleetControl,
     namespace: &str,
     fenced: &Arc<FleetFencedTransitionRecovery>,
-    sql: &RecoverySql<'_>,
+    sql: &RecoveryScenario<'_>,
     rooted: bool,
 ) -> Result<()> {
     let routed = sql.routed;
@@ -1679,7 +1666,7 @@ async fn check_recovery_voter_reservations(
     namespace: &str,
     fenced: &Arc<FleetFencedTransitionRecovery>,
     plan: &Arc<cellar::sdk::fleet_operations::FleetTransitionRecoveryReplacement>,
-    sql: &RecoverySql<'_>,
+    sql: &RecoveryScenario<'_>,
 ) -> Result<()> {
     let routed = sql.routed;
     let (_, directory) = reopen_merge_controller(fixture).await?;
@@ -2024,6 +2011,17 @@ async fn check_recovery_voter_reservations(
         ensure!(refused.is_err());
         let still_fenced = fixture.domain.run(directory.observe()).await??;
         ensure!(still_fenced.digest() == after_completion.digest());
+        let premature = Box::pin(fresh.advance_transition_recovery_retirement(
+            namespace, &request, completion, sql.authority, TIMEOUT,
+        )).await;
+        ensure!(premature.is_err());
+        for (controller, suffix) in [(fresh, "/ownership/registry"), (control, "/ownership/identity")] {
+            let release = controller.release_transition_recovery_serving(namespace, &request, completion, TIMEOUT);
+            let (denied, delivered) = Box::pin(fault::deny_archive_creation(suffix, release)).await;
+            ensure!(delivered && denied.is_err(), "archive initialization did not stop at {suffix}");
+            let view = fixture.domain.run(directory.observe()).await??;
+            ensure!(view.digest() == after_completion.digest());
+        }
         let release = fresh.release_transition_recovery_serving(namespace, &request, completion, TIMEOUT);
         let (unknown, delivered) = Box::pin(fault::lose_directory_confirmation(release)).await;
         ensure!(delivered && matches!(unknown, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
@@ -2066,17 +2064,64 @@ async fn check_recovery_voter_reservations(
             }
         }
         Box::pin(check_recovered_sql(&standbys, plan, fenced, sql, &activations)).await?;
+        let before = fixture.catalog.read(TIMEOUT).await?;
+        let wrong_authority = TransitionFence::default();
+        let rejected = Box::pin(fresh.advance_transition_recovery_retirement(
+            namespace, &request, completion, &wrong_authority, TIMEOUT,
+        )).await;
+        ensure!(rejected.is_err()
+            && wrong_authority.verifications.load(Ordering::Acquire) == 1
+            && fixture.catalog.read(TIMEOUT).await?.revision() == before.revision(),
+            "retirement must reverify the external fence before a Fleet mutation: {rejected:?}");
+        let verifications = sql.authority.verifications.load(Ordering::Acquire);
+        fixture.store.fail_fleet_confirmation.store(true, Ordering::Release);
+        let unknown = Box::pin(fresh.advance_transition_recovery_retirement(
+            namespace, &request, completion, sql.authority, TIMEOUT,
+        )).await;
+        let fault_delivered = !fixture.store.fail_fleet_confirmation.swap(false, Ordering::AcqRel);
+        let reverified = sql.authority.verifications.load(Ordering::Acquire) - verifications;
+        ensure!(
+            fault_delivered
+                && matches!(&unknown, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable),
+            "retirement lost CAS returned {unknown:?}, fault delivered={fault_delivered}, fence verifications={reverified}"
+        );
+        let retired = Box::pin(control.advance_transition_recovery_retirement(
+            namespace, &request, completion, sql.authority, TIMEOUT,
+        )).await?;
+        ensure!(retired.retired_histories == 3 && retired.total_histories == 3
+            && retired.fleet_slot_released && retired.applied_revision == before.revision() + 1);
+        ensure!(sql.authority.verifications.load(Ordering::Acquire) == verifications + 1);
+        let cut = fixture.catalog.read(TIMEOUT).await?;
+        Box::pin(fixture.catalog.check_inventory(&cut, std::slice::from_ref(&directory), TIMEOUT))
+            .await.context("recovery retirement inventory")?;
+        let old_histories: std::collections::BTreeSet<_> = fenced.request().intent()
+            .required_voter_lineages().iter().map(|lineage| lineage.group).collect();
+        for history in old_histories {
+            let old = fixture.catalog.history(&cut, &history, TIMEOUT).await?;
+            ensure!(matches!(old.state(), FleetHistoryState::Retired { operation, .. }
+                if *operation == fenced.request().intent().transition()));
+        }
+        let status = Box::pin(fresh.transition_status(namespace, &old_operation, TIMEOUT)).await?;
+        ensure!(!status.fleet_slot_held && !status.parent_holds_released
+            && status.recovery_completion_digest == Some(hex::encode(completion)));
+        let release_replay = Box::pin(fresh.release_transition_recovery_serving(
+            namespace, &request, completion, TIMEOUT,
+        )).await?;
+        ensure!(release_replay == completion);
+
         Ok::<(), anyhow::Error>(())
     })
     .await;
     let mut shutdown = Ok(());
-    for (_root, node, host, _peer) in standbys {
-        let joined = async {
-            ensure!(matches!(
-                node.shutdown(ShutdownMode::Preserve).await?,
-                NodeOutcome::Stopped(_)
-            ));
-            let report = host.close().await?;
+    for (_root, node, host, peer) in standbys {
+        let stopped = node.shutdown(ShutdownMode::Preserve).await;
+        let closed = host.close().await;
+        let joined = (|| {
+            ensure!(
+                matches!(&stopped, Ok(NodeOutcome::Stopped(_))),
+                "node outcome {stopped:?}, Raft close {closed:?}"
+            );
+            let report = closed?;
             ensure!(report.groups_total == plan.births().len());
             ensure!(
                 report.groups.iter().all(|group| group.active
@@ -2086,8 +2131,11 @@ async fn check_recovery_voter_reservations(
                 "managed recovery shutdown must preserve committed activation: {report:?}"
             );
             Ok::<(), anyhow::Error>(())
+        })()
+        .with_context(|| format!("join recovery voter {}", peer.spec.label));
+        if let (Err(_), Err(error)) = (&checked, &joined) {
+            eprintln!("recovery voter cleanup after failure: {error:#}");
         }
-        .await;
         shutdown = shutdown.and(joined);
     }
     checked?;
@@ -2138,7 +2186,7 @@ async fn check_recovered_sql(
     voters: &[RecoveryVoter],
     plan: &cellar::sdk::fleet_operations::FleetTransitionRecoveryReplacement,
     fenced: &FleetFencedTransitionRecovery,
-    sql: &RecoverySql<'_>,
+    sql: &RecoveryScenario<'_>,
     activations: &[(GroupHistory, LogPosition)],
 ) -> Result<()> {
     use cellar::application::consensus::{CellReceiptRequest, VersionError};
@@ -2348,7 +2396,14 @@ async fn check_pending_recovery_quorum(
     history: GroupHistory,
 ) -> Result<()> {
     for (index, host) in hosts.iter().enumerate() {
-        Box::pin(host.attach_managed_recovery_voter(request.clone(), history, TIMEOUT)).await?;
+        Box::pin(host.attach_managed_recovery_voter(request.clone(), history, TIMEOUT))
+            .await
+            .with_context(|| {
+                format!(
+                    "attach recovery group {history:?} on {:?}",
+                    host.identity().node
+                )
+            })?;
         if index == 0 {
             let status = host.group(history)?.status().await?;
             ensure!(!status.ready && status.committed.get() == 1);
@@ -2388,7 +2443,14 @@ async fn check_pending_recovery_quorum(
     })
     .await
     .context("pending recovery did not form a fresh Raft quorum")??;
-    Box::pin(hosts[0].attach_managed_recovery_voter(request.clone(), history, TIMEOUT)).await?;
+    Box::pin(hosts[0].attach_managed_recovery_voter(request.clone(), history, TIMEOUT))
+        .await
+        .with_context(|| {
+            format!(
+                "replay recovery attachment for {history:?} on {:?}",
+                hosts[0].identity().node
+            )
+        })?;
     Ok(())
 }
 

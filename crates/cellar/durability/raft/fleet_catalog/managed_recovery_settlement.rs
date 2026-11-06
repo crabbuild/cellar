@@ -258,10 +258,25 @@ impl FleetCatalog {
                         (request.plan_digest, request.seed_digest),
                     )
                     .await?;
+                let input = publication_input(&intent, &plan, request.seed_digest)?;
+                if let Some(completion) = self
+                    .inner
+                    .domain
+                    .run(Box::pin(
+                        directory.observe_released_managed_recovery_completion(&input),
+                    ))
+                    .await
+                    .map_err(|_| FleetCatalogError::Closed)?
+                    .map_err(catalog_error)?
+                {
+                    if release.is_some_and(|(expected, _)| expected != completion) {
+                        return Err(FleetCatalogError::PayloadConflict);
+                    }
+                    return Ok(completion);
+                }
                 let snapshot = self.inner.current().await?;
                 self.managed_recovery_permit_at(&snapshot, directory, intent.basis())
                     .await?;
-                let input = publication_input(&intent, &plan, request.seed_digest)?;
                 let record = self
                     .managed_recovery_settlement_at(&snapshot, request.operation)
                     .await?

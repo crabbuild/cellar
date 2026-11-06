@@ -37,6 +37,8 @@ pub(crate) use managed_recovery_quorum::FleetPublishedRecoveryVoter;
 pub use managed_recovery_quorum::{FleetRecoveryAttachRequest, FleetRecoverySeedQuorums};
 mod managed_recovery_replacement;
 mod managed_recovery_reservation;
+mod managed_recovery_retirement;
+pub use managed_recovery_retirement::FleetRecoveryRetirement;
 mod managed_recovery_settlement;
 pub use managed_recovery_replacement::FleetTransitionRecoveryReplacement;
 pub use managed_recovery_reservation::FleetRecoveryRangeReservation;

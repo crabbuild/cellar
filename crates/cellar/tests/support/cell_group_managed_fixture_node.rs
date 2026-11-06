@@ -20,6 +20,7 @@ impl PaginatedListStore for NoListing {
     }
 }
 
+#[derive(Clone)]
 pub struct Fixture {
     pub domain: Arc<ExecutionDomain>,
     pub store: Arc<fault::Store>,

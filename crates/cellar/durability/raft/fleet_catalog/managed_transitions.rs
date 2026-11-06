@@ -200,51 +200,62 @@ impl FleetCatalog {
             timeout,
             Box::pin(async {
                 let current = self.inner.current().await?;
-                let Some(record) = self
-                    .managed_transition_record(&current, operation.bytes())
-                    .await?
-                else {
-                    return Ok(None);
-                };
-                let permit = ManagedTransitionPermit(record);
-                permit.check_directory(directory).map_err(catalog_error)?;
-                let record = &permit.0;
-                let active = matches!(
-                    self.active_disruption(&current).await?,
-                    Some(Disruption::Transition(active)) if active == *record
-                );
-                let (plan, journal) = self
-                    .inner
-                    .domain
-                    .run(Box::pin(directory.reopen_managed_transition_plan(
-                        operation,
-                        record.plan,
-                        &permit,
-                    )))
+                self.observe_managed_transition_at(&current, directory, operation)
                     .await
-                    .map_err(|_| FleetCatalogError::Closed)?
-                    .map_err(catalog_error)?;
-                if !active
-                    && !journal
-                        .as_ref()
-                        .is_some_and(|decision| !decision.owns_topology())
-                {
-                    return Err(FleetCatalogError::Corrupt(
-                        "released managed transition has no terminal decision",
-                    ));
-                }
-                Ok(Some(ManagedTransitionObservation {
-                    fleet_revision: current.revision(),
-                    fleet_slot_held: active,
-                    transition: ReopenedManagedCellGroupTransition {
-                        request: record.request.clone(),
-                        plan,
-                        journal,
-                    },
-                }))
             }),
         )
         .await
+    }
+
+    // Reuse the caller's exact rooted view when a Fleet turn is already held.
+    pub(super) async fn observe_managed_transition_at(
+        &self,
+        current: &FleetSnapshot,
+        directory: &RangeDirectory,
+        operation: ProposalId,
+    ) -> Result<Option<ManagedTransitionObservation>> {
+        let Some(record) = self
+            .managed_transition_record(current, operation.bytes())
+            .await?
+        else {
+            return Ok(None);
+        };
+        let permit = ManagedTransitionPermit(record);
+        permit.check_directory(directory).map_err(catalog_error)?;
+        let record = &permit.0;
+        let active = matches!(
+            self.active_disruption(current).await?,
+            Some(Disruption::Transition(active)) if active == *record
+        );
+        let (plan, journal) = self
+            .inner
+            .domain
+            .run(Box::pin(directory.reopen_managed_transition_plan(
+                operation,
+                record.plan,
+                &permit,
+            )))
+            .await
+            .map_err(|_| FleetCatalogError::Closed)?
+            .map_err(catalog_error)?;
+        if !active
+            && !journal
+                .as_ref()
+                .is_some_and(|decision| !decision.owns_topology())
+        {
+            return Err(FleetCatalogError::Corrupt(
+                "released managed transition has no terminal decision",
+            ));
+        }
+        Ok(Some(ManagedTransitionObservation {
+            fleet_revision: current.revision(),
+            fleet_slot_held: active,
+            transition: ReopenedManagedCellGroupTransition {
+                request: record.request.clone(),
+                plan,
+                journal,
+            },
+        }))
     }
 
     pub(crate) async fn observe_managed_transition_recovery(
@@ -1491,7 +1502,7 @@ impl FleetCatalog {
         route: &GroupRoute,
         operation: [u8; 16],
         retirement: [u8; 32],
-        known_nodes: &[super::nodes::NodeRecord],
+        inventory: (&[super::nodes::NodeRecord], bool),
     ) -> Result<()> {
         let record = self
             .managed_transition_record(snapshot, operation)
@@ -1501,10 +1512,24 @@ impl FleetCatalog {
         permit.check_directory(directory).map_err(catalog_error)?;
         let operation = ProposalId::new(operation)
             .map_err(|_| FleetCatalogError::Corrupt("retired source operation"))?;
-        let (plan, _) = directory
+        let (plan, observed) = directory
             .reopen_managed_transition_plan(operation, permit.0.plan, &permit)
             .await
             .map_err(catalog_error)?;
+        if let Some(completion) = observed
+            .as_ref()
+            .and_then(TransitionJournal::recovery_settlement)
+        {
+            return self
+                .require_recovery_retired_history(
+                    snapshot, directory, &plan, route, completion, retirement,
+                )
+                .await;
+        }
+        let (known_nodes, materialized) = inventory;
+        if !materialized {
+            return Err(FleetCatalogError::InventoryIncomplete);
+        }
         let (journal, parents) = directory
             .managed_retired_sources(&plan, &permit)
             .await
@@ -1795,19 +1820,32 @@ impl FleetCatalog {
                 "managed recovery settlement authority",
             ));
         }
+        if authority != resources::Authority::ManagedRecoveryRetirement
+            && mutation.changes.iter().any(|change| {
+                change.table == FleetTable::Policy
+                    && change
+                        .key
+                        .starts_with(super::managed_recovery_retirement::PREFIX)
+            })
+        {
+            return Err(FleetCatalogError::Invalid(
+                "managed recovery retirement authority",
+            ));
+        }
         for change in mutation
             .changes
             .iter()
             .filter(|change| change.table == FleetTable::Histories)
         {
-            if authority != resources::Authority::ManagedTransferCompletion
-                && change
-                    .value
-                    .as_deref()
-                    .and_then(|bytes| FleetHistory::decode(bytes).ok())
-                    .is_some_and(|history| {
-                        matches!(history.state, FleetHistoryState::Retired { .. })
-                    })
+            if !matches!(
+                authority,
+                resources::Authority::ManagedTransferCompletion
+                    | resources::Authority::ManagedRecoveryRetirement
+            ) && change
+                .value
+                .as_deref()
+                .and_then(|bytes| FleetHistory::decode(bytes).ok())
+                .is_some_and(|history| matches!(history.state, FleetHistoryState::Retired { .. }))
             {
                 return Err(FleetCatalogError::Invalid(
                     "managed history retirement authority",
@@ -1844,6 +1882,7 @@ impl FleetCatalog {
                         | resources::Authority::ManagedTransferCompletion
                         | resources::Authority::ManagedRecoveryReservation
                         | resources::Authority::ManagedRecoverySettlement
+                        | resources::Authority::ManagedRecoveryRetirement
                 ),
                 FleetTable::Admissions => true,
                 FleetTable::Policy => {
@@ -1851,6 +1890,7 @@ impl FleetCatalog {
                         authority,
                         resources::Authority::ManagedTransition
                             | resources::Authority::ManagedTransferCompletion
+                            | resources::Authority::ManagedRecoveryRetirement
                     ) && change.key == SLOT_KEY
                 }
                 _ => false,

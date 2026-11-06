@@ -238,6 +238,40 @@ impl FleetCatalog {
         Ok(())
     }
 
+    // Reconstruct the signed challenge after the directory has released its
+    // live fence. No archive, placement or mutation authority is returned.
+    pub(super) async fn read_recovery_retirement_fence(
+        &self,
+        intent: FleetTransitionRecoveryIntent,
+        plan: &FleetTransitionRecoveryReplacement,
+    ) -> Result<(FleetTransitionRecoveryFenceRequest, Vec<u8>)> {
+        let barrier = plan
+            .mutation()
+            .expected_directory_digest()
+            .ok_or(FleetCatalogError::Conflict)?;
+        let digest = managed_fence_digest(intent.digest(), barrier);
+        let (receipt, _) = self
+            .inner
+            .read::<Receipt>(&receipt_key(intent.operation()), KIND, LIMIT)
+            .await?
+            .ok_or(FleetCatalogError::Unconfirmed)?;
+        if receipt.request != digest
+            || hash(&encode(KIND, &receipt, LIMIT)?) != plan.receipt_digest()
+        {
+            return Err(FleetCatalogError::PayloadConflict);
+        }
+        PreparedManagedRecoveryFence::check_evidence(&receipt.evidence)?;
+        let barrier = FleetTransitionRecoveryBarrier::from_selection(intent.digest(), barrier);
+        Ok((
+            FleetTransitionRecoveryFenceRequest {
+                intent,
+                barrier,
+                digest,
+            },
+            receipt.evidence,
+        ))
+    }
+
     pub(super) async fn require_durable_managed_fence(
         &self,
         operation: [u8; 16],

@@ -239,6 +239,21 @@ fn encode(value: &impl Serialize, limit: usize) -> Result<Vec<u8>> {
     Ok(output.bytes)
 }
 
+fn check_registry_version(version: &UpdateVersion) -> Result<()> {
+    if version.e_tag.as_ref().is_some_and(String::is_empty)
+        || version.version.as_ref().is_some_and(String::is_empty)
+        || version.e_tag.as_ref().map_or(0, String::len)
+            + version.version.as_ref().map_or(0, String::len)
+            > 8192
+        || (version.e_tag.is_none() && version.version.is_none())
+    {
+        return Err(CellGroupArchiveError::Invalid(
+            "archive registry conditional version",
+        ));
+    }
+    Ok(())
+}
+
 impl CellGroupArchive {
     /// Preparation performs no storage mutation. The execution domain supplies
     /// randomness; the caller durably records the complete result before create.
@@ -307,6 +322,71 @@ impl CellGroupArchive {
                     Ok(_) => Ok(registry),
                     Err(_) => outcome.and(Err(CellGroupArchiveError::Unconfirmed)),
                 }
+            })
+            .await
+            .map_err(|_| CellGroupArchiveError::Stopped)?
+    }
+
+    /// Initialize a fresh replacement whose exact namespace binding is already
+    /// selected under the managed recovery fence. Write the empty counter
+    /// before publishing its immutable identity so either partial setup can
+    /// be reopened. An established identity still forbids counter recreation.
+    pub(crate) async fn initialize_recovery_registry(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        expected: &CellGroupArchiveCreation,
+    ) -> Result<CellGroupArchiveRegistry> {
+        domain
+            .run(async {
+                let _io = self.admit()?;
+                expected.check(self.history)?;
+                let registry = CellGroupArchiveRegistry {
+                    archive: self.clone(),
+                    identity: expected.clone(),
+                };
+                if self
+                    .read_versioned(&registry.path("identity"), MAX_CONTROL_BYTES)
+                    .await?
+                    .is_some()
+                {
+                    registry.load().await?;
+                    return Ok(registry);
+                }
+
+                let empty = encode(&State::empty(expected.clone()), MAX_CONTROL_BYTES)?;
+                let key = registry.path("registry");
+                let existing = self.read_versioned(&key, MAX_CONTROL_BYTES).await?;
+                let (state, version) = match existing {
+                    Some(existing) => existing,
+                    None => {
+                        let outcome = registry
+                            .write("registry", empty.clone(), PutMode::Create)
+                            .await;
+                        self.read_versioned(&key, MAX_CONTROL_BYTES)
+                            .await?
+                            .ok_or_else(|| {
+                                outcome.err().unwrap_or(CellGroupArchiveError::Unconfirmed)
+                            })?
+                    }
+                };
+                check_registry_version(&version)?;
+                // A concurrent controller may have established this identity
+                // and published later state. Only an exact empty state can
+                // receive a new identity; any other state must already open.
+                if state == empty {
+                    let bytes = encode(expected, MAX_CONTROL_BYTES)?;
+                    let outcome = registry.write("identity", bytes, PutMode::Create).await;
+                    match registry.load().await {
+                        Ok(_) => (),
+                        Err(CellGroupArchiveError::MissingRegistry) => {
+                            return outcome.and(Err(CellGroupArchiveError::Unconfirmed));
+                        }
+                        Err(error) => return Err(error),
+                    }
+                } else {
+                    registry.load().await?;
+                }
+                Ok(registry)
             })
             .await
             .map_err(|_| CellGroupArchiveError::Stopped)?
@@ -386,17 +466,7 @@ impl CellGroupArchiveRegistry {
             .read_versioned(&self.path("registry"), MAX_CONTROL_BYTES)
             .await?
             .ok_or(CellGroupArchiveError::MissingRegistry)?;
-        if version.e_tag.as_ref().is_some_and(String::is_empty)
-            || version.version.as_ref().is_some_and(String::is_empty)
-            || version.e_tag.as_ref().map_or(0, String::len)
-                + version.version.as_ref().map_or(0, String::len)
-                > 8192
-            || (version.e_tag.is_none() && version.version.is_none())
-        {
-            return Err(CellGroupArchiveError::Invalid(
-                "archive registry conditional version",
-            ));
-        }
+        check_registry_version(&version)?;
         let state: State = serde_json::from_slice(&bytes)
             .map_err(|_| CellGroupArchiveError::Invalid("archive registry encoding"))?;
         state.check(&self.identity)?;

@@ -59,6 +59,7 @@ pub(super) enum Authority {
     ManagedTransferChildren,
     ManagedTransferCompletion,
     ManagedRecoveryReservation,
+    ManagedRecoveryRetirement,
     ManagedRecoverySettlement,
 }
 mod movement;
