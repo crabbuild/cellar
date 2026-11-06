@@ -93,6 +93,22 @@ checks that no read owner remains. The command log SHA-256 is `6cb4e5e275690b539
 The `native_raft_reads` and other predecessor consumer targets still require
 ports to the canonical SDK.
 
+## CG-07 retained group images during node collection
+
+On `6521cf5c`, all three `native_raft_extents` cases passed in 22.61 seconds.
+The public host refuses extent activation without storage admission before
+catalog mutation. With eight and twelve extent roots, the fixture provisions
+two physical groups, enrolls cells and verifies S3 receipts against the
+in-memory object store. It checks that the collector reclaims files after a
+restart with one group unattached, then reattaches that group and verifies
+its saved SQL state and exact receipt without running the callback again.
+The run also checks persisted checkpoints, bounded inventory and joined closure.
+The command log SHA-256 is
+`2ad1a3150d5dfadfcea3ae7b713dd08f23c987e670b60c9aa593308625a9caa8`.
+The same runtime passed all 16 `native_raft_directory` cases in 33.80 seconds
+(command log SHA-256 `93a8643767ee4139061dfe41704b046e96bbbe1b5a857a0a1c5ffe2d755f5f60`).
+This covers local image collection and retained restart.
+
 ## CG-07 constrained Linux failed-voter repair attempt
 
 The separate repair candidate at `c97a5be76b3a05747a52d80d8442260438c900fd`
