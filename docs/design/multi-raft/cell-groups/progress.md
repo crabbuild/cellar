@@ -119,6 +119,15 @@ aborted inside child archive initialization before parent retirement.
 The diagnostic log SHA-256 is
 `eb36148ebf9d31e2e1598daa966729b76c6d6d8ca38b939cc52ef86d98a46a00`.
 
+The fixture now shares a joined execution task for retained voter startup
+across merge and recovery. An instrumented diagnostic at `edb5b31c` with
+that change passed both image modes on real RustFS in 230.92 seconds.
+All three child voters restarted, and the case verified S3 receipt replay
+and completed retirement. One earlier attempt with the change stopped
+at a split admission assertion before reaching the restart. The passing
+diagnostic log SHA-256 is
+`cf0a9d77fdb7a9e367edd226411efee77b40aa75e3ade12c388dbd5f2c867875`.
+
 ## CG-12 alarm, peer and minority wake
 
 At `a6bd8f64975ffe71842302bf4d1974362abb7eea`, the first two cases in
@@ -459,6 +468,23 @@ rooted. The command log SHA-256 is
 The pinned Linux build lost its Docker context before any voters ran. A
 replacement dedicated lab passed seven signed RustFS operations and the
 same-source build was restarted there.
+
+The first run of that rebuilt image reached the materialized voter's paused
+maintenance return, then the CLI returned `wait_timeout` during resume.
+Its outcome was unknown. The extent mode did not start. The run record
+SHA-256 is `919a73af8ad89d6645a8ca57722b00f07765db3f0c50dce7febec474d8db8016`.
+An isolated rerun of the same image passed both modes in 87.586 and 80.875
+seconds. It verified real RustFS leases, archive outage and receipt replay,
+retained maintenance, failed-voter repair, joined drain and quorum loss.
+The rerun record SHA-256 is
+`7cca3be5daf3aa5047e21ca0980e6f0b297b491dd42dc6ebce1c6ef7cb11dd36`.
+
+An extent-only native diagnostic passed in 35.59 seconds. It recorded an
+initial `NotReady` during learner promotion, then joint consensus, the
+injected lost terminal CAS reply and successful settlement replay.
+The earlier repeated joint-consensus stall did not recur.
+The diagnostic log SHA-256 is
+`aa7944369390f485d7bb46b88cb18bb30695d4d87a6a846955540e5929e9abe2`.
 
 ## CG-07 shared cell version key rotation
 
