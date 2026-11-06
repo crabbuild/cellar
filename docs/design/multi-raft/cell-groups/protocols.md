@@ -1269,8 +1269,12 @@ participate in the source quorum for retirement. The parent leader can commit
 its tombstone only after the directory selects the complete Active set. The
 entry binds the replacement publication to the original seal, and the manifest
 and checkpoint preserve both. This tombstone leaves the topology lane and parent
-archive holds pinned while child archive coverage is qualified. Managed setup prepares one archive identity per selected active child. The
-operator persists the exact intent before committing it. A retained voter
+archive holds pinned while child archive coverage is qualified. Once the
+transition is Active, run `cellar raft fleet transition setup-child NAMESPACE_HEX --plan REQUEST.json`
+with the selected child and the `initialize_archive` step. The operator
+endpoint records one archive identity for that plan and child before creating
+the registry counters. A retry verifies the selected binding and counters.
+An incomplete registry requires archive authority recovery. A retained voter
 opens the initialized registry and publishes coverage from its applied state.
 The directory independently replays the exact held archive of every active
 child. Each cut must retain the installed seed and the selected publication
