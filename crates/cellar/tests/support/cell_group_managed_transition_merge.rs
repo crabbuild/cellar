@@ -1460,7 +1460,10 @@ async fn run_inner(
             CommandOptions {
                 durability: cellar_logic::consensus::Durability::S3,
                 timeout: TIMEOUT,
-                ..CommandOptions::new(CommandId::new(ClientId::new([211; 16])?, 1)?, retry)
+                ..CommandOptions::new(
+                    CommandId::new(ClientId::new([211; 16])?, 1)?,
+                    preparation::retry_deadline()?,
+                )
             },
         )
         .await?;
@@ -3395,7 +3398,10 @@ async fn verify_merged_sql(
             .command(
                 &add,
                 1i64.to_be_bytes().to_vec(),
-                CommandOptions::new(CommandId::new(receipt.id.client, 2)?, retry),
+                CommandOptions::new(
+                    CommandId::new(receipt.id.client, 2)?,
+                    preparation::retry_deadline()?,
+                ),
             )
             .await?;
         ensure!(write.result == (expected + 2).to_be_bytes() && write.witness.group == history);

@@ -24,6 +24,16 @@ use cellar_ltx::{
 };
 use rand::RngCore as _;
 
+pub(super) fn retry_deadline() -> Result<u64> {
+    u64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_millis(),
+    )?
+    .checked_add(60_000)
+    .context("retry deadline")
+}
+
 pub(super) async fn exercise(
     cluster: &ManagedCluster,
     controller: &FleetCatalog,
@@ -40,7 +50,7 @@ pub(super) async fn exercise(
     let cell = &seeded.cells[0];
     let handle = cluster.hosts[leader].cell(cell.clone())?;
     let client = seeded.receipts[0].id.client;
-    let mut options = CommandOptions::new(CommandId::new(client, 2)?, seeded.retry);
+    let mut options = CommandOptions::new(CommandId::new(client, 2)?, retry_deadline()?);
     options.durability = Durability::S3;
     let archived = handle
         .command(
@@ -211,7 +221,7 @@ pub(super) async fn exercise(
         .command(
             &handle.contract("Add")?,
             1i64.to_be_bytes().to_vec(),
-            CommandOptions::new(CommandId::new(client, 3)?, seeded.retry),
+            CommandOptions::new(CommandId::new(client, 3)?, retry_deadline()?),
         )
         .await?;
     ensure!(next.result == 10i64.to_be_bytes() && next.version != archived.version);
@@ -1129,7 +1139,7 @@ pub(super) async fn verify_transferred_sql(
                 1i64.to_be_bytes().to_vec(),
                 CommandOptions::new(
                     CommandId::new(original.id.client, [4, 2][index])?,
-                    seeded.retry,
+                    retry_deadline()?,
                 ),
             )
             .await?;
@@ -1455,13 +1465,7 @@ async fn verify_live_transfer_children(
         .context("reopen Live transfer children using permanent proofs")?;
     let view = domain.run(directory.observe()).await??;
     let voters = &cluster.hosts[DESTINATION..];
-    let retry = u64::try_from(
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_millis(),
-    )?
-    .checked_add(60_000)
-    .context("retry deadline")?;
+    let retry = retry_deadline()?;
     for (index, cell) in cells.into_iter().enumerate() {
         let route = domain.run(directory.lookup(&view, &cell.cell)).await??;
         let reopened = &voters[0];
