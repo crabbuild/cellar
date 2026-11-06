@@ -113,8 +113,9 @@ through the shared backend and preserve typed refusals for the rest.
    materialized campaign passed repair, maintenance, joined drain and quorum
    refusal. The extent run stopped when both surviving daemons self-fenced
    after lease renewal timed out against the shared fixture SQLite store.
-   Verify the new RustFS lease prefix, then pass the combined campaign in
-   both image modes on one executable source.
+   The host-native extent daemon passed with the new RustFS lease prefix,
+   including retained restart and quorum refusal. Pass the constrained
+   campaign with repair and drain in both image modes on one executable source.
 2. **Pass the combined CG-07 RF3 SQL gate.** Use one source revision for
    onboarding, enrollment, ingress-only SDK routing, native and Axum reads and
    writes, leader loss, exact retries, retained restart and quorum refusal.

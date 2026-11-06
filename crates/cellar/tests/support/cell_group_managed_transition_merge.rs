@@ -2440,14 +2440,19 @@ async fn start_recovery_voter(
         let result = Box::pin(async {
             let (mut config, services) = fixture.config(&node, mode, generation).await?;
             crate::managed_fixture::archives::configure(&mut config);
-            Box::pin(node.start_raft_cells(config, services)).await
+            Box::pin(node.start_raft_cells(config, services))
+                .await
+                .context("open the recovery voter Raft host")
         })
         .await;
         match result {
             Ok(host) => Ok((root, node, host, fixture)),
             Err(error) => {
                 let stopped = node.shutdown(ShutdownMode::Preserve).await;
-                Err(error.context(format!("start recovery voter, shutdown={stopped:?}")))
+                Err(error.context(format!(
+                    "start recovery voter {} at process generation {generation}, shutdown={stopped:?}",
+                    fixture.spec.label
+                )))
             }
         }
     }))?;

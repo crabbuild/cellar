@@ -39,6 +39,12 @@ and the opt-in RustFS lifecycle case was skipped in that invocation. The
 suite took 441.62 seconds. Its command log SHA-256 is
 `98ede1eb69f26ee37916bec8ae2a90c9843705114a8f9e4eeab0d1bf4d8be026`.
 
+The same public target at `bcf10c76458e97cc1696bddbebf85d9dfb7d32aa` passed
+the five named cases and harness freshness in 578.06 seconds. The opt-in
+RustFS lifecycle case was ignored. This run shares its source revision with
+the constrained materialized pass and extent failure below. Its command log
+SHA-256 is `ddbb0358cee44b7a6c5fcd442ee093c0cda923857efa343a936433714f6249f1`.
+
 The native CG-09 operator split case passed in 15.80 seconds on the same
 runtime. It lost the confirmation for the first child reservation, advanced
 the Fleet revision independently, reopened the CLI controller and completed
@@ -372,9 +378,14 @@ record SHA-256 is
 
 Candidate `e7a3929f519cf53b773364def3ba6daf079d4746` uses a separate prefix in
 the same isolated RustFS bucket for daemon leases and peer authentication.
-It independently reads all three live leases before SQL. The prior timeout
-and safe fencing remain recorded. The candidate needs the real RustFS
-extent check and both constrained image modes.
+The host-native extent daemon passed against real RustFS in 177.578 seconds.
+It independently read all three live leases before SQL and passed successor
+election, retained restart, resumed reads and writes, and quorum-loss refusal.
+The record and process ledger SHA-256 digests are
+`f206ced9602327252bf3c1a7b703560b6aba1513486238a2e773617c0a715c66`
+and `fa00109ae0415db5c26964eec971eb16cef2a11cae7a5edc4dcc0deab1628f51`.
+The constrained Linux rerun uses `848264e9d6d9aa17118f0e789726e44780cea7ed`
+for both image modes with Docker-fenced repair and joined drain.
 
 ## CG-07 shared cell version key rotation
 

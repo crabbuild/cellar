@@ -162,11 +162,16 @@ impl Fixture {
         mode: LogOpenMode,
         generation: u8,
     ) -> Result<(RaftCellsConfig, RaftCellsServices)> {
-        let cut = self.catalog.read(TIMEOUT).await?;
+        let cut = self
+            .catalog
+            .read(TIMEOUT)
+            .await
+            .context("read the Fleet head for host authorization")?;
         let authorization = self
             .catalog
             .authorize_host(&cut, self.spec.node, TIMEOUT)
-            .await?;
+            .await
+            .context("authorize the host against the Fleet head")?;
         let listeners = NodeRaftListeners {
             control: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
             data: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
