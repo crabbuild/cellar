@@ -63,10 +63,7 @@ impl FleetCatalog {
             let snapshot = self.inner.current().await?;
             self.managed_recovery_permit_at(&snapshot, directory, intent.basis())
                 .await?;
-            let key = format!(
-                "managed-transition-recovery-seed-quorums/{}",
-                hex::encode(intent.operation())
-            );
+            let key = seed_quorum_key(intent.operation());
             let existing = self.inner.read::<Record>(&key, KIND, LIMIT).await?;
             if let Some((record, _)) = &existing {
                 if record.plan != plan.digest()
@@ -123,10 +120,7 @@ impl FleetCatalog {
         self.run(timeout, async {
             self.require_managed_replacement(fenced, plan).await?;
             let intent = fenced.request().intent();
-            let key = format!(
-                "managed-transition-recovery-seed-quorums/{}",
-                hex::encode(intent.operation())
-            );
+            let key = seed_quorum_key(intent.operation());
             let (record, _) = self
                 .inner
                 .read::<Record>(&key, KIND, LIMIT)
@@ -142,17 +136,7 @@ impl FleetCatalog {
             let snapshot = self.inner.current().await?;
             self.managed_recovery_permit_at(&snapshot, directory, intent.basis())
                 .await?;
-            let transition = ProposalId::new(intent.transition())
-                .map_err(|_| FleetCatalogError::Corrupt("managed recovery transition"))?;
-            let publication = ManagedRecoveryPublicationInput {
-                intent: intent.digest(),
-                transition,
-                barrier: fenced.request().barrier().directory_digest(),
-                plan: plan.digest(),
-                seeds: selected.digest(),
-                mutation: plan.mutation(),
-                births: plan.births(),
-            };
+            let publication = publication_input(intent, plan, selected.digest())?;
             let domain = &self.inner.domain;
             if let Some(existing) = domain
                 .run(Box::pin(
@@ -175,6 +159,51 @@ impl FleetCatalog {
             }
             domain
                 .run(Box::pin(directory.publish_managed_recovery(&publication)))
+                .await
+                .map_err(|_| FleetCatalogError::Closed)?
+                .map_err(catalog_error)
+        })
+        .await
+    }
+
+    pub(crate) async fn reopen_managed_recovery_publication(
+        &self,
+        directory: &RangeDirectory,
+        operation: ProposalId,
+        principal: &str,
+        expected: ([u8; 32], [u8; 32]),
+        timeout: Duration,
+    ) -> Result<Option<DirectoryPublication>> {
+        self.run(timeout, async {
+            let intent = self
+                .read_managed_recovery_intent(directory, operation, principal)
+                .await?
+                .ok_or(FleetCatalogError::Conflict)?;
+            let (plan_digest, seed_digest) = expected;
+            let plan = self
+                .read_recovery_publication_plan(directory, &intent, plan_digest)
+                .await?;
+            let (record, _) = self
+                .inner
+                .read::<Record>(&seed_quorum_key(intent.operation()), KIND, LIMIT)
+                .await?
+                .ok_or(FleetCatalogError::Unconfirmed)?;
+            if record.plan != plan_digest
+                || record.receipt != plan.receipt_digest()
+                || record.ranges.len() != plan.births().len()
+                || hash(&encode(KIND, &record, LIMIT)?) != seed_digest
+            {
+                return Err(FleetCatalogError::PayloadConflict);
+            }
+            let snapshot = self.inner.current().await?;
+            self.managed_recovery_permit_at(&snapshot, directory, intent.basis())
+                .await?;
+            let input = publication_input(&intent, &plan, seed_digest)?;
+            self.inner
+                .domain
+                .run(Box::pin(
+                    directory.observe_managed_recovery_publication(&input),
+                ))
                 .await
                 .map_err(|_| FleetCatalogError::Closed)?
                 .map_err(catalog_error)
@@ -250,4 +279,33 @@ impl FleetCatalog {
             Err(error) => Err(error),
         }
     }
+}
+
+fn publication_input<'a>(
+    intent: &FleetTransitionRecoveryIntent,
+    plan: &'a FleetTransitionRecoveryReplacement,
+    seeds: [u8; 32],
+) -> Result<ManagedRecoveryPublicationInput<'a>> {
+    let transition = ProposalId::new(intent.transition())
+        .map_err(|_| FleetCatalogError::Corrupt("managed recovery transition"))?;
+    let barrier = plan
+        .mutation()
+        .expected_directory_digest()
+        .ok_or(FleetCatalogError::Conflict)?;
+    Ok(ManagedRecoveryPublicationInput {
+        intent: intent.digest(),
+        transition,
+        barrier,
+        plan: plan.digest(),
+        seeds,
+        mutation: plan.mutation(),
+        births: plan.births(),
+    })
+}
+
+fn seed_quorum_key(operation: [u8; 16]) -> String {
+    format!(
+        "managed-transition-recovery-seed-quorums/{}",
+        hex::encode(operation)
+    )
 }

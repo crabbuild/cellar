@@ -47,6 +47,10 @@ impl FleetTransitionRecoveryReplacement {
         &self.mutation
     }
 
+    pub(super) fn receipt_digest(&self) -> [u8; 32] {
+        self.receipt
+    }
+
     pub(crate) fn matches_fence(&self, fenced: &FleetFencedTransitionRecovery) -> bool {
         self.fence == fenced.request().digest() && self.receipt == fenced.receipt_digest()
     }
@@ -155,6 +159,49 @@ impl FleetCatalog {
         .await
     }
 
+    pub(super) async fn read_recovery_publication_plan(
+        &self,
+        directory: &RangeDirectory,
+        intent: &FleetTransitionRecoveryIntent,
+        expected: [u8; 32],
+    ) -> Result<FleetTransitionRecoveryReplacement> {
+        let operation = intent.operation();
+        let (record, _) = self
+            .inner
+            .read::<Record>(&replacement_key_for(operation), KIND, LIMIT)
+            .await?
+            .ok_or(FleetCatalogError::Unconfirmed)?;
+        if hash(&encode(KIND, &record, LIMIT)?) != expected {
+            return Err(FleetCatalogError::PayloadConflict);
+        }
+        let mutation = directory
+            .decode_mutation(&record.mutation)
+            .map_err(catalog_error)?;
+        let barrier = mutation
+            .expected_directory_digest()
+            .ok_or(FleetCatalogError::Conflict)?;
+        if mutation.operation().bytes() != operation
+            || record.fence
+                != super::managed_recovery_fence::managed_fence_digest(intent.digest(), barrier)
+        {
+            return Err(FleetCatalogError::PayloadConflict);
+        }
+        self.require_durable_managed_fence(operation, record.fence, record.receipt)
+            .await?;
+        let births = record
+            .births
+            .iter()
+            .map(|bytes| directory.decode_group_birth(bytes).map_err(catalog_error))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(FleetTransitionRecoveryReplacement {
+            fence: record.fence,
+            receipt: record.receipt,
+            births,
+            mutation,
+            digest: expected,
+        })
+    }
+
     pub(super) async fn require_managed_replacement(
         &self,
         fenced: &FleetFencedTransitionRecovery,
@@ -260,8 +307,12 @@ fn replacement_mutation(
 }
 
 fn replacement_key(fenced: &FleetFencedTransitionRecovery) -> String {
+    replacement_key_for(fenced.request().intent().operation())
+}
+
+fn replacement_key_for(operation: [u8; 16]) -> String {
     format!(
         "managed-transition-recovery-replacements/{}",
-        hex::encode(fenced.request().intent().operation())
+        hex::encode(operation)
     )
 }

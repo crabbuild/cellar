@@ -148,6 +148,10 @@ impl DirectoryMutation {
         self.digest
     }
 
+    pub(crate) fn expected_directory_digest(&self) -> Option<[u8; 32]> {
+        self.request.expected
+    }
+
     pub fn operation(&self) -> ProposalId {
         self.operation
     }

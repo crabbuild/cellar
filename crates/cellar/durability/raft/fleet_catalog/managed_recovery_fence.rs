@@ -109,13 +109,11 @@ impl FleetCatalog {
             if intent.digest() != barrier.intent_digest() {
                 return Err(FleetCatalogError::PayloadConflict);
             }
-            let mut binding = Vec::from(&b"cellar-managed-transition-fence-1\0"[..]);
-            binding.extend_from_slice(&intent.digest());
-            binding.extend_from_slice(&barrier.directory_digest());
+            let digest = managed_fence_digest(intent.digest(), barrier.directory_digest());
             let request = FleetTransitionRecoveryFenceRequest {
                 intent,
                 barrier,
-                digest: hash(&binding),
+                digest,
             };
             self.require_managed_fence_barrier(directory, &request)
                 .await?;
@@ -214,16 +212,12 @@ impl FleetCatalog {
         let request = fenced.request();
         self.require_managed_fence_barrier(directory, request)
             .await?;
-        let (receipt, _) = self
-            .inner
-            .read::<Receipt>(&receipt_key(request.intent.operation()), KIND, LIMIT)
-            .await?
-            .ok_or(FleetCatalogError::Unconfirmed)?;
-        if receipt.request != request.digest
-            || hash(&encode(KIND, &receipt, LIMIT)?) != fenced.receipt_digest
-        {
-            return Err(FleetCatalogError::PayloadConflict);
-        }
+        self.require_durable_managed_fence(
+            request.intent.operation(),
+            request.digest,
+            fenced.receipt_digest(),
+        )
+        .await?;
         let transition = ProposalId::new(request.intent.transition())
             .map_err(|_| FleetCatalogError::Corrupt("recovery transition operation"))?;
         let domain = &self.inner.domain;
@@ -240,6 +234,23 @@ impl FleetCatalog {
                 .map_err(|_| FleetCatalogError::Closed)?
                 .map_err(transfer_archive_error)?;
             registry.require_selected_hold(domain, hold).await?;
+        }
+        Ok(())
+    }
+
+    pub(super) async fn require_durable_managed_fence(
+        &self,
+        operation: [u8; 16],
+        request: [u8; 32],
+        expected: [u8; 32],
+    ) -> Result<()> {
+        let (receipt, _) = self
+            .inner
+            .read::<Receipt>(&receipt_key(operation), KIND, LIMIT)
+            .await?
+            .ok_or(FleetCatalogError::Unconfirmed)?;
+        if receipt.request != request || hash(&encode(KIND, &receipt, LIMIT)?) != expected {
+            return Err(FleetCatalogError::PayloadConflict);
         }
         Ok(())
     }
@@ -283,6 +294,13 @@ impl FleetCatalog {
         }
         Ok(())
     }
+}
+
+pub(super) fn managed_fence_digest(intent: [u8; 32], barrier: [u8; 32]) -> [u8; 32] {
+    let mut binding = Vec::from(&b"cellar-managed-transition-fence-1 "[..]);
+    binding.extend_from_slice(&intent);
+    binding.extend_from_slice(&barrier);
+    hash(&binding)
 }
 
 fn receipt_key(operation: [u8; 16]) -> String {

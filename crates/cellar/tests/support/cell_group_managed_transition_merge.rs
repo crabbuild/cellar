@@ -1817,9 +1817,16 @@ async fn check_recovery_voter_reservations(
         let work = control.publish_transition_recovery(namespace, fenced, plan, &reopened, TIMEOUT);
         let (unknown, delivered) = Box::pin(fault::lose_directory_confirmation(work)).await;
         ensure!(delivered && matches!(unknown, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
-        let publication = Box::pin(fresh.publish_transition_recovery(
+        let operation = hex::encode(fenced.request().intent().operation());
+        let principal = "managed-test";
+        let expected = (plan.digest(), reopened.digest());
+        let publication = Box::pin(fresh.reopen_transition_recovery_publication(
+            namespace, &operation, principal, expected, TIMEOUT,
+        )).await?.context("reopen recovery publication by durable operation")?;
+        let replayed = Box::pin(control.publish_transition_recovery(
             namespace, fenced, plan, &reopened, TIMEOUT,
         )).await?;
+        ensure!(replayed == publication);
         let after = fixture.domain.run(directory.observe()).await??;
         ensure!(after.revision() == locked.revision() + 1 && publication.revision() == after.revision());
         let page = fixture.domain.run(directory.group_page(&after, None, 2)).await??;
@@ -1844,7 +1851,7 @@ async fn check_recovery_voter_reservations(
                 report.groups.iter().all(|group| !group.active
                     && !group.failed
                     && group.applied.index.get() == 1
-                    && group.committed == group.applied),
+                    && group.committed == group.applied.index),
                 "managed recovery shutdown must preserve inactive genesis: {report:?}"
             );
             Ok::<(), anyhow::Error>(())

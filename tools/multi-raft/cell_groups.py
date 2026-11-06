@@ -91,9 +91,9 @@ SUITES = {
         "native_cell_groups_managed",
         ("bootstrap::transition::merge::rustfs_managed_recovery_barrier_fences_transfer_and_reopens",
          "bootstrap::transition::merge::rustfs_managed_split_merge"),
-        "managed split and merge through retirement, with recovery reservations and durable fresh voter seeds",
+        "managed split and merge through retirement, with managed recovery seeding and atomic range publication",
         "Host-native voters, fixture capacity and a test fencing authority. Managed recovery "
-        "publication, activation, physical host fencing and sustained load are separate gates.",
+        "activation, physical host fencing and sustained load are separate gates.",
     ),
     "managed-liveness": (
         "native_cell_groups_managed",

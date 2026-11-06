@@ -417,6 +417,26 @@ impl RaftFleetControl {
             .await?)
     }
 
+    /// Reconcile a publication after controller restart using the original
+    /// recovery operation and selected replacement and seed digests.
+    #[doc(hidden)]
+    pub async fn reopen_transition_recovery_publication(
+        &self,
+        namespace: &str,
+        operation: &str,
+        principal: &str,
+        expected: ([u8; 32], [u8; 32]),
+        timeout: Duration,
+    ) -> Result<Option<DirectoryPublication>> {
+        let directory = self.managed_namespace(namespace)?;
+        let operation = ProposalId::new(records::id(operation)?)
+            .map_err(|_| RaftFleetFailure::invalid("recovery operation ID"))?;
+        Ok(self
+            .catalog
+            .reopen_managed_recovery_publication(directory, operation, principal, expected, timeout)
+            .await?)
+    }
+
     /// Copy one exact selected cut into dedicated fresh-history stores. This
     /// does not install Raft state or authorize placement or serving.
     #[doc(hidden)]
