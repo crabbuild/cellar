@@ -126,28 +126,35 @@ pub(super) async fn check_old_boot_refused(fixture: &Fixture) -> Result<()> {
         &fixture.spec.label,
     )
     .await?;
-    let attempted = Box::pin(async {
-        let (config, services) = fixture.config(&node, LogOpenMode::Create, 211).await?;
-        Box::pin(node.start_raft_cells(config, services)).await
-    })
-    .await;
-    ensure!(matches!(
-        node.shutdown(ShutdownMode::Preserve).await?,
-        NodeOutcome::Stopped(_)
-    ));
-    match attempted {
-        Err(error) => {
-            ensure!(error.chain().any(|cause| matches!(
-                cause.downcast_ref::<cellar::application::consensus::CatalogError>(),
-                Some(cellar::application::consensus::CatalogError::LostStableState)
-            )), "expected the permanent engine pin to refuse an old voter on empty storage: {error:#}");
-            Ok(())
+    let config = fixture.config(&node, LogOpenMode::Create, 211).await;
+    // Poll startup and its error capture outside the split/merge scenario stack.
+    let boot = fixture.domain.spawn(Box::pin(async move {
+        let attempted = match config {
+            Ok((config, services)) => Ok(Box::pin(node.start_raft_cells(config, services)).await),
+            Err(error) => Err(error),
+        };
+        ensure!(matches!(
+            node.shutdown(ShutdownMode::Preserve).await?,
+            NodeOutcome::Stopped(_)
+        ));
+        match attempted.context("prepare the old voter restart probe")? {
+            Err(error) => {
+                ensure!(
+                    error.chain().any(|cause| matches!(
+                        cause.downcast_ref::<cellar::application::consensus::CatalogError>(),
+                        Some(cellar::application::consensus::CatalogError::LostStableState)
+                    )),
+                    "expected the permanent engine pin to refuse an old voter on empty storage: {error:#}"
+                );
+                Ok(())
+            }
+            Ok(host) => {
+                host.close().await?;
+                anyhow::bail!("a new engine booted with an erased voter's identity");
+            }
         }
-        Ok(host) => {
-            host.close().await?;
-            anyhow::bail!("a new engine booted with an erased voter's identity");
-        }
-    }
+    }))?;
+    boot.await?
 }
 
 impl DisasterFenceAuthority<FleetTransitionRecoveryFenceRequest> for TransitionFence {

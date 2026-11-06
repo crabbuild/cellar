@@ -2108,13 +2108,15 @@ async fn check_recovery_voter_reservations(
     })
     .await;
     let mut shutdown = Ok(());
-    for (_root, node, host, _peer) in standbys {
-        let joined = async {
-            ensure!(matches!(
-                node.shutdown(ShutdownMode::Preserve).await?,
-                NodeOutcome::Stopped(_)
-            ));
-            let report = host.close().await?;
+    for (_root, node, host, peer) in standbys {
+        let stopped = node.shutdown(ShutdownMode::Preserve).await;
+        let closed = host.close().await;
+        let joined = (|| {
+            ensure!(
+                matches!(&stopped, Ok(NodeOutcome::Stopped(_))),
+                "node outcome {stopped:?}, Raft close {closed:?}"
+            );
+            let report = closed?;
             ensure!(report.groups_total == plan.births().len());
             ensure!(
                 report.groups.iter().all(|group| group.active
@@ -2124,8 +2126,11 @@ async fn check_recovery_voter_reservations(
                 "managed recovery shutdown must preserve committed activation: {report:?}"
             );
             Ok::<(), anyhow::Error>(())
+        })()
+        .with_context(|| format!("join recovery voter {}", peer.spec.label));
+        if let (Err(_), Err(error)) = (&checked, &joined) {
+            eprintln!("recovery voter cleanup after failure: {error:#}");
         }
-        .await;
         shutdown = shutdown.and(joined);
     }
     checked?;
@@ -2386,7 +2391,14 @@ async fn check_pending_recovery_quorum(
     history: GroupHistory,
 ) -> Result<()> {
     for (index, host) in hosts.iter().enumerate() {
-        Box::pin(host.attach_managed_recovery_voter(request.clone(), history, TIMEOUT)).await?;
+        Box::pin(host.attach_managed_recovery_voter(request.clone(), history, TIMEOUT))
+            .await
+            .with_context(|| {
+                format!(
+                    "attach recovery group {history:?} on {:?}",
+                    host.identity().node
+                )
+            })?;
         if index == 0 {
             let status = host.group(history)?.status().await?;
             ensure!(!status.ready && status.committed.get() == 1);
@@ -2426,7 +2438,14 @@ async fn check_pending_recovery_quorum(
     })
     .await
     .context("pending recovery did not form a fresh Raft quorum")??;
-    Box::pin(hosts[0].attach_managed_recovery_voter(request.clone(), history, TIMEOUT)).await?;
+    Box::pin(hosts[0].attach_managed_recovery_voter(request.clone(), history, TIMEOUT))
+        .await
+        .with_context(|| {
+            format!(
+                "replay recovery attachment for {history:?} on {:?}",
+                hosts[0].identity().node
+            )
+        })?;
     Ok(())
 }
 
