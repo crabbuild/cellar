@@ -115,7 +115,9 @@ through the shared backend and preserve typed refusals for the rest.
    The extent lifecycle case exhausted its bounded turns at joint consensus.
    The isolated diagnostic then settled replacement within the same bound.
    The constrained daemon passed both modes at the pinned executable
-   revision. Finish the exact public and build gates at that revision.
+   revision. Rerun ingress authority and port the remaining
+   `native_raft_operations` callers that fail the all-target build. Remove
+   unused predecessor code after the replacement cases cover its contracts.
 2. **Pass the combined CG-07 RF3 SQL gate.** Use one source revision for
    onboarding, enrollment, ingress-only SDK routing, native and Axum reads and
    writes, leader loss, exact retries, retained restart and quorum refusal.

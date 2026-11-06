@@ -514,6 +514,10 @@ file on the PR branch. Strict all-target Clippy on `393bffe4` failed with
 202 library errors, beginning with unused predecessor per-cell consensus
 code. Its log SHA-256 is
 `a126388e2ecdd032f4bba27180f100f1ddaa7aa32f6ec4046bbfce91909aecb7`.
+The locked all-target compile check also failed. It reported 179 errors
+in `native_raft_operations` and its support files, beginning with legacy
+cell registration and placement types. The log SHA-256 is
+`8fed26b31b593ce59cff1f16dad0b2ea02b6622cd03fdf7ac54521fa9cd8a81a`.
 
 ## CG-07 voter and learner read readiness
 
