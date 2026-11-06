@@ -340,6 +340,7 @@ async fn exercise(cluster: &mut ManagedCluster, rooted: bool, decision: Decision
             cluster, &reopened, directory, &recovered, &parent, held, &seal,
         ))
         .await?;
+        let cells = seeded.cells.clone();
         Box::pin(preparation::verify_transferred_sql(
             cluster, directory, seeded,
         ))
@@ -349,7 +350,7 @@ async fn exercise(cluster: &mut ManagedCluster, rooted: bool, decision: Decision
         ))
         .await?;
         return Box::pin(preparation::verify_child_archive_coverage(
-            cluster, directory, &recovered, tombstone,
+            cluster, directory, &recovered, tombstone, cells,
         ))
         .await;
     }

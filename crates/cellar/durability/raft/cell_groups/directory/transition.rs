@@ -5,7 +5,9 @@ use super::*;
 use crate::application::consensus::group_protocol::{
     CellGroupEntry, GroupCommand, GroupEntryBinding, GroupEntryLimits,
 };
-use crate::raft::{cache::GroupLog, completion::RuntimeError, storage::ReplicaLog};
+use crate::raft::{
+    cache::GroupLog, cell_groups::GroupManifest, completion::RuntimeError, storage::ReplicaLog,
+};
 use crate::raft::{
     fleet_catalog::{FleetGroupAuthorization, FleetHostAuthorization, ManagedTransitionPermit},
     fleet_stop::BootBinding,
@@ -580,6 +582,35 @@ impl RangeDirectory {
             .lookup(view.head.operations, &child_key(route.history))
             .await?
             .is_some()
+        {
+            return Err(CatalogError::Fenced);
+        }
+        Ok(())
+    }
+
+    pub(super) async fn require_selected_retired_transfer_child(
+        &self,
+        marker: &GroupManifest,
+    ) -> Result<(), CatalogError> {
+        let origin = marker.transfer_origin().ok_or(CatalogError::Fenced)?;
+        let (publication, _, _) = marker.transfer_activation().ok_or(CatalogError::Fenced)?;
+        let operation = ProposalId::new(origin.operation())
+            .map_err(|_| CatalogError::Corrupt("transfer operation"))?;
+        let (view, _) = self.current().await?;
+        self.selected_route_in(&view, marker.route()).await?;
+        let journal = self
+            .transition_record(&view.head, operation)
+            .await?
+            .ok_or(CatalogError::Fenced)?;
+        if journal.phase() != TransitionPhase::Retired
+            || journal.request != origin.plan()
+            || journal.sealed_sources() != Some(origin.sealed_sources())
+            || journal.publication != Some(publication)
+            || Index::new(self)
+                .lookup(view.head.operations, &child_key(marker.route().history))
+                .await?
+                .as_deref()
+                != Some(publication.as_slice())
         {
             return Err(CatalogError::Fenced);
         }

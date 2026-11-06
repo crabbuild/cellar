@@ -55,6 +55,7 @@ pub(super) enum Authority {
     RestartResume,
     RestartOperator,
     ManagedTransition,
+    ManagedTransferChildren,
 }
 mod movement;
 mod records;

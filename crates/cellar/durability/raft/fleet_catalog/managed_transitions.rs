@@ -764,6 +764,105 @@ impl FleetCatalog {
             .map_err(transfer_archive_error)
     }
 
+    /// Promote every child of the retired transfer in one fleet CAS. The
+    /// exact request can be retried after a lost response. The disruption
+    /// slot and all parent capacity references remain owned.
+    pub async fn confirm_managed_transfer_children(
+        &self,
+        snapshot: &FleetSnapshot,
+        request: &FleetRequestIdentity,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        archives: &CellGroupArchivePool,
+        timeout: Duration,
+    ) -> Result<FleetCommit> {
+        self.check_snapshot(snapshot)?;
+        validate_request(request)?;
+        validate_request(&transition.request)?;
+        if request.operation != transition.request.operation
+            || request.id == transition.request.id
+            || request.principal != transition.request.principal
+            || request.expected_revision <= transition.request.expected_revision
+        {
+            return Err(FleetCatalogError::Invalid(
+                "managed transfer child confirmation",
+            ));
+        }
+        let (_, children) = directory
+            .transition_routes(&transition.plan)
+            .map_err(catalog_error)?;
+        self.run(
+            timeout,
+            Box::pin(async {
+                let mut all_reserved = true;
+                let mut changes = Vec::with_capacity(children.len());
+                for route in &children {
+                    let (key, mut history) = self
+                        .transfer_child_history(snapshot, transition, directory, route)
+                        .await?;
+                    all_reserved &= history.state == FleetHistoryState::Reserved;
+                    history.state = FleetHistoryState::Live;
+                    changes.push(FleetChange {
+                        table: FleetTable::Histories,
+                        key,
+                        value: Some(history.encode()?),
+                    });
+                }
+                let mutation = history_mutation(request, changes);
+                mutation.validate()?;
+                let current = self.inner.current().await?;
+                let digest = hash(&encode(REQUEST_KIND, &mutation, REQUEST_LIMIT)?);
+                let key = hex::encode(request.id);
+                if let Some(applied_revision) =
+                    self.inner.committed(&current.head, &key, digest).await?
+                {
+                    return Ok(FleetCommit {
+                        snapshot: current,
+                        applied_revision,
+                    });
+                }
+                if !all_reserved
+                    || current.token != snapshot.token
+                    || request.expected_revision != snapshot.revision()
+                {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                let permit = self
+                    .managed_transition_permit_at(
+                        &current,
+                        &transition.request,
+                        directory,
+                        &transition.plan,
+                    )
+                    .await?;
+                self.verify_managed_transfer_storage_at(&current, transition, directory, &permit)
+                    .await?;
+                let domain = &self.inner.domain;
+                domain
+                    .run(Box::pin(
+                        directory.require_managed_transfer_retirement_coverage(
+                            domain,
+                            archives,
+                            &transition.plan,
+                            &permit,
+                        ),
+                    ))
+                    .await
+                    .map_err(|_| FleetCatalogError::Closed)?
+                    .map_err(transfer_archive_error)?;
+                self.commit_with_disruption(
+                    snapshot,
+                    &mutation,
+                    None,
+                    resources::Authority::ManagedTransferChildren,
+                    || Ok(()),
+                )
+                .await
+            }),
+        )
+        .await
+    }
+
     async fn verified_managed_transfer_permit(
         &self,
         transition: &ReopenedManagedCellGroupTransition,
@@ -1004,11 +1103,13 @@ impl FleetCatalog {
             ));
         }
         if snapshot.head.disruption.is_some()
-            && mutation.changes.iter().any(|change| {
-                matches!(change.table, FleetTable::Histories | FleetTable::Admissions)
-                    || authority != resources::Authority::ManagedTransition
-                        && change.table == FleetTable::Policy
-                        && change.key == SLOT_KEY
+            && mutation.changes.iter().any(|change| match change.table {
+                FleetTable::Histories => authority != resources::Authority::ManagedTransferChildren,
+                FleetTable::Admissions => true,
+                FleetTable::Policy => {
+                    authority != resources::Authority::ManagedTransition && change.key == SLOT_KEY
+                }
+                _ => false,
             })
         {
             if let Some(Disruption::Transition(record)) = self.active_disruption(snapshot).await? {
@@ -1035,19 +1136,38 @@ impl FleetCatalog {
         directory: &RangeDirectory,
         route: &GroupRoute,
     ) -> Result<FleetHistory> {
+        let (_, history) = self
+            .transfer_child_history(current, transition, directory, route)
+            .await?;
+        if history.state != FleetHistoryState::Reserved {
+            return Err(FleetCatalogError::Conflict);
+        }
+        Ok(history)
+    }
+
+    async fn transfer_child_history(
+        &self,
+        current: &FleetSnapshot,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        route: &GroupRoute,
+    ) -> Result<(String, FleetHistory)> {
         let key = self
             .binding(&route.history)?
             .key()
             .map_err(|_| FleetCatalogError::Invalid("transfer child binding"))?;
         let history = self.history_inner(current, &key).await?;
         if history.origin != Origin::Managed
-            || history.state != FleetHistoryState::Reserved
+            || !matches!(
+                history.state,
+                FleetHistoryState::Reserved | FleetHistoryState::Live
+            )
             || history.operation != transition.request.operation
             || !history.check_route(directory, route)
         {
             return Err(FleetCatalogError::Conflict);
         }
-        Ok(history)
+        Ok((key, history))
     }
 
     /// Observe a majority of physically installed voters of the exact reserved

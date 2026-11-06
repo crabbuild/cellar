@@ -8,6 +8,7 @@ use cellar::application::consensus::verification::cell_groups::{
     CellGroupRecoveryLimits, CellGroupRecoveryPool, CellGroupTransferTarget,
     CellGroupTransitionPreparationInputs, CellGroupTransitionSource, GroupRoute, ManifestPageStore,
 };
+use cellar::application::consensus::verification::FleetHistoryState;
 use cellar_ltx::{
     generation::{GenerationStore, ReadServices},
     internal::{CacheLimits, NodeExtentStore, EXTENT_BYTES},
@@ -892,6 +893,7 @@ pub(super) async fn verify_child_archive_coverage(
     directory: &RangeDirectory,
     transition: &ReopenedManagedCellGroupTransition,
     tombstone: CellGroupSourceRetirementAck,
+    cells: Vec<CellHistory>,
 ) -> Result<()> {
     use std::io::Write as _;
 
@@ -1039,6 +1041,19 @@ pub(super) async fn verify_child_archive_coverage(
             .as_deref()
             == Some(holds.as_slice())
     );
+    let reserved = fleet.read(TIMEOUT).await?;
+    let early = FleetRequestIdentity {
+        operation: reopened.request.operation,
+        ..request(237, reserved.revision())
+    };
+    ensure!(matches!(
+        fleet
+            .confirm_managed_transfer_children(
+                &reserved, &early, &reopened, directory, &archives, TIMEOUT
+            )
+            .await,
+        Err(FleetCatalogError::Conflict)
+    ));
     ensure!(matches!(
         fleet
             .settle_managed_transfer_retirement(
@@ -1101,6 +1116,116 @@ pub(super) async fn verify_child_archive_coverage(
     reopen_transfer_destination(cluster, 114, 2, true)
         .await
         .context("reopen activated child voters during retirement cleanup")?;
+    Box::pin(verify_live_transfer_children(
+        cluster, directory, &reopened, &archives, &holds, cells,
+    ))
+    .await
+}
+
+async fn verify_live_transfer_children(
+    cluster: &mut ManagedCluster,
+    directory: &RangeDirectory,
+    transition: &ReopenedManagedCellGroupTransition,
+    archives: &CellGroupArchivePool,
+    holds: &[CellGroupArchiveHold],
+    cells: Vec<CellHistory>,
+) -> Result<()> {
+    let domain = cluster.fixtures[0].domain.clone();
+    let fleet = cluster.fixtures[0].catalog.clone();
+    let reserved = fleet.read(TIMEOUT).await?;
+    let confirmation = FleetRequestIdentity {
+        operation: transition.request.operation,
+        ..request(238, reserved.revision())
+    };
+    for hold in holds {
+        let history = hold.marker().route().history;
+        ensure!(
+            *fleet.history(&reserved, &history, TIMEOUT).await?.state()
+                == FleetHistoryState::Reserved
+        );
+    }
+    cluster.fixtures[0]
+        .store
+        .fail_fleet_confirmation
+        .store(true, Ordering::Release);
+    let lost = fleet
+        .confirm_managed_transfer_children(
+            &reserved,
+            &confirmation,
+            transition,
+            directory,
+            archives,
+            TIMEOUT,
+        )
+        .await;
+    ensure!(
+        matches!(lost, Err(FleetCatalogError::Storage(_))),
+        "promotion CAS result: {:?}",
+        lost.as_ref().err()
+    );
+    let live = fleet.read(TIMEOUT).await?;
+    ensure!(live.revision() == reserved.revision() + 1);
+    for hold in holds {
+        let history = hold.marker().route().history;
+        ensure!(*fleet.history(&live, &history, TIMEOUT).await?.state() == FleetHistoryState::Live);
+    }
+    ensure!(
+        fleet
+            .confirm_managed_transfer_children(
+                &live,
+                &confirmation,
+                transition,
+                directory,
+                archives,
+                TIMEOUT,
+            )
+            .await?
+            .applied_revision
+            == live.revision()
+    );
+    ensure!(domain.run(directory.active_transition()).await??.is_some());
+    reopen_transfer_destination(cluster, 115, 2, true)
+        .await
+        .context("reopen Live transfer children using permanent proofs")?;
+    let view = domain.run(directory.observe()).await??;
+    let voters = &cluster.hosts[DESTINATION..];
+    let retry = u64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_millis(),
+    )?
+    .checked_add(60_000)
+    .context("retry deadline")?;
+    for (index, cell) in cells.into_iter().enumerate() {
+        let route = domain.run(directory.lookup(&view, &cell.cell)).await??;
+        let reopened = &voters[0];
+        ensure!(reopened.group(route.history)?.archive_status()?.is_some());
+        let handle = reopened.cell(cell.clone())?;
+        let query = handle
+            .query(
+                ProposalId::new([196 + index as u8; 16])?,
+                &handle.contract("Get")?,
+                vec![],
+                QueryOptions {
+                    routing: QueryRouting::Local,
+                    ..Default::default()
+                },
+            )
+            .await?;
+        ensure!(query.result == [11i64, 12][index].to_be_bytes());
+        ensure!(query.served_by_node == reopened.identity());
+        let leader = &voters[leader(voters, route.history).await?];
+        let handle = leader.cell(cell)?;
+        let receipt = handle
+            .command(
+                &handle.contract("Add")?,
+                1i64.to_be_bytes().to_vec(),
+                CommandOptions::new(CommandId::new(ClientId::new([201; 16])?, 1)?, retry),
+            )
+            .await?;
+        ensure!(receipt.result == [12i64, 13][index].to_be_bytes());
+        ensure!(receipt.witness.group == route.history);
+    }
     Ok(())
 }
 

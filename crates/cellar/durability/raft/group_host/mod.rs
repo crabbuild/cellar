@@ -313,7 +313,6 @@ pub(crate) async fn start(
                         }
                     } else if let Some(managed) = &options.managed {
                         if activated_transfer {
-                            assignment.pending_transfer_archive = true;
                             namespace
                                 .directory
                                 .bootstrap_managed_activated_transfer_voter(
@@ -338,6 +337,7 @@ pub(crate) async fn start(
                             .bootstrap_group_member(&assignment.birth, &log)
                             .await?
                     };
+                    assignment.pending_transfer_archive = permit.transfer_archive_pending();
                     let group = permit.group().clone();
                     if let Some(request) = permit.recovery_request() {
                         // Charge the original bytes plus decoded records and

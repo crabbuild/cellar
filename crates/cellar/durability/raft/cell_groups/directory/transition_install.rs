@@ -8,7 +8,8 @@ use crate::raft::{
         GroupManifest, PreparedCellGroupTransferChild, PreparedGroupManifest, TransferSeed,
     },
     fleet_catalog::{
-        FleetHostAuthorization, ReopenedManagedCellGroupTransition, TransferVoterAdmission,
+        FleetCatalogError, FleetGroupAuthorization, FleetHostAuthorization,
+        ReopenedManagedCellGroupTransition, TransferVoterAdmission,
     },
     fleet_stop::{BootBinding, Guard},
     member_state::FleetGroupBinding,
@@ -726,8 +727,8 @@ impl RangeDirectory {
     }
 
     /// Reattach an already activated voter from its permanently claimed engine.
-    /// The selected transfer and synced local activation supply retained
-    /// authority. A new allocation still requires fresh capacity admission.
+    /// A Live child reopens from fleet membership and permanent install and
+    /// publication proofs. A Reserved child still needs the active transition.
     pub(crate) async fn bootstrap_managed_activated_transfer_voter(
         &self,
         birth: &CellGroupBirth,
@@ -746,10 +747,28 @@ impl RangeDirectory {
                         && marker.is_active()
                 })
                 .ok_or(CatalogError::Fenced)?;
+            let timeout = Duration::from_millis(self.limits.operation_timeout_ms);
+            match host.group_authorization(&route.history, timeout).await {
+                Ok(authority) => {
+                    self.require_live_transfer_voter(birth, log, host, &authority, &group, &marker)
+                        .await?;
+                    return Ok(CellGroupBootstrapPermit::managed_activated_transfer(
+                        group,
+                        birth.clone(),
+                        self.clone(),
+                        log.clone(),
+                        host.clone(),
+                        false,
+                    ));
+                }
+                // The exact active transition check below still requires a
+                // Reserved history and independently rechecks the current boot.
+                Err(FleetCatalogError::Conflict) => (),
+                Err(error) => return Err(CatalogError::from(error)),
+            }
             let origin = marker.transfer_origin().ok_or(CatalogError::Fenced)?;
             let operation = ProposalId::new(origin.operation())
                 .map_err(|_| CatalogError::Corrupt("transfer operation"))?;
-            let timeout = Duration::from_millis(self.limits.operation_timeout_ms);
             let deadline = log
                 .domain()
                 .mono_ms()
@@ -779,9 +798,67 @@ impl RangeDirectory {
                 self.clone(),
                 log.clone(),
                 host.clone(),
+                true,
             ))
         })
         .await
+    }
+
+    async fn require_live_transfer_voter(
+        &self,
+        birth: &CellGroupBirth,
+        log: &ReplicaLog,
+        host: &FleetHostAuthorization,
+        authority: &FleetGroupAuthorization,
+        group: &GroupLog<GroupHistory>,
+        marker: &GroupManifest,
+    ) -> Result<(), CatalogError> {
+        if !authority.check_birth(self, birth) {
+            return Err(CatalogError::Fenced);
+        }
+        self.require_managed_retained_group_boot(birth, log, host)
+            .await?;
+        self.require_current_group_birth(birth).await?;
+        let prefix = install_prefix(birth.route());
+        let bytes = self
+            .read(&format!("{prefix}/binding"))
+            .await?
+            .ok_or(CatalogError::LostStableState)?;
+        let binding: InstallBinding = record::decode(BINDING, &bytes, wire::LIMIT)?;
+        if binding.namespace != self.namespace.root_digest
+            || !binding.genesis.is_transfer_genesis()
+            || binding.genesis.route() != birth.route()
+            || !marker.preserves_transfer(&binding.genesis)
+        {
+            return Err(CatalogError::Fenced);
+        }
+        let engine = log.storage_instance().map_err(CatalogError::Log)?;
+        let records = self.install_records(&binding.genesis, group.identity(), engine)?;
+        self.require_install_intent(&records).await?;
+        if self
+            .read(&format!("{}/receipt", records.member))
+            .await?
+            .as_deref()
+            != Some(records.intent.as_slice())
+        {
+            return Err(CatalogError::LostStableState);
+        }
+        self.require_selected_retired_transfer_child(marker).await?;
+        self.require_managed_retained_group_boot(birth, log, host)
+            .await?;
+        super::bootstrap::check_member(group)?;
+        let (_, _, activation) = marker.transfer_activation().ok_or(CatalogError::Fenced)?;
+        let cache = group.read().map_err(CatalogError::Log)?;
+        if cache.hard_state.commit < activation.index.get()
+            || cache
+                .membership
+                .fleet_status()
+                .is_none_or(|status| &status.binding != authority.binding())
+            || !authority.matches_replica(group.identity(), &cache.membership)
+        {
+            return Err(CatalogError::Fenced);
+        }
+        Ok(())
     }
 
     pub(super) async fn require_managed_transfer_voter(

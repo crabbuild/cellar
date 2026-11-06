@@ -124,6 +124,28 @@ impl CellGroupSourceRetirementPermit {
 }
 
 impl RangeDirectory {
+    pub(crate) async fn require_managed_transfer_retirement_coverage(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        pool: &CellGroupArchivePool,
+        plan: &DirectoryMutation,
+        permit: &ManagedTransitionPermit,
+    ) -> Result<(), CellGroupArchiveBindingError> {
+        permit.check(self, plan)?;
+        let basis = self.bounded(self.retirement_basis(plan)).await?;
+        let digest = basis
+            .journal
+            .retired_parents()
+            .ok_or(CatalogError::Fenced)?;
+        if basis.journal.parent_holds_released() {
+            return Err(CatalogError::Fenced.into());
+        }
+        self.bounded(self.require_retirement_set(plan, &basis, digest))
+            .await?;
+        self.require_live_retirement_archives(domain, pool, plan, Some(permit))
+            .await
+    }
+
     /// Discover a retained source after its ranges have been replaced. The
     /// historical birth is usable only for this sealed replica's retirement.
     pub(crate) async fn discover_managed_sealed_source(

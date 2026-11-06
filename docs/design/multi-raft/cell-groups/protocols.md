@@ -1177,8 +1177,14 @@ holds and topology lane still pinned for retirement settlement. The fleet
 owner can root the Retired decision only after rechecking the live child holds
 and binding every committed parent tombstone to the coverage and publication.
 During cleanup, previously activated child voters may still reopen on their
-claimed engines. New install and activation remain fenced. The owner releases
-only the original transfer holds and confirms
+claimed engines. New install and activation remain fenced. Child confirmation
+preserves all parent references. The fleet owner confirms every
+child Live in a single rooted commit after rechecking installed storage,
+retirement and live child coverage. A Live child reopens using its fleet
+membership, permanent engine install receipt, and the selected directory's
+retirement and activation binding, independent of the transition slot. Archive
+setup is required for that startup when archiving is configured. The owner
+releases only the original transfer holds and confirms
 each release before clearing topology ownership in a separate CAS. An
 interrupted cleanup resumes the same immutable decision. Later transitions
 preserve historical publication certificates and reject stale child startup.
