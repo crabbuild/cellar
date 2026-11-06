@@ -113,8 +113,10 @@ through the shared backend and preserve typed refusals for the rest.
    campaign passed both image modes with RustFS leases, repair, drain,
    maintenance and quorum refusal. The same-revision public suite timed
    out replaying explicit S3 receipts after archive outage and after extent
-   voter replacement. Diagnose these deadlines and rerun both public and
-   daemon gates at one executable revision.
+   voter replacement. Exact peer archive reuse now passes a controlled
+   receipt replay with new archive payload writes denied, including against
+   real RustFS. Rerun both public and daemon gates at one executable
+   revision to qualify the broader paths.
 2. **Pass the combined CG-07 RF3 SQL gate.** Use one source revision for
    onboarding, enrollment, ingress-only SDK routing, native and Axum reads and
    writes, leader loss, exact retries, retained restart and quorum refusal.

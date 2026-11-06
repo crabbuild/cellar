@@ -413,6 +413,36 @@ Both callers received ambiguous command deadlines. The cause of the
 deadlines remains open. The command log SHA-256 is
 `016b9e42ef31fcb10145fce5e6038efa53364a861e4fdc069b8b25d9cba50508`.
 
+## CG-07 reuse of a peer's verified archive
+
+The failed public runs retained local archive journals. In ingress, the
+waiting voter still held index 7 and had a pending publication at index 11.
+Two peers held index 11. In extent replacement, one voter still held
+index 7 with a pending publication at index 9 while three peers held
+index 9. The isolated baseline ingress case passed. The isolated lifecycle
+case again reached terminal replacement and timed out during explicit S3
+settlement. Its log SHA-256 is
+`fd7422278fadaa2d49139bc1b631f4b2f9f999ecb0b6b296f0cbbee73ff96682`.
+
+The controlled regression holds one voter's registry update, lets another
+voter publish the exact committed cut and denies further archive payload
+writes. The baseline returned an ambiguous deadline replaying the original
+receipt. At `393bffe46d51742f12e506ef9a78871e7f8c979d`, the waiting owner
+journals an exact acquire intent when the selected peer archive matches its
+local applied manifest. It independently verifies the retained hold before
+settling the receipt or advancing local reclamation. It retries ambiguous
+acquisitions by exact intent and clears only a superseded intent.
+
+The regression passed in both image modes using the native fixture store
+and real RustFS. It returned the original receipt and ran the SQL callback
+once. The baseline failure and native pass log SHA-256 digests are
+`7961604522fa544f01c6b0e6b8c029be01225da77271b7787590ebed2501ed66`
+and `24381fc9c70ab3897d48c86a3e7e370eda136f34cb337466af41191c0b83ffc8`.
+The focused RustFS record SHA-256 is
+`57794691e2cc6515c8e6bdad98f4aacbd702f20dedd711a6ee241c7590929d84`.
+CG-07 still requires the full public and constrained daemon gates at this
+executable revision.
+
 ## CG-07 shared cell version key rotation
 
 On `d6f79a1b`, all eight `native_cell_groups_contracts` tests passed. The
