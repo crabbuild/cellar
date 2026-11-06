@@ -213,7 +213,15 @@ pub(crate) async fn start(
         } else {
             registration::RetainedPlacements::default()
         };
-        let discovery = directory::prepare(&mut prepared, &mut options, &log, &transport).await?;
+        // Boot binding commits the Fleet root through the object-store client.
+        // Keep its nested futures off the caller's startup polling frame.
+        let discovery = Box::pin(directory::prepare(
+            &mut prepared,
+            &mut options,
+            &log,
+            &transport,
+        ))
+        .await?;
         registration::refresh_routes(&mut prepared, &log, options.managed.is_some())?;
         let sql = CellGroupSqlPool::start(&log, limits.sql)?;
         startup.sql = Some(sql.clone());

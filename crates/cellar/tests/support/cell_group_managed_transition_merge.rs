@@ -2028,7 +2028,7 @@ async fn start_recovery_voter(
     let result = async {
         let (mut config, services) = fixture.config(&node, mode, generation).await?;
         crate::managed_fixture::archives::configure(&mut config);
-        node.start_raft_cells(config, services).await
+        Box::pin(node.start_raft_cells(config, services)).await
     }
     .await;
     match result {
