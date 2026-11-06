@@ -99,16 +99,13 @@ impl FleetHostAuthorization {
                 if reservation.plan_digest() != plan.digest() {
                     return Err(FleetCatalogError::PayloadConflict);
                 }
+                let intent = fenced.request().intent();
                 let snapshot = catalog.inner.current().await?;
                 catalog
-                    .managed_recovery_permit_at(
-                        &snapshot,
-                        directory,
-                        fenced.request().intent().basis(),
-                    )
+                    .managed_recovery_permit_at(&snapshot, directory, intent.basis())
                     .await?;
                 let rooted = catalog
-                    .managed_recovery_reservation_at(&snapshot, directory, fenced, plan, birth)
+                    .managed_recovery_reservation_at(&snapshot, directory, intent, plan, birth)
                     .await?
                     .ok_or(FleetCatalogError::Conflict)?;
                 if rooted.record != reservation.record
@@ -189,7 +186,7 @@ impl FleetCatalog {
                 .find(|birth| birth.route().history == scope)
                 .ok_or(FleetCatalogError::Conflict)?;
             let intent = fenced.request().intent();
-            let step = recovery_reservation_step(fenced, plan, birth);
+            let step = recovery_reservation_step(intent, plan, birth);
             let binding = self.binding(&scope)?;
             let history_key = binding
                 .key()
@@ -200,7 +197,7 @@ impl FleetCatalog {
                 .await?;
             let domain = &self.inner.domain;
             if let Some(reserved) = self
-                .managed_recovery_reservation_at(&snapshot, directory, fenced, plan, birth)
+                .managed_recovery_reservation_at(&snapshot, directory, intent, plan, birth)
                 .await?
             {
                 domain
@@ -265,7 +262,7 @@ impl FleetCatalog {
         &self,
         snapshot: &FleetSnapshot,
         directory: &RangeDirectory,
-        fenced: &FleetFencedTransitionRecovery,
+        intent: &FleetTransitionRecoveryIntent,
         plan: &FleetTransitionRecoveryReplacement,
         birth: &CellGroupBirthRequest,
     ) -> Result<Option<FleetRecoveryRangeReservation>> {
@@ -282,7 +279,7 @@ impl FleetCatalog {
             return Ok(None);
         };
         let record: Record = decode(KIND, &bytes, LIMIT)?;
-        let step = recovery_reservation_step(fenced, plan, birth);
+        let step = recovery_reservation_step(intent, plan, birth);
         if record.plan != plan.digest()
             || record.request != step.identity(record.request.expected_revision)
         {
@@ -407,13 +404,13 @@ impl FleetCatalog {
 }
 
 fn recovery_reservation_step(
-    fenced: &FleetFencedTransitionRecovery,
+    intent: &FleetTransitionRecoveryIntent,
     plan: &FleetTransitionRecoveryReplacement,
     birth: &CellGroupBirthRequest,
 ) -> TransitionOperatorStep {
     TransitionOperatorStep {
         operation: plan.mutation().operation(),
-        principal: fenced.request().intent().principal().into(),
+        principal: intent.principal().into(),
         request_digest: plan.digest(),
         step: birth.creation().bytes(),
     }

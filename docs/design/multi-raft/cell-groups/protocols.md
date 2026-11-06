@@ -1510,7 +1510,12 @@ receipt set so a later voter completion cannot change a retried decision.
 The recovery publication replaces every selected range in one directory CAS.
 The new head binds the exact seed set and keeps the startup fence on the old
 and replacement groups. A lost response reopens that publication without
-selecting another archive cut. Committed activation requires a fresh Raft quorum.
+selecting another archive cut. The node's recovery attachment entry point
+reopens the selected publication by durable IDs. It checks the voter's original
+seed receipt, the current qualified boot on the same disk and engine, and the
+complete retained page and image closure before starting Raft. The voter can
+replicate a fresh-term barrier while application admission remains closed.
+Committed activation requires a separate fresh-quorum proof.
 
 For an unpublished transition, choose complete archived parent cuts and reconstruct
 their non-overlapping domain under new groups. For a published transition, require

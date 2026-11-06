@@ -40,7 +40,7 @@ impl BootBinding {
         Ok(())
     }
 
-    fn same_engine_owner(&self, other: &Self) -> bool {
+    pub(crate) fn same_engine_owner(&self, other: &Self) -> bool {
         self.catalog == other.catalog
             && self.fleet == other.fleet
             && self.node == other.node

@@ -4,13 +4,17 @@
 use super::{histories::catalog_error, *};
 use crate::raft::{
     catalog::{
-        DirectoryPublication, ManagedRecoveryPublicationInput, ManagedRecoverySeedQuorum,
-        RangeDirectory,
+        CellGroupBirthRequest, DirectoryPublication, ManagedRecoveryPublicationInput,
+        ManagedRecoverySeedQuorum, RangeDirectory,
     },
     cell_groups::CellGroupArchivePool,
     fleet_stop::BootBinding,
+    member_state::FleetGroupBinding,
 };
-use cellar_logic::consensus::{NodeId, ProposalId};
+use cellar_logic::{
+    cell_group::GroupHistory,
+    consensus::{NodeId, ProposalId},
+};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 
@@ -43,6 +47,98 @@ impl FleetRecoverySeedQuorums {
 
     pub fn ranges(&self) -> &[ManagedRecoverySeedQuorum] {
         &self.record.ranges
+    }
+}
+
+/// Durable recovery identifiers used to reopen a published range on a voter.
+#[derive(Clone, Debug)]
+pub struct FleetRecoveryAttachRequest {
+    pub operation: ProposalId,
+    pub principal: String,
+    pub plan_digest: [u8; 32],
+    pub seed_digest: [u8; 32],
+}
+
+pub(crate) struct FleetPublishedRecoveryVoter {
+    pub(crate) birth: CellGroupBirthRequest,
+    pub(crate) seeds: ManagedRecoverySeedQuorum,
+    pub(crate) group: FleetGroupBinding,
+    pub(crate) seeded_boot: BootBinding,
+    pub(crate) current_boot: BootBinding,
+}
+
+impl FleetHostAuthorization {
+    pub(crate) async fn authorize_published_recovery_voter(
+        &self,
+        directory: &RangeDirectory,
+        request: &FleetRecoveryAttachRequest,
+        history: GroupHistory,
+        timeout: Duration,
+    ) -> Result<FleetPublishedRecoveryVoter> {
+        let catalog = &self.catalog;
+        catalog
+            .run(timeout, async {
+                let (intent, plan, record) = catalog
+                    .read_managed_recovery_publication_inputs(
+                        directory,
+                        request.operation,
+                        &request.principal,
+                        (request.plan_digest, request.seed_digest),
+                    )
+                    .await?;
+                let snapshot = catalog.inner.current().await?;
+                catalog
+                    .managed_recovery_permit_at(&snapshot, directory, intent.basis())
+                    .await?;
+                let index = plan
+                    .births()
+                    .iter()
+                    .position(|birth| birth.route().history == history)
+                    .ok_or(FleetCatalogError::Conflict)?;
+                let birth = &plan.births()[index];
+                let voter = birth
+                    .voters()
+                    .iter()
+                    .position(|voter| voter.node == self.node())
+                    .ok_or(FleetCatalogError::Conflict)?;
+                let reserved = catalog
+                    .managed_recovery_reservation_at(&snapshot, directory, &intent, &plan, birth)
+                    .await?
+                    .ok_or(FleetCatalogError::Conflict)?;
+                let seeded_boot = &reserved.voter_boots()[voter];
+                let current_boot = self.boot_binding()?;
+                if !seeded_boot.same_engine_owner(&current_boot)
+                    || catalog
+                        .qualified_recovery_boot(&snapshot, self.node())
+                        .await?
+                        .as_ref()
+                        != Some(&current_boot)
+                {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                let input = publication_input(&intent, &plan, request.seed_digest)?;
+                catalog
+                    .inner
+                    .domain
+                    .run(Box::pin(
+                        directory.observe_managed_recovery_publication(&input),
+                    ))
+                    .await
+                    .map_err(|_| FleetCatalogError::Closed)?
+                    .map_err(catalog_error)?
+                    .ok_or(FleetCatalogError::Conflict)?;
+                if catalog.inner.current().await?.token != snapshot.token {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                Ok(FleetPublishedRecoveryVoter {
+                    birth: birth.clone(),
+                    seeds: record.ranges[index].clone(),
+                    group: catalog.binding(&history)?,
+                    seeded_boot: seeded_boot.clone(),
+                    current_boot,
+                })
+            })
+            .await
     }
 }
 
@@ -175,26 +271,10 @@ impl FleetCatalog {
         timeout: Duration,
     ) -> Result<Option<DirectoryPublication>> {
         self.run(timeout, async {
-            let intent = self
-                .read_managed_recovery_intent(directory, operation, principal)
-                .await?
-                .ok_or(FleetCatalogError::Conflict)?;
-            let (plan_digest, seed_digest) = expected;
-            let plan = self
-                .read_recovery_publication_plan(directory, &intent, plan_digest)
+            let (intent, plan, _) = self
+                .read_managed_recovery_publication_inputs(directory, operation, principal, expected)
                 .await?;
-            let (record, _) = self
-                .inner
-                .read::<Record>(&seed_quorum_key(intent.operation()), KIND, LIMIT)
-                .await?
-                .ok_or(FleetCatalogError::Unconfirmed)?;
-            if record.plan != plan_digest
-                || record.receipt != plan.receipt_digest()
-                || record.ranges.len() != plan.births().len()
-                || hash(&encode(KIND, &record, LIMIT)?) != seed_digest
-            {
-                return Err(FleetCatalogError::PayloadConflict);
-            }
+            let (_, seed_digest) = expected;
             let snapshot = self.inner.current().await?;
             self.managed_recovery_permit_at(&snapshot, directory, intent.basis())
                 .await?;
@@ -211,6 +291,40 @@ impl FleetCatalog {
         .await
     }
 
+    async fn read_managed_recovery_publication_inputs(
+        &self,
+        directory: &RangeDirectory,
+        operation: ProposalId,
+        principal: &str,
+        expected: ([u8; 32], [u8; 32]),
+    ) -> Result<(
+        FleetTransitionRecoveryIntent,
+        FleetTransitionRecoveryReplacement,
+        Record,
+    )> {
+        let intent = self
+            .read_managed_recovery_intent(directory, operation, principal)
+            .await?
+            .ok_or(FleetCatalogError::Conflict)?;
+        let (plan_digest, seed_digest) = expected;
+        let plan = self
+            .read_recovery_publication_plan(directory, &intent, plan_digest)
+            .await?;
+        let (record, _) = self
+            .inner
+            .read::<Record>(&seed_quorum_key(intent.operation()), KIND, LIMIT)
+            .await?
+            .ok_or(FleetCatalogError::Unconfirmed)?;
+        if record.plan != plan_digest
+            || record.receipt != plan.receipt_digest()
+            || record.ranges.len() != plan.births().len()
+            || hash(&encode(KIND, &record, LIMIT)?) != seed_digest
+        {
+            return Err(FleetCatalogError::PayloadConflict);
+        }
+        Ok((intent, plan, record))
+    }
+
     async fn verify_managed_seed_quorums(
         &self,
         snapshot: &FleetSnapshot,
@@ -224,7 +338,13 @@ impl FleetCatalog {
         let mut ranges = Vec::with_capacity(plan.births().len());
         for (index, birth) in plan.births().iter().enumerate() {
             let reserved = self
-                .managed_recovery_reservation_at(snapshot, directory, fenced, plan, birth)
+                .managed_recovery_reservation_at(
+                    snapshot,
+                    directory,
+                    fenced.request().intent(),
+                    plan,
+                    birth,
+                )
                 .await?
                 .ok_or(FleetCatalogError::Unconfirmed)?;
             let boots = reserved.voter_boots();

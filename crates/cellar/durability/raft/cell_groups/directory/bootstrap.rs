@@ -32,6 +32,7 @@ enum BootstrapOrigin {
     Joined,
     ManagedJoined(Box<crate::raft::fleet_catalog::FleetHostAuthorization>),
     Recovery(Box<recovery::RecoveryStartup>),
+    ManagedRecovery(Box<recovery::ManagedRecoveryStartup>),
     PendingTransfer(PendingTransfer),
     ManagedActivatedTransfer {
         host: Box<crate::raft::fleet_catalog::FleetHostAuthorization>,
@@ -63,6 +64,25 @@ impl CellGroupBootstrapPermit {
             directory,
             log,
             origin: BootstrapOrigin::Recovery(Box::new(startup)),
+        }
+    }
+
+    pub(super) fn managed_pending_recovery(
+        group: GroupLog<GroupHistory>,
+        birth: CellGroupBirthRequest,
+        directory: RangeDirectory,
+        log: ReplicaLog,
+        startup: recovery::ManagedRecoveryStartup,
+    ) -> Self {
+        Self {
+            group,
+            birth: CellGroupBirth {
+                request: Arc::new(birth),
+                owner: directory.namespace.inner.owner.clone(),
+            },
+            directory,
+            log,
+            origin: BootstrapOrigin::ManagedRecovery(Box::new(startup)),
         }
     }
 
@@ -217,6 +237,17 @@ impl CellGroupBootstrapPermit {
                     self.group.identity().member,
                     &self.log,
                     host,
+                )
+                .await
+                .map(|_| ()),
+            BootstrapOrigin::ManagedRecovery(startup) => self
+                .directory
+                .bootstrap_managed_pending_recovery_voter(
+                    &startup.request,
+                    self.route().history,
+                    &self.log,
+                    &startup.host,
+                    startup.deadline,
                 )
                 .await
                 .map(|_| ()),

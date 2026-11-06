@@ -9,8 +9,9 @@ use crate::{
         catalog::{CatalogError, CellGroupRecoveryError, ManagedRecoveryVoterSeed},
         completion::RuntimeError,
         fleet_catalog::{
-            FleetFencedTransitionRecovery, FleetRecoveryRangeReservation,
-            FleetTransitionRecoveryReplacement, ManagedRecoverySeedSelection,
+            FleetFencedTransitionRecovery, FleetRecoveryAttachRequest,
+            FleetRecoveryRangeReservation, FleetTransitionRecoveryReplacement,
+            ManagedRecoverySeedSelection,
         },
     },
 };
@@ -143,6 +144,67 @@ impl RaftCells {
                     .unwrap_or(Err(CellGroupControllerError::Closed));
                     drop(lease);
                     let _ = reply.send(seeded);
+                })
+                .map_err(|_| CellGroupControllerError::Closed)?
+                .detach();
+            domain
+                .run(crate::asyncrt::timeout_at(deadline, result))
+                .await
+                .map_err(|_| CellGroupControllerError::Closed)?
+                .map_err(|_| CellGroupControllerError::Runtime(RuntimeError::DeadlineExceeded))?
+                .map_err(|_| CellGroupControllerError::Closed)?
+        }
+    }
+
+    /// Attach this voter to a published recovery range using its retained seed.
+    /// A successful attachment can participate in Raft. Application admission
+    /// requires a separate committed activation.
+    pub fn attach_managed_recovery_voter(
+        &self,
+        request: FleetRecoveryAttachRequest,
+        history: GroupHistory,
+        timeout: Duration,
+    ) -> impl Future<Output = Result<(), CellGroupControllerError>> + Send + 'static {
+        use super::startup::{admission_error, catalog_error};
+        let admitted = self
+            .metadata_admission(timeout, 4096)
+            .map_err(admission_error);
+        let owner = self.internal_observer();
+        async move {
+            let (deadline, _memory) = admitted?;
+            let core = &owner.handle.core;
+            let host = core
+                .managed
+                .as_ref()
+                .ok_or_else(|| catalog_error(CatalogError::ManagedAdmissionRequired))?;
+            owner.startup_live(host, deadline)?;
+            let directory = core
+                .host
+                .namespace_directory(history.cluster, history.namespace)
+                .map_err(|_| CellGroupControllerError::Invalid("recovery seed namespace"))?;
+            let lease = owner
+                .register_control_service(ControlServiceKind::Recovery, 4096)
+                .map_err(CatalogError::from)
+                .map_err(catalog_error)?;
+            let (reply, result) = tokio::sync::oneshot::channel();
+            let controller = core.controller.clone();
+            let transport = core.transport.clone();
+            let host = host.clone();
+            let domain = &owner.handle.domain;
+            domain
+                .spawn_cleanup(async move {
+                    let stop = lease.stop_receiver();
+                    let attached = Box::pin(controller.attach_managed_recovery_voter(
+                        &directory,
+                        &request,
+                        history,
+                        &host,
+                        &transport,
+                        (deadline, &stop),
+                    ))
+                    .await;
+                    drop(lease);
+                    let _ = reply.send(attached);
                 })
                 .map_err(|_| CellGroupControllerError::Closed)?
                 .detach();

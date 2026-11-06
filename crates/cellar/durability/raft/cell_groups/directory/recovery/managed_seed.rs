@@ -230,27 +230,7 @@ impl RangeDirectory {
             {
                 return Err(CatalogError::Fenced);
             }
-            let binding_key = self.managed_seed_key(route, "binding");
-            let (bytes, _) = self
-                .namespace
-                .inner
-                .read_versioned_bounded(&binding_key, wire::LIMIT)
-                .await?
-                .ok_or(CatalogError::Unconfirmed)?;
-            let binding: Binding = record::decode(BINDING, &bytes, wire::LIMIT)?;
-            if binding.plan != plan
-                || !binding.genesis.is_recovery_genesis()
-                || binding.genesis.route() != route
-                || binding.genesis.recovery_request() != Some(plan)
-                || binding
-                    .genesis
-                    .recovery_commitment()
-                    .map_err(|_| CatalogError::Corrupt("managed seed genesis"))?
-                    != Some(binding.commitment)
-            {
-                return Err(CatalogError::Corrupt("managed seed genesis binding"));
-            }
-            let digest = record::digest(&bytes);
+            let (binding, digest) = self.managed_seed_binding(route, plan).await?;
             let mut disks = BTreeSet::new();
             let mut engines = BTreeSet::new();
             let mut members = Vec::with_capacity(voters.len());
@@ -262,35 +242,14 @@ impl RangeDirectory {
                 if selected.is_some_and(|value| value.members.binary_search(&member).is_err()) {
                     continue;
                 }
-                let receipt = Receipt {
-                    binding: digest,
-                    member,
-                    boot: boot.clone(),
-                };
-                let complete_key =
-                    self.managed_seed_key(route, &seed_member_key(member, "complete"));
-                let Some((complete, _)) = self
-                    .namespace
-                    .inner
-                    .read_versioned_bounded(&complete_key, wire::LIMIT)
+                if !self
+                    .has_managed_seed_receipt(route, member, boot, digest)
                     .await?
-                else {
+                {
                     if selected.is_some() {
                         return Err(CatalogError::Unconfirmed);
                     }
                     continue;
-                };
-                let intent_key = self.managed_seed_key(route, &seed_member_key(member, "intent"));
-                let (intent, _) = self
-                    .namespace
-                    .inner
-                    .read_versioned_bounded(&intent_key, wire::LIMIT)
-                    .await?
-                    .ok_or(CatalogError::Corrupt("missing managed seed intent"))?;
-                if complete != record::encode(COMPLETE, &receipt, wire::LIMIT)?
-                    || intent != record::encode(INTENT, &receipt, wire::LIMIT)?
-                {
-                    return Err(CatalogError::Corrupt("managed seed receipt binding"));
                 }
                 boot.validate().map_err(CatalogError::Log)?;
                 let disk = DiskLineage::new(boot.disk)
@@ -320,6 +279,99 @@ impl RangeDirectory {
             Ok(quorum)
         })
         .await
+    }
+
+    pub(super) async fn require_published_managed_voter_seed(
+        &self,
+        target: &CellGroupBirthRequest,
+        plan: [u8; 32],
+        selected: &ManagedRecoverySeedQuorum,
+        voter: MemberId,
+        boot: &BootBinding,
+    ) -> Result<GroupManifest, CatalogError> {
+        self.require_managed_recovery_identity(target, plan).await?;
+        let route = target.route();
+        let (binding, digest) = self.managed_seed_binding(route, plan).await?;
+        if selected.birth != route.birth_digest
+            || selected.binding != digest
+            || selected.commitment != binding.commitment
+        {
+            return Err(CatalogError::Corrupt("published recovery seed binding"));
+        }
+        // A voter may have completed its seed without being needed in the
+        // selected majority. It must still present its own exact receipt.
+        if !self
+            .has_managed_seed_receipt(route, voter.get(), boot, digest)
+            .await?
+        {
+            return Err(CatalogError::LostStableState);
+        }
+        Ok(binding.genesis)
+    }
+
+    async fn managed_seed_binding(
+        &self,
+        route: &GroupRoute,
+        plan: [u8; 32],
+    ) -> Result<(Binding, [u8; 32]), CatalogError> {
+        let binding_key = self.managed_seed_key(route, "binding");
+        let (bytes, _) = self
+            .namespace
+            .inner
+            .read_versioned_bounded(&binding_key, wire::LIMIT)
+            .await?
+            .ok_or(CatalogError::Unconfirmed)?;
+        let binding: Binding = record::decode(BINDING, &bytes, wire::LIMIT)?;
+        if binding.plan != plan
+            || !binding.genesis.is_recovery_genesis()
+            || binding.genesis.route() != route
+            || binding.genesis.recovery_request() != Some(plan)
+            || binding
+                .genesis
+                .recovery_commitment()
+                .map_err(|_| CatalogError::Corrupt("managed seed genesis"))?
+                != Some(binding.commitment)
+        {
+            return Err(CatalogError::Corrupt("managed seed genesis binding"));
+        }
+        let digest = record::digest(&bytes);
+        Ok((binding, digest))
+    }
+
+    async fn has_managed_seed_receipt(
+        &self,
+        route: &GroupRoute,
+        member: u64,
+        boot: &BootBinding,
+        digest: [u8; 32],
+    ) -> Result<bool, CatalogError> {
+        let receipt = Receipt {
+            binding: digest,
+            member,
+            boot: boot.clone(),
+        };
+        let complete_key = self.managed_seed_key(route, &seed_member_key(member, "complete"));
+        let Some((complete, _)) = self
+            .namespace
+            .inner
+            .read_versioned_bounded(&complete_key, wire::LIMIT)
+            .await?
+        else {
+            return Ok(false);
+        };
+        let intent_key = self.managed_seed_key(route, &seed_member_key(member, "intent"));
+        let (intent, _) = self
+            .namespace
+            .inner
+            .read_versioned_bounded(&intent_key, wire::LIMIT)
+            .await?
+            .ok_or(CatalogError::Corrupt("missing managed seed intent"))?;
+        if complete != record::encode(COMPLETE, &receipt, wire::LIMIT)?
+            || intent != record::encode(INTENT, &receipt, wire::LIMIT)?
+        {
+            return Err(CatalogError::Corrupt("managed seed receipt binding"));
+        }
+        Ok(true)
     }
 
     fn managed_seed_key(&self, route: &GroupRoute, leaf: &str) -> Path {

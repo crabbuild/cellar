@@ -233,10 +233,10 @@ pub mod fleet_operations {
     };
     pub use crate::raft::catalog::{ManagedRecoverySeedQuorum, ManagedRecoveryVoterSeed};
     pub use crate::raft::fleet_catalog::{
-        FleetFencedTransitionRecovery, FleetRecoveryRangeReservation, FleetRecoverySeedQuorums,
-        FleetRecoveryVoterLineage, FleetTopologyPolicy, FleetTransitionRecoveryBarrier,
-        FleetTransitionRecoveryFenceRequest, FleetTransitionRecoveryIntent,
-        FleetTransitionRecoveryReplacement,
+        FleetFencedTransitionRecovery, FleetRecoveryAttachRequest, FleetRecoveryRangeReservation,
+        FleetRecoverySeedQuorums, FleetRecoveryVoterLineage, FleetTopologyPolicy,
+        FleetTransitionRecoveryBarrier, FleetTransitionRecoveryFenceRequest,
+        FleetTransitionRecoveryIntent, FleetTransitionRecoveryReplacement,
     };
 }
 pub use crate::assets::{AssetCache, AssetCacheOptions, AssetResolver};

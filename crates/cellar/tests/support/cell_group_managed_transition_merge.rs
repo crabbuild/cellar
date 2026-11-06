@@ -11,8 +11,8 @@ use cellar::application::consensus::verification::{
 };
 use cellar::application::consensus::{DisasterFenceAuthority, FleetNodeSpec};
 use cellar::sdk::fleet_operations::{
-    FleetFencedTransitionRecovery, FleetTransitionRecoveryFenceRequest, RaftFleetControl,
-    RaftFleetFailureCode, RaftFleetFirstGroupVoter, RaftFleetOutcome,
+    FleetFencedTransitionRecovery, FleetRecoveryAttachRequest, FleetTransitionRecoveryFenceRequest,
+    RaftFleetControl, RaftFleetFailureCode, RaftFleetFirstGroupVoter, RaftFleetOutcome,
     RaftFleetTransitionAdmissionRequest, RaftFleetTransitionChild,
     RaftFleetTransitionChildSetupRequest, RaftFleetTransitionChildSetupResult,
     RaftFleetTransitionChildStep, RaftFleetTransitionGroup, RaftFleetTransitionPartition,
@@ -1655,7 +1655,7 @@ async fn check_recovery_replacements(
     }
     ensure!(checked == routed.len());
     Box::pin(check_recovery_voter_reservations(
-        fixture, control, fresh, namespace, fenced, &plan,
+        fixture, control, fresh, namespace, fenced, &plan, routed,
     ))
     .await?;
 
@@ -1669,6 +1669,7 @@ async fn check_recovery_voter_reservations(
     namespace: &str,
     fenced: &Arc<FleetFencedTransitionRecovery>,
     plan: &Arc<cellar::sdk::fleet_operations::FleetTransitionRecoveryReplacement>,
+    routed: &[(CellHistory, i64)],
 ) -> Result<()> {
     let (_, directory) = reopen_merge_controller(fixture).await?;
     let mut standbys = Vec::new();
@@ -1813,15 +1814,25 @@ async fn check_recovery_voter_reservations(
         )).await?;
         ensure!(Some(reopened.digest()) == quorum_digest);
         ensure!(reopened.ranges().iter().all(|range| range.members() == [21, 22]));
+        let request = FleetRecoveryAttachRequest {
+            operation: ProposalId::new(fenced.request().intent().operation())?,
+            principal: "managed-test".into(),
+            plan_digest: plan.digest(),
+            seed_digest: reopened.digest(),
+        };
+        let first_host = &standbys[0].2;
+        let premature = Box::pin(first_host.attach_managed_recovery_voter(
+            request.clone(), first, TIMEOUT,
+        )).await;
+        ensure!(premature.is_err() && first_host.observe_node(TIMEOUT).await?.registered_histories == 0);
         let locked = fixture.domain.run(directory.observe()).await??;
         let work = control.publish_transition_recovery(namespace, fenced, plan, &reopened, TIMEOUT);
         let (unknown, delivered) = Box::pin(fault::lose_directory_confirmation(work)).await;
         ensure!(delivered && matches!(unknown, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
-        let operation = hex::encode(fenced.request().intent().operation());
-        let principal = "managed-test";
-        let expected = (plan.digest(), reopened.digest());
+        let operation = hex::encode(request.operation.bytes());
+        let expected = (request.plan_digest, request.seed_digest);
         let publication = Box::pin(fresh.reopen_transition_recovery_publication(
-            namespace, &operation, principal, expected, TIMEOUT,
+            namespace, &operation, &request.principal, expected, TIMEOUT,
         )).await?.context("reopen recovery publication by durable operation")?;
         let replayed = Box::pin(control.publish_transition_recovery(
             namespace, fenced, plan, &reopened, TIMEOUT,
@@ -1834,6 +1845,53 @@ async fn check_recovery_voter_reservations(
         for birth in plan.births() {
             let denied = fixture.domain.run(directory.materialize_selected_history(birth.route().history)).await?;
             ensure!(matches!(denied, Err(cellar::application::consensus::CatalogError::Fenced)));
+        }
+        let hosts: Vec<_> = standbys.iter().map(|(_, _, host)| host).collect();
+        for host in &hosts {
+            for peer in &hosts {
+                inspect_current(host, peer.identity().node, revision).await?;
+            }
+        }
+        let wrong = FleetRecoveryAttachRequest { seed_digest: [1; 32], ..request.clone() };
+        let denied = Box::pin(first_host.attach_managed_recovery_voter(wrong, first, TIMEOUT)).await;
+        ensure!(denied.is_err() && first_host.observe_node(TIMEOUT).await?.registered_histories == 0);
+        for (birth, archive) in plan.births().iter().zip(fenced.archives()) {
+            let history = birth.route().history;
+            Box::pin(check_pending_recovery_quorum(&hosts, &request, history)).await?;
+            let (cell, _) = routed.iter().find(|(cell, _)| {
+                archive.recovery().manifest().pin_cell(&cell.cell).is_some()
+            }).context("recovered range cell")?;
+            let cell = CellHistory { incarnation: history.incarnation, ..cell.clone() };
+            let handle = first_host.cell(cell)?;
+            let read = handle.query(
+                request.operation,
+                &handle.contract("Get")?,
+                vec![],
+                QueryOptions {
+                    consistency: QueryConsistency::Stale,
+                    stale_policy: StaleReadPolicy::DisconnectedHistorical,
+                    routing: QueryRouting::Local,
+                    ..Default::default()
+                },
+            ).await;
+            ensure!(read.is_err(), "pending recovery served a stale read: {read:?}");
+            let retry = u64::try_from(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)?
+                    .as_millis(),
+            )?
+            .checked_add(60_000)
+            .context("pending recovery command retry deadline")?;
+            let id = CommandId::new(ClientId::new([213; 16])?, 1)?;
+            let write = handle.command(
+                &handle.contract("Add")?,
+                1i64.to_be_bytes().to_vec(),
+                CommandOptions::new(id, retry),
+            ).await;
+            ensure!(
+                matches!(write, Err(ref failure) if failure.command == id && !failure.ambiguous),
+                "pending recovery admitted a write: {write:?}"
+            );
         }
         Ok::<(), anyhow::Error>(())
     })
@@ -1850,9 +1908,9 @@ async fn check_recovery_voter_reservations(
             ensure!(
                 report.groups.iter().all(|group| !group.active
                     && !group.failed
-                    && group.applied.index.get() == 1
+                    && group.applied.index.get() > 1
                     && group.committed == group.applied.index),
-                "managed recovery shutdown must preserve inactive genesis: {report:?}"
+                "managed recovery shutdown must preserve inactive quorum state: {report:?}"
             );
             Ok::<(), anyhow::Error>(())
         }
@@ -1861,6 +1919,42 @@ async fn check_recovery_voter_reservations(
     }
     checked?;
     shutdown
+}
+
+async fn check_pending_recovery_quorum(
+    hosts: &[&RaftCells],
+    request: &FleetRecoveryAttachRequest,
+    history: GroupHistory,
+) -> Result<()> {
+    for (index, host) in hosts.iter().enumerate() {
+        Box::pin(host.attach_managed_recovery_voter(request.clone(), history, TIMEOUT)).await?;
+        if index == 0 {
+            let status = host.group(history)?.status().await?;
+            ensure!(!status.ready && status.committed.get() == 1);
+        }
+    }
+    tokio::time::timeout(TIMEOUT, async {
+        loop {
+            let mut fresh = true;
+            for host in hosts {
+                let status = host.group(history)?.status().await?;
+                ensure!(!status.ready);
+                fresh &= status.leader.is_some()
+                    && status.term.get() > 1
+                    && status.applied.term == status.term
+                    && status.applied.index.get() > 1
+                    && status.committed == status.applied.index;
+            }
+            if fresh {
+                break Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("pending recovery did not form a fresh Raft quorum")??;
+    Box::pin(hosts[0].attach_managed_recovery_voter(request.clone(), history, TIMEOUT)).await?;
+    Ok(())
 }
 
 fn check_restored_image(before: CellImagePin, after: CellImagePin) -> Result<()> {
