@@ -113,6 +113,7 @@ pub struct GroupWrite<S = GroupScope> {
         Option<Arc<super::cell_groups::archive_compaction::ArchiveCompactionAdmission>>,
     pub(crate) consensus_pin: Option<Arc<dyn Send + Sync>>,
     pub(crate) seed_grant: Option<Arc<super::transport::CellGroupSeedGrant>>,
+    pub(crate) local_park: Option<super::cell_groups::LocalParkChange>,
     pub group: GroupLog<S>,
     pub entries: Vec<Entry>,
     pub hard_state: Option<HardState>,
@@ -131,6 +132,7 @@ impl<S: Clone> GroupWrite<S> {
             checkpoint_admission: None,
             consensus_pin: None,
             seed_grant: None,
+            local_park: None,
             group: group.clone(),
             entries: Vec::new(),
             hard_state: None,
@@ -503,6 +505,7 @@ pub(crate) struct CachedGroup {
     pub checkpoint_manifest: Option<GroupManifest>,
     /// Local receipt; never imported from another node's checkpoint.
     pub group_seed: Option<u64>,
+    pub(crate) local_park: Option<super::cell_groups::LocalParkRecord>,
 }
 
 impl CachedGroup {
@@ -560,6 +563,7 @@ impl CachedGroup {
     }
 
     pub fn validate(&self, max_entries: usize) -> Result<(), LogError> {
+        self.validate_local_park()?;
         if self.archive_required && self.group_manifest.is_none() {
             return Err(LogError::Corrupt(
                 "archive requirement without cell group".into(),
@@ -990,6 +994,12 @@ impl CachedGroup {
                 "applied configuration lacks ConfState".into(),
             ));
         }
+        next.update_local_park(
+            self,
+            write.local_park.as_ref(),
+            write.group.identity().member,
+            write.group.identity().process,
+        )?;
         next.validate(max_entries)
             .map_err(|error| LogError::Invalid(error.to_string()))?;
         Ok(next)
@@ -1053,6 +1063,7 @@ pub(crate) fn genesis(conf_state: ConfState) -> CachedGroup {
         manifest_pins: None,
         checkpoint_manifest: None,
         group_seed: None,
+        local_park: None,
         applied: DurableApply {
             position: LogPosition {
                 index: LogIndex::new(1),

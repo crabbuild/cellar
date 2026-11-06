@@ -299,6 +299,7 @@ impl PreparedSeed {
             manifest_pins: None,
             checkpoint_manifest: None,
             group_seed: None,
+            local_park: None,
             applied: crate::raft::cache::DurableApply {
                 position: LogPosition {
                     index: LogIndex::new(self.descriptor.index),

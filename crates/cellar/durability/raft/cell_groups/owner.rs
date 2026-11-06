@@ -279,6 +279,7 @@ impl CellGroupOwner {
         Box::pin(permit.revalidate())
             .await
             .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
+        Box::pin(permit.log().close_retained_park(&group)).await?;
         let cache = group.read()?;
         if !Arc::ptr_eq(&current.engine_owner, &group.owner)
             || cache.group_manifest.as_ref() != Some(current.marker())

@@ -158,6 +158,14 @@ impl MappingRecord {
             return Err(corrupt("unsupported group marker"));
         }
         let history = self.history()?;
+        if cache
+            .local_park
+            .as_ref()
+            .is_some_and(|park| park.acknowledged())
+            && !cache.conf_state.voters.contains(&self.member)
+        {
+            return Err(LogError::WrongIdentity);
+        }
         if cache.recovery_genesis.as_deref() != self.recovery_genesis() {
             return Err(LogError::WrongIdentity);
         }
@@ -295,6 +303,8 @@ pub(crate) struct GroupApplication {
     archive_required: bool,
     // Required, local to this mapping/engine, and never snapshot payload.
     seed: LocalGroupSeed,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    local_park: Option<super::cell_groups::LocalParkRecord>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -329,6 +339,7 @@ impl GroupRecord {
                 Some(marker) => ApplicationRecord::Group(Box::new(GroupApplication {
                     manifest: marker.clone(),
                     archive_required: cache.archive_required,
+                    local_park: cache.local_park.clone(),
                     seed: cache.group_seed.map_or(LocalGroupSeed::Absent, |index| {
                         LocalGroupSeed::Installed { index }
                     }),
@@ -382,6 +393,10 @@ impl GroupRecord {
                 .cloned()
                 .map(std::sync::Arc::new),
             group_seed,
+            local_park: match &self.application {
+                ApplicationRecord::Group(application) => application.local_park.clone(),
+                ApplicationRecord::Image(_) => None,
+            },
             manifest_pins: None,
             checkpoint_manifest,
             applied: DurableApply {

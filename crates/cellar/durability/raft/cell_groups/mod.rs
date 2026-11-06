@@ -81,6 +81,7 @@ mod enrollment;
 mod enrollment_apply;
 mod hibernate;
 pub use hibernate::GroupParkCut;
+pub(crate) use hibernate::{LocalParkChange, LocalParkRecord};
 mod image_pin;
 mod manifest;
 pub(crate) mod membership;
