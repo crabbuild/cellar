@@ -100,7 +100,7 @@ pub(super) fn transfer_archive_error(error: CellGroupArchiveBindingError) -> Fle
     }
 }
 
-fn root_digest(snapshot: &FleetSnapshot) -> Result<[u8; 32]> {
+pub(super) fn root_digest(snapshot: &FleetSnapshot) -> Result<[u8; 32]> {
     Ok(hash(&encode(HEAD_KIND, &snapshot.head, ROOT_LIMIT)?))
 }
 

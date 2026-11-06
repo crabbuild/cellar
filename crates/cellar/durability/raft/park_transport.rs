@@ -9,7 +9,7 @@ use crate::raft::cell_groups::{
     GroupParkCut, ParkAcknowledgement, ParkCertificate, SelectedParkCertificate,
     MAX_PARK_NEGOTIATION_MS,
 };
-use cellar_logic::cell_group::GroupRoute as CellRoute;
+use cellar_logic::{cell_group::GroupRoute as CellRoute, consensus::EngineInstanceId};
 use sha2::{Digest, Sha256};
 
 pub(super) const REQUEST_MAGIC: &[u8; 4] = b"CLPQ";
@@ -103,6 +103,28 @@ struct Peer {
     pool: Arc<Pool>,
 }
 
+/// The authenticated delivery turn observed a synced parked record on every
+/// voter in one exact physical registration. It is a historical observation.
+pub(crate) struct ParkDeliveryReceipt {
+    leader: ReplicaIdentity<GroupHistory>,
+    engine: EngineInstanceId,
+    cut: GroupParkCut,
+}
+
+impl ParkDeliveryReceipt {
+    pub(crate) fn leader(&self) -> &ReplicaIdentity<GroupHistory> {
+        &self.leader
+    }
+
+    pub(crate) fn engine(&self) -> EngineInstanceId {
+        self.engine
+    }
+
+    pub(crate) fn cut(&self) -> &GroupParkCut {
+        &self.cut
+    }
+}
+
 struct Roster {
     application: CellRoute,
     registration: Arc<GroupRoute<GroupHistory>>,
@@ -165,7 +187,7 @@ impl RaftTransport {
         history: GroupHistory,
         selected: &SelectedParkCertificate,
         deadline: u64,
-    ) -> Result<(), TransportError> {
+    ) -> Result<ParkDeliveryReceipt, TransportError> {
         let state = self.handle.0.clone();
         let now = state.domain.mono_ms().map_err(|_| TransportError::Closed)?;
         if deadline <= now || deadline - now > MAX_PARK_NEGOTIATION_MS {
@@ -341,7 +363,7 @@ impl State {
         roster: Roster,
         certificate: ParkCertificate,
         deadline: u64,
-    ) -> Result<(), TransportError> {
+    ) -> Result<ParkDeliveryReceipt, TransportError> {
         let body = serde_json::to_vec(&certificate).map_err(|_| TransportError::Protocol)?;
         if body.len() > MAX_PARK_BODY {
             return Err(TransportError::Limit);
@@ -379,7 +401,14 @@ impl State {
         ) {
             return Err(TransportError::StalePeer);
         }
-        Ok(())
+        Ok(ParkDeliveryReceipt {
+            leader: roster.local,
+            engine: runtime
+                .log()
+                .storage_instance()
+                .map_err(RuntimeError::from)?,
+            cut: cut.clone(),
+        })
     }
 
     fn park_charge(&self) -> usize {

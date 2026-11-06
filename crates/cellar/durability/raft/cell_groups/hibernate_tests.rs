@@ -659,6 +659,7 @@ async fn exercise_park(enter_park: bool) -> anyhow::Result<()> {
                     proposal: ProposalId::new([20; 16])?,
                     term: status.term,
                     membership: MembershipRevision::new(manifest.membership_revision())?,
+                    expected_applied: status.applied,
                     deadline_ms: log.domain().mono_ms()? + MAX_PARK_NEGOTIATION_MS,
                 };
                 let stale = ParkPrepareRequest {

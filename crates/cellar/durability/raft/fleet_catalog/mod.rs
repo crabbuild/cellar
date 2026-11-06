@@ -17,6 +17,8 @@ mod imports;
 mod index;
 mod isolation;
 mod maintenance;
+mod managed_park;
+pub(crate) use managed_park::{ManagedParkPermit, ManagedParkSettlement};
 mod managed_transition_admission;
 pub(crate) use managed_transition_admission::TransitionOperatorStep;
 mod managed_transition_replay;
@@ -468,6 +470,8 @@ impl FleetCatalog {
             return Err(FleetCatalogError::Conflict);
         }
         Box::pin(self.check_managed_transition_mutation(snapshot, mutation, movement)).await?;
+        self.check_park_mutation(snapshot, mutation, movement)
+            .await?;
         self.check_failure_recovery_mutation(snapshot, mutation, movement)
             .await?;
         self.check_isolation_mutation(snapshot, mutation, movement)

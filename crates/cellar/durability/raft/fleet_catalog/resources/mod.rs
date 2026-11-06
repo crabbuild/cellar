@@ -54,6 +54,7 @@ pub(super) enum Authority {
     RestartReturn,
     RestartResume,
     RestartOperator,
+    ManagedPark,
     ManagedTransition,
     ManagedTransferChildren,
     ManagedTransferCompletion,

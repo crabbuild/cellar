@@ -80,6 +80,7 @@ mod metrics;
 pub(crate) mod node_inspections;
 #[path = "park_transport.rs"]
 mod parks;
+pub(crate) use parks::ParkDeliveryReceipt;
 #[path = "query_transport.rs"]
 mod queries;
 pub(crate) use cell_queries::CellQueryContext;

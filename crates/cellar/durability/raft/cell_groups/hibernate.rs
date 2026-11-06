@@ -87,6 +87,7 @@ pub(crate) struct ParkPrepareRequest {
     pub proposal: ProposalId,
     pub term: Term,
     pub membership: MembershipRevision,
+    pub expected_applied: LogPosition,
     pub deadline_ms: u64,
 }
 

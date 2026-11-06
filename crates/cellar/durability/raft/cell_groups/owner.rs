@@ -1189,6 +1189,7 @@ impl CellGroupOwner {
         let wall = u64::try_from(crate::asyncrt::wall_ms()).map_err(|_| RuntimeError::NotReady)?;
         if request.term.get() != self.node.raft.term
             || request.membership.get() != cache.membership.revision().get()
+            || request.expected_applied != at
         {
             return Err(RuntimeError::StaleCompletion);
         }

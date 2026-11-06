@@ -360,6 +360,7 @@ async fn park_certificate_delivery_and_wake_over_three_tls_voters() -> anyhow::R
         proposal: ProposalId::new([20; 16])?,
         term: status.term,
         membership: MembershipRevision::new(1)?,
+        expected_applied: status.applied,
         deadline_ms: deadline,
     };
     let prepared = wait_park_test(&domain, || async {

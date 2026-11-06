@@ -9,6 +9,7 @@ pub(super) enum Disruption {
     Evacuation(evacuation::Record),
     Restart(maintenance::Record),
     Transition(managed_transitions::Record),
+    Park(managed_park::Record),
 }
 
 impl Disruption {
@@ -20,6 +21,9 @@ impl Disruption {
         }
         if let Ok(record) = decode::<maintenance::Record>(maintenance::KIND, bytes, 4096) {
             return Ok(Self::Restart(record));
+        }
+        if let Ok(record) = decode::<managed_park::Record>(managed_park::KIND, bytes, 4096) {
+            return Ok(Self::Park(record));
         }
         Ok(Self::Transition(decode(
             managed_transitions::KIND,
@@ -33,6 +37,7 @@ impl Disruption {
             Self::Evacuation(record) => record.validate(catalog),
             Self::Restart(record) => record.validate(catalog),
             Self::Transition(record) => record.validate(catalog),
+            Self::Park(record) => record.validate(catalog),
         }
     }
 
@@ -41,6 +46,7 @@ impl Disruption {
             Self::Evacuation(record) => record.operation(),
             Self::Restart(record) => record.request.operation,
             Self::Transition(record) => record.operation(),
+            Self::Park(record) => record.operation(),
         }
     }
 
@@ -58,6 +64,7 @@ impl Disruption {
             Self::Evacuation(record) => record.mutation(),
             Self::Restart(record) => record.mutation(),
             Self::Transition(record) => record.mutation(),
+            Self::Park(record) => record.mutation(),
         }
     }
 
@@ -66,6 +73,7 @@ impl Disruption {
             Self::Evacuation(record) => record.check_basis(snapshot),
             Self::Restart(record) => record.check_basis(snapshot),
             Self::Transition(record) => record.check_basis(snapshot),
+            Self::Park(record) => record.check_basis(snapshot),
         }
     }
 }
@@ -86,6 +94,7 @@ impl FleetCatalog {
                 record.validate(self)?;
                 let key = match &record {
                     Disruption::Transition(record) => record.key(),
+                    Disruption::Park(record) => record.key(),
                     _ => hex::encode(record.operation()),
                 };
                 let operation = self
@@ -104,6 +113,9 @@ impl FleetCatalog {
                     }
                     Disruption::Transition(record) => {
                         self.confirm_managed_transition(snapshot, record).await?;
+                    }
+                    Disruption::Park(record) => {
+                        self.confirm_managed_park(snapshot, record).await?;
                     }
                 }
                 Ok(Some(record))
@@ -130,6 +142,9 @@ impl FleetCatalog {
             && authority != resources::Authority::ManagedTransition
         {
             return Err(FleetCatalogError::Invalid("managed transition authority"));
+        }
+        if matches!(record, Disruption::Park(_)) && authority != resources::Authority::ManagedPark {
+            return Err(FleetCatalogError::Invalid("managed park authority"));
         }
         record.validate(self)?;
         record.check_basis(snapshot)?;

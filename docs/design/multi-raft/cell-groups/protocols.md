@@ -1417,6 +1417,13 @@ be abandoned merely to park.
    require a current-term applied position beyond the wake floor before serving.
    Send wake hints to peers. Missing a quorum refuses or waits.
 
+Managed negotiation takes the fleet's rooted disruption slot at the exact
+leader boot, applied position, term and membership revision. A later request
+must still match that base. Settlement releases the slot after authenticated
+durable delivery to all voters, or after a quorum observation proves a later
+term or an applied position beyond the reserved park cut. A timeout alone
+does not settle the rooted operation.
+
 The node keeps parked voters out of the Raft tick roster. Its deadline index
 holds one earliest effect per parked history and releases due wakes in bounded
 batches on the execution-domain timer. A restart may conservatively wake all locally parked groups
