@@ -30,6 +30,7 @@ CASES = (
     "rustfs_group_archive_requires_all_dependencies",
     "rustfs_group_reclaim_restart_keeps_history",
     "rustfs_archive_coverage_gates_local_compaction",
+    "rustfs_short_archived_groups_checkpoint_and_recover_independently",
     "rustfs_s3_remote_outputs_preserve_durability_and_creation",
     "rustfs_s3_remote_deadlines_preserve_ambiguity_and_callbacks",
     "rustfs_s3_remote_slow_delivery_retains_proofs_and_bounds",

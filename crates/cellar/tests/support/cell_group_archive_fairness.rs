@@ -10,9 +10,10 @@ async fn reclaimed(
     group: GroupHistory,
     cut: LogIndex,
 ) -> Result<()> {
-    published(controller, group, cut).await?;
     let log = fixture.cluster.voters[0].log.cell_group(&group)?;
-    controller::wait_for(async || Ok(log.first_index()? > cut.get())).await?;
+    controller::wait_for(async || Ok(log.first_index()? > cut.get()))
+        .await
+        .with_context(|| format!("checkpoint did not compact {group:?} through {cut:?}"))?;
     let checkpoint = log
         .checkpoint_manifest()?
         .context("compacted archive checkpoint")?;
@@ -96,6 +97,10 @@ pub(crate) async fn archived_groups_reclaim_independently(
     }
 
     let held = archives[0].1.hold_publication();
+    archives[0]
+        .1
+        .lose_immutable_put_response
+        .store(true, Ordering::Release);
     let mut first = vec![add(&fixture, &primary, false, 1).await?];
     tokio::time::timeout(Duration::from_secs(10), held.entered.notified())
         .await
@@ -108,42 +113,64 @@ pub(crate) async fn archived_groups_reclaim_independently(
     }
     held.release.notify_one();
     for ((config, _), cut) in archives.iter().zip(first) {
-        reclaimed(&fixture, owner, config.birth.route().history, cut).await?;
+        let route = config.birth.route();
+        published(owner, route.history, cut)
+            .await
+            .with_context(|| format!("first archive cut {cut:?} for {:?}", route.history))?;
+        // Checkpoint scheduling retains the successor apply ticket while it
+        // checkpoints the already archived base.
+        add(&fixture, route, false, 2).await?;
+        reclaimed(&fixture, owner, route.history, cut).await?;
     }
+    assert!(!archives[0]
+        .1
+        .lose_immutable_put_response
+        .load(Ordering::Acquire));
 
     // An unavailable history retains its local tail without starving the two
     // healthy histories that share this node's archive and checkpoint owners.
     let blocked = &archives[1].1;
     blocked.outage.store(true, Ordering::Release);
-    let mut latest = Vec::new();
+    let mut third = Vec::new();
     for (config, _) in &archives {
-        latest.push(add(&fixture, config.birth.route(), false, 2).await?);
+        third.push(add(&fixture, config.birth.route(), false, 3).await?);
     }
-    for index in [0, 2] {
-        reclaimed(
-            &fixture,
-            owner,
-            archives[index].0.birth.route().history,
-            latest[index],
-        )
-        .await?;
+    let mut latest = Vec::new();
+    for index in [0, 2, 1] {
+        if index == 1 {
+            retained(
+                &fixture,
+                owner,
+                archives[1].0.birth.route().history,
+                third[1],
+            )?;
+            blocked.outage.store(false, Ordering::Release);
+        }
+        let route = archives[index].0.birth.route();
+        let cut = third[index];
+        published(owner, route.history, cut)
+            .await
+            .with_context(|| format!("archive catch-up to {cut:?} for {:?}", route.history))?;
+        let successor = add(&fixture, route, false, 4).await?;
+        reclaimed(&fixture, owner, route.history, cut).await?;
+        latest.push((index, successor));
     }
-    retained(
-        &fixture,
-        owner,
-        archives[1].0.birth.route().history,
-        latest[1],
-    )?;
-    blocked.outage.store(false, Ordering::Release);
-    reclaimed(
-        &fixture,
-        owner,
-        archives[1].0.birth.route().history,
-        latest[1],
-    )
-    .await?;
 
-    for ((config, _), cut) in archives.iter().zip(latest) {
+    for &(index, cut) in &latest {
+        let history = archives[index].0.birth.route().history;
+        published(owner, history, cut)
+            .await
+            .with_context(|| format!("final archive cut {cut:?} for {history:?}"))?;
+    }
+    for controller in controllers {
+        assert_eq!(controller.usage().quarantined_groups, 0);
+        controller.close().await?;
+    }
+    assert_eq!(base.tails.usage().operations, 0);
+
+    let mut selected = BTreeMap::new();
+    for (index, cut) in latest {
+        let config = &archives[index].0;
         let history = config.birth.route().history;
         let coverage = verified_current(
             &fixture,
@@ -151,15 +178,23 @@ pub(crate) async fn archived_groups_reclaim_independently(
             false,
             &format!("archive-audit-{}", hex::encode(history.group.bytes())),
         )
-        .await?;
+        .await
+        .with_context(|| format!("restore selected cut {cut:?} for {history:?}"))?;
+        selected.insert(
+            index,
+            (
+                coverage.hold().clone(),
+                coverage.recovery().reference().clone(),
+            ),
+        );
         assert_eq!(coverage.marker().route().history, history);
         assert_eq!(coverage.marker().position().index, cut);
         let root = coverage.recovery().manifest();
         assert_eq!(
             root.pinned_images(),
-            if history == primary.history { 4 } else { 2 }
+            if history == primary.history { 6 } else { 4 }
         );
-        for ordinal in 1..=2 {
+        for ordinal in 1..=4 {
             let (_, pin) = root
                 .pin_cell(&CellId::new(format!("later-{ordinal}"))?)
                 .context("restored cell")?;
@@ -181,10 +216,90 @@ pub(crate) async fn archived_groups_reclaim_independently(
             assert_eq!(bytes, expected);
         }
     }
-    for controller in controllers {
-        assert_eq!(controller.usage().quarantined_groups, 0);
-        controller.close().await?;
-    }
-    assert_eq!(base.tails.usage().operations, 0);
+    let (primary_hold, tail) = &selected[&0];
+    verify_archive_isolation(
+        &fixture,
+        &archives[0].0,
+        primary_hold,
+        tail,
+        &archives[1].0,
+        &selected[&1].0,
+    )
+    .await?;
     fixture.close().await
+}
+
+async fn verify_archive_isolation(
+    fixture: &RuntimeCluster,
+    primary: &CellGroupArchiveRegistration,
+    primary_hold: &CellGroupArchiveHold,
+    tail: &CellGroupArchiveTailReference,
+    sibling: &CellGroupArchiveRegistration,
+    sibling_hold: &CellGroupArchiveHold,
+) -> Result<()> {
+    let domain = &fixture.cluster.domain;
+    let registry = sibling
+        .directory
+        .open_group_archive(domain, &sibling.io, &sibling.birth)
+        .await?;
+    let destination = verifier(fixture, sibling.birth.route(), false, "foreign-hold").await?;
+    let foreign = registry
+        .verify_hold(
+            domain,
+            primary_hold,
+            &sibling.tails,
+            sibling.checkpoints.receive_archive(
+                destination,
+                sibling.scratch.clone(),
+                sibling.scratch_directory.clone(),
+            )?,
+        )
+        .await;
+    assert!(matches!(foreign, Err(CellGroupArchiveError::Conflict)));
+
+    let suffix = format!(
+        "/registries/{}/generations/{}/tails/{}-{}",
+        hex::encode(tail.registry()),
+        tail.generation(),
+        tail.length(),
+        hex::encode(tail.digest())
+    );
+    let store = &fixture.cluster.store;
+    let objects = store.list(None).try_collect::<Vec<_>>().await?;
+    let mut selected = objects
+        .iter()
+        .filter(|object| object.location.as_ref().ends_with(&suffix));
+    let path = &selected.next().context("selected immutable tail")?.location;
+    assert!(selected.next().is_none());
+    let original = store.get(path).await?.bytes().await?;
+    let mut corrupted = original.to_vec();
+    *corrupted.first_mut().context("nonempty archive tail")? ^= 1;
+    store.put(path, corrupted.into()).await?;
+
+    let checked = async {
+        let failure = verified_current(fixture, primary, false, "corrupt-tail").await;
+        anyhow::ensure!(
+            matches!(
+                failure
+                    .as_ref()
+                    .err()
+                    .and_then(|error| error.downcast_ref()),
+                Some(CellGroupArchiveError::Invalid("object digest/length"))
+            ),
+            "corrupt tail did not fail digest validation: {:?}",
+            failure.err()
+        );
+        let restored = verified_current(fixture, sibling, false, "healthy-sibling").await?;
+        anyhow::ensure!(
+            restored.hold() == sibling_hold,
+            "sibling selected cut changed"
+        );
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    store.put(path, original.into()).await?;
+    checked?;
+    let repaired = verified_current(fixture, primary, false, "repaired-tail").await?;
+    assert!(repaired.hold() == primary_hold);
+    Ok(())
 }
