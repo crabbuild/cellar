@@ -36,6 +36,9 @@ mod managed_recovery_replacement;
 mod managed_recovery_reservation;
 pub use managed_recovery_replacement::FleetTransitionRecoveryReplacement;
 pub use managed_recovery_reservation::FleetRecoveryRangeReservation;
+pub(crate) use managed_recovery_reservation::{
+    ManagedRecoverySeedAuthority, ManagedRecoverySeedSelection,
+};
 mod managed_transition_replay;
 pub use managed_recovery_inventory::FleetRecoveryVoterLineage;
 mod managed_transitions;

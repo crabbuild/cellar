@@ -1254,6 +1254,7 @@ async fn run_inner(
             TIMEOUT,
         ))
         .await?;
+        let fenced = Arc::new(fenced);
         ensure!(fenced.request().barrier() == confirmed);
         ensure!(fenced.request().intent().digest() == parent_intent.digest());
         ensure!(
@@ -1524,7 +1525,7 @@ async fn check_recovery_replacements(
     control: &RaftFleetControl,
     fresh: &RaftFleetControl,
     namespace: &str,
-    fenced: &FleetFencedTransitionRecovery,
+    fenced: &Arc<FleetFencedTransitionRecovery>,
     routed: &[(CellHistory, i64)],
     rooted: bool,
 ) -> Result<()> {
@@ -1587,6 +1588,7 @@ async fn check_recovery_replacements(
     let plan = Box::pin(fresh.reopen_transition_recovery_replacement(namespace, fenced, TIMEOUT))
         .await?
         .context("reopen selected recovery replacements")?;
+    let plan = Arc::new(plan);
     let repeated = Box::pin(control.stage_transition_recovery_replacement(
         namespace,
         fenced,
@@ -1612,7 +1614,7 @@ async fn check_recovery_replacements(
             .await;
     ensure!(matches!(absent, Err(failure) if failure.code == RaftFleetFailureCode::Conflict));
     Box::pin(check_recovery_voter_reservations(
-        fixture, control, fresh, namespace, fenced, &plan,
+        fixture, control, fresh, namespace, fenced, &plan, rooted,
     ))
     .await?;
 
@@ -1665,8 +1667,9 @@ async fn check_recovery_voter_reservations(
     control: &RaftFleetControl,
     fresh: &RaftFleetControl,
     namespace: &str,
-    fenced: &FleetFencedTransitionRecovery,
-    plan: &cellar::sdk::fleet_operations::FleetTransitionRecoveryReplacement,
+    fenced: &Arc<FleetFencedTransitionRecovery>,
+    plan: &Arc<cellar::sdk::fleet_operations::FleetTransitionRecoveryReplacement>,
+    rooted: bool,
 ) -> Result<()> {
     let (_, directory) = reopen_merge_controller(fixture).await?;
     let mut standbys = Vec::new();
@@ -1676,7 +1679,8 @@ async fn check_recovery_voter_reservations(
             let peer = peer_fixture(fixture, id).await?;
             let root = tempfile::tempdir()?;
             let node = start_node(root.path(), peer.application.clone(), &peer.spec.label).await?;
-            let (config, services) = peer.config(&node, LogOpenMode::Create, id + 100).await?;
+            let (mut config, services) = peer.config(&node, LogOpenMode::Create, id + 100).await?;
+            crate::managed_fixture::archives::configure(&mut config);
             let host = Box::pin(node.start_raft_cells(config, services)).await?;
             standbys.push((root, node, host));
             let (_, _, host) = standbys.last().context("started recovery voter")?;
@@ -1703,6 +1707,7 @@ async fn check_recovery_voter_reservations(
             .fail_fleet_confirmation
             .load(Ordering::Acquire));
         let mut previous = 0;
+        let mut reserved = Vec::new();
         for birth in plan.births() {
             let proof = Box::pin(fresh.reserve_transition_recovery_range(
                 namespace,
@@ -1716,6 +1721,7 @@ async fn check_recovery_voter_reservations(
             ensure!(proof.voter_boots() == boots.as_slice());
             ensure!(proof.applied_revision() > previous);
             previous = proof.applied_revision();
+            reserved.push(Arc::new(proof));
         }
         let replayed = Box::pin(
             control.reserve_transition_recovery_range(namespace, fenced, plan, first, TIMEOUT),
@@ -1724,6 +1730,62 @@ async fn check_recovery_voter_reservations(
         ensure!(
             replayed.applied_revision() < previous && replayed.voter_boots() == boots.as_slice()
         );
+        let revision = fixture.catalog.read(TIMEOUT).await?.revision();
+        for (voter_index, (root, _, host)) in standbys.iter().enumerate() {
+            let node = NodeId::new(boots[voter_index].node)?;
+            inspect_current(host, node, revision).await?;
+            for (range_index, reservation) in reserved.iter().enumerate() {
+                let base = root.path().join(format!("recovery-{range_index}"));
+                let route = reservation.route().clone();
+                let target = fixture
+                    .domain
+                    .blocking(move || preparation::store(base, route, rooted))?
+                    .await??;
+                let prepared =
+                    Box::pin(fresh.prepare_transition_recovery_range(
+                        namespace, fenced, plan, target, TIMEOUT,
+                    ))
+                    .await?;
+                if voter_index == 0 && range_index == 0 {
+                    fixture
+                        .store
+                        .fail_recovery_record_confirmation
+                        .store(true, Ordering::Release);
+                    let lost = Box::pin(host.seed_managed_recovery_range(
+                        fenced.clone(),
+                        plan.clone(),
+                        reservation.clone(),
+                        prepared.clone(),
+                        TIMEOUT,
+                    ))
+                    .await;
+                    ensure!(lost.is_err());
+                    ensure!(!fixture
+                        .store
+                        .fail_recovery_record_confirmation
+                        .load(Ordering::Acquire));
+                    ensure!(host.observe_node(TIMEOUT).await?.node.groups == 1);
+                }
+                let receipt = Box::pin(host.seed_managed_recovery_range(
+                    fenced.clone(),
+                    plan.clone(),
+                    reservation.clone(),
+                    prepared.clone(),
+                    TIMEOUT,
+                ))
+                .await?;
+                ensure!(
+                    receipt.route == *reservation.route() && receipt.plan_digest == plan.digest()
+                );
+                ensure!(receipt.genesis_commitment == prepared.commitment());
+                ensure!(
+                    receipt.boot == boots[voter_index]
+                        && receipt.member.get() == 21 + voter_index as u64
+                );
+            }
+            let view = host.observe_node(TIMEOUT).await?;
+            ensure!(view.node.groups == reserved.len() as u32 && view.registered_histories == 0);
+        }
         Ok::<(), anyhow::Error>(())
     })
     .await;

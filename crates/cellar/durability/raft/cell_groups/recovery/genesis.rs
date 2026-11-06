@@ -12,18 +12,18 @@ use std::sync::{atomic::AtomicBool, Arc};
 
 pub(crate) struct RecoverySeed {
     permit: RecoverySeedPermit,
-    prepared: PreparedCellGroupRecovery,
+    prepared: super::PreparedRecoveryData,
 }
 
 impl RecoverySeed {
     pub(crate) fn new(
         permit: RecoverySeedPermit,
-        prepared: PreparedCellGroupRecovery,
+        prepared: super::PreparedRecoveryData,
     ) -> Result<Self, LogError> {
-        if prepared.request().encode() != permit.request().encode()
-            || prepared.manifest().marker() != permit.genesis()
-            || prepared.commitment() != permit.commitment()
-            || !prepared.store().owner.owns(prepared.manifest())
+        if prepared.manifest.marker().recovery_request() != Some(permit.request())
+            || prepared.manifest.marker() != permit.genesis()
+            || prepared.commitment != permit.commitment()
+            || !prepared.store.owner.owns(&prepared.manifest)
         {
             return Err(LogError::WrongIdentity);
         }
@@ -49,6 +49,14 @@ impl RecoverySeed {
 
     /// Reverify the complete closure on this actual engine's blocking writer.
     /// Hold the source/import proof until the writer finishes even on a lost reply.
+    pub(crate) fn managed_binding(
+        &self,
+        guard: Option<&crate::raft::fleet_stop::Guard>,
+        now: u64,
+    ) -> Result<Option<&crate::raft::member_state::FleetGroupBinding>, LogError> {
+        self.permit.managed_binding(guard, now)
+    }
+
     pub(crate) fn prepare(
         &self,
         closed: &Arc<AtomicBool>,
@@ -61,7 +69,7 @@ impl RecoverySeed {
     > {
         let mut owner = self
             .prepared
-            .store()
+            .store
             .storage
             .try_lock()
             .map_err(|error| match error {
@@ -72,14 +80,14 @@ impl RecoverySeed {
             })?;
         let apply::Storage { tree, pages, .. } = &mut *owner;
         let root = tree
-            .prepare_recovery_genesis(&self.permit, pages, self.prepared.manifest())
+            .prepare_recovery_genesis(&self.permit, pages, &self.prepared.manifest)
             .map_err(preparation_error)?;
         let publication = root
             .begin_genesis(&self.permit, closed)
             .map_err(preparation_error)?;
         // Revoke further archive admission. Entered immutable I/O retains its
         // own permits/pins, while the engine now owns this page-store lifetime.
-        self.prepared.store().close();
+        self.prepared.store.close();
         Ok((root, publication))
     }
 }

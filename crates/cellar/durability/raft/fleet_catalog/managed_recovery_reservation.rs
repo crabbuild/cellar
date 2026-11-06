@@ -57,6 +57,141 @@ impl FleetRecoveryRangeReservation {
     }
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct ManagedRecoverySeedSelection<'a> {
+    pub(crate) fenced: &'a FleetFencedTransitionRecovery,
+    pub(crate) plan: &'a FleetTransitionRecoveryReplacement,
+    pub(crate) reservation: &'a FleetRecoveryRangeReservation,
+}
+
+pub(crate) struct ManagedRecoverySeedAuthority {
+    pub(crate) group: crate::raft::member_state::FleetGroupBinding,
+    pub(crate) boot: BootBinding,
+}
+
+impl FleetHostAuthorization {
+    pub(crate) async fn authorize_managed_recovery_seed(
+        &self,
+        directory: &RangeDirectory,
+        selected: ManagedRecoverySeedSelection<'_>,
+        observed: (&crate::raft::host::RaftHostObservation, bool),
+        archives: &CellGroupArchivePool,
+        timeout: Duration,
+    ) -> Result<ManagedRecoverySeedAuthority> {
+        let catalog = &self.catalog;
+        let ManagedRecoverySeedSelection {
+            fenced,
+            plan,
+            reservation,
+        } = selected;
+        let (view, already_seeded) = observed;
+        catalog
+            .run(timeout, async {
+                catalog.require_managed_replacement(fenced, plan).await?;
+                catalog
+                    .require_confirmed_managed_fence(directory, fenced, archives)
+                    .await?;
+                let birth = plan
+                    .births()
+                    .iter()
+                    .find(|birth| birth.route() == reservation.route())
+                    .ok_or(FleetCatalogError::Conflict)?;
+                if reservation.plan_digest() != plan.digest() {
+                    return Err(FleetCatalogError::PayloadConflict);
+                }
+                let snapshot = catalog.inner.current().await?;
+                catalog
+                    .managed_recovery_permit_at(
+                        &snapshot,
+                        directory,
+                        fenced.request().intent().basis(),
+                    )
+                    .await?;
+                let group = catalog.binding(&birth.route().history)?;
+                let history_key = group
+                    .key()
+                    .map_err(|_| FleetCatalogError::Invalid("recovery history key"))?;
+                let key = format!("{PREFIX}{history_key}");
+                let record = &reservation.record;
+                let bytes = encode(KIND, record, LIMIT)?;
+                if catalog
+                    .inner
+                    .lookup(snapshot.head.tables[FleetTable::Policy.slot()], &key)
+                    .await?
+                    .as_deref()
+                    != Some(bytes.as_slice())
+                {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                let history = catalog.history_inner(&snapshot, &history_key).await?;
+                if history
+                    != FleetHistory::reserved_group(
+                        group.clone(),
+                        directory,
+                        birth,
+                        &record.request,
+                    )?
+                {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                let mutation = reservation_mutation(record, &history, &history_key, key)?;
+                if catalog.recovery_birth_commit(&snapshot, &mutation).await?
+                    != reservation.applied_revision
+                {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                let boot = self.boot_binding()?;
+                if !record.voters.contains(&boot) {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                let current = catalog.host_from(&snapshot, self.node()).await?;
+                let capacity = catalog.capacity_from(&snapshot, self.node()).await?;
+                let attestation = capacity.attestation();
+                if !capacity.receive_replicas()
+                    || boot != attestation.boot
+                    || current.boot_binding()? != boot
+                {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                super::capacity::check_restart_capacity_view(&current, attestation, view, false)?;
+                if !already_seeded {
+                    let profile = &view.node.profile;
+                    let bytes = view
+                        .node
+                        .reserved_bytes
+                        .max(attestation.used_durable_bytes)
+                        .checked_add(profile.bytes_per_group)
+                        .ok_or(FleetCatalogError::Limit)?;
+                    if view.node.groups >= profile.group_capacity
+                        || bytes > profile.byte_capacity.min(attestation.durable_bytes)
+                    {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                }
+                let old = fenced.request().intent().required_voter_lineages();
+                let old_nodes: BTreeSet<_> = old.iter().map(|member| member.node.bytes()).collect();
+                for node in catalog.node_records(&snapshot).await? {
+                    if old_nodes.contains(&node.node) && node.storage_instance == Some(boot.engine)
+                    {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                }
+                catalog
+                    .inner
+                    .domain
+                    .run(directory.require_managed_recovery_identity(birth, plan.digest()))
+                    .await
+                    .map_err(|_| FleetCatalogError::Closed)?
+                    .map_err(catalog_error)?;
+                if catalog.inner.current().await?.token != snapshot.token {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                Ok(ManagedRecoverySeedAuthority { group, boot })
+            })
+            .await
+    }
+}
+
 impl FleetCatalog {
     pub(crate) async fn reserve_managed_recovery_range(
         &self,

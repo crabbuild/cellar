@@ -1497,8 +1497,12 @@ disruption slot. Its rooted receipt binds the exact original voter boots.
 The reservation excludes old node, disk and physical-host identities and
 charges tracked history and movement slots against each current capacity
 attestation. The directory reserves the group identity with its recovery
-origin so ordinary birth cannot initialize it. Voter seeding still needs
-live engine resource checks and durable seed receipts before publication.
+origin so ordinary birth cannot initialize it. The voter seed turn checks
+the exact reserved boot and running engine bounds. The writer rechecks the
+boot guard, installs the fresh Raft genesis with managed membership, and
+verifies the synced image closure before creating a durable seed receipt.
+An exact retry reopens the same receipt and requires the same engine state.
+Publication and activation follow a separate quorum decision.
 
 For an unpublished transition, choose complete archived parent cuts and reconstruct
 their non-overlapping domain under new groups. For a published transition, require

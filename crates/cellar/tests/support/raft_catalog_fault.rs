@@ -17,6 +17,8 @@ fn is_managed_recovery_record(path: &Path) -> bool {
         || path
             .as_ref()
             .contains("/fleet/managed-transition-recovery-replacements/")
+        || (path.as_ref().contains("/managed-recovery-seeds/")
+            && path.as_ref().ends_with("/complete"))
 }
 
 tokio::task_local! {

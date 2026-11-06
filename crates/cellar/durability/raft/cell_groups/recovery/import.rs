@@ -35,7 +35,24 @@ pub(crate) struct PreparedRecoveryData {
     _source: CellGroupArchiveCoverage,
 }
 
+impl PreparedRecoveryData {
+    pub(crate) fn image_bytes(&self) -> Result<u64> {
+        let mut bytes = 0u64;
+        self.manifest.images.visit(&mut |_, leaf, _, _, _| {
+            bytes = bytes
+                .checked_add(leaf.geometry.length)
+                .ok_or(CellGroupArchiveError::Limit)?;
+            Ok(())
+        })?;
+        Ok(bytes)
+    }
+}
+
 impl PreparedCellGroupRecovery {
+    pub(crate) fn data(&self) -> &PreparedRecoveryData {
+        &self.data
+    }
+
     pub fn request(&self) -> &CellGroupRecoveryRequest {
         self.fence.request()
     }

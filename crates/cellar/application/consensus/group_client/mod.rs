@@ -88,6 +88,7 @@ mod membership;
 mod node;
 mod observation;
 mod origins;
+mod recovery;
 mod repair;
 mod services;
 mod startup;

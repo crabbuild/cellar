@@ -55,12 +55,17 @@ impl RaftFleetVerifiedTransitionRecovery {
 
 /// A restored range bound to one durable replacement plan and recovery
 /// genesis commitment. Its data and source pins survive until this value drops.
+#[derive(Clone)]
 pub struct RaftFleetPreparedRecoveryRange {
     plan: [u8; 32],
     data: PreparedRecoveryData,
 }
 
 impl RaftFleetPreparedRecoveryRange {
+    pub(crate) fn data(&self) -> &PreparedRecoveryData {
+        &self.data
+    }
+
     pub fn plan_digest(&self) -> [u8; 32] {
         self.plan
     }

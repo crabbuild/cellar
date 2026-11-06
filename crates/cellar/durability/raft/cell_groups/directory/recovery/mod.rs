@@ -23,6 +23,8 @@ pub(in crate::raft::catalog::range_directory) use bootstrap::RecoveryStartup;
 pub(in crate::raft::catalog::range_directory) use publication::RecoveryPublication;
 pub use request::{CellGroupDisasterFenceRequest, CellGroupRecoveryRequest};
 pub(crate) use seed::RecoverySeedPermit;
+mod managed_seed;
+pub use managed_seed::ManagedRecoveryVoterSeed;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug)]

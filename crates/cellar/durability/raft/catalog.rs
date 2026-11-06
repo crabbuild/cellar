@@ -37,8 +37,8 @@ pub use range_directory::{
     CellRouteCacheUsage, CellRouteOperation, CellRouteRequest, CellRoutingError,
     CellRoutingFailure, CellRoutingLimits, CellRoutingSession, DirectoryLimits, DirectoryMutation,
     DirectoryPublication, DirectoryView, FencedCellGroupRecovery, InstalledTransferVoter,
-    PreparedCellGroupArchiveBinding, PreparedManagedCellGroupTransition, RangeDirectory,
-    ResolvedCellRoute, TransferInstallQuorum, TransitionJournal, TransitionPhase,
+    ManagedRecoveryVoterSeed, PreparedCellGroupArchiveBinding, PreparedManagedCellGroupTransition,
+    RangeDirectory, ResolvedCellRoute, TransferInstallQuorum, TransitionJournal, TransitionPhase,
     VerifiedCellGroupTransitionSources,
 };
 pub(crate) use range_directory::{RecoverySeedPermit, TransferSeedPermit};

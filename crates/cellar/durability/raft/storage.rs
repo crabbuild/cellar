@@ -1631,18 +1631,16 @@ impl Worker {
             EngineInstanceId::new(self.root.identity.storage_instance).map_err(records::corrupt)?,
         )?;
         let conf = bootstrap.configuration()?;
+        let guard = self.lifecycle.guard.as_ref();
+        let now = domain.mono_ms().map_err(|_| LogError::Closed)?;
         let managed = match seed {
-            ImportedGenesis::Recovery(_) => None,
-            ImportedGenesis::Transfer(seed) => seed
-                .managed_binding(
-                    self.lifecycle.guard.as_ref(),
-                    domain.mono_ms().map_err(|_| LogError::Closed)?,
-                )?
-                .map(|binding| {
-                    super::member_state::GroupMembership::managed_initial(&conf, binding.clone())
-                })
-                .transpose()?,
-        };
+            ImportedGenesis::Recovery(seed) => seed.managed_binding(guard, now)?,
+            ImportedGenesis::Transfer(seed) => seed.managed_binding(guard, now)?,
+        }
+        .map(|binding| {
+            super::member_state::GroupMembership::managed_initial(&conf, binding.clone())
+        })
+        .transpose()?;
         if let Some(group) = self
             .groups
             .read()

@@ -74,10 +74,17 @@ pub(crate) struct RecoverySeedPermit {
     owner: Arc<()>,
     local: ReplicaIdentity<GroupHistory>,
     engine: EngineInstanceId,
-    request: Arc<CellGroupRecoveryRequest>,
+    request: [u8; 32],
+    managed: Option<ManagedRecoverySeed>,
     bootstrap: CellGroupBootstrap,
     genesis: GroupManifest,
     commitment: [u8; 32],
+}
+
+pub(super) struct ManagedRecoverySeed {
+    pub(super) group: crate::raft::member_state::FleetGroupBinding,
+    pub(super) boot: crate::raft::fleet_stop::BootBinding,
+    pub(super) deadline: u64,
 }
 
 impl RecoverySeedPermit {
@@ -85,8 +92,66 @@ impl RecoverySeedPermit {
         &self.owner
     }
 
-    pub(crate) fn request(&self) -> &CellGroupRecoveryRequest {
-        &self.request
+    pub(crate) fn request(&self) -> [u8; 32] {
+        self.request
+    }
+
+    pub(crate) fn managed_binding(
+        &self,
+        guard: Option<&crate::raft::fleet_stop::Guard>,
+        now: u64,
+    ) -> Result<Option<&crate::raft::member_state::FleetGroupBinding>, LogError> {
+        let Some(managed) = &self.managed else {
+            return Ok(None);
+        };
+        if now >= managed.deadline
+            || guard.is_none_or(|guard| !guard.admits_group_start(&managed.boot))
+            || !managed.group.matches_scope(&self.local.scope)
+        {
+            return Err(LogError::WrongIdentity);
+        }
+        Ok(Some(&managed.group))
+    }
+
+    pub(super) fn for_local(
+        target: &crate::raft::catalog::CellGroupBirthRequest,
+        genesis: &GroupManifest,
+        commitment: [u8; 32],
+        log: &ReplicaLog,
+        managed: Option<ManagedRecoverySeed>,
+    ) -> Result<Self, CatalogError> {
+        let member = target
+            .voters()
+            .iter()
+            .chain(target.learners())
+            .find(|member| member.node == log.limits().node)
+            .ok_or(CatalogError::NotInitialMember)?;
+        let request = genesis.recovery_request().ok_or(CatalogError::Fenced)?;
+        Ok(Self {
+            owner: log.owner(),
+            local: ReplicaIdentity {
+                scope: target.route().history,
+                member: member.member,
+                node: member.node,
+                disk: log.limits().disk,
+                process: log.limits().process,
+            },
+            engine: log.storage_instance().map_err(CatalogError::Log)?,
+            request,
+            managed,
+            bootstrap: CellGroupBootstrap {
+                route: target.route().clone(),
+                member: member.member,
+                voters: target.voters().iter().map(|voter| voter.member).collect(),
+                learners: target
+                    .learners()
+                    .iter()
+                    .map(|learner| learner.member)
+                    .collect(),
+            },
+            genesis: genesis.clone(),
+            commitment,
+        })
     }
 
     pub(crate) fn bootstrap(&self) -> &CellGroupBootstrap {
@@ -307,33 +372,15 @@ impl RangeDirectory {
                     Ok(())
                 })
                 .await?;
-                let local = ReplicaIdentity {
-                    scope: target.route().history,
-                    member: member.member,
-                    node: member.node,
-                    disk: log.limits().disk,
-                    process: log.limits().process,
-                };
-                let permit = RecoverySeedPermit {
-                    owner: log.owner(),
-                    local,
-                    engine: log.storage_instance().map_err(CatalogError::Log)?,
-                    request: request.clone(),
-                    bootstrap: CellGroupBootstrap {
-                        route: target.route().clone(),
-                        member: member.member,
-                        voters: target.voters().iter().map(|member| member.member).collect(),
-                        learners: target
-                            .learners()
-                            .iter()
-                            .map(|member| member.member)
-                            .collect(),
-                    },
-                    genesis: prepared.manifest().marker().clone(),
-                    commitment: prepared.commitment(),
-                };
-                let seed =
-                    RecoverySeed::new(permit, prepared.clone()).map_err(CatalogError::Log)?;
+                let permit = RecoverySeedPermit::for_local(
+                    target,
+                    prepared.manifest().marker(),
+                    prepared.commitment(),
+                    log,
+                    None,
+                )?;
+                let seed = RecoverySeed::new(permit, prepared.data().clone())
+                    .map_err(CatalogError::Log)?;
                 let group = log
                     .install_recovery_seed(seed)
                     .await

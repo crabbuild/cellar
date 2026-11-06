@@ -30,7 +30,7 @@ pub(crate) use recovery::RecoverySeedPermit;
 pub use recovery::{
     CellGroupDisasterFenceRequest, CellGroupRecoveryActivationAck,
     CellGroupRecoveryActivationPermit, CellGroupRecoveryError, CellGroupRecoveryRequest,
-    FencedCellGroupRecovery,
+    FencedCellGroupRecovery, ManagedRecoveryVoterSeed,
 };
 mod route_cache;
 mod routing;
