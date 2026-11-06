@@ -1187,9 +1187,16 @@ impl RangeDirectory {
         &self,
         mutation: &DirectoryMutation,
         digest: [u8; 32],
+        permit: Option<&ManagedTransitionPermit>,
     ) -> Result<TransitionJournal, CatalogError> {
-        self.advance_transition(mutation, Advance::ReleaseParentHolds(digest))
-            .await
+        let advance = Advance::ReleaseParentHolds(digest);
+        if let Some(permit) = permit {
+            permit.check(self, mutation)?;
+            self.advance_transition_inner(mutation, advance, false)
+                .await
+        } else {
+            self.advance_transition(mutation, advance).await
+        }
     }
 
     /// Record the exact digest of the controller's child preparation evidence.

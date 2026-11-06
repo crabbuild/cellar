@@ -4,6 +4,7 @@
 use super::disruption::{Disruption, SLOT_KEY};
 use super::histories::{catalog_error, history_mutation, validate_request, Origin};
 use super::*;
+use crate::application::consensus::RaftCells;
 use crate::raft::{
     catalog::CatalogError,
     cell_groups::{
@@ -21,7 +22,7 @@ use crate::raft::{
 
 use cellar_logic::{
     cell_group::{GroupHistory, GroupRoute},
-    consensus::ProposalId,
+    consensus::{NodeId, ProposalId},
 };
 use serde::Deserialize;
 
@@ -856,6 +857,118 @@ impl FleetCatalog {
             }),
         )
         .await
+    }
+
+    /// Release the prepared and sealed parent holds after authenticating every
+    /// parked replica named by the final parent configurations. The fleet
+    /// disruption slot and physical capacity references stay owned.
+    pub async fn release_managed_transfer_parent_holds(
+        &self,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        archives: &CellGroupArchivePool,
+        observer: &RaftCells,
+        timeout: Duration,
+    ) -> Result<TransitionJournal> {
+        validate_request(&transition.request)?;
+        let deadline = deadline::Deadline::new(self, timeout)?;
+        let (_, children) = directory
+            .transition_routes(&transition.plan)
+            .map_err(catalog_error)?;
+        let (current, permit) = self
+            .run(
+                deadline.remaining()?,
+                Box::pin(async {
+                    let current = self.inner.current().await?;
+                    let permit = self
+                        .managed_transition_permit_at(
+                            &current,
+                            &transition.request,
+                            directory,
+                            &transition.plan,
+                        )
+                        .await?;
+                    for route in &children {
+                        let (_, child) = self
+                            .transfer_child_history(&current, transition, directory, route)
+                            .await?;
+                        if child.state != FleetHistoryState::Live {
+                            return Err(FleetCatalogError::Conflict);
+                        }
+                    }
+                    Ok((current, permit))
+                }),
+            )
+            .await?;
+        let domain = &self.inner.domain;
+        let (journal, parents) = domain
+            .run(Box::pin(crate::asyncrt::timeout(
+                deadline.remaining()?,
+                Box::pin(directory.managed_retired_sources(&transition.plan, &permit)),
+            )))
+            .await
+            .map_err(|_| FleetCatalogError::Closed)?
+            .map_err(|_| FleetCatalogError::Unconfirmed)?
+            .map_err(catalog_error)?;
+        if journal.parent_holds_released() {
+            return Ok(journal);
+        }
+        for parent in parents {
+            for member in parent.members {
+                let node = NodeId::new(member.node)
+                    .map_err(|_| FleetCatalogError::Corrupt("retired source node"))?;
+                let boot = self
+                    .run(deadline.remaining()?, self.host_from(&current, node))
+                    .await?
+                    .boot_binding()?;
+                let sample = observer
+                    .inspect_peer_physical_inventory(
+                        node,
+                        current.revision(),
+                        deadline.remaining()?,
+                    )
+                    .await
+                    .map_err(FleetCatalogError::Observation)?;
+                let row = sample
+                    .inventory
+                    .as_ref()
+                    .and_then(|inventory| inventory.group_history(&parent.route.history))
+                    .ok_or(FleetCatalogError::InventoryIncomplete)?;
+                if sample.view.fleet_boot.as_ref() != Some(&boot)
+                    || sample.view.node.identity.node != node
+                    || sample.view.node.identity.disk.bytes() != boot.disk
+                    || sample.view.node.identity.process.bytes() != boot.process
+                    || sample.view.node.storage_instance.bytes() != boot.engine
+                    || member.disk.is_some_and(|disk| disk != boot.disk)
+                    || row.birth_digest() != parent.route.birth_digest
+                    || row.member().get() != member.member
+                    || !row.parked_retired_source()
+                {
+                    return Err(FleetCatalogError::Unconfirmed);
+                }
+            }
+        }
+        self.run(deadline.remaining()?, async {
+            if self.inner.current().await?.token != current.token {
+                return Err(FleetCatalogError::Conflict);
+            }
+            Ok(())
+        })
+        .await?;
+        domain
+            .run(Box::pin(crate::asyncrt::timeout(
+                deadline.remaining()?,
+                Box::pin(directory.release_managed_retired_parent_holds(
+                    domain,
+                    archives,
+                    &transition.plan,
+                    &permit,
+                )),
+            )))
+            .await
+            .map_err(|_| FleetCatalogError::Closed)?
+            .map_err(|_| FleetCatalogError::Unconfirmed)?
+            .map_err(transfer_archive_error)
     }
 
     async fn verified_managed_transfer_permit(

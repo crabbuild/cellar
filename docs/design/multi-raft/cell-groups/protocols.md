@@ -1188,8 +1188,12 @@ can reopen a retired parent disk in parked form after a joined process stop.
 Startup checks the exact local tombstone against the immutable retirement
 set and keeps that history out of the Raft and transport rosters. Authenticated
 physical inventory identifies the parked source by history, birth, member and
-boot. The disk and controller slot remain charged. The owner releases only
-the original transfer holds and confirms
+boot. The disk and controller slot remain charged. The retirement record keeps
+the final committed member and node bindings, including the disks assigned to
+joined members. The fleet checks the current boot and parked inventory for
+every member before releasing the selected preparation and sealed holds.
+It rechecks that the children are Live and their archive holds remain valid.
+The directory releases only the original transfer holds and confirms
 each release before clearing topology ownership in a separate CAS. An
 interrupted cleanup resumes the same immutable decision. Later transitions
 preserve historical publication certificates and reject stale child startup.

@@ -1229,6 +1229,41 @@ async fn verify_live_transfer_children(
     Ok(())
 }
 
+pub(super) async fn verify_released_source_holds(
+    cluster: &ManagedCluster,
+    directory: &RangeDirectory,
+    plan: &DirectoryMutation,
+    registry: &CellGroupArchiveRegistry,
+    preparation: CellGroupArchiveHold,
+) -> Result<()> {
+    let domain = &cluster.fixtures[0].domain;
+    let scratch = tempfile::tempdir()?;
+    let rooted = directory.namespace_config().image_storage == RaftImageStorage::Extents;
+    let tails = CellGroupArchiveTailPool::new(Default::default())?;
+    let mut holds = domain.run(directory.sealed_source_holds(plan)).await??;
+    ensure!(holds.len() == 1);
+    holds.push(preparation);
+    for (index, hold) in holds.into_iter().enumerate() {
+        let base = scratch.path().join(format!("released-source-{index}"));
+        let route = hold.marker().route().clone();
+        let stored = domain
+            .blocking(move || store(base, route, rooted))?
+            .await??;
+        let receiver = CellGroupCheckpointPool::new(checkpoint_limits())?.receive_archive(
+            stored.store,
+            stored.scratch,
+            stored.directory,
+        )?;
+        ensure!(matches!(
+            registry
+                .verify_hold(domain.as_ref(), &hold, &tails, receiver)
+                .await,
+            Err(CellGroupArchiveError::Expired)
+        ));
+    }
+    Ok(())
+}
+
 async fn verify_managed_installed_decision(
     cluster: &ManagedCluster,
     fleet: &FleetCatalog,

@@ -13,9 +13,12 @@ use crate::raft::{
     completion::RuntimeError,
     fleet_catalog::{FleetGroupAuthorization, FleetHostAuthorization, ManagedTransitionPermit},
     fleet_stop::BootBinding,
+    member_state::{members, GroupMembership},
     storage::ReplicaLog,
 };
-use cellar_logic::consensus::{EngineInstanceId, LogIndex, LogPosition, Term};
+use cellar_logic::consensus::{
+    DiskLineage, EngineInstanceId, LogIndex, LogPosition, MemberId, NodeId, Term,
+};
 use serde::{Deserialize, Serialize};
 
 /// A durable parent tombstone witnessed by its engine-bound Raft owner.
@@ -24,6 +27,7 @@ pub struct CellGroupSourceRetirementAck {
     route: GroupRoute,
     seal: LogPosition,
     tombstone: GroupSourceRetirement,
+    members: Vec<RetiredSourceMember>,
 }
 
 impl CellGroupSourceRetirementAck {
@@ -38,6 +42,7 @@ pub struct CellGroupSourceRetirementPermit {
     group: GroupLog<GroupHistory>,
     engine: EngineInstanceId,
     sealed: GroupManifest,
+    birth: CellGroupBirth,
     publication: [u8; 32],
     deadline: u64,
     entry: Vec<u8>,
@@ -107,6 +112,7 @@ impl CellGroupSourceRetirementPermit {
         }
         let cache = group.read()?;
         if cache.group_manifest.as_ref() != Some(marker)
+            || cache.membership.revision().get() != marker.membership_revision()
             || cache.hard_state.commit < retired.position().index.get()
         {
             return Err(RuntimeError::NotReady);
@@ -115,6 +121,7 @@ impl CellGroupSourceRetirementPermit {
             route: marker.route().clone(),
             seal: seal.position(),
             tombstone: retired.clone(),
+            members: final_source_members(&cache.conf_state, &cache.membership, &self.birth)?,
         }))
     }
 
@@ -162,12 +169,25 @@ impl RangeDirectory {
             {
                 return Err(CatalogError::Fenced);
             }
-            self.open_historical_birth(marker.route()).await?;
+            let birth = self.open_historical_birth(marker.route()).await?;
             let cache = group.read().map_err(CatalogError::Log)?;
             if cache.group_manifest.as_ref() != Some(marker)
                 || cache.hard_state.commit < position.index.get()
             {
                 return Err(CatalogError::LostStableState);
+            }
+            let identity = group.identity();
+            if cache.membership.revision().get() != marker.membership_revision()
+                || final_source_members(&cache.conf_state, &cache.membership, &birth)
+                    .map_err(CatalogError::Runtime)?
+                    != receipt.members
+                || !receipt.members.iter().any(|member| {
+                    member.member == identity.member.get()
+                        && member.node == identity.node.bytes()
+                        && member.disk.is_none_or(|disk| disk == identity.disk.bytes())
+                })
+            {
+                return Err(CatalogError::Fenced);
             }
             Ok(())
         })
@@ -440,8 +460,8 @@ impl RangeDirectory {
             let limit = now
                 .checked_add(self.limits.operation_timeout_ms)
                 .ok_or(CatalogError::Limit)?;
+            let birth = self.open_historical_birth(route).await?;
             let (managed, deadline) = if let Some(admission) = managed {
-                let birth = self.open_historical_birth(route).await?;
                 let voter = self
                     .require_managed_source_voter(
                         log,
@@ -462,6 +482,7 @@ impl RangeDirectory {
                 group,
                 engine,
                 sealed,
+                birth,
                 publication,
                 deadline,
                 entry,
@@ -501,6 +522,49 @@ struct RetirementReceipt {
     seal_term: u64,
     index: u64,
     term: u64,
+    members: Vec<RetiredSourceMember>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RetiredSourceMember {
+    pub(crate) member: u64,
+    pub(crate) node: [u8; 16],
+    pub(crate) disk: Option<[u8; 16]>,
+}
+
+pub(crate) struct ManagedRetiredSource {
+    pub(crate) route: GroupRoute,
+    pub(crate) members: Vec<RetiredSourceMember>,
+}
+
+fn final_source_members(
+    configuration: &::raft::prelude::ConfState,
+    membership: &GroupMembership,
+    birth: &CellGroupBirth,
+) -> Result<Vec<RetiredSourceMember>, RuntimeError> {
+    members(configuration)
+        .into_iter()
+        .map(|raw| {
+            let member = MemberId::new(raw).map_err(|_| RuntimeError::StaleCompletion)?;
+            let (node, disk) = if let Some((joined, _)) = membership.joined(member)? {
+                (joined.node, Some(joined.disk.bytes()))
+            } else {
+                let initial = birth
+                    .voters()
+                    .iter()
+                    .chain(birth.learners())
+                    .find(|initial| initial.member == member)
+                    .ok_or(RuntimeError::StaleCompletion)?;
+                (initial.node, None)
+            };
+            Ok(RetiredSourceMember {
+                member: raw,
+                node: node.bytes(),
+                disk,
+            })
+        })
+        .collect()
 }
 
 impl RetirementReceipt {
@@ -513,6 +577,7 @@ impl RetirementReceipt {
             seal_term: ack.seal.term.get(),
             index: position.index.get(),
             term: position.term.get(),
+            members: ack.members,
         }
     }
 
@@ -529,6 +594,19 @@ impl RetirementReceipt {
             || self.seal_term != seal.term.get()
             || position.index <= held.position().index
             || position.term < held.position().term
+            || self.members.is_empty()
+            || self.members.len() > crate::raft::member_state::MAX_MEMBERS
+            || self
+                .members
+                .windows(2)
+                .any(|pair| pair[0].member >= pair[1].member)
+            || self.members.iter().any(|member| {
+                MemberId::new(member.member).is_err()
+                    || NodeId::new(member.node).is_err()
+                    || member
+                        .disk
+                        .is_some_and(|disk| DiskLineage::new(disk).is_err())
+            })
         {
             return Err(CatalogError::Fenced);
         }
@@ -537,6 +615,33 @@ impl RetirementReceipt {
 }
 
 impl RangeDirectory {
+    pub(crate) async fn managed_retired_sources(
+        &self,
+        plan: &DirectoryMutation,
+        permit: &ManagedTransitionPermit,
+    ) -> Result<(TransitionJournal, Vec<ManagedRetiredSource>), CatalogError> {
+        permit.check(self, plan)?;
+        self.bounded(async {
+            let basis = self.retirement_basis(plan).await?;
+            let digest = basis
+                .journal
+                .retired_parents()
+                .ok_or(CatalogError::Fenced)?;
+            let set = self.require_retirement_set(plan, &basis, digest).await?;
+            let sources = basis
+                .parents
+                .into_iter()
+                .zip(set.parents)
+                .map(|(hold, receipt)| ManagedRetiredSource {
+                    route: hold.marker().route().clone(),
+                    members: receipt.members,
+                })
+                .collect();
+            Ok((basis.journal, sources))
+        })
+        .await
+    }
+
     /// Record the durable parent tombstones after confirming the selected
     /// child coverage is still held. Keep topology owned through hold release.
     pub async fn settle_transfer_retirement(
@@ -639,10 +744,35 @@ impl RangeDirectory {
         plan: &DirectoryMutation,
     ) -> Result<TransitionJournal, CellGroupArchiveBindingError> {
         self.unmanaged_birth()?;
+        self.release_retired_parent_holds_inner(domain, pool, plan, None)
+            .await
+    }
+
+    pub(crate) async fn release_managed_retired_parent_holds(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        pool: &CellGroupArchivePool,
+        plan: &DirectoryMutation,
+        permit: &ManagedTransitionPermit,
+    ) -> Result<TransitionJournal, CellGroupArchiveBindingError> {
+        permit.check(self, plan)?;
+        self.release_retired_parent_holds_inner(domain, pool, plan, Some(permit))
+            .await
+    }
+
+    async fn release_retired_parent_holds_inner(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        pool: &CellGroupArchivePool,
+        plan: &DirectoryMutation,
+        permit: Option<&ManagedTransitionPermit>,
+    ) -> Result<TransitionJournal, CellGroupArchiveBindingError> {
         self.check_transition_plan(plan)?;
         domain
             .run(Box::pin(async {
-                self.namespace.require_cell_group_unmanaged().await?;
+                if permit.is_none() {
+                    self.namespace.require_cell_group_unmanaged().await?;
+                }
                 let basis = self.bounded(self.retirement_basis(plan)).await?;
                 let digest = basis
                     .journal
@@ -654,15 +784,20 @@ impl RangeDirectory {
                     return Ok(basis.journal);
                 }
                 let released = async {
-                    self.require_live_retirement_archives(domain, pool, plan, None)
+                    self.require_live_retirement_archives(domain, pool, plan, permit)
                         .await?;
-                    for hold in &basis.parents {
+                    let preparation_holds = if permit.is_some() {
+                        self.managed_preparation_holds(plan).await?
+                    } else {
+                        Vec::new()
+                    };
+                    for hold in basis.parents.iter().chain(&preparation_holds) {
                         let registry = self
                             .open_retired_source_archive(domain, pool, hold.marker().route())
                             .await?;
                         registry.release(domain, hold).await?;
                     }
-                    self.record_released_parent_holds(plan, digest)
+                    self.record_released_parent_holds(plan, digest, permit)
                         .await
                         .map_err(Into::into)
                 }

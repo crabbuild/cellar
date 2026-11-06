@@ -23,7 +23,7 @@ pub use fleet::{
 use fleet::{FleetIntent, FleetState};
 
 const MAX_BYTES: usize = 16 * 1024;
-const MAX_MEMBERS: usize = 32;
+pub(crate) const MAX_MEMBERS: usize = 32;
 
 // A configuration entry carries one bounded intent plus at most 32 small
 // protobuf changes. Bound decoding before allocating their repeated fields.

@@ -337,7 +337,13 @@ async fn exercise(cluster: &mut ManagedCluster, rooted: bool, decision: Decision
         );
         let seal = Box::pin(commit_source_seal(cluster, &recovered, scope)).await?;
         Box::pin(preparation::verify_sealed_cut(
-            cluster, &reopened, directory, &recovered, &parent, held, &seal,
+            cluster,
+            &reopened,
+            directory,
+            &recovered,
+            &parent,
+            held.clone(),
+            &seal,
         ))
         .await?;
         let cells = seeded.cells.clone();
@@ -353,7 +359,14 @@ async fn exercise(cluster: &mut ManagedCluster, rooted: bool, decision: Decision
             cluster, directory, &recovered, tombstone, cells,
         ))
         .await?;
-        return Box::pin(retirement::reopen_parked_source(cluster)).await;
+        Box::pin(retirement::park_and_release_parent(
+            cluster, directory, &recovered,
+        ))
+        .await?;
+        return Box::pin(preparation::verify_released_source_holds(
+            cluster, directory, plan, &registry, held,
+        ))
+        .await;
     }
     fixture
         .store
