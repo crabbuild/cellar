@@ -76,7 +76,16 @@ impl ArchiveInputs {
     }
 }
 
-pub(super) async fn run(
+pub(super) fn run<'a>(
+    cluster: &'a mut ManagedCluster,
+    directory: &'a RangeDirectory,
+    cells: Vec<CellHistory>,
+    rooted: bool,
+) -> impl std::future::Future<Output = Result<GroupHistory>> + 'a {
+    Box::pin(run_inner(cluster, directory, cells, rooted))
+}
+
+async fn run_inner(
     cluster: &mut ManagedCluster,
     directory: &RangeDirectory,
     cells: Vec<CellHistory>,
@@ -605,7 +614,7 @@ pub(super) async fn run(
         retry,
     ))
     .await?;
-    Box::pin(finish_merge(
+    finish_merge(
         cluster,
         directory,
         &transition,
@@ -613,7 +622,7 @@ pub(super) async fn run(
         child.history,
         &archives,
         &control,
-    ))
+    )
     .await?;
     let historical = control
         .publish_transition(principal, &namespace, &operation_id, &publish, TIMEOUT)
@@ -761,7 +770,21 @@ async fn verify_durable_seal(
     Ok(())
 }
 
-async fn finish_merge(
+fn finish_merge<'a>(
+    cluster: &'a mut ManagedCluster,
+    directory: &'a RangeDirectory,
+    transition: &'a ReopenedManagedCellGroupTransition,
+    parents: &'a [GroupRoute; 2],
+    child: GroupHistory,
+    archives: &'a ArchiveInputs,
+    control: &'a RaftFleetControl,
+) -> impl std::future::Future<Output = Result<()>> + 'a {
+    Box::pin(finish_merge_inner(
+        cluster, directory, transition, parents, child, archives, control,
+    ))
+}
+
+async fn finish_merge_inner(
     cluster: &mut ManagedCluster,
     directory: &RangeDirectory,
     transition: &ReopenedManagedCellGroupTransition,

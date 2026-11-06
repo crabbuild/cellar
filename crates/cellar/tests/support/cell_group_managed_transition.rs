@@ -90,7 +90,7 @@ async fn run_plan(rooted: bool, store: Arc<fault::Store>, decision: Decision) ->
         Decision::Authorize | Decision::SplitMerge => 2,
         Decision::Cancel => 0,
     };
-    let result = Box::pin(exercise(&mut cluster, rooted, decision)).await;
+    let result = exercise(&mut cluster, rooted, decision).await;
     if merge {
         let shutdown = merge::close(
             cluster.nodes,
@@ -160,7 +160,17 @@ async fn stop_transfer_destination(
     Ok(())
 }
 
-async fn exercise(
+// Allocate the fixture's composite future outside the caller's poll frame.
+// Real S3 adds HTTP stack below retained startup.
+fn exercise(
+    cluster: &mut ManagedCluster,
+    rooted: bool,
+    decision: Decision,
+) -> impl std::future::Future<Output = Result<Option<GroupHistory>>> + '_ {
+    Box::pin(exercise_inner(cluster, rooted, decision))
+}
+
+async fn exercise_inner(
     cluster: &mut ManagedCluster,
     rooted: bool,
     decision: Decision,
@@ -467,7 +477,7 @@ async fn exercise(
         ))
         .await?;
         return if merge {
-            Box::pin(merge::run(cluster, directory, cells, rooted))
+            merge::run(cluster, directory, cells, rooted)
                 .await
                 .map(Some)
         } else {
