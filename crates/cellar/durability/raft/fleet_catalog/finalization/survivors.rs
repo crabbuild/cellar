@@ -93,6 +93,19 @@ pub(super) async fn refresh_terminal(
                         return Err(FleetCatalogError::Conflict);
                     }
                 }
+                Evidence::Retired {
+                    operation,
+                    retirement,
+                } => {
+                    if *history.state()
+                        != (FleetHistoryState::Retired {
+                            operation,
+                            retirement,
+                        })
+                    {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                }
                 Evidence::Live(live) => {
                     let observer = verification
                         .observer

@@ -412,12 +412,14 @@ impl FleetCatalog {
                     .filter(|n| *n <= HISTORY_LIMIT)
                     .ok_or(FleetCatalogError::Limit)?;
                 let history = FleetHistory::decode(&entry.value)?;
-                if !matches!(history.state(), FleetHistoryState::Cancelled { .. })
-                    && history
-                        .voters
-                        .iter()
-                        .chain(&history.learners)
-                        .any(|m| m.node == target.bytes())
+                if !matches!(
+                    history.state(),
+                    FleetHistoryState::Cancelled { .. } | FleetHistoryState::Retired { .. }
+                ) && history
+                    .voters
+                    .iter()
+                    .chain(&history.learners)
+                    .any(|m| m.node == target.bytes())
                 {
                     if !matches!(history.state(), FleetHistoryState::Live) {
                         return Err(resource_error(LedgerError::Incomplete));

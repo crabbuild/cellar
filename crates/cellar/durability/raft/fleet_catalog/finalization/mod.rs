@@ -252,6 +252,32 @@ impl FleetEvacuationVerification {
             .await
     }
 
+    /// Consume a retired history already checked against the closed transfer
+    /// and its exact source retirement set by complete inventory.
+    pub async fn verify_retired(&mut self, timeout: Duration) -> Result<()> {
+        let catalog = self.catalog.clone();
+        let deadline = Deadline::new(&catalog, timeout)?;
+        let history = self
+            .next_history(deadline.remaining()?)
+            .await?
+            .ok_or(FleetCatalogError::InventoryIncomplete)?;
+        let FleetHistoryState::Retired {
+            operation,
+            retirement,
+        } = *history.state()
+        else {
+            return Err(FleetCatalogError::Conflict);
+        };
+        self.append(
+            Evidence::Retired {
+                operation,
+                retirement,
+            },
+            &deadline,
+        )
+        .await
+    }
+
     /// Freeze this pending history's fixed cut through three actual quorum
     /// responses. Repeated calls return that same historical cut, allowing
     /// archive catch-up while writes continue. Rooted-input changes invalidate

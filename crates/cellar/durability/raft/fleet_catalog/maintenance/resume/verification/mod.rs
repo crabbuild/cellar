@@ -243,7 +243,8 @@ impl FleetRestartResumeVerification {
                 .await?;
             let mut proof_value = None;
             let mut sample = None;
-            let retained = physical.is_some_and(|p| !p.in_configuration());
+            let retained =
+                physical.is_some_and(|p| !p.in_configuration() || p.parked_retired_source());
             let mut replaced = false;
             let progress = match history.state() {
                 FleetHistoryState::Reserved => {
@@ -265,6 +266,21 @@ impl FleetRestartResumeVerification {
                     }
                     FleetRestartResumeProgress::Unrelated { group }
                 }
+                FleetHistoryState::Retired { .. } => match (physical, previous) {
+                    (Some(slot), Some((member, false)))
+                        if (slot.parked_retired_source() || !slot.in_configuration())
+                            && slot.member() == member =>
+                    {
+                        FleetRestartResumeProgress::Verified {
+                            group,
+                            current_member: None,
+                            retained_member: Some(member),
+                            replaced: false,
+                        }
+                    }
+                    (None, None) => FleetRestartResumeProgress::Unrelated { group },
+                    _ => return Err(FleetCatalogError::Conflict),
+                },
                 FleetHistoryState::Live => {
                     if let Some((voters, permit)) = voters {
                         let current_member = voters.get(&target).copied();

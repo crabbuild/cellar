@@ -84,6 +84,7 @@ pub struct FleetTopologyVerification {
     nodes: Vec<NodeInput>,
     bounds: BTreeMap<String, FleetTopologyHistoryResources>,
     groups: Vec<GroupInput>,
+    retired: BTreeMap<[u8; 32], [u8; 32]>,
     cursor: Option<FleetCursor>,
     exhausted: bool,
     seen: u64,
@@ -289,6 +290,7 @@ impl FleetCatalog {
             nodes,
             bounds,
             groups: Vec::new(),
+            retired: BTreeMap::new(),
             cursor: None,
             exhausted: false,
             seen: 0,
@@ -407,6 +409,7 @@ impl FleetTopologyVerification {
             return Err(FleetCatalogError::Corrupt("topology inventory page"));
         }
         let mut group = None;
+        let mut retired = None;
         let mut transcript = self.transcript.clone();
         if let Some(row) = page.entries.first() {
             let history = FleetHistory::decode(&row.value)?;
@@ -421,6 +424,16 @@ impl FleetTopologyVerification {
             transcript.update(hash(&row.value));
             match *history.state() {
                 FleetHistoryState::Cancelled { .. } => (),
+                FleetHistoryState::Retired { .. } => {
+                    let scope = history
+                        .binding()
+                        .scope()
+                        .map_err(|_| FleetCatalogError::Corrupt("retired topology history"))?;
+                    retired = Some((
+                        crate::raft::physical_inventory::group_digest(&scope),
+                        history.birth_digest(),
+                    ));
+                }
                 FleetHistoryState::Live => {
                     let bounds = self
                         .bounds
@@ -452,6 +465,9 @@ impl FleetTopologyVerification {
         deadline.remaining()?;
         if let Some(group) = group {
             self.groups.push(group);
+        }
+        if let Some((scope, birth)) = retired {
+            self.retired.insert(scope, birth);
         }
         if !page.entries.is_empty() {
             self.seen = self.seen.checked_add(1).ok_or(FleetCatalogError::Limit)?;

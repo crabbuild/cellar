@@ -95,7 +95,10 @@ impl FleetCatalog {
                     let expected = self.inventory_birth(directory, &history)?;
                     if history.binding != binding
                         || expected.route() != &route
-                        || matches!(history.state, FleetHistoryState::Cancelled { .. })
+                        || !matches!(
+                            history.state,
+                            FleetHistoryState::Reserved | FleetHistoryState::Live
+                        )
                     {
                         return Err(FleetCatalogError::Corrupt("uninventoried selected group"));
                     }
@@ -174,6 +177,23 @@ impl FleetCatalog {
                         FleetHistoryState::Reserved | FleetHistoryState::Live,
                         Some(CellGroupBirthDisposition::Live(birth)),
                     ) if history.check_birth(directory, &birth) => (),
+                    (
+                        FleetHistoryState::Retired {
+                            operation,
+                            retirement,
+                        },
+                        Some(CellGroupBirthDisposition::Live(birth)),
+                    ) if history.check_birth(directory, &birth) => {
+                        self.require_retired_history(
+                            snapshot,
+                            directory,
+                            birth.route(),
+                            *operation,
+                            *retirement,
+                            &nodes,
+                        )
+                        .await?;
+                    }
                     (
                         FleetHistoryState::Cancelled { operation },
                         Some(CellGroupBirthDisposition::Cancelled {

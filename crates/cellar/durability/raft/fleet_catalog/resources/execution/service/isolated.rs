@@ -206,7 +206,9 @@ impl IsolatedRepairService {
         let failed = NodeId::new(boot.node)
             .map_err(|_| FleetCatalogError::Corrupt("isolated repair boot"))?;
         match history.state() {
-            FleetHistoryState::Cancelled { .. } => return self.advance(status),
+            FleetHistoryState::Cancelled { .. } | FleetHistoryState::Retired { .. } => {
+                return self.advance(status)
+            }
             FleetHistoryState::Live => (),
             _ if !history
                 .voters

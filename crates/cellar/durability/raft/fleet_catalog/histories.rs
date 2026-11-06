@@ -40,6 +40,11 @@ pub enum FleetHistoryState {
     Reserved,
     /// The immutable birth was confirmed; this does not attest to live quorum.
     Live,
+    /// The transfer closed. Any retained engine occupancy still counts.
+    Retired {
+        operation: [u8; 16],
+        retirement: [u8; 32],
+    },
     Cancelled {
         operation: [u8; 16],
     },
@@ -210,6 +215,18 @@ impl FleetHistory {
         if let FleetHistoryState::Cancelled { operation } = self.state {
             ProposalId::new(operation)
                 .map_err(|_| FleetCatalogError::Corrupt("birth cancellation"))?;
+        }
+        if let FleetHistoryState::Retired {
+            operation,
+            retirement,
+        } = self.state
+        {
+            if ProposalId::new(operation).is_err()
+                || retirement == [0; 32]
+                || self.origin != Origin::Managed
+            {
+                return Err(FleetCatalogError::Corrupt("history retirement"));
+            }
         }
         if self.schema_digest == [0; 32]
             || self.namespace_root == [0; 32]
@@ -391,7 +408,7 @@ impl FleetBirthAuthorization {
                 expected.state = FleetHistoryState::Live;
                 history == &expected
             }
-            FleetHistoryState::Cancelled { .. } => false,
+            FleetHistoryState::Cancelled { .. } | FleetHistoryState::Retired { .. } => false,
         }
     }
 

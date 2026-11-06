@@ -300,7 +300,13 @@ pub(super) struct Survivor {
 #[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum Evidence {
     Live(Box<LiveEvidence>),
-    Cancelled { operation: [u8; 16] },
+    Cancelled {
+        operation: [u8; 16],
+    },
+    Retired {
+        operation: [u8; 16],
+        retirement: [u8; 32],
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -327,6 +333,11 @@ impl Entry {
         match &self.evidence {
             Evidence::Cancelled { operation } if *operation != [0; 16] => Ok(()),
             Evidence::Cancelled { .. } => Err(FleetCatalogError::Corrupt("receipt cancellation")),
+            Evidence::Retired {
+                operation,
+                retirement,
+            } if *operation != [0; 16] && *retirement != [0; 32] => Ok(()),
+            Evidence::Retired { .. } => Err(FleetCatalogError::Corrupt("receipt retirement")),
             Evidence::Live(live) => {
                 let LiveEvidence {
                     fixed,
@@ -398,8 +409,16 @@ impl Entry {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
 enum StoredEvidence {
-    Live { object: [u8; 32] },
-    Cancelled { operation: [u8; 16] },
+    Live {
+        object: [u8; 32],
+    },
+    Cancelled {
+        operation: [u8; 16],
+    },
+    Retired {
+        operation: [u8; 16],
+        retirement: [u8; 32],
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -418,6 +437,16 @@ impl Entry {
             Evidence::Cancelled { operation } => (
                 StoredEvidence::Cancelled {
                     operation: *operation,
+                },
+                None,
+            ),
+            Evidence::Retired {
+                operation,
+                retirement,
+            } => (
+                StoredEvidence::Retired {
+                    operation: *operation,
+                    retirement: *retirement,
                 },
                 None,
             ),
@@ -550,6 +579,13 @@ impl Candidate {
         let stored: StoredEntry = decode(ENTRY_KIND, &bytes, ENTRY_LIMIT)?;
         let evidence = match stored.evidence {
             StoredEvidence::Cancelled { operation } => Evidence::Cancelled { operation },
+            StoredEvidence::Retired {
+                operation,
+                retirement,
+            } => Evidence::Retired {
+                operation,
+                retirement,
+            },
             StoredEvidence::Live { object } => {
                 if object == [0; 32] {
                     return Err(FleetCatalogError::Corrupt("receipt live object"));

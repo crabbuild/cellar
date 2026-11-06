@@ -117,17 +117,21 @@ impl FleetTopologyVerification {
             .iter()
             .map(|group| crate::raft::physical_inventory::group_digest(&group.resources.group))
             .collect::<BTreeSet<_>>();
+        let known = |inventory: &crate::raft::physical_inventory::RaftPhysicalInventory| {
+            inventory.histories().iter().all(|row| {
+                let scope = row.scope_digest();
+                live.contains(&scope)
+                    || self.retired.get(&scope) == Some(&row.birth_digest())
+                        && (row.parked_retired_source() || !row.in_configuration())
+            })
+        };
         for node in &self.nodes {
             let original = node
                 .physical
                 .inventory
                 .as_ref()
                 .ok_or(FleetCatalogError::InventoryIncomplete)?;
-            if original
-                .histories()
-                .iter()
-                .any(|h| !live.contains(&h.scope_digest()))
-            {
+            if !known(original) {
                 return Err(FleetCatalogError::InventoryIncomplete);
             }
             let observed = self
@@ -140,7 +144,9 @@ impl FleetTopologyVerification {
                 .await
                 .map_err(FleetCatalogError::Observation)?;
             check_node(&node.host, &node.capacity, &observed)?;
-            if identity_digest(&observed)? != identity_digest(&node.physical)? {
+            if !observed.inventory.as_deref().is_some_and(&known)
+                || identity_digest(&observed)? != identity_digest(&node.physical)?
+            {
                 return Err(FleetCatalogError::Conflict);
             }
             let now = catalog.resource_now()?;

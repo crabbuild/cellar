@@ -2,6 +2,9 @@
 
 //! A retained sealed parent reopens for retirement after the route switch.
 use super::*;
+use cellar::application::consensus::verification::{
+    cell_groups::TransitionJournal, FleetHistoryState,
+};
 use std::time::Instant;
 
 pub(super) async fn reopen_and_retire(
@@ -88,6 +91,17 @@ pub(super) async fn park_and_release_parent(
         .context("an attached parent keeps topology owned")?
         .1
         .parent_holds_released());
+    let cut = fleet.read(TIMEOUT).await?;
+    let premature = FleetRequestIdentity {
+        operation: transition.request.operation,
+        ..request(239, cut.revision())
+    };
+    ensure!(matches!(
+        fleet
+            .complete_managed_transfer(&cut, &premature, transition, directory, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Conflict)
+    ));
     for index in 1..3 {
         Box::pin(reopen_parked_source(cluster, index)).await?;
     }
@@ -126,6 +140,133 @@ pub(super) async fn park_and_release_parent(
     );
     let cut = fleet.read(TIMEOUT).await?;
     ensure!(cut.revision() == revision);
+    Box::pin(complete_fleet_transfer(
+        cluster, directory, transition, completed,
+    ))
+    .await?;
+    Ok(())
+}
+
+async fn complete_fleet_transfer(
+    cluster: &mut ManagedCluster,
+    directory: &RangeDirectory,
+    transition: &ReopenedManagedCellGroupTransition,
+    released: TransitionJournal,
+) -> Result<()> {
+    let fleet = cluster.fixtures[0].catalog.clone();
+    let domain = cluster.fixtures[0].domain.clone();
+    let cut = fleet.read(TIMEOUT).await?;
+    let confirmation = FleetRequestIdentity {
+        operation: transition.request.operation,
+        ..request(240, cut.revision())
+    };
+    let parent = cluster.history;
+    let live = fleet.history(&cut, &parent, TIMEOUT).await?;
+    ensure!(*live.state() == FleetHistoryState::Live);
+    let store = &cluster.fixtures[0].store;
+    store.fail_fleet_confirmation.store(true, Ordering::Release);
+    ensure!(matches!(
+        fleet
+            .complete_managed_transfer(&cut, &confirmation, transition, directory, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Storage(_))
+    ));
+    ensure!(!store.fail_fleet_confirmation.load(Ordering::Acquire));
+    let settled = fleet.read(TIMEOUT).await?;
+    let retired = FleetHistoryState::Retired {
+        operation: transition.request.operation,
+        retirement: released
+            .retired_parents()
+            .context("released retirement digest")?,
+    };
+    ensure!(settled.revision() == cut.revision() + 1);
+    ensure!(*fleet.history(&settled, &parent, TIMEOUT).await?.state() == retired);
+    ensure!(matches!(
+        fleet.authorize_group(&settled, &parent, TIMEOUT).await,
+        Err(FleetCatalogError::Conflict)
+    ));
+    ensure!(
+        fleet
+            .complete_managed_transfer(&settled, &confirmation, transition, directory, TIMEOUT)
+            .await?
+            .applied_revision
+            == settled.revision()
+    );
+    ensure!(
+        fleet
+            .plan_managed_transition(&transition.request, directory, &transition.plan, TIMEOUT,)
+            .await?
+            == released
+    );
+    let view = domain.run(directory.observe()).await??;
+    let children = domain.run(directory.group_page(&view, None, 3)).await??;
+    ensure!(children.next.is_none() && children.routes.len() == 2);
+    for child in children.routes {
+        fleet
+            .authorize_group(&settled, &child.history, TIMEOUT)
+            .await?;
+    }
+    let inventory = fleet
+        .check_inventory(&settled, std::slice::from_ref(directory), TIMEOUT)
+        .await?;
+    ensure!(inventory.histories() == 3 && inventory.namespaces() == 1);
+
+    let revival = request(241, settled.revision());
+    let revival = FleetMutation {
+        id: revival.id,
+        operation: revival.operation,
+        expected_revision: revival.expected_revision,
+        principal: revival.principal,
+        changes: vec![FleetChange {
+            table: FleetTable::Histories,
+            key: live
+                .binding()
+                .key()
+                .map_err(|_| anyhow::anyhow!("retired history key"))?,
+            value: Some(live.encode()?),
+        }],
+    };
+    ensure!(matches!(
+        fleet.commit(&settled, &revival, TIMEOUT).await,
+        Err(FleetCatalogError::Conflict)
+    ));
+    let admitted = request(242, settled.revision());
+    let unrelated = FleetMutation {
+        id: admitted.id,
+        operation: admitted.operation,
+        expected_revision: admitted.expected_revision,
+        principal: admitted.principal,
+        changes: vec![FleetChange {
+            table: FleetTable::Admissions,
+            key: "test-membership".into(),
+            value: None,
+        }],
+    };
+    ensure!(
+        fleet
+            .commit(&settled, &unrelated, TIMEOUT)
+            .await?
+            .applied_revision
+            == settled.revision() + 1
+    );
+    restart_source(cluster, 0, 119).await?;
+    let revision = fleet.read(TIMEOUT).await?.revision();
+    let observer = &cluster.hosts[3];
+    let node = cluster.hosts[0].identity().node;
+    inspect_current(observer, node, revision).await?;
+    let retained = observer
+        .inspect_peer_physical_inventory(node, revision, TIMEOUT)
+        .await?;
+    ensure!(
+        retained.view.node.groups == 1
+            && retained.view.node.reserved_bytes == retained.view.node.profile.bytes_per_group
+    );
+    ensure!(retained
+        .inventory
+        .context("closed parent inventory")?
+        .group_history(&parent)
+        .context("closed parent slot")?
+        .parked_retired_source());
     Ok(())
 }
 

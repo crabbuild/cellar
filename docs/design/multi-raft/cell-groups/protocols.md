@@ -1194,7 +1194,12 @@ joined members. The fleet checks the current boot and parked inventory for
 every member before releasing the selected preparation and sealed holds.
 It rechecks that the children are Live and their archive holds remain valid.
 The directory releases only the original transfer holds and confirms
-each release before clearing topology ownership in a separate CAS. An
+each release before clearing topology ownership in a separate CAS. The fleet
+then records every parent as retired and clears its disruption slot in one
+root update. The retired row binds the operation and retirement set, keeps the
+original birth identity, and stays in inventory. Retained engine slots still
+consume capacity, while membership work and topology scheduling use Live
+groups. An
 interrupted cleanup resumes the same immutable decision. Later transitions
 preserve historical publication certificates and reject stale child startup.
 Source tombstones remain effective across restart, delayed messages and catalog

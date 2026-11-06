@@ -139,6 +139,9 @@ impl Verification {
             FleetHistoryState::Cancelled { .. } => {
                 session.walk.verify_cancelled(turn.remaining()?).await?
             }
+            FleetHistoryState::Retired { .. } => {
+                session.walk.verify_retired(turn.remaining()?).await?
+            }
             FleetHistoryState::Live => {
                 let scope = history
                     .binding()

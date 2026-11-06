@@ -109,6 +109,9 @@ impl Removal {
                     FleetHistoryState::Cancelled { .. } => {
                         session.walk.verify_cancelled(deadline.remaining()?).await?
                     }
+                    FleetHistoryState::Retired { .. } => {
+                        session.walk.verify_retired(deadline.remaining()?).await?
+                    }
                     FleetHistoryState::Live => {
                         // Rooted current membership chooses candidates. The walk
                         // independently authenticates all three and excludes the

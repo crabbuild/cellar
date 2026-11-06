@@ -316,6 +316,20 @@ impl FleetRestartVerification {
                         FleetRestartHistoryProgress::Cancelled { group },
                     )
                 }
+                FleetHistoryState::Retired { .. } => match physical {
+                    Some(slot) if slot.parked_retired_source() || !slot.in_configuration() => (
+                        Evidence::Retained,
+                        FleetRestartHistoryProgress::Retained {
+                            group,
+                            member: slot.member(),
+                        },
+                    ),
+                    Some(_) => return Err(FleetCatalogError::Conflict),
+                    None => (
+                        Evidence::Unrelated,
+                        FleetRestartHistoryProgress::Unrelated { group },
+                    ),
+                },
                 FleetHistoryState::Live => {
                     if let Some((voters, permit)) = voters {
                         let member = *voters.get(&target).ok_or(FleetCatalogError::Conflict)?;
