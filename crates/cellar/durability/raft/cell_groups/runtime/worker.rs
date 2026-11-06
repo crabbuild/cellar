@@ -300,6 +300,14 @@ impl Worker {
             reply(request, Err(error.clone()));
             return;
         }
+        // Prepare is a park-only operation. A retry may race certificate
+        // delivery and must never enter the deferred work that wakes a voter.
+        if matches!(request.command, Command::PreparePark(_))
+            && (group.owner.is_parked() || group.park_write.is_some())
+        {
+            reply(request, Err(RuntimeError::NotReady));
+            return;
+        }
         if let Command::Read(read) = &request.command {
             let check = match read.kind.membership_mode() {
                 reads::MembershipRead::Wake(generation) => group.owner.check_park_wake(generation),

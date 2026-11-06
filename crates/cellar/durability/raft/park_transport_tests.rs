@@ -408,6 +408,18 @@ async fn park_certificate_delivery_and_wake_over_three_tls_voters() -> anyhow::R
             .await,
         Err(RuntimeError::StaleCompletion)
     ));
+    assert!(matches!(
+        runtime
+            .prepare_park(
+                history,
+                ParkPrepareRequest {
+                    deadline_ms: deadline,
+                    ..request
+                }
+            )
+            .await,
+        Err(RuntimeError::NotReady)
+    ));
     let retry = transport
         .collect_park_certificate(history, cut.clone(), deadline)
         .await?;
