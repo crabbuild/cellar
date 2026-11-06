@@ -8,12 +8,142 @@ use crate::raft::{
     cell_groups::{
         CellGroupArchiveHold, CellGroupArchivePool, CellGroupArchiveTailPool,
         CellGroupRecoveryPool, CellGroupTransitionPreparationInputs, CellGroupTransitionSource,
-        TransitionJournal, TransitionPhase, VerifiedCellGroupTransitionSources,
+        PreparedManagedCellGroupTransition, TransitionJournal, TransitionPhase,
+        VerifiedCellGroupTransitionSources,
     },
 };
 use cellar_logic::{cell_group::GroupRoute, consensus::ProposalId};
 
 impl FleetCatalog {
+    /// Persist the controller's own active source holds in plan order before
+    /// opening physical pre-copy receivers. Keep the selected holds alive
+    /// through retirement, or join pre-copy work before cancelled cleanup.
+    pub async fn stage_managed_preparation_holds(
+        &self,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        archives: &CellGroupArchivePool,
+        holds: &[CellGroupArchiveHold],
+        timeout: Duration,
+    ) -> Result<TransitionJournal> {
+        validate_request(&transition.request)?;
+        let deadline = deadline::Deadline::new(self, timeout)?;
+        let permit = self
+            .run(
+                deadline.remaining()?,
+                Box::pin(self.active_managed_transition_permit(
+                    &transition.request,
+                    directory,
+                    &transition.plan,
+                )),
+            )
+            .await?;
+        let domain = &self.inner.domain;
+        domain
+            .run(Box::pin(crate::asyncrt::timeout(
+                deadline.remaining()?,
+                Box::pin(directory.stage_managed_preparation_holds(
+                    domain,
+                    archives,
+                    &transition.plan,
+                    &permit,
+                    holds,
+                )),
+            )))
+            .await
+            .map_err(|_| FleetCatalogError::Closed)?
+            .map_err(|_| FleetCatalogError::Unconfirmed)?
+            .map_err(transfer_archive_error)
+    }
+
+    /// Observe the selected inputs without opening physical data or changing
+    /// the decision. Cancelled transitions retain the descriptors so the hold
+    /// owner can reconcile and clean up after joining its work.
+    pub async fn staged_managed_preparation_holds(
+        &self,
+        directory: &RangeDirectory,
+        operation: ProposalId,
+        timeout: Duration,
+    ) -> Result<Option<Vec<CellGroupArchiveHold>>> {
+        let deadline = deadline::Deadline::new(self, timeout)?;
+        let transition = self
+            .reopen_managed_transition(directory, operation, deadline.remaining()?)
+            .await?
+            .ok_or(FleetCatalogError::Conflict)?;
+        self.inner
+            .domain
+            .run(Box::pin(crate::asyncrt::timeout(
+                deadline.remaining()?,
+                Box::pin(directory.staged_managed_preparation_holds(&transition.plan)),
+            )))
+            .await
+            .map_err(|_| FleetCatalogError::Closed)?
+            .map_err(|_| FleetCatalogError::Unconfirmed)?
+            .map_err(transfer_archive_error)
+    }
+
+    /// Independently rebuild the selected pre-copy after a controller restart.
+    /// Staged inputs can advance a Planned transition. Reopening a Prepared
+    /// transition must reproduce the same physical partition and journal.
+    pub async fn resume_managed_preparation(
+        &self,
+        directory: &RangeDirectory,
+        operation: ProposalId,
+        verifier: &FleetGroupArchiveVerifier,
+        restore: CellGroupRecoveryPool,
+        timeout: Duration,
+    ) -> Result<PreparedManagedCellGroupTransition> {
+        let deadline = deadline::Deadline::new(self, timeout)?;
+        let transition = self
+            .observe_transfer_replay(
+                directory,
+                operation,
+                &[TransitionPhase::Planned, TransitionPhase::Prepared],
+                deadline.remaining()?,
+            )
+            .await?;
+        let domain = &self.inner.domain;
+        let inputs = domain
+            .run(Box::pin(crate::asyncrt::timeout(
+                deadline.remaining()?,
+                Box::pin(async {
+                    let holds = match directory
+                        .staged_managed_preparation_holds(&transition.plan)
+                        .await
+                        .map_err(transfer_archive_error)?
+                    {
+                        Some(holds) => holds,
+                        None if transition.journal.as_ref().is_some_and(|journal| {
+                            journal.phase() == TransitionPhase::Prepared
+                        }) =>
+                        {
+                            directory
+                                .managed_preparation_holds(&transition.plan)
+                                .await
+                                .map_err(histories::catalog_error)?
+                        }
+                        None => return Err(FleetCatalogError::Unconfirmed),
+                    };
+                    let sources =
+                        open_sources_for_holds(domain, directory, &transition, verifier, holds)
+                            .await?;
+                    transfer_inputs(domain, directory, &transition, verifier, restore, sources)
+                        .await
+                }),
+            )))
+            .await
+            .map_err(|_| FleetCatalogError::Closed)?
+            .map_err(|_| FleetCatalogError::Unconfirmed)??;
+        self.prepare_managed_transition(
+            &transition.request,
+            directory,
+            &transition.plan,
+            inputs,
+            deadline.remaining()?,
+        )
+        .await
+    }
+
     /// Independently verify and durably select one sealed parent hold. Retain
     /// the exact hold through retirement. After an uncertain result, observe
     /// the staged slots before resolving the original hold allocation.
@@ -163,21 +293,8 @@ impl FleetCatalog {
                 Box::pin(async {
                     let sources =
                         open_transfer_sources(domain, directory, &transition, verifier).await?;
-                    let (_, children) = directory
-                        .transition_routes(&transition.plan)
-                        .map_err(histories::catalog_error)?;
-                    let storage = directory.namespace_config().image_storage;
-                    let mut targets = Vec::with_capacity(children.len());
-                    for route in &children {
-                        targets.push(verifier.transfer_target(domain, route, storage).await?);
-                    }
-                    Ok::<_, FleetCatalogError>(CellGroupTransitionPreparationInputs {
-                        archives: verifier.archives().clone(),
-                        tails: verifier.tails().clone(),
-                        restore,
-                        sources,
-                        targets,
-                    })
+                    transfer_inputs(domain, directory, &transition, verifier, restore, sources)
+                        .await
                 }),
             )))
             .await
@@ -217,9 +334,6 @@ async fn open_transfer_sources(
     transition: &ReopenedManagedCellGroupTransition,
     verifier: &FleetGroupArchiveVerifier,
 ) -> Result<Vec<CellGroupTransitionSource>> {
-    let (parents, _) = directory
-        .transition_routes(&transition.plan)
-        .map_err(histories::catalog_error)?;
     let holds = if transition
         .journal
         .as_ref()
@@ -238,6 +352,19 @@ async fn open_transfer_sources(
             .await
             .map_err(transfer_archive_error)?
     };
+    open_sources_for_holds(domain, directory, transition, verifier, holds).await
+}
+
+async fn open_sources_for_holds(
+    domain: &DomainToken,
+    directory: &RangeDirectory,
+    transition: &ReopenedManagedCellGroupTransition,
+    verifier: &FleetGroupArchiveVerifier,
+    holds: Vec<CellGroupArchiveHold>,
+) -> Result<Vec<CellGroupTransitionSource>> {
+    let (parents, _) = directory
+        .transition_routes(&transition.plan)
+        .map_err(histories::catalog_error)?;
     if parents.len() != holds.len() {
         return Err(FleetCatalogError::Corrupt("managed transition hold count"));
     }
@@ -259,4 +386,29 @@ async fn open_transfer_sources(
         });
     }
     Ok(sources)
+}
+
+async fn transfer_inputs(
+    domain: &DomainToken,
+    directory: &RangeDirectory,
+    transition: &ReopenedManagedCellGroupTransition,
+    verifier: &FleetGroupArchiveVerifier,
+    restore: CellGroupRecoveryPool,
+    sources: Vec<CellGroupTransitionSource>,
+) -> Result<CellGroupTransitionPreparationInputs> {
+    let (_, children) = directory
+        .transition_routes(&transition.plan)
+        .map_err(histories::catalog_error)?;
+    let storage = directory.namespace_config().image_storage;
+    let mut targets = Vec::with_capacity(children.len());
+    for route in &children {
+        targets.push(verifier.transfer_target(domain, route, storage).await?);
+    }
+    Ok(CellGroupTransitionPreparationInputs {
+        archives: verifier.archives().clone(),
+        tails: verifier.tails().clone(),
+        restore,
+        sources,
+        targets,
+    })
 }

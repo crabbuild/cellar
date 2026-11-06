@@ -4,10 +4,10 @@
 use super::*;
 use cellar::application::consensus::verification::cell_groups::{
     CellGroupApplyImages, CellGroupArchiveError, CellGroupArchiveHold, CellGroupArchiveRegistry,
-    CellGroupArchiveStore, CellGroupArchiveTailPool, CellGroupBirth, CellGroupCheckpointPool,
-    CellGroupRecoveryLimits, CellGroupRecoveryPool, CellGroupTransferTarget,
-    CellGroupTransitionPreparationInputs, CellGroupTransitionSource, DirectoryMutation, GroupRoute,
-    ManifestPageStore,
+    CellGroupArchiveStore, CellGroupArchiveTailLimits, CellGroupArchiveTailPool, CellGroupBirth,
+    CellGroupCheckpointPool, CellGroupRecoveryLimits, CellGroupRecoveryPool,
+    CellGroupTransferTarget, CellGroupTransitionPreparationInputs, CellGroupTransitionSource,
+    DirectoryMutation, GroupRoute, ManifestPageStore,
 };
 use cellar::application::consensus::verification::FleetHistoryState;
 use cellar::sdk::fleet_operations::{
@@ -32,7 +32,8 @@ pub(super) async fn exercise(
     rooted: bool,
 ) -> Result<(CellGroupArchiveRegistry, CellGroupArchiveHold, SeededCells)> {
     let seeded = seed_cells(&cluster.hosts, cluster.history).await?;
-    let domain = &cluster.fixtures[0].domain;
+    let fixture = &cluster.fixtures[0];
+    let domain = &fixture.domain;
     let leader = leader(&cluster.hosts[..3], cluster.history).await?;
     let cell = &seeded.cells[0];
     let handle = cluster.hosts[leader].cell(cell.clone())?;
@@ -54,47 +55,97 @@ pub(super) async fn exercise(
     let held = acquire_hold(domain, &registry)
         .await
         .context("acquire active source archive hold before pre-copy")?;
-    let scratch = tempfile::tempdir()?;
-    let mut selected = None;
-    for stage in ["first", "reopened"] {
-        let mut routes = vec![parent.route().clone()];
-        routes.extend_from_slice(children);
-        let root = scratch.path().join(stage);
-        let mut stores = domain
-            .blocking(move || {
-                routes
-                    .into_iter()
-                    .enumerate()
-                    .map(|(index, route)| store(root.join(index.to_string()), route, rooted))
-                    .collect::<Result<Vec<_>>>()
-            })?
-            .await??
-            .into_iter();
-        let source = stores.next().context("missing source receiver")?;
-        let receiver = CellGroupCheckpointPool::new(checkpoint_limits())?.receive_archive(
-            source.store,
-            source.scratch,
-            source.directory,
-        )?;
-        let prepared = controller
-            .prepare_managed_transition(
-                &transition.request,
+    let operation = transition.plan.operation();
+    let staged = controller
+        .stage_managed_preparation_holds(
+            transition,
+            directory,
+            &archives,
+            std::slice::from_ref(&held),
+            TIMEOUT,
+        )
+        .await?;
+    ensure!(staged.phase() == TransitionPhase::Planned && staged.preparation().is_none());
+    let alternate = acquire_hold(domain, &registry).await?;
+    ensure!(alternate != held);
+    ensure!(matches!(
+        controller
+            .stage_managed_preparation_holds(
+                transition,
                 directory,
-                &transition.plan,
-                CellGroupTransitionPreparationInputs {
-                    archives: archives.clone(),
-                    tails: CellGroupArchiveTailPool::new(Default::default())?,
-                    restore: recovery_pool()?,
-                    sources: vec![CellGroupTransitionSource {
-                        birth: parent.clone(),
-                        hold: held.clone(),
-                        receiver,
-                    }],
-                    targets: stores.collect(),
-                },
+                &archives,
+                std::slice::from_ref(&alternate),
                 TIMEOUT,
             )
+            .await,
+        Err(FleetCatalogError::Conflict)
+    ));
+    registry.release(domain.as_ref(), &alternate).await?;
+
+    let scratch = tempfile::tempdir()?;
+    let reopened = Fixture::open_catalog(domain, fixture.store.clone(), cluster.history.cluster)?;
+    ensure!(
+        reopened
+            .staged_managed_preparation_holds(directory, operation, TIMEOUT)
+            .await?
+            == Some(vec![held.clone()])
+    );
+    let verifier = crate::managed_fixture::verifier::open(
+        fixture,
+        &scratch.path().join("denied"),
+        rooted,
+        CellGroupArchiveTailLimits::default(),
+    )
+    .await?;
+    let denied_before = fixture
+        .store
+        .denied_group_payload_reads
+        .load(Ordering::Acquire);
+    fixture
+        .store
+        .deny_group_payload_reads
+        .store(true, Ordering::Release);
+    let denied = reopened
+        .resume_managed_preparation(directory, operation, &verifier, recovery_pool()?, TIMEOUT)
+        .await;
+    fixture
+        .store
+        .deny_group_payload_reads
+        .store(false, Ordering::Release);
+    ensure!(
+        denied.is_err()
+            && fixture
+                .store
+                .denied_group_payload_reads
+                .load(Ordering::Acquire)
+                > denied_before
+    );
+    let after_denial = reopened
+        .reopen_managed_transition(directory, operation, TIMEOUT)
+        .await?
+        .context("admitted transition after pre-copy outage")?;
+    ensure!(after_denial.journal.as_ref() == Some(&staged));
+    drop(verifier);
+
+    let mut selected = None;
+    for stage in ["first", "reopened"] {
+        let verifier = crate::managed_fixture::verifier::open(
+            fixture,
+            &scratch.path().join(stage),
+            rooted,
+            CellGroupArchiveTailLimits::default(),
+        )
+        .await?;
+        let reopened =
+            Fixture::open_catalog(domain, fixture.store.clone(), cluster.history.cluster)?;
+        let prepared = reopened
+            .resume_managed_preparation(directory, operation, &verifier, recovery_pool()?, TIMEOUT)
             .await?;
+        ensure!(prepared
+            .children()
+            .iter()
+            .map(|child| child.route())
+            .eq(children));
         ensure!(prepared.journal().phase() == TransitionPhase::Prepared);
         ensure!(prepared
             .children()

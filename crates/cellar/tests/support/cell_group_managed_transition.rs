@@ -529,6 +529,12 @@ async fn exercise(
             .await?,
         Err(CatalogError::Fenced)
     ));
+    ensure!(
+        reopened
+            .staged_managed_preparation_holds(directory, operation, TIMEOUT)
+            .await?
+            == Some(vec![held.clone()])
+    );
     registry.release(domain.as_ref(), &held).await?;
     let view = domain.run(directory.observe()).await??;
     ensure!(view.groups() == 1);

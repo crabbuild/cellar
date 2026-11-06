@@ -1158,6 +1158,15 @@ for every child. Ordinary initial bootstrap refuses those children even when a
 separate install receipt is unavailable. Managed publication rechecks the
 active fleet plan and the exact storage of the reserved child voters.
 
+A managed pre-copy controller stages its exact active source holds before
+opening physical replay receivers. The directory selects their digest on the
+same head used for preparation and cancellation. A replacement controller
+reopens those descriptors, independently verifies their archived cuts, and
+rebuilds the non-serving child partition in its own inventory. Preparation
+compares the selected digest again at its CAS. A cancelled plan retains the
+descriptors so their owner can reconcile and release the holds after joining
+physical work.
+
 Use `cellar raft fleet transition authorize-seal NAMESPACE_HEX --plan REQUEST.json --catalog-id DIGEST`
 after the transition reaches Prepared. The request binds the admitted plan and
 the preparation digest reported by transition status. The admitted principal

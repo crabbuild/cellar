@@ -119,7 +119,7 @@ impl RangeDirectory {
         self.bounded(self.immutable(PREPARATIONS, digest, &bytes))
             .await?;
         let journal = self
-            .record_managed_preparation(plan, permit, digest)
+            .record_managed_preparation(plan, permit, digest, verified.digest)
             .await?;
         Ok(PreparedManagedCellGroupTransition {
             partition,

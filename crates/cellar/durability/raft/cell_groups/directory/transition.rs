@@ -50,6 +50,8 @@ pub struct TransitionJournal {
     request: [u8; 32],
     preparation: Option<[u8; 32]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    preparation_sources: Option<[u8; 32]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     source_set: Option<[u8; 32]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     installed_set: Option<[u8; 32]>,
@@ -75,6 +77,10 @@ impl TransitionJournal {
 
     pub fn preparation(&self) -> Option<[u8; 32]> {
         self.preparation
+    }
+
+    pub(super) fn preparation_sources(&self) -> Option<[u8; 32]> {
+        self.preparation_sources
     }
 
     pub fn sealed_sources(&self) -> Option<[u8; 32]> {
@@ -225,7 +231,8 @@ impl CellGroupSealPermit {
 
 #[derive(Clone, Copy)]
 enum Advance {
-    Prepare([u8; 32]),
+    StagePreparationSources([u8; 32]),
+    Prepare([u8; 32], Option<[u8; 32]>),
     Authorize,
     RecordSources([u8; 32]),
     RecordInstalled([u8; 32]),
@@ -257,12 +264,26 @@ impl Advance {
     fn apply(self, mut journal: TransitionJournal) -> Result<TransitionJournal, CatalogError> {
         use TransitionPhase::*;
         match (self, journal.phase) {
-            (Self::Prepare(digest), Planned) if digest != [0; 32] => {
+            (Self::StagePreparationSources(digest), Planned)
+                if digest != [0; 32] && journal.preparation_sources.is_none() =>
+            {
+                journal.preparation_sources = Some(digest);
+            }
+            (Self::StagePreparationSources(digest), Planned | Prepared)
+                if journal.preparation_sources == Some(digest) => {}
+            (Self::Prepare(digest, sources), Planned)
+                if digest != [0; 32]
+                    && journal
+                        .preparation_sources
+                        .is_none_or(|selected| Some(selected) == sources) =>
+            {
                 journal.preparation = Some(digest);
                 journal.phase = Prepared;
             }
-            (Self::Prepare(digest), Prepared | SealAuthorized | Sealed | Installed | Archived)
-                if journal.preparation == Some(digest) => {}
+            (
+                Self::Prepare(digest, _),
+                Prepared | SealAuthorized | Sealed | Installed | Archived,
+            ) if journal.preparation == Some(digest) => {}
             (Self::Authorize, Prepared) => journal.phase = SealAuthorized,
             (Self::RecordSources(digest), SealAuthorized) if digest != [0; 32] => {
                 journal.phase = Sealed;
@@ -716,6 +737,7 @@ impl RangeDirectory {
             let journal = TransitionJournal {
                 request: mutation.digest,
                 preparation: None,
+                preparation_sources: None,
                 source_set: None,
                 installed_set: None,
                 archive: None,
@@ -1211,7 +1233,18 @@ impl RangeDirectory {
         mutation: &DirectoryMutation,
         preparation: [u8; 32],
     ) -> Result<TransitionJournal, CatalogError> {
-        self.advance_transition(mutation, Advance::Prepare(preparation))
+        self.advance_transition(mutation, Advance::Prepare(preparation, None))
+            .await
+    }
+
+    pub(super) async fn record_managed_preparation_sources(
+        &self,
+        mutation: &DirectoryMutation,
+        permit: &ManagedTransitionPermit,
+        sources: [u8; 32],
+    ) -> Result<TransitionJournal, CatalogError> {
+        permit.check(self, mutation)?;
+        self.advance_transition_inner(mutation, Advance::StagePreparationSources(sources), false)
             .await
     }
 
@@ -1220,10 +1253,15 @@ impl RangeDirectory {
         mutation: &DirectoryMutation,
         permit: &ManagedTransitionPermit,
         preparation: [u8; 32],
+        sources: [u8; 32],
     ) -> Result<TransitionJournal, CatalogError> {
         permit.check(self, mutation)?;
-        self.advance_transition_inner(mutation, Advance::Prepare(preparation), false)
-            .await
+        self.advance_transition_inner(
+            mutation,
+            Advance::Prepare(preparation, Some(sources)),
+            false,
+        )
+        .await
     }
 
     pub async fn authorize_transition_seal(
@@ -1329,6 +1367,7 @@ impl RangeDirectory {
         let journal = TransitionJournal {
             request: mutation.digest,
             preparation: None,
+            preparation_sources: None,
             source_set: None,
             installed_set: None,
             archive: None,

@@ -76,6 +76,11 @@ struct SourceSet {
     holds: Vec<[u8; 32]>,
 }
 
+struct EncodedSourceSet {
+    bytes: Vec<u8>,
+    holds: Vec<([u8; 32], Vec<u8>)>,
+}
+
 impl RangeDirectory {
     fn check_source_marker(
         &self,
@@ -105,6 +110,132 @@ impl RangeDirectory {
             return Err(CatalogError::Fenced);
         }
         Ok(())
+    }
+
+    /// Select the exact active hold set before opening any physical receivers.
+    /// The caller supplies its own holds and retains responsibility for their
+    /// cleanup if the plan is cancelled. Selection and cancellation share a CAS.
+    pub(crate) async fn stage_managed_preparation_holds(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        archives: &CellGroupArchivePool,
+        plan: &DirectoryMutation,
+        permit: &ManagedTransitionPermit,
+        holds: &[CellGroupArchiveHold],
+    ) -> Result<TransitionJournal> {
+        permit.check(self, plan)?;
+        let (parents, _) = self.transition_routes(plan)?;
+        if parents.len() != holds.len() {
+            return Err(CatalogError::Invalid("incomplete transition preparation inputs").into());
+        }
+        let (view, journal) = self
+            .bounded(async {
+                let (view, _) = self.current().await?;
+                let journal = self
+                    .matching_transition(&view.head, plan)
+                    .await?
+                    .filter(|journal| {
+                        matches!(
+                            journal.phase(),
+                            TransitionPhase::Planned | TransitionPhase::Prepared
+                        )
+                    })
+                    .ok_or(CatalogError::Fenced)?;
+                Ok((view, journal))
+            })
+            .await?;
+        let set = self.encode_transition_source_set(plan, holds.iter())?;
+        let digest = record::digest(&set.bytes);
+        if journal
+            .preparation_sources()
+            .is_some_and(|selected| selected != digest)
+        {
+            return Err(CatalogError::Conflict("transition preparation inputs changed").into());
+        }
+        for (route, hold) in parents.iter().zip(holds) {
+            self.bounded(self.selected_route_in(&view, route)).await?;
+            self.check_source_marker(
+                plan,
+                &journal,
+                route,
+                hold.marker(),
+                TransitionSourceCut::Active,
+            )?;
+            let birth = self.materialize_selected_history(route.history).await?;
+            if birth.route() != route {
+                return Err(CatalogError::Fenced.into());
+            }
+            let registry = self.open_group_archive(domain, archives, &birth).await?;
+            registry.require_retained_hold(domain, hold).await?;
+        }
+        self.persist_transition_source_set(digest, set).await?;
+        self.record_managed_preparation_sources(plan, permit, digest)
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Reopen the staged input descriptors, including after cancellation.
+    /// A descriptor alone supplies neither a physical pin nor seal authority.
+    pub(crate) async fn staged_managed_preparation_holds(
+        &self,
+        plan: &DirectoryMutation,
+    ) -> Result<Option<Vec<CellGroupArchiveHold>>> {
+        if self.namespace_config().managed_fleet.is_none() {
+            return Err(CatalogError::ManagedAdmissionRequired.into());
+        }
+        self.check_transition_plan(plan)?;
+        self.bounded(async {
+            let (view, _) = self.current().await?;
+            let journal = self
+                .matching_transition(&view.head, plan)
+                .await?
+                .ok_or(CatalogError::Fenced)?;
+            let Some(digest) = journal.preparation_sources() else {
+                return Ok(None);
+            };
+            self.read_transition_source_holds(plan, &journal, digest, TransitionSourceCut::Active)
+                .await
+                .map(Some)
+        })
+        .await
+        .map_err(Into::into)
+    }
+
+    fn encode_transition_source_set<'a>(
+        &self,
+        plan: &DirectoryMutation,
+        holds: impl Iterator<Item = &'a CellGroupArchiveHold>,
+    ) -> Result<EncodedSourceSet> {
+        let holds = holds
+            .map(|hold| {
+                hold.check_reference()?;
+                let bytes = record::encode(SOURCE_HOLD, hold, wire::LIMIT)?;
+                Ok((record::digest(&bytes), bytes))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let set = SourceSet {
+            namespace: self.namespace.root_digest,
+            request: plan.digest,
+            holds: holds.iter().map(|(digest, _)| *digest).collect(),
+        };
+        Ok(EncodedSourceSet {
+            bytes: record::encode(SOURCE_SET, &set, wire::LIMIT)?,
+            holds,
+        })
+    }
+
+    async fn persist_transition_source_set(
+        &self,
+        digest: [u8; 32],
+        set: EncodedSourceSet,
+    ) -> std::result::Result<(), CatalogError> {
+        self.bounded(async {
+            for (id, bytes) in set.holds {
+                self.immutable(HOLDS, id, &bytes).await?;
+            }
+            self.immutable(SETS, digest, &set.bytes).await
+        })
+        .await
     }
 
     /// Select a single verified parent hold for this irreversible operation.
@@ -351,35 +482,28 @@ impl RangeDirectory {
                 Ok((view, journal))
             })
             .await?;
-        let mut encoded = Vec::with_capacity(sources.len());
-        let mut admitted = Vec::with_capacity(sources.len());
-        for (route, source) in parents.iter().zip(sources) {
+        for route in &parents {
+            self.bounded(self.selected_route_in(&view, route)).await?;
+        }
+        for (route, source) in parents.iter().zip(&sources) {
             if source.birth.route() != route {
                 return Err(CatalogError::Fenced.into());
             }
-            self.bounded(self.selected_route_in(&view, route)).await?;
-            source.hold.check_reference()?;
             self.check_source_marker(mutation, &journal, route, source.hold.marker(), cut)?;
-            let bytes = record::encode(SOURCE_HOLD, &source.hold, wire::LIMIT)?;
-            encoded.push((record::digest(&bytes), bytes));
-            admitted.push(source);
         }
-        let set = SourceSet {
-            namespace: self.namespace.root_digest,
-            request: mutation.digest,
-            holds: encoded.iter().map(|(digest, _)| *digest).collect(),
+        let set =
+            self.encode_transition_source_set(mutation, sources.iter().map(|source| &source.hold))?;
+        let digest = record::digest(&set.bytes);
+        let selected = match cut {
+            TransitionSourceCut::Active => journal.preparation_sources(),
+            TransitionSourceCut::Sealed => journal.sealed_sources(),
         };
-        let bytes = record::encode(SOURCE_SET, &set, wire::LIMIT)?;
-        let digest = record::digest(&bytes);
-        if journal
-            .sealed_sources()
-            .is_some_and(|selected| selected != digest)
-        {
+        if selected.is_some_and(|selected| selected != digest) {
             return Err(CatalogError::Conflict("transition source set changed").into());
         }
-        let mut verified = Vec::with_capacity(admitted.len());
-        let mut registries = Vec::with_capacity(admitted.len());
-        for source in admitted {
+        let mut verified = Vec::with_capacity(sources.len());
+        let mut registries = Vec::with_capacity(sources.len());
+        for source in sources {
             let registry = self
                 .open_group_archive(domain, archives, &source.birth)
                 .await?;
@@ -396,13 +520,7 @@ impl RangeDirectory {
             verified.push(coverage);
             registries.push(registry);
         }
-        self.bounded(async {
-            for (id, bytes) in encoded {
-                self.immutable(HOLDS, id, &bytes).await?;
-            }
-            self.immutable(SETS, digest, &bytes).await
-        })
-        .await?;
+        self.persist_transition_source_set(digest, set).await?;
         for (registry, coverage) in registries.iter().zip(&verified) {
             registry
                 .require_retained_hold(domain, coverage.hold())
