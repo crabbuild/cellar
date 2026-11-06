@@ -8,6 +8,27 @@ use cellar_logic::consensus::OperationId;
 use futures_util::future::BoxFuture;
 use std::collections::{BTreeMap, VecDeque};
 
+fn wakes_parked_peer(message: &::raft::prelude::Message) -> bool {
+    use ::raft::prelude::MessageType::*;
+    matches!(
+        message.get_msg_type(),
+        MsgAppend
+            | MsgHeartbeat
+            | MsgRequestVote
+            | MsgRequestPreVote
+            | MsgReadIndex
+            | MsgTimeoutNow
+    )
+}
+
+fn wakes_parked_group(command: &Command) -> bool {
+    match command {
+        Command::Step(message) | Command::AdmitStep(message) => wakes_parked_peer(message),
+        Command::SnapshotStatus(..) | Command::Unreachable(_) => false,
+        _ => true,
+    }
+}
+
 struct Group {
     owner: Box<CellGroupOwner>,
     queued: bool,
@@ -356,6 +377,27 @@ impl Worker {
             reply(request, Ok(Response::CheckpointSource(Box::new(source))));
             return;
         }
+        if group.owner.is_parked() {
+            match &request.command {
+                Command::Step(message) | Command::AdmitStep(message)
+                    if !wakes_parked_peer(message) =>
+                {
+                    // A delayed reply to the last active term carries no new
+                    // protocol work. It must not undo completed parking.
+                    let result = group
+                        .owner
+                        .validate_message(message)
+                        .map(|()| Response::Unit);
+                    reply(request, result);
+                    return;
+                }
+                Command::SnapshotStatus(..) | Command::Unreachable(_) => {
+                    reply(request, Ok(Response::Unit));
+                    return;
+                }
+                _ => (),
+            }
+        }
         if let Command::SnapshotStatus(member, delivered) = request.command {
             if let Err(error) = group.owner.validate_snapshot_member(member) {
                 reply(request, Err(error));
@@ -461,6 +503,20 @@ impl Worker {
                 .ok_or(RuntimeError::NotFound)?;
             group.queued = false;
             if group.failed.is_none() && group.owner.is_parked() {
+                // Responses can arrive during the park fsync, before dispatch
+                // knows the voter is parked. They carry no new work.
+                group.snapshot_hints.clear();
+                while group
+                    .deferred
+                    .front()
+                    .is_some_and(|request| !wakes_parked_group(&request.command))
+                {
+                    let Some(request) = group.deferred.pop_front() else {
+                        break;
+                    };
+                    reply(request, Ok(Response::Unit));
+                    made = true;
+                }
                 if !group.owner.waiting()
                     && (group.wake_due
                         || !group.deferred.is_empty()

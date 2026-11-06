@@ -1404,9 +1404,11 @@ be abandoned merely to park.
 3. The leader assembles all acknowledgements against the current physical voter
    roster. Each acknowledgement binds the member, node, disk, process, cut and
    sync sequence. The leader syncs one immutable certificate for the generation
-   before sending authenticated park messages. Each recipient persists its parked generation
-   before suppressing routine group ticks. Partial delivery is safe: an active
-   peer's messages wake parked peers. Node-level transport remains available.
+   and its own parked record before delivering the certificate over authenticated
+   transport. Each recipient checks the exact physical roster and persists its
+   parked generation before acknowledging delivery. During partial delivery, an
+   active peer's append or election requests wake parked peers. Delayed replies
+   from the last active term carry no work that can wake a parked voter.
 4. API request, peer message, due effect, topology operation or local restart
    wakes the group. Persist closure of that park generation before processing
    queued protocol or application work. The closure retains a wake floor so

@@ -188,7 +188,7 @@ impl LocalParkRecord {
         })
     }
 
-    pub(super) fn parked(&self) -> bool {
+    pub(crate) fn parked(&self) -> bool {
         self.phase == LocalParkPhase::Parked
     }
 

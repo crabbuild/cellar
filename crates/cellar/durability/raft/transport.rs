@@ -1394,7 +1394,7 @@ impl State {
                     .export_keying_material([0; 32], parks::EXPORT_LABEL, None)
                     .map_err(|error| TransportError::Tls(error.to_string()))?;
                 return self
-                    .receive_park_ack(&mut stream, &exporter, prefix, connected_at)
+                    .receive_park(&mut stream, &exporter, prefix, connected_at)
                     .await;
             }
             if &prefix[..4] == fleet_stops::REQUEST_MAGIC {

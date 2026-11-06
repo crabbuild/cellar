@@ -81,6 +81,8 @@ mod enrollment;
 mod enrollment_apply;
 mod hibernate;
 pub use hibernate::GroupParkCut;
+#[cfg(test)]
+pub(crate) use hibernate::ParkPrepareRequest;
 pub(crate) use hibernate::{
     LocalParkChange, LocalParkRecord, ParkAcknowledgement, MAX_PARK_NEGOTIATION_MS,
 };

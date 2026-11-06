@@ -10,6 +10,7 @@ use crate::raft::cell_groups::{
     MAX_PARK_NEGOTIATION_MS,
 };
 use cellar_logic::cell_group::GroupRoute as CellRoute;
+use sha2::{Digest, Sha256};
 
 pub(super) const REQUEST_MAGIC: &[u8; 4] = b"CLPQ";
 const RESPONSE_MAGIC: &[u8; 4] = b"CLPR";
@@ -17,6 +18,7 @@ pub(super) const EXPORT_LABEL: &[u8] = b"EXPORTER-cellar-raft-park-1";
 const REQUEST_PURPOSE: &[u8] = b"cellar-park-ack-request-1";
 const RESPONSE_PURPOSE: &[u8] = b"cellar-park-ack-response-1";
 const RETRY_MS: u64 = 50;
+const MAX_PARK_BODY: usize = 16 * 1024;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -24,6 +26,8 @@ struct Request {
     route: Route,
     cut: GroupParkCut,
     timeout_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    certificate_digest: Option<[u8; 32]>,
 }
 
 impl Request {
@@ -36,12 +40,30 @@ impl Request {
             .filter(|deadline| now < *deadline)
             .ok_or(TransportError::Timeout)
     }
+
+    fn certificate(&self, body: &[u8]) -> Result<Option<ParkCertificate>, TransportError> {
+        match self.certificate_digest {
+            None if body.is_empty() => Ok(None),
+            Some(digest)
+                if !body.is_empty() && digest == <[u8; 32]>::from(Sha256::digest(body)) =>
+            {
+                let certificate: ParkCertificate =
+                    serde_json::from_slice(body).map_err(|_| TransportError::Protocol)?;
+                if certificate.cut() != &self.cut {
+                    return Err(TransportError::Identity);
+                }
+                Ok(Some(certificate))
+            }
+            _ => Err(TransportError::Authentication),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "status", deny_unknown_fields)]
 enum Reply {
     Acknowledged { sequence: u64 },
+    Parked,
     Retry,
     Refused,
 }
@@ -50,12 +72,25 @@ impl Reply {
     fn acknowledgement(self, request: Request) -> Result<ParkAcknowledgement, TransportError> {
         let (leader, voter) = request.route.decode_group()?;
         match self {
-            Self::Acknowledged { sequence } if sequence != 0 => Ok(ParkAcknowledgement {
-                voter,
-                leader: leader.member,
-                cut: request.cut,
-                sync_sequence: sequence,
-            }),
+            Self::Acknowledged { sequence }
+                if sequence != 0 && request.certificate_digest.is_none() =>
+            {
+                Ok(ParkAcknowledgement {
+                    voter,
+                    leader: leader.member,
+                    cut: request.cut,
+                    sync_sequence: sequence,
+                })
+            }
+            Self::Acknowledged { .. } | Self::Parked => Err(TransportError::Protocol),
+            Self::Retry => Err(RuntimeError::NotReady.into()),
+            Self::Refused => Err(TransportError::Refused),
+        }
+    }
+
+    fn parked(self) -> Result<(), TransportError> {
+        match self {
+            Self::Parked => Ok(()),
             Self::Acknowledged { .. } => Err(TransportError::Protocol),
             Self::Retry => Err(RuntimeError::NotReady.into()),
             Self::Refused => Err(TransportError::Refused),
@@ -73,6 +108,24 @@ struct Roster {
     registration: Arc<GroupRoute<GroupHistory>>,
     local: ReplicaIdentity<GroupHistory>,
     remote: Vec<Peer>,
+}
+
+impl Roster {
+    fn voters(&self) -> Vec<ReplicaIdentity<GroupHistory>> {
+        self.registration
+            .peers
+            .iter()
+            .map(|peer| peer.replica.clone())
+            .collect()
+    }
+
+    fn matches_certificate(
+        &self,
+        leader: &ReplicaIdentity<GroupHistory>,
+        certificate: &ParkCertificate,
+    ) -> bool {
+        certificate.matches_roster(&self.application, leader, &self.voters())
+    }
 }
 
 impl RaftTransport {
@@ -98,6 +151,38 @@ impl RaftTransport {
             let result = crate::asyncrt::select! {
                 _ = reply.closed() => return,
                 result = worker.seed_until(deadline, worker.collect_park(roster, cut, deadline)) => result,
+            };
+            let _ = reply.send(result);
+        })?;
+        wait.await.map_err(|_| TransportError::Closed)?
+    }
+
+    /// Park the leader before sending the certificate so its routine
+    /// heartbeats cannot interrupt followers' installation. An incomplete
+    /// delivery leaves ordinary peer traffic free to wake the parked voters.
+    pub(crate) async fn deliver_park_certificate(
+        &self,
+        history: GroupHistory,
+        selected: &SelectedParkCertificate,
+        deadline: u64,
+    ) -> Result<(), TransportError> {
+        let state = self.handle.0.clone();
+        let now = state.domain.mono_ms().map_err(|_| TransportError::Closed)?;
+        if deadline <= now || deadline - now > MAX_PARK_NEGOTIATION_MS {
+            return Err(TransportError::Timeout);
+        }
+        self.reconcile_managed_physical(&history)?;
+        let certificate = selected.certificate().clone();
+        let roster = state.park_roster(history, certificate.cut())?;
+        if !roster.matches_certificate(&roster.local, &certificate) {
+            return Err(TransportError::StalePeer);
+        }
+        let (mut reply, wait) = oneshot::channel();
+        let worker = state.clone();
+        state.spawn(async move {
+            let result = crate::asyncrt::select! {
+                _ = reply.closed() => return,
+                result = worker.seed_until(deadline, worker.deliver_park(roster, certificate, deadline)) => result,
             };
             let _ = reply.send(result);
         })?;
@@ -178,12 +263,7 @@ impl State {
     ) -> Result<SelectedParkCertificate, TransportError> {
         let runtime = self.runtime.shared()?;
         let history = roster.local.scope;
-        let voters: Vec<_> = roster
-            .registration
-            .peers
-            .iter()
-            .map(|peer| peer.replica.clone())
-            .collect();
+        let voters = roster.voters();
         let group = runtime
             .log()
             .cell_group(&history)
@@ -256,8 +336,54 @@ impl State {
         Ok(selected)
     }
 
+    async fn deliver_park(
+        &self,
+        roster: Roster,
+        certificate: ParkCertificate,
+        deadline: u64,
+    ) -> Result<(), TransportError> {
+        let body = serde_json::to_vec(&certificate).map_err(|_| TransportError::Protocol)?;
+        if body.len() > MAX_PARK_BODY {
+            return Err(TransportError::Limit);
+        }
+        let runtime = self.runtime.shared()?;
+        let history = roster.local.scope;
+        self.retry_park(deadline, || async {
+            Ok(runtime.enter_park(history, certificate.clone()).await?)
+        })
+        .await?;
+        let cut = certificate.cut();
+        futures_util::future::try_join_all(roster.remote.iter().map(|peer| async {
+            let (_, reply) = self
+                .request_park(&roster, peer, cut, &body, deadline)
+                .await?;
+            reply.parked()
+        }))
+        .await?;
+        let group = runtime
+            .log()
+            .cell_group(&history)
+            .map_err(RuntimeError::from)?;
+        if !group
+            .read()
+            .map_err(RuntimeError::from)?
+            .local_park
+            .as_ref()
+            .is_some_and(|park| park.parked() && park.certificate() == Some(&certificate))
+        {
+            return Err(TransportError::StalePeer);
+        }
+        if !Arc::ptr_eq(
+            &self.park_roster(history, cut)?.registration,
+            &roster.registration,
+        ) {
+            return Err(TransportError::StalePeer);
+        }
+        Ok(())
+    }
+
     fn park_charge(&self) -> usize {
-        2 * (self.options.max_header_bytes + frame::PREFIX + frame::TAG) + 1024
+        2 * (self.options.max_header_bytes + frame::PREFIX + frame::TAG) + MAX_PARK_BODY + 1024
     }
 
     async fn request_park_ack(
@@ -267,6 +393,18 @@ impl State {
         cut: &GroupParkCut,
         deadline: u64,
     ) -> Result<ParkAcknowledgement, TransportError> {
+        let (request, reply) = self.request_park(roster, peer, cut, &[], deadline).await?;
+        reply.acknowledgement(request)
+    }
+
+    async fn request_park(
+        &self,
+        roster: &Roster,
+        peer: &Peer,
+        cut: &GroupParkCut,
+        body: &[u8],
+        deadline: u64,
+    ) -> Result<(Request, Reply), TransportError> {
         let wire_route = Route::new_group(
             &roster.local,
             self.auth.source(),
@@ -281,13 +419,17 @@ impl State {
             let result = self
                 .bounded(
                     Some(&peer.pool),
-                    self.park_exchange(peer, &wire_route, cut, deadline),
+                    self.park_exchange(peer, &wire_route, cut, body, deadline),
                 )
                 .await?;
             if !self.current_physical(&roster.registration, &peer.route) {
                 return Err(TransportError::StalePeer);
             }
-            Ok(result)
+            match result.1 {
+                Reply::Retry => Err(RuntimeError::NotReady.into()),
+                Reply::Refused => Err(TransportError::Refused),
+                _ => Ok(result),
+            }
         })
         .await
     }
@@ -323,8 +465,9 @@ impl State {
         peer: &Peer,
         route: &Route,
         cut: &GroupParkCut,
+        body: &[u8],
         deadline: u64,
-    ) -> Result<ParkAcknowledgement, TransportError> {
+    ) -> Result<(Request, Reply), TransportError> {
         let charge = self.park_charge();
         let _node = self
             .outgoing
@@ -360,23 +503,24 @@ impl State {
             route: route.clone(),
             cut: cut.clone(),
             timeout_ms,
+            certificate_digest: (!body.is_empty()).then(|| Sha256::digest(body).into()),
         };
         let wire = Wire {
             auth: &self.auth,
             exporter: &exporter,
             options: &self.options,
-            max_body: 0,
+            max_body: MAX_PARK_BODY,
         };
-        let head = wire.encode(REQUEST_MAGIC, REQUEST_PURPOSE, &[], &request, &[])?;
-        write_head(&mut stream, &head).await?;
+        let head = wire.encode(REQUEST_MAGIC, REQUEST_PURPOSE, &[], &request, body)?;
+        write_frame(&mut stream, &head, body).await?;
         stream.flush().await?;
         let response = read_bulk_head(&mut stream, None, RESPONSE_MAGIC, 0, &self.options).await?;
         let reply: Reply =
             wire.decode(RESPONSE_MAGIC, RESPONSE_PURPOSE, &response, Some(&head.tag))?;
-        reply.acknowledgement(request)
+        Ok((request, reply))
     }
 
-    pub(super) async fn receive_park_ack<S: AsyncRead + AsyncWrite + Unpin>(
+    pub(super) async fn receive_park<S: AsyncRead + AsyncWrite + Unpin>(
         &self,
         stream: &mut S,
         exporter: &[u8; 32],
@@ -392,14 +536,20 @@ impl State {
         let head = self
             .bounded(
                 None,
-                read_bulk_head(stream, Some(prefix), REQUEST_MAGIC, 0, &self.options),
+                read_bulk_head(
+                    stream,
+                    Some(prefix),
+                    REQUEST_MAGIC,
+                    MAX_PARK_BODY,
+                    &self.options,
+                ),
             )
             .await?;
         let wire = Wire {
             auth: &self.auth,
             exporter,
             options: &self.options,
-            max_body: 0,
+            max_body: MAX_PARK_BODY,
         };
         let request: Request = wire.decode(REQUEST_MAGIC, REQUEST_PURPOSE, &head, None)?;
         let deadline = request.deadline(
@@ -416,25 +566,55 @@ impl State {
         self.seed_until(
             deadline,
             self.bounded(Some(&pool), async {
-                let response = match self
-                    .runtime
-                    .shared()?
-                    .acknowledge_park(voter.scope, leader.member, request.cut.clone())
-                    .await
-                {
-                    Ok(receipt)
-                        if receipt.voter == voter
-                            && receipt.leader == leader.member
-                            && receipt.cut == request.cut
-                            && receipt.sync_sequence != 0 =>
-                    {
-                        Reply::Acknowledged {
-                            sequence: receipt.sync_sequence,
-                        }
+                let mut body = vec![0; head.payload_len];
+                if !body.is_empty() {
+                    stream.read_exact(&mut body).await?;
+                }
+                let response = if let Some(certificate) = request.certificate(&body)? {
+                    let roster = self.park_roster(voter.scope, certificate.cut())?;
+                    if roster.local != voter || !roster.matches_certificate(&leader, &certificate) {
+                        return Err(TransportError::StalePeer);
                     }
-                    Ok(_) => return Err(TransportError::Protocol),
-                    Err(RuntimeError::NotReady | RuntimeError::Overloaded) => Reply::Retry,
-                    Err(_) => Reply::Refused,
+                    let cut = certificate.cut().clone();
+                    match self
+                        .runtime
+                        .shared()?
+                        .enter_park(voter.scope, certificate)
+                        .await
+                    {
+                        Ok(())
+                            if Arc::ptr_eq(
+                                &self.park_roster(voter.scope, &cut)?.registration,
+                                &roster.registration,
+                            ) =>
+                        {
+                            Reply::Parked
+                        }
+                        Ok(()) => return Err(TransportError::StalePeer),
+                        Err(RuntimeError::NotReady | RuntimeError::Overloaded) => Reply::Retry,
+                        Err(_) => Reply::Refused,
+                    }
+                } else {
+                    match self
+                        .runtime
+                        .shared()?
+                        .acknowledge_park(voter.scope, leader.member, request.cut.clone())
+                        .await
+                    {
+                        Ok(receipt)
+                            if receipt.voter == voter
+                                && receipt.leader == leader.member
+                                && receipt.cut == request.cut
+                                && receipt.sync_sequence != 0 =>
+                        {
+                            Reply::Acknowledged {
+                                sequence: receipt.sync_sequence,
+                            }
+                        }
+                        Ok(_) => return Err(TransportError::Protocol),
+                        Err(RuntimeError::NotReady | RuntimeError::Overloaded) => Reply::Retry,
+                        Err(_) => Reply::Refused,
+                    }
                 };
                 if !Arc::ptr_eq(&self.authorize_physical(&request.route)?, &pool) {
                     return Err(TransportError::StalePeer);
