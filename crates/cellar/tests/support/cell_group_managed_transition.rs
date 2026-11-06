@@ -535,7 +535,13 @@ async fn exercise(
             .await?
             == Some(vec![held.clone()])
     );
-    registry.release(domain.as_ref(), &held).await?;
+    let archives = CellGroupArchivePool::new(Default::default())?;
+    for _ in 0..2 {
+        reopened
+            .release_cancelled_preparation_holds(directory, operation, &archives, TIMEOUT)
+            .await?;
+    }
+    preparation::verify_expired_holds(domain, directory, &registry, vec![held]).await?;
     let view = domain.run(directory.observe()).await??;
     ensure!(view.groups() == 1);
     Ok(None)

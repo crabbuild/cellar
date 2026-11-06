@@ -122,6 +122,7 @@ impl RangeDirectory {
         plan: &DirectoryMutation,
         permit: &ManagedTransitionPermit,
         holds: &[CellGroupArchiveHold],
+        acquires: Option<[u8; 32]>,
     ) -> Result<TransitionJournal> {
         permit.check(self, plan)?;
         let (parents, _) = self.transition_routes(plan)?;
@@ -144,6 +145,9 @@ impl RangeDirectory {
                 Ok((view, journal))
             })
             .await?;
+        if journal.preparation_acquires() != acquires {
+            return Err(CatalogError::Conflict("transition preparation hold owner changed").into());
+        }
         let set = self.encode_transition_source_set(plan, holds.iter())?;
         let digest = record::digest(&set.bytes);
         if journal
@@ -169,7 +173,7 @@ impl RangeDirectory {
             registry.require_retained_hold(domain, hold).await?;
         }
         self.persist_transition_source_set(digest, set).await?;
-        self.record_managed_preparation_sources(plan, permit, digest)
+        self.record_managed_preparation_sources(plan, permit, digest, acquires)
             .await
             .map_err(Into::into)
     }

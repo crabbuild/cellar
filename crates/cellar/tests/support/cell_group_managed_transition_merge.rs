@@ -5,8 +5,7 @@ use super::*;
 use cellar::application::consensus::verification::{
     cell_groups::{
         CellGroupArchiveHold, CellGroupArchiveTailLimits, CellGroupArchiveTailPool, CellGroupBirth,
-        CellGroupCheckpointPool, CellGroupTransitionPreparationInputs, CellGroupTransitionSource,
-        GroupRoute,
+        CellGroupCheckpointPool, CellGroupTransitionSource, GroupRoute,
     },
     FleetHistoryState,
 };
@@ -74,28 +73,6 @@ impl ArchiveInputs {
             });
         }
         Ok(sources)
-    }
-
-    async fn partition(
-        &self,
-        stage: &str,
-        cuts: &[(CellGroupBirth, CellGroupArchiveHold)],
-        child: &GroupRoute,
-    ) -> Result<CellGroupTransitionPreparationInputs> {
-        let base = self.scratch.path().join(stage).join("child");
-        let route = child.clone();
-        let rooted = self.rooted;
-        let target = self
-            .domain
-            .blocking(move || preparation::store(base, route, rooted))?
-            .await??;
-        Ok(CellGroupTransitionPreparationInputs {
-            archives: self.pool.clone(),
-            tails: self.tails.clone(),
-            restore: preparation::recovery_pool()?,
-            sources: self.sources(stage, cuts).await?,
-            targets: vec![target],
-        })
     }
 }
 
@@ -217,7 +194,6 @@ pub(super) async fn run(
     );
 
     let mut registries = Vec::with_capacity(2);
-    let mut precopy = Vec::with_capacity(2);
     for route in &parents {
         let birth = domain
             .run(directory.materialize_selected_history(route.history))
@@ -225,23 +201,45 @@ pub(super) async fn run(
         let registry = directory
             .open_group_archive(domain.as_ref(), &archives.pool, &birth)
             .await?;
-        let hold = preparation::acquire_hold(domain, &registry).await?;
-        precopy.push((birth, hold));
         registries.push(registry);
     }
-    let prepared = fleet
-        .prepare_managed_transition(
-            &request,
-            directory,
-            &plan,
-            archives.partition("precopy", &precopy, &child).await?,
+    let staged =
+        preparation::allocate_preparation_holds(&fleet, directory, operation, &archives.pool)
+            .await?;
+    ensure!(staged.phase() == TransitionPhase::Planned && staged.preparation().is_none());
+    let (preparer, reopened_directory) = reopen_merge_controller(fixture).await?;
+    let holds = preparer
+        .staged_managed_preparation_holds(&reopened_directory, operation, TIMEOUT)
+        .await?
+        .context("selected merge preparation holds")?;
+    ensure!(holds.iter().map(|hold| hold.marker().route()).eq(&parents));
+    let workspace = tempfile::tempdir()?;
+    let verifier = crate::managed_fixture::verifier::open(
+        fixture,
+        workspace.path(),
+        rooted,
+        CellGroupArchiveTailLimits {
+            max_operations: 2,
+            max_retained_bytes: 2 * CellGroupArchiveTailLimits::default().max_retained_bytes,
+            ..Default::default()
+        },
+    )
+    .await?;
+    let prepared = preparer
+        .resume_managed_preparation(
+            &reopened_directory,
+            operation,
+            &verifier,
+            preparation::recovery_pool()?,
             TIMEOUT,
         )
         .await
-        .context("prepare both merge source archives")?;
+        .context("reopen both merge preparation archives")?;
     ensure!(prepared.journal().phase() == TransitionPhase::Prepared);
     ensure!(prepared.children().len() == 1 && prepared.children()[0].root().cells() == 2);
     drop(prepared);
+    drop(verifier);
+    drop(workspace);
     fleet
         .authorize_managed_transition_seal(&request, directory, &plan, TIMEOUT)
         .await?;

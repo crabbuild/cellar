@@ -1167,6 +1167,16 @@ compares the selected digest again at its CAS. A cancelled plan retains the
 descriptors so their owner can reconcile and release the holds after joining
 physical work.
 
+For operation-owned preparation, the controller first selects a plan-ordered
+acquire intent set in the directory CAS. It sends only the selected intents
+and stages the resulting holds against that same set. It can replace an
+intent only after the registry proves that its revision was consumed and its
+nonce owns no hold. Cancellation fences new intent selection. Once physical
+pre-copy work has joined, cleanup reconciles each exact acquire. It releases
+an acquired hold or consumes the pending revision before a delayed acquire
+can create one. A replacement controller can repeat that cleanup using the
+cancelled journal.
+
 Use `cellar raft fleet transition authorize-seal NAMESPACE_HEX --plan REQUEST.json --catalog-id DIGEST`
 after the transition reaches Prepared. The request binds the admitted plan and
 the preparation digest reported by transition status. The admitted principal

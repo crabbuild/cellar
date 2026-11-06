@@ -639,6 +639,17 @@ impl CellGroupArchiveRegistry {
             .map_err(|_| CellGroupArchiveError::Stopped)?
     }
 
+    pub(crate) async fn cancel_acquire(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        intent: &CellGroupArchiveIntent,
+    ) -> Result<()> {
+        domain
+            .run(self.retire_allocation(|state| state.cancel_acquire(intent)))
+            .await
+            .map_err(|_| CellGroupArchiveError::Stopped)?
+    }
+
     pub async fn abort(
         &self,
         domain: &impl CellGroupArchiveExecution,
@@ -658,10 +669,18 @@ impl CellGroupArchiveRegistry {
         hold: Option<&CellGroupArchiveHold>,
         ticket: Option<&CellGroupArchiveUploadTicket>,
     ) -> Result<()> {
+        self.retire_allocation(|state| state.retire(hold, ticket))
+            .await
+    }
+
+    async fn retire_allocation(
+        &self,
+        retire: impl Fn(&mut State) -> Result<bool> + Send,
+    ) -> Result<()> {
         let _io = self.archive.admit()?;
         for _ in 0..8 {
             let (mut state, version) = self.load().await?;
-            if !state.retire(hold, ticket)? {
+            if !retire(&mut state)? {
                 return Ok(());
             }
             state.check(&self.identity)?;
@@ -677,7 +696,7 @@ impl CellGroupArchiveRegistry {
                 .await
                 .map_err(|_| CellGroupArchiveError::Unconfirmed)?
                 .0;
-            if !observed.retire(hold, ticket)? {
+            if !retire(&mut observed)? {
                 return Ok(());
             }
             if matches!(

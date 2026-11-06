@@ -7,7 +7,7 @@ use cellar::application::consensus::verification::cell_groups::{
     CellGroupArchiveStore, CellGroupArchiveTailLimits, CellGroupArchiveTailPool, CellGroupBirth,
     CellGroupCheckpointPool, CellGroupRecoveryLimits, CellGroupRecoveryPool,
     CellGroupTransferTarget, CellGroupTransitionPreparationInputs, CellGroupTransitionSource,
-    DirectoryMutation, GroupRoute, ManifestPageStore,
+    DirectoryMutation, GroupRoute, ManifestPageStore, TransitionJournal,
 };
 use cellar::application::consensus::verification::FleetHistoryState;
 use cellar::sdk::fleet_operations::{
@@ -52,20 +52,58 @@ pub(super) async fn exercise(
     let registry = directory
         .open_group_archive(domain.as_ref(), &archives, parent)
         .await?;
-    let held = acquire_hold(domain, &registry)
-        .await
-        .context("acquire active source archive hold before pre-copy")?;
     let operation = transition.plan.operation();
-    let staged = controller
-        .stage_managed_preparation_holds(
-            transition,
-            directory,
-            &archives,
-            std::slice::from_ref(&held),
-            TIMEOUT,
-        )
-        .await?;
+    let before = controller
+        .reopen_managed_transition(directory, operation, TIMEOUT)
+        .await?
+        .context("planned transition before acquire")?;
+    let denied_before = fixture.store.denied_registry_writes.load(Ordering::Acquire);
+    fixture
+        .store
+        .deny_registry_writes
+        .store(true, Ordering::Release);
+    let denied = controller
+        .allocate_managed_preparation_holds(directory, operation, &archives, TIMEOUT)
+        .await;
+    fixture
+        .store
+        .deny_registry_writes
+        .store(false, Ordering::Release);
+    ensure!(
+        denied.is_err()
+            && fixture.store.denied_registry_writes.load(Ordering::Acquire) > denied_before
+    );
+    let reopened = Fixture::open_catalog(domain, fixture.store.clone(), cluster.history.cluster)?;
+    let after = reopened
+        .reopen_managed_transition(directory, operation, TIMEOUT)
+        .await?
+        .context("admitted acquire after denied registry update")?;
+    ensure!(after.journal != before.journal);
+    ensure!(reopened
+        .staged_managed_preparation_holds(directory, operation, TIMEOUT)
+        .await?
+        .is_none());
+
+    let staged = allocate_preparation_holds(&reopened, directory, operation, &archives).await?;
     ensure!(staged.phase() == TransitionPhase::Planned && staged.preparation().is_none());
+    let [held]: [CellGroupArchiveHold; 1] = reopened
+        .staged_managed_preparation_holds(directory, operation, TIMEOUT)
+        .await?
+        .context("missing operator-owned staged hold")?
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("split must own one preparation hold"))?;
+    ensure!(
+        reopened
+            .allocate_managed_preparation_holds(directory, operation, &archives, TIMEOUT)
+            .await?
+            == staged
+    );
+    ensure!(matches!(
+        reopened
+            .release_cancelled_preparation_holds(directory, operation, &archives, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Conflict)
+    ));
     let alternate = acquire_hold(domain, &registry).await?;
     ensure!(alternate != held);
     ensure!(matches!(
@@ -83,7 +121,6 @@ pub(super) async fn exercise(
     registry.release(domain.as_ref(), &alternate).await?;
 
     let scratch = tempfile::tempdir()?;
-    let reopened = Fixture::open_catalog(domain, fixture.store.clone(), cluster.history.cluster)?;
     ensure!(
         reopened
             .staged_managed_preparation_holds(directory, operation, TIMEOUT)
@@ -192,6 +229,30 @@ pub(super) async fn exercise(
         }
     }
     Ok((registry, held, seeded))
+}
+
+pub(super) async fn allocate_preparation_holds(
+    fleet: &FleetCatalog,
+    directory: &RangeDirectory,
+    operation: ProposalId,
+    archives: &CellGroupArchivePool,
+) -> Result<TransitionJournal> {
+    let journal = tokio::time::timeout(TIMEOUT, async {
+        loop {
+            match fleet
+                .allocate_managed_preparation_holds(directory, operation, archives, TIMEOUT)
+                .await
+            {
+                Ok(journal) => return Ok(journal),
+                Err(FleetCatalogError::Conflict | FleetCatalogError::Unconfirmed) => {
+                    tokio::task::yield_now().await;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    })
+    .await??;
+    Ok(journal)
 }
 
 pub(super) fn recovery_pool() -> Result<CellGroupRecoveryPool> {
@@ -1411,12 +1472,21 @@ pub(super) async fn verify_released_source_holds(
     preparation: CellGroupArchiveHold,
 ) -> Result<()> {
     let domain = &cluster.fixtures[0].domain;
-    let scratch = tempfile::tempdir()?;
-    let rooted = directory.namespace_config().image_storage == RaftImageStorage::Extents;
-    let tails = CellGroupArchiveTailPool::new(Default::default())?;
     let mut holds = domain.run(directory.sealed_source_holds(plan)).await??;
     ensure!(holds.len() == 1);
     holds.push(preparation);
+    verify_expired_holds(domain, directory, registry, holds).await
+}
+
+pub(super) async fn verify_expired_holds(
+    domain: &ExecutionDomain,
+    directory: &RangeDirectory,
+    registry: &CellGroupArchiveRegistry,
+    holds: Vec<CellGroupArchiveHold>,
+) -> Result<()> {
+    let scratch = tempfile::tempdir()?;
+    let rooted = directory.namespace_config().image_storage == RaftImageStorage::Extents;
+    let tails = CellGroupArchiveTailPool::new(Default::default())?;
     for (index, hold) in holds.into_iter().enumerate() {
         let base = scratch.path().join(format!("released-source-{index}"));
         let route = hold.marker().route().clone();
@@ -1429,9 +1499,7 @@ pub(super) async fn verify_released_source_holds(
             stored.directory,
         )?;
         ensure!(matches!(
-            registry
-                .verify_hold(domain.as_ref(), &hold, &tails, receiver)
-                .await,
+            registry.verify_hold(domain, &hold, &tails, receiver).await,
             Err(CellGroupArchiveError::Expired)
         ));
     }

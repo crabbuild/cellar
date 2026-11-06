@@ -114,3 +114,54 @@ fn acquire_outcome_refuses_foreign_registry_and_other_allocation_purposes() {
     };
     assert!(state.acquire_outcome(&intent).is_err());
 }
+
+#[test]
+fn cancelling_an_acquire_fences_a_delayed_allocation() {
+    let (mut state, intent) = selected();
+    assert!(state.cancel_acquire(&intent).unwrap());
+    assert_eq!(state.revision, intent.revision);
+    assert!(matches!(
+        state.allocate(&intent),
+        Err(CellGroupArchiveError::Expired)
+    ));
+    assert!(!state.cancel_acquire(&intent).unwrap());
+    assert!(state.holds.is_empty());
+    state.check(&state.identity).unwrap();
+}
+
+#[test]
+fn cancelling_a_committed_acquire_releases_only_its_hold() {
+    let (mut state, intent) = selected();
+    state.allocate(&intent).unwrap();
+    let unrelated = CellGroupArchiveIntent {
+        revision: intent.revision + 1,
+        nonce: [10; 32],
+        ..intent.clone()
+    };
+    let Allocation::Hold(other) = state.allocate(&unrelated).unwrap() else {
+        panic!("unrelated acquire did not allocate a hold");
+    };
+    assert!(state.cancel_acquire(&intent).unwrap());
+    assert_eq!(state.holds, vec![*other]);
+    assert!(!state.cancel_acquire(&intent).unwrap());
+    assert!(matches!(
+        state.allocate(&intent),
+        Err(CellGroupArchiveError::Expired)
+    ));
+    state.check(&state.identity).unwrap();
+}
+
+#[test]
+fn cancelling_a_superseded_acquire_preserves_the_same_revision_winner() {
+    let (mut state, intent) = selected();
+    let unrelated = CellGroupArchiveIntent {
+        nonce: [10; 32],
+        ..intent.clone()
+    };
+    let Allocation::Hold(other) = state.allocate(&unrelated).unwrap() else {
+        panic!("unrelated acquire did not allocate a hold");
+    };
+    assert!(!state.cancel_acquire(&intent).unwrap());
+    assert_eq!(state.holds, vec![*other]);
+    state.check(&state.identity).unwrap();
+}

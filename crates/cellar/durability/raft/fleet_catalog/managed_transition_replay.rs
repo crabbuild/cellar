@@ -15,6 +15,81 @@ use crate::raft::{
 use cellar_logic::{cell_group::GroupRoute, consensus::ProposalId};
 
 impl FleetCatalog {
+    /// Stage operation-owned holds from the selected active parent archives.
+    /// A retry reconciles the rooted acquire set before any new allocation.
+    pub async fn allocate_managed_preparation_holds(
+        &self,
+        directory: &RangeDirectory,
+        operation: ProposalId,
+        archives: &CellGroupArchivePool,
+        timeout: Duration,
+    ) -> Result<TransitionJournal> {
+        let deadline = deadline::Deadline::new(self, timeout)?;
+        let transition = self
+            .observe_transfer_replay(
+                directory,
+                operation,
+                &[TransitionPhase::Planned, TransitionPhase::Prepared],
+                deadline.remaining()?,
+            )
+            .await?;
+        let permit = self
+            .run(
+                deadline.remaining()?,
+                Box::pin(self.active_managed_transition_permit(
+                    &transition.request,
+                    directory,
+                    &transition.plan,
+                )),
+            )
+            .await?;
+        let domain = &self.inner.domain;
+        domain
+            .run(Box::pin(crate::asyncrt::timeout(
+                deadline.remaining()?,
+                Box::pin(directory.allocate_managed_preparation_holds(
+                    domain,
+                    archives,
+                    &transition.plan,
+                    &permit,
+                )),
+            )))
+            .await
+            .map_err(|_| FleetCatalogError::Closed)?
+            .map_err(|_| FleetCatalogError::Unconfirmed)?
+            .map_err(transfer_archive_error)
+    }
+
+    /// Clean up only the cancelled transition's own acquire intents. The
+    /// controller must join entered pre-copy work before invoking cleanup.
+    pub async fn release_cancelled_preparation_holds(
+        &self,
+        directory: &RangeDirectory,
+        operation: ProposalId,
+        archives: &CellGroupArchivePool,
+        timeout: Duration,
+    ) -> Result<()> {
+        let deadline = deadline::Deadline::new(self, timeout)?;
+        let transition = self
+            .reopen_managed_transition(directory, operation, deadline.remaining()?)
+            .await?
+            .ok_or(FleetCatalogError::Conflict)?;
+        let domain = &self.inner.domain;
+        domain
+            .run(Box::pin(crate::asyncrt::timeout(
+                deadline.remaining()?,
+                Box::pin(directory.release_cancelled_preparation_acquires(
+                    domain,
+                    archives,
+                    &transition.plan,
+                )),
+            )))
+            .await
+            .map_err(|_| FleetCatalogError::Closed)?
+            .map_err(|_| FleetCatalogError::Unconfirmed)?
+            .map_err(transfer_archive_error)
+    }
+
     /// Persist the controller's own active source holds in plan order before
     /// opening physical pre-copy receivers. Keep the selected holds alive
     /// through retirement, or join pre-copy work before cancelled cleanup.
@@ -48,6 +123,7 @@ impl FleetCatalog {
                     &transition.plan,
                     &permit,
                     holds,
+                    None,
                 )),
             )))
             .await

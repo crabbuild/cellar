@@ -36,6 +36,22 @@ impl State {
         })
     }
 
+    pub fn cancel_acquire(&mut self, intent: &CellGroupArchiveIntent) -> Result<bool> {
+        match self.acquire_outcome(intent)? {
+            CellGroupArchiveAcquireOutcome::Held(hold) => self.retire(Some(&hold), None),
+            CellGroupArchiveAcquireOutcome::Pending => {
+                if self.revision.checked_add(1) != Some(intent.revision) {
+                    return Err(CellGroupArchiveError::Conflict);
+                }
+                // Consume the same revision as the pending allocation. A
+                // delayed acquire can no longer create a hold after cleanup.
+                self.advance()?;
+                Ok(true)
+            }
+            CellGroupArchiveAcquireOutcome::Superseded => Ok(false),
+        }
+    }
+
     pub fn empty(identity: CellGroupArchiveCreation) -> Self {
         Self {
             domain: STATE_DOMAIN.into(),

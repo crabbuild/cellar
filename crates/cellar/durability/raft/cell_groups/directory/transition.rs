@@ -25,7 +25,7 @@ const JOURNAL: u8 = 198;
 
 // A retired journal can carry nine 32-byte digests. Each JSON byte array
 // takes up to 129 bytes, before field names, phase and the record envelope.
-const JOURNAL_LIMIT: usize = 1536;
+const JOURNAL_LIMIT: usize = 2048;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -52,6 +52,8 @@ pub struct TransitionJournal {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     preparation_sources: Option<[u8; 32]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    preparation_acquires: Option<[u8; 32]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     source_set: Option<[u8; 32]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     installed_set: Option<[u8; 32]>,
@@ -77,6 +79,10 @@ impl TransitionJournal {
 
     pub fn preparation(&self) -> Option<[u8; 32]> {
         self.preparation
+    }
+
+    pub(super) fn preparation_acquires(&self) -> Option<[u8; 32]> {
+        self.preparation_acquires
     }
 
     pub(super) fn preparation_sources(&self) -> Option<[u8; 32]> {
@@ -231,7 +237,14 @@ impl CellGroupSealPermit {
 
 #[derive(Clone, Copy)]
 enum Advance {
-    StagePreparationSources([u8; 32]),
+    ChoosePreparationAcquires {
+        previous: Option<[u8; 32]>,
+        next: [u8; 32],
+    },
+    StagePreparationSources {
+        sources: [u8; 32],
+        acquires: Option<[u8; 32]>,
+    },
     Prepare([u8; 32], Option<[u8; 32]>),
     Authorize,
     RecordSources([u8; 32]),
@@ -264,15 +277,29 @@ impl Advance {
     fn apply(self, mut journal: TransitionJournal) -> Result<TransitionJournal, CatalogError> {
         use TransitionPhase::*;
         match (self, journal.phase) {
-            (Self::StagePreparationSources(digest), Planned)
-                if digest != [0; 32] && journal.preparation_sources.is_none() =>
+            (Self::ChoosePreparationAcquires { previous, next }, Planned)
+                if next != [0; 32]
+                    && journal.preparation_sources.is_none()
+                    && journal.preparation_acquires == previous =>
             {
-                journal.preparation_sources = Some(digest);
+                journal.preparation_acquires = Some(next);
             }
-            (Self::StagePreparationSources(digest), Planned | Prepared)
-                if journal.preparation_sources == Some(digest) => {}
+            (Self::ChoosePreparationAcquires { next, .. }, Planned | Prepared)
+                if journal.preparation_acquires == Some(next) => {}
+            (Self::StagePreparationSources { sources, acquires }, Planned)
+                if sources != [0; 32]
+                    && journal.preparation_sources.is_none()
+                    && journal.preparation_acquires == acquires =>
+            {
+                journal.preparation_sources = Some(sources);
+            }
+            (Self::StagePreparationSources { sources, acquires }, Planned | Prepared)
+                if journal.preparation_sources == Some(sources)
+                    && journal.preparation_acquires == acquires => {}
             (Self::Prepare(digest, sources), Planned)
                 if digest != [0; 32]
+                    && (journal.preparation_acquires.is_none()
+                        || journal.preparation_sources.is_some())
                     && journal
                         .preparation_sources
                         .is_none_or(|selected| Some(selected) == sources) =>
@@ -738,6 +765,7 @@ impl RangeDirectory {
                 request: mutation.digest,
                 preparation: None,
                 preparation_sources: None,
+                preparation_acquires: None,
                 source_set: None,
                 installed_set: None,
                 archive: None,
@@ -1237,15 +1265,36 @@ impl RangeDirectory {
             .await
     }
 
+    pub(super) async fn record_managed_preparation_acquires(
+        &self,
+        mutation: &DirectoryMutation,
+        permit: &ManagedTransitionPermit,
+        previous: Option<[u8; 32]>,
+        next: [u8; 32],
+    ) -> Result<TransitionJournal, CatalogError> {
+        permit.check(self, mutation)?;
+        self.advance_transition_inner(
+            mutation,
+            Advance::ChoosePreparationAcquires { previous, next },
+            false,
+        )
+        .await
+    }
+
     pub(super) async fn record_managed_preparation_sources(
         &self,
         mutation: &DirectoryMutation,
         permit: &ManagedTransitionPermit,
         sources: [u8; 32],
+        acquires: Option<[u8; 32]>,
     ) -> Result<TransitionJournal, CatalogError> {
         permit.check(self, mutation)?;
-        self.advance_transition_inner(mutation, Advance::StagePreparationSources(sources), false)
-            .await
+        self.advance_transition_inner(
+            mutation,
+            Advance::StagePreparationSources { sources, acquires },
+            false,
+        )
+        .await
     }
 
     pub(super) async fn record_managed_preparation(
@@ -1368,6 +1417,7 @@ impl RangeDirectory {
             request: mutation.digest,
             preparation: None,
             preparation_sources: None,
+            preparation_acquires: None,
             source_set: None,
             installed_set: None,
             archive: None,
