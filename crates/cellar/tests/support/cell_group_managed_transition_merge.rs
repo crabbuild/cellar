@@ -1297,9 +1297,10 @@ async fn run_inner(
             &fresh,
             &namespace,
             &fenced,
-            &RecoverySql {
+            &RecoveryScenario {
                 routed: &routed,
                 receipts: &receipts,
+                authority: &authority,
             },
             rooted,
         ))
@@ -1524,9 +1525,10 @@ async fn run_inner(
     Ok(Some(child.history))
 }
 
-struct RecoverySql<'a> {
+struct RecoveryScenario<'a> {
     routed: &'a [(CellHistory, i64)],
     receipts: &'a [CommandReceipt],
+    authority: &'a TransitionFence,
 }
 
 async fn check_recovery_replacements(
@@ -1535,7 +1537,7 @@ async fn check_recovery_replacements(
     fresh: &RaftFleetControl,
     namespace: &str,
     fenced: &Arc<FleetFencedTransitionRecovery>,
-    sql: &RecoverySql<'_>,
+    sql: &RecoveryScenario<'_>,
     rooted: bool,
 ) -> Result<()> {
     let routed = sql.routed;
@@ -1679,7 +1681,7 @@ async fn check_recovery_voter_reservations(
     namespace: &str,
     fenced: &Arc<FleetFencedTransitionRecovery>,
     plan: &Arc<cellar::sdk::fleet_operations::FleetTransitionRecoveryReplacement>,
-    sql: &RecoverySql<'_>,
+    sql: &RecoveryScenario<'_>,
 ) -> Result<()> {
     let routed = sql.routed;
     let (_, directory) = reopen_merge_controller(fixture).await?;
@@ -2024,6 +2026,10 @@ async fn check_recovery_voter_reservations(
         ensure!(refused.is_err());
         let still_fenced = fixture.domain.run(directory.observe()).await??;
         ensure!(still_fenced.digest() == after_completion.digest());
+        let premature = Box::pin(fresh.advance_transition_recovery_retirement(
+            namespace, &request, completion, sql.authority, TIMEOUT,
+        )).await;
+        ensure!(premature.is_err());
         let release = fresh.release_transition_recovery_serving(namespace, &request, completion, TIMEOUT);
         let (unknown, delivered) = Box::pin(fault::lose_directory_confirmation(release)).await;
         ensure!(delivered && matches!(unknown, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
@@ -2066,6 +2072,44 @@ async fn check_recovery_voter_reservations(
             }
         }
         Box::pin(check_recovered_sql(&standbys, plan, fenced, sql, &activations)).await?;
+        let before = fixture.catalog.read(TIMEOUT).await?;
+        let wrong_authority = TransitionFence::default();
+        let rejected = Box::pin(fresh.advance_transition_recovery_retirement(
+            namespace, &request, completion, &wrong_authority, TIMEOUT,
+        )).await;
+        ensure!(rejected.is_err()
+            && fixture.catalog.read(TIMEOUT).await?.revision() == before.revision());
+        let verifications = sql.authority.verifications.load(Ordering::Acquire);
+        fixture.store.fail_fleet_confirmation.store(true, Ordering::Release);
+        let unknown = Box::pin(fresh.advance_transition_recovery_retirement(
+            namespace, &request, completion, sql.authority, TIMEOUT,
+        )).await;
+        ensure!(matches!(unknown, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
+        ensure!(!fixture.store.fail_fleet_confirmation.load(Ordering::Acquire));
+        let retired = Box::pin(control.advance_transition_recovery_retirement(
+            namespace, &request, completion, sql.authority, TIMEOUT,
+        )).await?;
+        ensure!(retired.retired_histories == 3 && retired.total_histories == 3
+            && retired.fleet_slot_released && retired.applied_revision == before.revision() + 1);
+        ensure!(sql.authority.verifications.load(Ordering::Acquire) == verifications + 1);
+        let cut = fixture.catalog.read(TIMEOUT).await?;
+        Box::pin(fixture.catalog.check_inventory(&cut, std::slice::from_ref(&directory), TIMEOUT))
+            .await.context("recovery retirement inventory")?;
+        let old_histories: std::collections::BTreeSet<_> = fenced.request().intent()
+            .required_voter_lineages().iter().map(|lineage| lineage.group).collect();
+        for history in old_histories {
+            let old = fixture.catalog.history(&cut, &history, TIMEOUT).await?;
+            ensure!(matches!(old.state(), FleetHistoryState::Retired { operation, .. }
+                if *operation == fenced.request().intent().transition()));
+        }
+        let status = Box::pin(fresh.transition_status(namespace, &old_operation, TIMEOUT)).await?;
+        ensure!(!status.fleet_slot_held && !status.parent_holds_released
+            && status.recovery_completion_digest == Some(hex::encode(completion)));
+        let release_replay = Box::pin(fresh.release_transition_recovery_serving(
+            namespace, &request, completion, TIMEOUT,
+        )).await?;
+        ensure!(release_replay == completion);
+
         Ok::<(), anyhow::Error>(())
     })
     .await;
@@ -2138,7 +2182,7 @@ async fn check_recovered_sql(
     voters: &[RecoveryVoter],
     plan: &cellar::sdk::fleet_operations::FleetTransitionRecoveryReplacement,
     fenced: &FleetFencedTransitionRecovery,
-    sql: &RecoverySql<'_>,
+    sql: &RecoveryScenario<'_>,
     activations: &[(GroupHistory, LogPosition)],
 ) -> Result<()> {
     use cellar::application::consensus::{CellReceiptRequest, VersionError};

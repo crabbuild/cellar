@@ -1491,7 +1491,7 @@ impl FleetCatalog {
         route: &GroupRoute,
         operation: [u8; 16],
         retirement: [u8; 32],
-        known_nodes: &[super::nodes::NodeRecord],
+        inventory: (&[super::nodes::NodeRecord], bool),
     ) -> Result<()> {
         let record = self
             .managed_transition_record(snapshot, operation)
@@ -1501,10 +1501,24 @@ impl FleetCatalog {
         permit.check_directory(directory).map_err(catalog_error)?;
         let operation = ProposalId::new(operation)
             .map_err(|_| FleetCatalogError::Corrupt("retired source operation"))?;
-        let (plan, _) = directory
+        let (plan, observed) = directory
             .reopen_managed_transition_plan(operation, permit.0.plan, &permit)
             .await
             .map_err(catalog_error)?;
+        if let Some(completion) = observed
+            .as_ref()
+            .and_then(TransitionJournal::recovery_settlement)
+        {
+            return self
+                .require_recovery_retired_history(
+                    snapshot, directory, &plan, route, completion, retirement,
+                )
+                .await;
+        }
+        let (known_nodes, materialized) = inventory;
+        if !materialized {
+            return Err(FleetCatalogError::InventoryIncomplete);
+        }
         let (journal, parents) = directory
             .managed_retired_sources(&plan, &permit)
             .await
@@ -1795,19 +1809,32 @@ impl FleetCatalog {
                 "managed recovery settlement authority",
             ));
         }
+        if authority != resources::Authority::ManagedRecoveryRetirement
+            && mutation.changes.iter().any(|change| {
+                change.table == FleetTable::Policy
+                    && change
+                        .key
+                        .starts_with(super::managed_recovery_retirement::PREFIX)
+            })
+        {
+            return Err(FleetCatalogError::Invalid(
+                "managed recovery retirement authority",
+            ));
+        }
         for change in mutation
             .changes
             .iter()
             .filter(|change| change.table == FleetTable::Histories)
         {
-            if authority != resources::Authority::ManagedTransferCompletion
-                && change
-                    .value
-                    .as_deref()
-                    .and_then(|bytes| FleetHistory::decode(bytes).ok())
-                    .is_some_and(|history| {
-                        matches!(history.state, FleetHistoryState::Retired { .. })
-                    })
+            if !matches!(
+                authority,
+                resources::Authority::ManagedTransferCompletion
+                    | resources::Authority::ManagedRecoveryRetirement
+            ) && change
+                .value
+                .as_deref()
+                .and_then(|bytes| FleetHistory::decode(bytes).ok())
+                .is_some_and(|history| matches!(history.state, FleetHistoryState::Retired { .. }))
             {
                 return Err(FleetCatalogError::Invalid(
                     "managed history retirement authority",
@@ -1844,6 +1871,7 @@ impl FleetCatalog {
                         | resources::Authority::ManagedTransferCompletion
                         | resources::Authority::ManagedRecoveryReservation
                         | resources::Authority::ManagedRecoverySettlement
+                        | resources::Authority::ManagedRecoveryRetirement
                 ),
                 FleetTable::Admissions => true,
                 FleetTable::Policy => {
@@ -1851,6 +1879,7 @@ impl FleetCatalog {
                         authority,
                         resources::Authority::ManagedTransition
                             | resources::Authority::ManagedTransferCompletion
+                            | resources::Authority::ManagedRecoveryRetirement
                     ) && change.key == SLOT_KEY
                 }
                 _ => false,

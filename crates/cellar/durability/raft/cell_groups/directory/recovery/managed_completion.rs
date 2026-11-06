@@ -86,6 +86,64 @@ impl RangeDirectory {
         Ok(Some((selected, digest)))
     }
 
+    pub(crate) async fn observe_released_managed_recovery_completion(
+        &self,
+        input: &ManagedRecoveryPublicationInput<'_>,
+    ) -> Result<Option<[u8; 32]>, CatalogError> {
+        self.bounded(async {
+            let (view, _) = self.current().await?;
+            let Some((release, digest)) = self
+                .managed_recovery_serving_record(&view, input.mutation.operation())
+                .await?
+            else {
+                return Ok(None);
+            };
+            let publication = self
+                .confirmed(&view.head, input.mutation)
+                .await?
+                .ok_or(CatalogError::Fenced)?;
+            if !release.matches_publication(input, publication.journal_digest()) {
+                return Err(CatalogError::Fenced);
+            }
+            Ok(Some(digest))
+        })
+        .await
+    }
+
+    /// Verify the exact serving decision and, when supplied, the old routes
+    /// that a live retirement request is about to dispose of.
+    pub(crate) async fn check_managed_recovery_retirement(
+        &self,
+        recovery: ProposalId,
+        transition: ProposalId,
+        intent: [u8; 32],
+        completion: [u8; 32],
+        old_routes: &[GroupRoute],
+    ) -> Result<(), CatalogError> {
+        self.bounded(async {
+            let (view, _) = self.current().await?;
+            let (release, digest) = self
+                .managed_recovery_serving_record(&view, recovery)
+                .await?
+                .ok_or(CatalogError::Fenced)?;
+            if release.transition != transition.bytes()
+                || release.intent != intent
+                || digest != completion
+            {
+                return Err(CatalogError::Fenced);
+            }
+            for route in old_routes {
+                match self.selected_route_in(&view, route).await {
+                    Ok(()) => return Err(CatalogError::Fenced),
+                    Err(CatalogError::Fenced) => (),
+                    Err(error) => return Err(error),
+                }
+            }
+            Ok(())
+        })
+        .await
+    }
+
     /// Root the settlement, or release the recovery lock using its exact
     /// previously rooted receipt. Both decisions survive lost confirmation.
     pub(crate) async fn record_managed_recovery_completion(

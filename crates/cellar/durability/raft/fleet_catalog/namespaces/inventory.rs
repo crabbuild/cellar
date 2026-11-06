@@ -182,15 +182,24 @@ impl FleetCatalog {
                             operation,
                             retirement,
                         },
-                        Some(CellGroupBirthDisposition::Live(birth)),
-                    ) if history.check_birth(directory, &birth) => {
+                        disposition,
+                    ) => {
+                        let materialized = match disposition {
+                            Some(CellGroupBirthDisposition::Live(birth))
+                                if history.check_birth(directory, &birth) =>
+                            {
+                                true
+                            }
+                            None => false,
+                            _ => return Err(FleetCatalogError::InventoryIncomplete),
+                        };
                         self.require_retired_history(
                             snapshot,
                             directory,
-                            birth.route(),
+                            request.route(),
                             *operation,
                             *retirement,
-                            &nodes,
+                            (&nodes, materialized),
                         )
                         .await?;
                     }

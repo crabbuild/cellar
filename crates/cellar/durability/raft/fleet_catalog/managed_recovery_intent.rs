@@ -105,6 +105,13 @@ pub struct FleetTransitionRecoveryBarrier {
 }
 
 impl FleetTransitionRecoveryBarrier {
+    pub(super) fn from_selection(intent_digest: [u8; 32], directory_digest: [u8; 32]) -> Self {
+        Self {
+            intent_digest,
+            directory_digest,
+        }
+    }
+
     pub fn intent_digest(&self) -> [u8; 32] {
         self.intent_digest
     }

@@ -508,6 +508,25 @@ impl RaftFleetControl {
             .await?)
     }
 
+    /// Retire a bounded batch of old histories after serving release. A
+    /// permanent fence is reverified before each mutation. The terminal CAS
+    /// also releases the original Fleet slot.
+    #[doc(hidden)]
+    pub async fn advance_transition_recovery_retirement(
+        &self,
+        namespace: &str,
+        request: &crate::raft::fleet_catalog::FleetRecoveryAttachRequest,
+        completion: [u8; 32],
+        authority: &dyn DisasterFenceAuthority<FleetTransitionRecoveryFenceRequest>,
+        timeout: Duration,
+    ) -> Result<crate::raft::fleet_catalog::FleetRecoveryRetirement> {
+        let directory = self.managed_namespace(namespace)?;
+        Ok(self
+            .catalog
+            .advance_managed_recovery_retirement(directory, request, completion, authority, timeout)
+            .await?)
+    }
+
     /// Copy one exact selected cut into dedicated fresh-history stores. This
     /// does not install Raft state or authorize placement or serving.
     #[doc(hidden)]
