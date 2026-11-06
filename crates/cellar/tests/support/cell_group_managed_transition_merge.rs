@@ -1251,8 +1251,6 @@ async fn run_inner(
         &control,
     ))
     .await?;
-    let active_basis =
-        Box::pin(control.transition_recovery_basis(&namespace, &operation_id, TIMEOUT)).await?;
     let old_scope = Box::pin(recovery_control.verify_transition_recovery_archives(
         principal,
         &parent_basis,
@@ -1294,6 +1292,8 @@ async fn run_inner(
         current.marker().position().index >= applied
             && current.marker().position().index > older.marker().position().index
     );
+    let active_basis =
+        Box::pin(control.transition_recovery_basis(&namespace, &operation_id, TIMEOUT)).await?;
     ensure!(matches!(
         Box::pin(recovery_control.verify_transition_recovery_archives(
             principal, &active_basis, vec![older.clone()], TIMEOUT,
@@ -1308,8 +1308,24 @@ async fn run_inner(
             vec![current.clone()],
             TIMEOUT,
         ))
-        .await
-        .context("verify selected child archive after the S3 write")?;
+        .await;
+        let restored = match restored {
+            Ok(restored) => restored,
+            Err(error) => {
+                let latest = control
+                    .transition_recovery_basis(&namespace, &operation_id, TIMEOUT)
+                    .await?;
+                let head = preparation::acquire_hold(domain, &child_registry).await?;
+                let changed = head.marker() != current.marker();
+                child_registry.release(domain.as_ref(), &head).await?;
+                return Err(anyhow::Error::from(error).context(format!(
+                    "verify child archive at Fleet revision {}, directory changed={}, Fleet changed={}, archive marker changed={changed}",
+                    active_basis.fleet_revision,
+                    latest.directory_digest != active_basis.directory_digest,
+                    latest.fleet_digest != active_basis.fleet_digest,
+                )));
+            }
+        };
         assert_recovery_lineages(&restored, &expected_lineages)?;
         ensure!(matches!(
             Box::pin(recovery_control.stage_transition_recovery_intent(
