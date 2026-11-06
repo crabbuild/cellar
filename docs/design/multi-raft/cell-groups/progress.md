@@ -155,6 +155,31 @@ permits execution. Move the test worker to an authorized boot and preserve
 the receiving guard. The corrected-budget run record SHA-256 is
 `daae13a6d902a335dd29b7ac8857ed57eed297e2b1c9e46a3c56ab5973c6ec0d`.
 
+## CG-07 automatic recovery origin authority
+
+On `136474ac`, the native recovery case passed both image modes in 44.75
+seconds. An exact Registered observer fails admission before it acquires
+the control service or calls the platform. The fixture verifies that the
+catalog revision and the observer's resource charge do not change. An
+Active voter then resumes interrupted isolation, replays from the fixture
+object store, verifies the replacement quorum and reaches terminal removal.
+The worker checks its exact origin boot against each recovery turn's rooted
+catalog view. The command log SHA-256 is
+`8e221bd5689cc5f8578a98fbaff3e27c2937a99d9dd51335f0ab57a01405d5ad`.
+
+The Linux fixture at `458d6950` starts the worker on the second voter.
+The parent checks its exact Active boot before the injected failure and
+independently verifies the removal receipt. This wiring needs the constrained
+RustFS run with both image modes.
+
+## CG-07 shared cell version key rotation
+
+On `d6f79a1b`, all eight `native_cell_groups_contracts` tests passed. The
+rotated signer verifies the original cell version token after a lost catalog
+write reply, a lost confirmation read and a reopened namespace. The reopened
+catalog refuses to drop the unexpired verifier. The command log SHA-256 is
+`58dd3bb6b0ba959bc24b4ed210cc66ab07d53bc45d64d695bf1ea0fdc2a13deb`.
+
 ## CG-09 rooted decisions and retained source sealing
 
 The unmanaged source seal consumes a permit bound to the selected directory
