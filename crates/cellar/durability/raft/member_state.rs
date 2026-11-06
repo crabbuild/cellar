@@ -51,6 +51,16 @@ struct Binding {
     joined_at: u64,
 }
 
+impl Binding {
+    fn joining_member(&self) -> Result<JoiningMember, LogError> {
+        Ok(JoiningMember {
+            member: MemberId::new(self.member).map_err(|_| invalid())?,
+            node: NodeId::new(self.node).map_err(|_| invalid())?,
+            disk: DiskLineage::new(self.disk).map_err(|_| invalid())?,
+        })
+    }
+}
+
 /// Persisted with the applied configuration, including across compaction. IDs
 /// at or below high_water can never be assigned to a different member again.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -170,17 +180,14 @@ impl GroupMembership {
         self.bindings
             .iter()
             .find(|b| b.member == member.get())
-            .map(|b| {
-                Ok((
-                    JoiningMember {
-                        member,
-                        node: NodeId::new(b.node).map_err(|_| invalid())?,
-                        disk: DiskLineage::new(b.disk).map_err(|_| invalid())?,
-                    },
-                    LogIndex::new(b.joined_at),
-                ))
-            })
+            .map(|binding| Ok((binding.joining_member()?, LogIndex::new(binding.joined_at))))
             .transpose()
+    }
+
+    pub(crate) fn retained_lineages(
+        &self,
+    ) -> impl Iterator<Item = Result<JoiningMember, LogError>> + '_ {
+        self.bindings.iter().map(Binding::joining_member)
     }
 
     pub(crate) fn reserved_bytes(&self) -> usize {

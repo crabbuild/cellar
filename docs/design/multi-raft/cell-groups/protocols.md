@@ -1468,8 +1468,11 @@ the exact directory publication against a pinned root. It identifies the archive
 source groups and reports both parent and child histories for inventory collection.
 The trusted recovery verifier independently replays the retained head for
 each selected range and checks the Fleet and directory roots again. A retained
-older hold cannot cover a newer S3 acknowledgement. Fencing must revalidate
-the exact cuts and inventory every possible writer before changing authority.
+older hold cannot cover a newer S3 acknowledgement. The verified result
+includes required lineages from both sides of the transition, including initial
+members, retained membership bindings and permanent movement admissions. Fencing
+must revalidate the exact cuts and account for the platform's launch history
+before changing authority.
 
 For an unpublished transition, choose complete archived parent cuts and reconstruct
 their non-overlapping domain under new groups. For a published transition, require

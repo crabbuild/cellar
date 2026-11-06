@@ -3,7 +3,10 @@
 //! Independent archive verification during a managed transfer.
 
 use super::*;
-use crate::raft::cell_groups::{CellGroupArchiveCoverage, CellGroupArchiveHold, TransitionPhase};
+use crate::raft::{
+    cell_groups::{CellGroupArchiveCoverage, CellGroupArchiveHold, TransitionPhase},
+    fleet_catalog::FleetRecoveryVoterLineage,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -20,6 +23,7 @@ pub struct RaftFleetTransitionArchiveVerification {
 pub struct RaftFleetVerifiedTransitionRecovery {
     basis: RaftFleetTransitionRecoveryBasis,
     archives: Vec<CellGroupArchiveCoverage>,
+    lineages: Vec<FleetRecoveryVoterLineage>,
 }
 
 impl RaftFleetVerifiedTransitionRecovery {
@@ -29,6 +33,12 @@ impl RaftFleetVerifiedTransitionRecovery {
 
     pub fn archives(&self) -> &[CellGroupArchiveCoverage] {
         &self.archives
+    }
+
+    /// The fence must cover these Fleet and archive lineages, along with the
+    /// platform's complete inventory of possible old writers.
+    pub fn required_voter_lineages(&self) -> &[FleetRecoveryVoterLineage] {
+        &self.lineages
     }
 }
 
@@ -76,7 +86,7 @@ impl RaftFleetControl {
             outcome: RaftFleetOutcome::NotSubmitted,
             message: "Recovery archive verification requires a trusted verifier on the management server.".into(),
         })?;
-        let archives = self
+        let verified = self
             .catalog
             .verify_managed_transition_recovery_archives(
                 directory,
@@ -89,7 +99,8 @@ impl RaftFleetControl {
             .await?;
         Ok(RaftFleetVerifiedTransitionRecovery {
             basis: current,
-            archives,
+            archives: verified.archives,
+            lineages: verified.lineages,
         })
     }
 

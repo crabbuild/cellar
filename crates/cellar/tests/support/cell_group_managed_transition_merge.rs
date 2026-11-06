@@ -9,6 +9,7 @@ use cellar::application::consensus::verification::{
     },
     FleetChange, FleetHistoryState, FleetMutation, FleetSnapshot, FleetTable,
 };
+use cellar::application::consensus::FleetNodeSpec;
 use cellar::sdk::fleet_operations::{
     RaftFleetControl, RaftFleetFailureCode, RaftFleetFirstGroupVoter, RaftFleetOutcome,
     RaftFleetTransitionAdmissionRequest, RaftFleetTransitionChild,
@@ -975,6 +976,21 @@ async fn run_inner(
     let namespace = hex::encode(child.history.namespace.bytes());
     let operation_id = hex::encode(operation.bytes());
     let principal = &transition.request.principal;
+    let expected_lineages: Vec<_> = parents
+        .iter()
+        .flat_map(|parent| {
+            cluster.fixtures[3..]
+                .iter()
+                .enumerate()
+                .map(|(index, fixture)| (parent.history, index, &fixture.spec))
+        })
+        .chain(
+            cluster.fixtures[..3]
+                .iter()
+                .enumerate()
+                .map(|(index, fixture)| (child.history, index, &fixture.spec)),
+        )
+        .collect();
     let recovery_workspace = tempfile::tempdir()?;
     let recovery_verifier =
         crate::managed_fixture::verifier::open(fixture, recovery_workspace.path(), rooted, limits)
@@ -1003,6 +1019,7 @@ async fn run_inner(
             TIMEOUT,
         ))
         .await?;
+        assert_recovery_lineages(&restored, &expected_lineages)?;
         ensure!(
             restored.basis() == &parent_basis
                 && restored
@@ -1127,6 +1144,7 @@ async fn run_inner(
             TIMEOUT,
         ))
         .await?;
+        assert_recovery_lineages(&restored, &expected_lineages)?;
         let [archive] = restored.archives() else {
             anyhow::bail!("expected exactly one selected child archive");
         };
@@ -1865,6 +1883,24 @@ async fn start_voter(
     ensure!(host.identity().disk == previous.disk && host.identity().process != previous.process);
     let view = host.observe_node(TIMEOUT).await?;
     ensure!(view.node.groups == 2 && view.registered_histories == registered);
+    Ok(())
+}
+
+fn assert_recovery_lineages(
+    restored: &cellar::sdk::fleet_operations::RaftFleetVerifiedTransitionRecovery,
+    expected: &[(GroupHistory, usize, &FleetNodeSpec)],
+) -> Result<()> {
+    let required = restored.required_voter_lineages();
+    ensure!(required.len() == expected.len());
+    for (group, index, node) in expected {
+        ensure!(required.iter().any(|lineage| {
+            lineage.group == *group
+                && lineage.member.get() == *index as u64 + 1
+                && lineage.node == node.node
+                && lineage.disk == node.disk
+                && lineage.physical_host == node.physical_host
+        }));
+    }
     Ok(())
 }
 

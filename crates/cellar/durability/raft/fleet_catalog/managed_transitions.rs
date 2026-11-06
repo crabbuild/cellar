@@ -162,6 +162,11 @@ pub(crate) struct ManagedTransitionObservation {
     pub(crate) transition: ReopenedManagedCellGroupTransition,
 }
 
+pub(crate) struct VerifiedManagedTransitionArchives {
+    pub(crate) archives: Vec<CellGroupArchiveCoverage>,
+    pub(crate) lineages: Vec<FleetRecoveryVoterLineage>,
+}
+
 pub(crate) struct ManagedTransitionRecoveryObservation {
     pub(crate) fleet_revision: u64,
     pub(crate) fleet_digest: [u8; 32],
@@ -293,7 +298,7 @@ impl FleetCatalog {
         holds: Vec<CellGroupArchiveHold>,
         verifier: &FleetGroupArchiveVerifier,
         timeout: Duration,
-    ) -> Result<Vec<CellGroupArchiveCoverage>> {
+    ) -> Result<VerifiedManagedTransitionArchives> {
         self.run(
             timeout,
             Box::pin(async {
@@ -335,6 +340,14 @@ impl FleetCatalog {
                         .await?;
                     verified.push((registry, coverage));
                 }
+                let lineages = self
+                    .transition_recovery_voter_lineages(
+                        &snapshot,
+                        directory,
+                        selection,
+                        verified.iter().map(|(_, coverage)| coverage),
+                    )
+                    .await?;
                 for (registry, coverage) in &verified {
                     registry
                         .require_selected_hold(domain, coverage.hold())
@@ -350,7 +363,10 @@ impl FleetCatalog {
                 {
                     return Err(FleetCatalogError::Conflict);
                 }
-                Ok(verified.into_iter().map(|(_, coverage)| coverage).collect())
+                Ok(VerifiedManagedTransitionArchives {
+                    archives: verified.into_iter().map(|(_, coverage)| coverage).collect(),
+                    lineages,
+                })
             }),
         )
         .await

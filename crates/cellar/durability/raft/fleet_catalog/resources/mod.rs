@@ -61,6 +61,7 @@ pub(super) enum Authority {
 }
 mod movement;
 mod records;
+mod recovery;
 mod topology;
 
 pub use topology::{
