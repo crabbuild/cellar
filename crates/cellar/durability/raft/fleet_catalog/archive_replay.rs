@@ -8,7 +8,8 @@ use crate::raft::catalog::{CellGroupArchiveBindingError, RaftImageStorage, Range
 use crate::raft::cell_groups::{
     CellGroupApplyImages, CellGroupArchiveCheckpointReceiver, CellGroupArchivePool,
     CellGroupArchiveRegistry, CellGroupArchiveStore, CellGroupArchiveTailPool,
-    CellGroupCheckpointError, CellGroupCheckpointPool, ManifestLimits, ManifestPageStore,
+    CellGroupCheckpointError, CellGroupCheckpointPool, CellGroupTransferTarget, ManifestLimits,
+    ManifestPageStore,
 };
 use cellar_logic::cell_group::GroupRoute;
 use cellar_ltx::{stream_snapshot::ScratchPool, FileSystem};
@@ -94,6 +95,10 @@ impl FleetGroupArchiveVerifier {
         })
     }
 
+    pub(super) fn archives(&self) -> &CellGroupArchivePool {
+        &self.archives
+    }
+
     pub(crate) fn tails(&self) -> &CellGroupArchiveTailPool {
         &self.tails
     }
@@ -140,6 +145,34 @@ impl FleetGroupArchiveVerifier {
         route: &GroupRoute,
         storage: RaftImageStorage,
     ) -> Result<CellGroupArchiveCheckpointReceiver> {
+        let admission = self
+            .checkpoints
+            .prepare_archive_receive(self.options.max_pages)
+            .map_err(checkpoint_error)?;
+        self.with_private_target(domain, route, storage, move |target| {
+            admission
+                .receive(target.store, target.scratch, target.directory)
+                .map_err(checkpoint_error)
+        })
+        .await
+    }
+
+    pub(super) async fn transfer_target(
+        &self,
+        domain: &DomainToken,
+        route: &GroupRoute,
+        storage: RaftImageStorage,
+    ) -> Result<CellGroupTransferTarget> {
+        self.with_private_target(domain, route, storage, Ok).await
+    }
+
+    async fn with_private_target<T: Send + 'static>(
+        &self,
+        domain: &DomainToken,
+        route: &GroupRoute,
+        storage: RaftImageStorage,
+        finish: impl FnOnce(CellGroupTransferTarget) -> Result<T> + Send + 'static,
+    ) -> Result<T> {
         let route = route.clone();
         let mut images = match storage {
             RaftImageStorage::Materialized => self.options.materialized.as_ref(),
@@ -164,10 +197,6 @@ impl FleetGroupArchiveVerifier {
         }
         let options = self.options.clone();
         let pages = options.directory.join("groups").join(key).join("pages");
-        let admission = self
-            .checkpoints
-            .prepare_archive_receive(options.max_pages)
-            .map_err(checkpoint_error)?;
         let scratch = self.scratch.clone();
         domain
             .blocking(move || {
@@ -193,9 +222,11 @@ impl FleetGroupArchiveVerifier {
                     options.max_effect_rows,
                 )
                 .map_err(|e| FleetCatalogError::Storage(e.into()))?;
-                admission
-                    .receive(store, scratch, directory)
-                    .map_err(checkpoint_error)
+                finish(CellGroupTransferTarget {
+                    store,
+                    scratch,
+                    directory,
+                })
             })
             .map_err(|_| FleetCatalogError::Closed)?
             .await

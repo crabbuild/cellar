@@ -93,7 +93,7 @@ fn operation_key(operation: [u8; 16]) -> String {
     format!("{OPERATION_PREFIX}{}", hex::encode(operation))
 }
 
-fn transfer_archive_error(error: CellGroupArchiveBindingError) -> FleetCatalogError {
+pub(super) fn transfer_archive_error(error: CellGroupArchiveBindingError) -> FleetCatalogError {
     match error {
         CellGroupArchiveBindingError::Catalog(error) => catalog_error(error),
         CellGroupArchiveBindingError::Archive(error) => error.into(),

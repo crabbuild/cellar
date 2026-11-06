@@ -13,9 +13,6 @@ use std::{
     },
 };
 
-#[path = "cell_group_managed_recovery_archive.rs"]
-mod archive;
-
 type CatalogResult<T> = std::result::Result<T, FleetCatalogError>;
 
 struct Callback(Arc<AtomicUsize>);
@@ -328,7 +325,13 @@ async fn recover(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
             )
             .await??;
         let verifier_directory = RangeDirectory::new(namespace, DirectoryLimits::default())?;
-        let verifier = archive::verifier(f, replay_root.path(), rooted).await?;
+        let verifier = crate::managed_fixture::verifier::open(
+            f,
+            replay_root.path(),
+            rooted,
+            Default::default(),
+        )
+        .await?;
         independent
             .deny_group_payload_reads
             .store(true, Ordering::Release);

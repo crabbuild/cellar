@@ -1072,8 +1072,12 @@ acknowledgement is provisional. An exact retry can return the applied seal cut.
 The managed archive owner can publish the applied cut while business admission
 is sealed. The fleet verifies each held cut independently against the exact
 authorized plan and rechecks the complete hold set before selecting Sealed.
-A replacement controller can reopen those exact holds and replay them to
-prepare the non-serving child genesis images.
+A replacement controller can use `FleetCatalog::replay_managed_sealed_sources`
+to recover the exact held cuts by operation ID and prepare the non-serving
+child genesis images. Once every child has an installed quorum proof,
+`resume_managed_transfer_archive` rebuilds the child partition in the
+controller's private verification stores and records the exact archive closure.
+The verifier needs bounded capacity to retain one complete cut per parent.
 
 | State | Durable action and admission rule |
 | --- | --- |

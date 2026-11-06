@@ -32,6 +32,8 @@ pub(super) mod operator;
 pub mod requests;
 #[path = "cell_group_managed_fixture_seed_failure.rs"]
 pub mod seed_failures;
+#[path = "cell_group_managed_fixture_verifier.rs"]
+pub mod verifier;
 
 pub use cluster::*;
 pub use node::{limits, request, start_node, Fixture, NoListing};

@@ -3,7 +3,8 @@
 //! Private replay inventory: serving image pins cannot satisfy terminal proof.
 use super::*;
 use cellar::application::consensus::verification::cell_groups::{
-    CellGroupApplyImages, CellGroupArchivePool, CellGroupArchiveTailPool, CellGroupCheckpointPool,
+    CellGroupApplyImages, CellGroupArchivePool, CellGroupArchiveTailLimits,
+    CellGroupArchiveTailPool, CellGroupCheckpointPool,
 };
 use cellar_ltx::{
     generation::{GenerationStore, ReadServices},
@@ -13,10 +14,11 @@ use cellar_ltx::{
 };
 use rand::RngCore as _;
 
-pub(super) async fn verifier(
+pub async fn open(
     fixture: &Fixture,
     root: &Path,
     rooted: bool,
+    tails: CellGroupArchiveTailLimits,
 ) -> Result<FleetGroupArchiveVerifier> {
     let directory = root.to_owned();
     let base = directory.clone();
@@ -42,7 +44,7 @@ pub(super) async fn verifier(
                     cache_directory: base.join("cache"),
                     cache_pool: ScratchPool::new(ScratchLimits {
                         max_bytes: 32 * 1024 * 1024,
-                        max_files: 1,
+                        max_files: tails.max_operations,
                     })?,
                     cache: CacheLimits {
                         max_cached_bytes: EXTENT_BYTES,
@@ -64,11 +66,11 @@ pub(super) async fn verifier(
     let limits = limits();
     Ok(FleetGroupArchiveVerifier::new(
         CellGroupArchivePool::new(Default::default())?,
-        CellGroupArchiveTailPool::new(Default::default())?,
+        CellGroupArchiveTailPool::new(tails)?,
         CellGroupCheckpointPool::new(checkpoint_limits())?,
         ScratchPool::new(ScratchLimits {
             max_bytes: 32 * 1024 * 1024,
-            max_files: 1,
+            max_files: tails.max_operations,
         })?,
         FleetGroupArchiveReplayOptions {
             directory,

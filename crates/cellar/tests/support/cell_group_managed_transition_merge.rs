@@ -380,13 +380,78 @@ pub(super) async fn run(
         .await
         .context("verify both sealed merge source archives")?;
     ensure!(sources.journal().phase() == TransitionPhase::Sealed);
+    let sealed_digest = sources.journal().sealed_sources();
+    drop(sources);
+    drop(sealed);
+
+    let fixture = &cluster.fixtures[0];
+    let resumed = Fixture::open_catalog(domain, fixture.store.clone(), child.history.cluster)?;
+    let catalog = Catalog::new(
+        fixture.store.clone(),
+        CatalogOptions {
+            prefix: "managed/".into(),
+            ..Default::default()
+        },
+    )?;
+    let namespace = domain
+        .run(catalog.existing_namespace(fixture.declaration.namespace.clone()))
+        .await??;
+    let reopened = RangeDirectory::new(namespace, DirectoryLimits::default())?;
+    let limits = CellGroupArchiveTailLimits {
+        max_operations: parents.len(),
+        max_retained_bytes: parents.len()
+            * CellGroupArchiveTailLimits::default().max_retained_bytes,
+        ..Default::default()
+    };
+    let sealed_workspace = tempfile::tempdir()?;
+    let verifier =
+        crate::managed_fixture::verifier::open(fixture, sealed_workspace.path(), rooted, limits)
+            .await?;
+    let recovery = preparation::recovery_pool()?;
+    ensure!(matches!(
+        resumed
+            .resume_managed_transfer_archive(
+                &reopened,
+                operation,
+                &verifier,
+                recovery.clone(),
+                TIMEOUT,
+            )
+            .await,
+        Err(FleetCatalogError::Conflict)
+    ));
+    let store = &fixture.store;
+    let denied_before = store.denied_group_payload_reads.load(Ordering::Acquire);
+    store
+        .deny_group_payload_reads
+        .store(true, Ordering::Release);
+    let denied = resumed
+        .replay_managed_sealed_sources(&reopened, operation, &verifier, TIMEOUT)
+        .await;
+    store
+        .deny_group_payload_reads
+        .store(false, Ordering::Release);
+    ensure!(
+        denied.is_err() && store.denied_group_payload_reads.load(Ordering::Acquire) > denied_before
+    );
     let transition = Arc::new(
-        fleet
-            .reopen_managed_transition(directory, operation, TIMEOUT)
+        resumed
+            .reopen_managed_transition(&reopened, operation, TIMEOUT)
             .await?
             .context("reopened sealed merge")?,
     );
-    let recovery = preparation::recovery_pool()?;
+    ensure!(
+        transition
+            .journal
+            .as_ref()
+            .and_then(|journal| journal.sealed_sources())
+            == sealed_digest
+    );
+    let sources = resumed
+        .replay_managed_sealed_sources(&reopened, operation, &verifier, TIMEOUT)
+        .await
+        .context("replay the selected sealed sources on a replacement controller")?;
+    ensure!(sources.journal().sealed_sources() == sealed_digest);
     for host in &cluster.hosts[..3] {
         host.install_managed_transfer_child(
             transition.clone(),
@@ -399,6 +464,8 @@ pub(super) async fn run(
         .context("install merged child")?;
     }
     drop(sources);
+    drop(verifier);
+    drop(sealed_workspace);
     let voters = &cluster.hosts[..3];
     for host in voters {
         host.attach_managed_transfer_child(transition.clone(), child.clone(), TIMEOUT)
@@ -413,15 +480,17 @@ pub(super) async fn run(
             .phase()
             == TransitionPhase::Installed
     );
-    let archived = fleet
-        .verify_managed_transfer_archive(
-            &transition,
-            directory,
-            archives.partition("final", &sealed, &child).await?,
-            TIMEOUT,
-        )
+    let archive_workspace = tempfile::tempdir()?;
+    let verifier =
+        crate::managed_fixture::verifier::open(fixture, archive_workspace.path(), rooted, limits)
+            .await?;
+    let archived = resumed
+        .resume_managed_transfer_archive(&reopened, operation, &verifier, recovery, TIMEOUT)
         .await
-        .context("verify merged child transfer archive")?;
+        .context("rebuild the installed child archive on a replacement controller")?;
+    ensure!(
+        archived.phase() == TransitionPhase::Archived && archived.sealed_sources() == sealed_digest
+    );
     let published = fleet
         .publish_managed_transfer(&transition, directory, &archives.pool, TIMEOUT)
         .await
