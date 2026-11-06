@@ -10,6 +10,7 @@ use crate::raft::{
 };
 use cellar_logic::{
     cell_group::{CellId, GroupHistory, GroupRoute, RouteEpoch},
+    cell_group_placement::{PartitionBasis, PartitionDecision},
     consensus::{GroupId, IncarnationId, MemberId},
 };
 use serde::{Deserialize, Serialize};
@@ -276,6 +277,62 @@ impl RaftFleetControl {
         request: &RaftFleetTransitionAdmissionRequest,
         timeout: Duration,
     ) -> Result<RaftFleetTransitionAdmission> {
+        Box::pin(self.admit_transition_inner(
+            principal,
+            namespace,
+            operation,
+            request,
+            &[],
+            timeout,
+        ))
+        .await
+    }
+
+    /// Admit the exact split or merge selected by a placement recommendation.
+    /// Fresh work requires live source quorum checks. A rooted plan can resume
+    /// its original reservations even after the observed leadership changes.
+    pub async fn admit_recommended_partition(
+        &self,
+        principal: &str,
+        request: &RaftFleetTransitionAdmissionRequest,
+        recommendation: PartitionDecision<'_>,
+        timeout: Duration,
+    ) -> Result<RaftFleetTransitionAdmission> {
+        let sources = match (&request.partition, recommendation) {
+            (
+                RaftFleetTransitionPartition::Split { pivot_cell, .. },
+                PartitionDecision::Split { basis, pivot, .. },
+            ) if pivot.cell().as_str() == pivot_cell => vec![basis],
+            (
+                RaftFleetTransitionPartition::Merge { .. },
+                PartitionDecision::Merge { left, right },
+            ) if left.placement_class == right.placement_class => vec![left, right],
+            _ => {
+                return Err(RaftFleetFailure::invalid(
+                    "partition recommendation mismatch",
+                ))
+            }
+        };
+        Box::pin(self.admit_transition_inner(
+            principal,
+            &request.namespace_id,
+            &request.operation_id,
+            request,
+            &sources,
+            timeout,
+        ))
+        .await
+    }
+
+    async fn admit_transition_inner(
+        &self,
+        principal: &str,
+        namespace: &str,
+        operation: &str,
+        request: &RaftFleetTransitionAdmissionRequest,
+        sources: &[&PartitionBasis],
+        timeout: Duration,
+    ) -> Result<RaftFleetTransitionAdmission> {
         request.validate(namespace, operation)?;
         self.check_catalog(&request.catalog_id)?;
         let directory = self.managed_namespace(namespace)?;
@@ -343,6 +400,33 @@ impl RaftFleetControl {
                 .await
                 .map_err(|_| FleetCatalogError::Closed)?
                 .map_err(|_| FleetCatalogError::Unconfirmed)??;
+            if !sources.is_empty() {
+                if sources.len() != parents.len()
+                    || sources.iter().zip(&parents).any(|(source, route)| {
+                        source.route != *route || source.directory_digest != view.digest()
+                    })
+                {
+                    return Err(FleetCatalogError::Conflict.into());
+                }
+                let observer = self
+                    .node_observer
+                    .as_ref()
+                    .ok_or_else(|| RaftFleetFailure {
+                        code: RaftFleetFailureCode::Unsupported,
+                        outcome: RaftFleetOutcome::NotSubmitted,
+                        message: "Recommended admission requires a managed quorum observer.".into(),
+                    })?;
+                for source in sources {
+                    Box::pin(self.catalog.require_partition_source(
+                        &snapshot,
+                        directory,
+                        observer,
+                        source,
+                        turn.remaining()?,
+                    ))
+                    .await?;
+                }
+            }
             let proposals = request.child_proposals(directory, &parents)?;
             let children = self
                 .catalog

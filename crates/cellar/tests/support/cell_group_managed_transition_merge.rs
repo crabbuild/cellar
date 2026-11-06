@@ -46,7 +46,7 @@ async fn check_operator_split_admission(cluster: &ManagedCluster) -> Result<()> 
         .await??;
     let pivot_cell = "Counter:operator-split";
     let pivot = cell_routing_key(cluster.history.namespace, &CellId::new(pivot_cell)?);
-    let (left, right) = parent.route().range.split(pivot)?;
+    let (left, right) = parent.route().range.split(pivot.clone())?;
     let operation = ProposalId::new([231; 16])?;
     let histories = [232, 233].map(|id| -> Result<_> {
         Ok(GroupHistory {
@@ -88,19 +88,55 @@ async fn check_operator_split_admission(cluster: &ManagedCluster) -> Result<()> 
         .await;
     ensure!(matches!(invalid, Err(failure) if failure.code == RaftFleetFailureCode::InvalidInput));
     ensure!(fixture.catalog.read(TIMEOUT).await?.revision() == basis.fleet_revision);
+    let voters = &cluster.hosts[..3];
+    let leader = &voters[leader(voters, cluster.history).await?];
+    let sample = leader
+        .group(cluster.history)?
+        .observe_partition(TIMEOUT)
+        .await?;
+    let selected = PartitionBasis {
+        route: sample.route,
+        directory_digest: hex::decode(&admission.expected_directory_digest)?
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("directory digest length"))?,
+        membership: sample.membership,
+        term: sample.status.term,
+        durability: directory.namespace_config().minimum_durability,
+        placement_class: [1; 32],
+    };
+    let control = control.with_node_observer(leader.clone());
+    let stale = PartitionBasis {
+        term: Term::new(selected.term.get() + 1),
+        ..selected.clone()
+    };
+    let rejected = Box::pin(control.admit_recommended_partition(
+        &principal,
+        &admission,
+        PartitionDecision::Split {
+            basis: &stale,
+            pivot: &pivot,
+            reason: SplitReason::GroupLoad,
+        },
+        TIMEOUT,
+    ))
+    .await;
+    ensure!(matches!(rejected, Err(failure) if failure.code == RaftFleetFailureCode::Conflict));
+    ensure!(fixture.catalog.read(TIMEOUT).await?.revision() == basis.fleet_revision);
     fixture
         .store
         .fail_fleet_confirmation
         .store(true, Ordering::Release);
-    let lost = control
-        .admit_transition(
-            &principal,
-            &namespace,
-            &admission.operation_id,
-            &admission,
-            TIMEOUT,
-        )
-        .await;
+    let lost = Box::pin(control.admit_recommended_partition(
+        &principal,
+        &admission,
+        PartitionDecision::Split {
+            basis: &selected,
+            pivot: &pivot,
+            reason: SplitReason::GroupLoad,
+        },
+        TIMEOUT,
+    ))
+    .await;
     ensure!(matches!(lost, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
     let reserved = fixture.catalog.read(TIMEOUT).await?;
     ensure!(reserved.revision() == basis.fleet_revision + 1);

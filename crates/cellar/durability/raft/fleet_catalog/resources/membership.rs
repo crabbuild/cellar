@@ -8,6 +8,87 @@ use cellar_logic::consensus::MemberId;
 use std::collections::{BTreeMap, BTreeSet};
 
 impl FleetCatalog {
+    /// Revalidate a scheduler's source against the exact fleet root and a
+    /// purpose-specific quorum observation. The subsequent admission still
+    /// owns the topology slot, capacity checks and directory CAS.
+    pub(crate) async fn require_partition_source(
+        &self,
+        snapshot: &FleetSnapshot,
+        directory: &crate::raft::catalog::RangeDirectory,
+        observer: &crate::application::consensus::RaftCells,
+        basis: &cellar_logic::cell_group_placement::PartitionBasis,
+        timeout: Duration,
+    ) -> Result<()> {
+        use crate::raft::inspection::InspectionError;
+        let deadline = super::super::deadline::Deadline::new(self, timeout)?;
+        let scope = &basis.route.history;
+        let history = self.history(snapshot, scope, deadline.remaining()?).await?;
+        if !history.check_route(directory, &basis.route)
+            || directory.namespace_config().minimum_durability != basis.durability
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        let (voters, _) = self
+            .run(deadline.remaining()?, async {
+                if self.inner.current().await?.token != snapshot.token {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                self.require_transition_membership_idle(snapshot).await?;
+                self.settled_group_voters(snapshot, &history).await
+            })
+            .await?;
+        let authorization = self
+            .authorize_group(snapshot, scope, deadline.remaining()?)
+            .await?;
+        let expected: BTreeSet<_> = voters.values().copied().collect();
+        let mut last = FleetCatalogError::Unconfirmed;
+        for (node, member) in voters {
+            let sample = match observer
+                .observe_peer_fleet_membership(
+                    node,
+                    authorization.clone(),
+                    snapshot.revision(),
+                    deadline.remaining()?.min(Duration::from_millis(500)),
+                )
+                .await
+            {
+                Ok(sample) => sample,
+                Err(InspectionError::Overloaded) => return Err(FleetCatalogError::Overloaded),
+                Err(error) => {
+                    last = FleetCatalogError::Observation(error);
+                    continue;
+                }
+            };
+            let started = self
+                .resource_now()?
+                .checked_sub(sample.sample_age_ms())
+                .ok_or(FleetCatalogError::Unconfirmed)?;
+            self.require_resource_age(started)?;
+            let proof = sample.membership();
+            let configuration = proof.configuration();
+            if proof.replica().node != node
+                || proof.replica().member != member
+                || proof.root().route() != &basis.route
+                || proof.applied().term != basis.term
+                || proof.membership_revision().get() != basis.membership.get()
+                || configuration
+                    .voters()
+                    .iter()
+                    .copied()
+                    .collect::<BTreeSet<_>>()
+                    != expected
+                || !configuration.outgoing_voters().is_empty()
+                || !configuration.learners().is_empty()
+                || !configuration.next_learners().is_empty()
+                || configuration.auto_leave()
+            {
+                return Err(FleetCatalogError::Conflict);
+            }
+            return Ok(());
+        }
+        Err(last)
+    }
+
     pub(in crate::raft::fleet_catalog) async fn resource_permit_authorization(
         &self,
         snapshot: &FleetSnapshot,
