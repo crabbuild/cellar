@@ -113,6 +113,12 @@ The recovery and split/merge logs have SHA-256 digests
 `2df030ee400167891cf8e986c903fe7bf73c59784eb4d535e931bccd521d0fe6`
 and `2248031d17090dd90757b6cf8f1ec4a46335a5451515acc76df79204a0802dce`.
 
+A local phase-only instrumented rerun of `edb5b31c` reproduced the overflow
+in the materialized case. It confirmed child activation and merged SQL, then
+aborted inside child archive initialization before parent retirement.
+The diagnostic log SHA-256 is
+`eb36148ebf9d31e2e1598daa966729b76c6d6d8ca38b939cc52ef86d98a46a00`.
+
 ## CG-12 alarm, peer and minority wake
 
 At `a6bd8f64975ffe71842302bf4d1974362abb7eea`, the first two cases in
@@ -440,6 +446,9 @@ once. The baseline failure and native pass log SHA-256 digests are
 and `24381fc9c70ab3897d48c86a3e7e370eda136f34cb337466af41191c0b83ffc8`.
 The focused RustFS record SHA-256 is
 `57794691e2cc6515c8e6bdad98f4aacbd702f20dedd711a6ee241c7590929d84`.
+The broader native archive suite passed all 19 enabled cases with 22 opt-in
+skips in 308.66 seconds. Its log SHA-256 is
+`011d5804de7fe166f83d5721fc7c1ca3a00417b4ea9622e461dd730270521edc`.
 The full public suite at that revision finished in 550.64 seconds with five
 passes, one failure and one opt-in skip. The ingress case passed through
 explicit S3 replay after outage. Materialized lifecycle passed. The extent
