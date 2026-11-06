@@ -75,6 +75,17 @@ async fn exercise(mut cluster: ManagedCluster, joined: bool, lose_observation: b
             if let Ok(group) = host.group(cluster.history) {
                 let sample = tokio::time::timeout(TIMEOUT, group.status()).await;
                 eprintln!("maintenance failure: host {index} status={sample:?}");
+                match group.archive_status() {
+                    Ok(Some(archive)) => eprintln!(
+                        "maintenance failure: host {index} archive attempts={} published={:?} stopped={} error={:?}",
+                        archive.attempts,
+                        archive.published.as_ref().map(|manifest| manifest.position()),
+                        archive.stopped,
+                        archive.error,
+                    ),
+                    Ok(None) => eprintln!("maintenance failure: host {index} has no archive owner"),
+                    Err(error) => eprintln!("maintenance failure: host {index} archive status={error:?}"),
+                }
             }
         }
     }
