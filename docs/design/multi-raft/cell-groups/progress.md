@@ -21,7 +21,7 @@ CG-09 through CG-16 have component and process coverage at their recorded
 revisions. Their planned acceptance targets and task records are outstanding.
 The audit identified drift in 14 of 24 source anchors. The successor baseline
 at `bcf10c76458e97cc1696bddbebf85d9dfb7d32aa` reviews that drift and pins
-canonical host startup, the durable cache and the Fleet transition owner.
+current host options, the durable cache and the Fleet transition owner.
 All 37 plan tests, including preflight, pass with this baseline.
 
 The shared read target at `1d571a411f873fde8d3b4c1cdfcabb65259f1970` passed
