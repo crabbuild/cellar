@@ -2025,11 +2025,11 @@ async fn start_recovery_voter(
     generation: u8,
 ) -> Result<(Node, RaftCells)> {
     let node = start_node(root, fixture.application.clone(), &fixture.spec.label).await?;
-    let result = async {
+    let result = Box::pin(async {
         let (mut config, services) = fixture.config(&node, mode, generation).await?;
         crate::managed_fixture::archives::configure(&mut config);
         Box::pin(node.start_raft_cells(config, services)).await
-    }
+    })
     .await;
     match result {
         Ok(host) => Ok((node, host)),

@@ -457,7 +457,7 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         mutation: &FleetMutation,
     ) -> Result<FleetCommit> {
-        self.commit_checked(snapshot, mutation, || Ok(())).await
+        Box::pin(self.commit_checked(snapshot, mutation, || Ok(()))).await
     }
 
     async fn commit_checked(
@@ -466,8 +466,16 @@ impl FleetCatalog {
         mutation: &FleetMutation,
         check: impl FnOnce() -> Result<()>,
     ) -> Result<FleetCommit> {
-        self.commit_with_disruption(snapshot, mutation, None, resources::Authority::None, check)
-            .await
+        // The full root transaction contains nested S3 and index futures.
+        // Keep them off the startup polling frame when a voter binds a boot.
+        Box::pin(self.commit_with_disruption(
+            snapshot,
+            mutation,
+            None,
+            resources::Authority::None,
+            check,
+        ))
+        .await
     }
 
     // Only owned proof paths supply terminal release or movement authority.
