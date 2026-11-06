@@ -1389,11 +1389,6 @@ async fn run_inner(
             && s3_receipt.durability == cellar_logic::consensus::Durability::S3
     );
     let applied = preparation::wait_active_archive(archive_leader, child.history).await?;
-    let current = preparation::acquire_hold(domain, &child_registry).await?;
-    ensure!(
-        current.marker().position().index >= applied
-            && current.marker().position().index > older.marker().position().index
-    );
     let active_basis =
         Box::pin(control.transition_recovery_basis(&namespace, &operation_id, TIMEOUT)).await?;
     ensure!(matches!(
@@ -1403,29 +1398,42 @@ async fn run_inner(
         .await,
         Err(failure) if failure.code == RaftFleetFailureCode::Conflict
     ));
+    let mut current = preparation::acquire_hold(domain, &child_registry).await?;
+    ensure!(
+        current.marker().position().index >= applied
+            && current.marker().position().index > older.marker().position().index
+    );
     {
-        let restored = Box::pin(recovery_control.verify_transition_recovery_archives(
-            principal,
-            &active_basis,
-            vec![current.clone()],
-            TIMEOUT,
-        ))
-        .await;
-        let restored = match restored {
-            Ok(restored) => restored,
-            Err(error) => {
-                let latest = control
-                    .transition_recovery_basis(&namespace, &operation_id, TIMEOUT)
-                    .await?;
-                let head = preparation::acquire_hold(domain, &child_registry).await?;
-                let changed = head.marker() != current.marker();
-                child_registry.release(domain.as_ref(), &head).await?;
-                return Err(anyhow::Error::from(error).context(format!(
-                    "verify child archive at Fleet revision {}, directory changed={}, Fleet changed={}, archive marker changed={changed}",
-                    active_basis.fleet_revision,
-                    latest.directory_digest != active_basis.directory_digest,
-                    latest.fleet_digest != active_basis.fleet_digest,
-                )));
+        // During selection, a producer can replace the archive descriptor
+        // for the same Raft cut. Keep the selected logical cut and Fleet
+        // basis fixed while reacquiring an exact hold before staging intent.
+        let mut replacements = 0;
+        let restored = loop {
+            let result = Box::pin(recovery_control.verify_transition_recovery_archives(
+                principal,
+                &active_basis,
+                vec![current.clone()],
+                TIMEOUT,
+            ))
+            .await;
+            match result {
+                Ok(restored) => break restored,
+                Err(failure)
+                    if failure.code == RaftFleetFailureCode::Conflict && replacements < 3 =>
+                {
+                    let next = preparation::acquire_hold(domain, &child_registry).await?;
+                    ensure!(
+                        next.marker() == current.marker(),
+                        "the selected child Raft cut changed during verification"
+                    );
+                    child_registry.release(domain.as_ref(), &current).await?;
+                    current = next;
+                    replacements += 1;
+                }
+                Err(error) => {
+                    return Err(anyhow::Error::from(error)
+                        .context("verify the selected child archive after S3 acknowledgement"));
+                }
             }
         };
         assert_recovery_lineages(&restored, &expected_lineages)?;
