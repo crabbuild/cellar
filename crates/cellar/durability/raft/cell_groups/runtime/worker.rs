@@ -535,6 +535,16 @@ impl Worker {
                                     .owner
                                     .retire_source(*permit)
                                     .map(Response::SourceRetirement),
+                                Command::PreparePark(request) => {
+                                    if self.cell_reads.busy(history) || group.completion.is_some() {
+                                        Err(RuntimeError::NotReady)
+                                    } else {
+                                        group
+                                            .owner
+                                            .prepare_park(request)
+                                            .map(Response::ParkPrepared)
+                                    }
+                                }
                                 Command::SealSource(permit) => group
                                     .owner
                                     .seal_source(*permit)

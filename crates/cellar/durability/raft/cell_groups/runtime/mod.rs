@@ -7,7 +7,10 @@ pub(super) mod reads;
 mod worker;
 use leadership::LeadershipBatch;
 
-use super::{hibernate::ParkAcknowledgement, *};
+use super::{
+    hibernate::{ParkAcknowledgement, ParkPreparation, ParkPrepareRequest},
+    *,
+};
 use crate::raft::{
     budget::{Budget, Permit},
     completion::RuntimeError,
@@ -145,6 +148,7 @@ enum Command {
     ActivateRecovery(Box<CellGroupRecoveryActivationPermit>),
     ActivateTransfer(Box<CellGroupTransferActivationPermit>),
     SealSource(Box<CellGroupSealPermit>),
+    PreparePark(ParkPrepareRequest),
     AcknowledgePark {
         leader: MemberId,
         cut: GroupParkCut,
@@ -191,6 +195,7 @@ enum Response {
     RecoveryActivation(Box<CellGroupRecoveryActivation>),
     TransferActivation(CellGroupTransferActivation),
     SourceSeal(Box<CellGroupSealOutcome>),
+    ParkPrepared(ParkPreparation),
     ParkAcknowledgement(ParkAcknowledgement),
     SourceRetirement(CellGroupSourceRetirement),
     Submission(crate::raft::execution::CellSubmissionOutcome),
@@ -783,6 +788,20 @@ impl CellGroupRuntime {
         {
             Response::SourceRetirement(result) => Ok(result),
             _ => Err(RuntimeError::Protocol("source retirement reply".into())),
+        }
+    }
+
+    pub(crate) async fn prepare_park(
+        &self,
+        history: GroupHistory,
+        request: ParkPrepareRequest,
+    ) -> Result<ParkPreparation, RuntimeError> {
+        match self
+            .call(Some(history), Command::PreparePark(request), 4096)
+            .await?
+        {
+            Response::ParkPrepared(preparation) => Ok(preparation),
+            _ => Err(RuntimeError::Protocol("park preparation reply".into())),
         }
     }
 

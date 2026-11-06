@@ -3,7 +3,7 @@
 //! Replicated park preparation evidence. Local park and wake authority
 //! require separate durable records and acknowledgements from the voters.
 
-use super::{GroupManifest, ManifestError};
+use super::{CellGroupProposal, GroupManifest, ManifestError};
 use crate::raft::{
     cache::{CachedGroup, GroupLog, GroupWrite},
     storage::{LogError, ReplicaLog},
@@ -11,7 +11,8 @@ use crate::raft::{
 use cellar_logic::{
     cell_group::{GroupHistory, MembershipRevision, ParkGeneration},
     consensus::{
-        LogIndex, LogPosition, MemberId, OperationId, ProcessGeneration, ReplicaIdentity, Term,
+        LogIndex, LogPosition, MemberId, OperationId, ProcessGeneration, ProposalId,
+        ReplicaIdentity, Term,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -77,6 +78,23 @@ impl GroupParkCut {
             && (self.generation != applied.index.get()
                 || (self.term == applied.term.get() && self.membership_revision == membership))
     }
+}
+
+pub(super) const MAX_PARK_NEGOTIATION_MS: u64 = 5_000;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ParkPrepareRequest {
+    pub proposal: ProposalId,
+    pub term: Term,
+    pub membership: MembershipRevision,
+    pub deadline_ms: u64,
+}
+
+/// Leader-local admission, followed by ordinary Raft commitment and apply.
+#[derive(Clone, Debug)]
+pub(crate) struct ParkPreparation {
+    pub proposal: CellGroupProposal,
+    pub next_due_unix_millis: Option<u64>,
 }
 
 /// Physical evidence for one voter. Selection of a park certificate still

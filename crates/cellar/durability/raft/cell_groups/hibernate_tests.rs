@@ -1,11 +1,20 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 use super::*;
-use crate::raft::cell_groups::GroupManifest;
+use crate::{
+    asyncrt::ExecutionDomain,
+    raft::{
+        catalog::{Catalog, CatalogOptions, InitialMember, NamespaceConfig, VoterPolicy},
+        cell_groups::{
+            CellGroupBirthSpec, CellGroupBootstrapPermit, DirectoryLimits, RangeDirectory,
+        },
+    },
+};
 use cellar_logic::{
     cell_group::{CellRange, GroupHistory, GroupRoute, RouteEpoch},
-    consensus::{ClusterId, GroupId, IncarnationId, NamespaceId},
+    consensus::{ClusterId, GroupId, IncarnationId, NamespaceId, NodeId, ProposalId},
 };
+use std::sync::Arc;
 
 fn marker(index: u64) -> GroupManifest {
     let mut marker = GroupManifest::genesis(GroupRoute {
@@ -105,28 +114,73 @@ fn park_cut_survives_advance_and_refuses_checkpoint_regression() {
     assert!(!advanced.preserves_park_cut(&next));
 }
 
+async fn bootstrap(
+    domain: &ExecutionDomain,
+    log: &ReplicaLog,
+    voters: u8,
+) -> anyhow::Result<CellGroupBootstrapPermit> {
+    let route = marker(1).route().clone();
+    let catalog = Catalog::new(
+        Arc::new(object_store::memory::InMemory::new()),
+        CatalogOptions::default(),
+    )?;
+    let mut config = NamespaceConfig::new(
+        route.history.cluster,
+        route.history.namespace,
+        cellar_logic::NamespaceMode::Raft,
+        route.schema_digest,
+    );
+    if voters == 1 {
+        config.voters = VoterPolicy::SingleVoterDevelopment;
+    }
+    let namespace = domain.run(catalog.open_namespace(config)).await??;
+    let directory = RangeDirectory::new(namespace, DirectoryLimits::default())?;
+    let request = directory.prepare_group_birth(CellGroupBirthSpec {
+        history: route.history,
+        range: route.range,
+        epoch: route.epoch,
+        creation: ProposalId::new([16; 16])?,
+        voters: (1..=voters)
+            .map(|id| -> anyhow::Result<_> {
+                Ok(InitialMember {
+                    member: MemberId::new(u64::from(id))?,
+                    node: NodeId::new([id + 10; 16])?,
+                })
+            })
+            .collect::<anyhow::Result<_>>()?,
+        learners: vec![],
+    })?;
+    domain
+        .run(directory.reserve_group_birth(&request))
+        .await??;
+    let initialize =
+        directory.prepare_initialization(ProposalId::new([17; 16])?, &[request.route().clone()])?;
+    domain.run(directory.publish(&initialize)).await??;
+    let birth = domain
+        .run(directory.materialize_group_birth(&request))
+        .await??;
+    Ok(domain
+        .run(directory.bootstrap_group_member(&birth, log))
+        .await??)
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn park_acknowledgement_waits_for_sync_and_reopens_closed() -> anyhow::Result<()> {
     use crate::{
         application::consensus::group_protocol::{
             CellGroupEntry, GroupCommand, GroupEntryBinding, GroupEntryLimits,
         },
-        asyncrt::ExecutionDomain,
         raft::{
-            catalog::{Catalog, CatalogOptions, InitialMember, NamespaceConfig},
-            cell_groups::{
-                CellGroupBirthSpec, CellGroupEffect, CellGroupRuntime, DirectoryLimits,
-                ManifestPageStore, ManifestTree, RangeDirectory,
-            },
+            cell_groups::{CellGroupEffect, CellGroupRuntime, ManifestPageStore, ManifestTree},
             completion::RuntimeError,
             options::{LogOpenMode, RaftRuntimeOptions, ReplicaLogOptions},
             storage_fault as fault,
         },
     };
     use ::raft::prelude::{Entry, HardState, Message, MessageType};
-    use cellar_logic::consensus::{DiskLineage, NodeId, ProposalId};
+    use cellar_logic::consensus::DiskLineage;
     use cellar_ltx::DirectFileSystem;
-    use std::{sync::Arc, time::Duration};
+    use std::time::Duration;
 
     let directory = tempfile::tempdir()?;
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
@@ -145,49 +199,9 @@ async fn park_acknowledgement_waits_for_sync_and_reopens_closed() -> anyhow::Res
             Arc::new(fault::FaultFileSystem { gate: gate.clone() }),
         ))
         .await??;
-    let route = marker(1).route().clone();
     let member = MemberId::new(1)?;
     let leader = MemberId::new(2)?;
-    let catalog = Catalog::new(
-        Arc::new(object_store::memory::InMemory::new()),
-        CatalogOptions::default(),
-    )?;
-    let namespace = domain
-        .run(catalog.open_namespace(NamespaceConfig::new(
-            route.history.cluster,
-            route.history.namespace,
-            cellar_logic::NamespaceMode::Raft,
-            route.schema_digest,
-        )))
-        .await??;
-    let directory_owner = RangeDirectory::new(namespace, DirectoryLimits::default())?;
-    let request = directory_owner.prepare_group_birth(CellGroupBirthSpec {
-        history: route.history,
-        range: route.range,
-        epoch: route.epoch,
-        creation: ProposalId::new([16; 16])?,
-        voters: (1..=3)
-            .map(|n| -> anyhow::Result<_> {
-                Ok(InitialMember {
-                    member: MemberId::new(n)?,
-                    node: NodeId::new([n as u8 + 10; 16])?,
-                })
-            })
-            .collect::<anyhow::Result<_>>()?,
-        learners: vec![],
-    })?;
-    domain
-        .run(directory_owner.reserve_group_birth(&request))
-        .await??;
-    let initialize = directory_owner
-        .prepare_initialization(ProposalId::new([17; 16])?, &[request.route().clone()])?;
-    domain.run(directory_owner.publish(&initialize)).await??;
-    let birth = domain
-        .run(directory_owner.materialize_group_birth(&request))
-        .await??;
-    let permit = domain
-        .run(directory_owner.bootstrap_group_member(&birth, &log))
-        .await??;
+    let permit = bootstrap(&domain, &log, 3).await?;
     let group = permit.group().clone();
     let route = permit.route().clone();
     let at = marker(2).position();
@@ -402,6 +416,189 @@ async fn park_acknowledgement_waits_for_sync_and_reopens_closed() -> anyhow::Res
     let record = group.read()?.local_park.clone().unwrap();
     assert_eq!(record, acknowledged.closed());
     assert_eq!(group.group_manifest()?.unwrap().park_cut(), Some(&cut));
+    log.close().await?;
+    domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn leader_fences_park_preparation_through_timeout_apply() -> anyhow::Result<()> {
+    use crate::raft::{
+        cell_groups::{
+            CellGroupApplier, CellGroupApplyImages, CellGroupEffect, CellGroupRuntime,
+            ManifestPageStore, ManifestTree,
+        },
+        completion::RuntimeError,
+        options::{LogOpenMode, RaftRuntimeOptions, ReplicaLogOptions},
+    };
+    use anyhow::Context as _;
+    use cellar_logic::consensus::DiskLineage;
+    use cellar_ltx::{
+        generation::{GenerationStore, ReadServices},
+        DirectFileSystem,
+    };
+    use std::time::Duration;
+
+    let root = tempfile::tempdir()?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let log = domain
+        .run(ReplicaLog::open(
+            ReplicaLogOptions::new(
+                root.path().join("log"),
+                NodeId::new([11; 16])?,
+                DiskLineage::new([12; 16])?,
+                ProcessGeneration::new([13; 16])?,
+                LogOpenMode::Create,
+            ),
+            Arc::new(DirectFileSystem),
+        ))
+        .await??;
+    let permit = bootstrap(&domain, &log, 1).await?;
+    let history = permit.route().history;
+    let member = permit.group().identity().member;
+    let group = permit.group().clone();
+    let page_directory = root.path().join("pages");
+    let images_directory = root.path().join("images");
+    let (applier, genesis) = domain
+        .blocking(move || -> anyhow::Result<_> {
+            let mut pages = ManifestPageStore::open(
+                &page_directory,
+                Arc::new(DirectFileSystem),
+                128,
+                1024 * 1024,
+                16,
+            )?;
+            let marker = group.group_manifest()?.context("genesis marker")?;
+            let tree = ManifestTree::new(marker.route().clone(), Default::default())?;
+            let genesis = tree.prepare_complete(
+                &group,
+                &mut pages,
+                marker.root(),
+                marker.position(),
+                marker.membership_revision(),
+                |_| unreachable!("empty genesis"),
+            )?;
+            let images = CellGroupApplyImages::Materialized {
+                images: GenerationStore::open(
+                    images_directory,
+                    Arc::new(DirectFileSystem),
+                    Default::default(),
+                )?,
+                services: ReadServices {
+                    now_unix_millis: Arc::new(crate::asyncrt::wall_ms),
+                    fill_random: Arc::new(|bytes| bytes.fill(17)),
+                },
+            };
+            let applier = CellGroupApplier::new(
+                group,
+                pages,
+                images,
+                Default::default(),
+                Default::default(),
+                32,
+            )?;
+            Ok((applier, genesis))
+        })?
+        .await??;
+    let (runtime, mut events) = CellGroupRuntime::start(
+        log.clone(),
+        RaftRuntimeOptions {
+            tick_interval_ms: None,
+            election_seed: Some([19; 32]),
+            ..Default::default()
+        },
+    )
+    .await?;
+    runtime.attach(permit, genesis).await?;
+    runtime.campaign(history).await?;
+
+    let mut cut = None;
+    for phase in ["election", "park", "timeout"] {
+        let event = domain
+            .run(crate::asyncrt::timeout(
+                Duration::from_secs(10),
+                events.recv(),
+            ))
+            .await??
+            .context("expected committed apply")?;
+        let work = event.retain_apply().context("apply effect")?;
+        drop(event);
+        if phase == "timeout" {
+            assert!(work.entry.data.is_empty());
+            assert!(!runtime.status(history).await?.ready);
+        }
+        let prepare = work.clone();
+        let applier = applier.clone();
+        let next = domain
+            .blocking(move || applier.prepare(&prepare))?
+            .await??;
+        runtime.complete_apply(history, work, next).await?;
+        let event = domain
+            .run(crate::asyncrt::timeout(
+                Duration::from_secs(10),
+                events.recv(),
+            ))
+            .await??
+            .context("expected durable apply")?;
+        let Ok(CellGroupEffect::Applied { manifest, .. }) = event.effect() else {
+            anyhow::bail!("unexpected cell-group effect");
+        };
+        let selected = manifest.park_cut().cloned();
+        let status = runtime.status(history).await?;
+        match phase {
+            "election" => {
+                assert!(status.ready);
+                let request = ParkPrepareRequest {
+                    proposal: ProposalId::new([20; 16])?,
+                    term: status.term,
+                    membership: MembershipRevision::new(manifest.membership_revision())?,
+                    deadline_ms: log.domain().mono_ms()? + MAX_PARK_NEGOTIATION_MS,
+                };
+                let stale = ParkPrepareRequest {
+                    term: Term::new(status.term.get() - 1),
+                    ..request
+                };
+                assert!(matches!(
+                    runtime.prepare_park(history, stale).await,
+                    Err(RuntimeError::StaleCompletion)
+                ));
+                let prepared = runtime.prepare_park(history, request).await?;
+                let duplicate = runtime.prepare_park(history, request).await?;
+                assert_eq!(prepared.proposal.position, duplicate.proposal.position);
+                assert!(prepared.next_due_unix_millis.is_none());
+                assert!(!runtime.status(history).await?.ready);
+                cut = Some((request, prepared.proposal.position));
+            }
+            "park" => {
+                let (request, position) = cut.context("park preparation")?;
+                let selected = selected.context("committed park cut")?;
+                assert_eq!(selected.position(), position);
+                assert!(!status.ready);
+                assert!(matches!(
+                    runtime.read_index(history, vec![1]).await,
+                    Err(RuntimeError::NotReady)
+                ));
+                let receipt = runtime.acknowledge_park(history, member, selected).await?;
+                assert_eq!(receipt.cut.position(), position);
+                domain
+                    .run(async { crate::asyncrt::sleep_until(request.deadline_ms).await })
+                    .await?;
+                runtime.tick().await?;
+            }
+            _ => {
+                let (_, position) = cut.context("park preparation")?;
+                let selected = selected.context("retained park cut")?;
+                assert_eq!(selected.position(), position);
+                assert!(status.ready);
+                assert_eq!(status.applied.index.get(), position.index.get() + 1);
+                assert!(matches!(
+                    runtime.acknowledge_park(history, member, selected).await,
+                    Err(RuntimeError::NotReady)
+                ));
+            }
+        }
+    }
+    runtime.close().await?;
     log.close().await?;
     domain.shutdown().await;
     Ok(())

@@ -4,12 +4,15 @@
 //! effects; this owner performs no image I/O and starts no per-cell tasks.
 
 use super::{
-    hibernate::{LocalParkChange, ParkAcknowledgement},
+    hibernate::{
+        LocalParkChange, ParkAcknowledgement, ParkPreparation, ParkPrepareRequest,
+        MAX_PARK_NEGOTIATION_MS,
+    },
     CellGroupBootstrapPermit, GroupManifest, GroupParkCut, PreparedCellGroupCheckpoint,
     PreparedGroupManifest, PreparedLocalCellGroupCheckpoint,
 };
 use crate::application::consensus::group_protocol::{
-    CellGroupEntry, GroupCommand, GroupEntryLimits,
+    CellGroupEntry, GroupCommand, GroupEntryBinding, GroupEntryLimits,
 };
 use crate::raft::{
     cache::{ConsensusStorage, GroupLog, GroupWrite, SnapshotChange},
@@ -217,6 +220,12 @@ struct ConfigurationFence {
     announced: bool,
 }
 
+struct PendingPark {
+    request: ParkPrepareRequest,
+    preparation: ParkPreparation,
+    abort: Option<LogPosition>,
+}
+
 struct PendingApply {
     entry: Entry,
     queued_at_ms: u64,
@@ -256,6 +265,7 @@ pub struct CellGroupOwner {
     activation_proposal: Option<Box<(Term, CellGroupProposal)>>,
     retirement_proposal: Option<Box<(Term, CellGroupProposal)>>,
     pending_seal: Option<Box<(Term, [u8; 32], CellGroupProposal)>>,
+    pending_park: Option<Box<PendingPark>>,
 }
 
 impl CellGroupOwner {
@@ -361,6 +371,7 @@ impl CellGroupOwner {
             activation_proposal: None,
             retirement_proposal: None,
             pending_seal: None,
+            pending_park: None,
         })
     }
 
@@ -383,6 +394,7 @@ impl CellGroupOwner {
         self.activation_proposal = None;
         self.retirement_proposal = None;
         self.pending_seal = None;
+        self.pending_park = None;
     }
 
     fn advance_source_epoch(&self) {
@@ -410,7 +422,14 @@ impl CellGroupOwner {
         }) {
             self.pending_seal = None;
         }
-        let term = if self.pending_seal.is_none()
+        if self.pending_park.as_ref().is_some_and(|pending| {
+            pending.request.term.get() != self.node.raft.term
+                || self.node.raft.state != StateRole::Leader
+        }) {
+            self.pending_park = None;
+        }
+        let term = if self.pending_park.is_none()
+            && self.pending_seal.is_none()
             && self.current.marker().source_seal().is_none()
             && self.node.raft.state == StateRole::Leader
             && self.node.raft.lead_transferee.is_none()
@@ -478,7 +497,10 @@ impl CellGroupOwner {
 
     pub(super) fn require_application_active(&self) -> Result<(), RuntimeError> {
         self.live()?;
-        if self.pending_seal.is_some() || !self.current.marker().is_active() {
+        if self.pending_park.is_some()
+            || self.pending_seal.is_some()
+            || !self.current.marker().is_active()
+        {
             return Err(RuntimeError::NotReady);
         }
         Ok(())
@@ -736,7 +758,8 @@ impl CellGroupOwner {
             leader: (self.node.raft.leader_id != 0).then_some(self.node.raft.leader_id),
             applied: self.current.marker().position(),
             committed: LogIndex::new(cache.hard_state.commit),
-            ready: self.pending_seal.is_none()
+            ready: self.pending_park.is_none()
+                && self.pending_seal.is_none()
                 && self.current.marker().is_active()
                 && self.protocol_ready(cache),
         }
@@ -827,6 +850,7 @@ impl CellGroupOwner {
             membership,
             status,
             stable_leader: marker.is_active()
+                && self.pending_park.is_none()
                 && self.pending_seal.is_none()
                 && self.configuration_fence.is_none()
                 && cache.conf_state.voters_outgoing.is_empty()
@@ -1035,7 +1059,8 @@ impl CellGroupOwner {
 
     fn require_control_prefix(&self) -> Result<(), RuntimeError> {
         let cache = self.group.read()?;
-        if !self.protocol_ready(&cache)
+        if self.pending_park.is_some()
+            || !self.protocol_ready(&cache)
             || self.current.marker().position().index.get() != cache.hard_state.commit
             || !self.apply.is_empty()
             || self.applying.is_some()
@@ -1077,7 +1102,8 @@ impl CellGroupOwner {
         }
         let cache = self.group.read()?;
         let index = marker.position().index.get();
-        if !marker.is_active()
+        if self.pending_park.is_some()
+            || !marker.is_active()
             || !self.protocol_ready(&cache)
             || index != cache.hard_state.commit
             || index != self.node.raft.raft_log.last_index()
@@ -1094,6 +1120,132 @@ impl CellGroupOwner {
         self.leader_term.store(0, Ordering::Release);
         self.advance_source_epoch();
         Ok(CellGroupSealOutcome::Accepted(proposal))
+    }
+
+    pub(super) fn prepare_park(
+        &mut self,
+        request: ParkPrepareRequest,
+    ) -> Result<ParkPreparation, RuntimeError> {
+        self.live()?;
+        if self.node.raft.state != StateRole::Leader {
+            return Err(RuntimeError::NotLeader);
+        }
+        let now = self
+            .log
+            .domain()
+            .mono_ms()
+            .map_err(|_| RuntimeError::Closed)?;
+        if request.deadline_ms <= now {
+            return Err(RuntimeError::DeadlineExceeded);
+        }
+        let remaining = request.deadline_ms - now;
+        if remaining > MAX_PARK_NEGOTIATION_MS {
+            return Err(RuntimeError::Invalid("park negotiation deadline".into()));
+        }
+        if let Some(pending) = &self.pending_park {
+            return if pending.request == request && pending.abort.is_none() {
+                Ok(pending.preparation.clone())
+            } else {
+                Err(RuntimeError::NotReady)
+            };
+        }
+        let cache = self.group.read()?;
+        let marker = self.current.marker();
+        let at = marker.position();
+        let conf = &cache.conf_state;
+        let next_due_unix_millis = marker.root().next_due_unix_millis();
+        let wall = u64::try_from(crate::asyncrt::wall_ms()).map_err(|_| RuntimeError::NotReady)?;
+        if request.term.get() != self.node.raft.term
+            || request.membership.get() != cache.membership.revision().get()
+        {
+            return Err(RuntimeError::StaleCompletion);
+        }
+        if !self.idle()
+            || !self.status_at(&cache).ready
+            || cache.hard_state.commit != at.index.get()
+            || self.node.raft.raft_log.last_index() != at.index.get()
+            || self.node.raft.pending_conf_index > at.index.get()
+            || self.configuration_fence.is_some()
+            || !conf.voters_outgoing.is_empty()
+            || !conf.learners.is_empty()
+            || !conf.learners_next.is_empty()
+            || conf.auto_leave
+            || self.applying.is_some()
+            || !self.apply.is_empty()
+            || self.node.raft.read_only.pending_read_count() != 0
+            // Execution, enrollment and claimed-effect handles pin this fence.
+            || Arc::strong_count(&self.leader_term) != 1
+            || next_due_unix_millis.is_some_and(|due| due <= wall.saturating_add(remaining))
+        {
+            return Err(RuntimeError::NotReady);
+        }
+        let route = marker.route();
+        let index = at
+            .index
+            .get()
+            .checked_add(1)
+            .ok_or(RuntimeError::Overloaded)?;
+        let entry = CellGroupEntry {
+            binding: GroupEntryBinding {
+                group: route.history,
+                route_epoch: route.epoch,
+                birth_digest: route.birth_digest,
+                schema_digest: route.schema_digest,
+                proposal: request.proposal,
+            },
+            command: GroupCommand::PreparePark {
+                generation: ParkGeneration::new(index)
+                    .map_err(|error| RuntimeError::Invalid(error.to_string()))?,
+                term: request.term,
+                membership: request.membership,
+            },
+        }
+        .encode(route, GroupEntryLimits::default())
+        .map_err(|error| RuntimeError::Invalid(error.to_string()))?;
+        drop(cache);
+        let proposal = self.append_control(entry, "park preparation")?;
+        let preparation = ParkPreparation {
+            proposal,
+            next_due_unix_millis,
+        };
+        self.pending_park = Some(Box::new(PendingPark {
+            request,
+            preparation: preparation.clone(),
+            abort: None,
+        }));
+        // A same-term abort can mint fresh capabilities. Any old handle must
+        // remain fenced even if the leader keeps its term.
+        self.leader_term.store(0, Ordering::Release);
+        self.leader_term = Arc::new(AtomicU64::new(0));
+        self.source_observed = None;
+        self.advance_source_epoch();
+        Ok(preparation)
+    }
+
+    fn expire_park_preparation(&mut self) -> Result<(), RuntimeError> {
+        let Some(pending) = self.pending_park.as_ref() else {
+            return Ok(());
+        };
+        let now = self
+            .log
+            .domain()
+            .mono_ms()
+            .map_err(|_| RuntimeError::Closed)?;
+        if pending.abort.is_none() && now >= pending.request.deadline_ms {
+            // Advance the log before re-enabling admission. Persistence closes
+            // local acknowledgements, and apply proves fresh quorum progress.
+            match self.append_control(Vec::new(), "park preparation timeout") {
+                Ok(proposal) => {
+                    if let Some(pending) = self.pending_park.as_mut() {
+                        pending.abort = Some(proposal.position);
+                    }
+                }
+                // A full log must still tick and let check-quorum run.
+                Err(RuntimeError::Overloaded) => (),
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(())
     }
 
     fn append_control(
@@ -1154,7 +1306,7 @@ impl CellGroupOwner {
 
     pub fn campaign(&mut self) -> Result<(), RuntimeError> {
         self.live()?;
-        if self.phase.is_some() || self.checkpoint.is_some() {
+        if self.pending_park.is_some() || self.phase.is_some() || self.checkpoint.is_some() {
             return Err(RuntimeError::NotReady);
         }
         let admission = self
@@ -1254,6 +1406,7 @@ impl CellGroupOwner {
         if self.phase.is_some() || self.node.has_ready() {
             return Err(RuntimeError::NotReady);
         }
+        self.expire_park_preparation()?;
         let admission = if self.node.raft.state == StateRole::Leader {
             Default::default()
         } else {
@@ -1834,6 +1987,20 @@ impl CellGroupOwner {
     ) -> Result<(), RuntimeError> {
         self.live()?;
         let position = cut.position();
+        if self.node.raft.state == StateRole::Leader {
+            let now = self
+                .log
+                .domain()
+                .mono_ms()
+                .map_err(|_| RuntimeError::Closed)?;
+            if self.pending_park.as_ref().is_none_or(|pending| {
+                pending.preparation.proposal.position != position
+                    || pending.abort.is_some()
+                    || now >= pending.request.deadline_ms
+            }) {
+                return Err(RuntimeError::NotReady);
+            }
+        }
         if !self.idle()
             || self.pending_seal.is_some()
             || self.node.raft.leader_id != leader.get()
@@ -2404,6 +2571,14 @@ impl CellGroupOwner {
                         self.applied_writes = self.applied_writes.saturating_add(1);
                     }
                     self.current = *next;
+                    if self
+                        .pending_park
+                        .as_ref()
+                        .is_some_and(|pending| pending.abort == Some(ticket.position))
+                    {
+                        self.pending_park = None;
+                        self.refresh_execution_fence();
+                    }
                     self.proposals.applied(ticket.position);
                     // Physical preparation and publication have settled. Its
                     // reservation must not deadlock admission of Applied.
