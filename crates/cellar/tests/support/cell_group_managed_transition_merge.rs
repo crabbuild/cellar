@@ -5,7 +5,8 @@ use super::*;
 use cellar::application::consensus::verification::{
     cell_groups::{
         CellGroupArchiveHold, CellGroupArchiveTailLimits, CellGroupArchiveTailPool, CellGroupBirth,
-        CellGroupCheckpointPool, CellGroupTransitionSource, CellImagePin, GroupRoute,
+        CellGroupCheckpointPool, CellGroupTransitionSource, CellImagePin, CellRoutingError,
+        CellRoutingFailure, GroupRoute,
     },
     FleetChange, FleetHistoryState, FleetMutation, FleetSnapshot, FleetTable,
 };
@@ -1874,7 +1875,10 @@ async fn check_recovery_voter_reservations(
                     ..Default::default()
                 },
             ).await;
-            ensure!(read.is_err(), "pending recovery served a stale read: {read:?}");
+            ensure!(
+                read.as_ref().is_err_and(|error| pending_recovery_route_fenced(error)),
+                "pending recovery did not refuse the stale read at routing: {read:?}"
+            );
             let retry = u64::try_from(
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)?
@@ -1889,8 +1893,9 @@ async fn check_recovery_voter_reservations(
                 CommandOptions::new(id, retry),
             ).await;
             ensure!(
-                matches!(write, Err(ref failure) if failure.command == id && !failure.ambiguous),
-                "pending recovery admitted a write: {write:?}"
+                matches!(write, Err(ref failure) if failure.command == id && !failure.ambiguous
+                    && pending_recovery_route_fenced(&failure.cause)),
+                "pending recovery did not refuse the write before dispatch: {write:?}"
             );
         }
         Ok::<(), anyhow::Error>(())
@@ -1919,6 +1924,18 @@ async fn check_recovery_voter_reservations(
     }
     checked?;
     shutdown
+}
+
+fn pending_recovery_route_fenced(error: &CellDispatchError) -> bool {
+    matches!(
+        error,
+        CellDispatchError::Routing(CellRoutingError {
+            reason: CellRoutingFailure::Catalog(
+                cellar::application::consensus::CatalogError::Fenced
+            ),
+            ambiguous_command: None,
+        })
+    )
 }
 
 async fn check_pending_recovery_quorum(

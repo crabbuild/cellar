@@ -372,6 +372,13 @@ impl CellRoutingSession {
                     .directory
                     .lookup(&view, &self.request.cell.cell)
                     .await?;
+                if let Some(recovery) = &view.head.recovery {
+                    // A published recovery range can vote before activation.
+                    // Never cache it as an application route during that window.
+                    if recovery.blocks_application_route(&self.directory, &route)? {
+                        return Err(CatalogError::Fenced);
+                    }
+                }
                 Ok::<_, CatalogError>((view, route))
             };
             let result = self
