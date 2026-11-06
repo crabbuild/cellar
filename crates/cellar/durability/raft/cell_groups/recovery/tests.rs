@@ -236,6 +236,52 @@ fn recovery_apply_requires_exact_activation_and_keeps_noop_prefix_closed() -> an
         false,
     )?;
     assert_eq!(duplicate.marker().recovery, active.marker().recovery);
+
+    let prepare = |index| -> anyhow::Result<Entry> {
+        let route = active.marker().route();
+        let data = CellGroupEntry {
+            binding: GroupEntryBinding {
+                group: route.history,
+                route_epoch: route.epoch,
+                birth_digest: route.birth_digest,
+                schema_digest: route.schema_digest,
+                proposal: ProposalId::new([10; 16])?,
+            },
+            command: GroupCommand::PreparePark {
+                generation: ParkGeneration::new(index)?,
+                term: Term::new(2),
+                membership: MembershipRevision::new(1)?,
+            },
+        }
+        .encode(route, GroupEntryLimits::default())?;
+        Ok(Entry {
+            index,
+            term: 2,
+            data: data.into(),
+            ..Default::default()
+        })
+    };
+    assert!(storage
+        .prepare_entry(&noop, &prepare(3)?, None, false)
+        .is_err());
+    let entry = prepare(4)?;
+    let live = storage.prepare_entry(&active, &entry, None, false)?;
+    let replayed = storage.prepare_entry(&active, &entry, None, true)?;
+    assert_eq!(live.marker(), replayed.marker());
+    assert_eq!(live.marker().park_cut().unwrap().position(), position(4));
+    let after = storage.prepare_entry(
+        &replayed,
+        &Entry {
+            index: 5,
+            term: 2,
+            ..Default::default()
+        },
+        None,
+        true,
+    )?;
+    assert_eq!(after.marker().park_cut(), live.marker().park_cut());
+    assert_eq!(after.marker().root(), active.marker().root());
+
     let ordinary = storage.tree.prepare_archive_complete(
         &owner,
         &mut storage.pages,
