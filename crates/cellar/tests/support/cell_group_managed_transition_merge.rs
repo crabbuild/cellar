@@ -1638,7 +1638,10 @@ async fn check_recovery_replacements(
                     new.version.sequence.get() == 1 && new.witness.group == birth.route().history
                 );
                 ensure!(new.version.image.checksum == old.version.image.checksum);
-                check_restored_image(before, after)?;
+                fixture
+                    .domain
+                    .blocking(move || check_restored_image(before, after))?
+                    .await??;
                 checked += 1;
             }
         }
@@ -1650,12 +1653,16 @@ async fn check_recovery_replacements(
 fn check_restored_image(before: CellImagePin, after: CellImagePin) -> Result<()> {
     match (before, after) {
         (CellImagePin::Materialized(before), CellImagePin::Materialized(after)) => {
-            let length = usize::try_from(before.state().length)?;
             ensure!(before.state() == after.state());
-            ensure!(
-                before.open_reader()?.read_exact_at(0, length)?
-                    == after.open_reader()?.read_exact_at(0, length)?
-            );
+            let (mut before, mut after) = (before.open_reader()?, after.open_reader()?);
+            let mut offset = 0;
+            while offset < before.length() {
+                let length = (before.length() - offset).min(64 * 1024) as usize;
+                ensure!(
+                    before.read_exact_at(offset, length)? == after.read_exact_at(offset, length)?
+                );
+                offset += length as u64;
+            }
         }
         (CellImagePin::Extents(before), CellImagePin::Extents(after)) => {
             let count = before.manifest().geometry().extent_count();
