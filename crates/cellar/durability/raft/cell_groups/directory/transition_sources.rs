@@ -284,9 +284,10 @@ impl RangeDirectory {
         let registry = self
             .open_group_archive(domain, archives, &source.birth)
             .await?;
-        let coverage = registry
-            .verify_hold(domain, &source.hold, tails, source.receiver)
-            .await?;
+        // Keep the nested archive replay out of the staging future's
+        // stack frame while the object-store HTTP client is being polled.
+        let coverage =
+            Box::pin(registry.verify_hold(domain, &source.hold, tails, source.receiver)).await?;
         self.check_source_marker(
             plan,
             &journal,

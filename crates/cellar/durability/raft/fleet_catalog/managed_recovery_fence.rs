@@ -150,9 +150,9 @@ impl FleetCatalog {
                     .map_err(transfer_archive_error)?;
                 registry.require_selected_hold(domain, hold).await?;
                 let receiver = verifier.receiver(domain, route, storage).await?;
-                let coverage = registry
-                    .verify_hold(domain, hold, verifier.tails(), receiver)
-                    .await?;
+                let coverage =
+                    Box::pin(registry.verify_hold(domain, hold, verifier.tails(), receiver))
+                        .await?;
                 cuts.push((registry, coverage));
             }
             self.require_managed_fence_cuts(&cuts).await?;

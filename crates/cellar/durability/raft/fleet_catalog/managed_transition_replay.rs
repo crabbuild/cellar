@@ -328,24 +328,23 @@ impl FleetCatalog {
                                 directory.namespace_config().image_storage,
                             )
                             .await?;
-                        directory
-                            .stage_managed_sealed_source(
-                                domain,
-                                verifier.archives(),
-                                verifier.tails(),
-                                &transition.plan,
-                                (
-                                    CellGroupTransitionSource {
-                                        birth,
-                                        hold: hold.clone(),
-                                        receiver,
-                                    },
-                                    Some(intent),
-                                ),
-                                &permit,
-                            )
-                            .await
-                            .map_err(transfer_archive_error)?;
+                        Box::pin(directory.stage_managed_sealed_source(
+                            domain,
+                            verifier.archives(),
+                            verifier.tails(),
+                            &transition.plan,
+                            (
+                                CellGroupTransitionSource {
+                                    birth,
+                                    hold: hold.clone(),
+                                    receiver,
+                                },
+                                Some(intent),
+                            ),
+                            &permit,
+                        ))
+                        .await
+                        .map_err(transfer_archive_error)?;
                     }
                     Ok(hold)
                 }),
