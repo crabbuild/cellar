@@ -27,6 +27,7 @@ pub struct Fixture {
     pub catalog: FleetCatalog,
     pub declaration: RaftNamespaceRegistration,
     pub application: Arc<dyn Application>,
+    pub effects: Option<RaftEffectOptions>,
     pub spec: FleetNodeSpec,
 }
 
@@ -128,6 +129,7 @@ impl Fixture {
             catalog,
             declaration,
             application,
+            effects: None,
             spec,
         })
     }
@@ -184,6 +186,7 @@ impl Fixture {
         let mut host = RaftHostOptions {
             max_groups: 2,
             max_input_bytes: 1024,
+            effects: self.effects,
             ..Default::default()
         };
         host.node_profile = Some(RaftNodeProfile {

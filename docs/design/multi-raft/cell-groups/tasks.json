@@ -2542,7 +2542,9 @@
       ],
       "scope": [
         "crates/cellar-logic/",
-        "crates/cellar/durability/raft/"
+        "crates/cellar/durability/raft/",
+        "crates/cellar/tests/support/cell_group_managed_fixture_node.rs",
+        "crates/cellar/tests/support/cell_group_managed_fixture_cluster.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/cell_groups/hibernate.rs",
