@@ -349,10 +349,11 @@ async fn exercise(cluster: &mut ManagedCluster, rooted: bool, decision: Decision
             cluster, directory, &recovered,
         ))
         .await?;
-        return Box::pin(preparation::verify_child_archive_coverage(
+        Box::pin(preparation::verify_child_archive_coverage(
             cluster, directory, &recovered, tombstone, cells,
         ))
-        .await;
+        .await?;
+        return Box::pin(retirement::reopen_parked_source(cluster)).await;
     }
     fixture
         .store

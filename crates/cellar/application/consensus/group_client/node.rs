@@ -197,17 +197,20 @@ impl RaftCells {
             .controller
             .registration_inventory()
             .map_err(|_| CommandFailure::Unavailable)?;
-        let inventory = core
+        let mut inventory = core
             .log
             .cell_group_inventory(None)
             .map_err(|_| CommandFailure::Unavailable)?;
         if roster
-            .0
+            .attached
             .iter()
             .any(|history| inventory.group_history(history).is_none())
         {
             return Err(CommandFailure::Unavailable);
         }
+        inventory
+            .mark_parked_retired_sources(&roster.retired_sources)
+            .map_err(|_| CommandFailure::CorruptState)?;
         let usage = core.controller.usage();
         let mut profile = core
             .node_profile
@@ -280,11 +283,11 @@ impl RaftCells {
             fleet_trust_revision: current.as_ref().map(|n| n.revision),
             current_enrollment: current,
             declared_namespaces: count(core.host.usage().namespaces)?,
-            registered_histories: count(roster.0.len())?,
-            dormant_histories: count(roster.2)?,
+            registered_histories: count(roster.attached.len())?,
+            dormant_histories: count(roster.quarantined)?,
             pending_history_registrations: count(
                 roster
-                    .1
+                    .pending
                     .checked_add(usage.provision_waiters)
                     .ok_or(CommandFailure::Overloaded)?,
             )?,
@@ -292,7 +295,7 @@ impl RaftCells {
                 inventory
                     .histories()
                     .len()
-                    .checked_sub(roster.0.len())
+                    .checked_sub(roster.attached.len())
                     .ok_or(CommandFailure::CorruptState)?,
             )?,
             seed_workers: count(seed_workers)?,

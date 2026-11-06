@@ -271,18 +271,24 @@ fn assignment_from_birth(
 
 /// Recover local placement from the opened engine and selected namespace
 /// histories. Boot, permanent claims and membership are checked at attachment.
+#[derive(Default)]
+pub(super) struct RetainedPlacements {
+    pub(super) parked: Vec<(usize, crate::raft::cache::GroupLog<GroupHistory>)>,
+    pub(super) retired_sources: Vec<GroupHistory>,
+}
+
 pub(super) async fn discover_retained_placements(
     prepared: &mut Prepared,
     log: &crate::raft::storage::ReplicaLog,
     fleet: &crate::raft::fleet_catalog::FleetCatalog,
     limits: CellGroupNodeLimits,
-) -> anyhow::Result<Vec<(usize, crate::raft::cache::GroupLog<GroupHistory>)>> {
+) -> anyhow::Result<RetainedPlacements> {
     let configured: BTreeMap<_, _> = prepared
         .groups
         .iter()
         .map(|assignment| (assignment.birth.route().history, assignment.placement))
         .collect();
-    let mut parked = Vec::new();
+    let mut placements = RetainedPlacements::default();
     for retained in log.cell_groups()? {
         let history = retained.identity().scope;
         match configured.get(&history) {
@@ -293,7 +299,11 @@ pub(super) async fn discover_retained_placements(
             None => (),
         }
         anyhow::ensure!(
-            prepared.groups.len().saturating_add(parked.len()) < limits.controller.max_groups,
+            prepared
+                .groups
+                .len()
+                .saturating_add(placements.parked.len())
+                < limits.controller.max_groups,
             "retained group capacity exceeded"
         );
         if let Some(marker) = retained.group_manifest()?.filter(|marker| {
@@ -322,7 +332,7 @@ pub(super) async fn discover_retained_placements(
                     log.storage_instance()?,
                 )
                 .await?;
-            parked.push((namespace, retained));
+            placements.parked.push((namespace, retained));
             continue;
         }
         if let Some(marker) = retained
@@ -338,6 +348,32 @@ pub(super) async fn discover_retained_placements(
                 })
                 .ok_or(CatalogError::ManagedAdmissionRequired)?;
             let directory = &prepared.namespaces[namespace].directory;
+            if let Some(seal) = marker
+                .source_seal()
+                .filter(|seal| seal.retirement().is_some())
+            {
+                let operation = cellar_logic::consensus::ProposalId::new(seal.transition())?;
+                let transition = fleet
+                    .reopen_managed_transition(
+                        directory,
+                        operation,
+                        std::time::Duration::from_secs(5),
+                    )
+                    .await?
+                    .ok_or(CatalogError::Fenced)?;
+                if transition
+                    .journal
+                    .as_ref()
+                    .is_some_and(|journal| journal.retired_parents().is_some())
+                {
+                    directory
+                        .park_managed_retired_source(&transition.plan, &retained, &marker)
+                        .await?;
+                    placements.retired_sources.push(history);
+                    placements.parked.push((namespace, retained));
+                    continue;
+                }
+            }
             if let Some((birth, _)) = directory.discover_managed_sealed_source(&marker).await? {
                 let mut assignment =
                     assignment_from_birth(namespace, RaftGroupPlacement::Replica, birth);
@@ -356,7 +392,7 @@ pub(super) async fn discover_retained_placements(
         .await?;
         prepared.groups.push(group);
     }
-    Ok(parked)
+    Ok(placements)
 }
 
 /// Resolve the complete physical placement after managed discovery has accepted

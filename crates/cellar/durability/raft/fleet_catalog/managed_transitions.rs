@@ -183,12 +183,12 @@ impl FleetCatalog {
                     .map_err(|_| FleetCatalogError::Closed)?
                     .map_err(catalog_error)?;
                 if !active
-                    && !journal.as_ref().is_some_and(|decision| {
-                        decision.phase() == crate::raft::cell_groups::TransitionPhase::Cancelled
-                    })
+                    && !journal
+                        .as_ref()
+                        .is_some_and(|decision| !decision.owns_topology())
                 {
                     return Err(FleetCatalogError::Corrupt(
-                        "released managed transition has no cancellation",
+                        "released managed transition has no terminal decision",
                     ));
                 }
                 Ok(Some(ReopenedManagedCellGroupTransition {
@@ -249,14 +249,9 @@ impl FleetCatalog {
                             .await
                             .map_err(|_| FleetCatalogError::Closed)?
                             .map_err(catalog_error)?;
-                        return status
-                            .filter(|journal| {
-                                journal.phase()
-                                    == crate::raft::cell_groups::TransitionPhase::Cancelled
-                            })
-                            .ok_or(FleetCatalogError::Corrupt(
-                                "missing managed transition cancellation",
-                            ));
+                        return status.filter(|journal| !journal.owns_topology()).ok_or(
+                            FleetCatalogError::Corrupt("missing terminal managed transition"),
+                        );
                     }
                 } else {
                     let snapshot = &current;

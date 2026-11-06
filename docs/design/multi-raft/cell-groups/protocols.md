@@ -1184,7 +1184,12 @@ retirement and live child coverage. A Live child reopens using its fleet
 membership, permanent engine install receipt, and the selected directory's
 retirement and activation binding, independent of the transition slot. Archive
 setup is required for that startup when archiving is configured. The owner
-releases only the original transfer holds and confirms
+can reopen a retired parent disk in parked form after a joined process stop.
+Startup checks the exact local tombstone against the immutable retirement
+set and keeps that history out of the Raft and transport rosters. Authenticated
+physical inventory identifies the parked source by history, birth, member and
+boot. The disk and controller slot remain charged. The owner releases only
+the original transfer holds and confirms
 each release before clearing topology ownership in a separate CAS. An
 interrupted cleanup resumes the same immutable decision. Later transitions
 preserve historical publication certificates and reject stale child startup.

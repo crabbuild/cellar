@@ -14,6 +14,8 @@ use std::collections::BTreeMap;
 const MAX_GROUPS: usize = 4096;
 const PREFIX: usize = 45;
 const ENTRY_BYTES: usize = 81;
+const IN_CONFIGURATION: u8 = 1;
+const PARKED_RETIRED_SOURCE: u8 = 2;
 
 pub(crate) type PhysicalNodeObservation = (RaftHostObservation, RaftPhysicalInventory);
 
@@ -33,14 +35,20 @@ pub struct RaftPhysicalHistory {
     // reservation. Construction validates member; no untrusted raw constructor.
     member: [u8; 8],
     completed_sequence: [u8; 8],
-    in_configuration: bool,
+    flags: u8,
 }
 
 impl RaftPhysicalHistory {
     /// This local member is present in the durable incoming/outgoing voter or
     /// learner sets. False is retained occupancy, never physical release proof.
     pub fn in_configuration(&self) -> bool {
-        self.in_configuration
+        self.flags & IN_CONFIGURATION != 0
+    }
+
+    /// This exact source slot has a verified retirement tombstone and opened
+    /// without a Raft owner. Its retained storage remains charged.
+    pub fn parked_retired_source(&self) -> bool {
+        self.flags & PARKED_RETIRED_SOURCE != 0
     }
 
     /// Locally durable Complete phase for this birth/history. A fresh quorum
@@ -93,7 +101,7 @@ impl RaftPhysicalInventory {
             digest.update(history.birth);
             digest.update(history.member);
             digest.update(history.completed_sequence);
-            digest.update([u8::from(history.in_configuration)]);
+            digest.update([history.flags]);
         }
         digest.finalize().into()
     }
@@ -121,6 +129,20 @@ impl RaftPhysicalInventory {
             .map(|index| &self.histories[index])
     }
 
+    pub(crate) fn mark_parked_retired_sources(
+        &mut self,
+        histories: &[GroupHistory],
+    ) -> Result<(), LogError> {
+        for history in histories {
+            let index = self
+                .histories
+                .binary_search_by_key(&group_digest(history), |row| row.scope)
+                .map_err(|_| LogError::WrongIdentity)?;
+            self.histories[index].flags |= PARKED_RETIRED_SOURCE;
+        }
+        Ok(())
+    }
+
     pub(crate) fn validate(&self, view: &RaftHostObservation) -> Result<(), TransportError> {
         super::node_inspection_wire::validate(view)?;
         if self.histories.len() > MAX_GROUPS
@@ -140,8 +162,15 @@ impl RaftPhysicalInventory {
                 .binary_search_by_key(&digest, |h| h.scope)
                 .is_err()
         }));
+        let parked = self
+            .histories
+            .iter()
+            .filter(|row| row.parked_retired_source())
+            .count();
         if self.histories.len() + extra != view.node.groups as usize
             || view.unattached_engine_histories as usize > self.histories.len()
+            || parked > view.unattached_engine_histories as usize
+            || parked != 0 && view.fleet_boot.is_none()
         {
             return Err(TransportError::Protocol);
         }
@@ -247,7 +276,11 @@ fn capture_row<S>(group: &GroupLog<S>, scope: [u8; 32]) -> Result<RaftPhysicalHi
         birth: group.birth_digest,
         member: group.identity().member.get().to_be_bytes(),
         completed_sequence: completed_sequence.to_be_bytes(),
-        in_configuration: contains_member(&cache.conf_state, group.identity().member),
+        flags: if contains_member(&cache.conf_state, group.identity().member) {
+            IN_CONFIGURATION
+        } else {
+            0
+        },
     })
 }
 
@@ -280,7 +313,7 @@ pub(crate) fn encode(
         bytes.extend_from_slice(&history.birth);
         bytes.extend_from_slice(&history.member);
         bytes.extend_from_slice(&history.completed_sequence);
-        bytes.push(u8::from(history.in_configuration));
+        bytes.push(history.flags);
     }
     Ok(bytes)
 }
@@ -323,16 +356,16 @@ pub(crate) fn decode(
         let mut sequence = [0; 8];
         sequence.copy_from_slice(&row[72..80]);
         MemberId::new(u64::from_be_bytes(member)).map_err(|_| TransportError::Identity)?;
+        let flags = row[80];
+        if flags & !(IN_CONFIGURATION | PARKED_RETIRED_SOURCE) != 0 {
+            return Err(TransportError::Protocol);
+        }
         histories.push(RaftPhysicalHistory {
             scope,
             birth,
             member,
             completed_sequence: sequence,
-            in_configuration: match row[80] {
-                0 => false,
-                1 => true,
-                _ => return Err(TransportError::Protocol),
-            },
+            flags,
         });
     }
     let inventory = RaftPhysicalInventory {

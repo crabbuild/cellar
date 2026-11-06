@@ -28,7 +28,7 @@ fn occupied(count: usize) -> (RaftHostObservation, RaftPhysicalInventory) {
                 birth: [8; 32],
                 member: (i as u64).to_be_bytes(),
                 completed_sequence: (i as u64).to_be_bytes(),
-                in_configuration: true,
+                flags: IN_CONFIGURATION,
             }
         })
         .collect();
@@ -128,7 +128,7 @@ fn physical_inventory_scope_matching_binds_the_full_history() {
             birth: [8; 32],
             member: 3u64.to_be_bytes(),
             completed_sequence: 0u64.to_be_bytes(),
-            in_configuration: false,
+            flags: 0,
         }],
         initializing: None,
     };
@@ -148,18 +148,26 @@ fn physical_inventory_scope_matching_binds_the_full_history() {
 }
 
 #[test]
-fn physical_inventory_configuration_flag_is_strict_and_digest_bound() {
-    let (node, mut inventory) = occupied(1);
+fn physical_inventory_flags_are_strict_and_digest_bound() {
+    let (mut node, mut inventory) = occupied(1);
     let active = inventory.digest();
-    inventory.histories[0].in_configuration = false;
+    inventory.histories[0].flags = 0;
     assert_ne!(active, inventory.digest());
+    let bytes = encode(&node, &inventory).unwrap();
+    let row = decode(&bytes).unwrap().1.histories()[0];
+    assert!(!row.in_configuration() && !row.parked_retired_source());
+
+    let inactive = inventory.digest();
+    inventory.histories[0].flags = PARKED_RETIRED_SOURCE;
+    assert_ne!(inactive, inventory.digest());
     let mut bytes = encode(&node, &inventory).unwrap();
-    assert!(!decode(&bytes).unwrap().1.histories()[0].in_configuration());
+    assert!(decode(&bytes).unwrap().1.histories()[0].parked_retired_source());
+    node.unattached_engine_histories = 0;
+    assert!(encode(&node, &inventory).is_err());
+
     let last = bytes.len() - 1;
-    bytes[last] = 2;
+    bytes[last] = 4;
     assert!(decode(&bytes).is_err());
-    // The internal format marker remains 1; old shorter rows cannot silently
-    // default the new role observation to false during a mixed deployment.
     bytes.pop();
     assert!(decode(&bytes).is_err());
 }
@@ -201,7 +209,7 @@ fn physical_inventory_group_history_is_canonical_and_domain_separated() {
             birth: [8; 32],
             member: 3u64.to_be_bytes(),
             completed_sequence: 0u64.to_be_bytes(),
-            in_configuration: false,
+            flags: 0,
         }],
         initializing: None,
     };

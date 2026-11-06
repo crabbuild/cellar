@@ -105,7 +105,7 @@ impl TransitionJournal {
         self.parent_holds_released
     }
 
-    fn owns_topology(&self) -> bool {
+    pub(crate) fn owns_topology(&self) -> bool {
         self.phase != TransitionPhase::Cancelled && !self.parent_holds_released
     }
 

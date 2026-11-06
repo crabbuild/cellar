@@ -124,6 +124,56 @@ impl CellGroupSourceRetirementPermit {
 }
 
 impl RangeDirectory {
+    /// Verify the exact synced local tombstone before preserving a retired
+    /// source as physical occupancy without an attached Raft owner.
+    pub(crate) async fn park_managed_retired_source(
+        &self,
+        plan: &DirectoryMutation,
+        group: &GroupLog<GroupHistory>,
+        marker: &GroupManifest,
+    ) -> Result<(), CatalogError> {
+        self.bounded(async {
+            let seal = marker.source_seal().ok_or(CatalogError::Fenced)?;
+            let tombstone = seal.retirement().ok_or(CatalogError::Fenced)?;
+            if seal.transition() != plan.operation().bytes() {
+                return Err(CatalogError::Fenced);
+            }
+            let basis = self.retirement_basis(plan).await?;
+            let digest = basis
+                .journal
+                .retired_parents()
+                .ok_or(CatalogError::Fenced)?;
+            let retirement = self.require_retirement_set(plan, &basis, digest).await?;
+            let receipt = basis
+                .parents
+                .iter()
+                .zip(&retirement.parents)
+                .find_map(|(hold, receipt)| {
+                    (marker.route() == hold.marker().route()
+                        && marker.preserves_source_seal(hold.marker()))
+                    .then_some(receipt)
+                })
+                .ok_or(CatalogError::Fenced)?;
+            let position = tombstone.position();
+            if retirement.publication != tombstone.publication()
+                || receipt.index != position.index.get()
+                || receipt.term != position.term.get()
+                || group.identity().scope != marker.route().history
+            {
+                return Err(CatalogError::Fenced);
+            }
+            self.open_historical_birth(marker.route()).await?;
+            let cache = group.read().map_err(CatalogError::Log)?;
+            if cache.group_manifest.as_ref() != Some(marker)
+                || cache.hard_state.commit < position.index.get()
+            {
+                return Err(CatalogError::LostStableState);
+            }
+            Ok(())
+        })
+        .await
+    }
+
     pub(crate) async fn require_managed_transfer_retirement_coverage(
         &self,
         domain: &impl CellGroupArchiveExecution,
@@ -677,7 +727,7 @@ impl RangeDirectory {
         plan: &DirectoryMutation,
         basis: &RetirementBasis,
         digest: [u8; 32],
-    ) -> Result<(), CatalogError> {
+    ) -> Result<RetirementSet, CatalogError> {
         let bytes = self
             .read(&format!("{SETS}/{}", hex::encode(digest)))
             .await?
@@ -697,7 +747,7 @@ impl RangeDirectory {
         for (receipt, hold) in set.parents.iter().zip(&basis.parents) {
             receipt.validate(hold.marker())?;
         }
-        Ok(())
+        Ok(set)
     }
 
     async fn require_live_retirement_archives(

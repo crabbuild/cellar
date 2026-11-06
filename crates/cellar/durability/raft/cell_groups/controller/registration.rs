@@ -12,6 +12,7 @@ use tokio::sync::{mpsc, oneshot};
 enum GroupState {
     Pending,
     Active,
+    ParkedRetired,
     Quarantined(CellGroupControllerError),
 }
 
@@ -25,7 +26,7 @@ impl GroupRoster {
         self.groups.lock().is_ok_and(|groups| {
             groups
                 .values()
-                .all(|state| matches!(state, GroupState::Active))
+                .all(|state| matches!(state, GroupState::Active | GroupState::ParkedRetired))
         })
     }
 
@@ -56,6 +57,9 @@ impl GroupRoster {
     ) -> Result<(), RuntimeError> {
         let mut groups = self.groups.lock().map_err(|_| RuntimeError::Closed)?;
         let state = groups.get_mut(&group).ok_or(RuntimeError::NotFound)?;
+        if matches!(state, GroupState::ParkedRetired) {
+            return Err(RuntimeError::NotFound);
+        }
         if !matches!(state, GroupState::Quarantined(_)) {
             *state = GroupState::Quarantined(error);
         }
@@ -227,12 +231,42 @@ pub(super) struct Completed {
     permit: Arc<Permit>,
 }
 
+#[derive(PartialEq, Eq)]
+pub(crate) struct GroupRegistrationInventory {
+    pub(crate) attached: Vec<GroupHistory>,
+    pub(crate) pending: usize,
+    pub(crate) quarantined: usize,
+    pub(crate) retired_sources: Vec<GroupHistory>,
+}
+
 impl CellGroupController {
+    pub(crate) fn retain_parked_retired_sources(
+        &self,
+        histories: Vec<GroupHistory>,
+    ) -> Result<(), RuntimeError> {
+        let roster = &self.handle.0.groups;
+        let mut groups = roster.groups.lock().map_err(|_| RuntimeError::Closed)?;
+        if groups.len().saturating_add(histories.len()) > roster.limit {
+            return Err(RuntimeError::Overloaded);
+        }
+        if histories.windows(2).any(|pair| pair[0] >= pair[1])
+            || histories.iter().any(|history| groups.contains_key(history))
+        {
+            return Err(RuntimeError::AlreadyAttached);
+        }
+        groups.extend(
+            histories
+                .into_iter()
+                .map(|history| (history, GroupState::ParkedRetired)),
+        );
+        Ok(())
+    }
+
     /// One locked roster cut. Failed attachments remain registered physical
     /// debt; pending slots are separate from attached histories.
     pub(crate) fn registration_inventory(
         &self,
-    ) -> Result<(Vec<GroupHistory>, usize, usize), RuntimeError> {
+    ) -> Result<GroupRegistrationInventory, RuntimeError> {
         let groups = self
             .handle
             .0
@@ -240,20 +274,24 @@ impl CellGroupController {
             .groups
             .lock()
             .map_err(|_| RuntimeError::Closed)?;
-        let mut attached = Vec::with_capacity(groups.len());
-        let mut pending = 0;
-        let mut quarantined = 0;
+        let mut inventory = GroupRegistrationInventory {
+            attached: Vec::new(),
+            pending: 0,
+            quarantined: 0,
+            retired_sources: Vec::new(),
+        };
         for (history, state) in groups.iter() {
             match state {
-                GroupState::Pending => pending += 1,
-                GroupState::Active => attached.push(*history),
+                GroupState::Pending => inventory.pending += 1,
+                GroupState::Active => inventory.attached.push(*history),
+                GroupState::ParkedRetired => inventory.retired_sources.push(*history),
                 GroupState::Quarantined(_) => {
-                    attached.push(*history);
-                    quarantined += 1;
+                    inventory.attached.push(*history);
+                    inventory.quarantined += 1;
                 }
             }
         }
-        Ok((attached, pending, quarantined))
+        Ok(inventory)
     }
 
     /// Atomically reserve the controller slot and transfer attachment ownership.

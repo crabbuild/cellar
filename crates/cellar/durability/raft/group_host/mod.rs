@@ -202,7 +202,7 @@ pub(crate) async fn start(
     // This initialization owns several nested catalog/recovery futures. Keep
     // that state off callers' native stacks, including nested node startup.
     let result = Box::pin(async {
-        let parked = if let Some(managed) = &options.managed {
+        let retained = if let Some(managed) = &options.managed {
             registration::discover_retained_placements(
                 &mut prepared,
                 &log,
@@ -211,7 +211,7 @@ pub(crate) async fn start(
             )
             .await?
         } else {
-            Vec::new()
+            registration::RetainedPlacements::default()
         };
         let discovery = directory::prepare(&mut prepared, &mut options, &log, &transport).await?;
         registration::refresh_routes(&mut prepared, &log, options.managed.is_some())?;
@@ -379,10 +379,10 @@ pub(crate) async fn start(
                 }
             }
         }
-        // Recover the pending children before clearing conservative image
-        // references. Their owners stay out of the serving roster and transport.
-        let mut parked_replicas = Vec::with_capacity(parked.len());
-        for (namespace, group) in parked {
+        // Recover parked images before clearing conservative references.
+        // Parked replicas stay out of the serving roster and transport.
+        let mut parked_replicas = Vec::with_capacity(retained.parked.len());
+        for (namespace, group) in retained.parked {
             parked_replicas.push(
                 images
                     .recover_group(
@@ -439,6 +439,7 @@ pub(crate) async fn start(
         )
         .await?;
         startup.controller = Some(controller.clone());
+        controller.retain_parked_retired_sources(retained.retired_sources)?;
         let admission = Arc::new(crate::application::consensus::admission::Admission::default());
         controller.bind_public_admission(
             admission.clone(),

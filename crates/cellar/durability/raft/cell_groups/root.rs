@@ -124,6 +124,10 @@ impl GroupSourceRetirement {
 }
 
 impl GroupSourceSeal {
+    pub(crate) fn transition(&self) -> [u8; 16] {
+        self.transition
+    }
+
     pub fn position(&self) -> LogPosition {
         LogPosition {
             index: LogIndex::new(self.index),
