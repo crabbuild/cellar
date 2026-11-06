@@ -38,12 +38,14 @@ pub(crate) struct PreparedRecoveryData {
 impl PreparedRecoveryData {
     pub(crate) fn image_bytes(&self) -> Result<u64> {
         let mut bytes = 0u64;
-        self.manifest.images.visit(&mut |_, leaf, _, _, _| {
-            bytes = bytes
-                .checked_add(leaf.geometry.length)
-                .ok_or(CellGroupArchiveError::Limit)?;
-            Ok(())
-        })?;
+        self.manifest
+            .images
+            .visit(&mut |_, leaf, _, _, _| -> Result<()> {
+                bytes = bytes
+                    .checked_add(leaf.geometry.length)
+                    .ok_or(CellGroupArchiveError::Limit)?;
+                Ok(())
+            })?;
         Ok(bytes)
     }
 }

@@ -7,6 +7,7 @@ use crate::{
     management::RaftFleetPreparedRecoveryRange,
     raft::{
         catalog::{CatalogError, CellGroupRecoveryError, ManagedRecoveryVoterSeed},
+        completion::RuntimeError,
         fleet_catalog::{
             FleetFencedTransitionRecovery, FleetRecoveryRangeReservation,
             FleetTransitionRecoveryReplacement, ManagedRecoverySeedSelection,
@@ -239,6 +240,7 @@ impl RaftCells {
             .await
             .map_err(catalog_error)
     }
+
     fn recovery_seed_remaining(
         &self,
         host: &crate::raft::fleet_catalog::FleetHostAuthorization,
