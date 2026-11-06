@@ -92,7 +92,10 @@ impl OperatorCli {
                     vec![
                         Permission::MetadataRead,
                         Permission::FleetCapacity,
+                        Permission::FleetRegister,
                         Permission::FleetTopology,
+                        Permission::FleetMaintenance,
+                        Permission::FleetStop,
                     ],
                 )?,
                 principal("reader", READER, vec![Permission::MetadataRead])?,

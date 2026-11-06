@@ -2,13 +2,21 @@
 
 //! Cold RF3 startup on the daemon's public SDK boundary with fixture capacity.
 use super::*;
-use cellar::application::consensus::verification::cell_groups::RangeDirectory;
+use cellar::application::consensus::verification::cell_groups::{
+    CellGroupArchiveTailLimits, RangeDirectory,
+};
 use cellar::bucket::{Bucket, StaticCredentials};
 use cellar::sdk::fleet_operations::*;
 use std::io::Write;
 #[path = "raft_first_group_operator_cli.rs"]
 mod cli;
 use cli::{first_group_plan, OperatorCli, OWNER};
+#[path = "raft_daemon_maintenance.rs"]
+pub(super) mod maintenance;
+#[path = "raft_daemon_repair.rs"]
+pub(super) mod repair;
+#[path = "raft_daemon_standby.rs"]
+pub(super) mod standby;
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 const PRINCIPAL: &str = "daemon-process-fixture";
@@ -60,8 +68,22 @@ fn request(id: u8, revision: u64) -> FleetRequestIdentity {
     }
 }
 
-fn node(index: u8) -> Result<NodeId> {
+pub(super) fn node(index: u8) -> Result<NodeId> {
     Ok(NodeId::new([index + 3; 16])?)
+}
+
+pub(super) const DOCKER_CATALOG: &str = "managed-fleet-catalog";
+
+fn node_spec(index: u8, capability_digest: [u8; 32]) -> Result<FleetNodeSpec> {
+    Ok(FleetNodeSpec {
+        node: node(index)?,
+        disk: DiskLineage::new([index + 4; 16])?,
+        physical_host: IncarnationId::new([if docker::enabled() { 90 } else { index + 90 }; 16])?,
+        label: format!("raft-cli-cluster-{index}"),
+        server_name: "localhost".into(),
+        capability_digest,
+        storage_instance: None,
+    })
 }
 
 fn history() -> Result<GroupHistory> {
@@ -239,6 +261,13 @@ pub(super) async fn initialize(root: &Path) -> Result<()> {
             } else {
                 operator.fleet.initialize(TIMEOUT).await?
             };
+            if docker::enabled() {
+                persist(
+                    root,
+                    DOCKER_CATALOG,
+                    hex::encode(operator.fleet.catalog_id()?).as_bytes(),
+                )?;
+            }
             let identity = request(10, snapshot.revision());
             let declaration = if std::env::var_os(RUSTFS_ENDPOINT).is_some() {
                 provision_from_compiled_cli(root, &operator, &identity).await?
@@ -264,17 +293,7 @@ pub(super) async fn initialize(root: &Path) -> Result<()> {
                     .register_node(
                         &snapshot,
                         &request(11 + index, snapshot.revision()),
-                        &FleetNodeSpec {
-                            node: node(index)?,
-                            disk: DiskLineage::new([index + 4; 16])?,
-                            physical_host: IncarnationId::new(
-                                [if docker::enabled() { 90 } else { index + 90 }; 16],
-                            )?,
-                            label: format!("raft-cli-cluster-{index}"),
-                            server_name: "localhost".into(),
-                            capability_digest,
-                            storage_instance: None,
-                        },
+                        &node_spec(index, capability_digest)?,
                         TIMEOUT,
                     )
                     .await?;
@@ -286,8 +305,32 @@ pub(super) async fn initialize(root: &Path) -> Result<()> {
     result?
 }
 
+async fn open_archive_verifier(
+    operator: &Operator,
+    root: &Path,
+) -> Result<FleetGroupArchiveVerifier> {
+    let limits = configuration::limits();
+    let checkpoints = limits.checkpoints.context("repair replay checkpoints")?;
+    let tails = CellGroupArchiveTailLimits::default();
+    archive_verifier::open(
+        &operator.domain,
+        root,
+        operator.namespace.image_storage == RaftImageStorage::Extents,
+        tails,
+        limits,
+        checkpoints,
+    )
+    .await
+}
+
+pub(super) fn retained_index(mode: &str) -> Option<&str> {
+    mode.strip_prefix("cluster-resume-")
+        .or_else(|| mode.strip_prefix("cluster-maintenance-"))
+}
+
 pub(super) fn child(root: PathBuf, mode: &str) -> Result<()> {
-    let (retained, index) = match mode.strip_prefix("cluster-resume-") {
+    let returning = mode.starts_with("cluster-maintenance-");
+    let (retained, index) = match retained_index(mode) {
         Some(index) => (true, index.parse::<u8>()?),
         None => (
             false,
@@ -296,7 +339,9 @@ pub(super) fn child(root: PathBuf, mode: &str) -> Result<()> {
                 .parse::<u8>()?,
         ),
     };
-    ensure!(index < 3, "invalid daemon fixture member");
+    ensure!(index <= standby::INDEX, "invalid daemon fixture member");
+    let spare = index == standby::INDEX;
+    ensure!(!spare || !retained, "standby boot must use a new disk");
     let history = history()?;
     let api = counter::CounterApi::new(
         SECRET.into(),
@@ -327,12 +372,19 @@ pub(super) fn child(root: PathBuf, mode: &str) -> Result<()> {
         &root,
         index,
     ));
-    let prepare = move |node| boot_operator.prepare(node, index, retained, store);
+    let prepare = move |node| boot_operator.prepare(node, index, retained, returning, store);
     let fixture_operator = operator.clone();
+    let (maintenance_started, maintenance_task) = tokio::sync::oneshot::channel();
+    let (repair_started, repair_task) = tokio::sync::oneshot::channel();
+    let repair_root = root.clone();
+    let repair_stop = axum_stopping.clone();
+    let return_root = root.clone();
     let admin_root = root.join(format!("park-admin-{index}"));
     let bind = move |service: RaftCells, discovered: GroupHistory| async move {
         ensure!(discovered == history, "unexpected managed namespace group");
-        if !retained {
+        // A repair standby has already proved promotion in the current quorum.
+        // The original voters and catalog cut apply only to first-group birth.
+        if !retained && !spare {
             let cut = operator.fleet.read(TIMEOUT).await?;
             for index in 0..3 {
                 inspect_current(&service, node(index)?, cut.revision()).await?;
@@ -346,10 +398,31 @@ pub(super) fn child(root: PathBuf, mode: &str) -> Result<()> {
             .run(operator.adapter.existing_namespace(declaration.namespace))
             .await??;
         let directory = RangeDirectory::new(selected, configuration::limits().directory)?;
+        if index == repair::WORKER && std::env::var_os(repair::ENABLED).is_some() {
+            let task = axum_runtime.spawn(Box::pin(repair::run_worker(
+                operator.clone(),
+                service.clone(),
+                repair_root,
+                directory.clone(),
+                repair_stop,
+            )));
+            repair_started.send(task).map_err(|task| {
+                task.abort();
+                anyhow::anyhow!("repair worker join owner dropped during startup")
+            })?;
+        }
         let control =
             RaftFleetControl::new(&operator.domain, operator.fleet.clone(), vec![directory])?
                 .with_node_observer(service.clone());
         std::fs::create_dir_all(&admin_root)?;
+        if index == 0 {
+            let worker = control
+                .start_maintenance_service(None, Default::default())
+                .await?;
+            maintenance_started
+                .send(worker)
+                .map_err(|_| anyhow::anyhow!("maintenance join owner dropped"))?;
+        }
         let admin = OperatorCli::router(
             &operator.domain,
             operator.bucket.clone(),
@@ -363,7 +436,8 @@ pub(super) fn child(root: PathBuf, mode: &str) -> Result<()> {
         let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
         listener.set_nonblocking(true)?;
         let address = listener.local_addr()?;
-        let router = recovery::observe_voter(counter::router(api), group).merge(admin);
+        let router = recovery::observe_voter(counter::router(api), group.clone()).merge(admin);
+        let router = maintenance::with_handoff(router, group);
         let task = axum_runtime.spawn(async move {
             let listener = tokio::net::TcpListener::from_std(listener)?;
             cellar::note!("cellar axum listening on {address}");
@@ -379,7 +453,18 @@ pub(super) fn child(root: PathBuf, mode: &str) -> Result<()> {
         })?;
         Ok(())
     };
-    let host = if !retained && index == 0 {
+    let host = if spare {
+        host.raft_cells_with_startup("raft-cli", prepare, move |service| async move {
+            standby::wait_for_attachment(&service, &return_root).await?;
+            bind(service, history).await
+        })?
+    } else if returning {
+        host.raft_cells_with_startup("raft-cli", prepare, move |service| async move {
+            maintenance::wait_for_resume(&service, &return_root, index).await?;
+            service.start_managed_first_group(history, TIMEOUT).await?;
+            bind(service, history).await
+        })?
+    } else if !retained && index == 0 {
         // The fixture's first process also runs the independent operator.
         host.raft_cells_with_startup("raft-cli", prepare, move |service| async move {
             ensure!(service.observe_node(TIMEOUT).await?.node.groups == 0);
@@ -412,8 +497,18 @@ pub(super) fn child(root: PathBuf, mode: &str) -> Result<()> {
                 .and_then(|result| result.map_err(Into::into)),
             Err(_) => Ok(()),
         };
+        if let Ok(worker) = maintenance_task.await {
+            worker.shutdown().await;
+        }
+        let repaired = match repair_task.await {
+            Ok(worker) => worker
+                .await
+                .map_err(anyhow::Error::from)
+                .and_then(|result| result),
+            Err(_) => Ok(()),
+        };
         domain.shutdown().await;
-        joined
+        joined.and(repaired)
     });
     result.and(axum_result)
 }
@@ -424,6 +519,7 @@ impl Operator {
         native: NativeRaftNode,
         index: u8,
         retained: bool,
+        returning: bool,
         store: Arc<dyn object_store::ObjectStore>,
     ) -> Result<NativeRaftCells> {
         let declaration = self.declaration()?;
@@ -443,7 +539,24 @@ impl Operator {
         } else {
             process[..4].copy_from_slice(&std::process::id().to_be_bytes());
         }
-        let process = ProcessGeneration::new(process)?;
+        let process = if returning {
+            let consent = self
+                .fleet
+                .restart_operator_return_request(
+                    &snapshot,
+                    ProposalId::new(maintenance::OPERATION)?,
+                    TIMEOUT,
+                )
+                .await?
+                .context("rooted daemon maintenance return")?;
+            ensure!(
+                consent.node == id,
+                "maintenance consent belongs to another node"
+            );
+            consent.next_process
+        } else {
+            ProcessGeneration::new(process)?
+        };
         let peers = vec![RaftPeerNode {
             node: id,
             disk,
@@ -480,12 +593,18 @@ impl Operator {
         if declaration.namespace.image_storage == RaftImageStorage::Extents {
             host.extents = Some(Default::default());
         }
+        let byte_capacity = host.images.max_bytes
+            + if index == standby::INDEX {
+                repair::STANDBY_DURABLE_HEADROOM
+            } else {
+                0
+            };
         host.node_profile = Some(RaftNodeProfile {
             pool: "daemon-fixture".into(),
             region: "local".into(),
             zone: format!("process-{index}"),
             group_capacity: u32::try_from(host.max_groups)?,
-            byte_capacity: host.images.max_bytes,
+            byte_capacity,
             bytes_per_group: host.images.max_bytes,
             leader_capacity: u32::try_from(host.max_groups)?,
             draining: false,
@@ -797,14 +916,16 @@ async fn inspect_current(
     revision: u64,
 ) -> Result<RaftHostObservation> {
     let deadline = Instant::now() + TIMEOUT;
+    let mut last_error = None;
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         ensure!(
             !remaining.is_zero(),
-            "daemon has not installed fleet revision {revision}"
+            "daemon could not inspect {node:?} at fleet revision {revision}: {last_error:?}"
         );
-        if let Ok(observed) = service.inspect_peer_node(node, revision, remaining).await {
-            return Ok(observed.view);
+        match service.inspect_peer_node(node, revision, remaining).await {
+            Ok(observed) => return Ok(observed.view),
+            Err(error) => last_error = Some(error),
         }
         cellar::asyncrt::sleep(Duration::from_millis(10)).await;
     }
@@ -822,20 +943,7 @@ async fn admit_capacity(
         observed.node.groups == 0,
         "capacity must observe an empty standby"
     );
-    let attestation = FleetCapacityAttestation {
-        boot: observed.fleet_boot.context("capacity boot")?,
-        profile_revision: 1,
-        profile_digest: fleet_capacity_profile_digest(&observed.node.profile)?,
-        cpu_millis: 1000,
-        memory_bytes: 3 * 1024 * 1024 * 1024,
-        durable_bytes: observed.node.profile.byte_capacity.max(1024 * 1024 * 1024),
-        engine_slots: 2,
-        memory_swap_disabled: true,
-        used_memory_bytes: 64 * 1024 * 1024,
-        used_durable_bytes: 1024 * 1024,
-        evidence_digest: [71; 32],
-        evidence_reference: "fixture-only/daemon-process".into(),
-    };
+    let attestation = capacity_attestation(observed)?;
     let filename = format!("capacity-{index}.json");
     persist(root, &filename, &serde_json::to_vec(&attestation)?)?;
     let path = root.join(filename);
@@ -868,4 +976,21 @@ async fn admit_capacity(
         ensure!(admission.admission.admitted_state == state);
     }
     Ok(())
+}
+
+fn capacity_attestation(observed: RaftHostObservation) -> Result<FleetCapacityAttestation> {
+    Ok(FleetCapacityAttestation {
+        boot: observed.fleet_boot.context("capacity boot")?,
+        profile_revision: 1,
+        profile_digest: fleet_capacity_profile_digest(&observed.node.profile)?,
+        cpu_millis: 1000,
+        memory_bytes: 3 * 1024 * 1024 * 1024,
+        durable_bytes: observed.node.profile.byte_capacity.max(1024 * 1024 * 1024),
+        engine_slots: observed.node.profile.group_capacity.max(2),
+        memory_swap_disabled: true,
+        used_memory_bytes: 64 * 1024 * 1024,
+        used_durable_bytes: 1024 * 1024,
+        evidence_digest: [71; 32],
+        evidence_reference: "fixture-only/daemon-process".into(),
+    })
 }

@@ -4,6 +4,8 @@
 #![allow(clippy::disallowed_methods)]
 #[path = "support/raft_daemon_archive.rs"]
 mod archive;
+#[path = "support/cell_group_archive_verifier.rs"]
+mod archive_verifier;
 #[path = "../../../examples/raft-counter/configuration.rs"]
 #[allow(dead_code)]
 mod configuration;
@@ -17,8 +19,13 @@ mod docker;
 mod graph;
 #[path = "support/raft_daemon_managed.rs"]
 mod managed;
+#[path = "support/cell_group_disaster_public_node.rs"]
+#[allow(dead_code)]
+mod public_node;
 #[path = "support/raft_daemon_recovery.rs"]
 mod recovery;
+#[path = "support/raft_retained_disk.rs"]
+mod retained_disk;
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{consensus::*, *};
 use serde_json::Value;
@@ -337,6 +344,7 @@ async fn ready_counter(service: &RaftCells, history: GroupHistory, local: Member
     }
 }
 
+#[derive(Clone)]
 struct ManagedIngress {
     native: String,
     internal: String,
@@ -398,7 +406,7 @@ impl Process {
         let diagnostics = root.join(format!("{mode}-stderr.log"));
         // A new process generation keeps the configured physical node label.
         // The authenticated directory refreshes its new addresses and boot.
-        let label = mode.strip_prefix("cluster-resume-").map_or_else(
+        let label = managed::retained_index(mode).map_or_else(
             || format!("raft-cli-{mode}"),
             |index| format!("raft-cli-cluster-{index}"),
         );
@@ -924,12 +932,51 @@ async fn qualify() -> Result<()> {
         &mut ledger,
     )
     .await?;
+    managed::maintenance::qualify(
+        root.path(),
+        &client,
+        &mut cluster,
+        &mut addresses,
+        &acknowledged[0],
+        &mut ledger,
+    )
+    .await?;
+    let mut members = [1, 2, 3];
+    let repair = std::env::var_os(managed::repair::ENABLED).is_some();
+    if repair {
+        let (replacement, ingress) = Box::pin(managed::repair::qualify(
+            root.path(),
+            &client,
+            &mut cluster,
+            &addresses,
+            &acknowledged[0].receipt,
+            &mut ledger,
+        ))
+        .await?;
+        cluster[0] = replacement;
+        addresses[0] = ingress;
+        members = managed::repair::REPAIRED;
+    } else if std::env::var_os(managed::standby::ENABLED).is_some() {
+        managed::standby::qualify(root.path(), &addresses[0], &mut ledger).await?;
+    }
     let survivor = cluster.len() - 1;
-    recovery::verify_linearizable_before_loss(&client, &addresses[survivor], &mut ledger).await?;
+    if !repair {
+        recovery::verify_linearizable_before_loss(&client, &addresses[survivor], &mut ledger)
+            .await?;
+    }
+    let receipt = &acknowledged[0].receipt;
     for (index, (process, address)) in cluster.iter_mut().zip(&addresses).enumerate() {
         if index == survivor {
             recovery::verify_quorum_loss(&client, address, index, &mut ledger).await?;
         }
+        let drain_term = if repair && index == 0 {
+            let (leader, term, _) =
+                recovery::observe_members(&client, &addresses, &members, None, 1, receipt).await?;
+            ensure!(leader == index, "replacement lost leadership before drain");
+            Some(term)
+        } else {
+            None
+        };
         client
             .post(format!("{}/shutdown", address.internal))
             .send()
@@ -940,7 +987,47 @@ async fn qualify() -> Result<()> {
             logs.contains("\"owners_closed\":true"),
             "three-voter owner did not join\n{logs}"
         );
-        ledger.record(serde_json::json!({"phase":"voter_shutdown_joined", "member":index + 1}))?;
+        if let Some(term) = drain_term {
+            let report: Value = logs
+                .lines()
+                .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+                .find(|value| value["event"] == "daemon_node_stopped")
+                .context("replacement drain report missing")?;
+            let raft = &report["raft"];
+            let handoff = &raft["handoff"];
+            ensure!(
+                report["mode"] == "handoff"
+                    && raft["startup_incomplete"] == false
+                    && raft["groups"] == 1
+                    && raft["retain_replica_disks"] == true
+                    && handoff["groups_examined"] == 1
+                    && handoff["accepted"] == 1
+                    && handoff["leadership_released"] == 1
+                    && handoff["unavailable_groups"] == 0
+                    && handoff["deadline_elapsed"] == false,
+                "incomplete replacement drain: {report}"
+            );
+            let next_term = term.checked_add(1).context("Raft term overflow")?;
+            let (successor, successor_term, voters) = recovery::observe_members(
+                &client,
+                &addresses,
+                &members,
+                Some(index),
+                next_term,
+                receipt,
+            )
+            .await?;
+            ledger.record(serde_json::json!({
+                "phase":"repair_drain_complete", "member":members[index], "term":term,
+                "successor":members[successor], "successor_term":successor_term,
+                "handoff":handoff, "voters":voters,
+            }))?;
+            recovery::verify_linearizable_before_loss(&client, &addresses[survivor], &mut ledger)
+                .await?;
+        }
+        ledger.record(
+            serde_json::json!({"phase":"voter_shutdown_joined", "member":members[index]}),
+        )?;
     }
     cellar::note!("production Raft CLI qualification passed: directory and registration refusals, failed binding joins, two cells in one retained group, linearizable queries, process restart, semantic closure, startup cancellation, and three managed daemon processes with one shared group over TLS with native and Axum reads and writes");
     Ok(())
@@ -954,6 +1041,13 @@ fn main() -> Result<()> {
                 .into(),
             mode,
         );
+    }
+    if std::env::var_os("CELLAR_RAFT_DAEMON_REPAIR_GATE").is_some() {
+        tracing_subscriber::fmt()
+            .with_env_filter("cellar_raft_repair=debug")
+            .with_ansi(false)
+            .try_init()
+            .map_err(|error| anyhow::anyhow!("repair trace subscriber: {error}"))?;
     }
     tokio::runtime::Builder::new_multi_thread()
         .worker_threads(3)

@@ -5,12 +5,17 @@ use super::*;
 
 const RUN: &str = "CELLAR_RAFT_DOCKER_RUN";
 const IMAGE: &str = "CELLAR_RAFT_DOCKER_IMAGE";
+const ENGINE_SOCKET: &str = "/run/docker.sock";
 const LABEL: &str = "io.cellar.daemon.run";
 pub(super) const VOTER: &str = "CELLAR_RAFT_DOCKER_VOTER";
 const INSPECT: &str = r#"{"id":{{json .Id}},"image":{{json .Image}},"run":{{json (index .Config.Labels "io.cellar.daemon.run")}},"running":{{json .State.Running}},"pid":{{json .State.Pid}},"exit_code":{{json .State.ExitCode}},"cpu":{{json .HostConfig.NanoCpus}},"memory":{{json .HostConfig.Memory}},"swap":{{json .HostConfig.MemorySwap}},"restart":{{json .HostConfig.RestartPolicy.Name}},"network":{{json .HostConfig.NetworkMode}},"mounts":{{json .Mounts}}}"#;
 
 pub(super) fn enabled() -> bool {
     std::env::var_os(RUN).is_some()
+}
+
+fn fleet_owner(run: &str) -> String {
+    format!("daemon-{run}")
 }
 
 pub(super) fn disk(root: &Path, index: usize) -> PathBuf {
@@ -61,6 +66,7 @@ pub(super) struct Voter {
     root: PathBuf,
     disk: PathBuf,
     mode: String,
+    repair_worker: bool,
 }
 
 impl Voter {
@@ -78,7 +84,7 @@ impl Voter {
                 .is_some_and(|id| lower_hex(id, 32)),
             "Docker voter requires an immutable image ID"
         );
-        let (retained, index) = match mode.strip_prefix("cluster-resume-") {
+        let (retained, index) = match managed::retained_index(mode) {
             Some(index) => (true, index.parse::<usize>()?),
             None => (
                 false,
@@ -88,15 +94,20 @@ impl Voter {
             ),
         };
         ensure!(
-            index < 3 && root.is_absolute() && root.is_dir(),
+            index <= usize::from(managed::standby::INDEX) && root.is_absolute() && root.is_dir(),
             "invalid voter inventory"
         );
+        let repair_enabled = std::env::var_os(managed::repair::ENABLED).is_some();
+        let repair_worker = repair_enabled && index == usize::from(managed::repair::WORKER);
         let disk = disk(root, index);
         if retained {
             ensure!(disk.join("raft").is_dir(), "retained voter disk is missing");
         } else {
             std::fs::create_dir(&disk)?;
         }
+        let catalog = std::fs::read_to_string(root.join(managed::DOCKER_CATALOG))?;
+        ensure!(lower_hex(&catalog, 32), "invalid rooted Fleet catalog ID");
+        let fleet_node = hex::encode(managed::node(u8::try_from(index)?)?.bytes());
         let owner = output(Command::new("id").arg("-u"), "guest user lookup")?;
         let group = output(Command::new("id").arg("-g"), "guest group lookup")?;
         let mut command = docker();
@@ -106,6 +117,16 @@ impl Voter {
             &format!("cellar-daemon-{run}-{mode}"),
             "--label",
             &format!("{LABEL}={run}"),
+            "--label",
+            &format!("io.cellar.fleet.owner={}", fleet_owner(&run)),
+            "--label",
+            &format!("io.cellar.fleet.catalog={catalog}"),
+            "--label",
+            &format!("io.cellar.fleet.node={fleet_node}"),
+            "--label",
+            "io.cellar.fleet.boot-mode=single-use",
+            "--label",
+            "io.cellar.fleet.workers=contained",
             "--network",
             "host",
             "--restart",
@@ -148,6 +169,27 @@ impl Voter {
             "--env",
             "CELLAR_RAFT_DOCKER_VOTER=1",
         ]);
+        if repair_enabled {
+            command.args(["--env", "RUST_LOG=warn,cellar_raft_repair=debug"]);
+        }
+        if repair_worker {
+            let engine_group = output(
+                Command::new("stat").args(["-c", "%g", ENGINE_SOCKET]),
+                "guest Docker socket group",
+            )?;
+            ensure!(
+                engine_group.parse::<u32>().is_ok(),
+                "invalid Docker socket group"
+            );
+            command.args([
+                "--group-add",
+                &engine_group,
+                "--mount",
+                &format!("type=bind,src={ENGINE_SOCKET},dst={ENGINE_SOCKET},readonly"),
+                "--env",
+                "CELLAR_RAFT_DAEMON_REPAIR_GATE=1",
+            ]);
+        }
         command.arg(&image).args(child.get_args());
         let id = output(&mut command, "create owned voter")?;
         ensure!(lower_hex(&id, 32), "Docker voter identity is ambiguous");
@@ -158,6 +200,7 @@ impl Voter {
             root: root.into(),
             disk,
             mode: mode.into(),
+            repair_worker,
         };
         ensure!(
             voter.inspect()?["running"] == false,
@@ -192,7 +235,19 @@ impl Voter {
             "voter cgroup or restart settings differ"
         );
         let mounts = state["mounts"].as_array().context("voter mounts absent")?;
-        ensure!(mounts.len() == 2, "unexpected voter mount inventory");
+        ensure!(
+            mounts.len() == 2 + usize::from(self.repair_worker),
+            "unexpected voter mount inventory"
+        );
+        if self.repair_worker {
+            ensure!(
+                mounts.iter().any(|mount| mount["Type"] == "bind"
+                    && mount["Source"] == ENGINE_SOCKET
+                    && mount["Destination"] == ENGINE_SOCKET
+                    && mount["RW"] == false),
+                "repair worker Docker socket mount differs"
+            );
+        }
         for path in [&self.root, &self.disk] {
             let path = path.to_str().context("UTF-8 voter mount")?;
             ensure!(
@@ -212,6 +267,23 @@ impl Voter {
             .stdout(log)
             .stderr(diagnostics)
             .spawn()?)
+    }
+
+    pub(super) fn fleet_identity(&self) -> Result<(String, cellar::docker::ContainerId)> {
+        self.inspect()?;
+        Ok((
+            fleet_owner(&self.run),
+            cellar::docker::ContainerId::new(&self.id)?,
+        ))
+    }
+
+    pub(super) fn terminate(&self) -> Result<()> {
+        ensure!(self.inspect()?["running"] == true, "voter is not running");
+        output(
+            docker().args(["kill", "--signal", "TERM", &self.id]),
+            "stop waiting standby",
+        )?;
+        Ok(())
     }
 
     pub(super) fn running(&self) -> Result<()> {

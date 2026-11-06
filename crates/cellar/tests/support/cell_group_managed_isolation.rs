@@ -5,7 +5,6 @@
 //! qualify a deployment's permanent process/launch fencing mechanism.
 use super::*;
 use cellar::application::consensus::verification::FleetTable;
-use sha2::{Digest, Sha256};
 
 fn intent(id: u8, revision: u64) -> FleetRequestIdentity {
     let mut identity = request(id, revision);
@@ -34,42 +33,9 @@ async fn rustfs_managed_isolated_voter_s3_replacement_retains_disk_and_fence() -
     Ok(())
 }
 
-// The stopped engine must remain byte-for-byte retained. Only hash the Raft
-// subtree, never the surrounding application's credentials or live fleet data.
-pub(super) fn disk_digest(
-    root: &Path,
-) -> Result<std::collections::BTreeMap<std::path::PathBuf, [u8; 32]>> {
-    fn visit(
-        root: &Path,
-        directory: &Path,
-        files: &mut std::collections::BTreeMap<std::path::PathBuf, [u8; 32]>,
-    ) -> Result<()> {
-        let mut entries = std::fs::read_dir(directory)?.collect::<std::io::Result<Vec<_>>>()?;
-        entries.sort_by_key(|entry| entry.file_name());
-        for entry in entries {
-            let path = entry.path();
-            let kind = entry.file_type()?;
-            ensure!(
-                !kind.is_symlink(),
-                "unexpected link in retained voter engine"
-            );
-            if kind.is_dir() {
-                visit(root, &path, files)?;
-            } else {
-                let bytes = std::fs::read(&path)?;
-                files.insert(
-                    path.strip_prefix(root)?.to_owned(),
-                    Sha256::digest(bytes).into(),
-                );
-            }
-        }
-        Ok(())
-    }
-    let mut files = std::collections::BTreeMap::new();
-    visit(root, root, &mut files)?;
-    ensure!(!files.is_empty(), "missing retained engine files");
-    Ok(files)
-}
+#[path = "raft_retained_disk.rs"]
+mod retained_disk;
+pub(super) use retained_disk::disk_digest;
 
 async fn isolated(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
     let mut cluster = Box::pin(ManagedCluster::start_with_store(

@@ -114,7 +114,23 @@ per-voter fault adapter refuses archive writes while catalog traffic and object
 reads continue to use RustFS. The same command returns a quorum
 receipt during the fault. A linearizable read covers that receipt. Both HTTP
 adapters refuse explicit S3 acknowledgement until the original result has S3
-coverage after writes resume.
+coverage after writes resume. The public maintenance workflow stops a voter
+and returns it with the same disk and a new process generation. A survivor
+accepts quorum SQL while the voter is offline. The returning voter keeps
+ingress closed until an explicit resume. After a guarded leadership transfer,
+both HTTP adapters replay the original receipt at quorum and S3 durability.
+
+Add `--standby` to qualify and bind a fourth constrained daemon to its
+immutable Docker container. Its peer transport starts before it has any
+replica. The controller verifies authenticated inspection of the standby,
+then cancels and joins startup.
+
+Use `--repair` to keep the standby running and inject a voter failure after
+retained maintenance. An active voter runs the recovery service against the
+bound Docker inventory. The campaign verifies rooted removal, byte-for-byte
+retention of the obsolete Raft engine, restoration to three voters, and SQL
+through both adapters on the replacement leader. Docker CPU and memory
+limits are observed directly. The fixture supplies disk capacity inputs.
 
 The record includes source and binary digests, S3 probes, running resource
 settings, disk mounts and exit states. Logs and disks remain available after

@@ -12,6 +12,15 @@ pub(super) async fn node_named(
     application: Arc<dyn Application>,
     label: &str,
 ) -> Result<Node> {
+    node_with_peer_key(directory, application, label, [11; 32]).await
+}
+
+pub(super) async fn node_with_peer_key(
+    directory: &Path,
+    application: Arc<dyn Application>,
+    label: &str,
+    peer_key: [u8; 32],
+) -> Result<Node> {
     let classes = vec![];
     let filesystem = Arc::new(cellar_ltx::DirectFileSystem);
     let shutdown = ShutdownPolicy::default();
@@ -53,7 +62,7 @@ pub(super) async fn node_named(
     );
     config.shutdown = shutdown;
     let peer_http = reqwest::Client::builder().no_proxy().build()?;
-    let peer_auth = Arc::new(PeerAuth::new([11; 32], label)?);
+    let peer_auth = Arc::new(PeerAuth::new(peer_key, label)?);
     let fleet = bucket
         .map(|bucket| -> Result<NodeFleet> {
             Ok(NodeFleet {

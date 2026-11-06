@@ -211,6 +211,17 @@ pub(super) async fn observe_leader(
     minimum_term: u64,
     receipt: &Value,
 ) -> Result<(usize, u64, Vec<VoterObservation>)> {
+    observe_members(client, addresses, &[1, 2, 3], killed, minimum_term, receipt).await
+}
+
+pub(super) async fn observe_members(
+    client: &reqwest::Client,
+    addresses: &[ManagedIngress],
+    members: &[u64; 3],
+    killed: Option<usize>,
+    minimum_term: u64,
+    receipt: &Value,
+) -> Result<(usize, u64, Vec<VoterObservation>)> {
     tokio::time::timeout(Duration::from_secs(20), async {
         loop {
             let observations = futures_util::future::try_join_all(
@@ -232,7 +243,7 @@ pub(super) async fn observe_leader(
                             .json::<VoterObservation>()
                             .await?;
                         ensure!(
-                            voter.member == index as u64 + 1
+                            voter.member == members[index]
                                 && voter.cells == 2
                                 && receipt["group"].as_str() == Some(voter.group.as_str())
                                 && receipt["group_incarnation"].as_str()
@@ -255,7 +266,10 @@ pub(super) async fn observe_leader(
                         })
                 });
                 if let Some(leader) = agreed {
-                    let index = usize::try_from(leader.member)? - 1;
+                    let index = members
+                        .iter()
+                        .position(|member| *member == leader.member)
+                        .context("observed leader is absent from selected members")?;
                     return Ok((index, leader.term, voters));
                 }
             }

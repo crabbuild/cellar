@@ -12,6 +12,8 @@ use std::{
     time::Duration,
 };
 
+#[path = "cell_group_archive_verifier.rs"]
+mod archive_verifier;
 #[path = "cell_group_managed_fixture_archive.rs"]
 pub mod archives;
 #[path = "cell_group_managed_fixture_cluster.rs"]
