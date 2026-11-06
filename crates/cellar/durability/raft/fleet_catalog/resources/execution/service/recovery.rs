@@ -78,6 +78,7 @@ pub(super) struct Target {
 }
 
 pub(super) struct Recovery {
+    origin: Option<BootBinding>,
     pub detection: super::detection::Detection,
     platform: Arc<dyn FleetFailureRecoveryPlatform>,
     evidence: Arc<dyn FleetIsolatedRepairEvidence>,
@@ -93,6 +94,7 @@ impl Recovery {
         options: FleetFailureRecoveryOptions,
     ) -> Self {
         Self {
+            origin: None,
             detection: super::detection::Detection::new(options.detection.clone()),
             removal: super::removal::Removal::new(options, platform.clone()),
             last: None,
@@ -100,6 +102,15 @@ impl Recovery {
             evidence,
             repair: None,
         }
+    }
+
+    pub(super) fn admit_origin(&mut self, host: &FleetHostAuthorization) -> Result<()> {
+        if !host.state().permits_admitted_movement() {
+            return Err(FleetCatalogError::Conflict);
+        }
+        self.origin = Some(host.boot_binding()?);
+        self.detection.set_origin(host.node());
+        Ok(())
     }
 
     async fn reconcile_completed(
@@ -157,6 +168,14 @@ impl Recovery {
             let active = catalog
                 .run(deadline.remaining()?, async {
                     if catalog.inner.current().await?.token != cut.token {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                    let origin = self.origin.as_ref().ok_or(FleetCatalogError::Closed)?;
+                    let node = NodeId::new(origin.node)
+                        .map_err(|_| FleetCatalogError::Corrupt("recovery origin"))?;
+                    let host = catalog.host_from(cut, node).await?;
+                    if host.boot_binding()? != *origin || !host.state().permits_admitted_movement()
+                    {
                         return Err(FleetCatalogError::Conflict);
                     }
                     let Some(disruption) = catalog.active_disruption(cut).await? else {

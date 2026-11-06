@@ -1484,7 +1484,10 @@ the durable handoff; neither a timeout nor Unavailable can evict a voter.
 
 `start_failure_recovery_service(observer, movement_evidence, repair_evidence,
 platform, options, recovery)` uses the same exclusive Node-owned worker and
-existing probe bounds. It is explicitly enabled and default-off. Installing
+existing probe bounds. It is explicitly enabled and default-off. The worker
+must have an exact rooted boot whose state permits admitted movement actions.
+Each recovery turn revalidates that authority before changing the catalog or
+calling the platform. Installing
 `FleetFailureRecoveryPlatform` authorizes permanent isolation of a failed boot;
 operators must select and authenticate that deployment integration.
 `FleetDockerIsolation` supplies a Linux Docker/Colima adapter for exclusively

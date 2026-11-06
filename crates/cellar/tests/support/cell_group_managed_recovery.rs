@@ -358,6 +358,38 @@ async fn recover(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
             failed: boot.clone(),
             calls: AtomicUsize::new(0),
         });
+        let registered = peer_fixture(f, 8).await?;
+        let registered_root = tempfile::tempdir()?;
+        let registered_node = start_node(
+            registered_root.path(),
+            registered.application.clone(),
+            &registered.spec.label,
+        )
+        .await?;
+        let (config, services) = registered
+            .config(&registered_node, LogOpenMode::Create, 42)
+            .await?;
+        let inspection = registered_node.start_raft_cells(config, services).await?;
+        let revision = f.catalog.read(TIMEOUT).await?.revision();
+        let baseline = inspection.resource_usage().control;
+        let refused = start(&f.catalog, &inspection, &inputs, &platform, &verifier).await;
+        let refused = match refused {
+            Ok(worker) => {
+                worker.shutdown().await;
+                false
+            }
+            Err(error) => matches!(
+                error.downcast_ref::<FleetCatalogError>(),
+                Some(FleetCatalogError::Conflict)
+            ),
+        };
+        let clean = inspection.resource_usage().control == baseline;
+        registered_node.shutdown(ShutdownMode::Preserve).await?;
+        ensure!(refused && clean && f.catalog.read(TIMEOUT).await?.revision() == revision);
+        ensure!(
+            platform.contexts.lock().unwrap().is_empty(),
+            "registered boot entered isolation"
+        );
         let baseline = observer.resource_usage().control;
         service = Some(start(&f.catalog, observer, &inputs, &platform, &verifier).await?);
         tokio::time::timeout(TIMEOUT * 4, platform.entered.notified())

@@ -98,6 +98,9 @@ impl MovementServiceWork {
         {
             return Err(FleetCatalogError::Closed);
         }
+        if let Some(recovery) = &mut self.recovery {
+            recovery.admit_origin(host)?;
+        }
         let registration = self
             .observer
             .register_control_service(ControlServiceKind::Movement, 2 * ROOT_LIMIT)?;
@@ -120,9 +123,6 @@ impl MovementServiceWork {
         self._registration = Some(registration);
         if let Some(detection) = &mut self.detection {
             detection.set_origin(host.node());
-        }
-        if let Some(recovery) = &mut self.recovery {
-            recovery.detection.set_origin(host.node());
         }
         self.status.send_modify(|status| status.running = true);
         // Keep public cancellation and node drain independent. The node-owned
