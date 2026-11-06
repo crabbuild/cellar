@@ -11,6 +11,7 @@ mod maintenance;
 pub use maintenance::*;
 mod nodes;
 mod records;
+mod transition;
 use crate::application::consensus::RaftCells;
 use crate::asyncrt::{DomainToken, ExecutionDomain};
 use crate::raft::catalog::RangeDirectory;
@@ -19,7 +20,7 @@ use crate::raft::fleet_catalog::{
     FleetCatalog, FleetCatalogError, FleetCursor, FleetRequestIdentity, FleetTopologyIntentRequest,
     FleetTopologyOperation, FleetTopologyPhase, FleetTopologyPolicy,
 };
-use cellar_logic::consensus::{NodeId, ProposalId};
+use cellar_logic::consensus::{NamespaceId, NodeId, ProposalId};
 pub use connection::{RaftFleetConnection, RaftFleetNamespace, RaftFleetNamespaceScope};
 pub use failure::{RaftFleetFailure, RaftFleetFailureCode, RaftFleetOutcome};
 pub use first_group::{
@@ -43,6 +44,7 @@ pub use records::{
     RaftFleetOperation, RaftFleetStatus,
 };
 use std::{sync::Arc, time::Duration};
+pub use transition::RaftFleetTransitionStatus;
 
 type Result<T> = std::result::Result<T, RaftFleetFailure>;
 
@@ -84,6 +86,26 @@ impl RaftFleetControl {
                 .map_err(FleetCatalogError::from)?,
             removal_verification: None,
         })
+    }
+
+    fn managed_namespace(&self, namespace: &str) -> Result<&RangeDirectory> {
+        let id = NamespaceId::new(records::id(namespace)?)
+            .map_err(|_| RaftFleetFailure::invalid("managed namespace ID"))?;
+        let mut found = self
+            .namespaces
+            .iter()
+            .filter(|directory| directory.namespace_config().namespace == id);
+        let directory = found.next().ok_or_else(|| RaftFleetFailure {
+            code: RaftFleetFailureCode::NotFound,
+            outcome: RaftFleetOutcome::NotSubmitted,
+            message: "The namespace is outside configured fleet management.".into(),
+        })?;
+        if found.next().is_some() {
+            return Err(RaftFleetFailure::invalid(
+                "duplicate configured managed namespace",
+            ));
+        }
+        Ok(directory)
     }
 
     pub fn catalog_id(&self) -> &str {

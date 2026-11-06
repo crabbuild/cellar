@@ -10,6 +10,7 @@ use cellar::application::consensus::verification::{
     },
     FleetHistoryState,
 };
+use cellar::sdk::fleet_operations::{RaftFleetControl, RaftFleetFailureCode};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn managed_split_then_merge_replays_late_writes() -> Result<()> {
@@ -103,6 +104,7 @@ pub(super) async fn run(
 ) -> Result<GroupHistory> {
     let fixture = &cluster.fixtures[0];
     let fleet = fixture.catalog.clone();
+    let control = RaftFleetControl::new(&fixture.domain, fleet.clone(), vec![directory.clone()])?;
     let archives = ArchiveInputs {
         domain: fixture.domain.clone(),
         pool: CellGroupArchivePool::new(Default::default())?,
@@ -317,6 +319,25 @@ pub(super) async fn run(
             );
             let unchanged = domain.run(directory.observe()).await??;
             ensure!(unchanged.revision() == view.revision() && unchanged.groups() == 2);
+            let namespace = hex::encode(child.history.namespace.bytes());
+            let operation_id = hex::encode(operation.bytes());
+            let status = control
+                .transition_status(&namespace, &operation_id, TIMEOUT)
+                .await?;
+            ensure!(
+                status.namespace_id == namespace
+                    && status.operation_id == operation_id
+                    && status.phase == Some(TransitionPhase::SealAuthorized)
+                    && status.plan_digest == hex::encode(plan.digest())
+                    && status.fleet_slot_held
+                    && !status.child_archives_verified
+                    && !status.parent_holds_released
+            );
+            let missing = hex::encode([249; 16]);
+            ensure!(
+                matches!(control.transition_status(&namespace, &missing, TIMEOUT).await,
+                    Err(failure) if failure.code == RaftFleetFailureCode::NotFound)
+            );
             let candidate = &cluster.hosts[0];
             let attached = candidate
                 .attach_managed_transfer_child(transition.clone(), child.clone(), TIMEOUT)
@@ -430,6 +451,7 @@ pub(super) async fn run(
         &parents,
         child.history,
         &archives,
+        &control,
     ))
     .await?;
     let voters = &cluster.hosts[..3];
@@ -558,6 +580,7 @@ async fn finish_merge(
     parents: &[GroupRoute; 2],
     child: GroupHistory,
     archives: &ArchiveInputs,
+    control: &RaftFleetControl,
 ) -> Result<()> {
     let fleet = cluster.fixtures[0].catalog.clone();
     let domain = &archives.domain;
@@ -702,6 +725,18 @@ async fn finish_merge(
         released.parent_holds_released()
             && domain.run(directory.active_transition()).await??.is_none()
     );
+    let namespace = hex::encode(child.namespace.bytes());
+    let operation = hex::encode(transition.request.operation);
+    let cleaning = control
+        .transition_status(&namespace, &operation, TIMEOUT)
+        .await?;
+    ensure!(
+        cleaning.phase == Some(TransitionPhase::Retired)
+            && cleaning.child_archives_verified
+            && cleaning.parent_holds_released
+            && cleaning.fleet_slot_held
+            && cleaning.observed_fleet_revision == cut.revision()
+    );
     let completion = FleetRequestIdentity {
         operation: transition.request.operation,
         ..request(247, cut.revision())
@@ -710,6 +745,23 @@ async fn finish_merge(
         .complete_managed_transfer(&cut, &completion, transition, directory, TIMEOUT)
         .await?;
     let settled = &completed.snapshot;
+    let terminal = control
+        .transition_status(&namespace, &operation, TIMEOUT)
+        .await?;
+    ensure!(
+        terminal.observed_fleet_revision == settled.revision()
+            && terminal.phase == cleaning.phase
+            && terminal.plan_digest == cleaning.plan_digest
+            && terminal.parent_holds_released
+            && !terminal.fleet_slot_held
+    );
+    crate::managed_fixture::operator::transition_status(
+        &cluster.fixtures[0],
+        directory,
+        &transition.request.principal,
+        &terminal,
+    )
+    .await?;
     let retirement = released
         .retired_parents()
         .context("merge parent retirement digest")?;

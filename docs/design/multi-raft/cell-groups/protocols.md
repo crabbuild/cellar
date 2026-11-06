@@ -1212,6 +1212,12 @@ Source tombstones remain effective across restart, delayed messages and catalog
 unavailability. The whole transition is one fenced owner operation; concurrent
 controllers reconcile the same journal instead of selecting different children.
 
+`cellar raft fleet transition status NAMESPACE_HEX --operation-id OP_HEX --catalog-id DIGEST`
+reads the admitted plan digest, directory phase and Fleet slot at its observed
+revision. Use the Fleet catalog ID from `cellar raft fleet status`. Directory
+cleanup can finish while the Fleet slot is still held, so the phase and slot
+are reported separately.
+
 | Failure | Required behavior |
 | --- | --- |
 | Controller lost before seal authorization | Resume or CAS Prepared to Cancelled; seal authorization and cancellation compete on the same journal state. Revoke child activation permits before releasing reservations. |

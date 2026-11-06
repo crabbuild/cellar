@@ -82,6 +82,24 @@ pub(crate) async fn operation(
     })
 }
 
+pub(crate) async fn transition(
+    State(console): State<Arc<Console>>,
+    Extension(principal): Extension<Principal>,
+    Path((fleet, namespace, operation)): Path<(String, String, String)>,
+) -> Result<Response, ApiError> {
+    principal.require(&fleet, Permission::MetadataRead)?;
+    Ok(match backend(&console, &fleet) {
+        Ok(control) => match control
+            .transition_status(&namespace, &operation, TIMEOUT)
+            .await
+        {
+            Ok(value) => Json(value).into_response(),
+            Err(error) => failure(error),
+        },
+        Err(error) => failure(error),
+    })
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Page {

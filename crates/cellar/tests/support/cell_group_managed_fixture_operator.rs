@@ -16,27 +16,59 @@ pub(super) async fn provision(
     voter: &RaftCells,
     setup: RaftManagedFirstGroupRequest,
 ) -> Result<FleetGroupAuthorization> {
+    let root = tempfile::tempdir()?;
+    let cli = open_cli(f, directory, root.path(), &setup.reservation.principal).await?;
+    let result = exercise(f, &cli, root.path(), voter, setup).await;
+    cli.close().await?;
+    result
+}
+
+async fn open_cli(
+    fixture: &Fixture,
+    directory: &RangeDirectory,
+    root: &Path,
+    principal: &str,
+) -> Result<OperatorCli> {
     let bucket = Bucket::from_clients(
-        f.store.clone(),
-        f.store.clone(),
+        fixture.store.clone(),
+        fixture.store.clone(),
         Arc::new(NoListing),
         StorageBackend::S3,
         "managed-component".into(),
         "tenant/".into(),
     )?;
-    let control = RaftFleetControl::new(&f.domain, f.catalog.clone(), vec![directory.clone()])?;
+    let control = RaftFleetControl::new(
+        &fixture.domain,
+        fixture.catalog.clone(),
+        vec![directory.clone()],
+    )?;
+    OperatorCli::start(&fixture.domain, bucket, control, root, principal).await
+}
+
+pub(crate) async fn transition_status(
+    fixture: &Fixture,
+    directory: &RangeDirectory,
+    principal: &str,
+    expected: &RaftFleetTransitionStatus,
+) -> Result<()> {
     let root = tempfile::tempdir()?;
-    let cli = OperatorCli::start(
-        &f.domain,
-        bucket,
-        control,
-        root.path(),
-        &setup.reservation.principal,
-    )
-    .await?;
-    let result = exercise(f, &cli, root.path(), voter, setup).await;
+    let cli = open_cli(fixture, directory, root.path(), principal).await?;
+    let result = cli
+        .call(
+            &[
+                "transition",
+                "status",
+                &expected.namespace_id,
+                "--operation-id",
+                &expected.operation_id,
+            ],
+            READER,
+        )
+        .await;
     cli.close().await?;
-    result
+    let observed: RaftFleetTransitionStatus = serde_json::from_value(result?.success()?)?;
+    ensure!(observed == *expected);
+    Ok(())
 }
 
 async fn exercise(

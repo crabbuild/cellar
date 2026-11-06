@@ -146,6 +146,12 @@ pub struct ReopenedManagedCellGroupTransition {
     pub journal: Option<TransitionJournal>,
 }
 
+pub(crate) struct ManagedTransitionObservation {
+    pub(crate) fleet_revision: u64,
+    pub(crate) fleet_slot_held: bool,
+    pub(crate) transition: ReopenedManagedCellGroupTransition,
+}
+
 impl FleetCatalog {
     /// Reopen an admitted transition by operation ID. This reads the original
     /// fleet request and canonical plan bytes even after the caller loses its
@@ -156,6 +162,18 @@ impl FleetCatalog {
         operation: ProposalId,
         timeout: Duration,
     ) -> Result<Option<ReopenedManagedCellGroupTransition>> {
+        Ok(self
+            .observe_managed_transition(directory, operation, timeout)
+            .await?
+            .map(|observation| observation.transition))
+    }
+
+    pub(crate) async fn observe_managed_transition(
+        &self,
+        directory: &RangeDirectory,
+        operation: ProposalId,
+        timeout: Duration,
+    ) -> Result<Option<ManagedTransitionObservation>> {
         self.run(
             timeout,
             Box::pin(async {
@@ -193,10 +211,14 @@ impl FleetCatalog {
                         "released managed transition has no terminal decision",
                     ));
                 }
-                Ok(Some(ReopenedManagedCellGroupTransition {
-                    request: record.request.clone(),
-                    plan,
-                    journal,
+                Ok(Some(ManagedTransitionObservation {
+                    fleet_revision: current.revision(),
+                    fleet_slot_held: active,
+                    transition: ReopenedManagedCellGroupTransition {
+                        request: record.request.clone(),
+                        plan,
+                        journal,
+                    },
                 }))
             }),
         )

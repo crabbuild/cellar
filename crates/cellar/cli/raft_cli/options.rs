@@ -27,6 +27,7 @@ cellar raft fleet first-group archive NAMESPACE_HEX --plan PLAN.json --request-i
 cellar raft fleet first-group apply NAMESPACE_HEX --plan SETUP.json
 cellar raft fleet status --fleet F --admin-url URL [--json]
 cellar raft fleet rebalance --keep NODE_HEX,... --policy POLICY.json --operation-id OP_HEX --expected-revision R [--wait]
+cellar raft fleet transition status NAMESPACE_HEX --operation-id OP_HEX
 cellar raft fleet operation status OP_HEX
 cellar raft fleet operation progress OP_HEX [--cursor TOKEN] [--limit 64]
 cellar raft fleet operation wait OP_HEX [--timeout-seconds 600]
@@ -64,6 +65,7 @@ pub(super) enum Action {
     NodeCapacity(String, Box<RaftFleetNodeCapacity>, bool),
     Begin(RaftFleetBegin),
     Operation(String),
+    TransitionStatus(String, String),
     Progress(String, Option<String>, usize),
     Wait(String),
     Cancel(String, RaftFleetCancel),
@@ -101,6 +103,12 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
             .ok_or_else(|| invalid("missing first group command"))?;
         let namespace = args.next().ok_or_else(|| invalid("missing namespace ID"))?;
         (format!("first_group_{verb}"), Some(namespace))
+    } else if command == "transition" {
+        let verb = args
+            .next()
+            .ok_or_else(|| invalid("missing transition command"))?;
+        let namespace = args.next().ok_or_else(|| invalid("missing namespace ID"))?;
+        (format!("transition_{verb}"), Some(namespace))
     } else if command == "operation" {
         let command = args
             .next()
@@ -221,6 +229,17 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
         validate_catalog(pin)?;
     }
     let action = match (command.as_str(), target) {
+        ("transition_status", Some(namespace)) if !wait && cursor.is_none() => {
+            validate_id(&namespace)?;
+            let operation = operation_id
+                .take()
+                .ok_or_else(|| invalid("--operation-id is required"))?;
+            validate_id(&operation)?;
+            if catalog_id.is_none() {
+                return Err(invalid("--catalog-id from fleet status is required"));
+            }
+            Action::TransitionStatus(namespace, operation)
+        }
         ("first_group_standby", Some(namespace)) if !wait && cursor.is_none() => {
             validate_id(&namespace)?;
             if catalog_id.is_none() {

@@ -8,7 +8,7 @@ use crate::raft::{
 };
 use cellar_logic::{
     cell_group::{CellRange, GroupHistory, RouteEpoch},
-    consensus::{GroupId, IncarnationId, MemberId, NamespaceId},
+    consensus::{GroupId, IncarnationId, MemberId},
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -228,7 +228,7 @@ impl RaftFleetControl {
         namespace: &str,
         timeout: Duration,
     ) -> Result<RaftFleetFirstGroupStandby> {
-        let directory = self.first_group_directory(namespace)?;
+        let directory = self.managed_namespace(namespace)?;
         let standby = self
             .catalog
             .observe_managed_standby_at(directory, timeout)
@@ -249,7 +249,7 @@ impl RaftFleetControl {
     ) -> Result<RaftFleetFirstGroupAcceptance> {
         plan.validate(namespace)?;
         self.check_catalog(&plan.catalog_id)?;
-        let directory = self.first_group_directory(namespace)?;
+        let directory = self.managed_namespace(namespace)?;
         let setup = plan.setup(principal, directory)?;
         self.catalog
             .reserve_managed_first_group_at(directory, setup, timeout)
@@ -272,7 +272,7 @@ impl RaftFleetControl {
         request.validate(namespace)?;
         let plan = &request.plan;
         self.check_catalog(&plan.catalog_id)?;
-        let directory = self.first_group_directory(namespace)?;
+        let directory = self.managed_namespace(namespace)?;
         let setup = plan.setup(principal, directory)?;
         let confirmation =
             plan.identity(principal, &request.request_id, request.expected_revision)?;
@@ -302,7 +302,7 @@ impl RaftFleetControl {
         request.validate(namespace)?;
         let plan = &request.plan;
         self.check_catalog(&plan.catalog_id)?;
-        let directory = self.first_group_directory(namespace)?;
+        let directory = self.managed_namespace(namespace)?;
         let setup = plan.setup(principal, directory)?;
         let identity = plan.identity(principal, &request.request_id, request.expected_revision)?;
         let turn = Turn::new(&self.domain, timeout)?;
@@ -324,25 +324,5 @@ impl RaftFleetControl {
             request.expected_revision,
             RaftFleetFirstGroupStage::ArchiveInitialized,
         ))
-    }
-
-    fn first_group_directory(&self, namespace: &str) -> Result<&RangeDirectory> {
-        let id = NamespaceId::new(records::id(namespace)?)
-            .map_err(|_| RaftFleetFailure::invalid("first group namespace ID"))?;
-        let mut found = self
-            .namespaces
-            .iter()
-            .filter(|directory| directory.namespace_config().namespace == id);
-        let directory = found.next().ok_or_else(|| RaftFleetFailure {
-            code: RaftFleetFailureCode::NotFound,
-            outcome: RaftFleetOutcome::NotSubmitted,
-            message: "The namespace is outside configured fleet management.".into(),
-        })?;
-        if found.next().is_some() {
-            return Err(RaftFleetFailure::invalid(
-                "duplicate configured first group namespace",
-            ));
-        }
-        Ok(directory)
     }
 }

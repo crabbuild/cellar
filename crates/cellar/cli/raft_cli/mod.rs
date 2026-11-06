@@ -235,6 +235,24 @@ async fn execute(options: &options::Options) -> Result<Value> {
             }
             serde_json::to_value(view).map_err(|_| unavailable())
         }
+        Action::TransitionStatus(namespace, operation) => {
+            let view = client
+                .get::<RaftFleetTransitionStatus>(
+                    &format!("namespaces/{namespace}/transitions/{operation}"),
+                    None,
+                    None,
+                    timeout,
+                )
+                .await?;
+            check_catalog(options.catalog_id.as_deref(), &view.catalog_id)?;
+            if view.namespace_id != *namespace
+                || view.operation_id != *operation
+                || view.observed_fleet_revision == 0
+            {
+                return Err(unavailable());
+            }
+            serde_json::to_value(view).map_err(|_| unavailable())
+        }
         Action::Operation(id) => {
             let view = client
                 .get::<RaftFleetOperation>(&format!("operations/{id}"), None, None, timeout)
