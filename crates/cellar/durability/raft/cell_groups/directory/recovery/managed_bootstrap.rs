@@ -23,13 +23,13 @@ pub(in crate::raft::catalog::range_directory) struct ManagedRecoveryStartup {
 impl RangeDirectory {
     /// A retained seed can keep its verified images on boot without starting
     /// Raft. Publication and attachment still require independent Fleet authority.
-    pub(crate) async fn require_parked_managed_recovery(
+    pub(crate) async fn park_retained_managed_recovery(
         &self,
         group: &GroupLog<GroupHistory>,
         marker: &GroupManifest,
         history: &FleetHistory,
         engine: EngineInstanceId,
-    ) -> Result<(), CatalogError> {
+    ) -> Result<bool, CatalogError> {
         self.bounded(async {
             let local = group.identity();
             let route = marker.route();
@@ -42,18 +42,24 @@ impl RangeDirectory {
                 return Err(CatalogError::Fenced);
             }
             let (view, _) = self.current().await?;
-            let lock = view.head.recovery.as_ref().ok_or(CatalogError::Fenced)?;
-            let publication = match &lock.phase {
-                RecoveryPhase::ManagedSource { .. } if !lock.blocks_startup(self, route)? => None,
-                RecoveryPhase::ManagedPublished {
-                    replacement,
-                    publication,
-                    ..
-                } if *replacement == plan && lock.blocks_startup(self, route)? => {
-                    self.selected_route_in(&view, route).await?;
-                    Some(*publication)
-                }
-                _ => return Err(CatalogError::Fenced),
+            let publication = match view.head.recovery.as_deref() {
+                Some(lock) => match &lock.phase {
+                    RecoveryPhase::ManagedSource { .. } if !lock.blocks_startup(self, route)? => {
+                        None
+                    }
+                    RecoveryPhase::ManagedPublished {
+                        replacement,
+                        publication,
+                        ..
+                    } if *replacement == plan && lock.blocks_startup(self, route)? => {
+                        self.selected_route_in(&view, route).await?;
+                        Some(*publication)
+                    }
+                    _ if marker.is_active() => return Ok(false),
+                    _ => return Err(CatalogError::Fenced),
+                },
+                None if marker.is_active() => return Ok(false),
+                None => return Err(CatalogError::Fenced),
             };
             let (birth, origin) = self.birth_reservation(route).await?;
             if origin != Some(plan)
@@ -74,7 +80,8 @@ impl RangeDirectory {
                 (commitment, publication),
                 local.member,
                 history.binding(),
-            )
+            )?;
+            Ok(true)
         })
         .await
     }
