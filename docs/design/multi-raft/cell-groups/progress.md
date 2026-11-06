@@ -394,8 +394,24 @@ election, retained restart, resumed reads and writes, and quorum-loss refusal.
 The record and process ledger SHA-256 digests are
 `f206ced9602327252bf3c1a7b703560b6aba1513486238a2e773617c0a715c66`
 and `fa00109ae0415db5c26964eec971eb16cef2a11cae7a5edc4dcc0deab1628f51`.
-The constrained Linux rerun uses `848264e9d6d9aa17118f0e789726e44780cea7ed`
-for both image modes with Docker-fenced repair and joined drain.
+The constrained Linux rerun at `848264e9d6d9aa17118f0e789726e44780cea7ed`
+passed both image modes in 236.370 and 103.031 seconds. Each mode verified
+three live RustFS leases and passed native and Axum SQL, hard leader loss,
+retained restart, archive-payload outage, failed-voter repair and joined
+replacement leader drain. The surviving quorum served strong reads and
+refused quorum-dependent requests after another voter stopped. The voters
+used separate Linux containers and disks in one VM. The suite record SHA-256
+is `195da0b33169f2fb336b3d39f35f51f67db6fe24f378ed5b351577c29dd3034c`.
+
+The public SDK suite at that same revision had four passes, two failures
+and one opt-in RustFS skip in 541.03 seconds. Ingress authority timed out
+replaying an explicit S3 receipt after the archive write fault cleared.
+Managed lifecycle reached terminal replacement in extent mode, then timed
+out replaying an explicit S3 receipt. Some owners reported
+`Archive(Expired)` while peers had published through the applied cut.
+Both callers received ambiguous command deadlines. The cause of the
+deadlines remains open. The command log SHA-256 is
+`016b9e42ef31fcb10145fce5e6038efa53364a861e4fdc069b8b25d9cba50508`.
 
 ## CG-07 shared cell version key rotation
 

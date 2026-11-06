@@ -90,7 +90,7 @@ and evidence specified by `plan.py show <task>`.
 
 | Task | Checked-in coverage | Acceptance still required |
 | --- | --- | --- |
-| CG-07 | All five named cases are in `native_cell_groups_public`. All five passed in the latest native run, covering SDK multi-cell and occupancy-one serving, cross-authority refusal, managed lifecycle and existing Bucket/Fleet behavior. | Run the public cases and constrained RustFS daemon campaign at one source with repair, drain, maintenance, retained restart and outage. |
+| CG-07 | All five named cases are in `native_cell_groups_public` and passed at `bcf10c76`. The constrained RustFS daemon passed both image modes at `848264e9`. The public suite at that revision hit two explicit S3 receipt deadlines. | Resolve both deadlines and pass the public cases and constrained daemon campaign at one source with repair, drain, maintenance, retained restart and outage. |
 | CG-09 | `seal_authorization_cancel_race` and `source_seal_blocks_delayed_work` run in the catalog and host targets. Component checkpoints also cover rooted archive holds and managed serving after transfer. | Build the planned transition target. Exercise publication only after destination quorum install and remote closure, restart with one writer, receipt/token/effect continuity, and archive pins through retirement. |
 | CG-10 | Earlier managed split/merge serving passed against RustFS in both image modes. The latest host-native RustFS operator case aborted with a stack overflow. | Resolve the stack overflow and qualify exact union and adjacency, incompatible placement/durability, partial reservations across restart, writes during movement and bounded precopy. |
 | CG-11 | Placement observations and advisory recommendations exist. | Qualify hysteresis, hot-cell isolation, whole-group scale out and in, failure-domain reserve and bounded controller fanout. |
@@ -109,13 +109,12 @@ a committed command and its applied receipt. Explicit S3 durability waits for
 archive proof. The release should define which SQL capabilities are available
 through the shared backend and preserve typed refusals for the rest.
 
-1. **Close CG-07 failed-voter repair and managed lifecycle.** The PR-source
-   materialized campaign passed repair, maintenance, joined drain and quorum
-   refusal. The extent run stopped when both surviving daemons self-fenced
-   after lease renewal timed out against the shared fixture SQLite store.
-   The host-native extent daemon passed with the new RustFS lease prefix,
-   including retained restart and quorum refusal. Pass the constrained
-   campaign with repair and drain in both image modes on one executable source.
+1. **Close CG-07 explicit S3 settlement.** The constrained Linux daemon
+   campaign passed both image modes with RustFS leases, repair, drain,
+   maintenance and quorum refusal. The same-revision public suite timed
+   out replaying explicit S3 receipts after archive outage and after extent
+   voter replacement. Diagnose these deadlines and rerun both public and
+   daemon gates at one executable revision.
 2. **Pass the combined CG-07 RF3 SQL gate.** Use one source revision for
    onboarding, enrollment, ingress-only SDK routing, native and Axum reads and
    writes, leader loss, exact retries, retained restart and quorum refusal.
