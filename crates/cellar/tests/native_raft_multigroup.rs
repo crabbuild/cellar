@@ -1,9 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Legacy multi-group SQL and archive qualification during the cutover.
+//! Legacy archive qualification during the cutover.
 #![allow(clippy::disallowed_methods)]
-#[path = "support/raft_background_admission.rs"]
-mod background_admission;
 #[allow(dead_code)]
 #[path = "support/raft_catalog_fault.rs"]
 mod bundle_faults;
@@ -18,16 +16,6 @@ mod public_node;
 
 use anyhow::{ensure, Result};
 use std::path::Path;
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn background_sql_admits_one_pending_command() -> Result<()> {
-    background_admission::run(false).await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn cancelled_command_waiting_for_background_sql_does_not_execute() -> Result<()> {
-    background_admission::run(true).await
-}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn archive_bundle_group_index() -> Result<()> {

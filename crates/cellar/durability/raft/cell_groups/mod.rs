@@ -2,6 +2,7 @@
 
 //! Complete group-state storage. A synced page is data, not Raft authority.
 
+pub(crate) use super::host_sql::cell_groups::CellSqlStageMode;
 pub use super::host_sql::cell_groups::{
     CellGroupPreparedApply, CellGroupSqlPool, CellSqlEnrollment, CellSqlEnrollmentResolution,
     CellSqlLimits, CellSqlOptions, CellSqlOutcome, CellSqlPrepared, CellSqlQueryResult,

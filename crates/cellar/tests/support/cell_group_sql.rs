@@ -583,7 +583,8 @@ pub(crate) use controller::{
     controller_apply_faults, controller_close, controller_owners, controller_replication,
 };
 pub(crate) use controller_commands::{
-    command_admission_starts_before_poll, owned_command_failure, owned_commands,
+    background_admission, command_admission_starts_before_poll, owned_command_failure,
+    owned_commands,
 };
 
 pub(super) async fn commands_over_tcp(rooted: bool) -> Result<()> {

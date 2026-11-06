@@ -20,6 +20,16 @@ mod runtime_fixture;
 mod checkpoint_fixture;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn background_sql_admits_one_pending_command() -> Result<()> {
+    Box::pin(runtime_fixture::background_admission(false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn command_expired_before_sql_dequeue_does_not_execute() -> Result<()> {
+    Box::pin(runtime_fixture::background_admission(true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn repair_budget_under_load() -> Result<()> {
     Box::pin(runtime_fixture::repair_budget_under_load()).await
 }

@@ -889,7 +889,10 @@ pub(super) use sql::{
     s3_receipt_minimums, s3_receipt_observations, s3_remote_deadlines, s3_remote_outputs,
     s3_remote_slow_delivery,
 };
-pub(super) use sql::{command_admission_starts_before_poll, owned_command_failure, owned_commands};
+pub(super) use sql::{
+    background_admission, command_admission_starts_before_poll, owned_command_failure,
+    owned_commands,
+};
 pub(super) use sql::{
     controller_apply_faults, controller_close, controller_owners, controller_replication,
 };

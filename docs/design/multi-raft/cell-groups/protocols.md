@@ -182,8 +182,10 @@ after destination selection.
 Carry the caller's captured time/random inputs, command identity, request contract,
 retry horizon and remaining deadline to the destination. The controller verifies
 a fresh catalog route against the transmitted group, schema, epoch and birth,
-then checks actual leader authority before entering SQL. It owns accepted work
-independently from the connection. Disconnect, revocation and timeout can suppress
+then checks actual leader authority before entering SQL. The SQL worker checks
+the original invocation deadline when it dequeues a new command, before opening
+its write workspace. It owns work that has started independently from the
+connection. Disconnect, revocation and timeout can suppress
 a reply but cannot prove non-commit or release a producer. Success contains the
 exact committed command identity/result and an authenticated logical cell token;
 conflict, expiration and sequence-gap refusals remain typed. Retain caller reply

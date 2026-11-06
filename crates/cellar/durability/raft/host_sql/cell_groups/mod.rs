@@ -347,6 +347,31 @@ pub struct CellSqlUsage {
     pub completion_reservations: usize,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum CellSqlStageMode {
+    Lookup,
+    Verification,
+    InvokeBefore(u64),
+}
+
+impl CellSqlStageMode {
+    fn verification(allow_new: bool) -> Self {
+        if allow_new {
+            Self::Verification
+        } else {
+            Self::Lookup
+        }
+    }
+
+    fn allows_new(self) -> bool {
+        !matches!(self, Self::Lookup)
+    }
+
+    fn expired(self, now: u64) -> bool {
+        matches!(self, Self::InvokeBefore(deadline) if now >= deadline)
+    }
+}
+
 #[derive(Clone)]
 pub struct CellGroupSqlPool {
     inner: Arc<Handle>,
@@ -570,9 +595,16 @@ impl CellGroupSqlPool {
         input: Vec<u8>,
         allow_new: bool,
     ) -> Result<CellSqlOutcome, ExecutionError> {
-        self.stage_registered_owned(options, authority, attempt, class, input, allow_new)
-            .await
-            .map_err(|failure| failure.error)
+        self.stage_registered_owned(
+            options,
+            authority,
+            attempt,
+            class,
+            input,
+            CellSqlStageMode::verification(allow_new),
+        )
+        .await
+        .map_err(|failure| failure.error)
     }
 
     pub(crate) async fn stage_registered_owned(
@@ -582,13 +614,13 @@ impl CellGroupSqlPool {
         attempt: CommandAttempt,
         class: Arc<crate::application::consensus::RaftClass>,
         input: Vec<u8>,
-        allow_new: bool,
+        mode: CellSqlStageMode,
     ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
         self.stage_compiled_owned(
             options,
             authority,
             attempt,
-            allow_new,
+            mode,
             worker::Callback::Registered {
                 class,
                 input: input.into_boxed_slice(),
@@ -605,13 +637,13 @@ impl CellGroupSqlPool {
         attempt: CommandAttempt,
         class: Arc<crate::application::consensus::RaftClass>,
         input: Vec<u8>,
-        allow_new: bool,
+        mode: CellSqlStageMode,
     ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
         self.stage_compiled_owned(
             options,
             authority,
             attempt,
-            allow_new,
+            mode,
             worker::Callback::Registered {
                 class,
                 input: input.into_boxed_slice(),
@@ -626,7 +658,7 @@ impl CellGroupSqlPool {
         options: CellSqlOptions,
         authority: CellExecutionAuthority,
         attempt: CommandAttempt,
-        allow_new: bool,
+        mode: CellSqlStageMode,
         callback: worker::Callback,
     ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
         let worker::Callback::Registered { input, .. } = &callback else {
@@ -637,7 +669,7 @@ impl CellGroupSqlPool {
         if input.len() > options.limits().envelope.max_payload_bytes {
             return Err(CellSqlStageFailure::known(overloaded()));
         }
-        self.stage_owned(options, authority, attempt, allow_new, callback)
+        self.stage_owned(options, authority, attempt, mode, callback)
             .await
     }
 
@@ -649,9 +681,15 @@ impl CellGroupSqlPool {
         allow_new: bool,
         callback: worker::Callback,
     ) -> SqlReply {
-        self.stage_owned(options, authority, attempt, allow_new, callback)
-            .await
-            .map_err(|failure| failure.error)
+        self.stage_owned(
+            options,
+            authority,
+            attempt,
+            CellSqlStageMode::verification(allow_new),
+            callback,
+        )
+        .await
+        .map_err(|failure| failure.error)
     }
 
     async fn stage_owned(
@@ -659,11 +697,11 @@ impl CellGroupSqlPool {
         options: CellSqlOptions,
         authority: CellExecutionAuthority,
         attempt: CommandAttempt,
-        allow_new: bool,
+        mode: CellSqlStageMode,
         callback: worker::Callback,
     ) -> Result<CellSqlOutcome, CellSqlStageFailure> {
         let (cell, action) = self
-            .stage_request(options, authority, attempt, allow_new, callback)
+            .stage_request(options, authority, attempt, mode, callback)
             .map_err(CellSqlStageFailure::known)?;
         let wait = self
             .send(cell, action)
@@ -681,7 +719,7 @@ impl CellGroupSqlPool {
         options: CellSqlOptions,
         authority: CellExecutionAuthority,
         attempt: CommandAttempt,
-        allow_new: bool,
+        mode: CellSqlStageMode,
         callback: worker::Callback,
     ) -> Result<(CellHistory, worker::Action), ExecutionError> {
         self.admit()?;
@@ -719,7 +757,7 @@ impl CellGroupSqlPool {
                 options,
                 authority,
                 attempt,
-                allow_new,
+                mode,
                 callback,
                 lease,
                 bytes,

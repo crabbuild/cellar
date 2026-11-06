@@ -9,7 +9,10 @@ use output::PendingOutput;
 
 use super::*;
 use crate::application::consensus::command_request_digest;
-use crate::raft::execution::{CommandAttempt, CommandRequest};
+use crate::raft::{
+    cell_groups::CellSqlStageMode,
+    execution::{CommandAttempt, CommandRequest},
+};
 use crate::storage::CommandInputs;
 use cellar_logic::consensus::{CommandFailure, CommandId, Durability};
 use cellar_ltx::generation::ImageId;
@@ -583,7 +586,7 @@ impl CellCommandInvocation {
                 command,
                 self.dispatcher.class.clone(),
                 self.request.input.clone(),
-                true,
+                CellSqlStageMode::InvokeBefore(attempt.deadline_ms()),
             )
             .await
         } else {
@@ -593,7 +596,7 @@ impl CellCommandInvocation {
                 command,
                 self.dispatcher.class.clone(),
                 self.request.input.clone(),
-                true,
+                CellSqlStageMode::InvokeBefore(attempt.deadline_ms()),
             )
             .await
         };
@@ -688,7 +691,7 @@ impl CellCommandInvocation {
                     self.command_attempt(origin),
                     self.dispatcher.class.clone(),
                     self.request.input.clone(),
-                    false,
+                    CellSqlStageMode::Lookup,
                 )
                 .await
         } else {
@@ -700,7 +703,7 @@ impl CellCommandInvocation {
                     self.command_attempt(origin),
                     self.dispatcher.class.clone(),
                     self.request.input.clone(),
-                    false,
+                    CellSqlStageMode::Lookup,
                 )
                 .await
         }

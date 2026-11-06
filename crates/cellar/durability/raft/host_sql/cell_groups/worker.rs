@@ -19,7 +19,7 @@ pub(super) struct Stage {
     pub options: CellSqlOptions,
     pub authority: CellExecutionAuthority,
     pub attempt: CommandAttempt,
-    pub allow_new: bool,
+    pub mode: CellSqlStageMode,
     pub callback: Callback,
     pub lease: CellLease,
     pub bytes: Arc<Bytes>,
@@ -140,14 +140,23 @@ impl Cells {
             _ => crate::raft::performance::Operation::SqlOther,
         };
         let timer = performance.timer(operation);
-        let result = if stopped.load(Ordering::Acquire) || domain.mono_ms().is_err() {
-            queued.finish(false);
-            Err(unavailable())
-        } else {
-            queued.finish(true);
-            match action {
-                Action::Query(query) => super::query::run(*query, domain),
-                action => self.run(cell, action, max),
+        let result = match domain.mono_ms() {
+            Ok(now) if !stopped.load(Ordering::Acquire) => {
+                queued.finish(true);
+                match action {
+                    // The public waiter can expire while unrelated physical
+                    // work holds this worker. Keep the original admission
+                    // fence through dequeue, before opening a private writer.
+                    Action::Stage(stage) if stage.mode.expired(now) => Err(
+                        crate::raft::execution::authority_failure(RuntimeError::DeadlineExceeded),
+                    ),
+                    Action::Query(query) => super::query::run(*query, domain),
+                    action => self.run(cell, action, max),
+                }
+            }
+            _ => {
+                queued.finish(false);
+                Err(unavailable())
             }
         };
         // A lost receiver drops only the delivery. Pending owns both the
@@ -175,7 +184,7 @@ impl Cells {
                     options,
                     authority,
                     attempt,
-                    allow_new,
+                    mode,
                     callback,
                     lease,
                     mut bytes,
@@ -183,6 +192,7 @@ impl Cells {
                 if authority.cell().version.history != cell {
                     return Err(ExecutionError::Invalid("SQL cell history"));
                 }
+                let allow_new = mode.allows_new();
                 let max_result = options.limits().max_result_bytes;
                 let mut executor = options.open(authority)?;
                 let result = match callback {

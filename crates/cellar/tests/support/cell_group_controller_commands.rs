@@ -8,6 +8,10 @@ use std::sync::{
     Mutex,
 };
 
+#[path = "cell_group_background_admission.rs"]
+mod background;
+pub(crate) use background::run as background_admission;
+
 async fn wait_for(mut predicate: impl AsyncFnMut() -> Result<bool>) -> Result<()> {
     tokio::time::timeout(Duration::from_secs(15), async {
         while !predicate().await? {
