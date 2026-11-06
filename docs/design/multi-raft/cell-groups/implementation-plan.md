@@ -6,6 +6,8 @@ Purpose: Dependency order and status of the sixteen cell-group implementation ta
 
 Generated from `tasks.json`; print again with `plan.py index` after status changes.
 A task reaches DONE when its source-bound acceptance evidence passes.
+CG-07 gates the default shared-group backend for new SQL namespaces.
+CG-15 and CG-16 gate the full release.
 
 Start with the [quorum SQL delivery priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next release gate and [progress](progress.md) for exact qualification results.

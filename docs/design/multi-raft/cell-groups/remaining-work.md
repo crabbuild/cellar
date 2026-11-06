@@ -92,19 +92,21 @@ through the shared backend and preserve typed refusals for the rest.
 
 1. **Close CG-07 failed-voter repair and managed lifecycle.** The constrained
    Linux RustFS repair admits movement with the corrected standby disk budget.
-   Run the worker on an exact boot authorized to send movement actions, then
-   prove standby seeding, promotion, a fresh quorum, receipt replay and capacity
-   settlement. Exercise drain, maintenance stop/return/resume and retained
+   The native guard now refuses recovery from an unauthorized boot, and the
+   Linux fixture runs its worker on an Active voter. Qualify standby seeding,
+   promotion, a fresh quorum, receipt replay and capacity settlement in both
+   image modes. Exercise drain, maintenance stop/return/resume and retained
    nonvoting inventory through the public operators.
 2. **Pass the combined CG-07 RF3 SQL gate.** Use one source revision for
    onboarding, enrollment, ingress-only SDK routing, native and Axum reads and
    writes, leader loss, exact retries, retained restart and quorum refusal.
    Verify continued quorum writes during archive-payload outage with catalog
    access available, plus explicit S3 refusal and recovery. The directory
-   suite passed all 16 cases and the Fleet permit suite passed all eight after
-   their shared-group ports. Port the reads suite and other remaining native
-   consumers and close the public CI gates before
-   defaulting supported SQL in fresh namespaces to shared groups.
+   suite passed all 16 cases. The Fleet permit port passed all eight cases on
+   its original source. A later full-suite rerun hit an S3 receipt deadline and
+   passed the case in isolation. Resolve that deadline, finish the reads suite
+   and remaining native ports, and pass public CI before making shared groups
+   the default for supported SQL in new namespaces.
 3. **Finish CG-09/10 operator split and merge.** Connect admission, archive
    preparation, source sealing and destination publication. Prove restart
    reconciliation of partial reservations and seals.

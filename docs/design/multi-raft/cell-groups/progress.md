@@ -122,6 +122,14 @@ It verifies peer and S3 learner installs, callback suppression, and retained
 capacity debt when a restarted voter cannot attest its former boot. The command
 log SHA-256 is `ddfecfc85d3125365d7c80a96246b00af94ff5d1c1065c725060b71b6aa1fc55`.
 
+At `987a7247`, the same suite passed seven cases and timed out waiting
+for an S3 command receipt in
+`fleet_permit_legacy_startup_cannot_seed_managed_history`. The isolated retry
+passed in 18.48 seconds. The full-suite timeout remains open. The suite and
+retry log SHA-256 digests are
+`217f84fe6493b4e11e0747616fa42cc5241d5b9a2a0235e82bc9f8833b3bd53b`
+and `803b5ad45836b7edfc1931028a51be63ebe2592f2a1bbbbc9094f1f5c6be8c30`.
+
 ## CG-07 constrained Linux failed-voter repair attempt
 
 The separate repair candidate at `c97a5be76b3a05747a52d80d8442260438c900fd`
