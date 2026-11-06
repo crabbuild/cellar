@@ -24,6 +24,14 @@ mod rustfs;
 include!("support/cell_group_engine_fixture.rs");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn archived_progress_wakes_commands_without_maintenance_poll() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(runtime_fixture::archive_progress_wakes_commands(rooted)).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 #[ignore = "requires isolated local RustFS; tools/multi-raft/cell_groups.py"]
 async fn rustfs_quorum_continues_bounded_s3_outage() -> Result<()> {
     for rooted in [false, true] {

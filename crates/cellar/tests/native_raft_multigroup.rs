@@ -6,8 +6,6 @@
 #![allow(clippy::disallowed_methods)]
 #[path = "support/raft_archive_reclaim.rs"]
 mod archive_reclaim;
-#[path = "support/raft_archive_wakeup.rs"]
-mod archive_wakeup;
 #[path = "support/raft_background_admission.rs"]
 mod background_admission;
 #[allow(dead_code)]
@@ -42,11 +40,6 @@ use raft::{prelude::Entry, GetEntriesContext, Storage};
 use std::{path::Path, sync::Arc, time::Duration};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn archived_progress_wakes_commands_without_maintenance_poll() -> Result<()> {
-    archive_wakeup::run().await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn background_sql_admits_one_pending_command() -> Result<()> {
     background_admission::run(false).await
 }
@@ -64,98 +57,6 @@ async fn repair_budget_under_load() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn archive_bundle_group_index() -> Result<()> {
     bundles::run().await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn many_groups_mixed_roles() -> Result<()> {
-    let ids: Vec<u8> = (10..22).collect();
-    let mut cluster = Cluster::new(3, &ids).await?;
-    for (index, &id) in ids.iter().enumerate() {
-        cluster.elect(id, index % 3).await?;
-    }
-    cluster.settled(&ids).await?;
-    for (index, &id) in ids.iter().enumerate() {
-        let leader = index % 3;
-        let receipt = cluster.hosts[leader]
-            .runtime
-            .propose(&scope(id), vec![id], vec![id; 73])
-            .await?;
-        for member in 0..3 {
-            cluster
-                .applied_to(id, member, receipt.position.index.get())
-                .await?;
-            let state = cluster.hosts[member].runtime.status(&scope(id)).await?;
-            assert_eq!(state.is_leader, member == leader);
-            let log = cluster.hosts[member].log.group(&scope(id))?;
-            let entries = log.entries(
-                receipt.position.index.get(),
-                receipt.position.index.get() + 1,
-                None,
-                GetEntriesContext::empty(false),
-            )?;
-            assert_eq!(&entries[0].data[..], &[id; 73]);
-        }
-    }
-    cluster.close().await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn hot_group_fairness() -> Result<()> {
-    let mut cluster = Cluster::new(3, &[10, 11, 12]).await?;
-    cluster.elect(10, 0).await?;
-    cluster.elect(11, 1).await?;
-    cluster.settled(&[10, 11]).await?;
-    // Fill one leader's per-group queue behind a retained apply. Other groups
-    // must still complete writes and a previously unelected group must elect.
-    cluster.hold_apply.insert((0, scope(10).group));
-    cluster.hosts[0]
-        .runtime
-        .propose(&scope(10), vec![1], vec![10; 4096])
-        .await?;
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while cluster.held_apply.is_empty() {
-            cluster.pump().await?;
-        }
-        Ok::<_, anyhow::Error>(())
-    })
-    .await??;
-    let mut flood = tokio::task::JoinSet::new();
-    for index in 0..64u8 {
-        let runtime = cluster.hosts[0].runtime.clone();
-        flood.spawn(async move {
-            runtime
-                .propose(&scope(10), vec![index], vec![index; 4096])
-                .await
-        });
-    }
-    let receipt = cluster.hosts[1]
-        .runtime
-        .propose(&scope(11), vec![2], vec![11; 1024])
-        .await?;
-    for member in 0..3 {
-        cluster
-            .applied_to(11, member, receipt.position.index.get())
-            .await?;
-    }
-    cluster.elect(12, 2).await?;
-    let elected = cluster.hosts[2].runtime.status(&scope(12)).await?;
-    assert!(elected.is_leader && elected.protocol_ready);
-    assert!(
-        !cluster.held_apply.is_empty(),
-        "hot apply remained held throughout independent progress"
-    );
-    // Cancellation drops request waiters; runtime closure physically joins the
-    // retained work. No accepted proposal is claimed to be a committed result.
-    flood.abort_all();
-    while let Some(result) = flood.join_next().await {
-        match result {
-            Ok(result) => {
-                assert!(result.is_ok() || matches!(result, Err(RuntimeError::Overloaded)))
-            }
-            Err(error) => ensure!(error.is_cancelled(), "hot caller panicked: {error}"),
-        }
-    }
-    cluster.close().await
 }
 
 async fn open_batch(

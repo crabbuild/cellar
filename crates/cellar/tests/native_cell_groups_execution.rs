@@ -20,6 +20,16 @@ mod runtime_fixture;
 mod checkpoint_fixture;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn many_groups_mixed_roles() -> Result<()> {
+    Box::pin(runtime_fixture::mixed_roles()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn hot_group_fairness() -> Result<()> {
+    Box::pin(runtime_fixture::hot_group_fairness()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn controller_effects_outbox_retries_lost_receiver_receipt() -> Result<()> {
     Box::pin(runtime_fixture::effect_lost_reply()).await
 }

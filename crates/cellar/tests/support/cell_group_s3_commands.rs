@@ -44,6 +44,7 @@ struct Harness {
 }
 
 enum Resources {
+    SlowMaintenance,
     Retention(CellGroupLogRetentionLimits),
     Storage {
         root: tempfile::TempDir,
@@ -155,6 +156,11 @@ impl Harness {
                     },
                 )?,
         );
+        let mut limits = controller::limits();
+        limits.max_commands = max_commands;
+        if matches!(resources, Some(Resources::SlowMaintenance)) {
+            limits.retry_interval_ms = 60_000;
+        }
         let (mut fixture, route, cell, _) = if let Some(Resources::Retention(retention)) = resources
         {
             let filesystem = Arc::new(DirectFileSystem);
@@ -211,14 +217,7 @@ impl Harness {
         if send_buffer.is_some() {
             fixture.connect_tcp_with_query_buffer(send_buffer).await?;
         }
-        let controllers = controller::start_with_limits(
-            &mut fixture,
-            CellGroupControllerLimits {
-                max_commands,
-                ..controller::limits()
-            },
-        )
-        .await?;
+        let controllers = controller::start_with_limits(&mut fixture, limits).await?;
         controllers[0].archive(archive.clone())?.response().await?;
         archive_controller::published(
             &controllers[0],
@@ -334,6 +333,49 @@ impl Harness {
         drop(self.archive);
         self.fixture.close().await
     }
+}
+
+pub(crate) async fn archive_progress_wakes_commands(rooted: bool) -> Result<()> {
+    let h = Harness::configured_resources(
+        rooted,
+        Arc::new(object_store::memory::InMemory::new()),
+        1,
+        Durability::Quorum,
+        None,
+        None,
+        Some(Resources::SlowMaintenance),
+    )
+    .await?;
+    // Each response must observe its own verified publication. The entire
+    // sequence fits inside one maintenance interval without polling archive
+    // status or issuing a manual archive request between commands.
+    tokio::time::timeout(Duration::from_secs(20), async {
+        let mut previous = LogIndex::new(0);
+        for sequence in 1..=8u64 {
+            let payload = sequence.to_be_bytes();
+            let response = h
+                .command(sequence, &payload, Durability::S3, Duration::from_secs(20))
+                .await?
+                .response()
+                .await?;
+            assert_eq!(response.durability(), Durability::S3);
+            let local = response.local_receipt().context("local S3 receipt")?;
+            assert_eq!(local.receipt.result(), payload);
+            assert!(local.position.index > previous);
+            previous = local.position.index;
+        }
+        let published = h.controllers[0]
+            .archive_status(h.route.history)?
+            .context("archive registration")?
+            .published
+            .context("published archive marker")?;
+        assert!(published.position().index >= previous);
+        assert_eq!(h.calls.load(Ordering::Acquire), 8);
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .context("S3 completion waited for periodic maintenance")??;
+    h.close().await
 }
 
 pub(crate) async fn s3_namespace_minimum(rooted: bool, store: Arc<dyn ObjectStore>) -> Result<()> {
