@@ -85,6 +85,41 @@ pub struct FleetHistory {
 }
 
 impl FleetHistory {
+    pub(super) fn reserved_group(
+        binding: FleetGroupBinding,
+        directory: &RangeDirectory,
+        proposal: &CellGroupBirthRequest,
+        request: &FleetRequestIdentity,
+    ) -> Result<Self> {
+        if !binding.matches_scope(&proposal.route().history) {
+            return Err(FleetCatalogError::Conflict);
+        }
+        let namespace = directory.namespace();
+        let history = Self {
+            binding,
+            schema_digest: namespace.config().schema_digest,
+            namespace_root: namespace.root_digest(),
+            birth_digest: proposal.route().birth_digest,
+            lower: bound_key(proposal.route().range.lower()),
+            upper: bound_key(proposal.route().range.upper()),
+            epoch: proposal.route().epoch.get(),
+            creation: proposal.creation().bytes(),
+            admission: request.id,
+            operation: request.operation,
+            voters: proposal
+                .voters()
+                .iter()
+                .copied()
+                .map(Member::from)
+                .collect(),
+            learners: vec![],
+            state: FleetHistoryState::Reserved,
+            origin: Origin::Managed,
+        };
+        history.validate()?;
+        Ok(history)
+    }
+
     pub(super) fn cancelled_group(
         binding: FleetGroupBinding,
         directory: &RangeDirectory,
@@ -578,28 +613,12 @@ impl FleetCatalog {
             let proposal = directory
                 .prepare_fleet_group_birth(proposal, &owner)
                 .map_err(catalog_error)?;
-            let history = FleetHistory {
-                binding: self.binding(&proposal.route().history)?,
-                schema_digest: namespace.config().schema_digest,
-                namespace_root: namespace.root_digest(),
-                birth_digest: proposal.route().birth_digest,
-                lower: bound_key(proposal.route().range.lower()),
-                upper: bound_key(proposal.route().range.upper()),
-                epoch: proposal.route().epoch.get(),
-                creation: proposal.creation().bytes(),
-                admission: request.id,
-                operation: request.operation,
-                voters: proposal
-                    .voters()
-                    .iter()
-                    .copied()
-                    .map(Member::from)
-                    .collect(),
-                learners: vec![],
-                state: FleetHistoryState::Reserved,
-                origin: Origin::Managed,
-            };
-            history.validate()?;
+            let history = FleetHistory::reserved_group(
+                self.binding(&proposal.route().history)?,
+                directory,
+                &proposal,
+                request,
+            )?;
             let commit = self
                 .insert_history(
                     snapshot,
@@ -859,6 +878,42 @@ impl FleetCatalog {
             .transpose()
     }
 
+    pub(super) async fn require_unoccupied_birth(
+        &self,
+        snapshot: &FleetSnapshot,
+        history: &FleetHistory,
+        key: &str,
+    ) -> Result<()> {
+        if snapshot.head.history_count >= HISTORY_LIMIT {
+            return Err(FleetCatalogError::Limit);
+        }
+        if self
+            .inner
+            .lookup(snapshot.head.tables[FleetTable::Histories.slot()], key)
+            .await?
+            .is_some()
+            || self
+                .inner
+                .lookup(
+                    snapshot.head.tables[FleetTable::Policy.slot()],
+                    &history.name_key()?,
+                )
+                .await?
+                .is_some()
+            || self
+                .inner
+                .lookup(
+                    snapshot.head.tables[FleetTable::Policy.slot()],
+                    &history.group_key()?,
+                )
+                .await?
+                .is_some()
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        Ok(())
+    }
+
     async fn insert_history(
         &self,
         snapshot: &FleetSnapshot,
@@ -899,33 +954,8 @@ impl FleetCatalog {
             if current.token != snapshot.token || request.expected_revision != snapshot.revision() {
                 return Err(FleetCatalogError::Conflict);
             }
-            if snapshot.head.history_count >= HISTORY_LIMIT {
-                return Err(FleetCatalogError::Limit);
-            }
-            if self
-                .inner
-                .lookup(snapshot.head.tables[FleetTable::Histories.slot()], &key)
-                .await?
-                .is_some()
-                || self
-                    .inner
-                    .lookup(
-                        snapshot.head.tables[FleetTable::Policy.slot()],
-                        &history.name_key()?,
-                    )
-                    .await?
-                    .is_some()
-                || self
-                    .inner
-                    .lookup(
-                        snapshot.head.tables[FleetTable::Policy.slot()],
-                        &history.group_key()?,
-                    )
-                    .await?
-                    .is_some()
-            {
-                return Err(FleetCatalogError::Conflict);
-            }
+            self.require_unoccupied_birth(snapshot, history, &key)
+                .await?;
             if let HistoryAdmission::Reserved(_) = admission {
                 let nodes = self.node_records(snapshot).await?;
                 let mut hosts = BTreeSet::new();
@@ -986,7 +1016,7 @@ fn first_group_intent_key(request: &[u8; 16]) -> String {
     format!("first-group-intents/{}", hex::encode(request))
 }
 
-fn birth_mutation(
+pub(super) fn birth_mutation(
     history: &FleetHistory,
     request: &FleetRequestIdentity,
     key: &str,

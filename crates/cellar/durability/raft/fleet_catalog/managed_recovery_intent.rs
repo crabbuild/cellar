@@ -115,6 +115,10 @@ impl FleetTransitionRecoveryBarrier {
 }
 
 impl FleetTransitionRecoveryIntent {
+    pub(super) fn principal(&self) -> &str {
+        &self.record.principal
+    }
+
     pub(super) fn basis(&self) -> &ManagedRecoveryIntentBasis {
         &self.record.basis
     }

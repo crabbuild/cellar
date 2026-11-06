@@ -1553,7 +1553,7 @@ async fn check_recovery_replacements(
                 voters: (0..3)
                     .map(|offset| {
                         Ok(InitialMember {
-                            node: NodeId::new([199 + offset; 16])?,
+                            node: NodeId::new([50 + offset; 16])?,
                             member: MemberId::new(21 + u64::from(offset))?,
                         })
                     })
@@ -1606,6 +1606,16 @@ async fn check_recovery_replacements(
         matches!(conflict, Err(failure) if failure.code == RaftFleetFailureCode::PayloadConflict)
     );
 
+    let first = plan.births()[0].route().history;
+    let absent =
+        Box::pin(fresh.reserve_transition_recovery_range(namespace, fenced, &plan, first, TIMEOUT))
+            .await;
+    ensure!(matches!(absent, Err(failure) if failure.code == RaftFleetFailureCode::Conflict));
+    Box::pin(check_recovery_voter_reservations(
+        fixture, control, fresh, namespace, fenced, &plan,
+    ))
+    .await?;
+
     let workspace = tempfile::tempdir()?;
     let mut checked = 0;
     for (index, (birth, cut)) in plan.births().iter().zip(fenced.archives()).enumerate() {
@@ -1648,6 +1658,90 @@ async fn check_recovery_replacements(
     }
     ensure!(checked == routed.len());
     Ok(())
+}
+
+async fn check_recovery_voter_reservations(
+    fixture: &Fixture,
+    control: &RaftFleetControl,
+    fresh: &RaftFleetControl,
+    namespace: &str,
+    fenced: &FleetFencedTransitionRecovery,
+    plan: &cellar::sdk::fleet_operations::FleetTransitionRecoveryReplacement,
+) -> Result<()> {
+    let (_, directory) = reopen_merge_controller(fixture).await?;
+    let mut standbys = Vec::new();
+    let checked = Box::pin(async {
+        let mut boots = Vec::new();
+        for id in 50..53 {
+            let peer = peer_fixture(fixture, id).await?;
+            let root = tempfile::tempdir()?;
+            let node = start_node(root.path(), peer.application.clone(), &peer.spec.label).await?;
+            let (config, services) = peer.config(&node, LogOpenMode::Create, id + 100).await?;
+            let host = Box::pin(node.start_raft_cells(config, services)).await?;
+            standbys.push((root, node, host));
+            let (_, _, host) = standbys.last().context("started recovery voter")?;
+            Box::pin(admit_capacity(&peer, host, &directory, id + 110)).await?;
+            let view = host.observe_node(TIMEOUT).await?;
+            ensure!(view.node.groups == 0);
+            boots.push(view.fleet_boot.context("new recovery voter boot")?);
+        }
+
+        let first = plan.births()[0].route().history;
+        fixture
+            .store
+            .fail_fleet_confirmation
+            .store(true, Ordering::Release);
+        let unknown = Box::pin(
+            control.reserve_transition_recovery_range(namespace, fenced, plan, first, TIMEOUT),
+        )
+        .await;
+        ensure!(
+            matches!(unknown, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable)
+        );
+        ensure!(!fixture
+            .store
+            .fail_fleet_confirmation
+            .load(Ordering::Acquire));
+        let mut previous = 0;
+        for birth in plan.births() {
+            let proof = Box::pin(fresh.reserve_transition_recovery_range(
+                namespace,
+                fenced,
+                plan,
+                birth.route().history,
+                TIMEOUT,
+            ))
+            .await?;
+            ensure!(proof.route() == birth.route() && proof.plan_digest() == plan.digest());
+            ensure!(proof.voter_boots() == boots.as_slice());
+            ensure!(proof.applied_revision() > previous);
+            previous = proof.applied_revision();
+        }
+        let replayed = Box::pin(
+            control.reserve_transition_recovery_range(namespace, fenced, plan, first, TIMEOUT),
+        )
+        .await?;
+        ensure!(
+            replayed.applied_revision() < previous && replayed.voter_boots() == boots.as_slice()
+        );
+        Ok::<(), anyhow::Error>(())
+    })
+    .await;
+    let mut shutdown = Ok(());
+    for (_root, node, host) in standbys {
+        let joined = async {
+            ensure!(matches!(
+                node.shutdown(ShutdownMode::Preserve).await?,
+                NodeOutcome::Stopped(_)
+            ));
+            ensure!(host.close().await?.groups_total == 0);
+            Ok::<(), anyhow::Error>(())
+        }
+        .await;
+        shutdown = shutdown.and(joined);
+    }
+    checked?;
+    shutdown
 }
 
 fn check_restored_image(before: CellImagePin, after: CellImagePin) -> Result<()> {

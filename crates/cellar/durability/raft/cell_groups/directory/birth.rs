@@ -364,6 +364,52 @@ impl RangeDirectory {
         .await
     }
 
+    pub(crate) async fn reserve_managed_recovery_identity(
+        &self,
+        request: &CellGroupBirthRequest,
+        owner: &crate::raft::catalog::ManagedBirthOwner,
+        transition: ProposalId,
+        barrier: [u8; 32],
+        plan: [u8; 32],
+    ) -> Result<(), CatalogError> {
+        if plan == [0; 32] || self.namespace.cell_group_owner().await?.as_ref() != Some(owner) {
+            return Err(CatalogError::ManagedAdmissionRequired);
+        }
+        let view = self.observe().await?;
+        if view.digest != barrier
+            || !view
+                .head
+                .recovery
+                .as_ref()
+                .is_some_and(|lock| lock.owns_transition(transition))
+        {
+            return Err(CatalogError::Fenced);
+        }
+        self.reserve_birth_record(
+            request,
+            &wire::BirthReservation {
+                birth: request.encode().to_vec(),
+                recovery: Some(plan),
+            },
+        )
+        .await
+    }
+
+    pub(crate) async fn require_managed_recovery_identity(
+        &self,
+        request: &CellGroupBirthRequest,
+        plan: [u8; 32],
+    ) -> Result<(), CatalogError> {
+        self.bounded(async {
+            let (birth, origin) = self.birth_reservation(request.route()).await?;
+            if origin != Some(plan) || birth.encode() != request.encode() {
+                return Err(CatalogError::Fenced);
+            }
+            Ok(())
+        })
+        .await
+    }
+
     pub(super) async fn reserve_recovery_birth(
         &self,
         request: &super::CellGroupRecoveryRequest,
@@ -510,6 +556,8 @@ impl RangeDirectory {
         if decoded.encode() != request.encode() {
             return Err(CatalogError::Conflict("managed group birth request"));
         }
+        self.bounded(self.require_ordinary_birth_reservation(request.route()))
+            .await?;
         self.materialize_birth(&request).await
     }
 

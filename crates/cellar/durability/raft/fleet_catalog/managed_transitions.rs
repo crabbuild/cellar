@@ -1771,6 +1771,18 @@ impl FleetCatalog {
         mutation: &FleetMutation,
         authority: resources::Authority,
     ) -> Result<()> {
+        if authority != resources::Authority::ManagedRecoveryReservation
+            && mutation.changes.iter().any(|change| {
+                change.table == FleetTable::Policy
+                    && change
+                        .key
+                        .starts_with(super::managed_recovery_reservation::PREFIX)
+            })
+        {
+            return Err(FleetCatalogError::Invalid(
+                "managed recovery reservation authority",
+            ));
+        }
         for change in mutation
             .changes
             .iter()
@@ -1818,6 +1830,7 @@ impl FleetCatalog {
                     authority,
                     resources::Authority::ManagedTransferChildren
                         | resources::Authority::ManagedTransferCompletion
+                        | resources::Authority::ManagedRecoveryReservation
                 ),
                 FleetTable::Admissions => true,
                 FleetTable::Policy => {

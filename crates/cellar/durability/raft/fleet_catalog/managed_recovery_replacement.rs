@@ -155,6 +155,26 @@ impl FleetCatalog {
         .await
     }
 
+    pub(super) async fn require_managed_replacement(
+        &self,
+        fenced: &FleetFencedTransitionRecovery,
+        plan: &FleetTransitionRecoveryReplacement,
+    ) -> Result<()> {
+        let (record, _) = self
+            .inner
+            .read::<Record>(&replacement_key(fenced), KIND, LIMIT)
+            .await?
+            .ok_or(FleetCatalogError::Unconfirmed)?;
+        if !plan.matches_fence(fenced)
+            || record.fence != fenced.request().digest()
+            || record.receipt != fenced.receipt_digest()
+            || hash(&encode(KIND, &record, LIMIT)?) != plan.digest()
+        {
+            return Err(FleetCatalogError::PayloadConflict);
+        }
+        Ok(())
+    }
+
     async fn managed_replacement_view(
         &self,
         directory: &RangeDirectory,

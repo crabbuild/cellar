@@ -10,10 +10,10 @@ use crate::raft::{
         CellGroupTransferTarget, PreparedGroupManifest, PreparedRecoveryData, TransitionPhase,
     },
     fleet_catalog::{
-        FleetFencedTransitionRecovery, FleetRecoveryVoterLineage, FleetTransitionRecoveryBarrier,
-        FleetTransitionRecoveryFenceRequest, FleetTransitionRecoveryIntent,
-        FleetTransitionRecoveryReplacement, ManagedRecoveryIntentBasis, ManagedRecoveryIntentInput,
-        PreparedManagedRecoveryFence,
+        FleetFencedTransitionRecovery, FleetRecoveryRangeReservation, FleetRecoveryVoterLineage,
+        FleetTransitionRecoveryBarrier, FleetTransitionRecoveryFenceRequest,
+        FleetTransitionRecoveryIntent, FleetTransitionRecoveryReplacement,
+        ManagedRecoveryIntentBasis, ManagedRecoveryIntentInput, PreparedManagedRecoveryFence,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -318,6 +318,31 @@ impl RaftFleetControl {
         Ok(self
             .catalog
             .reopen_managed_recovery_replacement(directory, fenced, &self.archive_pool, timeout)
+            .await?)
+    }
+
+    /// Reserve one exact replacement under the active recovery barrier. A
+    /// retry reconciles the rooted range and the originally selected voter boots.
+    #[doc(hidden)]
+    pub async fn reserve_transition_recovery_range(
+        &self,
+        namespace: &str,
+        fenced: &FleetFencedTransitionRecovery,
+        plan: &FleetTransitionRecoveryReplacement,
+        history: cellar_logic::cell_group::GroupHistory,
+        timeout: Duration,
+    ) -> Result<FleetRecoveryRangeReservation> {
+        let directory = self.managed_namespace(namespace)?;
+        Ok(self
+            .catalog
+            .reserve_managed_recovery_range(
+                directory,
+                fenced,
+                plan,
+                history,
+                &self.archive_pool,
+                timeout,
+            )
             .await?)
     }
 

@@ -1492,8 +1492,13 @@ range, bound to that receipt and the exact directory mutation. A controller
 can reopen the plan after losing the write confirmation. Each source image
 is independently copied into its selected replacement store. The new cell
 history starts at sequence one, with the original SQLite bytes and fresh
-genesis witnesses. Prepared data still needs managed capacity admission and
-durable voter seeds before topology publication can proceed.
+genesis witnesses. Fleet reserves each replacement under the existing
+disruption slot. Its rooted receipt binds the exact original voter boots.
+The reservation excludes old node, disk and physical-host identities and
+charges tracked history and movement slots against each current capacity
+attestation. The directory reserves the group identity with its recovery
+origin so ordinary birth cannot initialize it. Voter seeding still needs
+live engine resource checks and durable seed receipts before publication.
 
 For an unpublished transition, choose complete archived parent cuts and reconstruct
 their non-overlapping domain under new groups. For a published transition, require

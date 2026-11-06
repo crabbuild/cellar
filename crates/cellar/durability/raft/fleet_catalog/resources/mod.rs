@@ -58,6 +58,7 @@ pub(super) enum Authority {
     ManagedTransition,
     ManagedTransferChildren,
     ManagedTransferCompletion,
+    ManagedRecoveryReservation,
 }
 mod movement;
 mod records;
@@ -80,6 +81,24 @@ use serde::Deserialize;
 
 // Initial execution profile: two active membership moves fleet-wide and at
 // most two on any node. Queued plan entries are not active resource admissions.
+impl FleetCatalog {
+    pub(super) async fn charge_recovery_movement_slots(
+        &self,
+        snapshot: &FleetSnapshot,
+        slots: &mut std::collections::BTreeMap<NodeId, u32>,
+    ) -> Result<()> {
+        let book = self.resource_book(snapshot).await?;
+        for record in self.resource_rows(snapshot, &book).await? {
+            if let Some(count) = slots.get_mut(&record.node) {
+                *count = count
+                    .checked_add(record.request.peak.engine_slots)
+                    .ok_or(FleetCatalogError::Limit)?;
+            }
+        }
+        Ok(())
+    }
+}
+
 const MAX_MOVES: usize = 2;
 const MAX_SAMPLE_AGE_MS: u64 = 5000;
 const BOOK_KEY: &str = "resource-reservations";
