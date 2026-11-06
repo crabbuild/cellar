@@ -5,6 +5,12 @@
 use super::*;
 
 pub fn counter_class() -> Result<RaftClass> {
+    counter_class_with_callback(|| {})
+}
+
+pub fn counter_class_with_callback(
+    on_command: impl Fn() + Send + Sync + 'static,
+) -> Result<RaftClass> {
     Ok(RaftClass::new("Counter", 1, [81; 32])?
         .initializer([82; 32], |_, sql| {
             sql.execute_batch(
@@ -12,7 +18,8 @@ pub fn counter_class() -> Result<RaftClass> {
             )?;
             Ok(())
         })?
-        .command("Add", [83; 32], |context, input| {
+        .command("Add", [83; 32], move |context, input| {
+            on_command();
             let delta = i64::from_be_bytes(input.try_into()?);
             let current: i64 = context
                 .sql()
