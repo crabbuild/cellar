@@ -2,13 +2,22 @@
 
 //! Cell-group protocol boundary tests. These do not qualify a running group.
 
+use anyhow::Result;
 use cellar::application::consensus::verification::cell_groups::*;
-use cellar::application::consensus::NamespaceId;
+use cellar::application::consensus::verification::{Catalog, CatalogOptions};
 use cellar::application::consensus::{
     ClusterId, GroupId, IncarnationId, LogIndex, LogPosition, ProposalId, Term, VersionError,
     VersionKeys, VersionSigningKey, VersionToken,
 };
-use std::time::Duration;
+use cellar::application::consensus::{NamespaceConfig, NamespaceId, NamespaceMode};
+use std::{
+    sync::{atomic::Ordering, Arc},
+    time::Duration,
+};
+
+#[path = "support/raft_catalog_fault.rs"]
+#[allow(dead_code)]
+mod store;
 
 fn observation() -> CellVersionObservation {
     let history = CellHistory {
@@ -52,6 +61,69 @@ fn keys() -> VersionKeys {
         Duration::from_secs(10),
     )
     .unwrap()
+}
+
+#[tokio::test]
+async fn version_key_rotation_survives_restart_and_ambiguous_catalog_write() -> Result<()> {
+    let observation = observation();
+    let history = &observation.version.history;
+    let schema = [7; 32];
+    let keys = |secret, until, retained| {
+        VersionKeys::new(
+            VersionSigningKey::new([secret; 32], until)?,
+            retained,
+            Duration::from_millis(1000),
+        )
+    };
+    let store = Arc::new(store::Store::default());
+    let catalog = Catalog::new(store.clone(), CatalogOptions::default())?;
+    let namespace = catalog
+        .open_namespace(NamespaceConfig::new(
+            history.cluster,
+            history.namespace,
+            NamespaceMode::Raft,
+            schema,
+        ))
+        .await?;
+    let old = keys(11, 10000, vec![])?;
+    store.fail_after.store(true, Ordering::Release);
+    namespace.require_version_keys(&old, 1000).await?;
+    let token = old.issue_cell(&observation, schema, 1000)?;
+    let next_key = VersionSigningKey::new([12; 32], 20000)?;
+    // Verifier-first rolling deployment: advertise both keys while the old
+    // signer is active, then switch to the new signer with identical trust.
+    let distributed = keys(11, 10000, vec![next_key.verification_key()])?;
+    store.fail_confirmation.store(true, Ordering::Release);
+    assert!(namespace
+        .require_version_keys(&distributed, 1100)
+        .await
+        .is_err());
+    namespace.require_version_keys(&distributed, 1100).await?;
+    let next = VersionKeys::new(
+        next_key,
+        old.verification_keys(),
+        Duration::from_millis(1000),
+    )?;
+    namespace.require_version_keys(&next, 1100).await?;
+    assert_eq!(
+        next.verify_cell(&token, history, schema, 1100)?,
+        observation
+    );
+    assert!(namespace.require_version_keys(&old, 1100).await.is_err());
+    let dropped = keys(12, 20000, vec![])?;
+    assert!(namespace
+        .require_version_keys(&dropped, 1100)
+        .await
+        .is_err());
+    // Reopening the catalog must preserve the same refusal; it cannot rely on
+    // an in-memory history of the previous configuration.
+    let reopened = Catalog::new(store, CatalogOptions::default())?
+        .open_namespace(namespace.config().clone())
+        .await?;
+    assert!(reopened.require_version_keys(&dropped, 1100).await.is_err());
+    reopened.require_version_keys(&dropped, 10000).await?;
+    assert!(next.verify_cell(&token, history, schema, 10000).is_err());
+    Ok(())
 }
 
 #[test]
