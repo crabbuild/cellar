@@ -106,22 +106,27 @@ fn park_cut_survives_advance_and_refuses_checkpoint_regression() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn park_acknowledgement_reopens_and_closes_on_disk() -> anyhow::Result<()> {
+async fn park_acknowledgement_waits_for_sync_and_reopens_closed() -> anyhow::Result<()> {
     use crate::{
         application::consensus::group_protocol::{
             CellGroupEntry, GroupCommand, GroupEntryBinding, GroupEntryLimits,
         },
         asyncrt::ExecutionDomain,
         raft::{
-            cell_groups::{ManifestPageStore, ManifestTree},
-            options::{LogOpenMode, ReplicaLogOptions},
-            storage::CellGroupBootstrap,
+            catalog::{Catalog, CatalogOptions, InitialMember, NamespaceConfig},
+            cell_groups::{
+                CellGroupBirthSpec, CellGroupEffect, CellGroupRuntime, DirectoryLimits,
+                ManifestPageStore, ManifestTree, RangeDirectory,
+            },
+            completion::RuntimeError,
+            options::{LogOpenMode, RaftRuntimeOptions, ReplicaLogOptions},
+            storage_fault as fault,
         },
     };
-    use ::raft::prelude::{Entry, HardState};
+    use ::raft::prelude::{Entry, HardState, Message, MessageType};
     use cellar_logic::consensus::{DiskLineage, NodeId, ProposalId};
     use cellar_ltx::DirectFileSystem;
-    use std::sync::Arc;
+    use std::{sync::Arc, time::Duration};
 
     let directory = tempfile::tempdir()?;
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
@@ -132,22 +137,59 @@ async fn park_acknowledgement_reopens_and_closes_on_disk() -> anyhow::Result<()>
         ProcessGeneration::new([13; 16])?,
         LogOpenMode::Create,
     );
+    options.purge_interval_ms = None;
+    let gate = fault::Gate::new(None);
     let log = domain
         .run(ReplicaLog::open(
             options.clone(),
-            Arc::new(DirectFileSystem),
+            Arc::new(fault::FaultFileSystem { gate: gate.clone() }),
         ))
         .await??;
     let route = marker(1).route().clone();
     let member = MemberId::new(1)?;
-    let group = log
-        .create_cell_group(CellGroupBootstrap {
-            route: route.clone(),
-            member,
-            voters: vec![member, MemberId::new(2)?, MemberId::new(3)?],
-            learners: vec![],
-        })
-        .await?;
+    let leader = MemberId::new(2)?;
+    let catalog = Catalog::new(
+        Arc::new(object_store::memory::InMemory::new()),
+        CatalogOptions::default(),
+    )?;
+    let namespace = domain
+        .run(catalog.open_namespace(NamespaceConfig::new(
+            route.history.cluster,
+            route.history.namespace,
+            cellar_logic::NamespaceMode::Raft,
+            route.schema_digest,
+        )))
+        .await??;
+    let directory_owner = RangeDirectory::new(namespace, DirectoryLimits::default())?;
+    let request = directory_owner.prepare_group_birth(CellGroupBirthSpec {
+        history: route.history,
+        range: route.range,
+        epoch: route.epoch,
+        creation: ProposalId::new([16; 16])?,
+        voters: (1..=3)
+            .map(|n| -> anyhow::Result<_> {
+                Ok(InitialMember {
+                    member: MemberId::new(n)?,
+                    node: NodeId::new([n as u8 + 10; 16])?,
+                })
+            })
+            .collect::<anyhow::Result<_>>()?,
+        learners: vec![],
+    })?;
+    domain
+        .run(directory_owner.reserve_group_birth(&request))
+        .await??;
+    let initialize = directory_owner
+        .prepare_initialization(ProposalId::new([17; 16])?, &[request.route().clone()])?;
+    domain.run(directory_owner.publish(&initialize)).await??;
+    let birth = domain
+        .run(directory_owner.materialize_group_birth(&request))
+        .await??;
+    let permit = domain
+        .run(directory_owner.bootstrap_group_member(&birth, &log))
+        .await??;
+    let group = permit.group().clone();
+    let route = permit.route().clone();
     let at = marker(2).position();
     let generation = ParkGeneration::new(at.index.get())?;
     let membership = MembershipRevision::new(1)?;
@@ -216,19 +258,91 @@ async fn park_acknowledgement_reopens_and_closes_on_disk() -> anyhow::Result<()>
     });
     let hard = HardState {
         term: at.term.get(),
-        vote: member.get(),
+        vote: leader.get(),
         commit: at.index.get(),
         ..Default::default()
     };
     apply.hard_state = Some(hard.clone());
-    apply.group_manifest = Some(prepared);
+    apply.group_manifest = Some(prepared.clone());
     log.persist_cells(operation, vec![apply]).await?;
-    for _ in 0..2 {
-        let receipt = log
-            .persist_cells(operation, vec![acknowledge(&group)])
-            .await?;
-        assert_eq!(receipt.groups, vec![group.identity().clone()]);
-    }
+    let (runtime, mut events) = CellGroupRuntime::start(
+        log.clone(),
+        RaftRuntimeOptions {
+            tick_interval_ms: None,
+            election_seed: Some([18; 32]),
+            ..Default::default()
+        },
+    )
+    .await?;
+    runtime.attach(permit, prepared).await?;
+    assert!(matches!(
+        runtime
+            .acknowledge_park(route.history, leader, cut.clone())
+            .await,
+        Err(RuntimeError::NotReady)
+    ));
+    let mut heartbeat = Message {
+        from: leader.get(),
+        to: member.get(),
+        term: at.term.get(),
+        commit: at.index.get(),
+        ..Default::default()
+    };
+    heartbeat.set_msg_type(MessageType::MsgHeartbeat);
+    runtime.step(route.history, heartbeat).await?;
+    let event = domain
+        .run(crate::asyncrt::timeout(
+            Duration::from_secs(5),
+            events.recv(),
+        ))
+        .await??
+        .expect("heartbeat response");
+    assert!(matches!(
+        event.effect(),
+        Ok(CellGroupEffect::Message(message))
+            if message.get_msg_type() == MessageType::MsgHeartbeatResponse
+    ));
+    drop(event);
+    assert!(matches!(
+        runtime
+            .acknowledge_park(route.history, member, cut.clone())
+            .await,
+        Err(RuntimeError::NotReady)
+    ));
+
+    let release = gate.arm(fault::HOLD_SYNC);
+    let requester = runtime.clone();
+    let history = route.history;
+    let requested_cut = cut.clone();
+    let mut pending = domain.spawn(async move {
+        requester
+            .acknowledge_park(history, leader, requested_cut)
+            .await
+    })?;
+    let entered = domain
+        .run(crate::asyncrt::timeout(
+            Duration::from_secs(5),
+            gate.entered.notified(),
+        ))
+        .await?;
+    let hidden = group.read()?.local_park.is_none();
+    let unresolved = futures_util::poll!(&mut pending).is_pending();
+    drop(release);
+    entered?;
+    assert!(hidden);
+    assert!(unresolved);
+    let receipt = pending.await??;
+    assert_eq!(receipt.voter, *group.identity());
+    assert_eq!(receipt.leader, leader);
+    assert_eq!(receipt.cut, cut);
+    assert_ne!(receipt.sync_sequence, 0);
+    let duplicate = runtime
+        .acknowledge_park(route.history, leader, cut.clone())
+        .await?;
+    assert_eq!(duplicate.voter, receipt.voter);
+    assert_eq!(duplicate.cut, receipt.cut);
+    assert!(duplicate.sync_sequence > receipt.sync_sequence);
+    runtime.close().await?;
     let acknowledged = LocalParkRecord {
         cut: cut.clone(),
         process: options.process.bytes(),

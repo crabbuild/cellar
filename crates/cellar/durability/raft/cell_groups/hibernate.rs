@@ -10,7 +10,9 @@ use crate::raft::{
 };
 use cellar_logic::{
     cell_group::{GroupHistory, MembershipRevision, ParkGeneration},
-    consensus::{LogIndex, LogPosition, MemberId, OperationId, ProcessGeneration, Term},
+    consensus::{
+        LogIndex, LogPosition, MemberId, OperationId, ProcessGeneration, ReplicaIdentity, Term,
+    },
 };
 use serde::{Deserialize, Serialize};
 
@@ -77,6 +79,16 @@ impl GroupParkCut {
     }
 }
 
+/// Physical evidence for one voter. Selection of a park certificate still
+/// requires authenticated acknowledgements from the complete voter set.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ParkAcknowledgement {
+    pub voter: ReplicaIdentity<GroupHistory>,
+    pub leader: MemberId,
+    pub cut: GroupParkCut,
+    pub sync_sequence: u64,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum LocalParkPhase {
@@ -103,6 +115,14 @@ pub(crate) enum LocalParkChange {
 impl LocalParkRecord {
     pub(crate) fn acknowledged(&self) -> bool {
         self.phase == LocalParkPhase::Acknowledged
+    }
+
+    pub(super) fn matches_acknowledgement(
+        &self,
+        cut: &GroupParkCut,
+        process: ProcessGeneration,
+    ) -> bool {
+        self.acknowledged() && &self.cut == cut && self.process == process.bytes()
     }
 
     fn closed(&self) -> Self {
@@ -145,6 +165,27 @@ impl CachedGroup {
             && !self.conf_state.auto_leave
     }
 
+    pub(super) fn admit_park_acknowledgement(
+        &self,
+        cut: &GroupParkCut,
+        member: MemberId,
+        process: ProcessGeneration,
+    ) -> Result<(), LogError> {
+        if !self.quiescent_park_cut(cut)
+            || !self.conf_state.voters.contains(&member.get())
+            || self.local_park.as_ref().is_some_and(|current| {
+                if current.acknowledged() {
+                    !current.matches_acknowledgement(cut, process)
+                } else {
+                    current.cut.generation() >= cut.generation()
+                }
+            })
+        {
+            return Err(LogError::WrongIdentity);
+        }
+        Ok(())
+    }
+
     pub(crate) fn validate_local_park(&self) -> Result<(), LogError> {
         let Some(record) = &self.local_park else {
             return Ok(());
@@ -170,28 +211,18 @@ impl CachedGroup {
         let current = previous.local_park.as_ref();
         match change {
             Some(LocalParkChange::Acknowledge(cut)) => {
-                if !previous.quiescent_park_cut(cut)
-                    || !self.quiescent_park_cut(cut)
+                previous.admit_park_acknowledgement(cut, member, process)?;
+                if !self.quiescent_park_cut(cut)
                     || !self.conf_state.voters.contains(&member.get())
                     || self.hard_state.vote != previous.hard_state.vote
                 {
                     return Err(LogError::WrongIdentity);
                 }
-                let record = LocalParkRecord {
+                self.local_park = Some(LocalParkRecord {
                     cut: cut.clone(),
                     process: process.bytes(),
                     phase: LocalParkPhase::Acknowledged,
-                };
-                if current == Some(&record) {
-                    return Ok(());
-                }
-                if current.is_some_and(|current| {
-                    current.phase != LocalParkPhase::Closed
-                        || current.cut.generation() >= cut.generation()
-                }) {
-                    return Err(LogError::WrongIdentity);
-                }
-                self.local_park = Some(record);
+                });
             }
             Some(LocalParkChange::Close(generation)) => {
                 let record = current

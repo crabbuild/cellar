@@ -13,6 +13,7 @@ struct Group {
     queued: bool,
     deferred: VecDeque<Request>,
     completion: Option<Request>,
+    park_acknowledgement: Option<Request>,
     // One status per current peer, retaining node-wide hint item/byte admission.
     snapshot_hints: BTreeMap<u64, (bool, Permit)>,
     inbound: Arc<Budget>,
@@ -59,6 +60,9 @@ impl Group {
         self.tick = false;
         self.snapshot_hints.clear();
         for request in self.deferred.drain(..) {
+            reply(request, Err(error.clone()));
+        }
+        if let Some(request) = self.park_acknowledgement.take() {
             reply(request, Err(error.clone()));
         }
         if let Some(request) = self.completion.take() {
@@ -221,6 +225,7 @@ impl Worker {
                 queued: false,
                 deferred: VecDeque::new(),
                 completion: None,
+                park_acknowledgement: None,
                 snapshot_hints: BTreeMap::new(),
                 inbound: Budget::new(
                     (self.options.max_request_bytes / 4).max(self.options.max_message_bytes + 4096),
@@ -257,6 +262,33 @@ impl Worker {
         }
         if let Some(error) = &group.failed {
             reply(request, Err(error.clone()));
+            return;
+        }
+        if let Command::AcknowledgePark { leader, cut } = &request.command {
+            // A metadata write can share the physical batch, but must never
+            // overtake an already admitted Raft turn or application completion.
+            if group.tick
+                || !group.deferred.is_empty()
+                || group.completion.is_some()
+                || !group.snapshot_hints.is_empty()
+                || group.pending.is_some()
+                || group.settled.is_some()
+                || group.write.is_some()
+                || self.cell_reads.busy(history)
+            {
+                reply(request, Err(RuntimeError::NotReady));
+                return;
+            }
+            match group.owner.begin_park_acknowledgement(*leader, cut) {
+                Ok((work, bytes)) => {
+                    group.write = Some(work);
+                    group.write_bytes = bytes;
+                    group.park_acknowledgement = Some(request);
+                    self.writes.push_back(history);
+                    self.refresh(history);
+                }
+                Err(error) => reply(request, Err(error)),
+            }
             return;
         }
         if matches!(request.command, Command::Status) {
@@ -764,6 +796,18 @@ impl Worker {
                         ticket: job.work.ticket,
                         sequence: receipt.sequence,
                     })?;
+                    if let Some(request) = group.park_acknowledgement.take() {
+                        let Command::AcknowledgePark { leader, cut } = &request.command else {
+                            return Err(RuntimeError::Protocol(
+                                "park acknowledgement queue".into(),
+                            ));
+                        };
+                        let result = group
+                            .owner
+                            .finish_park_acknowledgement(*leader, cut.clone())
+                            .map(Response::ParkAcknowledgement);
+                        reply(request, result);
+                    }
                     group.wake(job.history, &mut self.order);
                     self.refresh(job.history);
                 }
@@ -923,6 +967,11 @@ impl Worker {
     }
 
     pub(super) async fn finish(&mut self) -> Result<(), RuntimeError> {
+        for group in self.groups.values_mut() {
+            if let Some(request) = group.park_acknowledgement.take() {
+                reply(request, Err(RuntimeError::Closed));
+            }
+        }
         if let Some(io) = self.inflight.take() {
             let batch = io.await;
             batch.2.as_ref().map_err(Clone::clone)?;

@@ -7,7 +7,7 @@ pub(super) mod reads;
 mod worker;
 use leadership::LeadershipBatch;
 
-use super::*;
+use super::{hibernate::ParkAcknowledgement, *};
 use crate::raft::{
     budget::{Budget, Permit},
     completion::RuntimeError,
@@ -17,7 +17,7 @@ use crate::raft::{
     storage::ReplicaLog,
 };
 use ::raft::prelude::Message;
-use cellar_logic::cell_group::GroupHistory;
+use cellar_logic::{cell_group::GroupHistory, consensus::MemberId};
 use protobuf::Message as _;
 use sha2::{Digest, Sha256};
 use std::sync::{
@@ -145,6 +145,10 @@ enum Command {
     ActivateRecovery(Box<CellGroupRecoveryActivationPermit>),
     ActivateTransfer(Box<CellGroupTransferActivationPermit>),
     SealSource(Box<CellGroupSealPermit>),
+    AcknowledgePark {
+        leader: MemberId,
+        cut: GroupParkCut,
+    },
     RetireSource(Box<CellGroupSourceRetirementPermit>),
     Execution(cellar_logic::cell_group::CellHistory),
     NextEffect {
@@ -187,6 +191,7 @@ enum Response {
     RecoveryActivation(Box<CellGroupRecoveryActivation>),
     TransferActivation(CellGroupTransferActivation),
     SourceSeal(Box<CellGroupSealOutcome>),
+    ParkAcknowledgement(ParkAcknowledgement),
     SourceRetirement(CellGroupSourceRetirement),
     Submission(crate::raft::execution::CellSubmissionOutcome),
     Execution(Box<CellExecutionAuthority>),
@@ -778,6 +783,27 @@ impl CellGroupRuntime {
         {
             Response::SourceRetirement(result) => Ok(result),
             _ => Err(RuntimeError::Protocol("source retirement reply".into())),
+        }
+    }
+
+    /// Ask the local RawNode owner to sync its voter acknowledgement. The
+    /// caller still owns peer authentication and certificate assembly.
+    pub(crate) async fn acknowledge_park(
+        &self,
+        history: GroupHistory,
+        leader: MemberId,
+        cut: GroupParkCut,
+    ) -> Result<ParkAcknowledgement, RuntimeError> {
+        match self
+            .call(
+                Some(history),
+                Command::AcknowledgePark { leader, cut },
+                4096,
+            )
+            .await?
+        {
+            Response::ParkAcknowledgement(acknowledgement) => Ok(acknowledgement),
+            _ => Err(RuntimeError::Protocol("park acknowledgement reply".into())),
         }
     }
 

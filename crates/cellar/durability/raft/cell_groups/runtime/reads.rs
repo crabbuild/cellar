@@ -237,6 +237,13 @@ impl Reads {
         }
     }
 
+    /// Pending reads and issued read pins both retain this group's permit.
+    pub(super) fn busy(&self, history: GroupHistory) -> bool {
+        self.groups
+            .get(&history)
+            .is_some_and(|budget| budget.strong_count() != 0)
+    }
+
     pub fn deadline(&self) -> Option<u64> {
         self.pending.values().map(|p| p.request.deadline).min()
     }

@@ -4,8 +4,9 @@
 //! effects; this owner performs no image I/O and starts no per-cell tasks.
 
 use super::{
-    CellGroupBootstrapPermit, GroupManifest, PreparedCellGroupCheckpoint, PreparedGroupManifest,
-    PreparedLocalCellGroupCheckpoint,
+    hibernate::{LocalParkChange, ParkAcknowledgement},
+    CellGroupBootstrapPermit, GroupManifest, GroupParkCut, PreparedCellGroupCheckpoint,
+    PreparedGroupManifest, PreparedLocalCellGroupCheckpoint,
 };
 use crate::application::consensus::group_protocol::{
     CellGroupEntry, GroupCommand, GroupEntryLimits,
@@ -1826,6 +1827,74 @@ impl CellGroupOwner {
         Ok(())
     }
 
+    fn require_park_acknowledgement(
+        &self,
+        leader: MemberId,
+        cut: &GroupParkCut,
+    ) -> Result<(), RuntimeError> {
+        self.live()?;
+        let position = cut.position();
+        if !self.idle()
+            || self.pending_seal.is_some()
+            || self.node.raft.leader_id != leader.get()
+            || self.node.raft.term != position.term.get()
+            || self.node.raft.raft_log.last_index() != position.index.get()
+            || self.node.raft.raft_log.committed != position.index.get()
+            || self.node.raft.raft_log.applied != position.index.get()
+            || self.current.marker().park_cut() != Some(cut)
+            || self.applying.is_some()
+            || !self.apply.is_empty()
+            || self.node.raft.read_only.pending_read_count() != 0
+        {
+            return Err(RuntimeError::NotReady);
+        }
+        let cache = self.group.read()?;
+        let voter = self.group.identity();
+        if cache.group_manifest.as_ref() != Some(self.current.marker())
+            || !cache.conf_state.voters.contains(&leader.get())
+        {
+            return Err(RuntimeError::NotReady);
+        }
+        cache.admit_park_acknowledgement(cut, voter.member, voter.process)?;
+        Ok(())
+    }
+
+    pub(super) fn begin_park_acknowledgement(
+        &mut self,
+        leader: MemberId,
+        cut: &GroupParkCut,
+    ) -> Result<(Box<CellGroupPersist>, usize), RuntimeError> {
+        self.require_park_acknowledgement(leader, cut)?;
+        let mut write = GroupWrite::new(&self.group);
+        write.local_park = Some(LocalParkChange::Acknowledge(cut.clone()));
+        let bytes = write.estimated_bytes()?;
+        let work = self.prepare_persistence(write)?;
+        Ok((work, bytes))
+    }
+
+    pub(super) fn finish_park_acknowledgement(
+        &self,
+        leader: MemberId,
+        cut: GroupParkCut,
+    ) -> Result<ParkAcknowledgement, RuntimeError> {
+        self.require_park_acknowledgement(leader, &cut)?;
+        let voter = self.group.identity().clone();
+        let cache = self.group.read()?;
+        if !cache
+            .local_park
+            .as_ref()
+            .is_some_and(|park| park.matches_acknowledgement(&cut, voter.process))
+        {
+            return Err(RuntimeError::StaleCompletion);
+        }
+        Ok(ParkAcknowledgement {
+            voter,
+            leader,
+            cut,
+            sync_sequence: self.last_sync,
+        })
+    }
+
     pub fn complete_persist(&mut self, completed: CellGroupPersisted) -> Result<(), RuntimeError> {
         self.live()?;
         if self
@@ -1995,17 +2064,25 @@ impl CellGroupOwner {
 
     fn persistence(
         &mut self,
-        mut write: GroupWrite<GroupHistory>,
+        write: GroupWrite<GroupHistory>,
     ) -> Result<CellGroupEffect, RuntimeError> {
+        self.prepare_persistence(write)
+            .map(CellGroupEffect::Persist)
+    }
+
+    fn prepare_persistence(
+        &mut self,
+        mut write: GroupWrite<GroupHistory>,
+    ) -> Result<Box<CellGroupPersist>, RuntimeError> {
         let ticket = self.ticket(LogPosition::default(), [0; 32])?;
         write.log_reservations = self.log_admission.persistence(&write.entries)?;
         write.consensus_pin = Some(self.lease.clone());
         self.waiting = Some(ticket.clone());
-        Ok(CellGroupEffect::Persist(Box::new(CellGroupPersist {
+        Ok(Box::new(CellGroupPersist {
             log: self.log.clone(),
             ticket,
             write,
-        })))
+        }))
     }
 
     fn enqueue(&mut self, entries: Vec<Entry>) -> Result<(), RuntimeError> {
