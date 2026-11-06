@@ -283,6 +283,16 @@ impl Worker {
             );
             return;
         }
+        if matches!(request.command, Command::ObservePartition) {
+            reply(
+                request,
+                group
+                    .owner
+                    .observe_partition()
+                    .map(|value| Response::PartitionObservation(Box::new(value))),
+            );
+            return;
+        }
         if matches!(request.command, Command::ReplicationStatus) {
             reply(
                 request,

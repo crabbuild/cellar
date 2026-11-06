@@ -27,6 +27,48 @@ impl RaftGroupHandle {
         }
     }
 
+    /// Read bounded partition geometry from the selected in-memory manifest.
+    /// No manifest walk, SQLite open, or ReadIndex is performed. Archive lag
+    /// comes from the local archive owner's separate historical observation.
+    pub fn observe_partition(
+        &self,
+        timeout: Duration,
+    ) -> impl Future<Output = Result<CellGroupPartitionObservation, RuntimeError>> + Send + 'static
+    {
+        let deadline = self.control_deadline(timeout);
+        let group = self.clone();
+        async move {
+            let deadline = deadline?;
+            group.control_live(deadline)?;
+            let mut sample = super::drain::within(
+                &group.owner.handle.domain,
+                deadline,
+                group
+                    .owner
+                    .handle
+                    .core
+                    .runtime
+                    .observe_partition(group.history),
+            )
+            .await?;
+            sample.archive_lag_entries = group.archive_status()?.and_then(|status| {
+                if status.stopped || status.error.is_some() {
+                    return None;
+                }
+                let archived = status
+                    .published
+                    .filter(|cut| cut.route() == &sample.route)?;
+                sample
+                    .status
+                    .committed
+                    .get()
+                    .checked_sub(archived.position().index.get())
+            });
+            group.control_live(deadline)?;
+            Ok(sample)
+        }
+    }
+
     /// Last archive-controller publication, sampled independently of the Raft
     /// owner. None means no installed archive owner. Even a published cut grants
     /// no retained physical coverage or authority to compact the local log.

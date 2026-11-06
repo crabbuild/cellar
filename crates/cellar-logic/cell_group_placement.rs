@@ -151,16 +151,16 @@ pub enum WaitReason {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PartitionDecision {
+pub enum PartitionDecision<'a> {
     Wait(WaitReason),
     Split {
-        basis: PartitionBasis,
-        pivot: CellKey,
+        basis: &'a PartitionBasis,
+        pivot: &'a CellKey,
         reason: SplitReason,
     },
     Merge {
-        left: PartitionBasis,
-        right: PartitionBasis,
+        left: &'a PartitionBasis,
+        right: &'a PartitionBasis,
     },
 }
 
@@ -245,7 +245,7 @@ impl PartitionTracker {
         policy: PartitionPolicy,
         now_ms: u64,
         active_operations: u16,
-    ) -> PartitionDecision {
+    ) -> PartitionDecision<'_> {
         let sample = match self.eligible(policy, now_ms, active_operations) {
             Ok(sample) => sample,
             Err(reason) => return PartitionDecision::Wait(reason),
@@ -274,19 +274,19 @@ impl PartitionTracker {
             return PartitionDecision::Wait(WaitReason::NoWholeCellPivot);
         };
         PartitionDecision::Split {
-            basis: sample.basis.clone(),
-            pivot: pivot.clone(),
+            basis: &sample.basis,
+            pivot,
             reason,
         }
     }
 
-    pub fn recommend_merge(
-        &self,
-        right: &Self,
+    pub fn recommend_merge<'a>(
+        &'a self,
+        right: &'a Self,
         policy: PartitionPolicy,
         now_ms: u64,
         active_operations: u16,
-    ) -> PartitionDecision {
+    ) -> PartitionDecision<'a> {
         let left = match self.eligible(policy, now_ms, active_operations) {
             Ok(sample) => sample,
             Err(reason) => return PartitionDecision::Wait(reason),
@@ -309,8 +309,8 @@ impl PartitionTracker {
             return PartitionDecision::Wait(WaitReason::Hysteresis);
         }
         PartitionDecision::Merge {
-            left: left.basis.clone(),
-            right: other.basis.clone(),
+            left: &left.basis,
+            right: &other.basis,
         }
     }
 

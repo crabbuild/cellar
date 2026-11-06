@@ -2,7 +2,9 @@
 
 //! Managed node owners and physical inventory for the public request drill.
 use super::*;
-use cellar::application::consensus::NamespaceQueryOrigin;
+use cellar::application::consensus::{
+    verification::cell_groups::cell_routing_key, NamespaceQueryOrigin,
+};
 
 pub(super) const INGRESS: usize = 3;
 
@@ -225,6 +227,28 @@ impl Cluster {
         })
         .await
         .context("one physical group and two independently enrolled cells")??;
+
+        let history = self.managed.history;
+        let voter = &self.managed.hosts[self.leader().await?];
+        let sample = voter.group(history)?.observe_partition(TIMEOUT).await?;
+        let one = counter::history(history.cluster, history.namespace, "one")?;
+        let two = counter::history(history.cluster, history.namespace, "two")?;
+        let mut keys = [
+            cell_routing_key(history.namespace, &one.cell),
+            cell_routing_key(history.namespace, &two.cell),
+        ];
+        keys.sort_unstable();
+        let [left, right] = keys;
+        ensure!(sample.route.history == history && sample.cells == 2);
+        ensure!(sample.balanced_pivot.as_ref() == Some(&right));
+        let largest = sample
+            .largest_cell
+            .context("largest image in a nonempty group")?;
+        ensure!(sample.logical_bytes >= largest.logical_bytes);
+        ensure!(largest.key == left || largest.key == right);
+        ensure!(largest.has_predecessor == (largest.key == right));
+        let expected_next = (largest.key == left).then_some(&right);
+        ensure!(largest.next.as_ref() == expected_next);
         Ok(())
     }
 

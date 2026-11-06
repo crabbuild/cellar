@@ -89,7 +89,9 @@ mod membership_observation;
 mod observation;
 mod owner;
 pub use membership_observation::CellGroupQuorumMembership;
-pub use observation::CellGroupObservation;
+pub use observation::{
+    CellGroupObservation, CellGroupPartitionCell, CellGroupPartitionObservation,
+};
 mod page_store;
 mod page_wire;
 mod pins;

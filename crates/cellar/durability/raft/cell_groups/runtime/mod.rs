@@ -174,6 +174,7 @@ enum Command {
     Status,
     PendingTransferQuorum,
     Observe,
+    ObservePartition,
     LeadershipBatch(Option<GroupHistory>),
     ReplicationStatus,
     Tick,
@@ -196,6 +197,7 @@ enum Response {
     Status(CellGroupStatus),
     PendingTransferQuorum(Box<TransferChildQuorum>),
     Observation(Box<CellGroupObservation>),
+    PartitionObservation(Box<CellGroupPartitionObservation>),
     LeadershipBatch(LeadershipBatch),
     ReplicationStatus(crate::raft::completion::ReplicationStatus<GroupHistory>),
     Read(Box<CellReadAuthority>),
@@ -1051,6 +1053,19 @@ impl CellGroupRuntime {
         match self.call(Some(history), Command::Observe, 4096).await? {
             Response::Observation(observation) => Ok(*observation),
             _ => Err(RuntimeError::Protocol("group observation reply".into())),
+        }
+    }
+
+    pub(crate) async fn observe_partition(
+        &self,
+        history: GroupHistory,
+    ) -> Result<CellGroupPartitionObservation, RuntimeError> {
+        match self
+            .call(Some(history), Command::ObservePartition, 8192)
+            .await?
+        {
+            Response::PartitionObservation(observation) => Ok(*observation),
+            _ => Err(RuntimeError::Protocol("partition observation reply".into())),
         }
     }
 

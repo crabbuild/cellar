@@ -108,8 +108,8 @@ fn scheduler_hysteresis_and_hot_isolation() {
     assert_eq!(
         tracker.recommend_split(policy(), 110, 0),
         PartitionDecision::Split {
-            basis: view.basis.clone(),
-            pivot: key("middle"),
+            basis: &view.basis,
+            pivot: &key("middle"),
             reason: SplitReason::IsolateHotCell,
         }
     );
@@ -130,8 +130,8 @@ fn scheduler_hysteresis_and_hot_isolation() {
     assert_eq!(
         tracker.recommend_split(policy(), 170, 0),
         PartitionDecision::Split {
-            basis: view.basis.clone(),
-            pivot: key("right"),
+            basis: &view.basis,
+            pivot: &key("right"),
             reason: SplitReason::IsolateHotCell,
         }
     );
@@ -160,8 +160,8 @@ fn quiet_neighbors_need_a_shared_basis_and_combined_headroom() {
     assert_eq!(
         a.recommend_merge(&b, policy(), 120, 0),
         PartitionDecision::Merge {
-            left: l.basis.clone(),
-            right: r.basis.clone(),
+            left: &l.basis,
+            right: &r.basis,
         }
     );
     assert_eq!(

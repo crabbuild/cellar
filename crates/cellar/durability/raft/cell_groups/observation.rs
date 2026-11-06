@@ -4,7 +4,7 @@
 use super::CellGroupStatus;
 use crate::application::consensus::RaftReplicaRole;
 use cellar_logic::{
-    cell_group::GroupHistory,
+    cell_group::{CellKey, GroupHistory, GroupRoute, MembershipRevision},
     consensus::{LogIndex, LogPosition, ReplicaIdentity},
 };
 
@@ -27,4 +27,28 @@ pub struct CellGroupObservation {
     pub cells: u32,
     /// Compaction requires independently verified archive coverage on this log.
     pub archive_required: bool,
+}
+
+/// Geometry and whole-key neighbors from one selected local manifest.
+#[derive(Clone, Debug)]
+pub struct CellGroupPartitionCell {
+    pub key: CellKey,
+    pub next: Option<CellKey>,
+    pub has_predecessor: bool,
+    pub logical_bytes: u64,
+}
+
+/// Bounded scheduler input from one local owner. Advisory only.
+#[derive(Clone, Debug)]
+pub struct CellGroupPartitionObservation {
+    pub route: GroupRoute,
+    pub membership: MembershipRevision,
+    pub status: CellGroupStatus,
+    pub cells: u32,
+    pub logical_bytes: u64,
+    pub last_mutation: Option<LogPosition>,
+    pub balanced_pivot: Option<CellKey>,
+    pub largest_cell: Option<CellGroupPartitionCell>,
+    /// Independently sampled archive owner, bound to this exact route.
+    pub archive_lag_entries: Option<u64>,
 }

@@ -761,6 +761,45 @@ impl CellGroupOwner {
         })
     }
 
+    pub(super) fn observe_partition(
+        &self,
+    ) -> Result<super::CellGroupPartitionObservation, RuntimeError> {
+        self.live()?;
+        let cache = self.group.read()?;
+        let marker = self.current.marker();
+        if cache.group_manifest.as_ref() != Some(marker) {
+            return Err(RuntimeError::NotReady);
+        }
+        let pins = &self.current.images;
+        let cells = marker.root().cells();
+        let largest_cell = pins.largest_image_rank().and_then(|(rank, logical_bytes)| {
+            Some(super::CellGroupPartitionCell {
+                key: pins.key_at_rank(rank)?.clone(),
+                next: pins.key_at_rank(rank + 1).cloned(),
+                has_predecessor: rank > 0,
+                logical_bytes,
+            })
+        });
+        Ok(super::CellGroupPartitionObservation {
+            route: marker.route().clone(),
+            membership: cellar_logic::cell_group::MembershipRevision::new(
+                cache.membership.revision().get(),
+            )
+            .map_err(|_| RuntimeError::NotReady)?,
+            status: self.status_at(&cache),
+            cells,
+            logical_bytes: pins.logical_bytes(),
+            last_mutation: marker.root().last_mutation(),
+            balanced_pivot: if cells > 1 {
+                pins.key_at_rank(cells as usize / 2).cloned()
+            } else {
+                None
+            },
+            largest_cell,
+            archive_lag_entries: None,
+        })
+    }
+
     /// Observe the real leader's progress tracker. This is advisory; transfer
     /// admission rechecks the same owner against the caller's term and revision.
     pub fn replication_status(

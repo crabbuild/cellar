@@ -23,6 +23,8 @@ struct PinnedPage {
     left: ManifestPins,
     right: ManifestPins,
     bytes: usize,
+    logical_bytes: u64,
+    largest_image: u64,
 }
 
 impl ManifestPins {
@@ -54,6 +56,49 @@ impl ManifestPins {
 
     pub(crate) fn len(&self) -> usize {
         self.0.as_ref().map_or(0, |p| p.reference.cells as usize)
+    }
+
+    pub(super) fn logical_bytes(&self) -> u64 {
+        self.0.as_ref().map_or(0, |page| page.logical_bytes)
+    }
+
+    fn largest_image(&self) -> u64 {
+        self.0.as_ref().map_or(0, |page| page.largest_image)
+    }
+
+    pub(super) fn key_at_rank(&self, mut rank: usize) -> Option<&CellKey> {
+        let mut tree = self;
+        while let Some(page) = tree.0.as_deref() {
+            let left = page.left.len();
+            match rank.cmp(&left) {
+                Ordering::Less => tree = &page.left,
+                Ordering::Equal => return Some(&page.key),
+                Ordering::Greater => {
+                    rank -= left + 1;
+                    tree = &page.right;
+                }
+            }
+        }
+        None
+    }
+
+    /// Largest logical image, breaking ties in whole-cell key order.
+    pub(super) fn largest_image_rank(&self) -> Option<(usize, u64)> {
+        let mut tree = self;
+        let mut preceding = 0;
+        while let Some(page) = tree.0.as_deref() {
+            if page.left.0.is_some() && page.left.largest_image() == page.largest_image {
+                tree = &page.left;
+                continue;
+            }
+            let left = page.left.len();
+            if page.leaf.geometry.length == page.largest_image {
+                return Some((preceding + left, page.largest_image));
+            }
+            preceding += left + 1;
+            tree = &page.right;
+        }
+        None
     }
 
     pub(crate) fn root(&self) -> ManifestRoot {
@@ -143,6 +188,14 @@ impl ManifestPins {
             + leaf.enrollment.cell().cell.as_str().len()
             + left.reserved_bytes()
             + right.reserved_bytes();
+        // The verified manifest bounds every image and caps occupancy at a
+        // million cells, so the logical sum fits in u64.
+        let logical_bytes = left.logical_bytes() + leaf.geometry.length + right.logical_bytes();
+        let largest_image = leaf
+            .geometry
+            .length
+            .max(left.largest_image())
+            .max(right.largest_image());
         Self(Some(Arc::new(PinnedPage {
             _page: page,
             reference,
@@ -152,6 +205,8 @@ impl ManifestPins {
             left,
             right,
             bytes,
+            logical_bytes,
+            largest_image,
         })))
     }
 
