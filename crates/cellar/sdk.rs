@@ -228,7 +228,7 @@ pub mod fleet_operations {
         RaftFleetTransitionSourceCut, RaftFleetTransitionSourceRetirement,
         RaftFleetTransitionSourceSeal, RaftFleetTransitionSourceSealRequest,
         RaftFleetTransitionStatus, RaftFleetVerificationBlocker, RaftFleetVerificationReason,
-        RaftFleetVerificationStage, RaftFleetWakeStatus,
+        RaftFleetVerificationStage, RaftFleetVerifiedTransitionRecovery, RaftFleetWakeStatus,
     };
     pub use crate::raft::fleet_catalog::FleetTopologyPolicy;
 }

@@ -610,6 +610,32 @@ impl CellGroupArchiveRegistry {
             .ok_or(CellGroupArchiveError::Expired)
     }
 
+    /// A held historical root is insufficient when recovery must cover every
+    /// S3-acknowledged write. Require the exact independently retained head.
+    pub(crate) async fn require_selected_hold(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        hold: &CellGroupArchiveHold,
+    ) -> Result<()> {
+        domain
+            .run(async {
+                let _io = self.archive.admit()?;
+                if hold.registry != self.identity.id {
+                    return Err(CellGroupArchiveError::Conflict);
+                }
+                let state = self.load().await?.0;
+                if state.selected.as_ref() != Some(&hold.root) {
+                    return Err(CellGroupArchiveError::Conflict);
+                }
+                if !state.holds.contains(hold) {
+                    return Err(CellGroupArchiveError::Expired);
+                }
+                Ok(())
+            })
+            .await
+            .map_err(|_| CellGroupArchiveError::Stopped)?
+    }
+
     pub(crate) async fn require_retained_hold(
         &self,
         domain: &impl CellGroupArchiveExecution,

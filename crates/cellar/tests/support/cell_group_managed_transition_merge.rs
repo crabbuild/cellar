@@ -975,6 +975,46 @@ async fn run_inner(
     let namespace = hex::encode(child.history.namespace.bytes());
     let operation_id = hex::encode(operation.bytes());
     let principal = &transition.request.principal;
+    let recovery_workspace = tempfile::tempdir()?;
+    let recovery_verifier =
+        crate::managed_fixture::verifier::open(fixture, recovery_workspace.path(), rooted, limits)
+            .await?;
+    let recovery_control = control
+        .clone()
+        .with_transition_preparer(recovery_verifier, preparation::recovery_pool()?);
+    let parent_basis =
+        Box::pin(control.transition_recovery_basis(&namespace, &operation_id, TIMEOUT)).await?;
+    let mut parent_holds = Vec::new();
+    for registry in &registries {
+        parent_holds.push(preparation::acquire_hold(domain, registry).await?);
+    }
+    ensure!(matches!(
+        Box::pin(recovery_control.verify_transition_recovery_archives(
+            principal, &parent_basis, vec![parent_holds[0].clone()], TIMEOUT,
+        ))
+        .await,
+        Err(failure) if failure.code == RaftFleetFailureCode::InvalidInput
+    ));
+    {
+        let restored = Box::pin(recovery_control.verify_transition_recovery_archives(
+            principal,
+            &parent_basis,
+            parent_holds.clone(),
+            TIMEOUT,
+        ))
+        .await?;
+        ensure!(
+            restored.basis() == &parent_basis
+                && restored
+                    .archives()
+                    .iter()
+                    .map(|proof| proof.hold())
+                    .eq(&parent_holds)
+        );
+    }
+    for (registry, hold) in registries.iter().zip(&parent_holds) {
+        registry.release(domain.as_ref(), hold).await?;
+    }
     let status = control
         .transition_status(&namespace, &operation_id, TIMEOUT)
         .await?;
@@ -1035,6 +1075,25 @@ async fn run_inner(
             .phase()
             == TransitionPhase::Active
     );
+    let active_basis =
+        Box::pin(control.transition_recovery_basis(&namespace, &operation_id, TIMEOUT)).await?;
+    let old_scope = Box::pin(recovery_control.verify_transition_recovery_archives(
+        principal,
+        &parent_basis,
+        parent_holds,
+        TIMEOUT,
+    ))
+    .await;
+    ensure!(matches!(old_scope, Err(failure) if failure.code == RaftFleetFailureCode::Conflict));
+    let child_birth = domain
+        .run(directory.materialize_selected_history(child.history))
+        .await??;
+    let child_registry = directory
+        .open_group_archive(domain.as_ref(), &archives.pool, &child_birth)
+        .await?;
+    preparation::wait_active_archive(&voters[leader(voters, child.history).await?], child.history)
+        .await?;
+    let older = preparation::acquire_hold(domain, &child_registry).await?;
     Box::pin(verify_merged_sql(
         voters,
         child.history,
@@ -1043,6 +1102,47 @@ async fn run_inner(
         retry,
     ))
     .await?;
+    let applied = preparation::wait_active_archive(
+        &voters[leader(voters, child.history).await?],
+        child.history,
+    )
+    .await?;
+    let current = preparation::acquire_hold(domain, &child_registry).await?;
+    ensure!(
+        current.marker().position().index >= applied
+            && current.marker().position().index > older.marker().position().index
+    );
+    ensure!(matches!(
+        Box::pin(recovery_control.verify_transition_recovery_archives(
+            principal, &active_basis, vec![older.clone()], TIMEOUT,
+        ))
+        .await,
+        Err(failure) if failure.code == RaftFleetFailureCode::Conflict
+    ));
+    {
+        let restored = Box::pin(recovery_control.verify_transition_recovery_archives(
+            principal,
+            &active_basis,
+            vec![current.clone()],
+            TIMEOUT,
+        ))
+        .await?;
+        let [archive] = restored.archives() else {
+            anyhow::bail!("expected exactly one selected child archive");
+        };
+        ensure!(archive.hold() == &current);
+        let manifest = archive.recovery().manifest();
+        ensure!(manifest.pinned_images() == routed.len());
+        for (cell, _) in &routed {
+            let (leaf, _) = manifest
+                .pin_cell(&cell.cell)
+                .context("restored merged cell")?;
+            ensure!(leaf.version.history == *cell);
+        }
+    }
+    for hold in [&older, &current] {
+        child_registry.release(domain.as_ref(), hold).await?;
+    }
     finish_merge(
         cluster,
         directory,
@@ -1805,10 +1905,18 @@ async fn verify_merged_sql(
             .command(
                 &add,
                 1i64.to_be_bytes().to_vec(),
-                CommandOptions::new(CommandId::new(receipt.id.client, 2)?, retry),
+                CommandOptions {
+                    durability: cellar_logic::consensus::Durability::S3,
+                    timeout: TIMEOUT,
+                    ..CommandOptions::new(CommandId::new(receipt.id.client, 2)?, retry)
+                },
             )
             .await?;
-        ensure!(write.result == (expected + 2).to_be_bytes() && write.witness.group == history);
+        ensure!(
+            write.result == (expected + 2).to_be_bytes()
+                && write.witness.group == history
+                && write.durability == cellar_logic::consensus::Durability::S3
+        );
         positions.push((history, write.witness.position.index));
     }
     preparation::wait_transfer_applied(voters, &positions).await

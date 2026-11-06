@@ -57,6 +57,39 @@ pub struct RaftFleetTransitionRecoveryBasis {
 }
 
 impl RaftFleetTransitionRecoveryBasis {
+    pub(super) fn from_observation(
+        catalog: &str,
+        namespace: &str,
+        operation: ProposalId,
+        observation: &crate::raft::fleet_catalog::ManagedTransitionRecoveryObservation,
+    ) -> Self {
+        let selected = &observation.selection;
+        let groups = |routes: &[cellar_logic::cell_group::GroupRoute]| {
+            routes
+                .iter()
+                .map(|route| RaftFleetTransitionGroup {
+                    group_id: hex::encode(route.history.group.bytes()),
+                    incarnation_id: hex::encode(route.history.incarnation.bytes()),
+                })
+                .collect()
+        };
+        Self {
+            catalog_id: catalog.into(),
+            namespace_id: namespace.into(),
+            operation_id: hex::encode(operation.bytes()),
+            fleet_revision: observation.fleet_revision,
+            fleet_digest: hex::encode(observation.fleet_digest),
+            directory_digest: hex::encode(selected.directory_digest),
+            plan_digest: hex::encode(selected.plan.digest()),
+            phase: selected.journal.phase(),
+            publication_digest: selected.publication.map(hex::encode),
+            transfer_archive_digest: selected.journal.transfer_archive().map(hex::encode),
+            child_archives_digest: selected.journal.child_archives().map(hex::encode),
+            parents: groups(&selected.parents),
+            children: groups(&selected.children),
+        }
+    }
+
     /// Published children can have acknowledged effects after the transfer cut.
     /// Their archive closure must account for those effects independently.
     pub fn archive_sources(&self) -> &[RaftFleetTransitionGroup] {
@@ -85,31 +118,12 @@ impl RaftFleetControl {
             .catalog
             .observe_managed_transition_recovery(directory, operation, timeout)
             .await?;
-        let selected = observation.selection;
-        let groups = |routes: Vec<cellar_logic::cell_group::GroupRoute>| {
-            routes
-                .into_iter()
-                .map(|route| RaftFleetTransitionGroup {
-                    group_id: hex::encode(route.history.group.bytes()),
-                    incarnation_id: hex::encode(route.history.incarnation.bytes()),
-                })
-                .collect()
-        };
-        Ok(RaftFleetTransitionRecoveryBasis {
-            catalog_id: self.catalog_id.clone(),
-            namespace_id: namespace.into(),
-            operation_id: hex::encode(operation.bytes()),
-            fleet_revision: observation.fleet_revision,
-            fleet_digest: hex::encode(observation.fleet_digest),
-            directory_digest: hex::encode(selected.directory_digest),
-            plan_digest: hex::encode(selected.plan_digest),
-            phase: selected.phase,
-            publication_digest: selected.publication.map(hex::encode),
-            transfer_archive_digest: selected.transfer_archive.map(hex::encode),
-            child_archives_digest: selected.child_archives.map(hex::encode),
-            parents: groups(selected.parents),
-            children: groups(selected.children),
-        })
+        Ok(RaftFleetTransitionRecoveryBasis::from_observation(
+            self.catalog_id(),
+            namespace,
+            operation,
+            &observation,
+        ))
     }
 }
 

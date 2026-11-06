@@ -76,7 +76,9 @@ pub use transition_seal::{
     RaftFleetTransitionSourceSealRequest,
 };
 
-pub use transition_verify::RaftFleetTransitionArchiveVerification;
+pub use transition_verify::{
+    RaftFleetTransitionArchiveVerification, RaftFleetVerifiedTransitionRecovery,
+};
 
 type Result<T> = std::result::Result<T, RaftFleetFailure>;
 

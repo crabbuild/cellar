@@ -1,12 +1,15 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Split/merge decisions rooted in the same CAS as the range tree.
-use super::*;
+use super::{transition_sources::TransitionSourceCut, *};
 use crate::application::consensus::group_protocol::{
     CellGroupEntry, GroupCommand, GroupEntryBinding, GroupEntryLimits,
 };
 use crate::raft::{
-    cache::GroupLog, cell_groups::GroupManifest, completion::RuntimeError, storage::ReplicaLog,
+    cache::GroupLog,
+    cell_groups::{CellGroupArchiveHold, GroupManifest},
+    completion::RuntimeError,
+    storage::ReplicaLog,
 };
 use crate::raft::{
     fleet_catalog::{FleetGroupAuthorization, FleetHostAuthorization, ManagedTransitionPermit},
@@ -73,14 +76,22 @@ pub struct TransitionJournal {
 }
 
 pub(crate) struct ManagedTransitionRecoverySelection {
-    pub(crate) plan_digest: [u8; 32],
+    pub(crate) plan: DirectoryMutation,
     pub(crate) directory_digest: [u8; 32],
-    pub(crate) phase: TransitionPhase,
+    pub(crate) journal: TransitionJournal,
     pub(crate) publication: Option<[u8; 32]>,
-    pub(crate) transfer_archive: Option<[u8; 32]>,
-    pub(crate) child_archives: Option<[u8; 32]>,
     pub(crate) parents: Vec<GroupRoute>,
     pub(crate) children: Vec<GroupRoute>,
+}
+
+impl ManagedTransitionRecoverySelection {
+    pub(crate) fn archive_routes(&self) -> &[GroupRoute] {
+        if self.publication.is_some() {
+            &self.children
+        } else {
+            &self.parents
+        }
+    }
 }
 
 impl TransitionJournal {
@@ -890,17 +901,63 @@ impl RangeDirectory {
                 self.selected_route_in(&view, route).await?;
             }
             Ok(ManagedTransitionRecoverySelection {
-                plan_digest: digest,
+                plan,
                 directory_digest: view.digest,
-                phase: journal.phase(),
                 publication: journal.publication,
-                transfer_archive: journal.transfer_archive(),
-                child_archives: journal.child_archives(),
+                journal,
                 parents,
                 children,
             })
         })
         .await
+    }
+
+    pub(crate) async fn check_managed_transition_recovery_holds(
+        &self,
+        selection: &ManagedTransitionRecoverySelection,
+        permit: &ManagedTransitionPermit,
+        holds: &[CellGroupArchiveHold],
+    ) -> Result<(), CatalogError> {
+        let routes = selection.archive_routes();
+        if holds.len() != routes.len() {
+            return Err(CatalogError::Invalid(
+                "incomplete transition recovery archives",
+            ));
+        }
+        permit.check(self, &selection.plan)?;
+        let installed = if selection.publication.is_some() {
+            self.installed_transfer_children_inner(&selection.plan, Some(permit))
+                .await?
+                .ok_or(CatalogError::Unconfirmed)?
+        } else {
+            Vec::new()
+        };
+        for (index, (route, hold)) in routes.iter().zip(holds).enumerate() {
+            let marker = hold.marker();
+            if marker.route() != route {
+                return Err(CatalogError::Fenced);
+            }
+            if let Some(publication) = selection.publication {
+                if !marker.is_active()
+                    || installed
+                        .get(index)
+                        .is_none_or(|prior| !marker.preserves_transfer(prior))
+                    || marker
+                        .transfer_activation()
+                        .is_none_or(|(bound, _, _)| bound != publication)
+                {
+                    return Err(CatalogError::Fenced);
+                }
+            } else {
+                let cut = if marker.is_active() && selection.journal.sealed_sources().is_none() {
+                    TransitionSourceCut::Active
+                } else {
+                    TransitionSourceCut::Sealed
+                };
+                self.check_source_marker(&selection.plan, &selection.journal, route, marker, cut)?;
+            }
+        }
+        Ok(())
     }
 
     pub(crate) async fn managed_transition_status(

@@ -8,11 +8,12 @@ use crate::application::consensus::RaftCells;
 use crate::raft::{
     catalog::CatalogError,
     cell_groups::{
-        CellGroupArchiveBindingError, CellGroupArchiveHold, CellGroupArchivePool,
-        CellGroupArchiveTailPool, CellGroupSourceRetirementAck, CellGroupTransferActivationAck,
-        CellGroupTransferArchive, CellGroupTransitionPreparationInputs, CellGroupTransitionSource,
-        DirectoryMutation, DirectoryPublication, PreparedManagedCellGroupTransition,
-        RangeDirectory, TransferChildQuorum, TransferInstallQuorum, TransitionJournal,
+        CellGroupArchiveBindingError, CellGroupArchiveCoverage, CellGroupArchiveHold,
+        CellGroupArchivePool, CellGroupArchiveTailPool, CellGroupSourceRetirementAck,
+        CellGroupTransferActivationAck, CellGroupTransferArchive,
+        CellGroupTransitionPreparationInputs, CellGroupTransitionSource, DirectoryMutation,
+        DirectoryPublication, PreparedManagedCellGroupTransition, RangeDirectory,
+        TransferChildQuorum, TransferInstallQuorum, TransitionJournal,
         VerifiedCellGroupTransitionSources,
     },
     fleet_stop::BootBinding,
@@ -279,6 +280,77 @@ impl FleetCatalog {
                     fleet_digest,
                     selection,
                 })
+            }),
+        )
+        .await
+    }
+
+    pub(crate) async fn verify_managed_transition_recovery_archives(
+        &self,
+        directory: &RangeDirectory,
+        observation: &ManagedTransitionRecoveryObservation,
+        request: &FleetRequestIdentity,
+        holds: Vec<CellGroupArchiveHold>,
+        verifier: &FleetGroupArchiveVerifier,
+        timeout: Duration,
+    ) -> Result<Vec<CellGroupArchiveCoverage>> {
+        self.run(
+            timeout,
+            Box::pin(async {
+                let snapshot = self.inner.current().await?;
+                if root_digest(&snapshot)? != observation.fleet_digest {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                let selection = &observation.selection;
+                let permit = self
+                    .managed_transition_permit_at(&snapshot, request, directory, &selection.plan)
+                    .await?;
+                let domain = &self.inner.domain;
+                domain
+                    .run(Box::pin(directory.check_managed_transition_recovery_holds(
+                        selection, &permit, &holds,
+                    )))
+                    .await
+                    .map_err(|_| FleetCatalogError::Closed)?
+                    .map_err(catalog_error)?;
+                let storage = directory.namespace_config().image_storage;
+                let mut verified = Vec::with_capacity(holds.len());
+                for (route, hold) in selection.archive_routes().iter().zip(&holds) {
+                    let birth = domain
+                        .run(directory.materialize_selected_history(route.history))
+                        .await
+                        .map_err(|_| FleetCatalogError::Closed)?
+                        .map_err(catalog_error)?;
+                    if birth.route() != route {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                    let registry = directory
+                        .open_group_archive(domain, verifier.archives(), &birth)
+                        .await
+                        .map_err(transfer_archive_error)?;
+                    registry.require_selected_hold(domain, hold).await?;
+                    let receiver = verifier.receiver(domain, route, storage).await?;
+                    let coverage = registry
+                        .verify_hold(domain, hold, verifier.tails(), receiver)
+                        .await?;
+                    verified.push((registry, coverage));
+                }
+                for (registry, coverage) in &verified {
+                    registry
+                        .require_selected_hold(domain, coverage.hold())
+                        .await?;
+                }
+                let current = domain
+                    .run(directory.observe())
+                    .await
+                    .map_err(|_| FleetCatalogError::Closed)?
+                    .map_err(catalog_error)?;
+                if current.digest() != selection.directory_digest
+                    || root_digest(&self.inner.current().await?)? != observation.fleet_digest
+                {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                Ok(verified.into_iter().map(|(_, coverage)| coverage).collect())
             }),
         )
         .await

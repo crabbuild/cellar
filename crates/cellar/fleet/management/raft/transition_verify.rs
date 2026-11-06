@@ -3,7 +3,7 @@
 //! Independent archive verification during a managed transfer.
 
 use super::*;
-use crate::raft::cell_groups::TransitionPhase;
+use crate::raft::cell_groups::{CellGroupArchiveCoverage, CellGroupArchiveHold, TransitionPhase};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -14,7 +14,85 @@ pub struct RaftFleetTransitionArchiveVerification {
     pub phase: TransitionPhase,
 }
 
+/// Private replay state bound to a single observed Fleet and directory root.
+/// Retaining this value keeps the local replay pins alive. The remote holds
+/// still belong to the operator that acquired them.
+pub struct RaftFleetVerifiedTransitionRecovery {
+    basis: RaftFleetTransitionRecoveryBasis,
+    archives: Vec<CellGroupArchiveCoverage>,
+}
+
+impl RaftFleetVerifiedTransitionRecovery {
+    pub fn basis(&self) -> &RaftFleetTransitionRecoveryBasis {
+        &self.basis
+    }
+
+    pub fn archives(&self) -> &[CellGroupArchiveCoverage] {
+        &self.archives
+    }
+}
+
 impl RaftFleetControl {
+    /// Replay the caller's retained hold for every selected range, in
+    /// `basis.archive_sources()` order. Every hold must still be the selected
+    /// archive head. This read does not lock topology or fence old voters.
+    /// An eventual fencing operation must revalidate these exact inputs.
+    pub async fn verify_transition_recovery_archives(
+        &self,
+        principal: &str,
+        basis: &RaftFleetTransitionRecoveryBasis,
+        holds: Vec<CellGroupArchiveHold>,
+        timeout: Duration,
+    ) -> Result<RaftFleetVerifiedTransitionRecovery> {
+        self.check_catalog(&basis.catalog_id)?;
+        let directory = self.managed_namespace(&basis.namespace_id)?;
+        let operation = ProposalId::new(records::id(&basis.operation_id)?)
+            .map_err(|_| RaftFleetFailure::invalid("operation ID"))?;
+        let turn = Turn::new(&self.domain, timeout)?;
+        let transition = self
+            .authorize_transition_operator(
+                directory,
+                operation,
+                principal,
+                &basis.plan_digest,
+                turn.remaining()?,
+            )
+            .await?;
+        let observation = self
+            .catalog
+            .observe_managed_transition_recovery(directory, operation, turn.remaining()?)
+            .await?;
+        let current = RaftFleetTransitionRecoveryBasis::from_observation(
+            self.catalog_id(),
+            &basis.namespace_id,
+            operation,
+            &observation,
+        );
+        if current != *basis {
+            return Err(FleetCatalogError::Conflict.into());
+        }
+        let services = self.transition_preparation.as_ref().ok_or_else(|| RaftFleetFailure {
+            code: RaftFleetFailureCode::Unsupported,
+            outcome: RaftFleetOutcome::NotSubmitted,
+            message: "Recovery archive verification requires a trusted verifier on the management server.".into(),
+        })?;
+        let archives = self
+            .catalog
+            .verify_managed_transition_recovery_archives(
+                directory,
+                &observation,
+                &transition.request,
+                holds,
+                &services.verifier,
+                turn.remaining()?,
+            )
+            .await?;
+        Ok(RaftFleetVerifiedTransitionRecovery {
+            basis: current,
+            archives,
+        })
+    }
+
     /// Rebuild the installed children from the retained sealed parent cuts,
     /// then select the verified transfer archive. A retry can reopen the
     /// selected archive after the directory has advanced.

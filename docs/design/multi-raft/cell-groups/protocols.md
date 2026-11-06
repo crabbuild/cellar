@@ -1466,8 +1466,10 @@ new ownership. A list of current online nodes is not a complete fencing inventor
 The Fleet SDK's `transition_recovery_basis` reads the active disruption and
 the exact directory publication against a pinned root. It identifies the archive
 source groups and reports both parent and child histories for inventory collection.
-A recovery caller must still verify the selected archives and inventory all
-possible writers before requesting an infrastructure fence.
+The trusted recovery verifier independently replays the retained head for
+each selected range and checks the Fleet and directory roots again. A retained
+older hold cannot cover a newer S3 acknowledgement. Fencing must revalidate
+the exact cuts and inventory every possible writer before changing authority.
 
 For an unpublished transition, choose complete archived parent cuts and reconstruct
 their non-overlapping domain under new groups. For a published transition, require

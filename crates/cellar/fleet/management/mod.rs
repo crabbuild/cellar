@@ -54,7 +54,8 @@ pub use raft::{
     RaftFleetTransitionSourceArchive, RaftFleetTransitionSourceCut,
     RaftFleetTransitionSourceRetirement, RaftFleetTransitionSourceSeal,
     RaftFleetTransitionSourceSealRequest, RaftFleetTransitionStatus, RaftFleetVerificationBlocker,
-    RaftFleetVerificationReason, RaftFleetVerificationStage, RaftFleetWakeStatus,
+    RaftFleetVerificationReason, RaftFleetVerificationStage, RaftFleetVerifiedTransitionRecovery,
+    RaftFleetWakeStatus,
 };
 pub use raft_stop::{RaftStopHandoff, RaftStopOwners, RaftStopProof};
 mod routing;

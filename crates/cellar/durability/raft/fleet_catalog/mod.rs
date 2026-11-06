@@ -26,7 +26,9 @@ pub(crate) use managed_transition_admission::TransitionOperatorStep;
 mod managed_transition_replay;
 mod managed_transitions;
 pub use managed_transitions::ReopenedManagedCellGroupTransition;
-pub(crate) use managed_transitions::{ManagedTransitionPermit, TransferVoterAdmission};
+pub(crate) use managed_transitions::{
+    ManagedTransitionPermit, ManagedTransitionRecoveryObservation, TransferVoterAdmission,
+};
 mod namespaces;
 mod nodes;
 mod permits;
