@@ -412,8 +412,9 @@ def index_text(manifest):
              "Purpose: Dependency order and status of the sixteen cell-group implementation tasks.", "",
              "Generated from `tasks.json`. Regenerate with `plan.py index` after status changes.",
              f"**{accepted} of {required} named cases** have task-level acceptance evidence.",
-             "Accepted cases count source-pinned evidence for DONE tasks. See the",
-             "[open case audit](remaining-work.md#open-case-audit) for implemented coverage and missing gates.",
+             "Task acceptance covers all required cases for a DONE task. Pending tasks can have",
+             "passing cases. See the [open case audit](remaining-work.md#open-case-audit) for",
+             "recorded passes, failures and remaining gates.",
              "The full release requires a combined run on one source revision.",
              "CG-07 gates the default shared-group backend for new SQL namespaces.",
              "CG-15 and CG-16 gate the full release.", "",
@@ -423,15 +424,15 @@ def index_text(manifest):
              "executor brief. Replace the ID to select another task. Commands are displayed,",
              "never executed by the plan runner. Read the [design](design.md),",
              "[protocols](protocols.md) and [qualification](qualification.md) first.", "",
-             "| Task | Deliverable | Dependencies | Status | Accepted / required cases |",
-             "| --- | --- | --- | --- | ---: |"]
+             "| Task | Deliverable | Dependencies | Status | Required cases | Task acceptance |",
+             "| --- | --- | --- | --- | ---: | --- |"]
     by_id = {task["id"]: task for task in tasks}
     for tid in ordered(tasks):
         task = by_id[tid]
         cases = len(task["test_cases"])
-        accepted = cases if task["status"] == "DONE" else 0
+        acceptance = "Accepted" if task["status"] == "DONE" else "Pending"
         dependencies = ", ".join(task["depends_on"]) or "None"
-        lines.append(f'| {tid} | {task["title"]} | {dependencies} | {task["status"]} | {accepted} / {cases} |')
+        lines.append(f'| {tid} | {task["title"]} | {dependencies} | {task["status"]} | {cases} | {acceptance} |')
     lines.extend(["", "CG-01 through CG-08 establish the shared runtime and public cutover. CG-09 through",
                   "CG-13 add movement, adaptive scheduling, hibernation and complete managed recovery.",
                   "CG-08 adapts effects before CG-07 public cutover. CG-14 can proceed after CG-07;",
