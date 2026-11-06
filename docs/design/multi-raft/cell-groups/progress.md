@@ -67,6 +67,28 @@ The rerun adds each host's archive position, attempts and typed error to
 the retained failure report. It did not reproduce the extent deadline,
 which remains open.
 
+## CG-09/10 operator split through merged SQL
+
+At `be683a3b394c06e3ffb63aede32acdac74be75d0`, the combined native case
+passed in 68.42 seconds. A lost reply leaves the first child reserved.
+A fresh CLI controller resumes the same plan after an unrelated Fleet
+revision advances. It recovers both reserved ranges, confirms the original
+admission receipt, and reopens the exact split with the planned decision.
+That split passes archive preparation, source sealing, child activation,
+SQL receipt replay and source retirement. The resulting child ranges merge,
+and the merged group serves the late writes. The case log SHA-256 is
+`10e6b800db50052c47157fea088ef572c53c50903723fd5cc20f32ca21cc0579`.
+
+The same source passed the separate cancellation replay in 9.15 seconds and
+the managed recovery-barrier case in 95.00 seconds. The recovery case starts
+from that operator-admitted split, fences the selected old histories, erases
+the fixture-owned voter disks and serves restored SQL through a fresh quorum.
+It uses the native fixture authority. The RustFS rerun and permanent Docker
+launch revocation remain separate qualification gates. The cancellation and
+recovery log SHA-256 digests are
+`164717789fdb4e43d7e6bad037a3a5220f48af1c26a349c053e05be4e82c9774`
+and `ac3add4a43284ad9fff17d501e02d525038a7f0a2e1c614f207ef9bb0ad7113a`.
+
 ## CG-09/10 and CG-13 managed serving checkpoint
 
 At `6e6be12d403e1d7b3341531a0b664cbdb8299753`, the managed recovery

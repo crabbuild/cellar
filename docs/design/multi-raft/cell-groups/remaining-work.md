@@ -128,11 +128,11 @@ through the shared backend and preserve typed refusals for the rest.
    receipt deadline after repair, finish the
    remaining multi-namespace router and learner readiness ports, and pass public CI before
    making shared groups the default for supported SQL in new namespaces.
-3. **Finish CG-09/10 operator split and merge.** A fresh CLI controller
-   resumes a partial split reservation, and managed fixtures cover archive
-   preparation, source sealing and destination publication. Drive one
-   operator-admitted plan across all phases. Prove restart reconciliation
-   after partial merge reservations, seals and lost publication replies.
+3. **Finish CG-09/10 operator split and merge.** One native case now resumes
+   the operator-admitted split after a partial reservation, serves SQL on the
+   activated children and verifies late writes after merging. Requalify this
+   path in both RustFS image modes. Complete the named transition targets,
+   including restart after partial seals and lost publication replies.
 4. **Finish CG-11–13 managed operations.** Qualify adaptive placement, fenced
    hibernation and wakeup, and S3 recovery of interrupted transitions. Run the
    Docker-fenced disk-loss drill with all old voter disks deleted and a fresh
@@ -194,7 +194,7 @@ inventory explicit and fail closed for unseeded groups.
 | --- | --- | --- |
 | 1 | Managed S3 learner activation and archive holds (CG-06/07) | Expand the scoped native/RustFS results to the full failure/cancellation and fenced failed-voter lifecycle. Preserve complete manifest/image/receipt closure, destination boot/catalog checks, physical install, catch-up and fresh quorum before promotion. Retained-journal discovery and retirement now pass native/RustFS idle, outage, solo-restart and cancelled-close cases. Complete fenced handling of unknown/lost ownership and the remaining failure/cancellation lifecycle. A surviving original voter still needs a live physical-inventory proof for catalog settlement; its outage must retain the debit. Finish orchestration for that retained debt and qualify stop/offline ownership; a seed or remote object supplies no activation authority. |
 | 2 | Public SDK surface and executable consumers (CG-07) | Port the original daemon/native/Axum fixtures and performance/fleet runners to namespace capabilities, physical group assignment and replicated cell enrollment. The local all-binary check clears the original 27 compilation errors; qualify the final combined source. Clear the remaining 128-cell enrollment deadline, qualify S3 at every planned occupancy, finish live manifest-page ownership and qualify owned extent collection under the original workload bounds. Retain every original HTTP/read/retry option, exact term/revision transfer guard, actual responder metadata and all five original public gates. Incorporate the implemented cold birth, repair, maintenance stop/return/resume and physical debt into the complete public lifecycle case, including retained nonvoting inventory and failure/cancellation ownership. |
-| 3 | Public, build and backend qualification (CG-07 and MVP portions of CG-14/15/16) | Diagnose the original checkpoint TCP retry `Overloaded`, intermittent five-second successor-readiness timeout and earlier eight-turn maintenance failure; current passes cannot waive failed runs. Deliver the four remaining public cases below while retaining the SDK case; port `native_raft_reads` and the remaining per-cell test callers, and clear strict lint failures without suppressions. Review stale plan anchors and reconcile generated index/Purpose drift. Run affected SDK CI feature modes. Extend current-source real RustFS component recovery to constrained independent voters and replication/reclamation under bounded mixed load, retaining exact binaries, ledgers, failures and resource/latency measurements. |
+| 3 | Public, build and backend qualification (CG-07 and MVP portions of CG-14/15/16) | Diagnose the original checkpoint TCP retry `Overloaded`, intermittent five-second successor-readiness timeout and earlier eight-turn maintenance failure; current passes cannot waive failed runs. Deliver the four remaining public cases below while retaining the SDK case; port `native_raft_reads` and the remaining per-cell test callers, and clear strict lint failures without suppressions. Keep the reviewed plan anchors and generated index current. Run affected SDK CI feature modes. Extend current-source real RustFS component recovery to constrained independent voters and replication/reclamation under bounded mixed load, retaining exact binaries, ledgers, failures and resource/latency measurements. |
 
 The public counter and first SDK gate are qualified at their recorded local
 boundary. Managed boot/directory/stop ownership is implemented at its recorded
