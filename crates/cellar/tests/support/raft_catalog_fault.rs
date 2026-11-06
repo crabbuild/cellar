@@ -29,6 +29,7 @@ tokio::task_local! {
     static MISSING_READ: String;
     static GATED_READ: (String, std::sync::Arc<RegistryGate>);
     static GATED_STORE_READ: (std::sync::Arc<()>, String, std::sync::Arc<RegistryGate>);
+    static DENIED_ARCHIVE_CREATION: (&'static str, std::cell::Cell<bool>);
     static DIRECTORY_CONFIRMATION: std::cell::Cell<DirectoryConfirmation>;
 }
 
@@ -54,6 +55,21 @@ pub async fn lose_directory_confirmation<T>(
                 (result, delivered)
             },
         )
+        .await
+}
+
+/// Interrupt one foreground archive initializer before its conditional create.
+#[allow(dead_code)]
+pub async fn deny_archive_creation<T>(
+    suffix: &'static str,
+    work: impl std::future::Future<Output = T>,
+) -> (T, bool) {
+    DENIED_ARCHIVE_CREATION
+        .scope((suffix, std::cell::Cell::new(false)), async {
+            let result = work.await;
+            let delivered = DENIED_ARCHIVE_CREATION.with(|(_, delivered)| delivered.get());
+            (result, delivered)
+        })
         .await
 }
 
@@ -344,6 +360,19 @@ impl ObjectStore for Store {
         payload: PutPayload,
         options: PutOptions,
     ) -> object_store::Result<PutResult> {
+        if matches!(options.mode, PutMode::Create)
+            && path.as_ref().contains("/cell-group-archives/")
+            && DENIED_ARCHIVE_CREATION
+                .try_with(|(suffix, delivered)| {
+                    path.as_ref().ends_with(suffix) && {
+                        delivered.set(true);
+                        true
+                    }
+                })
+                .unwrap_or(false)
+        {
+            return Err(failure());
+        }
         if path.as_ref().contains("/cell-groups/ranges/") {
             self.range_page_puts.fetch_add(1, Ordering::AcqRel);
         }

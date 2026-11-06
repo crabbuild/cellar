@@ -176,45 +176,44 @@ impl RangeDirectory {
         birth: &CellGroupBirth,
     ) -> Result<()> {
         let archive = self.group_archive(pool, birth.route())?;
-        if let Some(binding) = self.read_archive_binding(birth, None).await? {
-            archive.open_registry(domain, &binding.creation).await?;
-            return Ok(());
-        }
-        let creation = archive
-            .prepare_registry_creation(domain, birth.route().clone())
-            .await?;
-        let bytes = record::encode(
-            wire::GROUP_ARCHIVE,
-            &Binding {
-                namespace: self.namespace.root_digest(),
-                creation: creation.intent().clone(),
-            },
-            wire::LIMIT,
-        )?;
-        let key = self.archive_binding_key(birth.route());
-        let observed = match self
-            .namespace
-            .inner
-            .create_and_observe_bounded(&key, &bytes, wire::LIMIT)
-            .await
-        {
-            Ok(observed) => observed,
-            Err(error @ (CatalogError::Storage(_) | CatalogError::Unconfirmed)) => {
-                self.namespace
+        let binding = match self.read_archive_binding(birth, None).await? {
+            Some(binding) => binding,
+            None => {
+                let creation = archive
+                    .prepare_registry_creation(domain, birth.route().clone())
+                    .await?;
+                let bytes = record::encode(
+                    wire::GROUP_ARCHIVE,
+                    &Binding {
+                        namespace: self.namespace.root_digest(),
+                        creation: creation.intent().clone(),
+                    },
+                    wire::LIMIT,
+                )?;
+                let key = self.archive_binding_key(birth.route());
+                let observed = match self
+                    .namespace
                     .inner
-                    .read_versioned_bounded(&key, wire::LIMIT)
-                    .await?
-                    .ok_or(error)?
-                    .0
+                    .create_and_observe_bounded(&key, &bytes, wire::LIMIT)
+                    .await
+                {
+                    Ok(observed) => observed,
+                    Err(error @ (CatalogError::Storage(_) | CatalogError::Unconfirmed)) => {
+                        self.namespace
+                            .inner
+                            .read_versioned_bounded(&key, wire::LIMIT)
+                            .await?
+                            .ok_or(error)?
+                            .0
+                    }
+                    Err(error) => return Err(error.into()),
+                };
+                self.decode_archive_binding(birth, &observed)?
             }
-            Err(error) => return Err(error.into()),
         };
-        if observed == bytes {
-            creation.commit(domain).await?;
-        } else {
-            self.open_archive_binding(domain, pool, birth, Some(&observed))
-                .await?;
-        }
+        archive
+            .initialize_recovery_registry(domain, &binding.creation)
+            .await?;
         Ok(())
     }
 
@@ -377,16 +376,20 @@ impl RangeDirectory {
         else {
             return Ok(None);
         };
-        let binding: Binding = record::decode(wire::GROUP_ARCHIVE, &bytes, wire::LIMIT)?;
         if intent.is_some_and(|intent| intent != bytes.as_slice()) {
             return Err(CatalogError::Conflict("group archive intent").into());
         }
+        self.decode_archive_binding(birth, &bytes).map(Some)
+    }
+
+    fn decode_archive_binding(&self, birth: &CellGroupBirth, bytes: &[u8]) -> Result<Binding> {
+        let binding: Binding = record::decode(wire::GROUP_ARCHIVE, bytes, wire::LIMIT)?;
         if binding.namespace != self.namespace.root_digest()
             || binding.creation.route() != birth.route()
         {
             return Err(CatalogError::Corrupt("group archive binding identity").into());
         }
-        Ok(Some(binding))
+        Ok(binding)
     }
 
     /// Cleanup may outlive the selected birth. Reopen only the exact immutable

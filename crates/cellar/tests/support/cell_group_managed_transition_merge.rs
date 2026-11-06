@@ -2030,6 +2030,13 @@ async fn check_recovery_voter_reservations(
             namespace, &request, completion, sql.authority, TIMEOUT,
         )).await;
         ensure!(premature.is_err());
+        for (controller, suffix) in [(fresh, "/ownership/registry"), (control, "/ownership/identity")] {
+            let release = controller.release_transition_recovery_serving(namespace, &request, completion, TIMEOUT);
+            let (denied, delivered) = Box::pin(fault::deny_archive_creation(suffix, release)).await;
+            ensure!(delivered && denied.is_err(), "archive initialization did not stop at {suffix}");
+            let view = fixture.domain.run(directory.observe()).await??;
+            ensure!(view.digest() == after_completion.digest());
+        }
         let release = fresh.release_transition_recovery_serving(namespace, &request, completion, TIMEOUT);
         let (unknown, delivered) = Box::pin(fault::lose_directory_confirmation(release)).await;
         ensure!(delivered && matches!(unknown, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
