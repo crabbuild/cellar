@@ -24,6 +24,7 @@ use std::{
 };
 
 const TIMEOUT: Duration = Duration::from_secs(5);
+
 type Query = dyn for<'a> Fn(&QueryContext<'a>, &[u8]) -> Result<Vec<u8>> + Send + Sync;
 
 #[derive(Clone)]

@@ -92,7 +92,7 @@ and evidence specified by `plan.py show <task>`.
 | --- | --- | --- |
 | CG-07 | The isolated constrained RustFS daemon passed both image modes at `393bffe4`. The public suite at that revision passed ingress after archive outage and stalled in extent replacement. The extent-only diagnostic settled replacement and replayed the lost terminal reply. | Pass the exact public cases and build gates at the constrained run's source. Investigate any repeated joint-consensus or maintenance timeout. |
 | CG-09 | `seal_authorization_cancel_race` and `source_seal_blocks_delayed_work` run in the catalog and host targets. Component checkpoints also cover rooted archive holds and managed serving after transfer. | Build the planned transition target. Exercise publication only after destination quorum install and remote closure, restart with one writer, receipt/token/effect continuity, and archive pins through retirement. |
-| CG-10 | The operator case overflowed during child archive initialization. A diagnostic rerun that moved retained boot onto a separate task passed both RustFS image modes, including retirement. | Qualify the clean fixture and the named cases for exact union and adjacency, incompatible placement/durability, partial reservations across restart, writes during movement and bounded precopy. |
+| CG-10 | The clean operator split-and-merge case passed both RustFS image modes after retained startup moved onto a separate task and fresh commands received their own retry windows. | Qualify the named cases for exact union and adjacency, incompatible placement/durability, partial reservations across restart, writes during movement and bounded precopy. |
 | CG-11 | Placement observations and advisory recommendations exist. | Qualify hysteresis, hot-cell isolation, whole-group scale out and in, failure-domain reserve and bounded controller fanout. |
 | CG-12 | Two of five named cases passed in both native image modes. They cover alarm and peer wake without a client, and refusal of strong reads and quorum writes during minority wake. The constrained daemon also parks and wakes a group. | Qualify all-voter eligibility and pending-work refusal, partial/stale certificates, and the full parked restart and leader-loss case. Measure wake latency in the planned profiles. |
 | CG-13 | Host-native voters have recovered after all owned voter disks were erased against RustFS with a fixture fence. | Qualify interrupted transition closure selection, permanent revocation of every possible old writer, fresh histories and retry under independent Docker voter processes. Exercise the outbox ambiguity refusal. |
@@ -133,8 +133,8 @@ through the shared backend and preserve typed refusals for the rest.
    the operator-admitted split after a partial reservation, serves SQL on the
    activated children and verifies late writes after merging. The latest
    real RustFS recovery rerun passed the released voter restart in both image
-   modes. A diagnostic split/merge run passed after retained boot moved to a
-   separate task. Qualify the clean fixture and complete the named
+   modes. Clean split/merge passed after retained boot moved to a separate
+   task. Complete the named
    transition targets, including partial seals and lost publication replies.
 4. **Finish CG-11–13 managed operations.** Qualify adaptive placement, fenced
    hibernation and wakeup, and S3 recovery of interrupted transitions. Run the

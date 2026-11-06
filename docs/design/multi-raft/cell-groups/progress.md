@@ -138,6 +138,12 @@ receipt replays retain their original inputs and retry horizon. The next
 campaign runs ordinary split/merge before recovery to capture that result
 independently of the recovery path.
 
+On that clean revision the ordinary split/merge case passed both RustFS
+image modes in 231.58 seconds. It restarted all child voters, verified the
+merged SQL and S3 receipt, and completed retirement. The command log SHA-256
+is `0c4e7ae95007266aee26a778adbd990a24cf0f6280156e16c8f66a08ccb7411f`.
+The recovery case runs separately in the same campaign.
+
 ## CG-12 alarm, peer and minority wake
 
 At `a6bd8f64975ffe71842302bf4d1974362abb7eea`, the first two cases in
@@ -496,8 +502,9 @@ The earlier repeated joint-consensus stall did not recur.
 The diagnostic log SHA-256 is
 `aa7944369390f485d7bb46b88cb18bb30695d4d87a6a846955540e5929e9abe2`.
 
-The exact native lifecycle and multi-cell SDK cases passed at `393bffe4`.
-The exact ingress case timed out during the first-group standby CLI
+Four exact native public cases passed at `393bffe4`, including lifecycle,
+multi-cell SDK, occupancy one and the feature-off Fleet contract.
+The remaining ingress case timed out during the first-group standby CLI
 invocation, before the SQL and S3 checks. The campaign retains both that
 result and the earlier full-suite result where ingress passed. An isolated
 ingress rerun uses the same source and original command bounds.
