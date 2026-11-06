@@ -128,6 +128,16 @@ at a split admission assertion before reaching the restart. The passing
 diagnostic log SHA-256 is
 `cf0a9d77fdb7a9e367edd226411efee77b40aa75e3ade12c388dbd5f2c867875`.
 
+The clean RustFS campaign at `c2776f4c` passed materialized recovery.
+Extent recovery stopped before merge when a fresh post-transfer write used
+the seed command's expired retry horizon. The runner stopped before the
+ordinary split/merge case. The record SHA-256 is
+`30d344e094da69ab958ba44c74ad8850750cd41623006556169c3f222ad5b925`.
+At `af2efbc8`, fresh fixture writes compute their own retry horizon. Exact
+receipt replays retain their original inputs and retry horizon. The next
+campaign runs ordinary split/merge before recovery to capture that result
+independently of the recovery path.
+
 ## CG-12 alarm, peer and minority wake
 
 At `a6bd8f64975ffe71842302bf4d1974362abb7eea`, the first two cases in
@@ -485,6 +495,22 @@ injected lost terminal CAS reply and successful settlement replay.
 The earlier repeated joint-consensus stall did not recur.
 The diagnostic log SHA-256 is
 `aa7944369390f485d7bb46b88cb18bb30695d4d87a6a846955540e5929e9abe2`.
+
+The exact native lifecycle and multi-cell SDK cases passed at `393bffe4`.
+The exact ingress case timed out during the first-group standby CLI
+invocation, before the SQL and S3 checks. The campaign retains both that
+result and the earlier full-suite result where ingress passed. An isolated
+ingress rerun uses the same source and original command bounds.
+
+## CG-07 voter and learner read readiness
+
+The public shared-group read target at `9ab1334894c6e6d0ce41c2a5421fc3ba56448951`
+passed all 17 cases in 89.21 seconds. The learner case observes three voters
+and one learner on real TLS peers, confirms the empty manifest and local read
+refusal, then enrolls a cell and commits a quorum write. Every replica serves
+the exact receipt version and witness through local minimum-version and
+linearizable reads. The learner has no command readiness. The suite log
+SHA-256 is `2adcd471c9b135af3759dbe66adb62dc996ad1781fb516931427aba711576869`.
 
 ## CG-07 shared cell version key rotation
 

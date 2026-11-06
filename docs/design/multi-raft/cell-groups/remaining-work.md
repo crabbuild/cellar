@@ -123,11 +123,11 @@ through the shared backend and preserve typed refusals for the rest.
    access available, plus explicit S3 refusal and recovery. The directory
    suite passed all 16 cases. The Fleet permit port passed all eight cases on
    its original source. A later full-suite rerun hit an S3 receipt deadline and
-   passed the case in isolation. Sixteen shared-group read ports pass,
-   including follower ReadIndex recovery, peer saturation and routing from a
-   voter without a query callback. Resolve the extent-backed RustFS S3
-   receipt deadline after repair, finish the
-   remaining multi-namespace router and learner readiness ports, and pass public CI before
+   passed the case in isolation. Seventeen shared-group read cases pass,
+   including follower ReadIndex recovery, peer saturation, routing from a
+   voter without a query callback, and local learner readiness. Resolve the
+   outstanding S3 receipt and CLI deadlines, finish the multi-namespace
+   router port, and pass public CI before
    making shared groups the default for supported SQL in new namespaces.
 3. **Finish CG-09/10 operator split and merge.** One native case now resumes
    the operator-admitted split after a partial reservation, serves SQL on the
