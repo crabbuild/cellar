@@ -1092,6 +1092,22 @@ async fn run_inner(
             .phase()
             == TransitionPhase::Active
     );
+    Box::pin(verify_merged_sql(
+        voters,
+        child.history,
+        &routed,
+        receipts,
+        retry,
+    ))
+    .await?;
+    Box::pin(initialize_merge_child_archive(
+        cluster,
+        directory,
+        &transition,
+        child.history,
+        &control,
+    ))
+    .await?;
     let active_basis =
         Box::pin(control.transition_recovery_basis(&namespace, &operation_id, TIMEOUT)).await?;
     let old_scope = Box::pin(recovery_control.verify_transition_recovery_archives(
@@ -1108,22 +1124,46 @@ async fn run_inner(
     let child_registry = directory
         .open_group_archive(domain.as_ref(), &archives.pool, &child_birth)
         .await?;
-    preparation::wait_active_archive(&voters[leader(voters, child.history).await?], child.history)
-        .await?;
+    let voters = &cluster.hosts[..3];
+    let selected = leader(voters, child.history).await?;
+    if selected != 0 {
+        voters[selected]
+            .group(child.history)?
+            .transfer_leader(MemberId::new(1)?)
+            .await?;
+        let group = voters[0].group(child.history)?;
+        tokio::time::timeout(TIMEOUT, async {
+            loop {
+                let status = group.status().await?;
+                if status.ready && status.leader == Some(1) {
+                    break Ok::<_, anyhow::Error>(());
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .context("archive voter became ready leader")??;
+    }
+    preparation::wait_active_archive(&voters[0], child.history).await?;
     let older = preparation::acquire_hold(domain, &child_registry).await?;
-    Box::pin(verify_merged_sql(
-        voters,
-        child.history,
-        &routed,
-        receipts,
-        retry,
-    ))
-    .await?;
-    let applied = preparation::wait_active_archive(
-        &voters[leader(voters, child.history).await?],
-        child.history,
-    )
-    .await?;
+    let (cell, expected) = &routed[0];
+    let handle = voters[0].cell(cell.clone())?;
+    let s3_receipt = handle
+        .command(
+            &handle.contract("Add")?,
+            0i64.to_be_bytes().to_vec(),
+            CommandOptions {
+                durability: cellar_logic::consensus::Durability::S3,
+                timeout: TIMEOUT,
+                ..CommandOptions::new(CommandId::new(ClientId::new([211; 16])?, 1)?, retry)
+            },
+        )
+        .await?;
+    ensure!(
+        s3_receipt.result == (expected + 2).to_be_bytes()
+            && s3_receipt.durability == cellar_logic::consensus::Durability::S3
+    );
+    let applied = preparation::wait_active_archive(&voters[0], child.history).await?;
     let current = preparation::acquire_hold(domain, &child_registry).await?;
     ensure!(
         current.marker().position().index >= applied
@@ -1156,6 +1196,9 @@ async fn run_inner(
                 .pin_cell(&cell.cell)
                 .context("restored merged cell")?;
             ensure!(leaf.version.history == *cell);
+            if leaf.version.history == s3_receipt.version.history {
+                ensure!(leaf.version == s3_receipt.version);
+            }
         }
     }
     for hold in [&older, &current] {
@@ -1452,31 +1495,13 @@ async fn retire_merge_parent(
     .context("operator parent retirement")?
 }
 
-fn finish_merge<'a>(
-    cluster: &'a mut ManagedCluster,
-    directory: &'a RangeDirectory,
-    transition: &'a ReopenedManagedCellGroupTransition,
-    parents: &'a [GroupRoute; 2],
-    child: GroupHistory,
-    archives: &'a ArchiveInputs,
-    control: &'a RaftFleetControl,
-) -> impl std::future::Future<Output = Result<()>> + 'a {
-    Box::pin(finish_merge_inner(
-        cluster, directory, transition, parents, child, archives, control,
-    ))
-}
-
-async fn finish_merge_inner(
+async fn initialize_merge_child_archive(
     cluster: &mut ManagedCluster,
     directory: &RangeDirectory,
     transition: &ReopenedManagedCellGroupTransition,
-    parents: &[GroupRoute; 2],
     child: GroupHistory,
-    archives: &ArchiveInputs,
     control: &RaftFleetControl,
 ) -> Result<()> {
-    let fleet = cluster.fixtures[0].catalog.clone();
-    let domain = &archives.domain;
     let archive_request = RaftFleetTransitionChildSetupRequest {
         catalog_id: control.catalog_id().into(),
         namespace_id: hex::encode(child.namespace.bytes()),
@@ -1505,13 +1530,41 @@ async fn finish_merge_inner(
         );
     }
     Box::pin(restart_voter(cluster, 0, 121, Some(child), 1)).await?;
+    Ok(())
+}
+
+fn finish_merge<'a>(
+    cluster: &'a mut ManagedCluster,
+    directory: &'a RangeDirectory,
+    transition: &'a ReopenedManagedCellGroupTransition,
+    parents: &'a [GroupRoute; 2],
+    child: GroupHistory,
+    archives: &'a ArchiveInputs,
+    control: &'a RaftFleetControl,
+) -> impl std::future::Future<Output = Result<()>> + 'a {
+    Box::pin(finish_merge_inner(
+        cluster, directory, transition, parents, child, archives, control,
+    ))
+}
+
+async fn finish_merge_inner(
+    cluster: &mut ManagedCluster,
+    directory: &RangeDirectory,
+    transition: &ReopenedManagedCellGroupTransition,
+    parents: &[GroupRoute; 2],
+    child: GroupHistory,
+    archives: &ArchiveInputs,
+    control: &RaftFleetControl,
+) -> Result<()> {
+    let fleet = cluster.fixtures[0].catalog.clone();
+    let domain = &archives.domain;
     let applied = preparation::wait_active_archive(&cluster.hosts[0], child).await?;
     let coverage_request = RaftFleetTransitionPrepareRequest {
-        catalog_id: archive_request.catalog_id,
-        namespace_id: archive_request.namespace_id,
-        operation_id: archive_request.operation_id,
+        catalog_id: control.catalog_id().into(),
+        namespace_id: hex::encode(child.namespace.bytes()),
+        operation_id: hex::encode(transition.request.operation),
         request_id: hex::encode([186; 16]),
-        plan_digest: archive_request.plan_digest,
+        plan_digest: hex::encode(transition.plan.digest()),
     };
     let mut digest = None;
     for _ in 0..2 {
@@ -1941,18 +1994,10 @@ async fn verify_merged_sql(
             .command(
                 &add,
                 1i64.to_be_bytes().to_vec(),
-                CommandOptions {
-                    durability: cellar_logic::consensus::Durability::S3,
-                    timeout: TIMEOUT,
-                    ..CommandOptions::new(CommandId::new(receipt.id.client, 2)?, retry)
-                },
+                CommandOptions::new(CommandId::new(receipt.id.client, 2)?, retry),
             )
             .await?;
-        ensure!(
-            write.result == (expected + 2).to_be_bytes()
-                && write.witness.group == history
-                && write.durability == cellar_logic::consensus::Durability::S3
-        );
+        ensure!(write.result == (expected + 2).to_be_bytes() && write.witness.group == history);
         positions.push((history, write.witness.position.index));
     }
     preparation::wait_transfer_applied(voters, &positions).await
