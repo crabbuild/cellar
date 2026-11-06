@@ -122,6 +122,17 @@ campaign did not start. The run record SHA-256 is
 The failing observation still needs to be isolated before rerunning the
 fresh-quorum and receipt checks.
 
+The instrumented candidate `c4ad4796` recorded 137
+`RecoveryUnproven` results at repair selection before the standby became
+unreachable near the deadline. The standby advertised 512 MiB for the
+replica. The planner also charged 128 MiB of measured-policy overhead,
+256 MiB of seed headroom and a 64 MiB reserve, for a minimum of 960 MiB.
+The candidate at `d95157a5` declares the complete standby budget and checks
+the qualified limit before injecting the voter failure. It still needs the
+real RustFS replacement and receipt checks in both image modes.
+The instrumented run record SHA-256 is
+`e2e20d29a7b961e24d91e9e70fd7ff261875b9570aba3c72c5a3e0b64e008b2f`.
+
 ## CG-09 rooted decisions and retained source sealing
 
 The unmanaged source seal consumes a permit bound to the selected directory

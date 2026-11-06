@@ -91,9 +91,9 @@ archive proof. The release should define which SQL capabilities are available
 through the shared backend and preserve typed refusals for the rest.
 
 1. **Close CG-07 failed-voter repair and managed lifecycle.** The constrained
-   Linux RustFS repair candidate fenced the failed voter, then blocked on an
-   observation before admitting replacement. Identify the failing observation
-   and prove standby seeding, promotion, a fresh quorum, receipt replay and
+   Linux RustFS trace showed that the standby's advertised disk budget omitted
+   seed, overhead and reserve charges. Qualify the corrected receiving profile
+   through standby seeding, promotion, a fresh quorum, receipt replay and
    capacity settlement. Exercise drain, maintenance stop/return/resume and
    retained nonvoting inventory through the public operators.
 2. **Pass the combined CG-07 RF3 SQL gate.** Use one source revision for
