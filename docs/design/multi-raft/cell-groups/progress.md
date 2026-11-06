@@ -12,6 +12,40 @@ CG-07 and CG-09 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## Named case audit and public read readiness
+
+The plan validator verified the source-pinned evidence records for CG-01–06
+and CG-08. Those records account for 115 of the 163 required named cases.
+All five CG-07 cases are implemented in the planned public target.
+CG-09 through CG-16 have component and process coverage at their recorded
+revisions. Their planned acceptance targets and task records are outstanding.
+The source preflight reports drift in 14 of 24 reviewed anchors. Review those
+changes before advancing the baseline.
+
+The shared read target at `1d571a411f873fde8d3b4c1cdfcabb65259f1970` passed
+all 16 cases in 60.59 seconds. With the local consensus channels cut, a voter
+served the historical SQLite image and refused recent-source and linearizable
+queries. Both policies recovered when the channels healed. A protocol-only
+leadership transfer advanced the term and physical apply on all three voters
+while the same logical cell witness and version remained readable. The suite
+log SHA-256 is
+`4868cb212a2a90e14ffb302eee7892c0b61e1648d903fc3352f007717db8fa30`.
+
+All five named CG-07 cases passed on `b51be13aa9ff6ab429882d5306bbcaf95a324e90`
+in the native public target. The additional harness freshness case passed,
+and the opt-in RustFS lifecycle case was skipped in that invocation. The
+suite took 441.62 seconds. Its command log SHA-256 is
+`98ede1eb69f26ee37916bec8ae2a90c9843705114a8f9e4eeab0d1bf4d8be026`.
+
+The native CG-09 operator split case passed in 15.80 seconds on the same
+runtime. It lost the confirmation for the first child reservation, advanced
+the Fleet revision independently, reopened the CLI controller and completed
+the same plan in key order. It also verified exact cancellation replay. The
+case log SHA-256 is
+`98bc23f770f5de9c2272e938b95d7721c92cdb5d7a2642a5387c8caf323e200a`.
+This is coverage of a split admission cut. The named transition acceptance
+target still needs the restart and single-writer oracles across all phases.
+
 ## CG-09/10 and CG-13 managed serving checkpoint
 
 At `6e6be12d403e1d7b3341531a0b664cbdb8299753`, the managed recovery
@@ -228,6 +262,23 @@ same binary passed in 54.44 seconds. The failed and passing command log
 SHA-256 digests are
 `fdfba994b40a40f18f4047cd684c3b795aa26975ae16d02090579316b1116d29`
 and `e5a49699531baa155794619d754b95eb822c153bca9ebc0a47869ebbd301428b`.
+
+The next constrained materialized run on candidate `8a6ab6caaf82` passed
+the previous standby seed failure. It promoted the replacement, observed
+the stable voter set `[2, 3, 4]` and checked that the removed engine's files
+were retained. The fixture then refused startup of the replacement while
+inspecting the original birth voters at Fleet revision 60. Movement finished
+at revision 63. The fixture exited after 88.545 seconds, before the replacement
+served SQL, and the extent campaign did not start. The suite record and
+materialized process ledger SHA-256 digests are
+`a202df3cc2ac53e243221046085526c25e7db9ad44ec9c5f84d75c22fa5bf9a5`
+and `0deca8b3aba071ab2deb379c3d745380249244c8c93e90ba1c2966273314dc57`.
+
+Candidate `c554b2a5eb187c482cabc7a56e2202d4e2f26d56` restricts the original
+birth inspection to original cold voters. The standby still checks the
+selected boot, applied manifest, promotion through a fresh quorum and local
+SQL readiness before ingress. Requalify both constrained image modes on
+the candidate, then run the combined campaign on PR #160's executable source.
 
 ## CG-07 shared cell version key rotation
 

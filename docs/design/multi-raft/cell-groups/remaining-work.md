@@ -81,6 +81,25 @@ source boundaries. The constrained Linux public SQL gate passed at
 quorum refusal and archive-write outage. The remaining CG-07 process gate
 combines these paths with managed repair, drain and maintenance.
 
+## Open case audit
+
+The [implementation index](implementation-plan.md) counts accepted cases from
+completed task records. Component and process checkpoints retain their recorded
+source revisions. Each open task still needs the exact target, case oracles
+and evidence specified by `plan.py show <task>`.
+
+| Task | Checked-in coverage | Acceptance still required |
+| --- | --- | --- |
+| CG-07 | All five named cases are in `native_cell_groups_public`. All five passed in the latest native run, covering SDK multi-cell and occupancy-one serving, cross-authority refusal, managed lifecycle and existing Bucket/Fleet behavior. | Run the public cases and constrained RustFS daemon campaign at one source with repair, drain, maintenance, retained restart and outage. |
+| CG-09 | `seal_authorization_cancel_race` and `source_seal_blocks_delayed_work` run in the catalog and host targets. Component checkpoints also cover rooted archive holds and managed serving after transfer. | Build the planned transition target. Exercise publication only after destination quorum install and remote closure, restart with one writer, receipt/token/effect continuity, and archive pins through retirement. |
+| CG-10 | Managed split/merge serving has run against RustFS in both image modes. | Qualify exact union and adjacency, incompatible placement/durability, partial reservations across restart, writes during movement and bounded precopy. |
+| CG-11 | Placement observations and advisory recommendations exist. | Qualify hysteresis, hot-cell isolation, whole-group scale out and in, failure-domain reserve and bounded controller fanout. |
+| CG-12 | The constrained daemon has parked and woken a group through fresh quorum. | Qualify all-voter eligibility, partial/stale certificates, restart and leader loss, and alarm and peer wake without a client. |
+| CG-13 | Host-native voters have recovered after all owned voter disks were erased against RustFS with a fixture fence. | Qualify interrupted transition closure selection, permanent revocation of every possible old writer, fresh histories and retry under independent Docker voter processes. Exercise the outbox ambiguity refusal. |
+| CG-14 | The daemon harness retains scoped evidence from real voters and RustFS. | Build the planned harness acceptance target for real occupancies, ownership, complete ledgers, evidence drift rejection and measured profiles. |
+| CG-15 | Checkpoints cover individual public faults and archive recovery. | Run the history oracle, full crash and transition matrix, archive reclamation under load, wake profiles, soak and independent-domain loss. |
+| CG-16 | Public shared-group SQL has scoped coverage. | Remove predecessor consensus paths, prove full public operations and joined shutdown in all modes, and bind release evidence to one source. |
+
 ## First delivery of quorum SQL through public ingress
 
 An explicitly configured Raft namespace defaults to three voters and a
@@ -90,15 +109,13 @@ a committed command and its applied receipt. Explicit S3 durability waits for
 archive proof. The release should define which SQL capabilities are available
 through the shared backend and preserve typed refusals for the rest.
 
-1. **Close CG-07 failed-voter repair and managed lifecycle.** The constrained
-   Linux RustFS repair admits movement with the corrected standby disk budget.
-   The Linux materialized run verified maintenance stop/return/resume and
-   started the worker on an Active voter. A traced run observed the committed
-   repair permit and reached standby activation, where the seed connection
-   closed. Restoring seed endpoints on retained startup passed both image modes
-   in the host-native RustFS fixture. Verify the fix in the constrained daemon,
-   including promotion, a fresh quorum, receipt replay and capacity settlement. Include drain and retained
-   nonvoting inventory in the combined public gate.
+1. **Close CG-07 failed-voter repair and managed lifecycle.** After restoring
+   retained seed endpoints, the constrained materialized RustFS candidate
+   promoted the standby and removed the failed voter while retaining its
+   disk. The replacement then hit a fixture startup check for the original
+   birth voters. Verify the corrected startup through a fresh quorum, native
+   and Axum receipt replay, and a new quorum write in both image modes. Run
+   repair, drain, maintenance and retained inventory on the public PR source.
 2. **Pass the combined CG-07 RF3 SQL gate.** Use one source revision for
    onboarding, enrollment, ingress-only SDK routing, native and Axum reads and
    writes, leader loss, exact retries, retained restart and quorum refusal.
@@ -106,14 +123,16 @@ through the shared backend and preserve typed refusals for the rest.
    access available, plus explicit S3 refusal and recovery. The directory
    suite passed all 16 cases. The Fleet permit port passed all eight cases on
    its original source. A later full-suite rerun hit an S3 receipt deadline and
-   passed the case in isolation. Fourteen shared-group read ports pass,
+   passed the case in isolation. Sixteen shared-group read ports pass,
    including follower ReadIndex recovery, peer saturation and routing from a
    voter without a query callback. Resolve the S3 deadline, finish the
-   multi-namespace router and readiness ports, and pass public CI before
+   remaining multi-namespace router and learner readiness ports, and pass public CI before
    making shared groups the default for supported SQL in new namespaces.
-3. **Finish CG-09/10 operator split and merge.** Connect admission, archive
-   preparation, source sealing and destination publication. Prove restart
-   reconciliation of partial reservations and seals.
+3. **Finish CG-09/10 operator split and merge.** A fresh CLI controller
+   resumes a partial split reservation, and managed fixtures cover archive
+   preparation, source sealing and destination publication. Drive one
+   operator-admitted plan across all phases. Prove restart reconciliation
+   after partial merge reservations, seals and lost publication replies.
 4. **Finish CG-11–13 managed operations.** Qualify adaptive placement, fenced
    hibernation and wakeup, and S3 recovery of interrupted transitions. Run the
    Docker-fenced disk-loss drill with all old voter disks deleted and a fresh

@@ -404,11 +404,17 @@ def check_links(package, root):
 
 
 def index_text(manifest):
+    tasks = manifest["tasks"]
+    required = sum(len(task["test_cases"]) for task in tasks)
+    accepted = sum(len(task["test_cases"]) for task in tasks if task["status"] == "DONE")
     lines = ["<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->", "",
              "# Implementation order", "",
              "Purpose: Dependency order and status of the sixteen cell-group implementation tasks.", "",
-             "Generated from `tasks.json`; print again with `plan.py index` after status changes.",
-             "A task reaches DONE when its source-bound acceptance evidence passes.",
+             "Generated from `tasks.json`. Regenerate with `plan.py index` after status changes.",
+             f"**{accepted} of {required} named cases** have task-level acceptance evidence.",
+             "Accepted cases count source-pinned evidence for DONE tasks. See the",
+             "[open case audit](remaining-work.md#open-case-audit) for implemented coverage and missing gates.",
+             "The full release requires a combined run on one source revision.",
              "CG-07 gates the default shared-group backend for new SQL namespaces.",
              "CG-15 and CG-16 gate the full release.", "",
              "Start with the [quorum SQL delivery priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)",
@@ -417,11 +423,15 @@ def index_text(manifest):
              "executor brief. Replace the ID to select another task. Commands are displayed,",
              "never executed by the plan runner. Read the [design](design.md),",
              "[protocols](protocols.md) and [qualification](qualification.md) first.", "",
-             "| Task | Deliverable | Dependencies | Status | Required cases |", "| --- | --- | --- | --- | ---: |"]
-    by_id = {task["id"]: task for task in manifest["tasks"]}
-    for tid in ordered(manifest["tasks"]):
+             "| Task | Deliverable | Dependencies | Status | Accepted / required cases |",
+             "| --- | --- | --- | --- | ---: |"]
+    by_id = {task["id"]: task for task in tasks}
+    for tid in ordered(tasks):
         task = by_id[tid]
-        lines.append(f'| {task["id"]} | {task["title"]} | {", ".join(task["depends_on"]) or "None"} | {task["status"]} | {len(task["test_cases"])} |')
+        cases = len(task["test_cases"])
+        accepted = cases if task["status"] == "DONE" else 0
+        dependencies = ", ".join(task["depends_on"]) or "None"
+        lines.append(f'| {tid} | {task["title"]} | {dependencies} | {task["status"]} | {accepted} / {cases} |')
     lines.extend(["", "CG-01 through CG-08 establish the shared runtime and public cutover. CG-09 through",
                   "CG-13 add movement, adaptive scheduling, hibernation and complete managed recovery.",
                   "CG-08 adapts effects before CG-07 public cutover. CG-14 can proceed after CG-07;",
