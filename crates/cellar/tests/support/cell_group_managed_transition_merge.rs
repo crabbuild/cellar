@@ -1212,8 +1212,17 @@ async fn run_inner(
             .fail_recovery_record_confirmation
             .load(Ordering::Acquire));
         ensure!(authority.fences.load(Ordering::Acquire) == 1);
-        let fresh =
-            fresh.with_transition_preparer(recovery_verifier, preparation::recovery_pool()?);
+        ensure!(authority.erased_disks().await == cluster.fixtures.len());
+        drop(recovery_control);
+        drop(recovery_verifier);
+        domain
+            .blocking(move || recovery_workspace.close())?
+            .await??;
+        let cold_workspace = tempfile::tempdir()?;
+        let cold_verifier =
+            crate::managed_fixture::verifier::open(fixture, cold_workspace.path(), rooted, limits)
+                .await?;
+        let fresh = fresh.with_transition_preparer(cold_verifier, preparation::recovery_pool()?);
         let fenced = Box::pin(fresh.fence_transition_recovery(
             principal,
             &namespace,
@@ -1238,7 +1247,6 @@ async fn run_inner(
             .eq(parent_holds.iter()));
         ensure!(authority.fences.load(Ordering::Acquire) == 1);
         ensure!(authority.verifications.load(Ordering::Acquire) == 2);
-        ensure!(authority.erased_disks().await == cluster.fixtures.len());
         let cut = fleet.read(TIMEOUT).await?;
         Box::pin(fence::check_old_boot_refused(fixture)).await?;
         ensure!(fleet.read(TIMEOUT).await?.revision() == cut.revision());
@@ -1265,7 +1273,7 @@ async fn run_inner(
         ensure!(page.routes == parents && page.next.is_none());
         Box::pin(check_recovery_replacements(
             fixture,
-            &recovery_control,
+            &control,
             &fresh,
             &namespace,
             &fenced,
