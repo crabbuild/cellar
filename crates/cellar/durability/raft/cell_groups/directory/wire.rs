@@ -327,6 +327,7 @@ mod tests {
             revision: 1,
             previous: None,
             tree: None,
+            transfer_archive: None,
         };
         let mut value = serde_json::to_value(journal).unwrap();
         assert!(serde_json::from_value::<Journal>(value.clone()).is_ok());

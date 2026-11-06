@@ -351,6 +351,8 @@ async fn peer_traffic_waits_until_all_local_groups_attach() -> anyhow::Result<()
         Ok(Assignment {
             namespace: 0,
             placement: RaftGroupPlacement::Replica,
+            pending_transfer_archive: false,
+            sealed_transfer_source: false,
             birth: birth.clone(),
             transport: PhysicalRoute {
                 scope: birth.route().history,
