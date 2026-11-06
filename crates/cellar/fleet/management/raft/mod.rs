@@ -56,7 +56,7 @@ pub use transition::{
     RaftFleetTransitionActivation, RaftFleetTransitionActivationPosition,
     RaftFleetTransitionActivationRequest, RaftFleetTransitionPreparation,
     RaftFleetTransitionPrepareRequest, RaftFleetTransitionPublication,
-    RaftFleetTransitionPublishRequest, RaftFleetTransitionResume,
+    RaftFleetTransitionPublishRequest, RaftFleetTransitionRecoveryBasis, RaftFleetTransitionResume,
     RaftFleetTransitionResumeAcceptance, RaftFleetTransitionResumeStep,
     RaftFleetTransitionSealAuthorization, RaftFleetTransitionSealRequest,
     RaftFleetTransitionStatus,

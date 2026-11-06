@@ -36,6 +36,83 @@ pub struct RaftFleetTransitionStatus {
     pub fleet_slot_held: bool,
 }
 
+/// Rooted topology basis for choosing archives after an interrupted operation.
+/// These identities do not describe a complete infrastructure fence inventory.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RaftFleetTransitionRecoveryBasis {
+    pub catalog_id: String,
+    pub namespace_id: String,
+    pub operation_id: String,
+    pub fleet_revision: u64,
+    pub fleet_digest: String,
+    pub directory_digest: String,
+    pub plan_digest: String,
+    pub phase: TransitionPhase,
+    pub publication_digest: Option<String>,
+    pub transfer_archive_digest: Option<String>,
+    pub child_archives_digest: Option<String>,
+    pub parents: Vec<RaftFleetTransitionGroup>,
+    pub children: Vec<RaftFleetTransitionGroup>,
+}
+
+impl RaftFleetTransitionRecoveryBasis {
+    /// Published children can have acknowledged effects after the transfer cut.
+    /// Their archive closure must account for those effects independently.
+    pub fn archive_sources(&self) -> &[RaftFleetTransitionGroup] {
+        if self.publication_digest.is_some() {
+            &self.children
+        } else {
+            &self.parents
+        }
+    }
+}
+
+impl RaftFleetControl {
+    /// Resolve the exact interrupted transition while it owns Fleet and the
+    /// directory. This read does not retain or verify archives, fence writers,
+    /// or authorize any state change.
+    pub async fn transition_recovery_basis(
+        &self,
+        namespace: &str,
+        operation: &str,
+        timeout: Duration,
+    ) -> Result<RaftFleetTransitionRecoveryBasis> {
+        let directory = self.managed_namespace(namespace)?;
+        let operation = ProposalId::new(records::id(operation)?)
+            .map_err(|_| RaftFleetFailure::invalid("operation ID"))?;
+        let observation = self
+            .catalog
+            .observe_managed_transition_recovery(directory, operation, timeout)
+            .await?;
+        let selected = observation.selection;
+        let groups = |routes: Vec<cellar_logic::cell_group::GroupRoute>| {
+            routes
+                .into_iter()
+                .map(|route| RaftFleetTransitionGroup {
+                    group_id: hex::encode(route.history.group.bytes()),
+                    incarnation_id: hex::encode(route.history.incarnation.bytes()),
+                })
+                .collect()
+        };
+        Ok(RaftFleetTransitionRecoveryBasis {
+            catalog_id: self.catalog_id.clone(),
+            namespace_id: namespace.into(),
+            operation_id: hex::encode(operation.bytes()),
+            fleet_revision: observation.fleet_revision,
+            fleet_digest: hex::encode(observation.fleet_digest),
+            directory_digest: hex::encode(selected.directory_digest),
+            plan_digest: hex::encode(selected.plan_digest),
+            phase: selected.phase,
+            publication_digest: selected.publication.map(hex::encode),
+            transfer_archive_digest: selected.transfer_archive.map(hex::encode),
+            child_archives_digest: selected.child_archives.map(hex::encode),
+            parents: groups(selected.parents),
+            children: groups(selected.children),
+        })
+    }
+}
+
 impl RaftFleetControl {
     /// Inspect the exact admitted operation without advancing it.
     pub async fn transition_status(

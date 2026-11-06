@@ -24,6 +24,7 @@ pub use births::BirthDisposition;
 
 #[path = "cell_groups/directory/mod.rs"]
 mod range_directory;
+pub(crate) use range_directory::ManagedTransitionRecoverySelection;
 pub(crate) use range_directory::RouteCache;
 pub use range_directory::{
     CellGroupArchiveBindingError, CellGroupBirth, CellGroupBirthDisposition, CellGroupBirthRequest,

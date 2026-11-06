@@ -72,6 +72,17 @@ pub struct TransitionJournal {
     phase: TransitionPhase,
 }
 
+pub(crate) struct ManagedTransitionRecoverySelection {
+    pub(crate) plan_digest: [u8; 32],
+    pub(crate) directory_digest: [u8; 32],
+    pub(crate) phase: TransitionPhase,
+    pub(crate) publication: Option<[u8; 32]>,
+    pub(crate) transfer_archive: Option<[u8; 32]>,
+    pub(crate) child_archives: Option<[u8; 32]>,
+    pub(crate) parents: Vec<GroupRoute>,
+    pub(crate) children: Vec<GroupRoute>,
+}
+
 impl TransitionJournal {
     pub fn phase(&self) -> TransitionPhase {
         self.phase
@@ -833,6 +844,61 @@ impl RangeDirectory {
             let (view, _) = self.current().await?;
             let journal = self.matching_transition(&view.head, &plan).await?;
             Ok((plan, journal))
+        })
+        .await
+    }
+
+    /// Resolve the source domain against a single rooted view. The immutable
+    /// publication and the selected tree must agree even after a lost CAS reply.
+    pub(crate) async fn observe_managed_transition_recovery(
+        &self,
+        operation: ProposalId,
+        digest: [u8; 32],
+        permit: &ManagedTransitionPermit,
+    ) -> Result<ManagedTransitionRecoverySelection, CatalogError> {
+        self.bounded(async {
+            let plan = self.load_transition_plan(operation, digest).await?;
+            permit.check(self, &plan)?;
+            let (view, _) = self.current().await?;
+            if view.head.import.is_some() || view.head.recovery.is_some() {
+                return Err(CatalogError::Fenced);
+            }
+            let journal = self
+                .matching_transition(&view.head, &plan)
+                .await?
+                .ok_or(CatalogError::Unconfirmed)?;
+            if !journal.owns_topology() {
+                return Err(CatalogError::Fenced);
+            }
+            let publication = self.confirmed(&view.head, &plan).await?;
+            if publication
+                .as_ref()
+                .map(|decision| (decision.journal_digest(), decision.transfer_archive()))
+                != journal
+                    .publication
+                    .map(|id| (id, journal.transfer_archive()))
+            {
+                return Err(CatalogError::Corrupt("transition recovery publication"));
+            }
+            let (parents, children) = self.transition_routes(&plan)?;
+            let sources = if publication.is_some() {
+                &children
+            } else {
+                &parents
+            };
+            for route in sources {
+                self.selected_route_in(&view, route).await?;
+            }
+            Ok(ManagedTransitionRecoverySelection {
+                plan_digest: digest,
+                directory_digest: view.digest,
+                phase: journal.phase(),
+                publication: journal.publication,
+                transfer_archive: journal.transfer_archive(),
+                child_archives: journal.child_archives(),
+                parents,
+                children,
+            })
         })
         .await
     }

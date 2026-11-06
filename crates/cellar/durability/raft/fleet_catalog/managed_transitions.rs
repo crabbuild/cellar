@@ -161,6 +161,12 @@ pub(crate) struct ManagedTransitionObservation {
     pub(crate) transition: ReopenedManagedCellGroupTransition,
 }
 
+pub(crate) struct ManagedTransitionRecoveryObservation {
+    pub(crate) fleet_revision: u64,
+    pub(crate) fleet_digest: [u8; 32],
+    pub(crate) selection: crate::raft::catalog::ManagedTransitionRecoverySelection,
+}
+
 impl FleetCatalog {
     /// Reopen an admitted transition by operation ID. This reads the original
     /// fleet request and canonical plan bytes even after the caller loses its
@@ -229,6 +235,50 @@ impl FleetCatalog {
                         journal,
                     },
                 }))
+            }),
+        )
+        .await
+    }
+
+    pub(crate) async fn observe_managed_transition_recovery(
+        &self,
+        directory: &RangeDirectory,
+        operation: ProposalId,
+        timeout: Duration,
+    ) -> Result<ManagedTransitionRecoveryObservation> {
+        self.run(
+            timeout,
+            Box::pin(async {
+                let snapshot = self.inner.current().await?;
+                let fleet_digest = root_digest(&snapshot)?;
+                let Some(Disruption::Transition(record)) =
+                    self.active_disruption(&snapshot).await?
+                else {
+                    return Err(FleetCatalogError::Conflict);
+                };
+                if record.operation() != operation.bytes() {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                let digest = record.plan;
+                let permit = ManagedTransitionPermit(record);
+                permit.check_directory(directory).map_err(catalog_error)?;
+                let selection = self
+                    .inner
+                    .domain
+                    .run(Box::pin(directory.observe_managed_transition_recovery(
+                        operation, digest, &permit,
+                    )))
+                    .await
+                    .map_err(|_| FleetCatalogError::Closed)?
+                    .map_err(catalog_error)?;
+                if root_digest(&self.inner.current().await?)? != fleet_digest {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                Ok(ManagedTransitionRecoveryObservation {
+                    fleet_revision: snapshot.revision(),
+                    fleet_digest,
+                    selection,
+                })
             }),
         )
         .await

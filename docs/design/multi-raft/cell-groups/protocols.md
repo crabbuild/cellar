@@ -1463,6 +1463,12 @@ possible voting lineages in that component, including removed/replacement hosts
 whose restart could violate the selected boundary. Partial fencing cannot publish
 new ownership. A list of current online nodes is not a complete fencing inventory.
 
+The Fleet SDK's `transition_recovery_basis` reads the active disruption and
+the exact directory publication against a pinned root. It identifies the archive
+source groups and reports both parent and child histories for inventory collection.
+A recovery caller must still verify the selected archives and inventory all
+possible writers before requesting an infrastructure fence.
+
 For an unpublished transition, choose complete archived parent cuts and reconstruct
 their non-overlapping domain under new groups. For a published transition, require
 child recovery sets or a retained transfer closure plus each child's archived

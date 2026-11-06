@@ -221,14 +221,14 @@ pub mod fleet_operations {
         RaftFleetTransitionChildSetupResult, RaftFleetTransitionChildStep,
         RaftFleetTransitionGroup, RaftFleetTransitionPartition, RaftFleetTransitionPreparation,
         RaftFleetTransitionPrepareRequest, RaftFleetTransitionPublication,
-        RaftFleetTransitionPublishRequest, RaftFleetTransitionResume,
-        RaftFleetTransitionResumeAcceptance, RaftFleetTransitionResumeStep,
-        RaftFleetTransitionSealAuthorization, RaftFleetTransitionSealRequest,
-        RaftFleetTransitionSourceArchive, RaftFleetTransitionSourceCut,
-        RaftFleetTransitionSourceRetirement, RaftFleetTransitionSourceSeal,
-        RaftFleetTransitionSourceSealRequest, RaftFleetTransitionStatus,
-        RaftFleetVerificationBlocker, RaftFleetVerificationReason, RaftFleetVerificationStage,
-        RaftFleetWakeStatus,
+        RaftFleetTransitionPublishRequest, RaftFleetTransitionRecoveryBasis,
+        RaftFleetTransitionResume, RaftFleetTransitionResumeAcceptance,
+        RaftFleetTransitionResumeStep, RaftFleetTransitionSealAuthorization,
+        RaftFleetTransitionSealRequest, RaftFleetTransitionSourceArchive,
+        RaftFleetTransitionSourceCut, RaftFleetTransitionSourceRetirement,
+        RaftFleetTransitionSourceSeal, RaftFleetTransitionSourceSealRequest,
+        RaftFleetTransitionStatus, RaftFleetVerificationBlocker, RaftFleetVerificationReason,
+        RaftFleetVerificationStage, RaftFleetWakeStatus,
     };
     pub use crate::raft::fleet_catalog::FleetTopologyPolicy;
 }

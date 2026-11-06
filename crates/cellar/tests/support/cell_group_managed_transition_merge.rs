@@ -734,6 +734,21 @@ async fn run_inner(
                     && !status.child_archives_verified
                     && !status.parent_holds_released
             );
+            let recovery =
+                Box::pin(control.transition_recovery_basis(&namespace, &operation_id, TIMEOUT))
+                    .await?;
+            let parent_groups: Vec<_> = parents
+                .iter()
+                .map(|parent| transition_group(parent.history))
+                .collect();
+            ensure!(
+                recovery.phase == TransitionPhase::SealAuthorized
+                    && recovery.plan_digest == status.plan_digest
+                    && recovery.directory_digest == hex::encode(unchanged.digest())
+                    && recovery.publication_digest.is_none()
+                    && recovery.archive_sources() == parent_groups
+                    && recovery.children == [transition_group(child.history)]
+            );
             let missing = hex::encode([249; 16]);
             ensure!(
                 matches!(control.transition_status(&namespace, &missing, TIMEOUT).await,
@@ -978,12 +993,38 @@ async fn run_inner(
             .context("archived merge cut")?,
     };
     ensure!(publish.archive_digest == hex::encode(archive));
+    let work = control.publish_transition(principal, &namespace, &operation_id, &publish, TIMEOUT);
+    let (attempt, delivered) = Box::pin(fault::lose_directory_confirmation(work)).await;
+    ensure!(
+        delivered,
+        "the publication CAS did not reach the injected confirmation loss"
+    );
+    if let Err(failure) = attempt {
+        ensure!(
+            failure.code == RaftFleetFailureCode::Unavailable
+                && failure.outcome == RaftFleetOutcome::Unknown
+        );
+    }
+    let after = domain.run(directory.observe()).await??;
+    let recovery =
+        Box::pin(control.transition_recovery_basis(&namespace, &operation_id, TIMEOUT)).await?;
+    ensure!(
+        recovery.phase == TransitionPhase::Published
+            && recovery.directory_digest == hex::encode(after.digest())
+            && recovery.transfer_archive_digest.as_deref() == Some(publish.archive_digest.as_str())
+            && recovery.child_archives_digest.is_none()
+            && recovery.archive_sources() == [transition_group(child.history)]
+            && recovery.parents.len() == 2
+    );
     let published = control
         .publish_transition(principal, &namespace, &operation_id, &publish, TIMEOUT)
         .await
-        .context("publish merged child after both seals")?;
-    ensure!(published.directory_revision == view.revision() + 1);
-    let after = domain.run(directory.observe()).await??;
+        .context("reopen merged publication after losing its first confirmation")?;
+    ensure!(
+        published.directory_revision == view.revision() + 1
+            && recovery.publication_digest.as_deref()
+                == Some(published.publication_digest.as_str())
+    );
     let page = domain.run(directory.group_page(&after, None, 2)).await??;
     ensure!(page.next.is_none() && page.routes == vec![child.clone()]);
     let ack = preparation::wait_managed_activation(voters, &transition, child.history).await?;
@@ -1016,6 +1057,10 @@ async fn run_inner(
         .publish_transition(principal, &namespace, &operation_id, &publish, TIMEOUT)
         .await?;
     ensure!(historical == published);
+    ensure!(matches!(
+        Box::pin(control.transition_recovery_basis(&namespace, &operation_id, TIMEOUT)).await,
+        Err(failure) if failure.code == RaftFleetFailureCode::Conflict
+    ));
     let voters = &cluster.hosts[..3];
     let host = &voters[leader(voters, child.history).await?];
     for (index, (cell, expected)) in routed.into_iter().enumerate() {

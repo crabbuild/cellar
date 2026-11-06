@@ -38,6 +38,7 @@ pub use route_cache::CellRouteCacheUsage;
 pub(crate) use route_cache::RouteCache;
 mod store;
 mod transition;
+pub(crate) use transition::ManagedTransitionRecoverySelection;
 mod transition_acquires;
 mod transition_activation;
 pub use transition_activation::{
