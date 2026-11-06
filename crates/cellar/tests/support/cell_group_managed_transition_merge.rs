@@ -282,6 +282,27 @@ async fn managed_recovery_barrier_fences_transfer_and_reopens() -> Result<()> {
     .await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_managed_recovery_barrier_fences_transfer_and_reopens() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(fault::Store::around(rustfs::store(
+            "managed-recovery-barrier",
+            rooted,
+        )?));
+        Box::pin(run_plan(
+            rooted,
+            store,
+            Decision::SplitMerge {
+                recovery_barrier: true,
+            },
+        ))
+        .await
+        .with_context(|| format!("managed recovery barrier, extent images={rooted}"))?;
+    }
+    Ok(())
+}
+
 struct ArchiveInputs {
     domain: Arc<ExecutionDomain>,
     pool: CellGroupArchivePool,
