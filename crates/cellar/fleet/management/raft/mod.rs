@@ -13,6 +13,7 @@ mod nodes;
 mod records;
 mod transition;
 mod transition_admission;
+mod transition_seal;
 use crate::application::consensus::RaftCells;
 use crate::asyncrt::{DomainToken, ExecutionDomain};
 use crate::raft::catalog::RangeDirectory;
@@ -57,6 +58,11 @@ pub use transition::{
 pub use transition_admission::{
     RaftFleetTransitionAdmission, RaftFleetTransitionAdmissionRequest, RaftFleetTransitionBasis,
     RaftFleetTransitionChild, RaftFleetTransitionGroup, RaftFleetTransitionPartition,
+};
+
+pub use transition_seal::{
+    RaftFleetTransitionSourceCut, RaftFleetTransitionSourceSeal,
+    RaftFleetTransitionSourceSealRequest,
 };
 
 type Result<T> = std::result::Result<T, RaftFleetFailure>;

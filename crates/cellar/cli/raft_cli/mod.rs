@@ -329,6 +329,25 @@ async fn execute(options: &options::Options) -> Result<Value> {
             }
             serde_json::to_value(authorized).map_err(|_| unavailable())
         }
+        Action::TransitionSealSource(request) => {
+            let path = format!(
+                "namespaces/{}/transitions/{}/seal-source",
+                request.namespace_id, request.operation_id,
+            );
+            let sealed = client
+                .post::<RaftFleetTransitionSourceSeal>(&path, request.as_ref())
+                .await?;
+            if sealed.request != **request
+                || sealed.applied.as_ref().is_some_and(|cut| {
+                    cut.index == 0
+                        || cut.term == 0
+                        || options::validate_catalog(&cut.authorization_digest).is_err()
+                })
+            {
+                return Err(unavailable());
+            }
+            serde_json::to_value(sealed).map_err(|_| unavailable())
+        }
         Action::TransitionPublish(request) => {
             let path = format!(
                 "namespaces/{}/transitions/{}/publish",

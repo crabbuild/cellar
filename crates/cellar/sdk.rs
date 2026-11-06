@@ -220,8 +220,9 @@ pub mod fleet_operations {
         RaftFleetTransitionPublishRequest, RaftFleetTransitionResume,
         RaftFleetTransitionResumeAcceptance, RaftFleetTransitionResumeStep,
         RaftFleetTransitionSealAuthorization, RaftFleetTransitionSealRequest,
-        RaftFleetTransitionStatus, RaftFleetVerificationBlocker, RaftFleetVerificationReason,
-        RaftFleetVerificationStage,
+        RaftFleetTransitionSourceCut, RaftFleetTransitionSourceSeal,
+        RaftFleetTransitionSourceSealRequest, RaftFleetTransitionStatus,
+        RaftFleetVerificationBlocker, RaftFleetVerificationReason, RaftFleetVerificationStage,
     };
     pub use crate::raft::fleet_catalog::FleetTopologyPolicy;
 }

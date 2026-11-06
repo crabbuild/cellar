@@ -1079,11 +1079,14 @@ The fleet can authorize a seal only for the exact active request and plan
 after verified child preparation. Authorization and cancellation contend on
 the same directory CAS. Once authorization wins, retrying the original request
 returns the recorded decision and cancellation leaves the fleet slot owned.
-An operator can submit that decision to the parent through
-`RaftGroupHandle::seal_managed_source`. The handle verifies the running boot,
-selected birth and applied voter membership before minting a local permit.
-The Raft owner rechecks the permit and drains the accepted prefix. A proposal
-acknowledgement is provisional. An exact retry can return the applied seal cut.
+Use `cellar raft fleet transition seal-source NAMESPACE_HEX --plan REQUEST.json --catalog-id DIGEST`
+against a managed endpoint with a voter for the selected parent. The request
+binds the admitted plan, exact parent group and incarnation. The handle verifies
+the running boot, selected birth and applied voter membership before minting a
+local permit. The Raft owner rechecks the permit and drains the accepted prefix.
+A response without an applied cut confirms proposal acceptance. Retry the same
+request before publication to reconcile the durably applied index, term and
+authorization digest. A merge uses one request per parent.
 The managed archive owner can publish the applied cut while business admission
 is sealed. The fleet verifies each held cut independently against the exact
 authorized plan and rechecks the complete hold set before selecting Sealed.

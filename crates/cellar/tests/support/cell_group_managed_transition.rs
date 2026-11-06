@@ -8,7 +8,8 @@ use cellar::application::consensus::verification::{
 };
 
 use cellar::sdk::fleet_operations::{
-    RaftFleetControl, RaftFleetFailureCode, RaftFleetTransitionSealRequest,
+    RaftFleetControl, RaftFleetFailureCode, RaftFleetTransitionGroup,
+    RaftFleetTransitionSealRequest, RaftFleetTransitionSourceSealRequest,
 };
 
 #[path = "cell_group_managed_transition_preparation.rs"]
@@ -365,6 +366,29 @@ async fn exercise_inner(
             )
             .await?;
         ensure!(prepared.phase == Some(TransitionPhase::Prepared));
+        let source_request = RaftFleetTransitionSourceSealRequest {
+            catalog_id: seal_request.catalog_id.clone(),
+            namespace_id: seal_request.namespace_id.clone(),
+            operation_id: seal_request.operation_id.clone(),
+            request_id: hex::encode([177; 16]),
+            plan_digest: seal_request.plan_digest.clone(),
+            source: RaftFleetTransitionGroup {
+                group_id: hex::encode(scope.group.bytes()),
+                incarnation_id: hex::encode(scope.incarnation.bytes()),
+            },
+        };
+        let before_authorization = control
+            .seal_transition_source(
+                &original.principal,
+                &source_request.namespace_id,
+                &source_request.operation_id,
+                &source_request,
+                TIMEOUT,
+            )
+            .await;
+        ensure!(
+            matches!(before_authorization, Err(error) if error.code == RaftFleetFailureCode::Conflict)
+        );
         let mismatch = control
             .authorize_transition_seal(
                 &original.principal,
@@ -440,7 +464,40 @@ async fn exercise_inner(
                 .await??
                 == vec![held.clone()]
         );
-        let seal = Box::pin(commit_source_seal(&cluster.hosts[..3], &recovered, scope)).await?;
+        let without_observer = control
+            .seal_transition_source(
+                &original.principal,
+                &source_request.namespace_id,
+                &source_request.operation_id,
+                &source_request,
+                TIMEOUT,
+            )
+            .await;
+        ensure!(
+            matches!(without_observer, Err(error) if error.code == RaftFleetFailureCode::Unsupported)
+        );
+        let voter = leader(&cluster.hosts[..3], scope).await?;
+        let voter = &cluster.hosts[voter];
+        let cut = Box::pin(crate::managed_fixture::operator::seal_transition_source(
+            fixture,
+            directory,
+            &original.principal,
+            voter,
+            &source_request,
+        ))
+        .await?;
+        let source = voter.group(scope)?;
+        let CellGroupSealOutcome::Applied(seal) =
+            source.seal_managed_source(&recovered, TIMEOUT).await?
+        else {
+            anyhow::bail!("operator seal lacks its durable source receipt");
+        };
+        ensure!(
+            cut.index == seal.position().index.get()
+                && cut.term == seal.position().term.get()
+                && cut.authorization_digest == hex::encode(seal.authorization())
+                && !source.status().await?.ready
+        );
         Box::pin(preparation::verify_sealed_cut(
             cluster,
             &reopened,

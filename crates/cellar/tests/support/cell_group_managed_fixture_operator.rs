@@ -216,6 +216,63 @@ pub(crate) async fn authorize_transition_seal(
     result
 }
 
+pub(crate) async fn seal_transition_source(
+    fixture: &Fixture,
+    directory: &RangeDirectory,
+    principal: &str,
+    observer: &RaftCells,
+    request: &RaftFleetTransitionSourceSealRequest,
+) -> Result<RaftFleetTransitionSourceCut> {
+    let root = tempfile::tempdir()?;
+    let cli = open_cli(fixture, directory, root.path(), principal, Some(observer)).await?;
+    let result = async {
+        let plan = root.path().join("transition-seal-source.json");
+        std::fs::write(&plan, serde_json::to_vec(request)?)?;
+        let command = [
+            "transition",
+            "seal-source",
+            &request.namespace_id,
+            "--plan",
+            plan.to_str().context("UTF-8 source seal request path")?,
+        ];
+        ensure!(cli.call(&command, READER).await?.code == 4);
+        tokio::time::timeout(TIMEOUT, async {
+            loop {
+                let reply = cli.call(&command, OWNER).await?;
+                if reply.code == 5 {
+                    let failure: RaftFleetFailure =
+                        serde_json::from_value(reply.value["error"].clone())?;
+                    ensure!(
+                        matches!(
+                            failure.code,
+                            RaftFleetFailureCode::Busy | RaftFleetFailureCode::Unavailable
+                        ),
+                        "unexpected source seal failure: {failure:?}"
+                    );
+                } else {
+                    let sealed: RaftFleetTransitionSourceSeal =
+                        serde_json::from_value(reply.success()?)?;
+                    ensure!(&sealed.request == request);
+                    if let Some(cut) = sealed.applied {
+                        let replay: RaftFleetTransitionSourceSeal =
+                            serde_json::from_value(cli.call(&command, OWNER).await?.success()?)?;
+                        ensure!(
+                            &replay.request == request && replay.applied.as_ref() == Some(&cut)
+                        );
+                        return Ok(cut);
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .context("operator parent seal did not apply")?
+    }
+    .await;
+    cli.close().await?;
+    result
+}
+
 pub(crate) async fn publish_transition(
     fixture: &Fixture,
     directory: &RangeDirectory,

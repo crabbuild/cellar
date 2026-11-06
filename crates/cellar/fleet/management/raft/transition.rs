@@ -668,7 +668,7 @@ impl RaftFleetControl {
         }
     }
 
-    async fn authorize_transition_operator(
+    pub(super) async fn authorize_transition_operator(
         &self,
         directory: &RangeDirectory,
         operation: ProposalId,

@@ -24,7 +24,7 @@ pub struct RaftFleetTransitionGroup {
 }
 
 impl RaftFleetTransitionGroup {
-    fn history(&self, directory: &RangeDirectory) -> Result<GroupHistory> {
+    pub(super) fn history(&self, directory: &RangeDirectory) -> Result<GroupHistory> {
         let config = directory.namespace_config();
         Ok(GroupHistory {
             cluster: config.cluster,

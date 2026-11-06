@@ -47,8 +47,9 @@ pub use raft::{
     RaftFleetTransitionPublication, RaftFleetTransitionPublishRequest, RaftFleetTransitionResume,
     RaftFleetTransitionResumeAcceptance, RaftFleetTransitionResumeStep,
     RaftFleetTransitionSealAuthorization, RaftFleetTransitionSealRequest,
-    RaftFleetTransitionStatus, RaftFleetVerificationBlocker, RaftFleetVerificationReason,
-    RaftFleetVerificationStage,
+    RaftFleetTransitionSourceCut, RaftFleetTransitionSourceSeal,
+    RaftFleetTransitionSourceSealRequest, RaftFleetTransitionStatus, RaftFleetVerificationBlocker,
+    RaftFleetVerificationReason, RaftFleetVerificationStage,
 };
 pub use raft_stop::{RaftStopHandoff, RaftStopOwners, RaftStopProof};
 mod routing;
