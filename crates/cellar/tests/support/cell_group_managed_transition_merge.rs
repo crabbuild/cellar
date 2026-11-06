@@ -258,8 +258,22 @@ pub(super) async fn run(
     )?
     .checked_add(60_000)
     .context("merge retry deadline")?;
+    let limits = CellGroupArchiveTailLimits {
+        max_operations: parents.len(),
+        max_retained_bytes: parents.len()
+            * CellGroupArchiveTailLimits::default().max_retained_bytes,
+        ..Default::default()
+    };
+    let sealed_workspace = tempfile::tempdir()?;
+    let verifier = crate::managed_fixture::verifier::open(
+        &cluster.fixtures[0],
+        sealed_workspace.path(),
+        rooted,
+        limits,
+    )
+    .await?;
+    let mut controller = (fleet.clone(), directory.clone());
     let mut receipts = Vec::with_capacity(2);
-    let mut sealed = Vec::with_capacity(2);
     for (index, (parent, (cell, expected))) in parents.iter().zip(&routed).enumerate() {
         let voters = &cluster.hosts[3..];
         let voter = leader(voters, parent.history).await?;
@@ -282,7 +296,29 @@ pub(super) async fn run(
         wait_archive(voters, parent.history, &seal).await?;
         let hold = preparation::acquire_hold(domain, &registries[index]).await?;
         ensure!(hold.marker().source_seal() == Some(&seal));
-        sealed.push((precopy[index].0.clone(), hold));
+        let selected = controller
+            .0
+            .reopen_managed_transition(&controller.1, operation, TIMEOUT)
+            .await?
+            .context("current seal controller")?;
+        let birth = domain
+            .run(controller.1.materialize_selected_history(parent.history))
+            .await??;
+        let cut = (birth, hold);
+        let mut source = archives
+            .sources(&format!("stage-{index}"), std::slice::from_ref(&cut))
+            .await?;
+        controller
+            .0
+            .stage_managed_sealed_source(
+                &selected,
+                &controller.1,
+                &archives.pool,
+                &archives.tails,
+                source.pop().context("single sealed parent receiver")?,
+                TIMEOUT,
+            )
+            .await?;
         if index == 0 {
             let active = Some(parents[1].history);
             Box::pin(restart_voter(cluster, 3, 120, active, 2))
@@ -307,12 +343,66 @@ pub(super) async fn run(
                         directory,
                         &archives.pool,
                         &archives.tails,
-                        archives.sources("partial", &sealed).await?,
+                        archives
+                            .sources("partial", std::slice::from_ref(&cut))
+                            .await?,
                         TIMEOUT,
                     )
                     .await,
                 Err(FleetCatalogError::Invalid(_) | FleetCatalogError::Conflict)
             ));
+            controller = reopen_merge_controller(&cluster.fixtures[0]).await?;
+            let observed = controller
+                .0
+                .staged_managed_sealed_sources(&controller.1, operation, TIMEOUT)
+                .await?;
+            ensure!(
+                observed.len() == 2
+                    && observed[0].0 == parents[0]
+                    && observed[0].1.as_ref() == Some(&cut.1)
+                    && observed[1].0 == parents[1]
+                    && observed[1].1.is_none()
+            );
+            drop(observed);
+            drop(cut);
+            ensure!(matches!(
+                controller
+                    .0
+                    .replay_managed_sealed_sources(&controller.1, operation, &verifier, TIMEOUT,)
+                    .await,
+                Err(FleetCatalogError::Unconfirmed)
+            ));
+            let selected = controller
+                .0
+                .reopen_managed_transition(&controller.1, operation, TIMEOUT)
+                .await?
+                .context("reopened partial merge")?;
+            let alternate = preparation::acquire_hold(domain, &registries[index]).await?;
+            let birth = domain
+                .run(controller.1.materialize_selected_history(parent.history))
+                .await??;
+            let mut replacement = archives
+                .sources("competing-hold", &[(birth, alternate.clone())])
+                .await?;
+            ensure!(matches!(
+                controller
+                    .0
+                    .stage_managed_sealed_source(
+                        &selected,
+                        &controller.1,
+                        &archives.pool,
+                        &archives.tails,
+                        replacement
+                            .pop()
+                            .context("competing sealed parent receiver")?,
+                        TIMEOUT,
+                    )
+                    .await,
+                Err(FleetCatalogError::Conflict)
+            ));
+            registries[index]
+                .release(domain.as_ref(), &alternate)
+                .await?;
             let early = fleet
                 .publish_managed_transfer(&transition, directory, &archives.pool, TIMEOUT)
                 .await;
@@ -368,45 +458,13 @@ pub(super) async fn run(
             verify_durable_seal(&cluster.hosts[3], &transition, parent.history, &seal).await?;
         }
     }
-    let sources = fleet
-        .verify_managed_sealed_sources(
-            &transition,
-            directory,
-            &archives.pool,
-            &archives.tails,
-            archives.sources("sealed", &sealed).await?,
-            TIMEOUT,
-        )
-        .await
-        .context("verify both sealed merge source archives")?;
-    ensure!(sources.journal().phase() == TransitionPhase::Sealed);
-    let sealed_digest = sources.journal().sealed_sources();
-    drop(sources);
-    drop(sealed);
-
     let fixture = &cluster.fixtures[0];
-    let resumed = Fixture::open_catalog(domain, fixture.store.clone(), child.history.cluster)?;
-    let catalog = Catalog::new(
-        fixture.store.clone(),
-        CatalogOptions {
-            prefix: "managed/".into(),
-            ..Default::default()
-        },
-    )?;
-    let namespace = domain
-        .run(catalog.existing_namespace(fixture.declaration.namespace.clone()))
-        .await??;
-    let reopened = RangeDirectory::new(namespace, DirectoryLimits::default())?;
-    let limits = CellGroupArchiveTailLimits {
-        max_operations: parents.len(),
-        max_retained_bytes: parents.len()
-            * CellGroupArchiveTailLimits::default().max_retained_bytes,
-        ..Default::default()
-    };
-    let sealed_workspace = tempfile::tempdir()?;
-    let verifier =
-        crate::managed_fixture::verifier::open(fixture, sealed_workspace.path(), rooted, limits)
-            .await?;
+    let (resumed, reopened) = controller;
+    let holds = resumed
+        .staged_managed_sealed_sources(&reopened, operation, TIMEOUT)
+        .await?;
+    ensure!(holds.len() == parents.len() && holds.iter().all(|(_, hold)| hold.is_some()));
+    drop(holds);
     let recovery = preparation::recovery_pool()?;
     ensure!(matches!(
         resumed
@@ -434,6 +492,23 @@ pub(super) async fn run(
     ensure!(
         denied.is_err() && store.denied_group_payload_reads.load(Ordering::Acquire) > denied_before
     );
+    let pending = resumed
+        .reopen_managed_transition(&reopened, operation, TIMEOUT)
+        .await?
+        .context("reopened after denied source payload")?;
+    ensure!(pending
+        .journal
+        .is_some_and(|journal| journal.phase() == TransitionPhase::SealAuthorized
+            && journal.sealed_sources().is_none()));
+    let sources = resumed
+        .replay_managed_sealed_sources(&reopened, operation, &verifier, TIMEOUT)
+        .await
+        .context("select both staged cuts on a replacement controller")?;
+    ensure!(sources.journal().phase() == TransitionPhase::Sealed);
+    let sealed_digest = sources
+        .journal()
+        .sealed_sources()
+        .context("sealed source digest")?;
     let transition = Arc::new(
         resumed
             .reopen_managed_transition(&reopened, operation, TIMEOUT)
@@ -445,13 +520,8 @@ pub(super) async fn run(
             .journal
             .as_ref()
             .and_then(|journal| journal.sealed_sources())
-            == sealed_digest
+            == Some(sealed_digest)
     );
-    let sources = resumed
-        .replay_managed_sealed_sources(&reopened, operation, &verifier, TIMEOUT)
-        .await
-        .context("replay the selected sealed sources on a replacement controller")?;
-    ensure!(sources.journal().sealed_sources() == sealed_digest);
     for host in &cluster.hosts[..3] {
         host.install_managed_transfer_child(
             transition.clone(),
@@ -489,7 +559,8 @@ pub(super) async fn run(
         .await
         .context("rebuild the installed child archive on a replacement controller")?;
     ensure!(
-        archived.phase() == TransitionPhase::Archived && archived.sealed_sources() == sealed_digest
+        archived.phase() == TransitionPhase::Archived
+            && archived.sealed_sources() == Some(sealed_digest)
     );
     let published = fleet
         .publish_managed_transfer(&transition, directory, &archives.pool, TIMEOUT)
@@ -541,6 +612,29 @@ pub(super) async fn run(
         ensure!(query.result == (expected + 2).to_be_bytes());
     }
     Ok(child.history)
+}
+
+async fn reopen_merge_controller(fixture: &Fixture) -> Result<(FleetCatalog, RangeDirectory)> {
+    let fleet = Fixture::open_catalog(
+        &fixture.domain,
+        fixture.store.clone(),
+        fixture.declaration.namespace.cluster,
+    )?;
+    let catalog = Catalog::new(
+        fixture.store.clone(),
+        CatalogOptions {
+            prefix: "managed/".into(),
+            ..Default::default()
+        },
+    )?;
+    let namespace = fixture
+        .domain
+        .run(catalog.existing_namespace(fixture.declaration.namespace.clone()))
+        .await??;
+    Ok((
+        fleet,
+        RangeDirectory::new(namespace, DirectoryLimits::default())?,
+    ))
 }
 
 async fn verify_minority(

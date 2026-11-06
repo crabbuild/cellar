@@ -14,6 +14,7 @@ const SOURCE_HOLD: u8 = 199;
 const SOURCE_SET: u8 = 200;
 const HOLDS: &str = "transition-source-holds";
 const SETS: &str = "transition-source-sets";
+const STAGED: &str = "transition-source-progress";
 
 type Result<T> = std::result::Result<T, CellGroupArchiveBindingError>;
 
@@ -106,6 +107,126 @@ impl RangeDirectory {
         Ok(())
     }
 
+    /// Select a single verified parent hold for this irreversible operation.
+    /// Independent slots allow different parents to finish in either order.
+    pub(crate) async fn stage_managed_sealed_source(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        archives: &CellGroupArchivePool,
+        tails: &CellGroupArchiveTailPool,
+        plan: &DirectoryMutation,
+        source: CellGroupTransitionSource,
+        permit: &ManagedTransitionPermit,
+    ) -> Result<()> {
+        permit.check(self, plan)?;
+        let (parents, _) = self.transition_routes(plan)?;
+        let route = source.birth.route();
+        let index = parents
+            .iter()
+            .position(|parent| parent == route)
+            .ok_or(CatalogError::Fenced)?;
+        let journal = self
+            .bounded(async {
+                let (view, _) = self.current().await?;
+                let journal = self
+                    .matching_transition(&view.head, plan)
+                    .await?
+                    .filter(|journal| journal.phase() == TransitionPhase::SealAuthorized)
+                    .ok_or(CatalogError::Fenced)?;
+                self.selected_route_in(&view, route).await?;
+                Ok(journal)
+            })
+            .await?;
+        source.hold.check_reference()?;
+        self.check_source_marker(
+            plan,
+            &journal,
+            route,
+            source.hold.marker(),
+            TransitionSourceCut::Sealed,
+        )?;
+        let registry = self
+            .open_group_archive(domain, archives, &source.birth)
+            .await?;
+        let coverage = registry
+            .verify_hold(domain, &source.hold, tails, source.receiver)
+            .await?;
+        self.check_source_marker(
+            plan,
+            &journal,
+            route,
+            coverage.marker(),
+            TransitionSourceCut::Sealed,
+        )?;
+        registry
+            .require_retained_hold(domain, coverage.hold())
+            .await?;
+        self.bounded(self.claim_staged_source_hold(plan, index, coverage.hold()))
+            .await?;
+        Ok(())
+    }
+
+    /// Bounded plan-order progress for an already admitted managed operation.
+    pub(crate) async fn managed_staged_source_holds(
+        &self,
+        plan: &DirectoryMutation,
+    ) -> Result<Vec<(GroupRoute, Option<CellGroupArchiveHold>)>> {
+        if self.namespace_config().managed_fleet.is_none() {
+            return Err(CatalogError::ManagedAdmissionRequired.into());
+        }
+        let (parents, _) = self.transition_routes(plan)?;
+        self.bounded(async {
+            let (view, _) = self.current().await?;
+            let journal = self
+                .matching_transition(&view.head, plan)
+                .await?
+                .ok_or(CatalogError::Fenced)?;
+            journal.seal_authorization()?;
+            let mut holds = Vec::with_capacity(parents.len());
+            for (index, route) in parents.into_iter().enumerate() {
+                let hold = if let Some(bytes) = self.read(&staged_key(plan, index)).await? {
+                    let hold: CellGroupArchiveHold =
+                        record::decode(SOURCE_HOLD, &bytes, wire::LIMIT)?;
+                    hold.check_reference()
+                        .map_err(|_| CatalogError::Corrupt("staged source hold"))?;
+                    self.check_source_marker(
+                        plan,
+                        &journal,
+                        &route,
+                        hold.marker(),
+                        TransitionSourceCut::Sealed,
+                    )?;
+                    Some(hold)
+                } else {
+                    None
+                };
+                holds.push((route, hold));
+            }
+            Ok(holds)
+        })
+        .await
+        .map_err(Into::into)
+    }
+
+    async fn claim_staged_source_hold(
+        &self,
+        plan: &DirectoryMutation,
+        index: usize,
+        hold: &CellGroupArchiveHold,
+    ) -> std::result::Result<(), CatalogError> {
+        let bytes = record::encode(SOURCE_HOLD, hold, wire::LIMIT)?;
+        let key = self.key(&staged_key(plan, index));
+        let observed = self
+            .namespace
+            .inner
+            .create_and_observe_bounded(&key, &bytes, wire::LIMIT)
+            .await?;
+        if observed != bytes {
+            return Err(CatalogError::Conflict("staged source hold changed"));
+        }
+        Ok(())
+    }
+
     /// Verify every exact held parent cut in plan order, then select the whole
     /// set in the namespace CAS. Persist the hold allocations before calling.
     /// Keep those remote holds until the transition owner retires all users.
@@ -168,6 +289,16 @@ impl RangeDirectory {
                     TransitionSourceCut::Sealed,
                 ))
                 .await?;
+                if permit.is_some() && verified.journal.phase() == TransitionPhase::SealAuthorized {
+                    self.bounded(async {
+                        for (index, coverage) in verified.sources.iter().enumerate() {
+                            self.claim_staged_source_hold(mutation, index, coverage.hold())
+                                .await?;
+                        }
+                        Ok(())
+                    })
+                    .await?;
+                }
                 let journal = self
                     .record_verified_sources(mutation, verified.digest, permit)
                     .await?;
@@ -349,4 +480,8 @@ impl RangeDirectory {
         }
         Ok(holds)
     }
+}
+
+fn staged_key(plan: &DirectoryMutation, index: usize) -> String {
+    format!("{STAGED}/{}/{index}", hex::encode(plan.digest()))
 }

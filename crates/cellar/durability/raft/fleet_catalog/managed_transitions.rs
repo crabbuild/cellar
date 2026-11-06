@@ -1301,7 +1301,7 @@ impl FleetCatalog {
         Ok(())
     }
 
-    async fn active_managed_transition_permit(
+    pub(super) async fn active_managed_transition_permit(
         &self,
         request: &FleetRequestIdentity,
         directory: &RangeDirectory,

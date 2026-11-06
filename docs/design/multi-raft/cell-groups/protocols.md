@@ -1072,9 +1072,13 @@ acknowledgement is provisional. An exact retry can return the applied seal cut.
 The managed archive owner can publish the applied cut while business admission
 is sealed. The fleet verifies each held cut independently against the exact
 authorized plan and rechecks the complete hold set before selecting Sealed.
-A replacement controller can use `FleetCatalog::replay_managed_sealed_sources`
-to recover the exact held cuts by operation ID and prepare the non-serving
-child genesis images. Once every child has an installed quorum proof,
+After each parent seals, `stage_managed_sealed_source` independently verifies
+its archive and records one exact hold in the plan's parent slot. A replacement
+controller reads the slots in plan order with `staged_managed_sealed_sources`.
+It retains staged holds through retirement and obtains the remaining seals.
+`FleetCatalog::replay_managed_sealed_sources` verifies all staged cuts again
+before selecting the complete sealed set and preparing non-serving child genesis
+images. Once every child has an installed quorum proof,
 `resume_managed_transfer_archive` rebuilds the child partition in the
 controller's private verification stores and records the exact archive closure.
 The verifier needs bounded capacity to retain one complete cut per parent.

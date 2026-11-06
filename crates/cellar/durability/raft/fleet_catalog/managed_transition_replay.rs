@@ -2,20 +2,99 @@
 
 //! Resume a managed transfer from its exact retained source cuts.
 
-use super::{managed_transitions::transfer_archive_error, *};
+use super::{histories::validate_request, managed_transitions::transfer_archive_error, *};
 use crate::raft::{
     catalog::RangeDirectory,
     cell_groups::{
+        CellGroupArchiveHold, CellGroupArchivePool, CellGroupArchiveTailPool,
         CellGroupRecoveryPool, CellGroupTransitionPreparationInputs, CellGroupTransitionSource,
         TransitionJournal, TransitionPhase, VerifiedCellGroupTransitionSources,
     },
 };
-use cellar_logic::consensus::ProposalId;
+use cellar_logic::{cell_group::GroupRoute, consensus::ProposalId};
 
 impl FleetCatalog {
+    /// Independently verify and durably select one sealed parent hold. Retain
+    /// the exact hold through retirement. After an uncertain result, observe
+    /// the staged slots before resolving the original hold allocation.
+    pub async fn stage_managed_sealed_source(
+        &self,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        archives: &CellGroupArchivePool,
+        tails: &CellGroupArchiveTailPool,
+        source: CellGroupTransitionSource,
+        timeout: Duration,
+    ) -> Result<()> {
+        validate_request(&transition.request)?;
+        let deadline = deadline::Deadline::new(self, timeout)?;
+        let permit = self
+            .run(
+                deadline.remaining()?,
+                Box::pin(self.active_managed_transition_permit(
+                    &transition.request,
+                    directory,
+                    &transition.plan,
+                )),
+            )
+            .await?;
+        let domain = &self.inner.domain;
+        domain
+            .run(Box::pin(crate::asyncrt::timeout(
+                deadline.remaining()?,
+                Box::pin(directory.stage_managed_sealed_source(
+                    domain,
+                    archives,
+                    tails,
+                    &transition.plan,
+                    source,
+                    &permit,
+                )),
+            )))
+            .await
+            .map_err(|_| FleetCatalogError::Closed)?
+            .map_err(|_| FleetCatalogError::Unconfirmed)?
+            .map_err(transfer_archive_error)
+    }
+
+    /// Read the plan-order staged holds for the active operation. Missing
+    /// slots identify parents that still need a verified archive cut.
+    pub async fn staged_managed_sealed_sources(
+        &self,
+        directory: &RangeDirectory,
+        operation: ProposalId,
+        timeout: Duration,
+    ) -> Result<Vec<(GroupRoute, Option<CellGroupArchiveHold>)>> {
+        let deadline = deadline::Deadline::new(self, timeout)?;
+        let transition = self
+            .observe_transfer_replay(
+                directory,
+                operation,
+                &[
+                    TransitionPhase::SealAuthorized,
+                    TransitionPhase::Sealed,
+                    TransitionPhase::Installed,
+                    TransitionPhase::Archived,
+                ],
+                deadline.remaining()?,
+            )
+            .await?;
+        self.inner
+            .domain
+            .run(Box::pin(crate::asyncrt::timeout(
+                deadline.remaining()?,
+                Box::pin(directory.managed_staged_source_holds(&transition.plan)),
+            )))
+            .await
+            .map_err(|_| FleetCatalogError::Closed)?
+            .map_err(|_| FleetCatalogError::Unconfirmed)?
+            .map_err(transfer_archive_error)
+    }
+
     /// Rebuild the exact sealed input proofs for a replacement controller.
     /// The verifier must have room to pin one complete cut per parent. Reuse
     /// the returned proofs for destination install while the holds stay live.
+    /// A complete set of staged holds can establish the Sealed decision.
     pub async fn replay_managed_sealed_sources(
         &self,
         directory: &RangeDirectory,
@@ -29,6 +108,7 @@ impl FleetCatalog {
                 directory,
                 operation,
                 &[
+                    TransitionPhase::SealAuthorized,
                     TransitionPhase::Sealed,
                     TransitionPhase::Installed,
                     TransitionPhase::Archived,
@@ -140,10 +220,24 @@ async fn open_transfer_sources(
     let (parents, _) = directory
         .transition_routes(&transition.plan)
         .map_err(histories::catalog_error)?;
-    let holds = directory
-        .sealed_source_holds(&transition.plan)
-        .await
-        .map_err(transfer_archive_error)?;
+    let holds = if transition
+        .journal
+        .as_ref()
+        .is_some_and(|journal| journal.phase() == TransitionPhase::SealAuthorized)
+    {
+        directory
+            .managed_staged_source_holds(&transition.plan)
+            .await
+            .map_err(transfer_archive_error)?
+            .into_iter()
+            .map(|(_, hold)| hold.ok_or(FleetCatalogError::Unconfirmed))
+            .collect::<Result<Vec<_>>>()?
+    } else {
+        directory
+            .sealed_source_holds(&transition.plan)
+            .await
+            .map_err(transfer_archive_error)?
+    };
     if parents.len() != holds.len() {
         return Err(FleetCatalogError::Corrupt("managed transition hold count"));
     }
