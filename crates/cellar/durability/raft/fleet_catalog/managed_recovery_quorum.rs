@@ -242,9 +242,6 @@ impl FleetCatalog {
             {
                 return Err(FleetCatalogError::PayloadConflict);
             }
-            let snapshot = self.inner.current().await?;
-            self.managed_recovery_permit_at(&snapshot, directory, intent.basis())
-                .await?;
             let publication = publication_input(intent, plan, selected.digest())?;
             let domain = &self.inner.domain;
             if let Some(existing) = domain
@@ -257,6 +254,12 @@ impl FleetCatalog {
             {
                 return Ok(existing);
             }
+            // A new selection still needs the active disruption. The
+            // directory's rooted historical receipt can be replayed after
+            // the original Fleet slot has been released.
+            let snapshot = self.inner.current().await?;
+            self.managed_recovery_permit_at(&snapshot, directory, intent.basis())
+                .await?;
             self.require_confirmed_managed_fence(directory, fenced, archives)
                 .await?;
             self.verify_managed_seed_quorums(&snapshot, directory, fenced, plan, Some(&record))
@@ -288,9 +291,6 @@ impl FleetCatalog {
                 .read_managed_recovery_publication_inputs(directory, operation, principal, expected)
                 .await?;
             let (_, seed_digest) = expected;
-            let snapshot = self.inner.current().await?;
-            self.managed_recovery_permit_at(&snapshot, directory, intent.basis())
-                .await?;
             let input = publication_input(&intent, &plan, seed_digest)?;
             self.inner
                 .domain
@@ -319,9 +319,6 @@ impl FleetCatalog {
                     &request.principal,
                     (request.plan_digest, request.seed_digest),
                 )
-                .await?;
-            let snapshot = self.inner.current().await?;
-            self.managed_recovery_permit_at(&snapshot, directory, intent.basis())
                 .await?;
             let index = plan
                 .births()

@@ -1297,7 +1297,10 @@ async fn run_inner(
             &fresh,
             &namespace,
             &fenced,
-            &routed,
+            &RecoverySql {
+                routed: &routed,
+                receipts: &receipts,
+            },
             rooted,
         ))
         .await?;
@@ -1521,15 +1524,21 @@ async fn run_inner(
     Ok(Some(child.history))
 }
 
+struct RecoverySql<'a> {
+    routed: &'a [(CellHistory, i64)],
+    receipts: &'a [CommandReceipt],
+}
+
 async fn check_recovery_replacements(
     fixture: &Fixture,
     control: &RaftFleetControl,
     fresh: &RaftFleetControl,
     namespace: &str,
     fenced: &Arc<FleetFencedTransitionRecovery>,
-    routed: &[(CellHistory, i64)],
+    sql: &RecoverySql<'_>,
     rooted: bool,
 ) -> Result<()> {
+    let routed = sql.routed;
     let epoch = fenced
         .archives()
         .iter()
@@ -1656,7 +1665,7 @@ async fn check_recovery_replacements(
     }
     ensure!(checked == routed.len());
     Box::pin(check_recovery_voter_reservations(
-        fixture, control, fresh, namespace, fenced, &plan, routed,
+        fixture, control, fresh, namespace, fenced, &plan, sql,
     ))
     .await?;
 
@@ -1670,8 +1679,9 @@ async fn check_recovery_voter_reservations(
     namespace: &str,
     fenced: &Arc<FleetFencedTransitionRecovery>,
     plan: &Arc<cellar::sdk::fleet_operations::FleetTransitionRecoveryReplacement>,
-    routed: &[(CellHistory, i64)],
+    sql: &RecoverySql<'_>,
 ) -> Result<()> {
+    let routed = sql.routed;
     let (_, directory) = reopen_merge_controller(fixture).await?;
     let mut standbys = Vec::new();
     let checked = Box::pin(async {
@@ -2046,7 +2056,7 @@ async fn check_recovery_voter_reservations(
                 inspect_current(other, restarted.identity().node, revision).await?;
             }
         }
-        Box::pin(check_recovered_sql(&standbys, plan, fenced, routed, &activations)).await?;
+        Box::pin(check_recovered_sql(&standbys, plan, fenced, sql, &activations)).await?;
         Ok::<(), anyhow::Error>(())
     })
     .await;
@@ -2119,9 +2129,11 @@ async fn check_recovered_sql(
     voters: &[RecoveryVoter],
     plan: &cellar::sdk::fleet_operations::FleetTransitionRecoveryReplacement,
     fenced: &FleetFencedTransitionRecovery,
-    routed: &[(CellHistory, i64)],
+    sql: &RecoverySql<'_>,
     activations: &[(GroupHistory, LogPosition)],
 ) -> Result<()> {
+    use cellar::application::consensus::{CellReceiptRequest, VersionError};
+    ensure!(sql.routed.len() == sql.receipts.len());
     let hosts: Vec<_> = voters.iter().map(|(_, _, host, _)| host.clone()).collect();
     let retry = u64::try_from(
         std::time::SystemTime::now()
@@ -2152,10 +2164,11 @@ async fn check_recovered_sql(
         })
         .await
         .context("released recovery did not establish a fresh serving quorum")??;
-        for (index, (old_cell, value)) in routed
+        for ((old_cell, value), original) in sql
+            .routed
             .iter()
-            .enumerate()
-            .filter(|(_, (cell, _))| archive.recovery().manifest().pin_cell(&cell.cell).is_some())
+            .zip(sql.receipts)
+            .filter(|((cell, _), _)| archive.recovery().manifest().pin_cell(&cell.cell).is_some())
         {
             let cell = CellHistory {
                 incarnation: history.incarnation,
@@ -2174,9 +2187,43 @@ async fn check_recovered_sql(
                 )
                 .await?;
             ensure!(query.result == (value + 1).to_be_bytes());
+            let old_token = handle
+                .query(
+                    ProposalId::new([215; 16])?,
+                    &handle.contract("Get")?,
+                    vec![],
+                    QueryOptions {
+                        consistency: QueryConsistency::AtLeast(original.version_token.clone()),
+                        routing: QueryRouting::Local,
+                        ..Default::default()
+                    },
+                )
+                .await;
+            ensure!(matches!(old_token, Err(error) if matches!(error.as_ref(),
+                CellDispatchError::Version(VersionError::WrongHistory))));
+            let add = handle.contract("Add")?;
+            let restored = handle
+                .receipt(
+                    CellReceiptRequest {
+                        id: original.id,
+                        contract: add.clone(),
+                        input: 1i64.to_be_bytes().to_vec(),
+                        durability: Durability::Quorum,
+                    },
+                    TIMEOUT,
+                )
+                .await?;
+            let stored = restored
+                .receipt()
+                .context("original archived receipt missing")?;
+            ensure!(
+                stored.command() == original.id
+                    && stored.result() == original.result.as_slice()
+                    && restored.observation().version == query.version
+                    && restored.observation().witness.group == history
+            );
             let id = CommandId::new(ClientId::new([212; 16])?, 1)?;
             let options = CommandOptions::new(id, retry);
-            let add = handle.contract("Add")?;
             let receipt = handle
                 .command(&add, 1i64.to_be_bytes().to_vec(), options)
                 .await?;
@@ -2192,12 +2239,28 @@ async fn check_recovered_sql(
                 .await?;
             ensure!(
                 duplicate == receipt,
-                "recovered cell {index} changed its retry receipt"
+                "recovered cell {:?} changed its retry receipt",
+                old_cell.cell
             );
-            positions.push((history, receipt.witness.position.index));
+            let archived = handle
+                .command(
+                    &add,
+                    1i64.to_be_bytes().to_vec(),
+                    CommandOptions {
+                        durability: Durability::S3,
+                        ..CommandOptions::new(CommandId::new(id.client, 2)?, retry)
+                    },
+                )
+                .await?;
+            ensure!(
+                archived.result == (value + 3).to_be_bytes()
+                    && archived.witness.group == history
+                    && archived.durability == Durability::S3
+            );
+            positions.push((history, archived.witness.position.index));
         }
     }
-    ensure!(positions.len() == routed.len());
+    ensure!(positions.len() == sql.routed.len());
     preparation::wait_transfer_applied(&hosts, &positions).await
 }
 
