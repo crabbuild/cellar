@@ -6,7 +6,7 @@ use super::{
     *,
 };
 use crate::{
-    asyncrt::ExecutionDomain,
+    asyncrt::DomainToken,
     raft::{
         catalog::CellGroupArchiveBindingError,
         cell_groups::CellGroupArchivePool,
@@ -92,7 +92,7 @@ impl RangeDirectory {
         &self,
         input: &ManagedRecoveryPublicationInput<'_>,
         proof: &FleetManagedRecoveryCompletion,
-        release: Option<([u8; 32], &ExecutionDomain, &CellGroupArchivePool)>,
+        release: Option<([u8; 32], &DomainToken, &CellGroupArchivePool)>,
     ) -> Result<[u8; 32], CatalogError> {
         self.bounded(async {
             let (mut view, version) = self.current().await?;

@@ -308,7 +308,7 @@ impl FleetCatalog {
                         &input,
                         &proof,
                         release.map(|(completion, archives)| {
-                            (completion, self.inner.domain.as_ref(), archives)
+                            (completion, &self.inner.domain, archives)
                         }),
                     )))
                     .await
