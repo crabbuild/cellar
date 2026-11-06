@@ -69,6 +69,71 @@ def inventory(run, image):
     return rows
 
 
+def verify_archive_outage(events):
+    expected = [
+        ("archive_writes_blocked", None),
+        ("archive_outage_quorum", "native"),
+        ("archive_outage_linearizable", "axum"),
+        ("archive_outage_s3_refused", "native"),
+        ("archive_outage_s3_refused", "axum"),
+        ("archive_outage_denied_writes", None),
+        ("archive_writes_restored", None),
+        ("archive_outage_s3_replayed", "native"),
+        ("archive_outage_s3_replayed", "axum"),
+    ]
+    phases = {phase for phase, _ in expected}
+    records = [event for event in events if event["phase"] in phases]
+    require([(event["phase"], event.get("ingress")) for event in records] == expected,
+            "missing ordered archive outage proof")
+    blocked, quorum, read, native_refusal, axum_refusal, denied, _, *replayed = records
+    require(blocked["cell"] == "one" and blocked["delta"] == 0
+            and blocked["retry_until"].isdigit()
+            and quorum["receipt"]["durability"] == "quorum"
+            and quorum["receipt"]["value"] == 11, "missing quorum receipt during archive outage")
+    require(read["receipt"]["value"] == quorum["receipt"]["value"]
+            and read["receipt"]["group"] == quorum["receipt"]["group"]
+            and read["receipt"]["index"] >= quorum["receipt"]["index"],
+            "linearizable read missed the outage quorum receipt")
+    require(denied["members"] and set(denied["members"]) <= {1, 2, 3},
+            "no voter confirmed an archive write refusal")
+    require(all(event["command"] == blocked["command"]
+                for event in [quorum, read, native_refusal, axum_refusal, *replayed]),
+            "archive outage retry changed command identity")
+    require(all(event["status"] == 503 and event["body"].startswith("Ambiguous { command:")
+                for event in [native_refusal, axum_refusal]), "S3 refusal lost ambiguity")
+    for event in replayed:
+        receipt = event["receipt"]
+        require(receipt["durability"] == "s3" and all(
+            receipt[field] == quorum["receipt"][field]
+            for field in ("group", "group_incarnation", "incarnation", "cell", "sequence", "value")
+        ), "S3 recovery did not acknowledge the original result")
+
+
+def verify_leader_loss(events):
+    phases = ("before_hard_kill", "hard_kill_joined", "successor_before_restart", "restarted")
+    records = [event for event in events if event["phase"] in phases]
+    require(tuple(event["phase"] for event in records) == phases, "missing ordered leader-loss proof")
+    before, joined, after, restarted = records
+    killed = before["member"]
+    successor = after["member"]
+    require(killed in (1, 2, 3) and successor != killed and after["term"] > before["term"]
+            and before["pid"] == joined["pid"] == restarted["old_pid"]
+            and restarted["member"] == killed and restarted["new_pid"] != before["pid"],
+            "successor was not selected before the killed leader restarted")
+    for sample, members in ((before, {1, 2, 3}), (after, {1, 2, 3} - {killed})):
+        voters = sample["voters"]
+        require(len(voters) == len(members) and {voter["member"] for voter in voters} == members
+                and sample["member"] in members
+                and len({(voter["group"], voter["group_incarnation"]) for voter in voters}) == 1
+                and all(voter["term"] == sample["term"] and voter["leader"] == sample["member"]
+                        and voter["is_leader"] == (voter["member"] == sample["member"])
+                        and (not voter["is_leader"] or voter["ready"]) and voter["cells"] == 2
+                        for voter in voters), "incomplete local Raft leadership observations")
+    require((before["voters"][0]["group"], before["voters"][0]["group_incarnation"])
+            == (after["voters"][0]["group"], after["voters"][0]["group_incarnation"]),
+            "leadership changed the physical group history")
+
+
 def execute(mode, output, remote, credentials, build, engine):
     run = secrets.token_hex(8)
     directory = f"/tmp/cellar-daemon-{run}"
@@ -114,6 +179,8 @@ def execute(mode, output, remote, credentials, build, engine):
         ledger = guest(f"cat {quoted}/process.jsonl\n")
         require(ledger.returncode == 0, "process ledger missing")
         events = [json.loads(line) for line in ledger.stdout.splitlines()]
+        verify_archive_outage(events)
+        verify_leader_loss(events)
         modes = ("native", "axum")
         cells = (("one", "native"), ("two", "axum"))
         require(events[0]["store"] == "rustfs_catalog_and_archives"

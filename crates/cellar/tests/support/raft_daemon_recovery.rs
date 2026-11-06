@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! A real hard-killed voter, immutable command retries and retained-disk resume.
-//! This small dev-store fixture is not a 10 GB or object-store RTO campaign.
+//! Records the process campaign for both the dev store and RustFS.
 
 use super::*;
 use std::{fs::OpenOptions, io::Write};
@@ -54,7 +54,7 @@ impl Ledger {
 pub(super) struct Acknowledged {
     pub(super) cell: &'static str,
     pub(super) ingress: Ingress,
-    pub(super) leader: usize,
+    pub(super) ingress_member: usize,
     pub(super) command: String,
     pub(super) retry_until: String,
     pub(super) receipt: Value,
@@ -134,7 +134,7 @@ impl Request<'_> {
     }
 }
 
-fn matching_receipt(actual: &Value, expected: &Value) -> Result<()> {
+pub(super) fn matching_receipt(actual: &Value, expected: &Value) -> Result<()> {
     for field in ["value", "group", "group_incarnation", "cell", "incarnation"] {
         ensure!(
             actual[field] == expected[field],
@@ -156,6 +156,116 @@ fn matching_receipt(actual: &Value, expected: &Value) -> Result<()> {
     Ok(())
 }
 
+const OBSERVATION: &str = "/fixture/raft-observation";
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct VoterObservation {
+    member: u64,
+    term: u64,
+    leader: Option<u64>,
+    is_leader: bool,
+    ready: bool,
+    cells: u32,
+    group: String,
+    group_incarnation: String,
+}
+
+pub(super) fn observe_voter(router: axum::Router, group: RaftGroupHandle) -> axum::Router {
+    router.route(
+        OBSERVATION,
+        axum::routing::get(move |headers: axum::http::HeaderMap| {
+            let group = group.clone();
+            async move {
+                use axum::http::StatusCode;
+                if headers
+                    .get(axum::http::header::AUTHORIZATION)
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|value| value.strip_prefix("Bearer "))
+                    != Some(SECRET)
+                {
+                    return Err(StatusCode::UNAUTHORIZED);
+                }
+                let observed = group
+                    .observe(Duration::from_secs(5))
+                    .await
+                    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+                Ok(axum::Json(VoterObservation {
+                    member: observed.replica.member.get(),
+                    term: observed.status.term.get(),
+                    leader: observed.status.leader,
+                    is_leader: observed.role == RaftReplicaRole::Leader,
+                    ready: observed.status.ready,
+                    cells: observed.cells,
+                    group: hex::encode(observed.replica.scope.group.bytes()),
+                    group_incarnation: hex::encode(observed.replica.scope.incarnation.bytes()),
+                }))
+            }
+        }),
+    )
+}
+
+async fn observe_leader(
+    client: &reqwest::Client,
+    addresses: &[ManagedIngress],
+    killed: Option<usize>,
+    minimum_term: u64,
+    receipt: &Value,
+) -> Result<(usize, u64, Vec<VoterObservation>)> {
+    tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            let observations = futures_util::future::try_join_all(
+                addresses
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, _)| Some(*index) != killed)
+                    .map(|(index, address)| async move {
+                        let response = client
+                            .get(format!("{}{OBSERVATION}", address.axum))
+                            .bearer_auth(SECRET)
+                            .send()
+                            .await?;
+                        if response.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE {
+                            return Ok(None);
+                        }
+                        let voter = response
+                            .error_for_status()?
+                            .json::<VoterObservation>()
+                            .await?;
+                        ensure!(
+                            voter.member == index as u64 + 1
+                                && voter.cells == 2
+                                && receipt["group"].as_str() == Some(voter.group.as_str())
+                                && receipt["group_incarnation"].as_str()
+                                    == Some(voter.group_incarnation.as_str()),
+                            "wrong local voter observation"
+                        );
+                        Ok::<_, anyhow::Error>(Some(voter))
+                    }),
+            )
+            .await?;
+            if let Some(voters) = observations.into_iter().collect::<Option<Vec<_>>>() {
+                let agreed = voters.iter().find(|leader| {
+                    leader.is_leader
+                        && leader.ready
+                        && leader.term >= minimum_term
+                        && voters.iter().all(|voter| {
+                            voter.term == leader.term
+                                && voter.leader == Some(leader.member)
+                                && voter.is_leader == (voter.member == leader.member)
+                        })
+                });
+                if let Some(leader) = agreed {
+                    let index = usize::try_from(leader.member)? - 1;
+                    return Ok((index, leader.term, voters));
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .context("managed voter leader observation deadline")?
+}
+
 pub(super) async fn hard_kill_and_resume(
     root: &Path,
     client: &reqwest::Client,
@@ -168,11 +278,15 @@ pub(super) async fn hard_kill_and_resume(
         acknowledged.len() == 2,
         "both cells need acknowledged commands"
     );
-    let killed = acknowledged[0].leader;
+    let receipt = &acknowledged[0].receipt;
+    let minimum_term = receipt["term"].as_u64().context("acknowledged Raft term")?;
+    let (killed, term, voters) =
+        observe_leader(client, addresses, None, minimum_term, receipt).await?;
     let old_pid = processes[killed].pid()?;
-    ledger.record(
-        serde_json::json!({"phase":"before_hard_kill", "pid":old_pid, "member":killed + 1}),
-    )?;
+    ledger.record(serde_json::json!({
+        "phase":"before_hard_kill", "pid":old_pid, "member":killed + 1, "term":term,
+        "voters":voters,
+    }))?;
     let process = &mut processes[killed];
     if let Some(voter) = &process.voter {
         voter.kill_if_running()?;
@@ -242,6 +356,13 @@ pub(super) async fn hard_kill_and_resume(
         )?;
         current.push((old, next));
     }
+    let newer_term = term.checked_add(1).context("Raft term overflow")?;
+    let (successor, term, voters) =
+        observe_leader(client, addresses, Some(killed), newer_term, receipt).await?;
+    ledger.record(serde_json::json!({
+        "phase":"successor_before_restart", "member":successor + 1, "term":term,
+        "voters":voters,
+    }))?;
     let disk = docker::disk(root, killed);
     processes[killed] = Process::spawn(
         root,

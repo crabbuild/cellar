@@ -2,6 +2,8 @@
 
 //! Production process startup, retained-history resume and refusal boundaries.
 #![allow(clippy::disallowed_methods)]
+#[path = "support/raft_daemon_archive.rs"]
+mod archive;
 #[path = "../../../examples/raft-counter/configuration.rs"]
 #[allow(dead_code)]
 mod configuration;
@@ -812,7 +814,7 @@ async fn qualify() -> Result<()> {
             + 60_000)
             .to_string();
         let deadline = Instant::now() + Duration::from_secs(20);
-        let (leader, receipt) = loop {
+        let (ingress_member, receipt) = loop {
             let mut committed = None;
             for (index, address) in addresses.iter().enumerate() {
                 let public = ingress.endpoint(address);
@@ -854,7 +856,7 @@ async fn qualify() -> Result<()> {
         for (index, address) in addresses
             .iter()
             .enumerate()
-            .filter(|(index, _)| *index != leader)
+            .filter(|(index, _)| *index != ingress_member)
         {
             for ingress in Ingress::ALL {
                 let public = ingress.endpoint(address);
@@ -884,7 +886,7 @@ async fn qualify() -> Result<()> {
         acknowledged.push(recovery::Acknowledged {
             cell: name,
             ingress,
-            leader,
+            ingress_member,
             command,
             retry_until: retry,
             receipt,
@@ -897,6 +899,14 @@ async fn qualify() -> Result<()> {
             && acknowledged[0].receipt["cell"] != acknowledged[1].receipt["cell"],
         "two independent cell histories must share the physical group"
     );
+    archive::verify(
+        root.path(),
+        &client,
+        &addresses[acknowledged[0].ingress_member],
+        &acknowledged[0].receipt,
+        &mut ledger,
+    )
+    .await?;
     recovery::hard_kill_and_resume(
         root.path(),
         &client,

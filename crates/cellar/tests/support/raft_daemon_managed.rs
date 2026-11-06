@@ -322,7 +322,12 @@ pub(super) fn child(root: PathBuf, mode: &str) -> Result<()> {
         "test",
         move || counter::application(serving.clone(), counter::definition()?),
     )?;
-    let prepare = move |node| boot_operator.prepare(node, index, retained);
+    let store = Arc::new(archive::Gate::new(
+        operator.bucket.raft_store(),
+        &root,
+        index,
+    ));
+    let prepare = move |node| boot_operator.prepare(node, index, retained, store);
     let fixture_operator = operator.clone();
     let bind = move |service: RaftCells, discovered: GroupHistory| async move {
         ensure!(discovered == history, "unexpected managed namespace group");
@@ -333,13 +338,14 @@ pub(super) fn child(root: PathBuf, mode: &str) -> Result<()> {
             }
         }
         ready_counter(&service, history, MemberId::new(u64::from(index) + 1)?).await?;
+        let group = service.group(history)?;
         *api.cells
             .lock()
             .map_err(|_| anyhow::anyhow!("binding poisoned"))? = Some(service);
         let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
         listener.set_nonblocking(true)?;
         let address = listener.local_addr()?;
-        let router = counter::router(api);
+        let router = recovery::observe_voter(counter::router(api), group);
         let task = axum_runtime.spawn(async move {
             let listener = tokio::net::TcpListener::from_std(listener)?;
             cellar::note!("cellar axum listening on {address}");
@@ -400,6 +406,7 @@ impl Operator {
         native: NativeRaftNode,
         index: u8,
         retained: bool,
+        store: Arc<dyn object_store::ObjectStore>,
     ) -> Result<NativeRaftCells> {
         let declaration = self.declaration()?;
         let id = node(index)?;
@@ -491,7 +498,7 @@ impl Operator {
             },
             listeners,
             tls: fixture_tls()?,
-            store: self.bucket.raft_store(),
+            store,
             versions: fixture_versions()?,
         })
     }

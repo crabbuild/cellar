@@ -103,13 +103,21 @@ python3 tools/multi-raft/daemon.py --image "$image" \
   --output /tmp/cellar-managed-daemon-linux-001
 ```
 
-Both image forms use the real operator CLI, capacity and first-group workflow,
-quorum writes, receipt-backed follower reads, an owned voter SIGKILL, exact
-retry reconciliation and retained restart. The record includes source and
-binary digests, S3 probes, running resource settings, disk mounts and exit
-states. Logs and disks remain available after the run. The lab attests fixture
-capacity and runs on one VM. Cross-host failure, Axum, loss of quorum, archive
-outages and sustained load have separate acceptance gates.
+Both image forms use the real operator CLI for capacity and first-group
+provisioning. Native and Axum exercise quorum writes, receipt-backed follower
+reads, an owned leader SIGKILL, exact retry reconciliation, retained restart and
+loss of quorum. Local SDK observations record the leader on all three voters
+before SIGKILL and the new term on both surviving voters before restart. A
+per-voter fault adapter refuses archive writes while catalog traffic and object
+reads continue to use RustFS. The same command returns a quorum
+receipt during the fault. A linearizable read covers that receipt. Both HTTP
+adapters refuse explicit S3 acknowledgement until the original result has S3
+coverage after writes resume.
+
+The record includes source and binary digests, S3 probes, running resource
+settings, disk mounts and exit states. Logs and disks remain available after
+the run. The lab attests fixture capacity on one VM. Cross-host failure, complete
+RustFS loss and sustained load have separate acceptance gates.
 
 ## Sealed source archive holds
 
