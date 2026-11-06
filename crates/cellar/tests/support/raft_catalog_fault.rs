@@ -8,6 +8,14 @@ use object_store::{
 };
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+fn is_managed_recovery_record(path: &Path) -> bool {
+    path.as_ref()
+        .contains("/fleet/managed-transition-recovery/")
+        || path
+            .as_ref()
+            .contains("/fleet/managed-transition-recovery-fences/")
+}
+
 tokio::task_local! {
     static READ_COUNTS: std::cell::RefCell<std::collections::BTreeMap<String, usize>>;
     static MISSING_READ: String;
@@ -128,8 +136,8 @@ pub struct Store {
     pub fail_fleet_before: AtomicBool,
     pub fail_fleet_after: AtomicBool,
     pub fail_fleet_confirmation: AtomicBool,
-    pub fail_recovery_intent_confirmation: AtomicBool,
-    fail_recovery_intent_read: AtomicBool,
+    pub fail_recovery_record_confirmation: AtomicBool,
+    fail_recovery_record_read: AtomicBool,
     pub fail_fleet_read: AtomicBool,
     // Background trust refresh must not steal the mutator's confirmation loss.
     fleet_confirmation_task: std::sync::Mutex<Option<tokio::task::Id>>,
@@ -506,14 +514,12 @@ impl ObjectStore for Store {
         {
             return Err(failure());
         }
-        if path
-            .as_ref()
-            .contains("/fleet/managed-transition-recovery/")
+        if is_managed_recovery_record(path)
             && self
-                .fail_recovery_intent_confirmation
+                .fail_recovery_record_confirmation
                 .swap(false, Ordering::AcqRel)
         {
-            self.fail_recovery_intent_read
+            self.fail_recovery_record_read
                 .store(true, Ordering::Release);
             return Err(failure());
         }
@@ -685,10 +691,8 @@ impl ObjectStore for Store {
         {
             return Err(failure());
         }
-        if path
-            .as_ref()
-            .contains("/fleet/managed-transition-recovery/")
-            && self.fail_recovery_intent_read.swap(false, Ordering::AcqRel)
+        if is_managed_recovery_record(path)
+            && self.fail_recovery_record_read.swap(false, Ordering::AcqRel)
         {
             return Err(failure());
         }

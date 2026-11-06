@@ -258,6 +258,32 @@ impl RangeDirectory {
         self.open_archive_binding(domain, pool, birth, None).await
     }
 
+    /// Reopen a selected recovery source while ordinary startup is fenced.
+    pub(crate) async fn open_managed_recovery_archive(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        pool: &CellGroupArchivePool,
+        route: &GroupRoute,
+        transition: ProposalId,
+        barrier: [u8; 32],
+    ) -> Result<CellGroupArchiveRegistry> {
+        let birth = self
+            .bounded(async {
+                let (view, _) = self.current().await?;
+                let lock = view.head.recovery.as_ref().ok_or(CatalogError::Fenced)?;
+                if view.digest != barrier
+                    || !lock.owns_transition(transition)
+                    || !lock.blocks_startup(self, route)?
+                {
+                    return Err(CatalogError::Fenced);
+                }
+                self.selected_route_in(&view, route).await?;
+                self.open_historical_birth(route).await
+            })
+            .await?;
+        self.open_recovery_archive(domain, pool, &birth).await
+    }
+
     pub(super) async fn open_retired_source_archive(
         &self,
         domain: &impl CellGroupArchiveExecution,

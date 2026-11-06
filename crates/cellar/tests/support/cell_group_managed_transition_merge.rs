@@ -9,15 +9,16 @@ use cellar::application::consensus::verification::{
     },
     FleetChange, FleetHistoryState, FleetMutation, FleetSnapshot, FleetTable,
 };
-use cellar::application::consensus::FleetNodeSpec;
+use cellar::application::consensus::{DisasterFenceAuthority, FleetNodeSpec};
 use cellar::sdk::fleet_operations::{
-    RaftFleetControl, RaftFleetFailureCode, RaftFleetFirstGroupVoter, RaftFleetOutcome,
-    RaftFleetTransitionAdmissionRequest, RaftFleetTransitionChild,
-    RaftFleetTransitionChildSetupRequest, RaftFleetTransitionChildSetupResult,
-    RaftFleetTransitionChildStep, RaftFleetTransitionGroup, RaftFleetTransitionPartition,
-    RaftFleetTransitionPrepareRequest, RaftFleetTransitionPublishRequest,
-    RaftFleetTransitionResume, RaftFleetTransitionResumeStep, RaftFleetTransitionSealRequest,
-    RaftFleetTransitionSourceRetirement, RaftFleetTransitionSourceSealRequest,
+    FleetTransitionRecoveryFenceRequest, RaftFleetControl, RaftFleetFailureCode,
+    RaftFleetFirstGroupVoter, RaftFleetOutcome, RaftFleetTransitionAdmissionRequest,
+    RaftFleetTransitionChild, RaftFleetTransitionChildSetupRequest,
+    RaftFleetTransitionChildSetupResult, RaftFleetTransitionChildStep, RaftFleetTransitionGroup,
+    RaftFleetTransitionPartition, RaftFleetTransitionPrepareRequest,
+    RaftFleetTransitionPublishRequest, RaftFleetTransitionResume, RaftFleetTransitionResumeStep,
+    RaftFleetTransitionSealRequest, RaftFleetTransitionSourceRetirement,
+    RaftFleetTransitionSourceSealRequest,
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -301,6 +302,48 @@ async fn rustfs_managed_recovery_barrier_fences_transfer_and_reopens() -> Result
         .with_context(|| format!("managed recovery barrier, extent images={rooted}"))?;
     }
     Ok(())
+}
+
+#[derive(Default)]
+struct TransitionFence {
+    stopped: std::sync::Mutex<Option<[u8; 32]>>,
+    fences: std::sync::atomic::AtomicUsize,
+    verifications: std::sync::atomic::AtomicUsize,
+}
+
+impl DisasterFenceAuthority<FleetTransitionRecoveryFenceRequest> for TransitionFence {
+    fn fence<'a>(
+        &'a self,
+        request: &'a FleetTransitionRecoveryFenceRequest,
+    ) -> futures_util::future::BoxFuture<'a, Result<Vec<u8>>> {
+        Box::pin(async move {
+            self.fences.fetch_add(1, Ordering::AcqRel);
+            let mut stopped = self.stopped.lock().unwrap();
+            let digest = request.digest();
+            ensure!(
+                *stopped.get_or_insert(digest) == digest,
+                "different fence scope"
+            );
+            Ok(digest.to_vec())
+        })
+    }
+
+    fn verify<'a>(
+        &'a self,
+        request: &'a FleetTransitionRecoveryFenceRequest,
+        evidence: &'a [u8],
+    ) -> futures_util::future::BoxFuture<'a, Result<()>> {
+        Box::pin(async move {
+            self.verifications.fetch_add(1, Ordering::AcqRel);
+            let digest = request.digest();
+            ensure!(
+                *self.stopped.lock().unwrap() == Some(digest),
+                "fence not effective"
+            );
+            ensure!(evidence == digest, "unbound fence evidence");
+            Ok(())
+        })
+    }
 }
 
 struct ArchiveInputs {
@@ -1046,7 +1089,7 @@ async fn run_inner(
             .await?;
     let recovery_control = control
         .clone()
-        .with_transition_preparer(recovery_verifier, preparation::recovery_pool()?);
+        .with_transition_preparer(recovery_verifier.clone(), preparation::recovery_pool()?);
     let parent_basis =
         Box::pin(control.transition_recovery_basis(&namespace, &operation_id, TIMEOUT)).await?;
     let mut parent_holds = Vec::new();
@@ -1081,7 +1124,7 @@ async fn run_inner(
         );
         fixture
             .store
-            .fail_recovery_intent_confirmation
+            .fail_recovery_record_confirmation
             .store(true, Ordering::Release);
         let unknown = Box::pin(recovery_control.stage_transition_recovery_intent(
             principal,
@@ -1095,7 +1138,7 @@ async fn run_inner(
         );
         ensure!(!fixture
             .store
-            .fail_recovery_intent_confirmation
+            .fail_recovery_record_confirmation
             .load(Ordering::Acquire));
         let staged = Box::pin(recovery_control.stage_transition_recovery_intent(
             principal,
@@ -1167,6 +1210,65 @@ async fn run_inner(
         ensure!(confirmed.intent_digest() == parent_intent.digest());
         let locked = domain.run(directory.observe()).await??;
         ensure!(locked.digest() == confirmed.directory_digest());
+        let authority = TransitionFence::default();
+        let foreign = Box::pin(recovery_control.fence_transition_recovery(
+            "foreign-operator",
+            &namespace,
+            &recovery_operation,
+            confirmed,
+            &authority,
+            TIMEOUT,
+        ))
+        .await;
+        ensure!(matches!(foreign, Err(failure) if failure.code == RaftFleetFailureCode::Conflict));
+        ensure!(authority.fences.load(Ordering::Acquire) == 0);
+        fixture
+            .store
+            .fail_recovery_record_confirmation
+            .store(true, Ordering::Release);
+        let unknown = Box::pin(recovery_control.fence_transition_recovery(
+            principal,
+            &namespace,
+            &recovery_operation,
+            confirmed,
+            &authority,
+            TIMEOUT,
+        ))
+        .await;
+        ensure!(
+            matches!(unknown, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable)
+        );
+        ensure!(!fixture
+            .store
+            .fail_recovery_record_confirmation
+            .load(Ordering::Acquire));
+        ensure!(authority.fences.load(Ordering::Acquire) == 1);
+        let fresh =
+            fresh.with_transition_preparer(recovery_verifier, preparation::recovery_pool()?);
+        let fenced = Box::pin(fresh.fence_transition_recovery(
+            principal,
+            &namespace,
+            &recovery_operation,
+            confirmed,
+            &authority,
+            TIMEOUT,
+        ))
+        .await?;
+        ensure!(fenced.request().barrier() == confirmed);
+        ensure!(fenced.request().intent().digest() == parent_intent.digest());
+        ensure!(
+            fenced.request().intent().required_voter_lineages()
+                == parent_intent.required_voter_lineages()
+        );
+        ensure!(fenced.receipt_digest() != [0; 32]);
+        ensure!(fenced
+            .archives()
+            .iter()
+            .map(|cut| cut.hold())
+            .eq(parent_holds.iter()));
+        ensure!(authority.fences.load(Ordering::Acquire) == 1);
+        ensure!(authority.verifications.load(Ordering::Acquire) == 2);
+        drop(fenced);
         ensure!(matches!(
             domain
                 .run(directory.require_current_group_birth(&birth))

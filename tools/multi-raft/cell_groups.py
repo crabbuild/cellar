@@ -89,9 +89,9 @@ SUITES = {
     ),
     "managed-split-merge": (
         "native_cell_groups_managed",
-        ("bootstrap::transition::merge::rustfs_managed_split_merge",
-         "bootstrap::transition::merge::rustfs_managed_recovery_barrier_fences_transfer_and_reopens"),
-        "managed split and merge through retirement, with late writes, quorum loss and retained restart",
+        ("bootstrap::transition::merge::rustfs_managed_recovery_barrier_fences_transfer_and_reopens",
+         "bootstrap::transition::merge::rustfs_managed_split_merge"),
+        "managed split and merge through retirement, including a permanent fence receipt contract test",
         "Host-native voters and fixture capacity. Process failure and sustained load are separate gates.",
     ),
     "managed-liveness": (

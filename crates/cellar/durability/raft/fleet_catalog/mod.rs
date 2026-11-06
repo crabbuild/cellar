@@ -23,6 +23,11 @@ pub(crate) use managed_park::{
 };
 mod managed_transition_admission;
 pub(crate) use managed_transition_admission::TransitionOperatorStep;
+mod managed_recovery_fence;
+pub(crate) use managed_recovery_fence::PreparedManagedRecoveryFence;
+pub use managed_recovery_fence::{
+    FleetFencedTransitionRecovery, FleetTransitionRecoveryFenceRequest,
+};
 mod managed_recovery_intent;
 pub use managed_recovery_intent::{FleetTransitionRecoveryBarrier, FleetTransitionRecoveryIntent};
 pub(crate) use managed_recovery_intent::{ManagedRecoveryIntentBasis, ManagedRecoveryIntentInput};

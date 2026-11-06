@@ -4,10 +4,12 @@
 
 use super::*;
 use crate::raft::{
+    catalog::DisasterFenceAuthority,
     cell_groups::{CellGroupArchiveCoverage, CellGroupArchiveHold, TransitionPhase},
     fleet_catalog::{
-        FleetRecoveryVoterLineage, FleetTransitionRecoveryBarrier, FleetTransitionRecoveryIntent,
-        ManagedRecoveryIntentBasis, ManagedRecoveryIntentInput,
+        FleetFencedTransitionRecovery, FleetRecoveryVoterLineage, FleetTransitionRecoveryBarrier,
+        FleetTransitionRecoveryFenceRequest, FleetTransitionRecoveryIntent,
+        ManagedRecoveryIntentBasis, ManagedRecoveryIntentInput, PreparedManagedRecoveryFence,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -196,6 +198,60 @@ impl RaftFleetControl {
                 &self.archive_pool,
                 timeout,
             )
+            .await?)
+    }
+
+    /// Permanently fence the old execution scope after replaying the exact
+    /// selected archive cuts. Retries reopen and verify the durable receipt.
+    #[doc(hidden)]
+    pub async fn fence_transition_recovery(
+        &self,
+        principal: &str,
+        namespace: &str,
+        operation: &str,
+        barrier: FleetTransitionRecoveryBarrier,
+        authority: &dyn DisasterFenceAuthority<FleetTransitionRecoveryFenceRequest>,
+        timeout: Duration,
+    ) -> Result<FleetFencedTransitionRecovery> {
+        let directory = self.managed_namespace(namespace)?;
+        let operation = ProposalId::new(records::id(operation)?)
+            .map_err(|_| RaftFleetFailure::invalid("recovery operation ID"))?;
+        let turn = Turn::new(&self.domain, timeout)?;
+        let services = self
+            .transition_preparation
+            .as_ref()
+            .ok_or_else(|| RaftFleetFailure {
+                code: RaftFleetFailureCode::Unsupported,
+                outcome: RaftFleetOutcome::NotSubmitted,
+                message: "Recovery fencing requires a trusted verifier on the management server."
+                    .into(),
+            })?;
+        let prepared = self
+            .catalog
+            .prepare_managed_recovery_fence(
+                directory,
+                operation,
+                principal,
+                barrier,
+                &services.verifier,
+                turn.remaining()?,
+            )
+            .await?;
+        let request = prepared.request();
+        let evidence = match prepared.evidence() {
+            Some(evidence) => evidence.to_vec(),
+            None => turn
+                .run(authority.fence(request))
+                .await?
+                .map_err(FleetCatalogError::Storage)?,
+        };
+        PreparedManagedRecoveryFence::check_evidence(&evidence)?;
+        turn.run(authority.verify(request, &evidence))
+            .await?
+            .map_err(FleetCatalogError::Storage)?;
+        Ok(self
+            .catalog
+            .confirm_managed_recovery_fence(directory, prepared, evidence, turn.remaining()?)
             .await?)
     }
 

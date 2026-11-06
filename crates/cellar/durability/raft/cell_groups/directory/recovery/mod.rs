@@ -127,17 +127,6 @@ impl RecoveryLock {
             if *transition == operation.bytes())
     }
 
-    pub(in crate::raft::catalog::range_directory) fn matches_managed(
-        &self,
-        request: [u8; 32],
-        basis: &crate::raft::fleet_catalog::ManagedRecoveryIntentBasis,
-    ) -> bool {
-        self.request == request
-            && self.base == basis.directory_root
-            && matches!(&self.phase, RecoveryPhase::ManagedSource { transition, plan, .. }
-                if *transition == basis.transition && *plan == basis.plan)
-    }
-
     pub(in crate::raft::catalog::range_directory) fn blocks_startup(
         &self,
         directory: &RangeDirectory,

@@ -231,7 +231,8 @@ pub mod fleet_operations {
         RaftFleetVerificationStage, RaftFleetVerifiedTransitionRecovery, RaftFleetWakeStatus,
     };
     pub use crate::raft::fleet_catalog::{
-        FleetRecoveryVoterLineage, FleetTopologyPolicy, FleetTransitionRecoveryBarrier,
+        FleetFencedTransitionRecovery, FleetRecoveryVoterLineage, FleetTopologyPolicy,
+        FleetTransitionRecoveryBarrier, FleetTransitionRecoveryFenceRequest,
         FleetTransitionRecoveryIntent,
     };
 }

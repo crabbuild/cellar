@@ -115,6 +115,10 @@ impl FleetTransitionRecoveryBarrier {
 }
 
 impl FleetTransitionRecoveryIntent {
+    pub(super) fn basis(&self) -> &ManagedRecoveryIntentBasis {
+        &self.record.basis
+    }
+
     pub fn operation(&self) -> [u8; 16] {
         self.record.operation
     }
@@ -294,12 +298,10 @@ impl FleetCatalog {
         self.run(
             timeout,
             Box::pin(async {
-                let (record, _) = self
-                    .inner
-                    .read::<Record>(&intent_key(operation), KIND, LIMIT)
+                let intent = self
+                    .read_managed_recovery_intent(directory, operation, principal)
                     .await?
                     .ok_or(FleetCatalogError::Conflict)?;
-                let intent = record.validate(self, directory, operation, principal)?;
                 if intent.digest() != expected {
                     return Err(FleetCatalogError::PayloadConflict);
                 }
@@ -310,7 +312,12 @@ impl FleetCatalog {
                     .await?;
                 let domain = &self.inner.domain;
                 let selected = domain
-                    .run(directory.observe_managed_recovery_barrier(expected, basis))
+                    .run(Box::pin(directory.observe_managed_recovery_barrier(
+                        expected,
+                        basis,
+                        intent.archive_holds(),
+                        &permit,
+                    )))
                     .await
                     .map_err(|_| FleetCatalogError::Closed)?
                     .map_err(catalog_error)?;
@@ -354,14 +361,24 @@ impl FleetCatalog {
         principal: &str,
         timeout: Duration,
     ) -> Result<Option<FleetTransitionRecoveryIntent>> {
-        self.run(timeout, async {
-            self.inner
-                .read::<Record>(&intent_key(operation), KIND, LIMIT)
-                .await?
-                .map(|(record, _)| record.validate(self, directory, operation, principal))
-                .transpose()
-        })
+        self.run(
+            timeout,
+            self.read_managed_recovery_intent(directory, operation, principal),
+        )
         .await
+    }
+
+    pub(super) async fn read_managed_recovery_intent(
+        &self,
+        directory: &RangeDirectory,
+        operation: ProposalId,
+        principal: &str,
+    ) -> Result<Option<FleetTransitionRecoveryIntent>> {
+        self.inner
+            .read::<Record>(&intent_key(operation), KIND, LIMIT)
+            .await?
+            .map(|(record, _)| record.validate(self, directory, operation, principal))
+            .transpose()
     }
 }
 

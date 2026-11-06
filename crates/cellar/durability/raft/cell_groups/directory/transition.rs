@@ -930,16 +930,62 @@ impl RangeDirectory {
         .await
     }
 
+    async fn managed_recovery_lock(
+        &self,
+        request: [u8; 32],
+        basis: &ManagedRecoveryIntentBasis,
+        holds: &[CellGroupArchiveHold],
+        permit: &ManagedTransitionPermit,
+    ) -> Result<(DirectoryMutation, recovery::RecoveryLock), CatalogError> {
+        let operation = ProposalId::new(basis.transition)
+            .map_err(|_| CatalogError::Corrupt("recovery transition operation"))?;
+        let plan = self.load_transition_plan(operation, basis.plan).await?;
+        permit.check(self, &plan)?;
+        let (parents, children) = self.transition_routes(&plan)?;
+        let sources = if basis.publication.is_some() {
+            &children
+        } else {
+            &parents
+        };
+        if holds.len() != sources.len()
+            || sources
+                .iter()
+                .zip(holds)
+                .any(|(route, hold)| hold.marker().route() != route)
+        {
+            return Err(CatalogError::Conflict("managed recovery archive set"));
+        }
+        let gate = recovery::RecoveryLock::managed(
+            self,
+            request,
+            basis,
+            sources
+                .first()
+                .ok_or(CatalogError::Corrupt("managed recovery has no sources"))?,
+            parents.iter().chain(&children).map(|route| route.history),
+        )?;
+        Ok((plan, gate))
+    }
+
     pub(crate) async fn observe_managed_recovery_barrier(
         &self,
         request: [u8; 32],
         basis: &ManagedRecoveryIntentBasis,
+        holds: &[CellGroupArchiveHold],
+        permit: &ManagedTransitionPermit,
     ) -> Result<Option<[u8; 32]>, CatalogError> {
         self.bounded(async {
             let (view, _) = self.current().await?;
             match view.head.recovery.as_ref() {
-                Some(lock) if lock.matches_managed(request, basis) => Ok(Some(view.digest)),
-                Some(_) => Err(CatalogError::Fenced),
+                Some(lock) => {
+                    let (_, gate) = self
+                        .managed_recovery_lock(request, basis, holds, permit)
+                        .await?;
+                    if **lock != gate {
+                        return Err(CatalogError::Fenced);
+                    }
+                    Ok(Some(view.digest))
+                }
                 None => Ok(None),
             }
         })
@@ -957,13 +1003,12 @@ impl RangeDirectory {
         permit: &ManagedTransitionPermit,
     ) -> Result<[u8; 32], CatalogError> {
         self.bounded(async {
-            let operation = ProposalId::new(basis.transition)
-                .map_err(|_| CatalogError::Corrupt("recovery transition operation"))?;
-            let plan = self.load_transition_plan(operation, basis.plan).await?;
-            permit.check(self, &plan)?;
+            let (plan, gate) = self
+                .managed_recovery_lock(request, basis, holds, permit)
+                .await?;
             let (mut view, version) = self.current().await?;
             if let Some(lock) = &view.head.recovery {
-                return if lock.matches_managed(request, basis) {
+                return if **lock == gate {
                     Ok(view.digest)
                 } else {
                     Err(CatalogError::Fenced)
@@ -987,30 +1032,9 @@ impl RangeDirectory {
             {
                 return Err(CatalogError::Conflict("managed recovery publication"));
             }
-            let (parents, children) = self.transition_routes(&plan)?;
-            let sources = if basis.publication.is_some() {
-                &children
-            } else {
-                &parents
-            };
-            if holds.len() != sources.len() {
-                return Err(CatalogError::Conflict("managed recovery archive set"));
+            for hold in holds {
+                self.selected_route_in(&view, hold.marker().route()).await?;
             }
-            for (route, hold) in sources.iter().zip(holds) {
-                if hold.marker().route() != route {
-                    return Err(CatalogError::Conflict("managed recovery archive route"));
-                }
-                self.selected_route_in(&view, route).await?;
-            }
-            let gate = recovery::RecoveryLock::managed(
-                self,
-                request,
-                basis,
-                sources
-                    .first()
-                    .ok_or(CatalogError::Corrupt("managed recovery has no sources"))?,
-                parents.iter().chain(&children).map(|route| route.history),
-            )?;
             view.head.recovery = Some(Box::new(gate.clone()));
             let after = self.commit_transition_head(&view.head, version).await?;
             if after.head.recovery.as_deref() != Some(&gate) {
