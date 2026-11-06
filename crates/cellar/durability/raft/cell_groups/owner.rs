@@ -8,8 +8,8 @@ use super::{
         LocalParkChange, ParkAcknowledgement, ParkPreparation, ParkPrepareRequest,
         MAX_PARK_NEGOTIATION_MS,
     },
-    CellGroupBootstrapPermit, GroupManifest, GroupParkCut, PreparedCellGroupCheckpoint,
-    PreparedGroupManifest, PreparedLocalCellGroupCheckpoint,
+    CellGroupBootstrapPermit, GroupManifest, GroupParkCut, ParkCertificate,
+    PreparedCellGroupCheckpoint, PreparedGroupManifest, PreparedLocalCellGroupCheckpoint,
 };
 use crate::application::consensus::group_protocol::{
     CellGroupEntry, GroupCommand, GroupEntryBinding, GroupEntryLimits,
@@ -218,6 +218,22 @@ enum Phase {
 struct ConfigurationFence {
     index: u64,
     announced: bool,
+}
+
+/// Local evidence that the leader synced its exact certificate selection.
+pub(crate) struct SelectedParkCertificate {
+    certificate: Box<ParkCertificate>,
+    sync_sequence: u64,
+}
+
+impl SelectedParkCertificate {
+    pub(crate) fn certificate(&self) -> &ParkCertificate {
+        &self.certificate
+    }
+
+    pub(crate) fn sync_sequence(&self) -> u64 {
+        self.sync_sequence
+    }
 }
 
 struct PendingPark {
@@ -2032,11 +2048,61 @@ impl CellGroupOwner {
         cut: &GroupParkCut,
     ) -> Result<(Box<CellGroupPersist>, usize), RuntimeError> {
         self.require_park_acknowledgement(leader, cut)?;
+        self.persist_park_change(LocalParkChange::Acknowledge(cut.clone()))
+    }
+
+    pub(super) fn begin_park_certificate(
+        &mut self,
+        certificate: &ParkCertificate,
+    ) -> Result<(Box<CellGroupPersist>, usize), RuntimeError> {
+        self.require_park_certificate(certificate)?;
+        self.persist_park_change(LocalParkChange::Certify(Box::new(certificate.clone())))
+    }
+
+    fn persist_park_change(
+        &mut self,
+        change: LocalParkChange,
+    ) -> Result<(Box<CellGroupPersist>, usize), RuntimeError> {
         let mut write = GroupWrite::new(&self.group);
-        write.local_park = Some(LocalParkChange::Acknowledge(cut.clone()));
+        write.local_park = Some(change);
         let bytes = write.estimated_bytes()?;
         let work = self.prepare_persistence(write)?;
         Ok((work, bytes))
+    }
+
+    fn require_park_certificate(&self, certificate: &ParkCertificate) -> Result<(), RuntimeError> {
+        if self.node.raft.state != StateRole::Leader {
+            return Err(RuntimeError::NotLeader);
+        }
+        self.require_park_acknowledgement(certificate.leader()?, certificate.cut())?;
+        let voter = self.group.identity();
+        self.group.read()?.admit_park_certificate(
+            certificate,
+            voter.member,
+            voter.node_identity(),
+        )?;
+        Ok(())
+    }
+
+    pub(super) fn finish_park_certificate(
+        &self,
+        certificate: &ParkCertificate,
+    ) -> Result<SelectedParkCertificate, RuntimeError> {
+        self.require_park_certificate(certificate)?;
+        if self
+            .group
+            .read()?
+            .local_park
+            .as_ref()
+            .and_then(|park| park.certificate())
+            != Some(certificate)
+        {
+            return Err(RuntimeError::StaleCompletion);
+        }
+        Ok(SelectedParkCertificate {
+            certificate: Box::new(certificate.clone()),
+            sync_sequence: self.last_sync,
+        })
     }
 
     pub(super) fn finish_park_acknowledgement(

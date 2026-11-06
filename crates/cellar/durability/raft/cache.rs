@@ -192,6 +192,11 @@ impl<S: Clone> GroupWrite<S> {
                 .checked_add(16 * 1024 + manifest.reserved_bytes())
                 .ok_or(LogError::Overloaded)?;
         }
+        if let Some(super::cell_groups::LocalParkChange::Certify(certificate)) = &self.local_park {
+            bytes = bytes
+                .checked_add(certificate.reserved_bytes())
+                .ok_or(LogError::Overloaded)?;
+        }
         Ok(bytes)
     }
 }
@@ -553,6 +558,10 @@ impl CachedGroup {
         }) + self.checkpoint_manifest.as_ref().map_or(0, |m| {
             16 * 1024 + ManifestPins::maximum_bytes(m.root().cells())
         }) + self.membership.reserved_bytes()
+            + self
+                .local_park
+                .as_ref()
+                .map_or(0, |park| park.reserved_bytes())
             + self.snapshot.compute_size() as usize
             + self.conf_state.compute_size() as usize
             + self
@@ -998,7 +1007,7 @@ impl CachedGroup {
             self,
             write.local_park.as_ref(),
             write.group.identity().member,
-            write.group.identity().process,
+            write.group.identity().node_identity(),
         )?;
         next.validate(max_entries)
             .map_err(|error| LogError::Invalid(error.to_string()))?;

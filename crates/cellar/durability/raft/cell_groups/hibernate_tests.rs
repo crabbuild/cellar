@@ -114,6 +114,93 @@ fn park_cut_survives_advance_and_refuses_checkpoint_regression() {
     assert!(!advanced.preserves_park_cut(&next));
 }
 
+#[test]
+fn park_certificate_requires_exact_complete_voter_evidence() -> anyhow::Result<()> {
+    use crate::raft::member_state::GroupMembership;
+    use ::raft::prelude::ConfState;
+    use cellar_logic::consensus::DiskLineage;
+
+    let mut marker = marker(3);
+    marker.prepare_park(
+        ParkGeneration::new(3)?,
+        Term::new(2),
+        MembershipRevision::new(1)?,
+    )?;
+    let cut = marker.park_cut().unwrap();
+    let route = marker.route();
+    let voters: Vec<_> = (1..=3)
+        .map(|id| -> anyhow::Result<_> {
+            Ok(ReplicaIdentity {
+                scope: route.history,
+                member: MemberId::new(u64::from(id))?,
+                node: NodeId::new([id; 16])?,
+                disk: DiskLineage::new([id + 3; 16])?,
+                process: ProcessGeneration::new([id + 6; 16])?,
+            })
+        })
+        .collect::<anyhow::Result<_>>()?;
+    let leader = &voters[0];
+    let evidence = || {
+        voters
+            .iter()
+            .rev()
+            .map(|voter| ParkAcknowledgement {
+                voter: voter.clone(),
+                leader: leader.member,
+                cut: cut.clone(),
+                sync_sequence: 10,
+            })
+            .collect::<Vec<_>>()
+    };
+    let certificate = ParkCertificate::assemble(route, cut.clone(), leader, &voters, evidence())?;
+    let conf = ConfState {
+        voters: vec![3, 1, 2],
+        ..Default::default()
+    };
+    let membership = GroupMembership::initial(&conf);
+    certificate.validate(route, &conf, &membership)?;
+    assert_eq!(
+        serde_json::from_slice::<ParkCertificate>(&serde_json::to_vec(&certificate)?)?,
+        certificate
+    );
+    let mut other_route = route.clone();
+    other_route.history.incarnation = IncarnationId::new([11; 16])?;
+    assert!(certificate
+        .validate(&other_route, &conf, &membership)
+        .is_err());
+    let mut joint = conf.clone();
+    joint.voters_outgoing.push(1);
+    assert!(certificate.validate(route, &joint, &membership).is_err());
+
+    let mut partial = evidence();
+    partial.pop();
+    assert!(ParkCertificate::assemble(route, cut.clone(), leader, &voters, partial).is_err());
+    for field in 0..6 {
+        let mut replies = evidence();
+        match field {
+            0 => replies[0].voter = replies[1].voter.clone(),
+            1 => replies[0].voter.process = ProcessGeneration::new([12; 16])?,
+            2 => replies[0].voter.disk = DiskLineage::new([12; 16])?,
+            3 => replies[0].leader = voters[1].member,
+            4 => replies[0].sync_sequence = 0,
+            _ => {
+                replies[0].cut = GroupParkCut::prepare(
+                    ParkGeneration::new(4)?,
+                    Term::new(2),
+                    MembershipRevision::new(1)?,
+                    LogPosition {
+                        term: Term::new(2),
+                        index: LogIndex::new(4),
+                    },
+                    1,
+                )?
+            }
+        }
+        assert!(ParkCertificate::assemble(route, cut.clone(), leader, &voters, replies).is_err());
+    }
+    Ok(())
+}
+
 async fn bootstrap(
     domain: &ExecutionDomain,
     log: &ReplicaLog,
@@ -361,6 +448,7 @@ async fn park_acknowledgement_waits_for_sync_and_reopens_closed() -> anyhow::Res
         cut: cut.clone(),
         process: options.process.bytes(),
         phase: LocalParkPhase::Acknowledged,
+        certificate: None,
     };
     assert_eq!(group.read()?.local_park.as_ref(), Some(&acknowledged));
 
@@ -580,6 +668,45 @@ async fn leader_fences_park_preparation_through_timeout_apply() -> anyhow::Resul
                 ));
                 let receipt = runtime.acknowledge_park(history, member, selected).await?;
                 assert_eq!(receipt.cut.position(), position);
+                let replica = receipt.voter.clone();
+                let sequence = receipt.sync_sequence;
+                let certificate = ParkCertificate::assemble(
+                    manifest.route(),
+                    receipt.cut.clone(),
+                    &replica,
+                    std::slice::from_ref(&replica),
+                    vec![receipt],
+                )?;
+                let certified = runtime.certify_park(history, certificate.clone()).await?;
+                assert_eq!(certified.certificate(), &certificate);
+                assert!(certified.sync_sequence() > sequence);
+                let retry = runtime.certify_park(history, certificate.clone()).await?;
+                assert_eq!(retry.certificate(), &certificate);
+
+                let later = runtime
+                    .acknowledge_park(history, member, certificate.cut().clone())
+                    .await?;
+                let conflict = ParkCertificate::assemble(
+                    manifest.route(),
+                    later.cut.clone(),
+                    &replica,
+                    std::slice::from_ref(&replica),
+                    vec![later],
+                )?;
+                assert_ne!(conflict, certificate);
+                assert!(matches!(
+                    runtime.certify_park(history, conflict).await,
+                    Err(RuntimeError::Storage(LogError::WrongIdentity))
+                ));
+                let group = log.cell_group(&history)?;
+                assert_eq!(
+                    group
+                        .read()?
+                        .local_park
+                        .as_ref()
+                        .and_then(LocalParkRecord::certificate),
+                    Some(&certificate)
+                );
                 domain
                     .run(async { crate::asyncrt::sleep_until(request.deadline_ms).await })
                     .await?;

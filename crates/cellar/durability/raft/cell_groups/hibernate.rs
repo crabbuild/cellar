@@ -3,7 +3,7 @@
 //! Replicated park preparation evidence. Local park and wake authority
 //! require separate durable records and acknowledgements from the voters.
 
-use super::{CellGroupProposal, GroupManifest, ManifestError};
+use super::{CellGroupProposal, GroupManifest, ManifestError, ParkCertificate};
 use crate::raft::{
     cache::{CachedGroup, GroupLog, GroupWrite},
     storage::{LogError, ReplicaLog},
@@ -11,7 +11,7 @@ use crate::raft::{
 use cellar_logic::{
     cell_group::{GroupHistory, MembershipRevision, ParkGeneration},
     consensus::{
-        LogIndex, LogPosition, MemberId, OperationId, ProcessGeneration, ProposalId,
+        LogIndex, LogPosition, MemberId, NodeIdentity, OperationId, ProcessGeneration, ProposalId,
         ReplicaIdentity, Term,
     },
 };
@@ -111,6 +111,7 @@ pub(crate) struct ParkAcknowledgement {
 #[serde(rename_all = "snake_case")]
 enum LocalParkPhase {
     Acknowledged,
+    Certified,
     Closed,
 }
 
@@ -122,17 +123,20 @@ pub(crate) struct LocalParkRecord {
     cut: GroupParkCut,
     process: [u8; 16],
     phase: LocalParkPhase,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    certificate: Option<Box<ParkCertificate>>,
 }
 
 #[derive(Clone)]
 pub(crate) enum LocalParkChange {
     Acknowledge(GroupParkCut),
+    Certify(Box<ParkCertificate>),
     Close(ParkGeneration),
 }
 
 impl LocalParkRecord {
-    pub(crate) fn acknowledged(&self) -> bool {
-        self.phase == LocalParkPhase::Acknowledged
+    pub(crate) fn is_open(&self) -> bool {
+        self.phase != LocalParkPhase::Closed
     }
 
     pub(super) fn matches_acknowledgement(
@@ -140,14 +144,34 @@ impl LocalParkRecord {
         cut: &GroupParkCut,
         process: ProcessGeneration,
     ) -> bool {
-        self.acknowledged() && &self.cut == cut && self.process == process.bytes()
+        self.is_open() && &self.cut == cut && self.process == process.bytes()
     }
 
     fn closed(&self) -> Self {
         Self {
+            cut: self.cut.clone(),
+            process: self.process,
             phase: LocalParkPhase::Closed,
-            ..self.clone()
+            certificate: None,
         }
+    }
+
+    pub(crate) fn reserved_bytes(&self) -> usize {
+        self.certificate
+            .as_ref()
+            .map_or(0, |certificate| certificate.reserved_bytes())
+    }
+
+    pub(super) fn certificate(&self) -> Option<&ParkCertificate> {
+        self.certificate.as_deref()
+    }
+
+    pub(crate) fn matches_member(&self, member: u64) -> bool {
+        self.certificate.as_ref().is_none_or(|certificate| {
+            certificate
+                .leader()
+                .is_ok_and(|leader| leader.get() == member)
+        })
     }
 
     fn validate_history(&self, manifest: &GroupManifest) -> Result<(), LogError> {
@@ -192,7 +216,7 @@ impl CachedGroup {
         if !self.quiescent_park_cut(cut)
             || !self.conf_state.voters.contains(&member.get())
             || self.local_park.as_ref().is_some_and(|current| {
-                if current.acknowledged() {
+                if current.is_open() {
                     !current.matches_acknowledgement(cut, process)
                 } else {
                     current.cut.generation() >= cut.generation()
@@ -213,10 +237,44 @@ impl CachedGroup {
             .as_ref()
             .ok_or(LogError::WrongIdentity)?;
         record.validate_history(manifest)?;
-        if record.acknowledged() && !self.quiescent_park_cut(&record.cut) {
+        if record.is_open() && !self.quiescent_park_cut(&record.cut) {
             return Err(LogError::Corrupt("unclosed park acknowledgement".into()));
         }
-        Ok(())
+        match (&record.phase, record.certificate()) {
+            (LocalParkPhase::Certified, Some(certificate))
+                if certificate.cut() == &record.cut
+                    && certificate.matches_journal(record.process) =>
+            {
+                certificate.validate(manifest.route(), &self.conf_state, &self.membership)
+            }
+            (LocalParkPhase::Acknowledged | LocalParkPhase::Closed, None) => Ok(()),
+            _ => Err(LogError::Corrupt("park certificate phase".into())),
+        }
+    }
+
+    pub(super) fn admit_park_certificate(
+        &self,
+        certificate: &ParkCertificate,
+        member: MemberId,
+        identity: NodeIdentity,
+    ) -> Result<(), LogError> {
+        let cut = certificate.cut();
+        let manifest = self
+            .group_manifest
+            .as_ref()
+            .ok_or(LogError::WrongIdentity)?;
+        if !self.quiescent_park_cut(cut)
+            || !certificate.matches_leader(member, identity)
+            || !self.local_park.as_ref().is_some_and(|record| {
+                record.matches_acknowledgement(cut, identity.process)
+                    && record
+                        .certificate()
+                        .is_none_or(|current| current == certificate)
+            })
+        {
+            return Err(LogError::WrongIdentity);
+        }
+        certificate.validate(manifest.route(), &self.conf_state, &self.membership)
     }
 
     pub(crate) fn update_local_park(
@@ -224,8 +282,9 @@ impl CachedGroup {
         previous: &Self,
         change: Option<&LocalParkChange>,
         member: MemberId,
-        process: ProcessGeneration,
+        identity: NodeIdentity,
     ) -> Result<(), LogError> {
+        let process = identity.process;
         let current = previous.local_park.as_ref();
         match change {
             Some(LocalParkChange::Acknowledge(cut)) => {
@@ -236,10 +295,26 @@ impl CachedGroup {
                 {
                     return Err(LogError::WrongIdentity);
                 }
+                if current.is_none_or(|record| !record.matches_acknowledgement(cut, process)) {
+                    self.local_park = Some(LocalParkRecord {
+                        cut: cut.clone(),
+                        process: process.bytes(),
+                        phase: LocalParkPhase::Acknowledged,
+                        certificate: None,
+                    });
+                }
+            }
+            Some(LocalParkChange::Certify(certificate)) => {
+                previous.admit_park_certificate(certificate, member, identity)?;
+                self.admit_park_certificate(certificate, member, identity)?;
+                if self.hard_state.vote != previous.hard_state.vote {
+                    return Err(LogError::WrongIdentity);
+                }
                 self.local_park = Some(LocalParkRecord {
-                    cut: cut.clone(),
+                    cut: certificate.cut().clone(),
                     process: process.bytes(),
-                    phase: LocalParkPhase::Acknowledged,
+                    phase: LocalParkPhase::Certified,
+                    certificate: Some(certificate.clone()),
                 });
             }
             Some(LocalParkChange::Close(generation)) => {
@@ -250,7 +325,7 @@ impl CachedGroup {
             }
             None => {
                 if let Some(record) = current {
-                    if record.acknowledged()
+                    if record.is_open()
                         && (!self.quiescent_park_cut(&record.cut)
                             || self.hard_state.vote != previous.hard_state.vote)
                     {
@@ -274,7 +349,7 @@ impl ReplicaLog {
             .read()?
             .local_park
             .as_ref()
-            .filter(|record| record.acknowledged())
+            .filter(|record| record.is_open())
             .map(|record| record.cut.generation());
         if let Some(generation) = acknowledged {
             let generation =

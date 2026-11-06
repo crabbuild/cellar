@@ -96,6 +96,8 @@ pub use observation::{
     CellGroupObservation, CellGroupPartitionCell, CellGroupPartitionContext,
     CellGroupPartitionObservation, CellGroupPartitionWriter, CellGroupWorkload,
 };
+mod park_certificate;
+pub(crate) use park_certificate::ParkCertificate;
 mod page_store;
 mod page_wire;
 mod pins;

@@ -9,6 +9,7 @@ use leadership::LeadershipBatch;
 
 use super::{
     hibernate::{ParkAcknowledgement, ParkPreparation, ParkPrepareRequest},
+    owner::SelectedParkCertificate,
     *,
 };
 use crate::raft::{
@@ -149,6 +150,7 @@ enum Command {
     ActivateTransfer(Box<CellGroupTransferActivationPermit>),
     SealSource(Box<CellGroupSealPermit>),
     PreparePark(ParkPrepareRequest),
+    CertifyPark(Box<ParkCertificate>),
     AcknowledgePark {
         leader: MemberId,
         cut: GroupParkCut,
@@ -196,6 +198,7 @@ enum Response {
     TransferActivation(CellGroupTransferActivation),
     SourceSeal(Box<CellGroupSealOutcome>),
     ParkPrepared(ParkPreparation),
+    ParkCertified(SelectedParkCertificate),
     ParkAcknowledgement(ParkAcknowledgement),
     SourceRetirement(CellGroupSourceRetirement),
     Submission(crate::raft::execution::CellSubmissionOutcome),
@@ -802,6 +805,25 @@ impl CellGroupRuntime {
         {
             Response::ParkPrepared(preparation) => Ok(preparation),
             _ => Err(RuntimeError::Protocol("park preparation reply".into())),
+        }
+    }
+
+    pub(crate) async fn certify_park(
+        &self,
+        history: GroupHistory,
+        certificate: ParkCertificate,
+    ) -> Result<SelectedParkCertificate, RuntimeError> {
+        let bytes = certificate.reserved_bytes() + 4096;
+        match self
+            .call(
+                Some(history),
+                Command::CertifyPark(Box::new(certificate)),
+                bytes,
+            )
+            .await?
+        {
+            Response::ParkCertified(certificate) => Ok(certificate),
+            _ => Err(RuntimeError::Protocol("park certificate reply".into())),
         }
     }
 

@@ -1394,12 +1394,17 @@ be abandoned merely to park.
 1. The current leader checks no unresolved proposal/read, transition, membership
    change, snapshot install or unsafe effect dispatch exists. Freeze new admission
    while negotiating. Publish a bounded next-due-effect summary to a node wake owner.
+   If the negotiation expires and the leader still holds its term, it commits
+   and applies a no-op before reopening admission. This advances the cut and
+   closes any local acknowledgement for the expired generation.
 2. Commit `PreparePark(generation, term, membership_revision)` and apply through it.
    The committed entry index is the generation. The applied marker preserves the
    cut across snapshots and archive replay. Every voter syncs a local acknowledgement
    for the exact generation and cut before a park certificate can be selected.
-3. The leader assembles all acknowledgements, syncs its park certificate and sends
-   authenticated park messages. Each recipient persists its parked generation
+3. The leader assembles all acknowledgements against the current physical voter
+   roster. Each acknowledgement binds the member, node, disk, process, cut and
+   sync sequence. The leader syncs one immutable certificate for the generation
+   before sending authenticated park messages. Each recipient persists its parked generation
    before suppressing routine group ticks. Partial delivery is safe: an active
    peer's messages wake parked peers. Node-level transport remains available.
 4. API request, peer message, due effect, topology operation or local restart

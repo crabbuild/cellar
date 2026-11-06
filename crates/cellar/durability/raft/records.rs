@@ -158,12 +158,10 @@ impl MappingRecord {
             return Err(corrupt("unsupported group marker"));
         }
         let history = self.history()?;
-        if cache
-            .local_park
-            .as_ref()
-            .is_some_and(|park| park.acknowledged())
-            && !cache.conf_state.voters.contains(&self.member)
-        {
+        if cache.local_park.as_ref().is_some_and(|park| {
+            !park.matches_member(self.member)
+                || (park.is_open() && !cache.conf_state.voters.contains(&self.member))
+        }) {
             return Err(LogError::WrongIdentity);
         }
         if cache.recovery_genesis.as_deref() != self.recovery_genesis() {

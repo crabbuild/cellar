@@ -13,7 +13,7 @@ struct Group {
     queued: bool,
     deferred: VecDeque<Request>,
     completion: Option<Request>,
-    park_acknowledgement: Option<Request>,
+    park_write: Option<Request>,
     // One status per current peer, retaining node-wide hint item/byte admission.
     snapshot_hints: BTreeMap<u64, (bool, Permit)>,
     inbound: Arc<Budget>,
@@ -62,7 +62,7 @@ impl Group {
         for request in self.deferred.drain(..) {
             reply(request, Err(error.clone()));
         }
-        if let Some(request) = self.park_acknowledgement.take() {
+        if let Some(request) = self.park_write.take() {
             reply(request, Err(error.clone()));
         }
         if let Some(request) = self.completion.take() {
@@ -225,7 +225,7 @@ impl Worker {
                 queued: false,
                 deferred: VecDeque::new(),
                 completion: None,
-                park_acknowledgement: None,
+                park_write: None,
                 snapshot_hints: BTreeMap::new(),
                 inbound: Budget::new(
                     (self.options.max_request_bytes / 4).max(self.options.max_message_bytes + 4096),
@@ -264,7 +264,10 @@ impl Worker {
             reply(request, Err(error.clone()));
             return;
         }
-        if let Command::AcknowledgePark { leader, cut } = &request.command {
+        if matches!(
+            &request.command,
+            Command::AcknowledgePark { .. } | Command::CertifyPark(_)
+        ) {
             // A metadata write can share the physical batch, but must never
             // overtake an already admitted Raft turn or application completion.
             if group.tick
@@ -279,11 +282,20 @@ impl Worker {
                 reply(request, Err(RuntimeError::NotReady));
                 return;
             }
-            match group.owner.begin_park_acknowledgement(*leader, cut) {
+            let preparation = match &request.command {
+                Command::AcknowledgePark { leader, cut } => {
+                    group.owner.begin_park_acknowledgement(*leader, cut)
+                }
+                Command::CertifyPark(certificate) => {
+                    group.owner.begin_park_certificate(certificate)
+                }
+                _ => Err(RuntimeError::Protocol("park write queue".into())),
+            };
+            match preparation {
                 Ok((work, bytes)) => {
                     group.write = Some(work);
                     group.write_bytes = bytes;
-                    group.park_acknowledgement = Some(request);
+                    group.park_write = Some(request);
                     self.writes.push_back(history);
                     self.refresh(history);
                 }
@@ -806,16 +818,18 @@ impl Worker {
                         ticket: job.work.ticket,
                         sequence: receipt.sequence,
                     })?;
-                    if let Some(request) = group.park_acknowledgement.take() {
-                        let Command::AcknowledgePark { leader, cut } = &request.command else {
-                            return Err(RuntimeError::Protocol(
-                                "park acknowledgement queue".into(),
-                            ));
+                    if let Some(request) = group.park_write.take() {
+                        let result = match &request.command {
+                            Command::AcknowledgePark { leader, cut } => group
+                                .owner
+                                .finish_park_acknowledgement(*leader, cut.clone())
+                                .map(Response::ParkAcknowledgement),
+                            Command::CertifyPark(certificate) => group
+                                .owner
+                                .finish_park_certificate(certificate)
+                                .map(Response::ParkCertified),
+                            _ => Err(RuntimeError::Protocol("park write queue".into())),
                         };
-                        let result = group
-                            .owner
-                            .finish_park_acknowledgement(*leader, cut.clone())
-                            .map(Response::ParkAcknowledgement);
                         reply(request, result);
                     }
                     group.wake(job.history, &mut self.order);
@@ -978,7 +992,7 @@ impl Worker {
 
     pub(super) async fn finish(&mut self) -> Result<(), RuntimeError> {
         for group in self.groups.values_mut() {
-            if let Some(request) = group.park_acknowledgement.take() {
+            if let Some(request) = group.park_write.take() {
                 reply(request, Err(RuntimeError::Closed));
             }
         }
