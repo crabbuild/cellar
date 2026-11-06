@@ -92,11 +92,12 @@ through the shared backend and preserve typed refusals for the rest.
 
 1. **Close CG-07 failed-voter repair and managed lifecycle.** The constrained
    Linux RustFS repair admits movement with the corrected standby disk budget.
-   The native guard now refuses recovery from an unauthorized boot, and the
-   Linux fixture runs its worker on an Active voter. Qualify standby seeding,
-   promotion, a fresh quorum, receipt replay and capacity settlement in both
-   image modes. Exercise drain, maintenance stop/return/resume and retained
-   nonvoting inventory through the public operators.
+   The Linux materialized run verified maintenance stop/return/resume and
+   started the worker on an Active voter. Repair stayed Reserved with repeated
+   unconfirmed turns. Trace leader observation and the Begin action separately,
+   then qualify standby seeding, promotion, a fresh quorum, receipt replay and
+   capacity settlement in both image modes. Include drain and retained
+   nonvoting inventory in the combined public gate.
 2. **Pass the combined CG-07 RF3 SQL gate.** Use one source revision for
    onboarding, enrollment, ingress-only SDK routing, native and Axum reads and
    writes, leader loss, exact retries, retained restart and quorum refusal.

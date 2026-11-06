@@ -175,10 +175,17 @@ The worker checks its exact origin boot against each recovery turn's rooted
 catalog view. The command log SHA-256 is
 `8e221bd5689cc5f8578a98fbaff3e27c2937a99d9dd51335f0ab57a01405d5ad`.
 
-The Linux fixture at `458d6950` starts the worker on the second voter.
-The parent checks its exact Active boot before the injected failure and
-independently verifies the removal receipt. This wiring needs the constrained
-RustFS run with both image modes.
+The separate constrained Linux RustFS candidate at `458d6950` passed
+the materialized maintenance stop, return and resume sequence, including
+the resumed leader's SQL receipt checks. The parent verified the worker's
+exact Active boot and joined the killed voter. The repair stayed Reserved,
+with 95 execution attempts and no settled movement or verified replacement.
+Worker traces repeatedly reported `Unconfirmed` during the admitted turn.
+The materialized campaign stopped after 155.439 seconds. The extent-backed
+campaign did not start. Trace leader observation and the Begin action
+separately before rerunning the fresh-quorum and receipt checks. The run
+record SHA-256 is
+`8aa9f58a72869a9a85d234b4962faffc555cc3bd2e5d725831eeaa723e6f39f0`.
 
 ## CG-07 shared cell version key rotation
 
