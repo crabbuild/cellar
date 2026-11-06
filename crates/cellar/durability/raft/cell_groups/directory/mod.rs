@@ -385,6 +385,37 @@ impl RangeDirectory {
         self.request(operation, Some(view.digest), parents, children)
     }
 
+    /// Prepare a split of one selected range into adjacent fresh child routes.
+    /// Bounds are whole cell keys. The ordered children must cover the exact
+    /// parent range and share its successor epoch.
+    pub fn prepare_split(
+        &self,
+        view: &DirectoryView,
+        operation: ProposalId,
+        parent: &GroupRoute,
+        children: &[GroupRoute],
+    ) -> Result<DirectoryMutation, CatalogError> {
+        let plan =
+            self.prepare_replacement(view, operation, std::slice::from_ref(parent), children)?;
+        self.check_transition_plan(&plan)?;
+        Ok(plan)
+    }
+
+    /// Prepare a merge of adjacent selected ranges into one fresh child route.
+    /// The child covers their exact union at the highest parent epoch plus one.
+    pub fn prepare_merge(
+        &self,
+        view: &DirectoryView,
+        operation: ProposalId,
+        parents: &[GroupRoute],
+        child: &GroupRoute,
+    ) -> Result<DirectoryMutation, CatalogError> {
+        let plan =
+            self.prepare_replacement(view, operation, parents, std::slice::from_ref(child))?;
+        self.check_transition_plan(&plan)?;
+        Ok(plan)
+    }
+
     pub fn decode_mutation(&self, bytes: &[u8]) -> Result<DirectoryMutation, CatalogError> {
         let request: wire::Request = record::decode(wire::REQUEST, bytes, wire::LIMIT)?;
         self.check_request(&request)?;

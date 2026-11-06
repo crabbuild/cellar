@@ -86,6 +86,12 @@ SUITES = {
         "Host-native voters and fixture capacity. Child attachment, fresh quorum, publication "
         "and activation remain separate gates.",
     ),
+    "managed-split-merge": (
+        "native_cell_groups_managed",
+        ("bootstrap::transition::merge::rustfs_managed_split_merge",),
+        "managed split and merge through retirement, with late writes and retained voter restarts",
+        "Host-native voters and fixture capacity. Process failure and sustained load are separate gates.",
+    ),
     "managed-liveness": (
         "native_cell_groups_managed",
         ("bootstrap::lifecycle::s3::rustfs_managed_s3_seed_refusal_and_source_failover",
@@ -130,7 +136,8 @@ def sources(suite):
         {"path": name, "sha256": sha(ROOT / name)}
         for name in result.decode().split("\0")
         if name and (not name.startswith(("docs/", "plans/", "packages/", "examples/"))
-                     or (suite in ("managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition")
+                     or (suite in ("managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition",
+                                   "managed-split-merge")
                          and name == "examples/raft-counter/counter.rs"))
         and (ROOT / name).is_file()
     ]

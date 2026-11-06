@@ -13,6 +13,9 @@ mod preparation;
 #[path = "cell_group_managed_transition_retirement.rs"]
 mod retirement;
 
+#[path = "cell_group_managed_transition_merge.rs"]
+mod merge;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn managed_split_plan_fences_membership_and_replays_cancellation() -> Result<()> {
     Box::pin(run_plan(
@@ -64,6 +67,7 @@ async fn rustfs_managed_split_authorization() -> Result<()> {
 enum Decision {
     Authorize,
     Cancel,
+    SplitMerge,
 }
 
 async fn run_plan(rooted: bool, store: Arc<fault::Store>, decision: Decision) -> Result<()> {
@@ -77,11 +81,23 @@ async fn run_plan(rooted: bool, store: Arc<fault::Store>, decision: Decision) ->
         FirstGroupSetup::Normal,
     ))
     .await?;
+    let merge = matches!(decision, Decision::SplitMerge);
     let expected_children = match decision {
-        Decision::Authorize => 2,
+        Decision::Authorize | Decision::SplitMerge => 2,
         Decision::Cancel => 0,
     };
     let result = Box::pin(exercise(&mut cluster, rooted, decision)).await;
+    if merge {
+        let shutdown = merge::close(
+            cluster.nodes,
+            &cluster.hosts,
+            result.as_ref().ok().copied().flatten(),
+        )
+        .await;
+        cluster.fixtures[0].domain.shutdown().await;
+        result?;
+        return shutdown;
+    }
     let activated = result.is_ok() && expected_children > 0;
     let pending_quorums = if activated { expected_children } else { 0 };
     let spares = cluster.nodes.split_off(3);
@@ -140,7 +156,11 @@ async fn stop_transfer_destination(
     Ok(())
 }
 
-async fn exercise(cluster: &mut ManagedCluster, rooted: bool, decision: Decision) -> Result<()> {
+async fn exercise(
+    cluster: &mut ManagedCluster,
+    rooted: bool,
+    decision: Decision,
+) -> Result<Option<GroupHistory>> {
     let fixture = &cluster.fixtures[0];
     let fleet = &fixture.catalog;
     let directory = &cluster.directory;
@@ -150,10 +170,15 @@ async fn exercise(cluster: &mut ManagedCluster, rooted: bool, decision: Decision
         .run(directory.materialize_selected_history(scope))
         .await??;
     let view = domain.run(directory.observe()).await??;
-    let (left, right) = parent.route().range.split(cell_routing_key(
-        scope.namespace,
-        &CellId::new("managed-split-pivot")?,
-    ))?;
+    let merge = matches!(decision, Decision::SplitMerge);
+    let pivot = if merge {
+        let left = cell_routing_key(scope.namespace, &CellId::new("Counter:cold-0")?);
+        let right = cell_routing_key(scope.namespace, &CellId::new("Counter:cold-1")?);
+        left.max(right)
+    } else {
+        cell_routing_key(scope.namespace, &CellId::new("managed-split-pivot")?)
+    };
+    let (left, right) = parent.route().range.split(pivot)?;
     let operation = ProposalId::new([231; 16])?;
     let identity = |id, revision| FleetRequestIdentity {
         operation: operation.bytes(),
@@ -195,12 +220,7 @@ async fn exercise(cluster: &mut ManagedCluster, rooted: bool, decision: Decision
             .await?;
         children.push(reserved.authorization.route().clone());
     }
-    let plan = directory.prepare_replacement(
-        &view,
-        operation,
-        std::slice::from_ref(parent.route()),
-        &children,
-    )?;
+    let plan = directory.prepare_split(&view, operation, parent.route(), &children)?;
     ensure!(fleet
         .reopen_managed_transition(directory, operation, TIMEOUT)
         .await?
@@ -296,7 +316,7 @@ async fn exercise(cluster: &mut ManagedCluster, rooted: bool, decision: Decision
         Err(FleetCatalogError::DisruptionInProgress { operation: actual }) if actual == operation.bytes()
     ));
     let cancel = identity(236, admitted.revision());
-    if matches!(decision, Decision::Authorize) {
+    if matches!(decision, Decision::Authorize | Decision::SplitMerge) {
         ensure!(matches!(
             reopened
                 .authorize_managed_transition_seal(&cancel, directory, plan, TIMEOUT)
@@ -335,7 +355,7 @@ async fn exercise(cluster: &mut ManagedCluster, rooted: bool, decision: Decision
                 .await??
                 == vec![held.clone()]
         );
-        let seal = Box::pin(commit_source_seal(cluster, &recovered, scope)).await?;
+        let seal = Box::pin(commit_source_seal(&cluster.hosts[..3], &recovered, scope)).await?;
         Box::pin(preparation::verify_sealed_cut(
             cluster,
             &reopened,
@@ -356,17 +376,28 @@ async fn exercise(cluster: &mut ManagedCluster, rooted: bool, decision: Decision
         ))
         .await?;
         Box::pin(preparation::verify_child_archive_coverage(
-            cluster, directory, &recovered, tombstone, cells,
+            cluster,
+            directory,
+            &recovered,
+            tombstone,
+            cells.clone(),
         ))
         .await?;
         Box::pin(retirement::park_and_release_parent(
             cluster, directory, &recovered,
         ))
         .await?;
-        return Box::pin(preparation::verify_released_source_holds(
+        Box::pin(preparation::verify_released_source_holds(
             cluster, directory, plan, &registry, held,
         ))
-        .await;
+        .await?;
+        return if merge {
+            Box::pin(merge::run(cluster, directory, cells, rooted))
+                .await
+                .map(Some)
+        } else {
+            Ok(None)
+        };
     }
     fixture
         .store
@@ -426,21 +457,21 @@ async fn exercise(cluster: &mut ManagedCluster, rooted: bool, decision: Decision
     registry.release(domain.as_ref(), &held).await?;
     let view = domain.run(directory.observe()).await??;
     ensure!(view.groups() == 1);
-    Ok(())
+    Ok(None)
 }
 
 async fn commit_source_seal(
-    cluster: &ManagedCluster,
+    voters: &[RaftCells],
     transition: &ReopenedManagedCellGroupTransition,
     history: GroupHistory,
 ) -> Result<GroupSourceSeal> {
-    let voter = leader(&cluster.hosts[..3], history).await?;
-    let follower = cluster.hosts[(voter + 1) % 3].group(history)?;
+    let voter = leader(voters, history).await?;
+    let follower = voters[(voter + 1) % voters.len()].group(history)?;
     ensure!(matches!(
         follower.seal_managed_source(transition, TIMEOUT).await,
         Err(CellGroupControllerError::Runtime(RuntimeError::NotLeader))
     ));
-    let source = cluster.hosts[voter].group(history)?;
+    let source = voters[voter].group(history)?;
     let deadline = tokio::time::Instant::now() + TIMEOUT;
     let applied = tokio::time::timeout_at(deadline, async {
         loop {

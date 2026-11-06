@@ -1049,6 +1049,11 @@ sealing. Hibernation and membership changes must be resolved before sealing.
 Every transition pins its exact parents, range epochs, child births, final cell
 partition and resource reservations in a durable catalog journal. There is a
 namespace topology CAS, but no catalog I/O on an ordinary already-routed command.
+The directory exposes explicit split and merge preparation over whole-cell
+bounds. Both forms check the exact union and successor epoch before the fleet
+admits a transition. A Live group created by an earlier transfer can reopen
+its selected range as a sealed source during a later merge. Its synced seal
+continues to fence application work across that restart.
 
 Managed planning stages the canonical directory request before the fleet selects
 its digest. A replacement controller can reopen the exact admitted plan by
@@ -1190,8 +1195,9 @@ set and keeps that history out of the Raft and transport rosters. Authenticated
 physical inventory identifies the parked source by history, birth, member and
 boot. The disk and controller slot remain charged. The retirement record keeps
 the final committed member and node bindings, including the disks assigned to
-joined members. The fleet checks the current boot and parked inventory for
-every member before releasing the selected preparation and sealed holds.
+joined members. The fleet checks every member against its node's current boot
+and parked inventory before releasing the selected preparation and sealed holds.
+All parents on the same node must match the same authenticated inventory sample.
 It rechecks that the children are Live and their archive holds remain valid.
 The directory releases only the original transfer holds and confirms
 each release before clearing topology ownership in a separate CAS. The fleet

@@ -139,7 +139,7 @@ pub(super) async fn exercise(
     Ok((registry, held, seeded))
 }
 
-fn recovery_pool() -> Result<CellGroupRecoveryPool> {
+pub(super) fn recovery_pool() -> Result<CellGroupRecoveryPool> {
     Ok(CellGroupRecoveryPool::new(CellGroupRecoveryLimits {
         max_cells: 4,
         max_image_bytes: 1024 * 1024,
@@ -148,7 +148,7 @@ fn recovery_pool() -> Result<CellGroupRecoveryPool> {
     })?)
 }
 
-fn store(
+pub(super) fn store(
     base: std::path::PathBuf,
     route: GroupRoute,
     rooted: bool,
@@ -209,7 +209,7 @@ fn store(
     })
 }
 
-async fn acquire_hold(
+pub(super) async fn acquire_hold(
     domain: &ExecutionDomain,
     registry: &CellGroupArchiveRegistry,
 ) -> Result<CellGroupArchiveHold> {
@@ -758,7 +758,7 @@ async fn verify_managed_publication(
     wait_transfer_applied(voters, &positions).await
 }
 
-async fn wait_transfer_applied(
+pub(super) async fn wait_transfer_applied(
     voters: &[RaftCells],
     positions: &[(GroupHistory, LogIndex)],
 ) -> Result<()> {
@@ -780,7 +780,7 @@ async fn wait_transfer_applied(
     .context("transfer voter apply did not reach the committed position")?
 }
 
-async fn wait_managed_activation(
+pub(super) async fn wait_managed_activation(
     voters: &[RaftCells],
     transition: &ReopenedManagedCellGroupTransition,
     history: GroupHistory,
@@ -889,6 +889,65 @@ pub(super) async fn verify_transferred_sql(
     Ok(())
 }
 
+pub(super) async fn initialize_transfer_archive(
+    fleet: &FleetCatalog,
+    directory: &RangeDirectory,
+    transition: &ReopenedManagedCellGroupTransition,
+    history: GroupHistory,
+    archives: &CellGroupArchivePool,
+    path: &std::path::Path,
+    domain: &ExecutionDomain,
+) -> Result<()> {
+    use std::io::Write as _;
+
+    let init = fleet
+        .prepare_managed_transfer_child_archive(transition, directory, history, archives, TIMEOUT)
+        .await?;
+    let mut intent = std::fs::File::create_new(path)?;
+    let encoded = init.encoded_intent().to_vec();
+    intent.write_all(&encoded)?;
+    intent.sync_all()?;
+    std::fs::File::open(path.parent().context("child archive intent directory")?)?.sync_all()?;
+    init.commit(domain).await?;
+    fleet
+        .verify_managed_transfer_child_archive(
+            transition, directory, history, archives, &encoded, TIMEOUT,
+        )
+        .await?;
+    ensure!(matches!(
+        fleet
+            .prepare_managed_transfer_child_archive(
+                transition, directory, history, archives, TIMEOUT
+            )
+            .await,
+        Err(FleetCatalogError::Conflict)
+    ));
+    Ok(())
+}
+
+pub(super) async fn wait_active_archive(
+    host: &RaftCells,
+    history: GroupHistory,
+) -> Result<LogIndex> {
+    let group = host.group(history)?;
+    let applied = group.status().await?.applied.index;
+    tokio::time::timeout(TIMEOUT, async {
+        loop {
+            if group
+                .archive_status()?
+                .and_then(|status| status.published)
+                .is_some_and(|marker| marker.position().index >= applied && marker.is_active())
+            {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("child archiver did not publish its active cut")??;
+    Ok(applied)
+}
+
 pub(super) async fn verify_child_archive_coverage(
     cluster: &mut ManagedCluster,
     directory: &RangeDirectory,
@@ -896,8 +955,6 @@ pub(super) async fn verify_child_archive_coverage(
     tombstone: CellGroupSourceRetirementAck,
     cells: Vec<CellHistory>,
 ) -> Result<()> {
-    use std::io::Write as _;
-
     let domain = cluster.fixtures[0].domain.clone();
     let fleet = cluster.fixtures[0].catalog.clone();
     let archives = CellGroupArchivePool::new(Default::default())?;
@@ -923,44 +980,16 @@ pub(super) async fn verify_child_archive_coverage(
         .routes;
     ensure!(children.len() == 2);
     for (index, route) in children.iter().enumerate() {
-        let init = fleet
-            .prepare_managed_transfer_child_archive(
-                transition,
-                directory,
-                route.history,
-                &archives,
-                TIMEOUT,
-            )
-            .await?;
-        let mut intent =
-            std::fs::File::create_new(scratch.path().join(format!("child-{index}.intent")))?;
-        let encoded = init.encoded_intent().to_vec();
-        intent.write_all(&encoded)?;
-        intent.sync_all()?;
-        std::fs::File::open(scratch.path())?.sync_all()?;
-        init.commit(&domain).await?;
-        fleet
-            .verify_managed_transfer_child_archive(
-                transition,
-                directory,
-                route.history,
-                &archives,
-                &encoded,
-                TIMEOUT,
-            )
-            .await?;
-        ensure!(matches!(
-            fleet
-                .prepare_managed_transfer_child_archive(
-                    transition,
-                    directory,
-                    route.history,
-                    &archives,
-                    TIMEOUT
-                )
-                .await,
-            Err(FleetCatalogError::Conflict)
-        ));
+        initialize_transfer_archive(
+            &fleet,
+            directory,
+            transition,
+            route.history,
+            &archives,
+            &scratch.path().join(format!("child-{index}.intent")),
+            &domain,
+        )
+        .await?;
     }
 
     reopen_transfer_destination(cluster, 113, 2, true).await?;
@@ -968,22 +997,7 @@ pub(super) async fn verify_child_archive_coverage(
     let mut sources = Vec::with_capacity(children.len());
     let mut holds = Vec::with_capacity(children.len());
     for (index, route) in children.into_iter().enumerate() {
-        let group = host.group(route.history)?;
-        let applied = group.status().await?.applied.index;
-        tokio::time::timeout(TIMEOUT, async {
-            loop {
-                if group
-                    .archive_status()?
-                    .and_then(|status| status.published)
-                    .is_some_and(|marker| marker.position().index >= applied && marker.is_active())
-                {
-                    return Ok::<_, anyhow::Error>(());
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .context("child archiver did not publish its active cut")??;
+        let applied = wait_active_archive(host, route.history).await?;
         let birth = domain
             .run(directory.materialize_selected_history(route.history))
             .await??;
@@ -1500,7 +1514,7 @@ async fn reopen_transfer_destination(
     Ok(())
 }
 
-async fn wait_pending_child(
+pub(super) async fn wait_pending_child(
     voters: &[RaftCells],
     child: GroupHistory,
 ) -> Result<TransferChildQuorum> {

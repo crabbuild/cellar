@@ -25,6 +25,7 @@ use cellar_logic::{
     consensus::{NodeId, ProposalId},
 };
 use serde::Deserialize;
+use std::collections::BTreeMap;
 
 pub(super) const KIND: u8 = 201;
 const OPERATION_PREFIX: &str = "managed-transition/";
@@ -328,6 +329,7 @@ impl FleetCatalog {
         .await
     }
 
+    /// The supplied archive tail pool must admit a pinned cut per parent.
     /// Independently replay the planned active parent holds and sync all
     /// non-serving child partitions. The directory selects the resulting
     /// immutable preparation under the same CAS as pre-seal cancellation.
@@ -913,34 +915,45 @@ impl FleetCatalog {
         if journal.parent_holds_released() {
             return Ok(journal);
         }
-        for parent in parents {
-            for member in parent.members {
+        // One authenticated physical cut per node covers all its parent
+        // slots. Drop each bounded inventory before sampling the next node.
+        let mut placements = BTreeMap::new();
+        for parent in &parents {
+            for member in &parent.members {
                 let node = NodeId::new(member.node)
                     .map_err(|_| FleetCatalogError::Corrupt("retired source node"))?;
-                let boot = self
-                    .run(deadline.remaining()?, self.host_from(&current, node))
-                    .await?
-                    .boot_binding()?;
-                let sample = observer
-                    .inspect_peer_physical_inventory(
-                        node,
-                        current.revision(),
-                        deadline.remaining()?,
-                    )
-                    .await
-                    .map_err(FleetCatalogError::Observation)?;
-                let row = sample
-                    .inventory
-                    .as_ref()
-                    .and_then(|inventory| inventory.group_history(&parent.route.history))
+                placements
+                    .entry(node)
+                    .or_insert_with(Vec::new)
+                    .push((&parent.route, member));
+            }
+        }
+        for (node, expected) in placements {
+            let boot = self
+                .run(deadline.remaining()?, self.host_from(&current, node))
+                .await?
+                .boot_binding()?;
+            let sample = observer
+                .inspect_peer_physical_inventory(node, current.revision(), deadline.remaining()?)
+                .await
+                .map_err(FleetCatalogError::Observation)?;
+            if sample.view.fleet_boot.as_ref() != Some(&boot)
+                || sample.view.node.identity.node != node
+                || sample.view.node.identity.disk.bytes() != boot.disk
+                || sample.view.node.identity.process.bytes() != boot.process
+                || sample.view.node.storage_instance.bytes() != boot.engine
+            {
+                return Err(FleetCatalogError::Unconfirmed);
+            }
+            let inventory = sample
+                .inventory
+                .ok_or(FleetCatalogError::InventoryIncomplete)?;
+            for (route, member) in expected {
+                let row = inventory
+                    .group_history(&route.history)
                     .ok_or(FleetCatalogError::InventoryIncomplete)?;
-                if sample.view.fleet_boot.as_ref() != Some(&boot)
-                    || sample.view.node.identity.node != node
-                    || sample.view.node.identity.disk.bytes() != boot.disk
-                    || sample.view.node.identity.process.bytes() != boot.process
-                    || sample.view.node.storage_instance.bytes() != boot.engine
-                    || member.disk.is_some_and(|disk| disk != boot.disk)
-                    || row.birth_digest() != parent.route.birth_digest
+                if member.disk.is_some_and(|disk| disk != boot.disk)
+                    || row.birth_digest() != route.birth_digest
                     || row.member().get() != member.member
                     || !row.parked_retired_source()
                 {

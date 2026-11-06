@@ -46,12 +46,8 @@ pub(super) async fn reopen_and_retire(
         .is_err());
 
     let voters = &cluster.hosts[..3];
-    let tombstone = commit(voters, source, &selected).await?;
+    let tombstone = commit_on_all(voters, source, &selected).await?;
     ensure!(tombstone.tombstone().publication() == publication.journal_digest());
-    for voter in voters {
-        let local = commit(std::slice::from_ref(voter), source, &selected).await?;
-        ensure!(local.tombstone() == tombstone.tombstone());
-    }
     ensure!(!reopened.group(source)?.status().await?.ready);
     let retained = fixture
         .catalog
@@ -371,6 +367,19 @@ async fn restart_source(cluster: &mut ManagedCluster, index: usize, generation: 
     cluster.nodes.insert(index, node);
     cluster.hosts.insert(index, host);
     Ok(())
+}
+
+pub(super) async fn commit_on_all(
+    voters: &[RaftCells],
+    source: GroupHistory,
+    transition: &ReopenedManagedCellGroupTransition,
+) -> Result<CellGroupSourceRetirementAck> {
+    let tombstone = commit(voters, source, transition).await?;
+    for voter in voters {
+        let local = commit(std::slice::from_ref(voter), source, transition).await?;
+        ensure!(local.tombstone() == tombstone.tombstone());
+    }
+    Ok(tombstone)
 }
 
 async fn commit(

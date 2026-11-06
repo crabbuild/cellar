@@ -476,13 +476,18 @@ impl RangeDirectory {
         mutation: &DirectoryMutation,
     ) -> Result<(), CatalogError> {
         self.check_request(&mutation.request)?;
-        match (
-            mutation.request.parents.len(),
-            mutation.request.children.len(),
-        ) {
-            (1, 2..=64) | (2..=64, 1) => Ok(()),
-            _ => Err(CatalogError::Invalid("transition split or merge shape")),
+        let parents = &mutation.request.parents;
+        let children = &mutation.request.children;
+        if !matches!((parents.len(), children.len()), (1, 2..=64) | (2..=64, 1)) {
+            return Err(CatalogError::Invalid("transition split or merge shape"));
         }
+        if children
+            .iter()
+            .any(|child| parents.iter().any(|parent| parent.group == child.group))
+        {
+            return Err(CatalogError::Conflict("transfer reuses a parent group"));
+        }
+        Ok(())
     }
 
     pub(crate) fn transition_routes(

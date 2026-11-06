@@ -728,7 +728,9 @@ impl RangeDirectory {
 
     /// Reattach an already activated voter from its permanently claimed engine.
     /// A Live child reopens from fleet membership and permanent install and
-    /// publication proofs. A Reserved child still needs the active transition.
+    /// publication proofs. If a later transfer has sealed its selected range,
+    /// the local seal continues to fence application work. A Reserved child
+    /// still needs the active transition and an active local marker.
     pub(crate) async fn bootstrap_managed_activated_transfer_voter(
         &self,
         birth: &CellGroupBirth,
@@ -744,7 +746,10 @@ impl RangeDirectory {
                 .filter(|marker| {
                     marker.route() == route
                         && marker.transfer_activation().is_some()
-                        && marker.is_active()
+                        && (marker.is_active()
+                            || marker
+                                .source_seal()
+                                .is_some_and(|seal| seal.retirement().is_none()))
                 })
                 .ok_or(CatalogError::Fenced)?;
             let timeout = Duration::from_millis(self.limits.operation_timeout_ms);
@@ -763,7 +768,7 @@ impl RangeDirectory {
                 }
                 // The exact active transition check below still requires a
                 // Reserved history and independently rechecks the current boot.
-                Err(FleetCatalogError::Conflict) => (),
+                Err(FleetCatalogError::Conflict) if marker.is_active() => (),
                 Err(error) => return Err(CatalogError::from(error)),
             }
             let origin = marker.transfer_origin().ok_or(CatalogError::Fenced)?;
