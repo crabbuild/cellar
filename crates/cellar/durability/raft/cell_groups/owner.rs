@@ -2027,14 +2027,13 @@ impl CellGroupOwner {
         self.parked.is_some()
     }
 
-    pub(super) fn parked_due(&self, now: u64) -> bool {
-        self.parked.is_some()
-            && self
-                .current
-                .marker()
-                .root()
-                .next_due_unix_millis()
-                .is_some_and(|due| due <= now)
+    pub(super) fn parked_term(&self) -> Option<u64> {
+        self.parked.map(|_| self.node.raft.term)
+    }
+
+    pub(super) fn parked_effect_deadline(&self) -> Option<u64> {
+        self.parked?;
+        self.current.marker().root().next_due_unix_millis()
     }
 
     pub(super) fn begin_park(

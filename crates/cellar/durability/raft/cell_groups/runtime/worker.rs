@@ -2,28 +2,31 @@
 
 //! Fair group turns, node-wide persistence batches and joined shutdown.
 
-use super::*;
+use super::{park_deadlines::ParkDeadlines, *};
 use crate::raft::storage::{LogError, SyncReceipt};
 use cellar_logic::consensus::OperationId;
 use futures_util::future::BoxFuture;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-fn wakes_parked_peer(message: &::raft::prelude::Message) -> bool {
+const PARK_WAKE_BATCH: usize = 32;
+
+fn wakes_parked_peer(message: &::raft::prelude::Message, term: u64) -> bool {
     use ::raft::prelude::MessageType::*;
-    matches!(
-        message.get_msg_type(),
-        MsgAppend
-            | MsgHeartbeat
-            | MsgRequestVote
-            | MsgRequestPreVote
-            | MsgReadIndex
-            | MsgTimeoutNow
-    )
+    message.term > term
+        || matches!(
+            message.get_msg_type(),
+            MsgAppend
+                | MsgHeartbeat
+                | MsgRequestVote
+                | MsgRequestPreVote
+                | MsgReadIndex
+                | MsgTimeoutNow
+        )
 }
 
-fn wakes_parked_group(command: &Command) -> bool {
+fn wakes_parked_group(command: &Command, term: u64) -> bool {
     match command {
-        Command::Step(message) | Command::AdmitStep(message) => wakes_parked_peer(message),
+        Command::Step(message) | Command::AdmitStep(message) => wakes_parked_peer(message, term),
         Command::SnapshotStatus(..) | Command::Unreachable(_) => false,
         _ => true,
     }
@@ -125,6 +128,8 @@ pub(super) struct Worker {
     options: RaftRuntimeOptions,
     domain: crate::asyncrt::DomainToken,
     groups: BTreeMap<GroupHistory, Group>,
+    ticking: BTreeSet<GroupHistory>,
+    park_deadlines: ParkDeadlines,
     // Every physical roster insertion changes the scan token. Future detach
     // paths must also advance it, so an ABA roster cannot validate a sample.
     roster_revision: u64,
@@ -159,6 +164,8 @@ impl Worker {
             options,
             domain,
             groups: BTreeMap::new(),
+            ticking: BTreeSet::new(),
+            park_deadlines: ParkDeadlines::default(),
             roster_revision: 0,
             order: VecDeque::new(),
             writes: VecDeque::new(),
@@ -179,6 +186,10 @@ impl Worker {
             .groups
             .get_mut(&history)
             .expect("scheduled group exists");
+        if group.failed.is_some() {
+            self.ticking.remove(&history);
+            self.park_deadlines.remove(&history);
+        }
         let usage = group.usage();
         self.ready = self.ready - group.usage.0 + usage.0;
         self.apply = self.apply - group.usage.1 + usage.1;
@@ -265,6 +276,7 @@ impl Worker {
             };
             group.wake(history, &mut self.order);
             self.groups.insert(history, group);
+            self.ticking.insert(history);
             self.roster_revision = revision;
             self.refresh(history);
             drop(_permit);
@@ -377,10 +389,10 @@ impl Worker {
             reply(request, Ok(Response::CheckpointSource(Box::new(source))));
             return;
         }
-        if group.owner.is_parked() {
+        if let Some(term) = group.owner.parked_term() {
             match &request.command {
                 Command::Step(message) | Command::AdmitStep(message)
-                    if !wakes_parked_peer(message) =>
+                    if !wakes_parked_peer(message, term) =>
                 {
                     // A delayed reply to the last active term carries no new
                     // protocol work. It must not undo completed parking.
@@ -470,22 +482,37 @@ impl Worker {
     }
 
     fn tick(&mut self) {
-        let mut wall = None;
-        for (history, group) in &mut self.groups {
-            if group.failed.is_some() {
-                continue;
-            }
-            if group.owner.is_parked() {
-                let now = *wall.get_or_insert_with(|| crate::asyncrt::wall_ms().max(0) as u64);
-                if group.owner.parked_due(now) {
-                    group.wake_due = true;
-                    group.wake(*history, &mut self.order);
-                }
-            } else {
+        for history in &self.ticking {
+            if let Some(group) = self.groups.get_mut(history) {
                 group.tick = true;
                 group.wake(*history, &mut self.order);
             }
         }
+    }
+
+    fn schedule_park_wakes(&mut self) -> Result<Option<u64>, RuntimeError> {
+        if self.park_deadlines.next().is_none() {
+            return Ok(None);
+        }
+        let now = self.domain.mono_ms().map_err(|_| RuntimeError::Closed)?;
+        let wall = crate::asyncrt::wall_ms().max(0) as u64;
+        for _ in 0..PARK_WAKE_BATCH {
+            let Some(history) = self.park_deadlines.pop_due(wall) else {
+                break;
+            };
+            if let Some(group) = self.groups.get_mut(&history) {
+                if group.failed.is_none() && group.owner.is_parked() {
+                    group.wake_due = true;
+                    group.wake(history, &mut self.order);
+                }
+            }
+        }
+        // Convert the next wall deadline at each scheduler turn. The periodic
+        // monotonic timer also resamples the wall clock after a clock change.
+        Ok(self
+            .park_deadlines
+            .next()
+            .map(|deadline| now.saturating_add(deadline.saturating_sub(wall))))
     }
 
     fn progress(&mut self) -> Result<bool, RuntimeError> {
@@ -502,14 +529,14 @@ impl Worker {
                 .get_mut(&history)
                 .ok_or(RuntimeError::NotFound)?;
             group.queued = false;
-            if group.failed.is_none() && group.owner.is_parked() {
+            if let Some(term) = group.owner.parked_term().filter(|_| group.failed.is_none()) {
                 // Responses can arrive during the park fsync, before dispatch
                 // knows the voter is parked. They carry no new work.
                 group.snapshot_hints.clear();
                 while group
                     .deferred
                     .front()
-                    .is_some_and(|request| !wakes_parked_group(&request.command))
+                    .is_some_and(|request| !wakes_parked_group(&request.command, term))
                 {
                     let Some(request) = group.deferred.pop_front() else {
                         break;
@@ -524,6 +551,7 @@ impl Worker {
                 {
                     match group.owner.begin_wake() {
                         Ok((work, bytes)) => {
+                            self.park_deadlines.remove(&history);
                             group.write = Some(work);
                             group.write_bytes = bytes;
                             self.writes.push_back(history);
@@ -918,6 +946,7 @@ impl Worker {
                                 )
                             });
                         group.owner.finish_wake(generation, campaign)?;
+                        self.ticking.insert(job.history);
                     }
                     if let Some(request) = group.park_write.take() {
                         let result = match &request.command {
@@ -933,6 +962,9 @@ impl Worker {
                                 match group.owner.finish_park(certificate) {
                                     Ok(()) => {
                                         group.tick = false;
+                                        self.ticking.remove(&job.history);
+                                        self.park_deadlines
+                                            .set(job.history, group.owner.parked_effect_deadline());
                                         Ok(Response::Unit)
                                     }
                                     Err(error) => {
@@ -1003,6 +1035,7 @@ impl Worker {
             if closing.load(Ordering::Acquire) {
                 return Ok(());
             }
+            let wake_at = self.schedule_park_wakes()?;
             let mut made = self.progress()? | self.start_batch()? | self.flush();
             let now = self.domain.mono_ms().map_err(|_| RuntimeError::Closed)?;
             made |= self.cell_reads.progress(
@@ -1075,6 +1108,7 @@ impl Worker {
                 .cell_reads
                 .deadline()
                 .map_or(deadline, |read| deadline.min(read));
+            let deadline = wake_at.map_or(deadline, |wake| deadline.min(wake));
             let timer = self
                 .domain
                 .sleep_until(deadline)

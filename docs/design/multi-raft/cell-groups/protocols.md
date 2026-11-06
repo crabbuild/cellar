@@ -1417,8 +1417,9 @@ be abandoned merely to park.
    require a current-term applied position beyond the wake floor before serving.
    Send wake hints to peers. Missing a quorum refuses or waits.
 
-Use execution-domain timers and a bounded node-level due index; do not allocate a
-thread per cell/group. A restart may conservatively wake all locally parked groups
+The node keeps parked voters out of the Raft tick roster. Its deadline index
+holds one earliest effect per parked history and releases due wakes in bounded
+batches on the execution-domain timer. A restart may conservatively wake all locally parked groups
 in bounded batches. Never reset term/vote or initialize a missing disk. Include
 park state/tombstones in local recovery and checkpoint contracts. The scheduler
 must reconcile alarm changes after leader loss, and an overdue alarm wakes the

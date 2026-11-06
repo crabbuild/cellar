@@ -3,6 +3,7 @@
 //! One execution-domain worker multiplexes physical cell-group owners per node.
 
 mod leadership;
+mod park_deadlines;
 pub(super) mod reads;
 mod worker;
 use leadership::LeadershipBatch;
