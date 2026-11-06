@@ -15,6 +15,7 @@ pub mod alarm;
 pub mod cache;
 pub mod cell;
 pub mod cell_group;
+pub mod cell_group_placement;
 pub mod consensus;
 pub mod cron;
 pub mod drain;
