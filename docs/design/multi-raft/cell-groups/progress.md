@@ -198,6 +198,37 @@ attachment behavior. The run record and stage trace SHA-256 digests are
 `a5c0130bacc4447639844bc241708282bb6659555c2e217df95b0d24d5e2e6eb`
 and `84bad5dfab98c2bcba045669c1c8414d5f18497a12b6ee60a8cd6a19b6127585`.
 
+## CG-07 retained S3 seed endpoints
+
+The constrained materialized RustFS candidate at `85631a1d` reported 83
+standby activation failures caused by an unexpected TLS EOF during the seed
+exchange. The returned leader had reopened its retained engine. The run took
+198.3 seconds, made 90 execution attempts and settled no movement. The extent
+campaign did not start. The run record and standby trace SHA-256 digests are
+`a774b66d59490a04721abc78151831550b53690ee1a2b31f5f92c3dcbf009a9d`
+and `2c4d2d2d2875d17faa9a3b0a9e4c265773955a5c9a5fa318cde7c2771d922882`.
+
+Retained startup previously registered seed endpoints only when periodic local
+checkpointing was enabled. The native regression reopens and requalifies the
+four exact boots with a checkpoint transport pool and no periodic policy.
+Before the fix it reserved the repair and then left the learner unconfirmed
+for all remaining turns. At `bb63c2fa` the same replacement and joined restart
+passed in both image modes, in 44.41 seconds natively and 65.2 seconds against
+real RustFS. The independent native managed failure-recovery regression
+passed in 44.89 seconds. The RustFS proof uses host-native voters and fixture
+capacity admission. The constrained Docker rerun is a separate gate.
+The failing baseline, passing native test and RustFS record SHA-256 digests are
+`80cd8d7c3982128b1a4b4a917afa31a983fbdb484cb5dac517fc5701707328a2`,
+`f2fd1ace93fd7ed68645939be38ca45c66cce375112694a2181d6fd01abc2ac2`
+and `588d0f2b5ca6dbce3e580241eaad66bc5ad3e5c63fa32e47016d62d2b4f282d4`.
+
+The separate peer-seed replacement run at `bb63c2fa` reached joint consensus
+and missed settlement within the eight-turn fixture. An isolated retry of the
+same binary passed in 54.44 seconds. The failed and passing command log
+SHA-256 digests are
+`fdfba994b40a40f18f4047cd684c3b795aa26975ae16d02090579316b1116d29`
+and `e5a49699531baa155794619d754b95eb822c153bca9ebc0a47869ebbd301428b`.
+
 ## CG-07 shared cell version key rotation
 
 On `d6f79a1b`, all eight `native_cell_groups_contracts` tests passed. The

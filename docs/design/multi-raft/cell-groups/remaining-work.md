@@ -94,9 +94,10 @@ through the shared backend and preserve typed refusals for the rest.
    Linux RustFS repair admits movement with the corrected standby disk budget.
    The Linux materialized run verified maintenance stop/return/resume and
    started the worker on an Active voter. A traced run observed the committed
-   repair permit and reached standby activation, which remained unconfirmed.
-   Identify the receiver's seed or attachment failure, then qualify promotion,
-   a fresh quorum, receipt replay and capacity settlement in both image modes. Include drain and retained
+   repair permit and reached standby activation, where the seed connection
+   closed. Restoring seed endpoints on retained startup passed both image modes
+   in the host-native RustFS fixture. Verify the fix in the constrained daemon,
+   including promotion, a fresh quorum, receipt replay and capacity settlement. Include drain and retained
    nonvoting inventory in the combined public gate.
 2. **Pass the combined CG-07 RF3 SQL gate.** Use one source revision for
    onboarding, enrollment, ingress-only SDK routing, native and Axum reads and
