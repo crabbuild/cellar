@@ -22,7 +22,7 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 const PRINCIPAL: &str = "daemon-process-fixture";
 
 pub(super) const RUSTFS_ENDPOINT: &str = "CELLAR_CELL_GROUPS_RUSTFS_ENDPOINT";
-pub(super) const RUSTFS_ENV: [&str; 6] = [
+const RUSTFS_ENV: [&str; 6] = [
     RUSTFS_ENDPOINT,
     "CELLAR_CELL_GROUPS_RUSTFS_BUCKET",
     "CELLAR_CELL_GROUPS_RUSTFS_PREFIX",
@@ -31,9 +31,11 @@ pub(super) const RUSTFS_ENV: [&str; 6] = [
     "AWS_SECRET_ACCESS_KEY",
 ];
 
-fn open_bucket(root: &Path) -> Result<Bucket> {
+const NODE_PREFIX: &str = "/daemon-runtime";
+
+fn rustfs_location(suffix: &str) -> Result<Option<(String, String)>> {
     if std::env::var_os(RUSTFS_ENDPOINT).is_none() {
-        return Bucket::open_dev(&root.join("catalog.sqlite"));
+        return Ok(None);
     }
     let endpoint = std::env::var(RUSTFS_ENDPOINT)?;
     ensure!(
@@ -46,8 +48,15 @@ fn open_bucket(root: &Path) -> Result<Bucket> {
         !bucket.is_empty() && !prefix.is_empty(),
         "isolated RustFS bucket and prefix required"
     );
+    Ok(Some((format!("s3://{bucket}/{prefix}{suffix}"), endpoint)))
+}
+
+fn open_bucket(root: &Path, local: &str, suffix: &str) -> Result<Bucket> {
+    let Some((bucket, endpoint)) = rustfs_location(suffix)? else {
+        return Bucket::open_dev(&root.join(local));
+    };
     Bucket::open(
-        &format!("s3://{bucket}/{prefix}"),
+        &bucket,
         Some(&endpoint),
         "us-east-1",
         Some(StaticCredentials {
@@ -57,6 +66,51 @@ fn open_bucket(root: &Path) -> Result<Bucket> {
         }),
         None,
     )
+}
+
+pub(super) fn open_deployment_store(root: &Path) -> Result<Bucket> {
+    open_bucket(root, "fleet.sqlite", NODE_PREFIX)
+}
+
+pub(super) fn configure_deployment(cmd: &mut Command, root: &Path) -> Result<()> {
+    if let Some((bucket, endpoint)) = rustfs_location(NODE_PREFIX)? {
+        cmd.env("CELLAR_TEST_BUCKET", bucket)
+            .env("S3_ENDPOINT", endpoint)
+            .env("AWS_REGION", "us-east-1")
+            .env("AWS_EC2_METADATA_DISABLED", "true");
+        for key in RUSTFS_ENV {
+            cmd.env(
+                key,
+                std::env::var_os(key).with_context(|| format!("missing {key}"))?,
+            );
+        }
+    } else {
+        cmd.env("CELLAR_TEST_BUCKET", "cellar-dev")
+            .env("CELLAR_INTERNAL_DEV_STORE", root.join("fleet.sqlite"));
+    }
+    Ok(())
+}
+
+pub(super) async fn verify_deployment_leases(root: &Path, voters: usize) -> Result<()> {
+    let bucket = open_deployment_store(root)?;
+    let leases = cellar::ownership_store::BucketOwnership::new(
+        bucket.clone(),
+        bucket,
+        String::new(),
+        String::new(),
+    );
+    for index in 0..voters {
+        let label = format!("raft-cli-cluster-{index}");
+        let lease = leases
+            .read_node_lease(&label)
+            .await?
+            .context("missing RustFS voter lease")?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_millis();
+        ensure!(lease.node == label && u128::from(lease.expires_ms) > now);
+    }
+    Ok(())
 }
 
 fn request(id: u8, revision: u64) -> FleetRequestIdentity {
@@ -101,7 +155,7 @@ struct Operator {
 impl Operator {
     fn open(domain: Arc<ExecutionDomain>, root: &Path) -> Result<Self> {
         let history = history()?;
-        let bucket = open_bucket(root)?;
+        let bucket = open_bucket(root, "catalog.sqlite", "")?;
         let fleet = FleetCatalog::new(
             &domain,
             bucket.clone(),

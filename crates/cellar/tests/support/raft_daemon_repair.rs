@@ -99,9 +99,8 @@ pub(super) async fn start_observer(
         counter::CounterApi::new(SECRET.into(), history.cluster, history.namespace, &class)?,
         class,
     )?;
-    // The standalone observer joins the daemon deployment's authenticated
-    // transport. The application catalogue uses a separate RustFS bucket.
-    let deployment = Bucket::open_dev(&root.join("fleet.sqlite"))?;
+    // Load the exact deployment's peer key from the store that owns its leases.
+    let deployment = open_deployment_store(root)?;
     let peer_key = cellar::peer_auth::load_existing(&deployment).await?;
     let node =
         public_node::node_with_peer_key(&disk, application.clone(), &spec.label, peer_key).await?;

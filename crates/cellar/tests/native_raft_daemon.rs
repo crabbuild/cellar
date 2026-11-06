@@ -427,16 +427,7 @@ impl Process {
             ])
             .args(data_args);
         if mode.starts_with("cluster-") {
-            cmd.env("CELLAR_TEST_BUCKET", "cellar-dev")
-                .env("CELLAR_INTERNAL_DEV_STORE", root.join("fleet.sqlite"));
-            if std::env::var_os(managed::RUSTFS_ENDPOINT).is_some() {
-                for key in managed::RUSTFS_ENV {
-                    cmd.env(
-                        key,
-                        std::env::var_os(key).with_context(|| format!("missing {key}"))?,
-                    );
-                }
-            }
+            managed::configure_deployment(&mut cmd, root)?;
         }
         if override_dir {
             cmd.env("CELLAR_TEST_DATA_DIR", root.join("override"));
@@ -764,9 +755,11 @@ async fn qualify() -> Result<()> {
     // authentication key, one shared group with two independent cells and real TLS replication.
     let mut root = tempfile::tempdir()?;
     root.disable_cleanup(docker::enabled());
-    // The real dev supervisor initializes its local store before starting
-    // children. Concurrent first-open WAL/schema setup is not peer readiness.
-    cellar::bucket::Bucket::open_dev(&root.path().join("fleet.sqlite"))?;
+    // Initialize the local dev store before children race to open its schema.
+    // The Linux RustFS campaign uses a separate S3 prefix for daemon leases.
+    if std::env::var_os(managed::RUSTFS_ENDPOINT).is_none() {
+        managed::open_deployment_store(root.path())?;
+    }
     managed::initialize(root.path()).await?;
     let mut cluster = Vec::new();
     for i in 0u8..3 {
@@ -806,11 +799,15 @@ async fn qualify() -> Result<()> {
         }
     }
     let ledger_backend = if std::env::var_os(managed::RUSTFS_ENDPOINT).is_some() {
-        "rustfs_catalog_and_archives"
+        "rustfs_catalog_archives_and_node_leases"
     } else {
         "shared_dev_sqlite"
     };
     let mut ledger = recovery::Ledger::new(root.path(), ledger_backend)?;
+    if std::env::var_os(managed::RUSTFS_ENDPOINT).is_some() {
+        managed::verify_deployment_leases(root.path(), cluster.len()).await?;
+        ledger.record(serde_json::json!({"phase":"rustfs_node_leases","voters":cluster.len()}))?;
+    }
     let mut acknowledged = Vec::new();
     for (name, ingress) in [("one", Ingress::Native), ("two", Ingress::Axum)] {
         let command = format!("{}:1", hex::encode([90; 16]));

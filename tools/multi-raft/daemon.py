@@ -298,8 +298,10 @@ def execute(mode, output, remote, credentials, build, engine, standby=False, rep
             verify_repair(events)
         modes = ("native", "axum")
         cells = (("one", "native"), ("two", "axum"))
-        require(events[0]["store"] == "rustfs_catalog_and_archives"
+        require(events[0]["store"] == "rustfs_catalog_archives_and_node_leases"
                 and events[0]["operator"] == "cli_admin", "missing RustFS CLI provisioning proof")
+        require([event["voters"] for event in events if event["phase"] == "rustfs_node_leases"] == [3],
+                "missing live RustFS node lease proof")
         for phase in ("acknowledged", "post_resume_write_verified"):
             outcomes = [(event["cell"], event["ingress"]) for event in events
                         if event["phase"] == phase and (phase != "acknowledged" or event.get("delta") == 11)]

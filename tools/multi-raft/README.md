@@ -104,7 +104,11 @@ python3 tools/multi-raft/daemon.py --image "$image" \
 ```
 
 Both image forms use the real operator CLI for capacity and first-group
-provisioning. The fixture also parks all three voters through the admin CLI,
+provisioning. Each run stores daemon node leases and peer authentication in
+its own RustFS runtime prefix. The fixture independently reads the three
+live leases before exercising SQL. Raft catalog and archive objects use the
+separate group paths in the same isolated bucket. The fixture also parks
+all three voters through the admin CLI,
 verifies that status and replay leave them parked, and checks fresh quorum and
 native and Axum reads after wake. Both ingress paths exercise quorum writes,
 receipt-backed follower reads, an owned leader SIGKILL, exact retry reconciliation, retained restart and
