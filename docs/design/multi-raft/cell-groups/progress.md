@@ -89,6 +89,25 @@ recovery log SHA-256 digests are
 `164717789fdb4e43d7e6bad037a3a5220f48af1c26a349c053e05be4e82c9774`
 and `ac3add4a43284ad9fff17d501e02d525038a7f0a2e1c614f207ef9bb0ad7113a`.
 
+## CG-12 alarm, peer and minority wake
+
+At `a6bd8f64975ffe71842302bf4d1974362abb7eea`, the first two cases in
+`native_cell_groups_hibernate` passed in both materialized and extent image
+modes. Three managed TLS voters park at the same committed cut. A durable
+alarm wakes them without a client and commits one update. After repark,
+the surviving voters stay parked during the leader's joined stop, then
+its retained restart wakes them through peer traffic. All voters apply a
+fresh term before any application read, and the alarm result survives.
+
+A separate case wakes the former leader with two voters stopped. It refuses
+a linearizable query and a quorum command while the commit index remains
+at the park cut. Restarting both retained disks restores a fresh quorum.
+The exact command then commits once and its replay returns the original
+receipt. The native suite took 100.92 seconds. Its log SHA-256 is
+`dd332599f792dd63ae48b3bbc37aed0ccc86d596a91167f8a1aff6602cd6ddd7`.
+These are correctness cases with a fixture Fleet store and real Raft Engine
+disks. Wake latency distributions and the remaining fault cuts are open.
+
 ## CG-09/10 and CG-13 managed serving checkpoint
 
 At `6e6be12d403e1d7b3341531a0b664cbdb8299753`, the managed recovery
