@@ -1472,7 +1472,11 @@ older hold cannot cover a newer S3 acknowledgement. The verified result
 includes required lineages from both sides of the transition, including initial
 members, retained membership bindings and permanent movement admissions. Fencing
 must revalidate the exact cuts and account for the platform's launch history
-before changing authority.
+before changing authority. `stage_transition_recovery_intent` saves the exact
+roots, holds and required lineages under a separate recovery operation ID.
+A restarted controller can reopen that selection even after a topology change.
+The subsequent fence admission owns the topology barrier and revalidates the
+selection before it can revoke any launch authority.
 
 For an unpublished transition, choose complete archived parent cuts and reconstruct
 their non-overlapping domain under new groups. For a published transition, require

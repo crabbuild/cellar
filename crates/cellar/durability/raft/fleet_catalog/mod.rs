@@ -23,6 +23,9 @@ pub(crate) use managed_park::{
 };
 mod managed_transition_admission;
 pub(crate) use managed_transition_admission::TransitionOperatorStep;
+mod managed_recovery_intent;
+pub use managed_recovery_intent::FleetTransitionRecoveryIntent;
+pub(crate) use managed_recovery_intent::{ManagedRecoveryIntentBasis, ManagedRecoveryIntentInput};
 mod managed_recovery_inventory;
 mod managed_transition_replay;
 pub use managed_recovery_inventory::FleetRecoveryVoterLineage;

@@ -12,7 +12,7 @@ use cellar_logic::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
-const MAX_RECOVERY_LINEAGES: usize = 4096;
+pub(super) const MAX_RECOVERY_LINEAGES: usize = 4096;
 
 /// Permanent voter or learner placement a deployment fence must cover. A
 /// platform also needs its complete launch inventory for this disk and host.

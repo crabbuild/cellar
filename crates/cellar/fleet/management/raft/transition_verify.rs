@@ -5,7 +5,10 @@
 use super::*;
 use crate::raft::{
     cell_groups::{CellGroupArchiveCoverage, CellGroupArchiveHold, TransitionPhase},
-    fleet_catalog::FleetRecoveryVoterLineage,
+    fleet_catalog::{
+        FleetRecoveryVoterLineage, FleetTransitionRecoveryIntent, ManagedRecoveryIntentBasis,
+        ManagedRecoveryIntentInput,
+    },
 };
 use serde::{Deserialize, Serialize};
 
@@ -22,6 +25,8 @@ pub struct RaftFleetTransitionArchiveVerification {
 /// still belong to the operator that acquired them.
 pub struct RaftFleetVerifiedTransitionRecovery {
     basis: RaftFleetTransitionRecoveryBasis,
+    intent_basis: ManagedRecoveryIntentBasis,
+    principal: String,
     archives: Vec<CellGroupArchiveCoverage>,
     lineages: Vec<FleetRecoveryVoterLineage>,
 }
@@ -99,9 +104,71 @@ impl RaftFleetControl {
             .await?;
         Ok(RaftFleetVerifiedTransitionRecovery {
             basis: current,
+            intent_basis: verified.intent_basis,
+            principal: transition.request.principal,
             archives: verified.archives,
             lineages: verified.lineages,
         })
+    }
+
+    /// Persist one exact recovery selection. Use a new operation ID and keep
+    /// its archive holds retained for the lifetime of the recovery.
+    /// An identical retry reopens the original immutable record.
+    pub async fn stage_transition_recovery_intent(
+        &self,
+        principal: &str,
+        operation: &str,
+        verified: &RaftFleetVerifiedTransitionRecovery,
+        timeout: Duration,
+    ) -> Result<FleetTransitionRecoveryIntent> {
+        self.check_catalog(&verified.basis.catalog_id)?;
+        if principal != verified.principal {
+            return Err(RaftFleetFailure {
+                code: RaftFleetFailureCode::Forbidden,
+                outcome: RaftFleetOutcome::NotSubmitted,
+                message: "The verified recovery belongs to another principal.".into(),
+            });
+        }
+        let directory = self.managed_namespace(&verified.basis.namespace_id)?;
+        let operation = ProposalId::new(records::id(operation)?)
+            .map_err(|_| RaftFleetFailure::invalid("recovery operation ID"))?;
+        Ok(self
+            .catalog
+            .stage_managed_transition_recovery_intent(
+                directory,
+                ManagedRecoveryIntentInput {
+                    operation,
+                    principal,
+                    basis: &verified.intent_basis,
+                    holds: verified
+                        .archives
+                        .iter()
+                        .map(|proof| proof.hold().clone())
+                        .collect(),
+                    lineages: &verified.lineages,
+                },
+                &self.archive_pool,
+                timeout,
+            )
+            .await?)
+    }
+
+    /// Reopen an immutable recovery selection by operation ID after losing
+    /// the verifier process or the response to the staging call.
+    pub async fn reopen_transition_recovery_intent(
+        &self,
+        principal: &str,
+        namespace: &str,
+        operation: &str,
+        timeout: Duration,
+    ) -> Result<Option<FleetTransitionRecoveryIntent>> {
+        let directory = self.managed_namespace(namespace)?;
+        let operation = ProposalId::new(records::id(operation)?)
+            .map_err(|_| RaftFleetFailure::invalid("recovery operation ID"))?;
+        Ok(self
+            .catalog
+            .reopen_managed_transition_recovery_intent(directory, operation, principal, timeout)
+            .await?)
     }
 
     /// Rebuild the installed children from the retained sealed parent cuts,

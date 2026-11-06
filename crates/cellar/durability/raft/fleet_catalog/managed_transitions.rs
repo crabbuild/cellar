@@ -163,6 +163,7 @@ pub(crate) struct ManagedTransitionObservation {
 }
 
 pub(crate) struct VerifiedManagedTransitionArchives {
+    pub(crate) intent_basis: ManagedRecoveryIntentBasis,
     pub(crate) archives: Vec<CellGroupArchiveCoverage>,
     pub(crate) lineages: Vec<FleetRecoveryVoterLineage>,
 }
@@ -364,6 +365,14 @@ impl FleetCatalog {
                     return Err(FleetCatalogError::Conflict);
                 }
                 Ok(VerifiedManagedTransitionArchives {
+                    intent_basis: ManagedRecoveryIntentBasis {
+                        transition: selection.plan.operation().bytes(),
+                        plan: selection.plan.digest(),
+                        fleet_root: observation.fleet_digest,
+                        fleet_revision: observation.fleet_revision,
+                        directory_root: selection.directory_digest,
+                        publication: selection.publication,
+                    },
                     archives: verified.into_iter().map(|(_, coverage)| coverage).collect(),
                     lineages,
                 })

@@ -1011,14 +1011,16 @@ async fn run_inner(
         .await,
         Err(failure) if failure.code == RaftFleetFailureCode::InvalidInput
     ));
-    {
+    let recovery_operation = hex::encode([207; 16]);
+    let parent_intent = {
         let restored = Box::pin(recovery_control.verify_transition_recovery_archives(
             principal,
             &parent_basis,
             parent_holds.clone(),
             TIMEOUT,
         ))
-        .await?;
+        .await
+        .context("verify selected parent archives before publication")?;
         assert_recovery_lineages(&restored, &expected_lineages)?;
         ensure!(
             restored.basis() == &parent_basis
@@ -1028,7 +1030,36 @@ async fn run_inner(
                     .map(|proof| proof.hold())
                     .eq(&parent_holds)
         );
-    }
+        fixture
+            .store
+            .fail_recovery_intent_confirmation
+            .store(true, Ordering::Release);
+        let unknown = Box::pin(recovery_control.stage_transition_recovery_intent(
+            principal,
+            &recovery_operation,
+            &restored,
+            TIMEOUT,
+        ))
+        .await;
+        ensure!(
+            matches!(unknown, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable)
+        );
+        ensure!(!fixture
+            .store
+            .fail_recovery_intent_confirmation
+            .load(Ordering::Acquire));
+        let staged = Box::pin(recovery_control.stage_transition_recovery_intent(
+            principal,
+            &recovery_operation,
+            &restored,
+            TIMEOUT,
+        ))
+        .await?;
+        ensure!(staged.operation() == [207; 16] && staged.transition() == operation.bytes());
+        ensure!(staged.archive_holds() == parent_holds);
+        ensure!(staged.required_voter_lineages() == restored.required_voter_lineages());
+        staged
+    };
     for (registry, hold) in registries.iter().zip(&parent_holds) {
         registry.release(domain.as_ref(), hold).await?;
     }
@@ -1165,8 +1196,27 @@ async fn run_inner(
             vec![current.clone()],
             TIMEOUT,
         ))
-        .await?;
+        .await
+        .context("verify selected child archive after the S3 write")?;
         assert_recovery_lineages(&restored, &expected_lineages)?;
+        ensure!(matches!(
+            Box::pin(recovery_control.stage_transition_recovery_intent(
+                principal, &recovery_operation, &restored, TIMEOUT,
+            )).await,
+            Err(failure) if failure.code == RaftFleetFailureCode::PayloadConflict
+        ));
+        let (fresh_catalog, reopened_directory) =
+            reopen_merge_controller(&cluster.fixtures[0]).await?;
+        let fresh = RaftFleetControl::new(domain, fresh_catalog, vec![reopened_directory])?;
+        let reopened = fresh
+            .reopen_transition_recovery_intent(principal, &namespace, &recovery_operation, TIMEOUT)
+            .await?
+            .context("reopen recovery intent after transfer publication")?;
+        ensure!(
+            reopened.digest() == parent_intent.digest()
+                && reopened.archive_holds() == parent_intent.archive_holds()
+                && reopened.required_voter_lineages() == parent_intent.required_voter_lineages()
+        );
         let [archive] = restored.archives() else {
             anyhow::bail!("expected exactly one selected child archive");
         };
