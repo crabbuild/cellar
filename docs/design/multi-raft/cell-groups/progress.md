@@ -81,6 +81,18 @@ SHA-256 is `839c373ec7e52c4feb914ead588c91af05ca2a6a13765e0d2bb7d7eea101542b`.
 This is a single-VM public daemon result. The combined independent-process
 repair, drain and maintenance gate and sustained load qualification remain open.
 
+## CG-07 shared-group directory CI port
+
+All 16 `native_raft_directory` cases passed on `a69670357de38d4850821f81b26e9feb64110f5e` in
+8.84 seconds. The suite uses two real groups, a rooted Fleet observer for
+physical metadata, and the same engine across a retained restart. It verifies
+that unpolled inspection calls retain their reservation while business SQL
+completes, then releases every reservation on joined shutdown. The entered
+metadata case pauses the read, observes pending closure, releases the gate and
+checks that no read owner remains. The command log SHA-256 is `6cb4e5e275690b5390c8d797f0377e7de1ba5c7a52e1aef0e27c15def1a39c44`.
+The `native_raft_reads` and other predecessor consumer targets still require
+ports to the canonical SDK.
+
 ## CG-09 rooted decisions and retained source sealing
 
 The unmanaged source seal consumes a permit bound to the selected directory
