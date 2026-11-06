@@ -8,9 +8,23 @@ The executable design and implementation plan is delivered. Remaining
 end-to-end implementation and hard cutover work is specified in the
 [executor handoff](handoff.md).
 CG-01 through CG-06 and CG-08 have passed their scoped native gates.
-CG-07 and CG-09 are IN_PROGRESS. CG-10 through CG-16 remain TODO. Intermediate contracts
-do not qualify the public shared runtime. No production legacy/shared mode flag
-is being added.
+CG-07 and CG-09 through CG-15 are in progress. CG-16 remains pending
+the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
+for the next delivery.
+
+## CG-09/10 and CG-13 managed serving checkpoint
+
+At `6e6be12d403e1d7b3341531a0b664cbdb8299753`, the managed recovery
+and split/merge cases both passed against RustFS in materialized and extent
+image modes. Recovery used a fixture fencing authority and host-native
+voters. After the replacements formed a fresh quorum, the case verified
+linearizable SQL reads, archived receipt lookup, old version-token refusal,
+a new quorum write and retry, and a new S3 acknowledgement. These results
+qualify the serving checkpoint. A later retirement candidate passed the native
+fence and Fleet-slot release case. Its extent-backed RustFS run stopped during
+replacement quorum setup when the group controller closed. Retirement,
+replacement archive setup across controller restarts, and the managed Docker
+disk-loss drill remain open.
 
 ## CG-09 rooted decisions and retained source sealing
 

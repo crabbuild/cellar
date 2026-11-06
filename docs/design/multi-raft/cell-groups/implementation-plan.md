@@ -23,12 +23,12 @@ never executed by the plan runner. Read the [design](design.md),
 | CG-08 | Preserve per-cell effects and bounded idle execution caches | CG-04, CG-05, CG-06 | DONE | 5 |
 | CG-07 | Cut public SDK routing and managed fleet over to shared groups | CG-03, CG-04, CG-05, CG-06, CG-08 | IN_PROGRESS | 5 |
 | CG-09 | Implement irreversible source sealing and destination activation | CG-07, CG-08 | IN_PROGRESS | 7 |
-| CG-10 | Split hot groups and merge compatible adjacent ranges | CG-09 | TODO | 5 |
-| CG-11 | Schedule group placement and adaptive partition size | CG-07, CG-10 | TODO | 5 |
-| CG-12 | Coordinate group hibernation and authority-checked wakeup | CG-08, CG-10, CG-11 | TODO | 5 |
-| CG-14 | Build reproducible shared-group workload and RustFS harnesses | CG-07, CG-08 | TODO | 5 |
-| CG-13 | Recover managed groups and incomplete transitions from S3 | CG-06, CG-09, CG-10, CG-11, CG-14 | TODO | 6 |
-| CG-15 | Qualify crashes, split merge, wake and zero-quorum recovery | CG-10, CG-11, CG-12, CG-13, CG-14 | TODO | 6 |
+| CG-10 | Split hot groups and merge compatible adjacent ranges | CG-09 | IN_PROGRESS | 5 |
+| CG-11 | Schedule group placement and adaptive partition size | CG-07, CG-10 | IN_PROGRESS | 5 |
+| CG-12 | Coordinate group hibernation and authority-checked wakeup | CG-08, CG-10, CG-11 | IN_PROGRESS | 5 |
+| CG-14 | Build reproducible shared-group workload and RustFS harnesses | CG-07, CG-08 | IN_PROGRESS | 5 |
+| CG-13 | Recover managed groups and incomplete transitions from S3 | CG-06, CG-09, CG-10, CG-11, CG-14 | IN_PROGRESS | 6 |
+| CG-15 | Qualify crashes, split merge, wake and zero-quorum recovery | CG-10, CG-11, CG-12, CG-13, CG-14 | IN_PROGRESS | 6 |
 | CG-16 | Publish the unified group runtime and qualified release envelope | CG-15 | TODO | 4 |
 
 CG-01 through CG-08 establish the shared runtime and public cutover. CG-09 through

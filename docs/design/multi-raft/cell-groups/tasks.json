@@ -2286,7 +2286,7 @@
     {
       "id": "CG-10",
       "title": "Split hot groups and merge compatible adjacent ranges",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "priority": "P1",
       "effort": "L",
       "risk": "HIGH",
@@ -2406,7 +2406,7 @@
     {
       "id": "CG-11",
       "title": "Schedule group placement and adaptive partition size",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "priority": "P1",
       "effort": "L",
       "risk": "HIGH",
@@ -2525,7 +2525,7 @@
     {
       "id": "CG-12",
       "title": "Coordinate group hibernation and authority-checked wakeup",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "priority": "P1",
       "effort": "L",
       "risk": "HIGH",
@@ -2649,7 +2649,7 @@
     {
       "id": "CG-13",
       "title": "Recover managed groups and incomplete transitions from S3",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "priority": "P1",
       "effort": "L",
       "risk": "HIGH",
@@ -2784,7 +2784,7 @@
     {
       "id": "CG-14",
       "title": "Build reproducible shared-group workload and RustFS harnesses",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "priority": "P1",
       "effort": "M",
       "risk": "HIGH",
@@ -2901,7 +2901,7 @@
     {
       "id": "CG-15",
       "title": "Qualify crashes, split merge, wake and zero-quorum recovery",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "priority": "P1",
       "effort": "L",
       "risk": "HIGH",

@@ -5,8 +5,7 @@
 Purpose: Prioritize the remaining cell-group MVP, merge gates and full architecture deliverables.
 
 PR [#160](https://github.com/crabbuild/cellar/pull/160) contains the shared runtime
-and the canonical SDK/fleet cutover in progress. It is a draft implementation
-checkpoint, not a completed MVP or release. This ordering preserves the full
+and the canonical SDK/fleet cutover in progress. This ordering preserves the full
 CG-01–16 objective in [tasks.json](tasks.json), [design](design.md) and
 [qualification](qualification.md). See [progress](progress.md) for exact source
 and validation boundaries and [handoff](handoff.md) for executor context.
@@ -65,26 +64,40 @@ namespace and physical group requests through the admin API. Valid retries
 preserve the original receipt after those refusals. The named public authority
 and occupancy-one cases pass their recorded native scope.
 
-CG-07 remains IN_PROGRESS. Complete managed lifecycle remains open. The
-feature-off public case and native Fleet/bucket regression pass their recorded
-local scope. Default/backend and capability
-coverage, plan/lint/CI modes, production fencing, constrained independent voters
-and sustained-load qualification remain unfinished. CG-09 is IN_PROGRESS.
-CG-10 through CG-16 stay TODO. No
-production legacy/shared switch or old-data migration is part of the target.
+CG-07 and CG-09 through CG-15 are in progress. CG-16 is pending the combined
+release gate. Individual checkpoints cover operator-driven split and merge,
+placement recommendations, fenced parking and wake, managed recovery and
+parts of the qualification matrix. The task-level evidence remains open.
 
-## First delivery: basic SQL reads and writes through public ingress
+## First delivery of quorum SQL through public ingress
 
-1. **Finish ordinary SQL onboarding and the public lifecycle.** Use the
-   qualified namespace, first-group and daemon path to enroll supported new
-   SQL applications. Qualify repair, drain, stop, return and resume with
-   authenticated native, Axum and admin authority and exact retained capacity
-   charges. Preserve typed capability refusals and immutable retry identity.
-2. **Qualify the combined SQL release path.** Run ingress without a replica,
-   leader loss, retained restart, quorum loss, archive denial and recovery
-   together on constrained voters. Keep explicit S3 acknowledgements tied to
-   archive coverage. Exercise bounded mixed load and reclaim only covered
-   local history.
+An explicitly configured Raft namespace defaults to three voters and a
+quorum durability minimum. Public Raft commands default to quorum durability
+and queries default to linearizable reads. A quorum acknowledgement requires
+a committed command and its applied receipt. Explicit S3 durability waits for
+archive proof. The release should define which SQL capabilities are available
+through the shared backend and preserve typed refusals for the rest.
+
+1. **Close CG-07 public onboarding and lifecycle.** Exercise namespace creation,
+   enrollment, normal read/write ingress and management through the public SDK,
+   daemon, CLI and admin paths. Close repair, drain, maintenance stop/return/resume
+   and capacity accounting with retained disks and nonvoting inventory. Preserve
+   immutable retry identity and native/Axum authority checks.
+2. **Pass a single current-source RF3 SQL gate.** Run independent constrained
+   voter processes against RustFS with ingress-only routing, leader loss,
+   exact retries, retained restart and quorum loss. Refuse quorum writes and
+   linearizable reads when a majority is unavailable. Verify quorum writes
+   during an archive-payload write outage with catalog access available,
+   plus explicit S3 refusal and recovery. Qualify mixed load and reclaim
+   only archive-covered local history. Fix the open maintenance, successor
+   readiness and CI failures on that source.
+3. **Gate the default for supported SQL on the public quorum result.** Use
+   fresh namespaces for the rollout covered by this plan. For the full hard
+   cutover, close the CG-09/10 split/merge and restart gates, then finish
+   adaptive placement, fenced wake and managed S3 disk-loss recovery in
+   CG-11–13. Complete the CG-14/15 constrained load, crash, reclaim and
+   disk-loss matrix before CG-16 removes predecessor paths and ships one
+   shared-group runtime.
 
 ## P0: finish the MVP and its merge gates
 
