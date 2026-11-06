@@ -265,8 +265,7 @@ impl CellGroupOwner {
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .map_err(|_| RuntimeError::AlreadyAttached)?;
         let lease = Arc::new(Lease(group.consensus_claimed.clone()));
-        permit
-            .revalidate()
+        Box::pin(permit.revalidate())
             .await
             .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
         let cache = group.read()?;

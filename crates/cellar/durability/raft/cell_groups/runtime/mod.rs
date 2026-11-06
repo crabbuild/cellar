@@ -483,12 +483,14 @@ impl CellGroupRuntime {
         let owner = self
             .inner
             .domain
-            .run(CellGroupOwner::start(
+            // Retained attachment can revalidate through S3 on the caller's
+            // stack. Keep the nested owner startup future in one allocation.
+            .run(Box::pin(CellGroupOwner::start(
                 permit,
                 current,
                 self.inner.options.clone(),
                 seed.finalize().into(),
-            ))
+            )))
             .await
             .map_err(|_| RuntimeError::Closed)??;
         self.send_reserved(
