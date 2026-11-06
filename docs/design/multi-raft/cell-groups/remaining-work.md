@@ -92,7 +92,7 @@ and evidence specified by `plan.py show <task>`.
 | --- | --- | --- |
 | CG-07 | All five named cases are in `native_cell_groups_public`. All five passed in the latest native run, covering SDK multi-cell and occupancy-one serving, cross-authority refusal, managed lifecycle and existing Bucket/Fleet behavior. | Run the public cases and constrained RustFS daemon campaign at one source with repair, drain, maintenance, retained restart and outage. |
 | CG-09 | `seal_authorization_cancel_race` and `source_seal_blocks_delayed_work` run in the catalog and host targets. Component checkpoints also cover rooted archive holds and managed serving after transfer. | Build the planned transition target. Exercise publication only after destination quorum install and remote closure, restart with one writer, receipt/token/effect continuity, and archive pins through retirement. |
-| CG-10 | Managed split/merge serving has run against RustFS in both image modes. | Qualify exact union and adjacency, incompatible placement/durability, partial reservations across restart, writes during movement and bounded precopy. |
+| CG-10 | Earlier managed split/merge serving passed against RustFS in both image modes. The latest host-native RustFS operator case aborted with a stack overflow. | Resolve the stack overflow and qualify exact union and adjacency, incompatible placement/durability, partial reservations across restart, writes during movement and bounded precopy. |
 | CG-11 | Placement observations and advisory recommendations exist. | Qualify hysteresis, hot-cell isolation, whole-group scale out and in, failure-domain reserve and bounded controller fanout. |
 | CG-12 | The constrained daemon parks and wakes a group. The named native cases cover alarm and peer wake without a client, and refusal of strong reads and quorum writes during minority wake. | Qualify all-voter eligibility and pending-work refusal, partial/stale certificates, and the full parked restart and leader-loss case. Measure wake latency in the planned profiles. |
 | CG-13 | Host-native voters have recovered after all owned voter disks were erased against RustFS with a fixture fence. | Qualify interrupted transition closure selection, permanent revocation of every possible old writer, fresh histories and retry under independent Docker voter processes. Exercise the outbox ambiguity refusal. |
@@ -131,10 +131,11 @@ through the shared backend and preserve typed refusals for the rest.
    making shared groups the default for supported SQL in new namespaces.
 3. **Finish CG-09/10 operator split and merge.** One native case now resumes
    the operator-admitted split after a partial reservation, serves SQL on the
-   activated children and verifies late writes after merging. The RustFS
-   extent recovery case hit an unconfirmed startup of a released voter.
-   Resolve that restart, then requalify both image modes. Complete the named
-   transition targets, including partial seals and lost publication replies.
+   activated children and verifies late writes after merging. The latest
+   real RustFS recovery rerun passed the released voter restart in both image
+   modes. The ordinary split/merge case aborted with a stack overflow.
+   Isolate that failure and complete the named transition targets, including
+   partial seals and lost publication replies.
 4. **Finish CG-11–13 managed operations.** Qualify adaptive placement, fenced
    hibernation and wakeup, and S3 recovery of interrupted transitions. Run the
    Docker-fenced disk-loss drill with all old voter disks deleted and a fresh

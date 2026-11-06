@@ -103,6 +103,16 @@ failure. The record SHA-256 is
 `cf2fed801695bcceced9af9d115716e66b24b3b52eb834d5d7410dabdf0fbf15`.
 Keep this startup outcome separate from the native operator continuity pass.
 
+At `edb5b31cea34dd41e022929313cbf97d52e95e4c`, the real RustFS recovery case
+passed both image modes in 317.57 seconds, including the released voter
+restart. The earlier `Unconfirmed` result did not recur. The ordinary
+split/merge case then aborted with a stack overflow in the host-native test
+thread. The combined campaign failed. Its record SHA-256 is
+`0cbc96e2de5e66b87c4c879295613f265cfbe3924b6560f3ffdac6637cb5beff`.
+The recovery and split/merge logs have SHA-256 digests
+`2df030ee400167891cf8e986c903fe7bf73c59784eb4d535e931bccd521d0fe6`
+and `2248031d17090dd90757b6cf8f1ec4a46335a5451515acc76df79204a0802dce`.
+
 ## CG-12 alarm, peer and minority wake
 
 At `a6bd8f64975ffe71842302bf4d1974362abb7eea`, the first two cases in
