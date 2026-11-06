@@ -865,7 +865,7 @@ async fn run_inner(
             .await
             .context("attach merged child")?;
     }
-    let (leader, _) = preparation::wait_pending_child_witness(voters, child.history).await?;
+    let (child_leader, _) = preparation::wait_pending_child_witness(voters, child.history).await?;
     let quorum_request = RaftFleetTransitionChildSetupRequest {
         request_id: hex::encode([181; 16]),
         step: RaftFleetTransitionChildStep::Quorum,
@@ -875,7 +875,7 @@ async fn run_inner(
         fixture,
         &reopened,
         &request.principal,
-        &voters[leader],
+        &voters[child_leader],
         &quorum_request,
         None,
     ))
