@@ -62,6 +62,25 @@ RustFS lifecycle suite record SHA-256 is
 `dcd124b69d21bbc57f98801201b4141931cb674d2e41ad9026dd75c4b423c352`.
 The combined public quorum gate remains open.
 
+## CG-07 constrained Linux SQL qualification
+
+The daemon qualification at `9d6cf6e9c8dc20583c4177c7896ebf0673977449`
+passed against real RustFS in both image modes. Each run used three separate
+Linux voter containers with one effective CPU, 3 GiB of memory, zero swap and
+separate disks. The public CLI provisioned the managed namespace and first
+group. Native and Axum requests covered retained restart, leader SIGKILL with
+a successor elected before restart, exact receipt replay and quorum loss.
+The archive fault left catalog operations available. Quorum writes and
+linearizable reads continued while S3 acknowledgement refused until the
+original receipt obtained archive coverage. The same run exercised operator
+park and wake through a fresh quorum.
+
+The materialized and extent-backed runs took 64.18 and 65.84 seconds. Each
+mode recorded one SIGKILL exit and three joined normal exits. The suite record
+SHA-256 is `839c373ec7e52c4feb914ead588c91af05ca2a6a13765e0d2bb7d7eea101542b`.
+This is a single-VM public daemon result. The combined independent-process
+repair, drain and maintenance gate and sustained load qualification remain open.
+
 ## CG-09 rooted decisions and retained source sealing
 
 The unmanaged source seal consumes a permit bound to the selected directory

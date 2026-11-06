@@ -76,7 +76,10 @@ histories. Independent voter processes and permanent Docker launch revocation
 remain separate gates. In the public lifecycle work, the latest RustFS follow-up
 passed source-service failover and hit an S3 receipt replay deadline after the
 joined voter resumed as a ready leader. See [progress](progress.md) for both
-source boundaries.
+source boundaries. The constrained Linux public SQL gate passed at
+`9d6cf6e9` in both image modes, including leader SIGKILL, retained restart,
+quorum refusal and archive-write outage. The remaining CG-07 process gate
+combines these paths with managed repair, drain and maintenance.
 
 ## First delivery of quorum SQL through public ingress
 
