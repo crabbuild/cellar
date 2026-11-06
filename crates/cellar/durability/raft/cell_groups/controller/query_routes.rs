@@ -2,6 +2,7 @@
 
 //! One controller invocation owns every replica attempt and its original budget.
 use super::*;
+use crate::application::consensus::RegistrationError;
 use crate::raft::cell_groups::{
     CellDispatchError as Error, CellQueryInvocation, CellQueryResponse, CellQueryRouting,
     CellSqlOptions,
@@ -198,7 +199,8 @@ fn retryable(error: &Error) -> bool {
             | RuntimeError::NotFound
             | RuntimeError::DeadlineExceeded
             | RuntimeError::Overloaded,
-        ) => true,
+        )
+        | Error::Registration(RegistrationError::UnknownOperation(_)) => true,
         Error::Execution(crate::raft::execution::ExecutionError::Refused(failure)) => {
             unavailable(failure)
         }

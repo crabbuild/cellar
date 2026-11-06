@@ -206,8 +206,22 @@ fn cell_token_bounds_tampering_and_commitment_domains() {
             .unwrap(),
         original
     );
+    assert_eq!(
+        CellVersionToken::from_encoded(token.as_str()).unwrap(),
+        token
+    );
+    assert!(CellVersionToken::from_encoded(&format!("{}=", token.as_str())).is_err());
+    let other = VersionKeys::new(
+        VersionSigningKey::new([8; 32], 100_000).unwrap(),
+        vec![],
+        Duration::from_secs(10),
+    )
+    .unwrap();
+    assert!(other
+        .verify_cell(&token, &original.version.history, [42; 32], 101)
+        .is_err());
     let bytes = URL_SAFE_NO_PAD.decode(token.as_str()).unwrap();
-    for offset in [0, 8, 40, 120, bytes.len() - 65, bytes.len() - 1] {
+    for offset in 0..bytes.len() {
         let mut changed = bytes.clone();
         changed[offset] ^= 1;
         if let Ok(tampered) = CellVersionToken::from_encoded(&URL_SAFE_NO_PAD.encode(changed)) {
@@ -243,6 +257,38 @@ fn cell_token_bounds_tampering_and_commitment_domains() {
         keys.issue_cell(&original, [42; 32], 100),
         Err(VersionError::Invalid)
     );
+}
+
+#[test]
+fn version_key_deadline_and_payload_limits() -> Result<()> {
+    let ring = VersionKeys::new(
+        VersionSigningKey::new([11; 32], 2000)?,
+        vec![],
+        Duration::from_millis(1000),
+    )?;
+    let original = observation();
+    assert!(ring.issue_cell(&original, [7; 32], 1001).is_err());
+    assert!(ring.issue_cell(&original, [7; 32], u64::MAX).is_err());
+    let mut invalid = original.clone();
+    invalid.witness.position.index = LogIndex::new(0);
+    assert!(ring.issue_cell(&invalid, [7; 32], 1000).is_err());
+    let mut longest = original;
+    longest.version.history.cell = CellId::new("x".repeat(1024))?;
+    let token = ring.issue_cell(&longest, [7; 32], 1000)?;
+    assert_eq!(
+        ring.verify_cell(&token, &longest.version.history, [7; 32], 1000)?,
+        longest
+    );
+    assert!(CellId::new("x".repeat(1025)).is_err());
+    let old = VersionSigningKey::new([11; 32], 10000)?.verification_key();
+    assert!(VersionKeys::new(
+        VersionSigningKey::new([11; 32], 20000)?,
+        vec![old],
+        Duration::from_millis(1000),
+    )
+    .is_err());
+    assert!(VersionSigningKey::new([0; 32], 20000).is_err());
+    Ok(())
 }
 
 #[test]

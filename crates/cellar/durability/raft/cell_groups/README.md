@@ -865,7 +865,10 @@ counter/performance entrypoint conversion remains unfinished CG-07 work.
 Public replica preferences now enter the same shared controller invocation as a
 local query. One to eight distinct candidates have a bounded per-attempt timeout;
 all attempts share the original request, route fingerprint, global deadline and
-attempt bank. A final fallback may address one untried observed leader. Discovery
+attempt bank. An explicit replica list may proceed past a local member that
+has no callback for the requested query. The receiving replica validates the
+operation name, kind and digest against its own registration before admission.
+A final fallback may address one untried observed leader. Discovery
 and the leader field inside an authenticated query reply remain advisory; a
 receiving node independently checks the complete cell/group route and namespace
 process grant. Incoming RPCs always execute locally.

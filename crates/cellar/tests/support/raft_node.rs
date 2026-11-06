@@ -368,47 +368,9 @@ pub fn archived_options(sequence: u64) -> Result<CommandOptions> {
     Ok(options)
 }
 
-pub struct Gate {
-    open: std::sync::Mutex<bool>,
-    changed: std::sync::Condvar,
-    entered: tokio::sync::mpsc::UnboundedSender<()>,
-}
-
-impl Gate {
-    pub fn new() -> (Arc<Self>, tokio::sync::mpsc::UnboundedReceiver<()>) {
-        let (entered, receive) = tokio::sync::mpsc::unbounded_channel();
-        (
-            Arc::new(Self {
-                open: std::sync::Mutex::new(false),
-                changed: std::sync::Condvar::new(),
-                entered,
-            }),
-            receive,
-        )
-    }
-
-    pub fn wait(&self) -> Result<()> {
-        self.entered.send(())?;
-        let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
-        while !*open {
-            open = self.changed.wait(open).unwrap_or_else(|e| e.into_inner());
-        }
-        Ok(())
-    }
-
-    pub fn release(&self) {
-        *self.open.lock().unwrap_or_else(|e| e.into_inner()) = true;
-        self.changed.notify_all();
-    }
-}
-
-pub struct Release(pub Arc<Gate>);
-
-impl Drop for Release {
-    fn drop(&mut self) {
-        self.0.release();
-    }
-}
+#[path = "raft_read_gate.rs"]
+mod read_gate;
+pub use read_gate::{Gate, Release};
 
 pub struct Counter {
     pub application: Arc<dyn Application>,

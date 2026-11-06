@@ -316,9 +316,17 @@ impl CellGroupDispatcher {
                 RegistrationError::KindMismatch,
             ));
         }
-        self.class
-            .validate_operation(&request.contract)
-            .map_err(CellDispatchError::Registration)?;
+        let local_registration_error = match self.class.validate_operation(&request.contract) {
+            Ok(()) => None,
+            Err(error @ RegistrationError::UnknownOperation(_))
+                if !matches!(routing, CellQueryRouting::Local) =>
+            {
+                // An authenticated remote replica checks its own registration
+                // before admitting this exact query contract.
+                Some(error)
+            }
+            Err(error) => return Err(CellDispatchError::Registration(error)),
+        };
         let bytes = request
             .input
             .len()
@@ -350,6 +358,7 @@ impl CellGroupDispatcher {
             dispatcher: self.clone(),
             request,
             routing,
+            local_registration_error,
             leader_hint: None,
             session,
             attempt: None,
@@ -366,6 +375,7 @@ pub struct CellQueryInvocation {
     dispatcher: CellGroupDispatcher,
     request: CellQueryRequest,
     routing: CellQueryRouting,
+    local_registration_error: Option<RegistrationError>,
     leader_hint: Option<cellar_logic::consensus::MemberId>,
     session: CellRoutingSession,
     attempt: Option<CellRouteAttempt>,
@@ -488,6 +498,9 @@ impl CellQueryInvocation {
             return Err(CellDispatchError::Invalid("consumed route attempt"));
         }
         self.dispatched = true;
+        if let Some(error) = &self.local_registration_error {
+            return Err(CellDispatchError::Registration(error.clone()));
+        }
         let domain = &self.dispatcher.domain;
         if !runtime.uses_domain(domain) || !sql.uses_domain(domain) {
             return Err(CellDispatchError::Invalid("foreign execution domain"));

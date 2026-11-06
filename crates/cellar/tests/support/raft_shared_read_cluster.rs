@@ -13,6 +13,7 @@ use tokio::net::TcpListener;
 #[allow(dead_code)]
 #[path = "raft_tcp_fault.rs"]
 mod tcp_fault;
+pub(super) use tcp_fault::HeldResponses;
 use tcp_fault::Proxy;
 
 const TIMEOUT: Duration = Duration::from_secs(5);
@@ -41,7 +42,18 @@ pub(super) struct Cluster {
 }
 
 impl Cluster {
-    pub(super) async fn start(definition: &Definition) -> Result<Self> {
+    pub(super) async fn start(
+        definitions: &[Definition; VOTERS],
+        mut shared: CellGroupNodeLimits,
+        mut host: RaftHostOptions,
+    ) -> Result<Self> {
+        shared.controller.max_groups = 1;
+        shared.controller.max_parallel_apply = 1;
+        shared.directory.max_groups = 1;
+        shared.entries.envelope = host.execution.envelope;
+        host.max_groups = 1;
+        host.max_input_bytes = shared.dispatch.max_input_bytes;
+        host.stale_source_timeout_ms = 200;
         let cluster = ClusterId::new([1; 16])?;
         let namespace = NamespaceId::new([2; 16])?;
         let history = GroupHistory {
@@ -60,8 +72,12 @@ impl Cluster {
             let id = u8::try_from(index + 1)?;
             let label = format!("shared-read-{id}");
             nodes.push(
-                public_node::node_named(root.path(), definition.application.clone(), &label)
-                    .await?,
+                public_node::node_named(
+                    root.path(),
+                    definitions[index].application.clone(),
+                    &label,
+                )
+                .await?,
             );
             let bound = NodeRaftListeners {
                 control: TcpListener::bind("127.0.0.1:0").await?,
@@ -122,6 +138,7 @@ impl Cluster {
                 }
             }
             let peer = &peers[source];
+            let definition = &definitions[source];
             let mut log = ReplicaLogOptions::new(
                 nodes[source].info().data_dir.join("raft"),
                 peer.node,
@@ -130,10 +147,6 @@ impl Cluster {
                 LogOpenMode::Create,
             );
             log.max_groups = 1;
-            let mut shared = public_node::limits();
-            shared.controller.max_groups = 1;
-            shared.controller.max_parallel_apply = 1;
-            shared.directory.max_groups = 1;
             services.push(
                 nodes[source]
                     .start_raft_cells(
@@ -175,12 +188,7 @@ impl Cluster {
                             peers: routes,
                             query_origins: vec![],
                             command_origins: vec![],
-                            host: RaftHostOptions {
-                                max_groups: 1,
-                                max_input_bytes: shared.dispatch.max_input_bytes,
-                                stale_source_timeout_ms: 200,
-                                ..Default::default()
-                            },
+                            host: host.clone(),
                             shared,
                         },
                         RaftCellsServices {
@@ -264,6 +272,31 @@ impl Cluster {
         .await
         .context("join cut TCP connections")?;
         Ok(())
+    }
+
+    fn query_link(&self, source: usize, target: usize) -> Result<&Proxy> {
+        self.links
+            .iter()
+            .find(|link| link.source == source && link.target == target && link.lane == Lane::Query)
+            .map(|link| &link.proxy)
+            .context("directional query link")
+    }
+
+    pub(super) fn hold_query_responses(
+        &self,
+        source: usize,
+        target: usize,
+    ) -> Result<HeldResponses> {
+        let proxy = self.query_link(source, target)?;
+        proxy.state.send_modify(|fault| fault.hold_response = true);
+        Ok(HeldResponses(proxy.state.clone()))
+    }
+
+    pub(super) fn held_query_response_bytes(&self, source: usize, target: usize) -> Result<usize> {
+        Ok(self
+            .query_link(source, target)?
+            .held_response_bytes
+            .load(Ordering::SeqCst))
     }
 
     pub(super) fn heal(&self) {
