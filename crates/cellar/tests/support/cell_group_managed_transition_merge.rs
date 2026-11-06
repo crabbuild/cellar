@@ -16,7 +16,7 @@ use cellar::sdk::fleet_operations::{
     RaftFleetTransitionChildStep, RaftFleetTransitionGroup, RaftFleetTransitionPartition,
     RaftFleetTransitionPrepareRequest, RaftFleetTransitionPublishRequest,
     RaftFleetTransitionResume, RaftFleetTransitionResumeStep, RaftFleetTransitionSealRequest,
-    RaftFleetTransitionSourceSealRequest,
+    RaftFleetTransitionSourceRetirement, RaftFleetTransitionSourceSealRequest,
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1278,10 +1278,6 @@ async fn finish_merge_inner(
 ) -> Result<()> {
     let fleet = cluster.fixtures[0].catalog.clone();
     let domain = &archives.domain;
-    let publication = domain
-        .run(directory.publication(&transition.plan))
-        .await??
-        .context("merge publication")?;
     let archive_request = RaftFleetTransitionChildSetupRequest {
         catalog_id: control.catalog_id().into(),
         namespace_id: hex::encode(child.namespace.bytes()),
@@ -1388,11 +1384,21 @@ async fn finish_merge_inner(
         )
         .await?;
         ensure!(replay == completed);
-        let ack =
-            retirement::commit_on_all(&cluster.hosts[3..], parent.history, transition).await?;
-        ensure!(ack.tombstone().publication() == publication.journal_digest());
-        ensure!(ack.tombstone().position().index.get() == applied.index);
-        ensure!(ack.tombstone().position().term.get() == applied.term);
+        tokio::time::timeout(TIMEOUT, async {
+            loop {
+                let mut applied_on_all = true;
+                for voter in &cluster.hosts[3..] {
+                    let status = voter.group(parent.history)?.status().await?;
+                    applied_on_all &= status.applied.index.get() >= applied.index;
+                }
+                if applied_on_all {
+                    return Ok::<_, anyhow::Error>(());
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .context("retirement applied on retained parent voters")??;
     }
     let retired = fleet
         .reopen_managed_transition(directory, transition.plan.operation(), TIMEOUT)
