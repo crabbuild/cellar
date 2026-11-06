@@ -7,14 +7,15 @@ use super::*;
 use crate::raft::{
     catalog::CatalogError,
     cell_groups::{
-        CellGroupArchiveBindingError, CellGroupArchivePool, CellGroupArchiveTailPool,
-        CellGroupTransferActivationAck, CellGroupTransferArchive,
+        CellGroupArchiveBindingError, CellGroupArchiveHold, CellGroupArchivePool,
+        CellGroupArchiveTailPool, CellGroupTransferActivationAck, CellGroupTransferArchive,
         CellGroupTransitionPreparationInputs, CellGroupTransitionSource, DirectoryMutation,
         DirectoryPublication, PreparedManagedCellGroupTransition, RangeDirectory,
         TransferChildQuorum, TransferInstallQuorum, TransitionJournal,
         VerifiedCellGroupTransitionSources,
     },
     fleet_stop::BootBinding,
+    group_host::RaftGroupArchiveInitialization,
     member_state::FleetGroupBinding,
 };
 
@@ -88,6 +89,13 @@ impl Record {
 
 fn operation_key(operation: [u8; 16]) -> String {
     format!("{OPERATION_PREFIX}{}", hex::encode(operation))
+}
+
+fn transfer_archive_error(error: CellGroupArchiveBindingError) -> FleetCatalogError {
+    match error {
+        CellGroupArchiveBindingError::Catalog(error) => catalog_error(error),
+        CellGroupArchiveBindingError::Archive(error) => error.into(),
+    }
 }
 
 fn root_digest(snapshot: &FleetSnapshot) -> Result<[u8; 32]> {
@@ -361,10 +369,7 @@ impl FleetCatalog {
             .await
             .map_err(|_| FleetCatalogError::Closed)?
             .map_err(|_| FleetCatalogError::Unconfirmed)?
-            .map_err(|error| match error {
-                CellGroupArchiveBindingError::Catalog(error) => catalog_error(error),
-                CellGroupArchiveBindingError::Archive(error) => error.into(),
-            })
+            .map_err(transfer_archive_error)
     }
 
     /// Verify and select the exact committed parent cuts of a managed transition.
@@ -412,10 +417,7 @@ impl FleetCatalog {
             .await
             .map_err(|_| FleetCatalogError::Closed)?
             .map_err(|_| FleetCatalogError::Unconfirmed)?
-            .map_err(|error| match error {
-                CellGroupArchiveBindingError::Catalog(error) => catalog_error(error),
-                CellGroupArchiveBindingError::Archive(error) => error.into(),
-            })
+            .map_err(transfer_archive_error)
     }
 
     /// Independently rebuild all installed child roots from the retained
@@ -453,10 +455,7 @@ impl FleetCatalog {
             .await
             .map_err(|_| FleetCatalogError::Closed)?
             .map_err(|_| FleetCatalogError::Unconfirmed)?
-            .map_err(|error| match error {
-                CellGroupArchiveBindingError::Catalog(error) => catalog_error(error),
-                CellGroupArchiveBindingError::Archive(error) => error.into(),
-            })
+            .map_err(transfer_archive_error)
     }
 
     /// Reopen the archive closure selected for the exact active managed plan.
@@ -564,6 +563,161 @@ impl FleetCatalog {
                         acknowledgements,
                         &permit,
                     )))
+                    .await
+                    .map_err(|_| FleetCatalogError::Closed)?
+                    .map_err(catalog_error)
+            }),
+        )
+        .await
+    }
+
+    /// Prepare a one-use archive identity for a child of the active transfer.
+    /// Persist the exact intent before committing it. Reopen or verify that
+    /// binding after an uncertain outcome.
+    pub async fn prepare_managed_transfer_child_archive(
+        &self,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        history: GroupHistory,
+        archives: &CellGroupArchivePool,
+        timeout: Duration,
+    ) -> Result<RaftGroupArchiveInitialization> {
+        validate_request(&transition.request)?;
+        self.run(
+            timeout,
+            Box::pin(async {
+                let permit = self
+                    .verified_managed_transfer_permit(transition, directory)
+                    .await?;
+                let domain = &self.inner.domain;
+                domain
+                    .run(Box::pin(async {
+                        let birth = directory
+                            .managed_transfer_child_archive_birth(
+                                &transition.plan,
+                                history,
+                                &permit,
+                            )
+                            .await
+                            .map_err(catalog_error)?;
+                        if directory
+                            .has_group_archive_binding(&birth)
+                            .await
+                            .map_err(transfer_archive_error)?
+                        {
+                            return Err(FleetCatalogError::Conflict);
+                        }
+                        let prepared = directory
+                            .prepare_group_archive_binding(domain, archives, &birth)
+                            .await
+                            .map_err(transfer_archive_error)?;
+                        Ok(RaftGroupArchiveInitialization { prepared })
+                    }))
+                    .await
+                    .map_err(|_| FleetCatalogError::Closed)?
+            }),
+        )
+        .await
+    }
+
+    /// Verify the exact persisted child archive binding after an uncertain
+    /// setup reply. An incomplete registry refuses without creating state.
+    pub async fn verify_managed_transfer_child_archive(
+        &self,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        history: GroupHistory,
+        archives: &CellGroupArchivePool,
+        intent: &[u8],
+        timeout: Duration,
+    ) -> Result<()> {
+        validate_request(&transition.request)?;
+        self.run(
+            timeout,
+            Box::pin(async {
+                let permit = self
+                    .verified_managed_transfer_permit(transition, directory)
+                    .await?;
+                let domain = &self.inner.domain;
+                domain
+                    .run(Box::pin(async {
+                        let birth = directory
+                            .managed_transfer_child_archive_birth(
+                                &transition.plan,
+                                history,
+                                &permit,
+                            )
+                            .await
+                            .map_err(catalog_error)?;
+                        directory
+                            .verify_group_archive_binding(domain, archives, &birth, intent)
+                            .await
+                            .map_err(transfer_archive_error)
+                    }))
+                    .await
+                    .map_err(|_| FleetCatalogError::Closed)?
+            }),
+        )
+        .await
+    }
+
+    /// Replay the held archives in plan order and bind coverage to the
+    /// selected publication and all applied child activations.
+    pub async fn verify_managed_transfer_child_archives(
+        &self,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        archives: &CellGroupArchivePool,
+        tails: &CellGroupArchiveTailPool,
+        children: Vec<CellGroupTransitionSource>,
+        timeout: Duration,
+    ) -> Result<TransitionJournal> {
+        validate_request(&transition.request)?;
+        let deadline = deadline::Deadline::new(self, timeout)?;
+        let permit = self
+            .run(
+                deadline.remaining()?,
+                Box::pin(self.verified_managed_transfer_permit(transition, directory)),
+            )
+            .await?;
+        let domain = &self.inner.domain;
+        domain
+            .run(Box::pin(crate::asyncrt::timeout(
+                deadline.remaining()?,
+                Box::pin(directory.verify_and_record_managed_child_archives(
+                    domain,
+                    archives,
+                    tails,
+                    &transition.plan,
+                    children,
+                    &permit,
+                )),
+            )))
+            .await
+            .map_err(|_| FleetCatalogError::Closed)?
+            .map_err(|_| FleetCatalogError::Unconfirmed)?
+            .map_err(transfer_archive_error)
+    }
+
+    /// Reopen the selected references for retirement reconciliation.
+    pub async fn reopen_managed_transfer_child_holds(
+        &self,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        timeout: Duration,
+    ) -> Result<Option<Vec<CellGroupArchiveHold>>> {
+        validate_request(&transition.request)?;
+        self.run(
+            timeout,
+            Box::pin(async {
+                let permit = self
+                    .verified_managed_transfer_permit(transition, directory)
+                    .await?;
+                self.inner
+                    .domain
+                    .run(Box::pin(
+                        directory.managed_retirement_child_holds(&transition.plan, &permit),
+                    ))
                     .await
                     .map_err(|_| FleetCatalogError::Closed)?
                     .map_err(catalog_error)

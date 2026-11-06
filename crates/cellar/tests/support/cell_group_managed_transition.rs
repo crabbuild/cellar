@@ -344,7 +344,11 @@ async fn exercise(cluster: &mut ManagedCluster, rooted: bool, decision: Decision
             cluster, directory, seeded,
         ))
         .await?;
-        return Box::pin(retirement::reopen_and_retire(
+        Box::pin(retirement::reopen_and_retire(
+            cluster, directory, &recovered,
+        ))
+        .await?;
+        return Box::pin(preparation::verify_child_archive_coverage(
             cluster, directory, &recovered,
         ))
         .await;

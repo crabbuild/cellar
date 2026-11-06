@@ -674,6 +674,18 @@ async fn verify_managed_publication(
             .await,
         Err(CellGroupControllerError::Catalog(_))
     ));
+    ensure!(matches!(
+        fleet
+            .prepare_managed_transfer_child_archive(
+                &reopened,
+                directory,
+                children[0].history,
+                archives,
+                TIMEOUT
+            )
+            .await,
+        Err(FleetCatalogError::Conflict)
+    ));
     for route in children {
         for voter in voters {
             ensure!(!voter.group(route.history)?.status().await?.ready);
@@ -872,6 +884,147 @@ pub(super) async fn verify_transferred_sql(
         ensure!(query.result == [11i64, 12][index].to_be_bytes());
         ensure!(query.served_by_node == restarted.identity());
     }
+    Ok(())
+}
+
+pub(super) async fn verify_child_archive_coverage(
+    cluster: &mut ManagedCluster,
+    directory: &RangeDirectory,
+    transition: &ReopenedManagedCellGroupTransition,
+) -> Result<()> {
+    use std::io::Write as _;
+
+    let domain = cluster.fixtures[0].domain.clone();
+    let fleet = cluster.fixtures[0].catalog.clone();
+    let archives = CellGroupArchivePool::new(Default::default())?;
+    let tails = CellGroupArchiveTailPool::new(Default::default())?;
+    let scratch = tempfile::tempdir()?;
+    let rooted = directory.namespace_config().image_storage == RaftImageStorage::Extents;
+    let view = domain.run(directory.observe()).await??;
+    let children = domain
+        .run(directory.group_page(&view, None, 3))
+        .await??
+        .routes;
+    ensure!(children.len() == 2);
+    for (index, route) in children.iter().enumerate() {
+        let init = fleet
+            .prepare_managed_transfer_child_archive(
+                transition,
+                directory,
+                route.history,
+                &archives,
+                TIMEOUT,
+            )
+            .await?;
+        let mut intent =
+            std::fs::File::create_new(scratch.path().join(format!("child-{index}.intent")))?;
+        let encoded = init.encoded_intent().to_vec();
+        intent.write_all(&encoded)?;
+        intent.sync_all()?;
+        std::fs::File::open(scratch.path())?.sync_all()?;
+        init.commit(&domain).await?;
+        fleet
+            .verify_managed_transfer_child_archive(
+                transition,
+                directory,
+                route.history,
+                &archives,
+                &encoded,
+                TIMEOUT,
+            )
+            .await?;
+        ensure!(matches!(
+            fleet
+                .prepare_managed_transfer_child_archive(
+                    transition,
+                    directory,
+                    route.history,
+                    &archives,
+                    TIMEOUT
+                )
+                .await,
+            Err(FleetCatalogError::Conflict)
+        ));
+    }
+
+    reopen_transfer_destination(cluster, 113, 2, true).await?;
+    let host = &cluster.hosts[DESTINATION];
+    let mut sources = Vec::with_capacity(children.len());
+    let mut holds = Vec::with_capacity(children.len());
+    for (index, route) in children.into_iter().enumerate() {
+        let group = host.group(route.history)?;
+        let applied = group.status().await?.applied.index;
+        tokio::time::timeout(TIMEOUT, async {
+            loop {
+                if group
+                    .archive_status()?
+                    .and_then(|status| status.published)
+                    .is_some_and(|marker| marker.position().index >= applied && marker.is_active())
+                {
+                    return Ok::<_, anyhow::Error>(());
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .context("child archiver did not publish its active cut")??;
+        let birth = domain
+            .run(directory.materialize_selected_history(route.history))
+            .await??;
+        let registry = directory
+            .open_group_archive(domain.as_ref(), &archives, &birth)
+            .await?;
+        let hold = acquire_hold(&domain, &registry).await?;
+        ensure!(hold.marker().position().index >= applied);
+        let base = scratch.path().join(format!("child-verifier-{index}"));
+        let stored = domain
+            .blocking(move || store(base, route, rooted))?
+            .await??;
+        let receiver = CellGroupCheckpointPool::new(checkpoint_limits())?.receive_archive(
+            stored.store,
+            stored.scratch,
+            stored.directory,
+        )?;
+        holds.push(hold.clone());
+        sources.push(CellGroupTransitionSource {
+            birth,
+            hold,
+            receiver,
+        });
+    }
+    ensure!(fleet
+        .reopen_managed_transfer_child_holds(transition, directory, TIMEOUT)
+        .await?
+        .is_none());
+    cluster.fixtures[0]
+        .store
+        .fail_head_confirmation
+        .store(true, Ordering::Release);
+    let recorded = fleet
+        .verify_managed_transfer_child_archives(
+            transition, directory, &archives, &tails, sources, TIMEOUT,
+        )
+        .await;
+    ensure!(
+        matches!(recorded, Err(FleetCatalogError::Unconfirmed)),
+        "child archive CAS result: {recorded:?}"
+    );
+    let reopened = fleet
+        .reopen_managed_transition(directory, transition.plan.operation(), TIMEOUT)
+        .await?
+        .context("managed child archive decision")?;
+    let journal = reopened.journal.as_ref().context("child archive journal")?;
+    ensure!(
+        journal.phase() == TransitionPhase::Active
+            && journal.child_archives().is_some()
+            && !journal.parent_holds_released()
+    );
+    ensure!(
+        fleet
+            .reopen_managed_transfer_child_holds(&reopened, directory, TIMEOUT)
+            .await?
+            == Some(holds)
+    );
     Ok(())
 }
 

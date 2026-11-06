@@ -1166,10 +1166,12 @@ participate in the source quorum for retirement. The parent leader can commit
 its tombstone only after the directory selects the complete Active set. The
 entry binds the replacement publication to the original seal, and the manifest
 and checkpoint preserve both. This tombstone leaves the topology lane and parent
-archive holds pinned while child archive coverage is qualified. The directory
-independently replays the exact held archive of every active child. Each cut
-must retain the installed seed and the selected publication and activation
-position. The directory rechecks all holds before rooting the complete set.
+archive holds pinned while child archive coverage is qualified. Managed setup prepares one archive identity per selected active child. The
+operator persists the exact intent before committing it. A retained voter
+opens the initialized registry and publishes coverage from its applied state.
+The directory independently replays the exact held archive of every active
+child. Each cut must retain the installed seed and the selected publication
+and activation position. The directory rechecks all holds before rooting the complete set.
 It can reopen the selected references after a lost response, with the parent
 holds and topology lane still pinned for retirement settlement. The Retired
 decision binds every committed parent tombstone to that coverage and the exact

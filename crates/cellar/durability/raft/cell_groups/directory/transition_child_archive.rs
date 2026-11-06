@@ -5,6 +5,7 @@ use crate::raft::cell_groups::{
     CellGroupArchiveError, CellGroupArchiveExecution, CellGroupArchiveHold, CellGroupArchivePool,
     CellGroupArchiveTailPool, GroupManifest,
 };
+use crate::raft::fleet_catalog::ManagedTransitionPermit;
 use cellar_logic::consensus::LogPosition;
 use serde::{Deserialize, Serialize};
 
@@ -64,14 +65,50 @@ impl RangeDirectory {
         children: Vec<CellGroupTransitionSource>,
     ) -> Result<TransitionJournal, CellGroupArchiveBindingError> {
         self.unmanaged_birth()?;
+        self.verify_and_record_child_archives_inner(domain, pool, tails, plan, children, None)
+            .await
+    }
+
+    pub(crate) async fn verify_and_record_managed_child_archives(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        pool: &CellGroupArchivePool,
+        tails: &CellGroupArchiveTailPool,
+        plan: &DirectoryMutation,
+        children: Vec<CellGroupTransitionSource>,
+        permit: &ManagedTransitionPermit,
+    ) -> Result<TransitionJournal, CellGroupArchiveBindingError> {
+        permit.check(self, plan)?;
+        self.verify_and_record_child_archives_inner(
+            domain,
+            pool,
+            tails,
+            plan,
+            children,
+            Some(permit),
+        )
+        .await
+    }
+
+    async fn verify_and_record_child_archives_inner(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        pool: &CellGroupArchivePool,
+        tails: &CellGroupArchiveTailPool,
+        plan: &DirectoryMutation,
+        children: Vec<CellGroupTransitionSource>,
+        permit: Option<&ManagedTransitionPermit>,
+    ) -> Result<TransitionJournal, CellGroupArchiveBindingError> {
         self.check_transition_plan(plan)?;
         if children.len() != plan.request.children.len() {
             return Err(CatalogError::Invalid("incomplete transfer child archives").into());
         }
         domain
             .run(Box::pin(async {
-                self.namespace.require_cell_group_unmanaged().await?;
-                let basis = self.bounded(self.child_archive_basis(plan)).await?;
+                if permit.is_none() {
+                    self.namespace.require_cell_group_unmanaged().await?;
+                }
+                let basis = self.bounded(self.child_archive_basis(plan, permit)).await?;
                 let mut hold_records = Vec::with_capacity(children.len());
                 for (index, child) in children.iter().enumerate() {
                     if child.birth.route() != basis.installed[index].route() {
@@ -119,6 +156,7 @@ impl RangeDirectory {
                     basis.publication,
                     basis.activations,
                     digest,
+                    permit,
                 )
                 .await
                 .map_err(Into::into)
@@ -134,9 +172,26 @@ impl RangeDirectory {
         plan: &DirectoryMutation,
     ) -> Result<Option<Vec<CellGroupArchiveHold>>, CatalogError> {
         self.unmanaged_birth()?;
+        self.retirement_child_holds_inner(plan, None).await
+    }
+
+    pub(crate) async fn managed_retirement_child_holds(
+        &self,
+        plan: &DirectoryMutation,
+        permit: &ManagedTransitionPermit,
+    ) -> Result<Option<Vec<CellGroupArchiveHold>>, CatalogError> {
+        permit.check(self, plan)?;
+        self.retirement_child_holds_inner(plan, Some(permit)).await
+    }
+
+    async fn retirement_child_holds_inner(
+        &self,
+        plan: &DirectoryMutation,
+        permit: Option<&ManagedTransitionPermit>,
+    ) -> Result<Option<Vec<CellGroupArchiveHold>>, CatalogError> {
         self.check_transition_plan(plan)?;
         self.bounded(async {
-            let basis = self.child_archive_basis(plan).await?;
+            let basis = self.child_archive_basis(plan, permit).await?;
             let Some(digest) = basis.selected else {
                 return Ok(None);
             };
@@ -164,9 +219,33 @@ impl RangeDirectory {
         .await
     }
 
+    pub(crate) async fn managed_transfer_child_archive_birth(
+        &self,
+        plan: &DirectoryMutation,
+        history: GroupHistory,
+        permit: &ManagedTransitionPermit,
+    ) -> Result<CellGroupBirth, CatalogError> {
+        permit.check(self, plan)?;
+        self.bounded(async {
+            let basis = self.child_archive_basis(plan, Some(permit)).await?;
+            let installed = basis
+                .installed
+                .iter()
+                .find(|marker| marker.route().history == history)
+                .ok_or(CatalogError::Fenced)?;
+            let birth = self.materialize_selected_history(history).await?;
+            if birth.route() != installed.route() {
+                return Err(CatalogError::Fenced);
+            }
+            Ok(birth)
+        })
+        .await
+    }
+
     async fn child_archive_basis(
         &self,
         plan: &DirectoryMutation,
+        permit: Option<&ManagedTransitionPermit>,
     ) -> Result<ChildArchiveBasis, CatalogError> {
         let (view, _) = self.current().await?;
         let journal = self
@@ -187,11 +266,11 @@ impl RangeDirectory {
             .journal_digest();
         let activations = journal.activated_children().ok_or(CatalogError::Fenced)?;
         let installed = self
-            .installed_transfer_children(plan)
+            .installed_transfer_children_inner(plan, permit)
             .await?
             .ok_or(CatalogError::Fenced)?;
         let applied = self
-            .transfer_activations(plan)
+            .transfer_activations_inner(plan, permit)
             .await?
             .ok_or(CatalogError::Fenced)?;
         if installed.len() != plan.request.children.len() || applied.len() != installed.len() {
