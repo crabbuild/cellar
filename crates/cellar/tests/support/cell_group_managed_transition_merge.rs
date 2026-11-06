@@ -982,13 +982,13 @@ async fn run_inner(
             cluster.fixtures[3..]
                 .iter()
                 .enumerate()
-                .map(|(index, fixture)| (parent.history, index, &fixture.spec))
+                .map(|(index, fixture)| (parent.history, index, fixture.spec.clone()))
         })
         .chain(
             cluster.fixtures[..3]
                 .iter()
                 .enumerate()
-                .map(|(index, fixture)| (child.history, index, &fixture.spec)),
+                .map(|(index, fixture)| (child.history, index, fixture.spec.clone())),
         )
         .collect();
     let recovery_workspace = tempfile::tempdir()?;
@@ -1941,7 +1941,7 @@ async fn start_voter(
 
 fn assert_recovery_lineages(
     restored: &cellar::sdk::fleet_operations::RaftFleetVerifiedTransitionRecovery,
-    expected: &[(GroupHistory, usize, &FleetNodeSpec)],
+    expected: &[(GroupHistory, usize, FleetNodeSpec)],
 ) -> Result<()> {
     let required = restored.required_voter_lineages();
     ensure!(required.len() == expected.len());
