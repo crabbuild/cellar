@@ -19,8 +19,10 @@ and CG-08. Those records account for 115 of the 163 required named cases.
 All five CG-07 cases are implemented in the planned public target.
 CG-09 through CG-16 have component and process coverage at their recorded
 revisions. Their planned acceptance targets and task records are outstanding.
-The source preflight reports drift in 14 of 24 reviewed anchors. Review those
-changes before advancing the baseline.
+The audit identified drift in 14 of 24 source anchors. The successor baseline
+at `bcf10c76458e97cc1696bddbebf85d9dfb7d32aa` reviews that drift and pins
+canonical host startup, the durable cache and the Fleet transition owner.
+All 37 plan tests, including preflight, pass with this baseline.
 
 The shared read target at `1d571a411f873fde8d3b4c1cdfcabb65259f1970` passed
 all 16 cases in 60.59 seconds. With the local consensus channels cut, a voter
@@ -296,8 +298,18 @@ and `0deca8b3aba071ab2deb379c3d745380249244c8c93e90ba1c2966273314dc57`.
 Candidate `c554b2a5eb187c482cabc7a56e2202d4e2f26d56` restricts the original
 birth inspection to original cold voters. The standby still checks the
 selected boot, applied manifest, promotion through a fresh quorum and local
-SQL readiness before ingress. Requalify both constrained image modes on
-the candidate, then run the combined campaign on PR #160's executable source.
+SQL readiness before ingress. The candidate passed both constrained RustFS
+image modes in 102.951 and 113.427 seconds. Replacement member 4 served
+native and Axum SQL as leader, replayed the archived receipt with S3
+durability and accepted fresh quorum writes. The suite record SHA-256 is
+`c377e7206ef3f5194ed9e706743afcd15275c7cdf4cf512cc8ec645bcc2e464c`.
+
+The PR-source harness at `bcf10c76458e97cc1696bddbebf85d9dfb7d32aa` adds the
+replacement leader drain, joined shutdown proof and linearizable SQL on the
+surviving quorum before inducing quorum loss. The native daemon and targeted
+Clippy pass. The native daemon log SHA-256 is
+`4cc00ce662f271e88b11a12c06d9107178044f8f2844a1805a68a0a7fb9473a4`.
+The constrained run of this revision remains pending.
 
 ## CG-07 shared cell version key rotation
 

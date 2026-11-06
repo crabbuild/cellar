@@ -109,13 +109,12 @@ a committed command and its applied receipt. Explicit S3 durability waits for
 archive proof. The release should define which SQL capabilities are available
 through the shared backend and preserve typed refusals for the rest.
 
-1. **Close CG-07 failed-voter repair and managed lifecycle.** After restoring
-   retained seed endpoints, the constrained materialized RustFS candidate
-   promoted the standby and removed the failed voter while retaining its
-   disk. The replacement then hit a fixture startup check for the original
-   birth voters. Verify the corrected startup through a fresh quorum, native
-   and Axum receipt replay, and a new quorum write in both image modes. Run
-   repair, drain, maintenance and retained inventory on the public PR source.
+1. **Close CG-07 failed-voter repair and managed lifecycle.** The corrected
+   constrained RustFS candidate passed both image modes. It promoted the
+   standby, retained the failed disk, replayed the archived receipt and
+   served fresh quorum SQL through both ingress adapters. Run repair, joined
+   drain, maintenance and retained inventory together on the public PR
+   executable source.
 2. **Pass the combined CG-07 RF3 SQL gate.** Use one source revision for
    onboarding, enrollment, ingress-only SDK routing, native and Axum reads and
    writes, leader loss, exact retries, retained restart and quorum refusal.
