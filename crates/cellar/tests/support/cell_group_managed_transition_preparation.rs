@@ -12,6 +12,7 @@ use cellar::application::consensus::verification::cell_groups::{
 use cellar::application::consensus::verification::FleetHistoryState;
 use cellar::sdk::fleet_operations::{
     RaftFleetControl, RaftFleetFailureCode, RaftFleetTransitionActivationRequest,
+    RaftFleetTransitionPublishRequest,
 };
 use cellar_ltx::{
     generation::{GenerationStore, ReadServices},
@@ -640,16 +641,64 @@ async fn verify_managed_publication(
         Err(CellGroupControllerError::Catalog(_))
     ));
 
+    let controller = Fixture::open_catalog(domain, fixture.store.clone(), cluster.history.cluster)?;
+    let control = RaftFleetControl::new(domain, controller, vec![directory.clone()])?;
+    let namespace = hex::encode(cluster.history.namespace.bytes());
+    let operation = hex::encode(transition.plan.operation().bytes());
+    let principal = &transition.request.principal;
+    let status = control
+        .transition_status(&namespace, &operation, TIMEOUT)
+        .await?;
+    ensure!(status.phase == Some(TransitionPhase::Archived));
+    let archive_digest = status
+        .transfer_archive_digest
+        .context("archived operator cut")?;
+    ensure!(archive_digest == hex::encode(closure));
+    let publish = RaftFleetTransitionPublishRequest {
+        catalog_id: status.catalog_id,
+        namespace_id: namespace.clone(),
+        operation_id: operation.clone(),
+        request_id: hex::encode([218; 16]),
+        plan_digest: status.plan_digest,
+        archive_digest,
+    };
+    let wrong_archive = RaftFleetTransitionPublishRequest {
+        archive_digest: hex::encode([33; 32]),
+        ..publish.clone()
+    };
+    let refused = control
+        .publish_transition(principal, &namespace, &operation, &wrong_archive, TIMEOUT)
+        .await;
+    ensure!(matches!(refused, Err(failure) if failure.code == RaftFleetFailureCode::Conflict));
+    ensure!(domain.run(directory.observe()).await??.revision() == before.revision());
+
     fixture
         .store
         .fail_head_confirmation
         .store(true, Ordering::Release);
-    let publication = fleet
-        .publish_managed_transfer(transition, directory, archives, TIMEOUT)
-        .await?;
+    let published = crate::managed_fixture::operator::publish_transition(
+        fixture, directory, principal, &publish,
+    )
+    .await?;
     ensure!(!fixture.store.fail_head_confirmation.load(Ordering::Acquire));
-    ensure!(publication.transfer_archive() == Some(closure));
-    ensure!(publication.revision() == before.revision() + 1);
+    let publication = domain
+        .run(directory.publication(&transition.plan))
+        .await??
+        .context("operator publication certificate")?;
+    ensure!(
+        publication.transfer_archive() == Some(closure)
+            && published.directory_revision == before.revision() + 1
+            && published.directory_revision == publication.revision()
+            && published.publication_digest == hex::encode(publication.journal_digest())
+            && Some(published.tree_digest.as_str())
+                == publication.tree_digest().map(hex::encode).as_deref()
+    );
+    ensure!(
+        control
+            .publish_transition(principal, &namespace, &operation, &publish, TIMEOUT)
+            .await?
+            == published
+    );
     let after = domain.run(directory.observe()).await??;
     let selected = domain.run(directory.group_page(&after, None, 3)).await??;
     ensure!(after.revision() == publication.revision());
@@ -697,11 +746,6 @@ async fn verify_managed_publication(
         }
     }
 
-    let controller = Fixture::open_catalog(domain, fixture.store.clone(), cluster.history.cluster)?;
-    let control = RaftFleetControl::new(domain, controller.clone(), vec![directory.clone()])?;
-    let namespace = hex::encode(cluster.history.namespace.bytes());
-    let operation = hex::encode(reopened.plan.operation().bytes());
-    let principal = &reopened.request.principal;
     let request = |index: usize| RaftFleetTransitionActivationRequest {
         catalog_id: control.catalog_id().to_owned(),
         namespace_id: namespace.clone(),

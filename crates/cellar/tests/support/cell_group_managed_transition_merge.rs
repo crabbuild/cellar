@@ -11,8 +11,8 @@ use cellar::application::consensus::verification::{
     FleetHistoryState,
 };
 use cellar::sdk::fleet_operations::{
-    RaftFleetControl, RaftFleetFailureCode, RaftFleetOutcome, RaftFleetTransitionResume,
-    RaftFleetTransitionResumeStep,
+    RaftFleetControl, RaftFleetFailureCode, RaftFleetOutcome, RaftFleetTransitionPublishRequest,
+    RaftFleetTransitionResume, RaftFleetTransitionResumeStep,
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -562,12 +562,32 @@ pub(super) async fn run(
         archived.phase() == TransitionPhase::Archived
             && archived.sealed_sources() == Some(sealed_digest)
     );
-    let published = fleet
-        .publish_managed_transfer(&transition, directory, &archives.pool, TIMEOUT)
+    let namespace = hex::encode(child.history.namespace.bytes());
+    let operation_id = hex::encode(operation.bytes());
+    let principal = &transition.request.principal;
+    let status = control
+        .transition_status(&namespace, &operation_id, TIMEOUT)
+        .await?;
+    ensure!(status.phase == Some(TransitionPhase::Archived));
+    let archive = archived
+        .transfer_archive()
+        .context("merged archive closure")?;
+    let publish = RaftFleetTransitionPublishRequest {
+        catalog_id: status.catalog_id,
+        namespace_id: namespace.clone(),
+        operation_id: operation_id.clone(),
+        request_id: hex::encode([218; 16]),
+        plan_digest: status.plan_digest,
+        archive_digest: status
+            .transfer_archive_digest
+            .context("archived merge cut")?,
+    };
+    ensure!(publish.archive_digest == hex::encode(archive));
+    let published = control
+        .publish_transition(principal, &namespace, &operation_id, &publish, TIMEOUT)
         .await
         .context("publish merged child after both seals")?;
-    ensure!(published.transfer_archive() == archived.transfer_archive());
-    ensure!(published.revision() == view.revision() + 1);
+    ensure!(published.directory_revision == view.revision() + 1);
     let after = domain.run(directory.observe()).await??;
     let page = domain.run(directory.group_page(&after, None, 2)).await??;
     ensure!(page.next.is_none() && page.routes == vec![child.clone()]);
@@ -597,6 +617,10 @@ pub(super) async fn run(
         &control,
     ))
     .await?;
+    let historical = control
+        .publish_transition(principal, &namespace, &operation_id, &publish, TIMEOUT)
+        .await?;
+    ensure!(historical == published);
     let voters = &cluster.hosts[..3];
     let host = &voters[leader(voters, child.history).await?];
     for (index, (cell, expected)) in routed.into_iter().enumerate() {

@@ -25,6 +25,8 @@ pub struct RaftFleetTransitionStatus {
     pub plan_digest: String,
     /// Absent until the accepted Fleet intent has a directory journal.
     pub phase: Option<TransitionPhase>,
+    /// Exact independently verified transfer archive selected by the journal.
+    pub transfer_archive_digest: Option<String>,
     pub child_archives_verified: bool,
     pub parent_holds_released: bool,
     /// Sampled at the reported Fleet revision. Directory cleanup precedes
@@ -56,6 +58,9 @@ impl RaftFleetControl {
             observed_fleet_revision: observation.fleet_revision,
             plan_digest: hex::encode(observation.transition.plan.digest()),
             phase: journal.map(|journal| journal.phase()),
+            transfer_archive_digest: journal
+                .and_then(|journal| journal.transfer_archive())
+                .map(hex::encode),
             child_archives_verified: journal
                 .is_some_and(|journal| journal.child_archives().is_some()),
             parent_holds_released: journal.is_some_and(|journal| journal.parent_holds_released()),
@@ -175,6 +180,123 @@ impl RaftFleetControl {
             request: request.clone(),
             applied_revision: commit.applied_revision,
             observed_fleet_revision: commit.snapshot.revision(),
+        })
+    }
+}
+
+/// Select the child ranges for an exact verified transfer archive.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RaftFleetTransitionPublishRequest {
+    pub catalog_id: String,
+    pub namespace_id: String,
+    pub operation_id: String,
+    pub request_id: String,
+    pub plan_digest: String,
+    pub archive_digest: String,
+}
+
+impl RaftFleetTransitionPublishRequest {
+    pub fn validate(&self, namespace: &str, operation: &str) -> Result<()> {
+        for digest in [&self.catalog_id, &self.plan_digest, &self.archive_digest] {
+            records::catalog_id(digest)?;
+        }
+        for id in [namespace, operation, &self.request_id] {
+            records::id(id)?;
+        }
+        if self.namespace_id != namespace || self.operation_id != operation {
+            return Err(RaftFleetFailure::invalid("transition selector mismatch"));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RaftFleetTransitionPublication {
+    pub request: RaftFleetTransitionPublishRequest,
+    /// Original namespace directory revision, including on historical retry.
+    pub directory_revision: u64,
+    pub tree_digest: String,
+    pub publication_digest: String,
+}
+
+impl RaftFleetControl {
+    /// Atomically publish the admitted child partition, or return its exact
+    /// immutable publication certificate after an uncertain response.
+    pub async fn publish_transition(
+        &self,
+        principal: &str,
+        namespace: &str,
+        operation: &str,
+        request: &RaftFleetTransitionPublishRequest,
+        timeout: Duration,
+    ) -> Result<RaftFleetTransitionPublication> {
+        request.validate(namespace, operation)?;
+        self.check_catalog(&request.catalog_id)?;
+        let directory = self.managed_namespace(namespace)?;
+        let operation = ProposalId::new(records::id(operation)?)
+            .map_err(|_| RaftFleetFailure::invalid("operation ID"))?;
+        let turn = Turn::new(&self.domain, timeout)?;
+        let transition = self
+            .authorize_transition_operator(
+                directory,
+                operation,
+                principal,
+                &request.plan_digest,
+                turn.remaining()?,
+            )
+            .await?;
+        let journal = transition
+            .journal
+            .as_ref()
+            .ok_or(FleetCatalogError::Conflict)?;
+        let archive = journal
+            .transfer_archive()
+            .ok_or(FleetCatalogError::Conflict)?;
+        if hex::encode(archive) != request.archive_digest {
+            return Err(FleetCatalogError::Conflict.into());
+        }
+        let publication = match journal.phase() {
+            TransitionPhase::Archived => {
+                self.catalog
+                    .publish_managed_transfer(
+                        &transition,
+                        directory,
+                        &self.archive_pool,
+                        turn.remaining()?,
+                    )
+                    .await?
+            }
+            TransitionPhase::Published | TransitionPhase::Active | TransitionPhase::Retired => self
+                .domain
+                .run(Box::pin(crate::asyncrt::timeout(
+                    turn.remaining()?,
+                    Box::pin(directory.publication(&transition.plan)),
+                )))
+                .await
+                .map_err(|_| FleetCatalogError::Closed)?
+                .map_err(|_| FleetCatalogError::Unconfirmed)?
+                .map_err(|error| match error {
+                    crate::raft::catalog::CatalogError::Unconfirmed => {
+                        FleetCatalogError::Unconfirmed
+                    }
+                    error => FleetCatalogError::from(error),
+                })?
+                .ok_or(FleetCatalogError::Corrupt("missing transfer publication"))?,
+            _ => return Err(FleetCatalogError::Conflict.into()),
+        };
+        if publication.operation() != operation || publication.transfer_archive() != Some(archive) {
+            return Err(FleetCatalogError::Corrupt("transfer publication binding").into());
+        }
+        let tree = publication.tree_digest().ok_or(FleetCatalogError::Corrupt(
+            "empty transfer publication tree",
+        ))?;
+        Ok(RaftFleetTransitionPublication {
+            request: request.clone(),
+            directory_revision: publication.revision(),
+            tree_digest: hex::encode(tree),
+            publication_digest: hex::encode(publication.journal_digest()),
         })
     }
 }

@@ -111,6 +111,36 @@ pub(crate) async fn resume_transition(
     Ok(serde_json::from_value(result?.success()?)?)
 }
 
+pub(crate) async fn publish_transition(
+    fixture: &Fixture,
+    directory: &RangeDirectory,
+    principal: &str,
+    request: &RaftFleetTransitionPublishRequest,
+) -> Result<RaftFleetTransitionPublication> {
+    let root = tempfile::tempdir()?;
+    let cli = open_cli(fixture, directory, root.path(), principal, None).await?;
+    let plan = root.path().join("transition-publication.json");
+    std::fs::write(&plan, serde_json::to_vec(request)?)?;
+    let path = plan
+        .to_str()
+        .context("UTF-8 transition publication plan path")?;
+    let command = [
+        "transition",
+        "publish",
+        &request.namespace_id,
+        "--plan",
+        path,
+    ];
+    let result = async {
+        ensure!(cli.call(&command, READER).await?.code == 4);
+        let value = cli.call(&command, OWNER).await?.success()?;
+        Ok::<_, anyhow::Error>(serde_json::from_value(value)?)
+    }
+    .await;
+    cli.close().await?;
+    result
+}
+
 pub(crate) async fn activate_transition_child(
     fixture: &Fixture,
     directory: &RangeDirectory,

@@ -1156,7 +1156,14 @@ certificate binding the archive closure. An exact retry can recover that
 certificate after a lost response. The same CAS roots a permanent birth fence
 for every child. Ordinary initial bootstrap refuses those children even when a
 separate install receipt is unavailable. Managed publication rechecks the
-active fleet plan and the exact storage of the reserved child voters. Children
+active fleet plan and the exact storage of the reserved child voters.
+
+Use `cellar raft fleet transition publish NAMESPACE_HEX --plan REQUEST.json --catalog-id DIGEST`
+after the transition reaches Archived. The request binds the admitted plan
+and the exact transfer archive digest reported by transition status. The
+operation's principal needs the Fleet topology grant. An exact retry returns
+the original publication certificate and directory revision, including after
+the transfer has retired. Children
 validate their exact transition and refuse replay after later retirement. The
 managed activation permit binds the selected route and install receipt to the
 current boot and initial voter configuration. The child Raft owner admits the

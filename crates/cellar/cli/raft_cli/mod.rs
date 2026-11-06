@@ -253,6 +253,21 @@ async fn execute(options: &options::Options) -> Result<Value> {
             }
             serde_json::to_value(view).map_err(|_| unavailable())
         }
+        Action::TransitionPublish(request) => {
+            let path = format!(
+                "namespaces/{}/transitions/{}/publish",
+                request.namespace_id, request.operation_id,
+            );
+            let published = client
+                .post::<RaftFleetTransitionPublication>(&path, request.as_ref())
+                .await?;
+            check_catalog(None, &published.tree_digest)?;
+            check_catalog(None, &published.publication_digest)?;
+            if published.request != **request || published.directory_revision == 0 {
+                return Err(unavailable());
+            }
+            serde_json::to_value(published).map_err(|_| unavailable())
+        }
         Action::TransitionActivate(request) => {
             use crate::raft::cell_groups::TransitionPhase;
             let path = format!(

@@ -46,7 +46,8 @@ pub use records::{
 use std::{sync::Arc, time::Duration};
 pub use transition::{
     RaftFleetTransitionActivation, RaftFleetTransitionActivationPosition,
-    RaftFleetTransitionActivationRequest, RaftFleetTransitionResume,
+    RaftFleetTransitionActivationRequest, RaftFleetTransitionPublication,
+    RaftFleetTransitionPublishRequest, RaftFleetTransitionResume,
     RaftFleetTransitionResumeAcceptance, RaftFleetTransitionResumeStep, RaftFleetTransitionStatus,
 };
 
