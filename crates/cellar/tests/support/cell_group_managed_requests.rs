@@ -189,6 +189,8 @@ async fn exercise(cluster: &mut nodes::Cluster) -> Result<()> {
         retry,
     ))
     .await?;
+    let group = cluster.managed.hosts[first].group(cluster.managed.history)?;
+    let before_writes = group.observe_partition(TIMEOUT).await?;
     let one = cluster
         .web()?
         .command(&client, ((first + 1) % 3, false), "one", 7, 1, retry)
@@ -203,6 +205,25 @@ async fn exercise(cluster: &mut nodes::Cluster) -> Result<()> {
     http::value(&two, "two", 11)?;
     ensure!(one["group"] == two["group"]);
     ensure!(one["cell"] != two["cell"]);
+    let after_writes = group.observe_partition(TIMEOUT).await?;
+    ensure!(after_writes.workload.admitted_writes == before_writes.workload.admitted_writes + 2);
+    ensure!(after_writes.workload.applied_writes == before_writes.workload.applied_writes + 2);
+    let context = CellGroupPartitionContext {
+        directory_digest: [1; 32],
+        topology_changed_at_ms: before_writes.workload.sampled_at_ms,
+        durability: Durability::Quorum,
+        placement_class: [2; 32],
+        leader_cpu_bps: 0,
+        failure_domain_load_bps: 0,
+        active_and_stable: true,
+    };
+    let rates = after_writes
+        .sample_since(&before_writes, context)
+        .context("same-owner workload sample")?;
+    let elapsed = after_writes.workload.sampled_at_ms - before_writes.workload.sampled_at_ms;
+    ensure!(rates.load.cells == 2 && rates.load.writes_per_second == 2_000 / elapsed);
+    ensure!(rates.applies_per_second == rates.load.writes_per_second);
+    ensure!(after_writes.sample_since(&after_writes, context).is_none());
     for index in 0..3 {
         for axum in [false, true] {
             let duplicate = cluster
@@ -243,6 +264,9 @@ async fn exercise(cluster: &mut nodes::Cluster) -> Result<()> {
             );
         }
     }
+    let after_replays = group.observe_partition(TIMEOUT).await?;
+    ensure!(after_replays.workload.admitted_writes == after_writes.workload.admitted_writes);
+    ensure!(after_replays.workload.applied_writes == after_writes.workload.applied_writes);
     Box::pin(check_routed_authority(cluster.web()?, &client, retry, &one)).await?;
     let routed = cluster
         .web()?
@@ -403,6 +427,11 @@ async fn exercise(cluster: &mut nodes::Cluster) -> Result<()> {
     Box::pin(cluster.restart()).await?;
     let resumed = cluster.leader().await?;
     cluster.inventory().await?;
+    let restarted = cluster.managed.hosts[resumed]
+        .group(cluster.managed.history)?
+        .observe_partition(TIMEOUT)
+        .await?;
+    ensure!(restarted.sample_since(&after_replays, context).is_none());
     let duplicate = cluster
         .web()?
         .command(&client, (resumed, true), "one", 7, 1, retry)

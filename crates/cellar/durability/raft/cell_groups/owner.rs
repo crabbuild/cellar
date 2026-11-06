@@ -22,6 +22,7 @@ use cellar_logic::{
     consensus::{LogIndex, LogPosition, MemberId, OperationId, ReplicaIdentity, Term},
 };
 use protobuf::Message as _;
+use rand::RngCore as _;
 use std::{
     collections::VecDeque,
     sync::{
@@ -214,6 +215,11 @@ struct ConfigurationFence {
     announced: bool,
 }
 
+struct PendingApply {
+    entry: Entry,
+    queued_at_ms: u64,
+}
+
 pub struct CellGroupOwner {
     log_admission: super::log_admission::LogAdmission,
     leader_term: Arc<AtomicU64>,
@@ -232,7 +238,10 @@ pub struct CellGroupOwner {
     effects: VecDeque<CellGroupEffect>,
     deliveries: Vec<Weak<crate::raft::budget::Permit>>,
     configuration_fence: Option<ConfigurationFence>,
-    apply: VecDeque<Entry>,
+    apply: VecDeque<PendingApply>,
+    workload_owner: [u8; 16],
+    admitted_writes: u64,
+    applied_writes: u64,
     apply_bytes: usize,
     applying: Option<CellGroupTicket>,
     next_ticket: u64,
@@ -309,6 +318,8 @@ impl CellGroupOwner {
             &logger,
             Some(seed),
         )?;
+        let mut workload_owner = [0; 16];
+        crate::asyncrt::rng("cell-group-workload-owner").fill_bytes(&mut workload_owner);
         Ok(Self {
             log_admission: Default::default(),
             leader_term: Arc::new(AtomicU64::new(0)),
@@ -332,6 +343,9 @@ impl CellGroupOwner {
             deliveries: Vec::new(),
             configuration_fence: None,
             apply: VecDeque::new(),
+            workload_owner,
+            admitted_writes: 0,
+            applied_writes: 0,
             apply_bytes: 0,
             applying: None,
             next_ticket: 0,
@@ -771,6 +785,11 @@ impl CellGroupOwner {
             return Err(RuntimeError::NotReady);
         }
         let pins = &self.current.images;
+        let sampled_at_ms = self
+            .log
+            .domain()
+            .mono_ms()
+            .map_err(|_| RuntimeError::Closed)?;
         let cells = marker.root().cells();
         let largest_cell = pins.largest_image_rank().and_then(|(rank, logical_bytes)| {
             Some(super::CellGroupPartitionCell {
@@ -787,6 +806,21 @@ impl CellGroupOwner {
             )
             .map_err(|_| RuntimeError::NotReady)?,
             status: self.status_at(&cache),
+            stable_leader: marker.is_active()
+                && self.pending_seal.is_none()
+                && self.configuration_fence.is_none()
+                && cache.conf_state.voters_outgoing.is_empty()
+                && self.node.raft.pending_conf_index <= marker.position().index.get()
+                && self.selected_leader(&cache),
+            workload: super::CellGroupWorkload {
+                owner: self.workload_owner,
+                sampled_at_ms,
+                admitted_writes: self.admitted_writes,
+                applied_writes: self.applied_writes,
+                queue_age_ms: self.apply.front().map_or(0, |pending| {
+                    sampled_at_ms.saturating_sub(pending.queued_at_ms)
+                }),
+            },
             cells,
             logical_bytes: pins.logical_bytes(),
             last_mutation: marker.root().last_mutation(),
@@ -837,6 +871,13 @@ impl CellGroupOwner {
     }
 
     fn protocol_ready(&self, cache: &crate::raft::cache::CachedGroup) -> bool {
+        self.phase.is_none()
+            && self.checkpoint.is_none()
+            && self.apply_bytes < self.options.max_group_apply_bytes
+            && self.selected_leader(cache)
+    }
+
+    fn selected_leader(&self, cache: &crate::raft::cache::CachedGroup) -> bool {
         self.node.raft.state == StateRole::Leader
             && self.node.raft.lead_transferee.is_none()
             && self
@@ -846,9 +887,6 @@ impl CellGroupOwner {
                 .conf()
                 .voters()
                 .contains(self.node.raft.id)
-            && self.phase.is_none()
-            && self.checkpoint.is_none()
-            && self.apply_bytes < self.options.max_group_apply_bytes
             && self.current.marker().position().term.get() == self.node.raft.term
             && cache.hard_state.term == self.node.raft.term
             && cache.group_manifest.as_ref() == Some(self.current.marker())
@@ -1578,6 +1616,10 @@ impl CellGroupOwner {
             GroupEntryLimits::default(),
         )
         .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
+        let is_write = matches!(
+            &entry.command,
+            GroupCommand::Mutation(_) | GroupCommand::Enroll { .. }
+        );
         let admission = match self.proposals.check(
             &entry,
             &data,
@@ -1648,6 +1690,9 @@ impl CellGroupOwner {
             }
         };
         self.proposals.accept(candidate, accepted.clone(), permit);
+        if is_write {
+            self.admitted_writes = self.admitted_writes.saturating_add(1);
+        }
         Ok(Some(accepted))
     }
 
@@ -1790,8 +1835,8 @@ impl CellGroupOwner {
         {
             return Err(RuntimeError::StaleCompletion);
         }
-        let entry = self.apply.front().ok_or(RuntimeError::StaleCompletion)?;
-        self.validate_apply(entry, &next)?;
+        let pending = self.apply.front().ok_or(RuntimeError::StaleCompletion)?;
+        self.validate_apply(&pending.entry, &next)?;
         self.phase = Some(Phase::Apply(ticket, Box::new(next), false));
         Ok(())
     }
@@ -1940,10 +1985,20 @@ impl CellGroupOwner {
     }
 
     fn enqueue(&mut self, entries: Vec<Entry>) -> Result<(), RuntimeError> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        let queued_at_ms = self
+            .log
+            .domain()
+            .mono_ms()
+            .map_err(|_| RuntimeError::Closed)?;
         let mut previous = self
             .apply
             .back()
-            .map_or(self.current.marker().position().index.get(), |e| e.index);
+            .map_or(self.current.marker().position().index.get(), |pending| {
+                pending.entry.index
+            });
         let committed = self.group.initial_state()?.hard_state.commit;
         for entry in entries {
             if entry.index != previous + 1 || entry.index > committed {
@@ -1964,7 +2019,10 @@ impl CellGroupOwner {
             {
                 return Err(RuntimeError::Overloaded);
             }
-            self.apply.push_back(entry);
+            self.apply.push_back(PendingApply {
+                entry,
+                queued_at_ms,
+            });
         }
         Ok(())
     }
@@ -2172,7 +2230,11 @@ impl CellGroupOwner {
                     if !submitted {
                         let mut write = GroupWrite::new(&self.group);
                         write.group_manifest = Some((*next).clone());
-                        let entry = self.apply.front().ok_or(RuntimeError::StaleCompletion)?;
+                        let entry = &self
+                            .apply
+                            .front()
+                            .ok_or(RuntimeError::StaleCompletion)?
+                            .entry;
                         if entry.get_entry_type() == EntryType::EntryConfChangeV2 {
                             let cache = self.group.read()?;
                             let transition = super::membership::transition(
@@ -2190,7 +2252,11 @@ impl CellGroupOwner {
                     if self.group.group_manifest()?.as_ref() != Some(next.marker()) {
                         return Err(RuntimeError::StaleCompletion);
                     }
-                    let entry = self.apply.front().ok_or(RuntimeError::StaleCompletion)?;
+                    let entry = &self
+                        .apply
+                        .front()
+                        .ok_or(RuntimeError::StaleCompletion)?
+                        .entry;
                     if entry.get_entry_type() == EntryType::EntryConfChangeV2 {
                         let change =
                             super::membership::decode(entry, self.current.marker().route())?;
@@ -2228,8 +2294,13 @@ impl CellGroupOwner {
                         .apply
                         .pop_front()
                         .ok_or(RuntimeError::StaleCompletion)?;
-                    self.apply_bytes -= entry.compute_size() as usize + 128;
+                    self.apply_bytes -= entry.entry.compute_size() as usize + 128;
                     self.applying = None;
+                    // A fresh installed leaf has this exact local Raft
+                    // position. Metadata entries and snapshots do not.
+                    if next.marker().root().last_mutation() == Some(ticket.position) {
+                        self.applied_writes = self.applied_writes.saturating_add(1);
+                    }
                     self.current = *next;
                     self.proposals.applied(ticket.position);
                     // Physical preparation and publication have settled. Its
@@ -2257,6 +2328,7 @@ impl CellGroupOwner {
                     let configuration_index = self
                         .apply
                         .front()
+                        .map(|pending| &pending.entry)
                         .filter(|e| e.get_entry_type() == EntryType::EntryConfChangeV2)
                         .filter(|_| self.node.raft.raft_log.unstable_snapshot().is_none())
                         .map(|e| e.index);
@@ -2358,7 +2430,8 @@ impl CellGroupOwner {
                             continue;
                         }
                     }
-                    let Some(entry) = self.apply.front().cloned() else {
+                    let Some(entry) = self.apply.front().map(|pending| pending.entry.clone())
+                    else {
                         return Ok(None);
                     };
                     let ticket = self.ticket(entry_position(&entry), entry_digest(&entry)?)?;

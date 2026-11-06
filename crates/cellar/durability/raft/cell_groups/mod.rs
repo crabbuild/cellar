@@ -90,7 +90,8 @@ mod observation;
 mod owner;
 pub use membership_observation::CellGroupQuorumMembership;
 pub use observation::{
-    CellGroupObservation, CellGroupPartitionCell, CellGroupPartitionObservation,
+    CellGroupObservation, CellGroupPartitionCell, CellGroupPartitionContext,
+    CellGroupPartitionObservation, CellGroupWorkload,
 };
 mod page_store;
 mod page_wire;

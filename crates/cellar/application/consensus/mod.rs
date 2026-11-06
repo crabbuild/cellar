@@ -51,6 +51,10 @@ pub use crate::raft::catalog::{
 };
 pub use crate::raft::catalog::{Catalog, CatalogError};
 pub use crate::raft::disaster::S3DisasterRecovery;
+pub use cellar_logic::cell_group_placement::{
+    HotCell, PartitionBasis, PartitionDecision, PartitionLimits, PartitionLoad, PartitionPolicy,
+    PartitionSample, PartitionTracker, SplitReason, WaitReason,
+};
 pub use cellar_logic::raft_leadership::LeaderPolicy;
 pub use cellar_logic::raft_placement::PlacementPolicy;
 
@@ -61,14 +65,14 @@ pub use crate::raft::cell_groups::{
     CellGroupArchiveTailLimits, CellGroupArchiveTailPool, CellGroupArchiveUploadLimits,
     CellGroupBirthSpec, CellGroupCheckpointLimits, CellGroupCheckpointPolicy,
     CellGroupControllerError, CellGroupControllerLimits, CellGroupDisasterFenceRequest,
-    CellGroupHostLimits, CellGroupObservation, CellGroupPartitionCell,
+    CellGroupHostLimits, CellGroupObservation, CellGroupPartitionCell, CellGroupPartitionContext,
     CellGroupPartitionObservation, CellGroupProposal, CellGroupProvisionLimits,
     CellGroupQuorumMembership, CellGroupRecoveryLimits, CellGroupRecoveryPool,
     CellGroupSealOutcome, CellGroupSourceRetirement, CellGroupSourceRetirementAck,
     CellGroupTransferActivation, CellGroupTransferActivationAck, CellGroupTransferArchive,
-    CellGroupTransitionSource, CellReceiptRequest, CellReceiptResponse, CellSqlLimits,
-    DirectoryLimits, DirectoryPublication, GroupSourceSeal, InstalledTransferVoter, ManifestLimits,
-    TransferChildQuorum, TransferInstallQuorum, VerifiedCellGroupTransitionSources,
+    CellGroupTransitionSource, CellGroupWorkload, CellReceiptRequest, CellReceiptResponse,
+    CellSqlLimits, DirectoryLimits, DirectoryPublication, GroupSourceSeal, InstalledTransferVoter,
+    ManifestLimits, TransferChildQuorum, TransferInstallQuorum, VerifiedCellGroupTransitionSources,
 };
 pub use crate::raft::fleet_catalog::{
     fleet_capacity_profile_digest, FleetAbortedMovementCompletion, FleetCapacityAction,
