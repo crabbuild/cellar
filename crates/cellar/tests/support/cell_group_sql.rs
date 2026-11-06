@@ -565,6 +565,7 @@ mod outbox_effects;
 #[allow(unused_imports)]
 pub(crate) use archive_controller::{
     archive_checkpoint_frontier, archive_controller_publish, archive_controller_reconcile,
+    archived_groups_reclaim_independently,
 };
 #[allow(unused_imports)]
 pub(crate) use archive_controller::{

@@ -23,6 +23,23 @@ mod rustfs;
 
 include!("support/cell_group_engine_fixture.rs");
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn short_archived_groups_checkpoint_and_recover_independently() -> Result<()> {
+    Box::pin(runtime_fixture::archived_groups_reclaim_independently(
+        Arc::new(object_store::memory::InMemory::new()),
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires isolated local RustFS"]
+async fn rustfs_short_archived_groups_checkpoint_and_recover_independently() -> Result<()> {
+    Box::pin(runtime_fixture::archived_groups_reclaim_independently(
+        rustfs::store("concurrent-archive-reclamation", false)?,
+    ))
+    .await
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn archived_progress_wakes_commands_without_maintenance_poll() -> Result<()> {
     for rooted in [false, true] {

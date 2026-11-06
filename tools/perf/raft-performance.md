@@ -747,6 +747,13 @@ receive reservation stays charged. Both restored groups must select their exact
 checkpoint and release the physical reservations. The test covers bounded
 catch-up on three embedded nodes.
 
+The `short_archived_groups_checkpoint_and_recover_independently` case checks
+that three archived groups retain their committed tails while publication is
+held. It then interrupts one group's archive and requires the other two to
+compact and all three to recover their exact SQLite images. The separate
+`rustfs_group_reclaim_restart_keeps_history` case checks physical file
+reclamation and retained-restart receipt replay in both image modes.
+
 The native archive producer can coalesce snapshot/tail payloads for two cells in
 one bounded object. The bundle index binds each exact history; recovery verifies
 the object and physically replays the selected cell before its independent head

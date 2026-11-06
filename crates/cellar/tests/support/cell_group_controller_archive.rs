@@ -1,6 +1,10 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Real three-voter controllers, conditional object-store I/O and private replay.
+#[path = "cell_group_archive_fairness.rs"]
+mod fairness;
+pub(crate) use fairness::archived_groups_reclaim_independently;
+
 use super::*;
 use cellar_logic::consensus::OperationId;
 use futures_util::TryStreamExt;
@@ -92,14 +96,42 @@ pub(super) async fn registration_minimum(
     rooted: bool,
     minimum: Durability,
 ) -> Result<(CellGroupArchiveRegistration, Arc<archive_store::Store>)> {
+    assert_eq!(fixture.cluster.birth.route(), route);
+    assert_eq!(
+        fixture
+            .cluster
+            .directory
+            .namespace_config()
+            .minimum_durability,
+        minimum
+    );
+    registration_for(
+        fixture,
+        &fixture.cluster.directory,
+        &fixture.cluster.birth,
+        rooted,
+    )
+    .await
+}
+
+async fn registration_for(
+    fixture: &RuntimeCluster,
+    selected: &RangeDirectory,
+    birth: &CellGroupBirth,
+    rooted: bool,
+) -> Result<(CellGroupArchiveRegistration, Arc<archive_store::Store>)> {
+    let route = birth.route();
+    let name = hex::encode(route.history.group.bytes());
     let io = CellGroupArchivePool::new(Default::default())?;
-    let binding = fixture
-        .cluster
-        .directory
-        .prepare_group_archive_binding(&fixture.cluster.domain, &io, &fixture.cluster.birth)
+    let binding = selected
+        .prepare_group_archive_binding(&fixture.cluster.domain, &io, birth)
         .await?;
     let bytes = binding.encode().to_vec();
-    let path = fixture.cluster._root.path().join("archive-binding-intent");
+    let path = fixture
+        .cluster
+        ._root
+        .path()
+        .join(format!("archive-binding-intent-{name}"));
     fixture
         .cluster
         .domain
@@ -118,14 +150,7 @@ pub(super) async fn registration_minimum(
     binding.commit(&fixture.cluster.domain).await?;
     let remote = archive_store::Store::around(fixture.cluster.store.clone());
     let catalog = Catalog::new(remote.clone(), Default::default())?;
-    let mut config = NamespaceConfig::new(
-        route.history.cluster,
-        route.history.namespace,
-        cellar_logic::NamespaceMode::Raft,
-        route.schema_digest,
-    );
-    config.minimum_durability = minimum;
-    config.image_storage = fixture.cluster.directory.namespace_config().image_storage;
+    let config = selected.namespace_config().clone();
     let namespace = fixture
         .cluster
         .domain
@@ -137,7 +162,13 @@ pub(super) async fn registration_minimum(
         .domain
         .run(directory.materialize_selected_group(route))
         .await??;
-    let store = verifier(fixture, route, rooted, "controller-archive").await?;
+    let store = verifier(
+        fixture,
+        route,
+        rooted,
+        &format!("controller-archive-{name}"),
+    )
+    .await?;
     Ok((
         CellGroupArchiveRegistration {
             directory,
@@ -228,21 +259,29 @@ pub(super) async fn verified_current(
         ._root
         .path()
         .join("node-1/log/cell-group-archive-journals");
-    let envelope = fixture
+    let history = route.history;
+    let hold = fixture
         .cluster
         .domain
-        .blocking(move || -> Result<serde_json::Value> {
-            let entry = std::fs::read_dir(directory)?
-                .next()
-                .context("journal directory")??;
-            Ok(serde_json::from_slice(&std::fs::read(
-                entry.path().join("state"),
-            )?)?)
+        .blocking(move || -> Result<CellGroupArchiveHold> {
+            for entry in std::fs::read_dir(directory)? {
+                let state = entry?.path().join("state");
+                let envelope: serde_json::Value = serde_json::from_slice(&std::fs::read(state)?)?;
+                let record = &envelope["record"];
+                let Some(hold) =
+                    serde_json::from_value::<Option<CellGroupArchiveHold>>(record["head"].clone())?
+                else {
+                    continue;
+                };
+                if hold.marker().route().history == history {
+                    assert!(record["retire"].is_null());
+                    assert_eq!(record["pending"], "None");
+                    return Ok(hold);
+                }
+            }
+            anyhow::bail!("no selected journal hold for {history:?}")
         })?
         .await??;
-    let hold: CellGroupArchiveHold = serde_json::from_value(envelope["record"]["head"].clone())?;
-    assert!(envelope["record"]["retire"].is_null());
-    assert_eq!(envelope["record"]["pending"], "None");
     let destination = verifier(fixture, route, rooted, name).await?;
     let coverage = registry
         .verify_hold(

@@ -510,6 +510,22 @@ impl RuntimeCluster {
         number: u8,
         filesystem: impl Fn(&Voter) -> Arc<dyn cellar_ltx::FileSystem>,
     ) -> Result<GroupHistory> {
+        let (_, birth) = self
+            .add_group_in_store(
+                number,
+                Arc::new(object_store::memory::InMemory::new()),
+                filesystem,
+            )
+            .await?;
+        Ok(birth.route().history)
+    }
+
+    async fn add_group_in_store(
+        &mut self,
+        number: u8,
+        store: Arc<dyn object_store::ObjectStore>,
+        filesystem: impl Fn(&Voter) -> Arc<dyn cellar_ltx::FileSystem>,
+    ) -> Result<(RangeDirectory, CellGroupBirth)> {
         let scope = GroupHistory {
             cluster: self.cluster.birth.route().history.cluster,
             namespace: NamespaceId::new([number; 16])?,
@@ -517,10 +533,7 @@ impl RuntimeCluster {
             incarnation: IncarnationId::new([number; 16])?,
         };
         let domain = &self.cluster.domain;
-        let catalog = Catalog::new(
-            Arc::new(object_store::memory::InMemory::new()),
-            CatalogOptions::default(),
-        )?;
+        let catalog = Catalog::new(store, CatalogOptions::default())?;
         let namespace = domain
             .run(catalog.open_namespace(NamespaceConfig::new(
                 scope.cluster,
@@ -602,7 +615,7 @@ impl RuntimeCluster {
         }
         self.applied.insert(scope, applied);
         self.extra.insert(scope, voters);
-        Ok(scope)
+        Ok((directory, birth))
     }
 }
 
@@ -864,6 +877,7 @@ pub(super) use sql::{
 #[allow(unused_imports)]
 pub(super) use sql::{
     archive_checkpoint_frontier, archive_controller_publish, archive_controller_reconcile,
+    archived_groups_reclaim_independently,
 };
 #[allow(unused_imports)]
 pub(super) use sql::{archive_controller_publish_store, archive_controller_reconcile_store};
