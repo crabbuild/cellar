@@ -58,8 +58,12 @@ replaying the original command with S3 durability. The leader had applied
 through index 9 and retained one archive settlement. This is a distinct
 failure from the constrained daemon fixture startup. The RustFS suite record
 SHA-256 is `152a321a7a3c90e0327d9bffe7f10e31ce303c3e32add4049a78a96ba10e2beb`.
-The diagnostic rerun adds each host's archive position, attempts and typed
-error to the existing retained failure report.
+The diagnostic rerun at `65a01840fc84bda9c89ebfce896ab5e3dfc9f4b1` passed both
+image modes in 75.31 seconds. Its record SHA-256 is
+`30e706d558904b7c293c43ae7cb4aed812721209eec737643b59c1428f564c21`.
+The rerun adds each host's archive position, attempts and typed error to
+the retained failure report. It did not reproduce the extent deadline,
+which remains open.
 
 ## CG-09/10 and CG-13 managed serving checkpoint
 
