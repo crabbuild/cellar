@@ -5,7 +5,9 @@ use super::CellGroupStatus;
 use crate::application::consensus::RaftReplicaRole;
 use cellar_logic::{
     cell_group::{CellKey, GroupHistory, GroupRoute, MembershipRevision},
-    cell_group_placement::{HotCell, PartitionBasis, PartitionLoad, PartitionSample},
+    cell_group_placement::{
+        HotCell, PartitionBasis, PartitionLoad, PartitionSample, HOT_WRITE_WINDOW_MS,
+    },
     consensus::{Durability, LogIndex, LogPosition, ReplicaIdentity},
 };
 
@@ -37,6 +39,14 @@ pub struct CellGroupPartitionCell {
     pub next: Option<CellKey>,
     pub has_predecessor: bool,
     pub logical_bytes: u64,
+}
+
+/// A lower bound for one writer in a complete one-second owner window.
+#[derive(Clone, Debug)]
+pub struct CellGroupPartitionWriter {
+    pub cell: CellGroupPartitionCell,
+    pub started_at_ms: u64,
+    pub admitted_writes: u64,
 }
 
 /// Cumulative work on this physical owner and its monotonic sample time.
@@ -81,6 +91,7 @@ pub struct CellGroupPartitionObservation {
     pub last_mutation: Option<LogPosition>,
     pub balanced_pivot: Option<CellKey>,
     pub largest_cell: Option<CellGroupPartitionCell>,
+    pub hot_writer: Option<CellGroupPartitionWriter>,
     /// Independently sampled archive owner, bound to this exact route.
     pub archive_lag_entries: Option<u64>,
 }
@@ -122,6 +133,18 @@ impl CellGroupPartitionObservation {
             self.workload.applied_writes,
             earlier.workload.applied_writes,
         )?;
+        let hot_writer = self.hot_writer.as_ref().and_then(|writer| {
+            // Include only a complete window contained in this interval.
+            // Consecutive policy observations never count one window twice.
+            let end = writer.started_at_ms.checked_add(HOT_WRITE_WINDOW_MS)?;
+            if writer.started_at_ms < earlier.workload.sampled_at_ms
+                || end > self.workload.sampled_at_ms
+            {
+                return None;
+            }
+            let writes = rate(writer.admitted_writes, 0)?;
+            Some(writer.cell.hot(writes.min(writes_per_second)))
+        });
         Some(PartitionSample {
             basis: PartitionBasis {
                 route: self.route.clone(),
@@ -145,14 +168,20 @@ impl CellGroupPartitionObservation {
             failure_domain_load_bps: context.failure_domain_load_bps,
             active_and_stable: context.active_and_stable,
             balanced_pivot: self.balanced_pivot.clone(),
-            hot_cell: self.largest_cell.as_ref().map(|cell| HotCell {
-                key: cell.key.clone(),
-                next: cell.next.clone(),
-                has_predecessor: cell.has_predecessor,
-                logical_bytes: cell.logical_bytes,
-                // The owner currently identifies hot cells by image size.
-                writes_per_second: 0,
-            }),
+            hot_cell: self.largest_cell.as_ref().map(|cell| cell.hot(0)),
+            hot_writer,
         })
+    }
+}
+
+impl CellGroupPartitionCell {
+    fn hot(&self, writes_per_second: u64) -> HotCell {
+        HotCell {
+            key: self.key.clone(),
+            next: self.next.clone(),
+            has_predecessor: self.has_predecessor,
+            logical_bytes: self.logical_bytes,
+            writes_per_second,
+        }
     }
 }

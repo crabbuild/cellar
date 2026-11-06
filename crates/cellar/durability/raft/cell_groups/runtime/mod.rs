@@ -1061,7 +1061,7 @@ impl CellGroupRuntime {
         history: GroupHistory,
     ) -> Result<CellGroupPartitionObservation, RuntimeError> {
         match self
-            .call(Some(history), Command::ObservePartition, 8192)
+            .call(Some(history), Command::ObservePartition, 12 * 1024)
             .await?
         {
             Response::PartitionObservation(observation) => Ok(*observation),

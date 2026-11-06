@@ -91,7 +91,7 @@ mod owner;
 pub use membership_observation::CellGroupQuorumMembership;
 pub use observation::{
     CellGroupObservation, CellGroupPartitionCell, CellGroupPartitionContext,
-    CellGroupPartitionObservation, CellGroupWorkload,
+    CellGroupPartitionObservation, CellGroupPartitionWriter, CellGroupWorkload,
 };
 mod page_store;
 mod page_wire;

@@ -19,6 +19,7 @@ use crate::raft::{
 use ::raft::{prelude::*, Config, LightReady, RawNode, Ready, StateRole, Storage};
 use cellar_logic::{
     cell_group::*,
+    cell_group_placement::WriteHeat,
     consensus::{LogIndex, LogPosition, MemberId, OperationId, ReplicaIdentity, Term},
 };
 use protobuf::Message as _;
@@ -242,6 +243,7 @@ pub struct CellGroupOwner {
     workload_owner: [u8; 16],
     admitted_writes: u64,
     applied_writes: u64,
+    write_heat: WriteHeat,
     apply_bytes: usize,
     applying: Option<CellGroupTicket>,
     next_ticket: u64,
@@ -346,6 +348,7 @@ impl CellGroupOwner {
             workload_owner,
             admitted_writes: 0,
             applied_writes: 0,
+            write_heat: WriteHeat::default(),
             apply_bytes: 0,
             applying: None,
             next_ticket: 0,
@@ -791,21 +794,36 @@ impl CellGroupOwner {
             .mono_ms()
             .map_err(|_| RuntimeError::Closed)?;
         let cells = marker.root().cells();
-        let largest_cell = pins.largest_image_rank().and_then(|(rank, logical_bytes)| {
+        let geometry = |(rank, logical_bytes)| {
             Some(super::CellGroupPartitionCell {
                 key: pins.key_at_rank(rank)?.clone(),
                 next: pins.key_at_rank(rank + 1).cloned(),
                 has_predecessor: rank > 0,
                 logical_bytes,
             })
-        });
+        };
+        let membership = MembershipRevision::new(cache.membership.revision().get())
+            .map_err(|_| RuntimeError::NotReady)?;
+        let status = self.status_at(&cache);
+        let hot_writer = self
+            .write_heat
+            .observed(status.term, membership, sampled_at_ms)
+            .and_then(|(started_at_ms, cell, admitted_writes)| {
+                let key = crate::application::consensus::cell_routing_key(
+                    marker.route().history.namespace,
+                    cell,
+                );
+                let cell = geometry(pins.image_rank(&key)?)?;
+                Some(super::CellGroupPartitionWriter {
+                    cell,
+                    started_at_ms,
+                    admitted_writes,
+                })
+            });
         Ok(super::CellGroupPartitionObservation {
             route: marker.route().clone(),
-            membership: cellar_logic::cell_group::MembershipRevision::new(
-                cache.membership.revision().get(),
-            )
-            .map_err(|_| RuntimeError::NotReady)?,
-            status: self.status_at(&cache),
+            membership,
+            status,
             stable_leader: marker.is_active()
                 && self.pending_seal.is_none()
                 && self.configuration_fence.is_none()
@@ -829,7 +847,8 @@ impl CellGroupOwner {
             } else {
                 None
             },
-            largest_cell,
+            largest_cell: pins.largest_image_rank().and_then(geometry),
+            hot_writer,
             archive_lag_entries: None,
         })
     }
@@ -1616,10 +1635,6 @@ impl CellGroupOwner {
             GroupEntryLimits::default(),
         )
         .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
-        let is_write = matches!(
-            &entry.command,
-            GroupCommand::Mutation(_) | GroupCommand::Enroll { .. }
-        );
         let admission = match self.proposals.check(
             &entry,
             &data,
@@ -1689,10 +1704,18 @@ impl CellGroupOwner {
                 return Err(error);
             }
         };
-        self.proposals.accept(candidate, accepted.clone(), permit);
-        if is_write {
-            self.admitted_writes = self.admitted_writes.saturating_add(1);
+        // Track only newly appended mutations. A duplicate, rejected
+        // preparation or enrollment does not contribute to per-cell heat.
+        if let (Some(cell), Ok(now_ms), Ok(membership)) = (
+            candidate.mutation_cell(),
+            self.log.domain().mono_ms(),
+            MembershipRevision::new(self.current.marker().membership_revision()),
+        ) {
+            self.write_heat
+                .record(accepted.position.term, membership, now_ms, cell);
         }
+        self.proposals.accept(candidate, accepted.clone(), permit);
+        self.admitted_writes = self.admitted_writes.saturating_add(1);
         Ok(Some(accepted))
     }
 

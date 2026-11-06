@@ -187,8 +187,8 @@
 pub use crate::actor::{Actor, ActorIdentity, ActorOptions, ActorServices};
 pub use crate::application::consensus::{
     CellGroupPartitionCell, CellGroupPartitionContext, CellGroupPartitionObservation,
-    CellGroupWorkload, CommandContext, OperationContract, OperationKind, QueryContext,
-    QueryVersion, RaftClass, RegistrationError,
+    CellGroupPartitionWriter, CellGroupWorkload, CommandContext, OperationContract, OperationKind,
+    QueryContext, QueryVersion, RaftClass, RegistrationError,
 };
 pub use crate::application::filesystem::FilesystemLimits;
 pub use crate::application::limits::{

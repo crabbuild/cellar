@@ -21,6 +21,12 @@ pub(super) struct Candidate {
     enrollment: bool,
 }
 
+impl Candidate {
+    pub(super) fn mutation_cell(&self) -> Option<&CellId> {
+        (!self.enrollment).then_some(&self.cell)
+    }
+}
+
 struct Accepted {
     candidate: Candidate,
     acceptance: CellGroupProposal,

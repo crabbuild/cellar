@@ -4,7 +4,7 @@
 //! Admission belongs to the current directory, Fleet, and Raft owners.
 
 use crate::{
-    cell_group::{CellBound, CellKey, GroupRoute, MembershipRevision},
+    cell_group::{CellBound, CellId, CellKey, GroupRoute, MembershipRevision},
     consensus::{Durability, Term},
 };
 
@@ -125,6 +125,7 @@ pub struct PartitionSample {
     /// A verified occupied key with a nonempty occupied partition on each side.
     pub balanced_pivot: Option<CellKey>,
     pub hot_cell: Option<HotCell>,
+    pub hot_writer: Option<HotCell>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -215,8 +216,8 @@ impl PartitionTracker {
             && self.last.as_ref().is_some_and(|last| {
                 last.split_reason(policy) == reason
                     && (reason != Some(SplitReason::IsolateHotCell)
-                        || sample.hot_cell.as_ref().map(|hot| &hot.key)
-                            == last.hot_cell.as_ref().map(|hot| &hot.key))
+                        || sample.hot_candidate(policy).map(|hot| &hot.key)
+                            == last.hot_candidate(policy).map(|hot| &hot.key))
             });
         self.hot = if stable && reason.is_some() {
             if same_split {
@@ -260,7 +261,7 @@ impl PartitionTracker {
             return PartitionDecision::Wait(WaitReason::Hysteresis);
         };
         let pivot = if reason == SplitReason::IsolateHotCell {
-            sample.hot_cell.as_ref().and_then(|hot| {
+            sample.hot_candidate(policy).and_then(|hot| {
                 if hot.has_predecessor {
                     Some(&hot.key)
                 } else {
@@ -362,7 +363,7 @@ impl PartitionSample {
                 .balanced_pivot
                 .as_ref()
                 .is_none_or(|pivot| self.load.cells >= 2 && is_pivot(pivot))
-            && self.hot_cell.as_ref().is_none_or(|hot| {
+            && self.hot_cell.iter().chain(&self.hot_writer).all(|hot| {
                 self.load.cells > 0
                     && range.contains(&hot.key)
                     && hot.logical_bytes <= self.load.logical_bytes
@@ -395,11 +396,15 @@ impl PartitionSample {
         }
     }
 
-    fn split_reason(&self, policy: PartitionPolicy) -> Option<SplitReason> {
-        if self.hot_cell.as_ref().is_some_and(|hot| {
+    fn hot_candidate(&self, policy: PartitionPolicy) -> Option<&HotCell> {
+        self.hot_cell.iter().chain(&self.hot_writer).find(|hot| {
             hot.logical_bytes > policy.0.hot_cell_bytes
                 || hot.writes_per_second > policy.0.hot_cell_writes_per_second
-        }) {
+        })
+    }
+
+    fn split_reason(&self, policy: PartitionPolicy) -> Option<SplitReason> {
+        if self.hot_candidate(policy).is_some() {
             Some(SplitReason::IsolateHotCell)
         } else if !self.load.within(policy.0.split_ceiling) {
             Some(SplitReason::GroupLoad)
@@ -431,6 +436,125 @@ impl PartitionSample {
             && left.durability == right.durability
             && left.placement_class == right.placement_class
             && left.route.range.upper() == right.route.range.lower()
+    }
+}
+
+/// Fixed sampling resolution for the bounded per-owner write sketch.
+pub const HOT_WRITE_WINDOW_MS: u64 = 1_000;
+const HOT_WRITER_SLOTS: usize = 4;
+
+#[derive(Default)]
+pub struct WriteHeat {
+    scope: Option<(Term, MembershipRevision)>,
+    active: Option<HeatWindow>,
+    previous: Option<(u64, CellId, u64)>,
+}
+
+struct HeatWindow {
+    start_ms: u64,
+    writers: [Option<(CellId, u64)>; HOT_WRITER_SLOTS],
+}
+
+impl HeatWindow {
+    fn record(&mut self, cell: &CellId) {
+        if let Some((_, writes)) = self
+            .writers
+            .iter_mut()
+            .flatten()
+            .find(|(key, _)| key == cell)
+        {
+            *writes = writes.saturating_add(1);
+        } else if let Some(free) = self.writers.iter_mut().find(|slot| slot.is_none()) {
+            *free = Some((cell.clone(), 1));
+        } else {
+            // Misra-Gries cancels one observation of every tracked key with
+            // this new key. Each remaining count is a lower bound.
+            for slot in &mut self.writers {
+                if let Some((_, writes)) = slot {
+                    *writes -= 1;
+                    if *writes == 0 {
+                        *slot = None;
+                    }
+                }
+            }
+        }
+    }
+
+    fn hottest(&self) -> Option<(&CellId, u64)> {
+        self.writers
+            .iter()
+            .flatten()
+            .max_by(|(left, lhs), (right, rhs)| lhs.cmp(rhs).then_with(|| right.cmp(left)))
+            .map(|(cell, writes)| (cell, *writes))
+    }
+}
+
+impl WriteHeat {
+    /// Track at most four current names and one previous winner. An epoch
+    /// change drops evidence that cannot contribute to the new rate.
+    pub fn record(
+        &mut self,
+        term: Term,
+        membership: MembershipRevision,
+        now_ms: u64,
+        cell: &CellId,
+    ) {
+        let scope = (term, membership);
+        let start_ms = now_ms / HOT_WRITE_WINDOW_MS * HOT_WRITE_WINDOW_MS;
+        if self.scope != Some(scope) {
+            *self = Self {
+                scope: Some(scope),
+                ..Self::default()
+            };
+        }
+        if self
+            .active
+            .as_ref()
+            .is_none_or(|active| active.start_ms != start_ms)
+        {
+            self.previous = self.active.take().and_then(|active| {
+                if active.start_ms.checked_add(HOT_WRITE_WINDOW_MS) != Some(start_ms) {
+                    return None;
+                }
+                active
+                    .hottest()
+                    .map(|(cell, writes)| (active.start_ms, cell.clone(), writes))
+            });
+            self.active = Some(HeatWindow {
+                start_ms,
+                writers: Default::default(),
+            });
+        }
+        if let Some(active) = &mut self.active {
+            active.record(cell);
+        }
+    }
+
+    /// Return the most recent *complete* window in the same leadership and
+    /// membership. Quiet windows and old epochs never reuse a candidate.
+    pub fn observed(
+        &self,
+        term: Term,
+        membership: MembershipRevision,
+        now_ms: u64,
+    ) -> Option<(u64, &CellId, u64)> {
+        if self.scope != Some((term, membership)) {
+            return None;
+        }
+        let complete = (now_ms / HOT_WRITE_WINDOW_MS).checked_sub(1)? * HOT_WRITE_WINDOW_MS;
+        if let Some(active) = self
+            .active
+            .as_ref()
+            .filter(|active| active.start_ms == complete)
+        {
+            return active
+                .hottest()
+                .map(|(cell, writes)| (complete, cell, writes));
+        }
+        self.previous
+            .as_ref()
+            .filter(|(start_ms, _, _)| *start_ms == complete)
+            .map(|(_, cell, writes)| (complete, cell, *writes))
     }
 }
 

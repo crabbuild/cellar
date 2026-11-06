@@ -76,6 +76,7 @@ fn sample(group: u8, range: CellRange) -> PartitionSample {
         active_and_stable: true,
         balanced_pivot: None,
         hot_cell: None,
+        hot_writer: None,
     }
 }
 
@@ -242,5 +243,68 @@ fn new_term_and_unknown_archive_invalidate_an_old_recommendation() {
     assert_eq!(
         tracker.recommend_split(policy(), 130, 0),
         PartitionDecision::Wait(WaitReason::InTransition)
+    );
+}
+
+#[test]
+fn write_heat_tracks_exact_keys_and_expires_completed_windows() {
+    let mut heat = WriteHeat::default();
+    let term = Term::new(2);
+    let membership = MembershipRevision::new(1).unwrap();
+    let hot = CellId::new("hot").unwrap();
+    for n in 0..20 {
+        heat.record(term, membership, 10, &hot);
+        heat.record(
+            term,
+            membership,
+            10,
+            &CellId::new(format!("other-{n}")).unwrap(),
+        );
+    }
+    assert_eq!(heat.observed(term, membership, 999), None);
+    let (start, key, lower) = heat.observed(term, membership, 1_000).unwrap();
+    assert_eq!((start, key), (0, &hot));
+    assert!((1..=20).contains(&lower));
+    heat.record(term, membership, 1_100, &CellId::new("next").unwrap());
+    assert_eq!(
+        heat.observed(term, membership, 1_100),
+        Some((0, &hot, lower))
+    );
+    assert_eq!(heat.observed(term, membership, 3_000), None);
+    assert_eq!(heat.observed(Term::new(3), membership, 1_100), None);
+    assert_eq!(
+        heat.observed(term, MembershipRevision::new(2).unwrap(), 1_100),
+        None
+    );
+}
+
+#[test]
+fn scheduler_isolates_a_writer_independently_of_image_size() {
+    let mut tracker = PartitionTracker::default();
+    let mut view = sample(10, CellRange::all());
+    view.load.cells = 3;
+    view.load.writes_per_second = 80;
+    view.hot_cell = Some(HotCell {
+        key: key("right"),
+        next: None,
+        has_predecessor: true,
+        logical_bytes: 70,
+        writes_per_second: 0,
+    });
+    view.hot_writer = Some(HotCell {
+        key: key("middle"),
+        next: Some(key("right")),
+        has_predecessor: true,
+        logical_bytes: 10,
+        writes_per_second: 70,
+    });
+    observe(&mut tracker, view.clone(), &[100, 110]);
+    assert_eq!(
+        tracker.recommend_split(policy(), 110, 0),
+        PartitionDecision::Split {
+            basis: &view.basis,
+            pivot: &key("middle"),
+            reason: SplitReason::IsolateHotCell,
+        }
     );
 }

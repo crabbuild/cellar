@@ -82,6 +82,23 @@ impl ManifestPins {
         None
     }
 
+    pub(super) fn image_rank(&self, key: &CellKey) -> Option<(usize, u64)> {
+        let mut tree = self;
+        let mut preceding = 0;
+        while let Some(page) = tree.0.as_deref() {
+            let left = page.left.len();
+            match key.cmp(&page.key) {
+                Ordering::Less => tree = &page.left,
+                Ordering::Equal => return Some((preceding + left, page.leaf.geometry.length)),
+                Ordering::Greater => {
+                    preceding += left + 1;
+                    tree = &page.right;
+                }
+            }
+        }
+        None
+    }
+
     /// Largest logical image, breaking ties in whole-cell key order.
     pub(super) fn largest_image_rank(&self) -> Option<(usize, u64)> {
         let mut tree = self;
