@@ -33,6 +33,7 @@ cellar raft fleet transition admit NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet transition prepare NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet transition authorize-seal NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet transition seal-source NAMESPACE_HEX --plan REQUEST.json
+cellar raft fleet transition capture-source NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet transition publish NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet transition activate NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet transition resume NAMESPACE_HEX --plan REQUEST.json
@@ -81,6 +82,7 @@ pub(super) enum Action {
     TransitionPrepare(Box<RaftFleetTransitionPrepareRequest>),
     TransitionSeal(Box<RaftFleetTransitionSealRequest>),
     TransitionSealSource(Box<RaftFleetTransitionSourceSealRequest>),
+    TransitionCaptureSource(Box<RaftFleetTransitionSourceSealRequest>),
     TransitionPublish(Box<RaftFleetTransitionPublishRequest>),
     Progress(String, Option<String>, usize),
     Wait(String),
@@ -307,6 +309,18 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
                 .ok_or_else(|| invalid("--catalog-id from fleet status is required"))?;
             check_catalog(Some(catalog), &plan.catalog_id)?;
             Action::TransitionSealSource(Box::new(plan))
+        }
+        ("transition_capture-source", Some(namespace)) if !wait && cursor.is_none() => {
+            let path = first_group_plan
+                .take()
+                .ok_or_else(|| invalid("--plan is required"))?;
+            let plan = json_file::<RaftFleetTransitionSourceSealRequest>(&path)?;
+            plan.validate(&namespace, &plan.operation_id)?;
+            let catalog = catalog_id
+                .as_deref()
+                .ok_or_else(|| invalid("--catalog-id from fleet status is required"))?;
+            check_catalog(Some(catalog), &plan.catalog_id)?;
+            Action::TransitionCaptureSource(Box::new(plan))
         }
         ("transition_publish", Some(namespace)) if !wait && cursor.is_none() => {
             let path = first_group_plan

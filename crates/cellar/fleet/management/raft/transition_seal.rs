@@ -4,9 +4,12 @@
 
 use super::*;
 use crate::raft::{
+    catalog::RangeDirectory,
     cell_groups::{CellGroupControllerError, CellGroupSealOutcome, TransitionPhase},
     completion::RuntimeError,
+    fleet_catalog::ReopenedManagedCellGroupTransition,
 };
+use cellar_logic::cell_group::GroupHistory;
 use serde::{Deserialize, Serialize};
 
 /// Submit or observe the authorized seal for one exact parent history.
@@ -58,6 +61,14 @@ pub struct RaftFleetTransitionSourceSeal {
     pub applied: Option<RaftFleetTransitionSourceCut>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RaftFleetTransitionSourceArchive {
+    pub request: RaftFleetTransitionSourceSealRequest,
+    /// The applied parent cut independently verified from its retained archive.
+    pub sealed: RaftFleetTransitionSourceCut,
+}
+
 impl RaftFleetControl {
     /// Submit or reconcile a seal on a locally hosted, authorized parent.
     /// The voter checks its current boot and applied membership before it can
@@ -70,13 +81,97 @@ impl RaftFleetControl {
         request: &RaftFleetTransitionSourceSealRequest,
         timeout: Duration,
     ) -> Result<RaftFleetTransitionSourceSeal> {
+        let turn = Turn::new(&self.domain, timeout)?;
+        let (_, history, transition) = self
+            .authorize_source_action(principal, namespace, operation, request, &turn)
+            .await?;
+        let observer = self
+            .node_observer
+            .as_ref()
+            .ok_or_else(|| RaftFleetFailure {
+                code: RaftFleetFailureCode::Unsupported,
+                outcome: RaftFleetOutcome::NotSubmitted,
+                message: "Use a managed endpoint with a voter for the selected parent.".into(),
+            })?;
+        let voter = observer
+            .group(history)
+            .map_err(|error| seal_failure(CellGroupControllerError::Runtime(error)))?;
+        let applied = match voter
+            .seal_managed_source(&transition, turn.remaining()?)
+            .await
+            .map_err(seal_failure)?
+        {
+            CellGroupSealOutcome::Accepted(_) => None,
+            CellGroupSealOutcome::Applied(seal) => Some(source_cut(&seal)),
+        };
+        Ok(RaftFleetTransitionSourceSeal {
+            request: request.clone(),
+            applied,
+        })
+    }
+
+    /// Verify and retain the selected parent's sealed archive. This can run
+    /// on an archive-enabled management endpoint without a local voter.
+    pub async fn capture_transition_source(
+        &self,
+        principal: &str,
+        namespace: &str,
+        operation: &str,
+        request: &RaftFleetTransitionSourceSealRequest,
+        timeout: Duration,
+    ) -> Result<RaftFleetTransitionSourceArchive> {
+        let turn = Turn::new(&self.domain, timeout)?;
+        let (directory, history, transition) = self
+            .authorize_source_action(principal, namespace, operation, request, &turn)
+            .await?;
+        let services = self
+            .transition_preparation
+            .as_ref()
+            .ok_or_else(|| RaftFleetFailure {
+                code: RaftFleetFailureCode::Unsupported,
+                outcome: RaftFleetOutcome::NotSubmitted,
+                message:
+                    "Source capture requires a trusted archive verifier on the management server."
+                        .into(),
+            })?;
+        let hold = self
+            .catalog
+            .capture_managed_sealed_source(
+                directory,
+                transition.plan.operation(),
+                history,
+                &services.verifier,
+                turn.remaining()?,
+            )
+            .await?;
+        let seal = hold
+            .marker()
+            .source_seal()
+            .ok_or(FleetCatalogError::Corrupt("verified source has no seal"))?;
+        Ok(RaftFleetTransitionSourceArchive {
+            request: request.clone(),
+            sealed: source_cut(seal),
+        })
+    }
+
+    async fn authorize_source_action<'a>(
+        &'a self,
+        principal: &str,
+        namespace: &str,
+        operation: &str,
+        request: &RaftFleetTransitionSourceSealRequest,
+        turn: &Turn<'_>,
+    ) -> Result<(
+        &'a RangeDirectory,
+        GroupHistory,
+        ReopenedManagedCellGroupTransition,
+    )> {
         request.validate(namespace, operation)?;
         self.check_catalog(&request.catalog_id)?;
         let directory = self.managed_namespace(namespace)?;
         let operation = ProposalId::new(records::id(operation)?)
             .map_err(|_| RaftFleetFailure::invalid("operation ID"))?;
         let history = request.source.history(directory)?;
-        let turn = Turn::new(&self.domain, timeout)?;
         let transition = self
             .authorize_transition_operator(
                 directory,
@@ -102,33 +197,15 @@ impl RaftFleetControl {
         {
             return Err(FleetCatalogError::Conflict.into());
         }
-        let observer = self
-            .node_observer
-            .as_ref()
-            .ok_or_else(|| RaftFleetFailure {
-                code: RaftFleetFailureCode::Unsupported,
-                outcome: RaftFleetOutcome::NotSubmitted,
-                message: "Use a managed endpoint with a voter for the selected parent.".into(),
-            })?;
-        let voter = observer
-            .group(history)
-            .map_err(|error| seal_failure(CellGroupControllerError::Runtime(error)))?;
-        let applied = match voter
-            .seal_managed_source(&transition, turn.remaining()?)
-            .await
-            .map_err(seal_failure)?
-        {
-            CellGroupSealOutcome::Accepted(_) => None,
-            CellGroupSealOutcome::Applied(seal) => Some(RaftFleetTransitionSourceCut {
-                index: seal.position().index.get(),
-                term: seal.position().term.get(),
-                authorization_digest: hex::encode(seal.authorization()),
-            }),
-        };
-        Ok(RaftFleetTransitionSourceSeal {
-            request: request.clone(),
-            applied,
-        })
+        Ok((directory, history, transition))
+    }
+}
+
+fn source_cut(seal: &crate::raft::cell_groups::GroupSourceSeal) -> RaftFleetTransitionSourceCut {
+    RaftFleetTransitionSourceCut {
+        index: seal.position().index.get(),
+        term: seal.position().term.get(),
+        authorization_digest: hex::encode(seal.authorization()),
     }
 }
 

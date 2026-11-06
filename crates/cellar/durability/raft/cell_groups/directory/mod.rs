@@ -48,6 +48,7 @@ pub use transition_archive::CellGroupTransferArchive;
 mod transition_child_archive;
 mod transition_child_quorum;
 pub use transition::{CellGroupSealPermit, TransitionJournal, TransitionPhase};
+mod transition_source_slots;
 mod transition_sources;
 pub use transition_sources::{CellGroupTransitionSource, VerifiedCellGroupTransitionSources};
 mod transition_install;

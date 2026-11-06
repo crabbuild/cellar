@@ -61,7 +61,7 @@ pub use transition_admission::{
 };
 
 pub use transition_seal::{
-    RaftFleetTransitionSourceCut, RaftFleetTransitionSourceSeal,
+    RaftFleetTransitionSourceArchive, RaftFleetTransitionSourceCut, RaftFleetTransitionSourceSeal,
     RaftFleetTransitionSourceSealRequest,
 };
 

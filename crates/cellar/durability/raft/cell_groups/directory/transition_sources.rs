@@ -1,10 +1,11 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Independently replay each held parent closure before rooting the sealed set.
-use super::*;
+use super::{transition_source_slots::SourceSlot, *};
 use crate::raft::cell_groups::{
     CellGroupArchiveCheckpointReceiver, CellGroupArchiveCoverage, CellGroupArchiveExecution,
-    CellGroupArchiveHold, CellGroupArchivePool, CellGroupArchiveTailPool, GroupManifest,
+    CellGroupArchiveHold, CellGroupArchiveIntent, CellGroupArchivePool, CellGroupArchiveTailPool,
+    GroupManifest,
 };
 use crate::raft::fleet_catalog::ManagedTransitionPermit;
 use serde::{Deserialize, Serialize};
@@ -14,7 +15,6 @@ const SOURCE_HOLD: u8 = 199;
 const SOURCE_SET: u8 = 200;
 const HOLDS: &str = "transition-source-holds";
 const SETS: &str = "transition-source-sets";
-const STAGED: &str = "transition-source-progress";
 
 type Result<T> = std::result::Result<T, CellGroupArchiveBindingError>;
 
@@ -82,7 +82,7 @@ struct EncodedSourceSet {
 }
 
 impl RangeDirectory {
-    fn check_source_marker(
+    pub(super) fn check_source_marker(
         &self,
         mutation: &DirectoryMutation,
         journal: &TransitionJournal,
@@ -250,9 +250,10 @@ impl RangeDirectory {
         archives: &CellGroupArchivePool,
         tails: &CellGroupArchiveTailPool,
         plan: &DirectoryMutation,
-        source: CellGroupTransitionSource,
+        source: (CellGroupTransitionSource, Option<CellGroupArchiveIntent>),
         permit: &ManagedTransitionPermit,
     ) -> Result<()> {
+        let (source, intent) = source;
         permit.check(self, plan)?;
         let (parents, _) = self.transition_routes(plan)?;
         let route = source.birth.route();
@@ -296,7 +297,7 @@ impl RangeDirectory {
         registry
             .require_retained_hold(domain, coverage.hold())
             .await?;
-        self.bounded(self.claim_staged_source_hold(plan, index, coverage.hold()))
+        self.bounded(self.claim_staged_source_hold(plan, index, coverage.hold(), intent.as_ref()))
             .await?;
         Ok(())
     }
@@ -319,21 +320,17 @@ impl RangeDirectory {
             journal.seal_authorization()?;
             let mut holds = Vec::with_capacity(parents.len());
             for (index, route) in parents.into_iter().enumerate() {
-                let hold = if let Some(bytes) = self.read(&staged_key(plan, index)).await? {
-                    let hold: CellGroupArchiveHold =
-                        record::decode(SOURCE_HOLD, &bytes, wire::LIMIT)?;
-                    hold.check_reference()
-                        .map_err(|_| CatalogError::Corrupt("staged source hold"))?;
-                    self.check_source_marker(
-                        plan,
-                        &journal,
-                        &route,
-                        hold.marker(),
-                        TransitionSourceCut::Sealed,
-                    )?;
-                    Some(hold)
-                } else {
-                    None
+                let hold = match self.read_source_slot(plan, index).await? {
+                    Some((SourceSlot::Verified(hold), _)) => {
+                        self.check_sealed_hold(plan, &journal, &route, &hold)?;
+                        Some(hold)
+                    }
+                    Some((SourceSlot::Acquiring(intent), _)) => {
+                        self.check_sealed_intent(plan, &journal, &route, &intent)
+                            .map_err(|_| CatalogError::Corrupt("staged source acquire"))?;
+                        None
+                    }
+                    None => None,
                 };
                 holds.push((route, hold));
             }
@@ -341,25 +338,6 @@ impl RangeDirectory {
         })
         .await
         .map_err(Into::into)
-    }
-
-    async fn claim_staged_source_hold(
-        &self,
-        plan: &DirectoryMutation,
-        index: usize,
-        hold: &CellGroupArchiveHold,
-    ) -> std::result::Result<(), CatalogError> {
-        let bytes = record::encode(SOURCE_HOLD, hold, wire::LIMIT)?;
-        let key = self.key(&staged_key(plan, index));
-        let observed = self
-            .namespace
-            .inner
-            .create_and_observe_bounded(&key, &bytes, wire::LIMIT)
-            .await?;
-        if observed != bytes {
-            return Err(CatalogError::Conflict("staged source hold changed"));
-        }
-        Ok(())
     }
 
     /// Verify every exact held parent cut in plan order, then select the whole
@@ -427,7 +405,7 @@ impl RangeDirectory {
                 if permit.is_some() && verified.journal.phase() == TransitionPhase::SealAuthorized {
                     self.bounded(async {
                         for (index, coverage) in verified.sources.iter().enumerate() {
-                            self.claim_staged_source_hold(mutation, index, coverage.hold())
+                            self.claim_staged_source_hold(mutation, index, coverage.hold(), None)
                                 .await?;
                         }
                         Ok(())
@@ -602,8 +580,4 @@ impl RangeDirectory {
         }
         Ok(holds)
     }
-}
-
-fn staged_key(plan: &DirectoryMutation, index: usize) -> String {
-    format!("{STAGED}/{}/{index}", hex::encode(plan.digest()))
 }

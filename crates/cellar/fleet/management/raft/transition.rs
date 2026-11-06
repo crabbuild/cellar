@@ -226,7 +226,7 @@ pub struct RaftFleetTransitionPreparation {
 
 #[derive(Clone)]
 pub(super) struct Preparation {
-    verifier: crate::raft::fleet_catalog::FleetGroupArchiveVerifier,
+    pub(super) verifier: crate::raft::fleet_catalog::FleetGroupArchiveVerifier,
     recovery: crate::raft::cell_groups::CellGroupRecoveryPool,
 }
 

@@ -99,6 +99,37 @@ pub(crate) async fn prepare_transition(
     result
 }
 
+pub(crate) async fn capture_transition_source(
+    fixture: &Fixture,
+    directory: &RangeDirectory,
+    principal: &str,
+    request: &RaftFleetTransitionSourceSealRequest,
+    preparer: (FleetGroupArchiveVerifier, CellGroupRecoveryPool),
+) -> Result<RaftFleetTransitionSourceArchive> {
+    let root = tempfile::tempdir()?;
+    let (bucket, mut control) = control(fixture, directory)?;
+    control = control.with_transition_preparer(preparer.0, preparer.1);
+    let cli = OperatorCli::start(&fixture.domain, bucket, control, root.path(), principal).await?;
+    let result = async {
+        let plan = root.path().join("transition-capture-source.json");
+        std::fs::write(&plan, serde_json::to_vec(request)?)?;
+        let command = [
+            "transition",
+            "capture-source",
+            &request.namespace_id,
+            "--plan",
+            plan.to_str().context("UTF-8 source capture request path")?,
+        ];
+        ensure!(cli.call(&command, READER).await?.code == 4);
+        Ok::<_, anyhow::Error>(serde_json::from_value(
+            cli.call(&command, OWNER).await?.success()?,
+        )?)
+    }
+    .await;
+    cli.close().await?;
+    result
+}
+
 pub(crate) async fn transition_status(
     fixture: &Fixture,
     directory: &RangeDirectory,

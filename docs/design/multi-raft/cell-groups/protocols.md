@@ -1090,10 +1090,14 @@ authorization digest. A merge uses one request per parent.
 The managed archive owner can publish the applied cut while business admission
 is sealed. The fleet verifies each held cut independently against the exact
 authorized plan and rechecks the complete hold set before selecting Sealed.
-After each parent seals, `stage_managed_sealed_source` independently verifies
-its archive and records one exact hold in the plan's parent slot. A replacement
-controller reads the slots in plan order with `staged_managed_sealed_sources`.
-It retains staged holds through retirement and obtains the remaining seals.
+After the parent archive covers its applied seal, use
+`cellar raft fleet transition capture-source NAMESPACE_HEX --plan REQUEST.json --catalog-id DIGEST`
+on an archive-enabled management endpoint. Use a distinct request ID from the
+seal request. The plan's parent slot selects the acquire intent before the
+registry allocates a hold. Independent physical replay verifies the exact
+authorized cut before the slot records the retained hold. A replacement
+controller reopens the same intent or verified slot and captures any remaining
+parents. Holds remain retained through retirement.
 `FleetCatalog::replay_managed_sealed_sources` verifies all staged cuts again
 before selecting the complete sealed set and preparing non-serving child genesis
 images. Once every child has an installed quorum proof,

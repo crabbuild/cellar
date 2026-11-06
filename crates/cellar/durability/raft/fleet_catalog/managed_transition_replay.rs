@@ -12,7 +12,10 @@ use crate::raft::{
         VerifiedCellGroupTransitionSources,
     },
 };
-use cellar_logic::{cell_group::GroupRoute, consensus::ProposalId};
+use cellar_logic::{
+    cell_group::{GroupHistory, GroupRoute},
+    consensus::ProposalId,
+};
 
 impl FleetCatalog {
     /// Stage operation-owned holds from the selected active parent archives.
@@ -253,7 +256,7 @@ impl FleetCatalog {
                     archives,
                     tails,
                     &transition.plan,
-                    source,
+                    (source, None),
                     &permit,
                 )),
             )))
@@ -261,6 +264,95 @@ impl FleetCatalog {
             .map_err(|_| FleetCatalogError::Closed)?
             .map_err(|_| FleetCatalogError::Unconfirmed)?
             .map_err(transfer_archive_error)
+    }
+
+    /// Capture the selected parent's archive under the irreversible plan.
+    /// An uncertain reply leaves an exact operation-owned slot for the next
+    /// controller to reconcile before opening another physical receiver.
+    pub async fn capture_managed_sealed_source(
+        &self,
+        directory: &RangeDirectory,
+        operation: ProposalId,
+        history: GroupHistory,
+        verifier: &FleetGroupArchiveVerifier,
+        timeout: Duration,
+    ) -> Result<CellGroupArchiveHold> {
+        let deadline = deadline::Deadline::new(self, timeout)?;
+        let transition = self
+            .observe_transfer_replay(
+                directory,
+                operation,
+                &[
+                    TransitionPhase::SealAuthorized,
+                    TransitionPhase::Sealed,
+                    TransitionPhase::Installed,
+                    TransitionPhase::Archived,
+                ],
+                deadline.remaining()?,
+            )
+            .await?;
+        let permit = self
+            .run(
+                deadline.remaining()?,
+                Box::pin(self.active_managed_transition_permit(
+                    &transition.request,
+                    directory,
+                    &transition.plan,
+                )),
+            )
+            .await?;
+        let domain = &self.inner.domain;
+        domain
+            .run(Box::pin(crate::asyncrt::timeout(
+                deadline.remaining()?,
+                Box::pin(async {
+                    let (hold, intent) = directory
+                        .acquire_managed_sealed_source(
+                            domain,
+                            verifier.archives(),
+                            &transition.plan,
+                            &permit,
+                            history,
+                        )
+                        .await
+                        .map_err(transfer_archive_error)?;
+                    if let Some(intent) = intent {
+                        let birth = directory
+                            .materialize_selected_history(history)
+                            .await
+                            .map_err(histories::catalog_error)?;
+                        let receiver = verifier
+                            .receiver(
+                                domain,
+                                hold.marker().route(),
+                                directory.namespace_config().image_storage,
+                            )
+                            .await?;
+                        directory
+                            .stage_managed_sealed_source(
+                                domain,
+                                verifier.archives(),
+                                verifier.tails(),
+                                &transition.plan,
+                                (
+                                    CellGroupTransitionSource {
+                                        birth,
+                                        hold: hold.clone(),
+                                        receiver,
+                                    },
+                                    Some(intent),
+                                ),
+                                &permit,
+                            )
+                            .await
+                            .map_err(transfer_archive_error)?;
+                    }
+                    Ok(hold)
+                }),
+            )))
+            .await
+            .map_err(|_| FleetCatalogError::Closed)?
+            .map_err(|_| FleetCatalogError::Unconfirmed)?
     }
 
     /// Read the plan-order staged holds for the active operation. Missing

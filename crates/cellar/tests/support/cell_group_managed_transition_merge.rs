@@ -14,7 +14,7 @@ use cellar::sdk::fleet_operations::{
     RaftFleetTransitionAdmissionRequest, RaftFleetTransitionChild, RaftFleetTransitionGroup,
     RaftFleetTransitionPartition, RaftFleetTransitionPrepareRequest,
     RaftFleetTransitionPublishRequest, RaftFleetTransitionResume, RaftFleetTransitionResumeStep,
-    RaftFleetTransitionSealRequest,
+    RaftFleetTransitionSealRequest, RaftFleetTransitionSourceSealRequest,
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -502,31 +502,92 @@ async fn run_inner(
         preparation::wait_transfer_applied(voters, &[(parent.history, seal.position().index)])
             .await?;
         wait_archive(voters, parent.history, &seal).await?;
-        let hold = preparation::acquire_hold(domain, &registries[index]).await?;
-        ensure!(hold.marker().source_seal() == Some(&seal));
-        let selected = controller
+        if index == 0 {
+            let denied_before = fixture
+                .store
+                .denied_group_payload_reads
+                .load(Ordering::Acquire);
+            fixture
+                .store
+                .deny_group_payload_reads
+                .store(true, Ordering::Release);
+            let denied = controller
+                .0
+                .capture_managed_sealed_source(
+                    &controller.1,
+                    operation,
+                    parent.history,
+                    &verifier,
+                    TIMEOUT,
+                )
+                .await;
+            fixture
+                .store
+                .deny_group_payload_reads
+                .store(false, Ordering::Release);
+            ensure!(
+                denied.is_err()
+                    && fixture
+                        .store
+                        .denied_group_payload_reads
+                        .load(Ordering::Acquire)
+                        > denied_before
+            );
+            let progress = controller
+                .0
+                .staged_managed_sealed_sources(&controller.1, operation, TIMEOUT)
+                .await?;
+            ensure!(progress.iter().all(|(_, hold)| hold.is_none()));
+            controller = reopen_merge_controller(fixture).await?;
+        }
+        let capture = RaftFleetTransitionSourceSealRequest {
+            catalog_id: control.catalog_id().into(),
+            namespace_id: hex::encode(parent.history.namespace.bytes()),
+            operation_id: hex::encode(operation.bytes()),
+            request_id: hex::encode([237 + index as u8; 16]),
+            plan_digest: hex::encode(plan.digest()),
+            source: transition_group(parent.history),
+        };
+        let captured = crate::managed_fixture::operator::capture_transition_source(
+            fixture,
+            &controller.1,
+            &request.principal,
+            &capture,
+            (verifier.clone(), preparation::recovery_pool()?),
+        )
+        .await?;
+        ensure!(
+            captured.request == capture
+                && captured.sealed.index == seal.position().index.get()
+                && captured.sealed.term == seal.position().term.get()
+                && captured.sealed.authorization_digest == hex::encode(seal.authorization())
+        );
+        let hold = controller
             .0
-            .reopen_managed_transition(&controller.1, operation, TIMEOUT)
+            .staged_managed_sealed_sources(&controller.1, operation, TIMEOUT)
             .await?
-            .context("current seal controller")?;
+            .into_iter()
+            .nth(index)
+            .and_then(|(_, hold)| hold)
+            .context("captured sealed parent slot")?;
+        ensure!(hold.marker().source_seal() == Some(&seal));
+        ensure!(
+            controller
+                .0
+                .capture_managed_sealed_source(
+                    &controller.1,
+                    operation,
+                    parent.history,
+                    &verifier,
+                    TIMEOUT,
+                )
+                .await?
+                == hold
+        );
         let birth = domain
             .run(controller.1.materialize_selected_history(parent.history))
             .await??;
         let cut = (birth, hold);
-        let mut source = archives
-            .sources(&format!("stage-{index}"), std::slice::from_ref(&cut))
-            .await?;
-        controller
-            .0
-            .stage_managed_sealed_source(
-                &selected,
-                &controller.1,
-                &archives.pool,
-                &archives.tails,
-                source.pop().context("single sealed parent receiver")?,
-                TIMEOUT,
-            )
-            .await?;
         if index == 0 {
             let active = Some(parents[1].history);
             Box::pin(restart_voter(cluster, 3, 120, active, 2))
