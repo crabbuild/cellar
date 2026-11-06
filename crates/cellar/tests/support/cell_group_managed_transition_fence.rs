@@ -78,10 +78,16 @@ impl TransitionFence {
             let spec = &fixture.spec;
             let identity = host.identity();
             ensure!(
-                identity.node == spec.node
-                    && identity.disk == spec.disk
-                    && node.info().data_dir == root.path(),
-                "foreign test voter or disk owner"
+                identity.node == spec.node && identity.disk == spec.disk,
+                "foreign test voter for {}",
+                spec.label
+            );
+            // NodeDirectory canonicalizes its path when taking ownership.
+            let owned_root = root.path().canonicalize()?;
+            ensure!(
+                node.info().data_dir == owned_root,
+                "foreign test disk owner for {}",
+                spec.label
             );
             ensure!(owners.insert((spec.node, spec.disk, spec.physical_host)));
             ensure!(disks.insert(root.path()));
