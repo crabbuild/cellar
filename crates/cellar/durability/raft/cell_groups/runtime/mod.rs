@@ -22,7 +22,10 @@ use crate::raft::{
     storage::ReplicaLog,
 };
 use ::raft::prelude::Message;
-use cellar_logic::{cell_group::GroupHistory, consensus::MemberId};
+use cellar_logic::{
+    cell_group::{GroupHistory, ParkGeneration},
+    consensus::{MemberId, Term},
+};
 use protobuf::Message as _;
 use sha2::{Digest, Sha256};
 use std::sync::{
@@ -151,6 +154,11 @@ enum Command {
     ActivateTransfer(Box<CellGroupTransferActivationPermit>),
     SealSource(Box<CellGroupSealPermit>),
     PreparePark(ParkPrepareRequest),
+    FencePark {
+        generation: ParkGeneration,
+        term: Term,
+        deadline: u64,
+    },
     CertifyPark(Box<ParkCertificate>),
     EnterPark(Box<ParkCertificate>),
     AcknowledgePark {
@@ -649,7 +657,7 @@ impl CellGroupRuntime {
     pub(crate) async fn wake_park(
         &self,
         history: GroupHistory,
-        generation: cellar_logic::cell_group::ParkGeneration,
+        generation: ParkGeneration,
         deadline: u64,
     ) -> Result<CellGroupQuorumMembership, RuntimeError> {
         self.membership_for(
@@ -851,6 +859,30 @@ impl CellGroupRuntime {
         {
             Response::ParkPrepared(preparation) => Ok(preparation),
             _ => Err(RuntimeError::Protocol("park preparation reply".into())),
+        }
+    }
+
+    pub(crate) async fn fence_managed_park(
+        &self,
+        history: GroupHistory,
+        generation: ParkGeneration,
+        term: Term,
+        deadline: u64,
+    ) -> Result<(), RuntimeError> {
+        match self
+            .call(
+                Some(history),
+                Command::FencePark {
+                    generation,
+                    term,
+                    deadline,
+                },
+                4096,
+            )
+            .await?
+        {
+            Response::Unit => Ok(()),
+            _ => Err(RuntimeError::Protocol("park fence reply".into())),
         }
     }
 

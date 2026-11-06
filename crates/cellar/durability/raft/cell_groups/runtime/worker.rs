@@ -308,20 +308,23 @@ impl Worker {
             reply(request, Err(RuntimeError::NotReady));
             return;
         }
-        if let Command::Read(read) = &request.command {
-            let check = match read.kind.membership_mode() {
-                reads::MembershipRead::Wake(generation) => group.owner.check_park_wake(generation),
-                reads::MembershipRead::ParkAdmission
-                    if group.owner.is_parked() || group.park_write.is_some() =>
-                {
-                    Err(RuntimeError::NotReady)
-                }
-                _ => Ok(()),
-            };
-            if let Err(error) = check {
-                reply(request, Err(error));
-                return;
+        let wake = match &request.command {
+            Command::FencePark { generation, .. } => reads::MembershipRead::Wake(*generation),
+            Command::Read(read) => read.kind.membership_mode(),
+            _ => reads::MembershipRead::Ordinary,
+        };
+        let check = match wake {
+            reads::MembershipRead::Wake(generation) => group.owner.check_park_wake(generation),
+            reads::MembershipRead::ParkAdmission
+                if group.owner.is_parked() || group.park_write.is_some() =>
+            {
+                Err(RuntimeError::NotReady)
             }
+            _ => Ok(()),
+        };
+        if let Err(error) = check {
+            reply(request, Err(error));
+            return;
         }
         if let Command::CertifyPark(certificate) = &request.command {
             if group.owner.is_parked() {
@@ -708,6 +711,14 @@ impl Worker {
                                             .map(Response::ParkPrepared)
                                     }
                                 }
+                                Command::FencePark {
+                                    generation,
+                                    term,
+                                    deadline,
+                                } => group
+                                    .owner
+                                    .fence_managed_park(generation, term, deadline)
+                                    .map(|()| Response::Unit),
                                 Command::SealSource(permit) => group
                                     .owner
                                     .seal_source(*permit)

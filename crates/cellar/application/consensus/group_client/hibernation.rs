@@ -51,6 +51,7 @@ impl RaftGroupHandle {
     pub(crate) async fn wake_managed_park(
         &self,
         permit: &ManagedParkPermit,
+        unsettled: bool,
         timeout: Duration,
     ) -> Result<CellGroupQuorumMembership, CellGroupControllerError> {
         let (deadline, _memory) = self
@@ -68,6 +69,38 @@ impl RaftGroupHandle {
             return Err(RuntimeError::StaleCompletion.into());
         }
         let generation = permit.generation().map_err(park_catalog_error)?;
+        if unsettled {
+            let term = permit.term();
+            let domain = &self.owner.handle.domain;
+            domain
+                .run(Box::pin(crate::asyncrt::timeout_at(
+                    deadline,
+                    Box::pin(async {
+                        loop {
+                            self.owner.startup_live(host, deadline)?;
+                            match core
+                                .runtime
+                                .fence_managed_park(self.history, generation, term, deadline)
+                                .await
+                            {
+                                Ok(()) => return Ok(()),
+                                Err(RuntimeError::NotReady | RuntimeError::Overloaded) => (),
+                                Err(error) => return Err(CellGroupControllerError::from(error)),
+                            }
+                            let now = domain
+                                .mono_ms()
+                                .map_err(|_| CellGroupControllerError::Closed)?;
+                            domain
+                                .sleep_until(deadline.min(now.saturating_add(25)))
+                                .map_err(|_| CellGroupControllerError::Closed)?
+                                .await;
+                        }
+                    }),
+                )))
+                .await
+                .map_err(|_| CellGroupControllerError::Closed)?
+                .map_err(|_| CellGroupControllerError::Runtime(RuntimeError::DeadlineExceeded))??;
+        }
         let observation = core
             .runtime
             .wake_park(self.history, generation, deadline)

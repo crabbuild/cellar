@@ -1273,20 +1273,74 @@ impl CellGroupOwner {
             .mono_ms()
             .map_err(|_| RuntimeError::Closed)?;
         if pending.abort.is_none() && now >= pending.request.deadline_ms {
-            // Advance the log before re-enabling admission. Persistence closes
-            // local acknowledgements, and apply proves fresh quorum progress.
-            match self.append_control(Vec::new(), "park preparation timeout") {
-                Ok(proposal) => {
-                    if let Some(pending) = self.pending_park.as_mut() {
-                        pending.abort = Some(proposal.position);
-                    }
-                }
+            match self.abort_park_preparation() {
                 // A full log must still tick and let check-quorum run.
-                Err(RuntimeError::Overloaded) => (),
+                Ok(()) | Err(RuntimeError::Overloaded) => (),
                 Err(error) => return Err(error),
             }
         }
         Ok(())
+    }
+
+    fn abort_park_preparation(&mut self) -> Result<(), RuntimeError> {
+        // Persistence closes local acknowledgements. Apply proves fresh
+        // quorum progress before the same leader can reopen admission.
+        let proposal = self.append_control(Vec::new(), "abort park preparation")?;
+        if let Some(pending) = self.pending_park.as_mut() {
+            pending.abort = Some(proposal.position);
+        }
+        Ok(())
+    }
+
+    pub(super) fn fence_managed_park(
+        &mut self,
+        generation: ParkGeneration,
+        term: Term,
+        deadline: u64,
+    ) -> Result<(), RuntimeError> {
+        self.check_park_wake(generation)?;
+        let now = self
+            .log
+            .domain()
+            .mono_ms()
+            .map_err(|_| RuntimeError::Closed)?;
+        if now >= deadline {
+            return Err(RuntimeError::DeadlineExceeded);
+        }
+        let status = self.status()?;
+        let at = status.applied;
+        if self.node.raft.state != StateRole::Leader && status.leader.is_some() {
+            return Err(RuntimeError::NotLeader);
+        }
+        if at.term > term || (at.term == term && at.index.get() > generation.get()) {
+            return if status.ready {
+                Ok(())
+            } else {
+                Err(RuntimeError::NotReady)
+            };
+        }
+        if self.node.raft.state != StateRole::Leader || status.term != term {
+            return Err(RuntimeError::NotReady);
+        }
+        if let Some(pending) = self.pending_park.as_ref() {
+            if pending.preparation.proposal.position.index.get() != generation.get() {
+                return Err(RuntimeError::StaleCompletion);
+            }
+            if pending.abort.is_none() {
+                self.abort_park_preparation()?;
+            }
+        } else if !self.park_fenced()
+            && at.term == term
+            && at.index.get().saturating_add(1) >= generation.get()
+            && self.node.raft.raft_log.last_index() == at.index.get()
+            && status.ready
+        {
+            // A controller can stop after rooting the reservation but before
+            // proposing the cut. Occupy the reserved index with a no-op, then
+            // advance beyond it so the catalog can settle on durable proof.
+            self.append_control(Vec::new(), "fence reserved park cut")?;
+        }
+        Err(RuntimeError::NotReady)
     }
 
     fn append_control(

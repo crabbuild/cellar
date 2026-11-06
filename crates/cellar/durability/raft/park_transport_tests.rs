@@ -355,6 +355,26 @@ async fn park_certificate_delivery_and_wake_over_three_tls_voters() -> anyhow::R
         Ok(status.ready.then_some(status))
     })
     .await?;
+    let abandoned = ParkGeneration::new(status.applied.index.get() + 1)?;
+    let deadline = log.domain().mono_ms()? + MAX_PARK_NEGOTIATION_MS;
+    let status = wait_park_test(&domain, || async {
+        match runtime
+            .fence_managed_park(history, abandoned, status.term, deadline)
+            .await
+        {
+            Ok(()) => Ok(Some(runtime.status(history).await?)),
+            Err(RuntimeError::NotReady) => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    })
+    .await?;
+    assert!(status.applied.index.get() > abandoned.get());
+    assert!(log
+        .cell_group(&history)?
+        .group_manifest()?
+        .context("root")?
+        .park_cut()
+        .is_none());
     let deadline = log.domain().mono_ms()? + MAX_PARK_NEGOTIATION_MS;
     let request = ParkPrepareRequest {
         proposal: ProposalId::new([20; 16])?,

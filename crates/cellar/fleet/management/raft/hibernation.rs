@@ -159,13 +159,14 @@ impl RaftFleetControl {
                     outcome: RaftFleetOutcome::NotSubmitted,
                     message: "The park operation is absent from the fleet catalog.".into(),
                 })?;
+        let unsettled = park.phase == ManagedParkPhase::Negotiating;
         let observation = self
             .park_voter(selection.history)?
-            .wake_managed_park(&park.permit, turn.remaining()?)
+            .wake_managed_park(&park.permit, unsettled, turn.remaining()?)
             .await
             .map_err(park_failure)?;
         let applied = observation.root().position();
-        if park.phase == ManagedParkPhase::Negotiating {
+        if unsettled {
             let snapshot = self.catalog.read(turn.remaining()?).await?;
             let settled = self
                 .catalog

@@ -160,7 +160,7 @@ impl ManagedParkPermit {
     /// A later actor turn rechecks the exact selected base. The rooted
     /// operation cannot be reused at a different park generation.
     pub(crate) fn prepare_request(&self, deadline_ms: u64) -> Result<ParkPrepareRequest> {
-        let term = Term::new(self.0.term);
+        let term = self.term();
         Ok(ParkPrepareRequest {
             proposal: ProposalId::new(self.0.operation())
                 .map_err(|_| FleetCatalogError::Invalid("park operation"))?,
@@ -173,6 +173,10 @@ impl ManagedParkPermit {
             },
             deadline_ms,
         })
+    }
+
+    pub(crate) fn term(&self) -> Term {
+        Term::new(self.0.term)
     }
 
     pub(crate) fn operation(&self) -> Result<ProposalId> {
