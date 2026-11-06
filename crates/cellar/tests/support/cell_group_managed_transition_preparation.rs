@@ -1363,6 +1363,14 @@ async fn restart_destination(
         Err(RuntimeError::NotFound)
     ));
     let voters = &cluster.hosts[DESTINATION..];
+    // Boot and capacity are rooted before peer discovery installs the new
+    // endpoint. The transport fences the old process during that interval.
+    let revision = fixture.catalog.read(TIMEOUT).await?.revision();
+    for voter in &voters[1..] {
+        inspect_current(voter, host.identity().node, revision)
+            .await
+            .context("discover restarted pending voter before peer attachment")?;
+    }
     voters[0]
         .attach_managed_transfer_child(transition.clone(), route.clone(), TIMEOUT)
         .await
@@ -1379,13 +1387,15 @@ async fn restart_destination(
     for voter in &voters[1..] {
         voter
             .attach_managed_transfer_child(transition.clone(), route.clone(), TIMEOUT)
-            .await?;
+            .await
+            .context("attach peer of restarted pending voter")?;
     }
     wait_pending_child(voters, child).await?;
     for voter in voters {
         voter
             .attach_managed_transfer_child(transition.clone(), route.clone(), TIMEOUT)
-            .await?;
+            .await
+            .context("reconcile an attached pending voter")?;
     }
     reopen_transfer_destination(cluster, 110, 1, false).await?;
     let fixture = &cluster.fixtures[DESTINATION];
