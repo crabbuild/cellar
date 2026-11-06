@@ -1793,7 +1793,15 @@ async fn check_recovery_voter_reservations(
                 node.shutdown(ShutdownMode::Preserve).await?,
                 NodeOutcome::Stopped(_)
             ));
-            ensure!(host.close().await?.groups_total == 0);
+            let report = host.close().await?;
+            ensure!(report.groups_total == plan.births().len());
+            ensure!(
+                report.groups.iter().all(|group| !group.active
+                    && !group.failed
+                    && group.applied.index.get() == 1
+                    && group.committed == group.applied),
+                "managed recovery shutdown must preserve inactive genesis: {report:?}"
+            );
             Ok::<(), anyhow::Error>(())
         }
         .await;
