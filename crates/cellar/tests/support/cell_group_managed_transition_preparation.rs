@@ -1859,7 +1859,7 @@ pub(super) async fn wait_pending_child_witness(
     child: GroupHistory,
 ) -> Result<(usize, TransferChildQuorum)> {
     let mut last = vec![None; voters.len()];
-    tokio::time::timeout(TIMEOUT, async {
+    let result = tokio::time::timeout(TIMEOUT, async {
         loop {
             let mut applied = true;
             let mut witness = None;
@@ -1888,6 +1888,38 @@ pub(super) async fn wait_pending_child_witness(
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
-    .await
-    .with_context(|| format!("pending transfer child {child:?} must commit a fresh term, last voter status and proof: {last:?}"))?
+    .await;
+    match result {
+        Ok(witness) => witness,
+        Err(elapsed) => {
+            let owners = futures_util::future::join_all(voters.iter().map(|voter| async {
+                let physical = match voter.group(child) {
+                    Ok(group) => group.observe(Duration::from_secs(1)).await.map(|sample| {
+                        (
+                            sample.role,
+                            sample.persisted,
+                            sample.checkpoint,
+                            sample.retained_entries,
+                        )
+                    }),
+                    Err(error) => Err(error),
+                };
+                let usage = voter.resource_usage();
+                let transport = usage.transport.map(|usage| {
+                    (
+                        usage.peers,
+                        usage.member_routes,
+                        usage.accepted,
+                        usage.refused,
+                        usage.failed,
+                    )
+                });
+                (physical, usage.host.controller, transport)
+            }))
+            .await;
+            Err(anyhow::Error::new(elapsed).context(format!(
+                "pending transfer child {child:?} must commit a fresh term, last voter status and proof: {last:?}, physical log/host/transport: {owners:?}",
+            )))
+        }
+    }
 }
