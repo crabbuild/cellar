@@ -1479,6 +1479,14 @@ The recovery barrier selects the intent in the same directory CAS that orders
 transfer publication. It closes startup for both sides of the transfer and
 retains the Fleet disruption slot. Infrastructure fencing still has to revoke
 launch authority and stop all old writers before replacement publication.
+The managed fence request binds the intent digest and the selected directory
+barrier. Before contacting the authority, the controller reconstructs the
+locked transition scope and independently replays every selected cut. A
+conditional create retains the independently verified authority receipt.
+A retry reopens that receipt and verifies it with the authority again.
+The controller checks the barrier and cuts again before returning proof.
+If a late archive write advanced a cut, the receipt survives but that
+selection cannot authorize restoration.
 
 For an unpublished transition, choose complete archived parent cuts and reconstruct
 their non-overlapping domain under new groups. For a published transition, require
