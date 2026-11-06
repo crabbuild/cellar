@@ -187,6 +187,17 @@ separately before rerunning the fresh-quorum and receipt checks. The run
 record SHA-256 is
 `8aa9f58a72869a9a85d234b4962faffc555cc3bd2e5d725831eeaa723e6f39f0`.
 
+The materialized candidate at `b726c0fc` traced leader observation and
+movement actions separately. The authorized worker advanced to `Activate`
+after the quorum consumed the repair permit. It recorded 86 unconfirmed
+standby activations, 93 execution attempts and zero settled movements.
+The standby exited near the deadline with no attached group, and the
+campaign stopped after 216.632 seconds. The extent-backed run did not start.
+Capture the receiver's typed activation cause before changing seed or
+attachment behavior. The run record and stage trace SHA-256 digests are
+`a5c0130bacc4447639844bc241708282bb6659555c2e217df95b0d24d5e2e6eb`
+and `84bad5dfab98c2bcba045669c1c8414d5f18497a12b6ee60a8cd6a19b6127585`.
+
 ## CG-07 shared cell version key rotation
 
 On `d6f79a1b`, all eight `native_cell_groups_contracts` tests passed. The
@@ -213,6 +224,11 @@ The passing run verifies committed enrollment on all three voters before the
 baseline write. The passing and failed suite log SHA-256 digests are
 `f7c981efd4770c7721ab725f935ed6d71e04583476404d9bce2b4ef25b07c1dd`
 and `24a70fce419804efeb251b5558698c274fc4635814d8436cfd39f197f2e8bf1f`.
+Both existing follower quorum cases and the managed recovery regression in
+both image modes passed against the same runtime. Their log SHA-256 digests
+are `d27330fb8cb3ed0866106f5aa4f384097d22e660b4245490f52defdce2c555eb`
+and `b852971cfc0ea4aeff6d5fcbabdf700c478440091ede6a1ab5d0c048dab90118`.
+Targeted Clippy passed with warnings.
 
 ## CG-09 rooted decisions and retained source sealing
 
