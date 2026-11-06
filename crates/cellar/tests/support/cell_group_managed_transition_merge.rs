@@ -1553,7 +1553,7 @@ async fn check_recovery_replacements(
                 voters: (0..3)
                     .map(|offset| {
                         Ok(InitialMember {
-                            node: NodeId::new([50 + offset; 16])?,
+                            node: NodeId::new([70 + offset; 16])?,
                             member: MemberId::new(21 + u64::from(offset))?,
                         })
                     })
@@ -1672,7 +1672,7 @@ async fn check_recovery_voter_reservations(
     let mut standbys = Vec::new();
     let checked = Box::pin(async {
         let mut boots = Vec::new();
-        for id in 50..53 {
+        for (id, capacity_request) in [(70, 190), (71, 192), (72, 194)] {
             let peer = peer_fixture(fixture, id).await?;
             let root = tempfile::tempdir()?;
             let node = start_node(root.path(), peer.application.clone(), &peer.spec.label).await?;
@@ -1680,7 +1680,7 @@ async fn check_recovery_voter_reservations(
             let host = Box::pin(node.start_raft_cells(config, services)).await?;
             standbys.push((root, node, host));
             let (_, _, host) = standbys.last().context("started recovery voter")?;
-            Box::pin(admit_capacity(&peer, host, &directory, id + 110)).await?;
+            Box::pin(admit_capacity(&peer, host, &directory, capacity_request)).await?;
             let view = host.observe_node(TIMEOUT).await?;
             ensure!(view.node.groups == 0);
             boots.push(view.fleet_boot.context("new recovery voter boot")?);
