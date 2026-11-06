@@ -15,7 +15,7 @@ use std::collections::BTreeSet;
 const KIND: u8 = 224;
 const LIMIT: usize = 4 * 1024 * 1024;
 
-#[derive(Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Record {
     fence: [u8; 32],
@@ -85,9 +85,22 @@ impl FleetCatalog {
                 mutation: mutation.encode().to_vec(),
             };
             let bytes = encode(KIND, &record, LIMIT)?;
-            self.inner
-                .create_exact(&replacement_key(fenced), &bytes, LIMIT)
-                .await?;
+            let key = replacement_key(fenced);
+            if let Some((selected, _)) = self.inner.read::<Record>(&key, KIND, LIMIT).await? {
+                if selected != record {
+                    return Err(FleetCatalogError::PayloadConflict);
+                }
+            } else {
+                let domain = &self.inner.domain;
+                for birth in &births {
+                    domain
+                        .run(directory.require_unreserved_fleet_group(birth, &owner))
+                        .await
+                        .map_err(|_| FleetCatalogError::Closed)?
+                        .map_err(catalog_error)?;
+                }
+                self.inner.create_exact(&key, &bytes, LIMIT).await?;
+            }
             Ok(FleetTransitionRecoveryReplacement {
                 fence: record.fence,
                 receipt: record.receipt,

@@ -320,6 +320,29 @@ impl RangeDirectory {
         self.bounded(self.namespace.admit_cell_group(request)).await
     }
 
+    pub(crate) async fn require_unreserved_fleet_group(
+        &self,
+        request: &CellGroupBirthRequest,
+        owner: &crate::raft::catalog::ManagedBirthOwner,
+    ) -> Result<(), CatalogError> {
+        if self.namespace.cell_group_owner().await?.as_ref() != Some(owner) {
+            return Err(CatalogError::ManagedAdmissionRequired);
+        }
+        self.bounded(async {
+            if self
+                .namespace
+                .inner
+                .read_versioned_bounded(&self.reservation_key(request.route()), wire::LIMIT)
+                .await?
+                .is_some()
+            {
+                return Err(CatalogError::Conflict("group birth identity reserved"));
+            }
+            Ok(())
+        })
+        .await
+    }
+
     /// A provisional permanent identity claim precedes the fleet root CAS.
     /// Losing that CAS retains this claim; it grants no materialization,
     /// bootstrap or quorum authority without the rooted birth capability.
