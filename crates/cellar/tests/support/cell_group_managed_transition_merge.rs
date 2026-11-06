@@ -1820,22 +1820,10 @@ async fn check_recovery_voter_reservations(
             plan_digest: plan.digest(),
             seed_digest: reopened.digest(),
         };
-        let (root, node, host, peer) = standbys.remove(1);
-        ensure!(matches!(node.shutdown(ShutdownMode::Preserve).await?, NodeOutcome::Stopped(_)));
-        let report = host.close().await?;
-        ensure!(
-            report.groups_total == reserved.len() && report.omitted_groups == 0
-                && report.groups.iter().all(|group| !group.active && !group.failed
-                    && group.applied.index.get() == 1 && group.committed == group.applied.index),
-            "closed pending recovery voter inventory: {report:?}"
-        );
-        let (node, host) = Box::pin(start_recovery_voter(
-            &peer, root.path(), LogOpenMode::Resume, 197,
-        )).await.context("restart a selected recovery voter before publication")?;
-        standbys.insert(1, (root, node, host, peer));
+        Box::pin(restart_recovery_voter(&mut standbys, 1, 197, reserved.len(), false))
+            .await.context("restart a selected recovery voter before publication")?;
         let (_, _, host, peer) = &standbys[1];
         let view = host.observe_node(TIMEOUT).await?;
-        ensure!(view.node.groups == reserved.len() as u32 && view.registered_histories == 0);
         let new_boot = view.fleet_boot.context("restarted recovery voter boot")?;
         ensure!(
             new_boot.disk == boots[1].disk && new_boot.engine == boots[1].engine
@@ -1886,9 +1874,22 @@ async fn check_recovery_voter_reservations(
         let wrong = FleetRecoveryAttachRequest { seed_digest: [1; 32], ..request.clone() };
         let denied = Box::pin(first_host.attach_managed_recovery_voter(wrong, first, TIMEOUT)).await;
         ensure!(denied.is_err() && first_host.observe_node(TIMEOUT).await?.registered_histories == 0);
+        let mut activations = Vec::new();
         for (birth, archive) in plan.births().iter().zip(fenced.archives()) {
             let history = birth.route().history;
             Box::pin(check_pending_recovery_quorum(&hosts, &request, history)).await?;
+            let absent = Box::pin(fresh.reopen_transition_recovery_activation(
+                namespace, &request, history, TIMEOUT,
+            )).await?;
+            ensure!(absent.is_none());
+            let activated = Box::pin(check_managed_recovery_activation(
+                &hosts, &request, history, &fixture.store,
+            )).await?;
+            let reopened = Box::pin(fresh.reopen_transition_recovery_activation(
+                namespace, &request, history, TIMEOUT,
+            )).await?;
+            ensure!(reopened == Some(activated));
+            activations.push((history, activated));
             let (cell, _) = routed.iter().find(|(cell, _)| {
                 archive.recovery().manifest().pin_cell(&cell.cell).is_some()
             }).context("recovered range cell")?;
@@ -1928,6 +1929,23 @@ async fn check_recovery_voter_reservations(
                 "pending recovery did not refuse the write before dispatch: {write:?}"
             );
         }
+        Box::pin(restart_recovery_voter(&mut standbys, 2, 199, reserved.len(), true))
+            .await.context("restart an activated recovery voter before settlement")?;
+        let (_, _, restarted, peer) = &standbys[2];
+        Box::pin(admit_capacity(peer, restarted, &directory, 199)).await?;
+        let revision = fixture.catalog.read(TIMEOUT).await?.revision();
+        for (_, _, other, _) in &standbys {
+            inspect_current(restarted, other.identity().node, revision).await?;
+            inspect_current(other, restarted.identity().node, revision).await?;
+        }
+        for (history, position) in activations {
+            Box::pin(restarted.attach_managed_recovery_voter(request.clone(), history, TIMEOUT)).await?;
+            let group = restarted.group(history)?;
+            let status = group.status().await?;
+            ensure!(!status.ready && status.applied.index >= position.index);
+            let reopened = Box::pin(group.activate_managed_recovery(request.clone(), TIMEOUT)).await?;
+            ensure!(reopened == Some(position));
+        }
         Ok::<(), anyhow::Error>(())
     })
     .await;
@@ -1941,11 +1959,11 @@ async fn check_recovery_voter_reservations(
             let report = host.close().await?;
             ensure!(report.groups_total == plan.births().len());
             ensure!(
-                report.groups.iter().all(|group| !group.active
+                report.groups.iter().all(|group| group.active
                     && !group.failed
-                    && group.applied.index.get() > 1
+                    && group.applied.index.get() > 2
                     && group.committed == group.applied.index),
-                "managed recovery shutdown must preserve inactive quorum state: {report:?}"
+                "managed recovery shutdown must preserve committed activation: {report:?}"
             );
             Ok::<(), anyhow::Error>(())
         }
@@ -1954,6 +1972,50 @@ async fn check_recovery_voter_reservations(
     }
     checked?;
     shutdown
+}
+
+type RecoveryVoter = (tempfile::TempDir, Node, RaftCells, Fixture);
+
+async fn restart_recovery_voter(
+    voters: &mut Vec<RecoveryVoter>,
+    index: usize,
+    generation: u8,
+    ranges: usize,
+    activated: bool,
+) -> Result<()> {
+    let (root, node, host, peer) = voters.remove(index);
+    let previous = host.identity();
+    ensure!(matches!(
+        node.shutdown(ShutdownMode::Preserve).await?,
+        NodeOutcome::Stopped(_)
+    ));
+    let report = host.close().await?;
+    ensure!(
+        report.groups_total == ranges
+            && report.omitted_groups == 0
+            && report.groups.iter().all(|group| group.active == activated
+                && !group.failed
+                && group.committed == group.applied.index
+                && if activated {
+                    group.applied.index.get() > 2
+                } else {
+                    group.applied.index.get() == 1
+                }),
+        "closed recovery voter inventory: {report:?}"
+    );
+    let (node, host) = Box::pin(start_recovery_voter(
+        &peer,
+        root.path(),
+        LogOpenMode::Resume,
+        generation,
+    ))
+    .await?;
+    voters.insert(index, (root, node, host, peer));
+    let host = &voters[index].2;
+    ensure!(host.identity().disk == previous.disk && host.identity().process != previous.process);
+    let view = host.observe_node(TIMEOUT).await?;
+    ensure!(view.node.groups == ranges as u32 && view.registered_histories == 0);
+    Ok(())
 }
 
 async fn start_recovery_voter(
@@ -2000,6 +2062,20 @@ async fn check_pending_recovery_quorum(
         if index == 0 {
             let status = host.group(history)?.status().await?;
             ensure!(!status.ready && status.committed.get() == 1);
+            let refused = Box::pin(
+                host.group(history)?
+                    .activate_managed_recovery(request.clone(), TIMEOUT),
+            )
+            .await;
+            ensure!(
+                matches!(
+                    refused,
+                    Err(CellGroupControllerError::Runtime(
+                        RuntimeError::NotLeader | RuntimeError::NotReady
+                    ))
+                ),
+                "minority admitted recovery activation: {refused:?}"
+            );
         }
     }
     tokio::time::timeout(TIMEOUT, async {
@@ -2024,6 +2100,80 @@ async fn check_pending_recovery_quorum(
     .context("pending recovery did not form a fresh Raft quorum")??;
     Box::pin(hosts[0].attach_managed_recovery_voter(request.clone(), history, TIMEOUT)).await?;
     Ok(())
+}
+
+async fn check_managed_recovery_activation(
+    hosts: &[&RaftCells],
+    request: &FleetRecoveryAttachRequest,
+    history: GroupHistory,
+    store: &fault::Store,
+) -> Result<LogPosition> {
+    store
+        .fail_recovery_record_confirmation
+        .store(true, Ordering::Release);
+    let position = tokio::time::timeout(TIMEOUT, async {
+        let mut lost = false;
+        loop {
+            for host in hosts {
+                let group = host.group(history)?;
+                let observed =
+                    Box::pin(group.activate_managed_recovery(request.clone(), TIMEOUT)).await;
+                match observed {
+                    Ok(Some(position)) => {
+                        ensure!(lost && position.term.get() > 1 && position.index.get() > 2);
+                        return Ok::<_, anyhow::Error>(position);
+                    }
+                    Ok(None)
+                    | Err(CellGroupControllerError::Runtime(
+                        RuntimeError::NotLeader | RuntimeError::NotReady,
+                    )) => (),
+                    Err(CellGroupControllerError::Catalog(error))
+                        if matches!(
+                            error.as_ref(),
+                            cellar::application::consensus::CatalogError::Storage(_)
+                        ) && !store
+                            .fail_recovery_record_confirmation
+                            .load(Ordering::Acquire) =>
+                    {
+                        lost = true;
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("managed recovery activation did not commit")??;
+
+    tokio::time::timeout(TIMEOUT, async {
+        loop {
+            let mut applied = true;
+            for host in hosts {
+                let status = host.group(history)?.status().await?;
+                ensure!(
+                    !status.ready,
+                    "committed recovery activated serving before settlement"
+                );
+                applied &= status.applied.index >= position.index
+                    && status.committed == status.applied.index;
+            }
+            if applied {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("managed recovery activation did not reach all voters")??;
+    let replayed = Box::pin(
+        hosts[2]
+            .group(history)?
+            .activate_managed_recovery(request.clone(), TIMEOUT),
+    )
+    .await?;
+    ensure!(replayed == Some(position));
+    Ok(position)
 }
 
 fn check_restored_image(before: CellImagePin, after: CellImagePin) -> Result<()> {

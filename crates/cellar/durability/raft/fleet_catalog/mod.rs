@@ -33,6 +33,7 @@ pub use managed_recovery_intent::{FleetTransitionRecoveryBarrier, FleetTransitio
 pub(crate) use managed_recovery_intent::{ManagedRecoveryIntentBasis, ManagedRecoveryIntentInput};
 mod managed_recovery_inventory;
 mod managed_recovery_quorum;
+pub(crate) use managed_recovery_quorum::FleetPublishedRecoveryVoter;
 pub use managed_recovery_quorum::{FleetRecoveryAttachRequest, FleetRecoverySeedQuorums};
 mod managed_recovery_replacement;
 mod managed_recovery_reservation;

@@ -437,6 +437,23 @@ impl RaftFleetControl {
             .await?)
     }
 
+    /// Reopen the committed activation receipt from the selected recovery.
+    /// This read needs no running replacement voter and grants no serving authority.
+    #[doc(hidden)]
+    pub async fn reopen_transition_recovery_activation(
+        &self,
+        namespace: &str,
+        request: &crate::raft::fleet_catalog::FleetRecoveryAttachRequest,
+        history: cellar_logic::cell_group::GroupHistory,
+        timeout: Duration,
+    ) -> Result<Option<cellar_logic::consensus::LogPosition>> {
+        let directory = self.managed_namespace(namespace)?;
+        Ok(self
+            .catalog
+            .reopen_managed_recovery_activation(directory, request, history, timeout)
+            .await?)
+    }
+
     /// Copy one exact selected cut into dedicated fresh-history stores. This
     /// does not install Raft state or authorize placement or serving.
     #[doc(hidden)]

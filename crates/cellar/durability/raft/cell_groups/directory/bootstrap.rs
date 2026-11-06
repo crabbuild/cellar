@@ -145,6 +145,10 @@ impl CellGroupBootstrapPermit {
         &self.log
     }
 
+    pub(crate) fn managed_recovery_fenced(&self) -> bool {
+        matches!(self.origin, BootstrapOrigin::ManagedRecovery(_))
+    }
+
     pub(crate) fn transfer_archive_pending(&self) -> bool {
         matches!(
             self.origin,

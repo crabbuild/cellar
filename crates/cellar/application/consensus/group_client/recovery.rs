@@ -15,6 +15,61 @@ use crate::{
         },
     },
 };
+use cellar_logic::consensus::LogPosition;
+
+impl RaftGroupHandle {
+    /// Submit or reconcile this range's exact managed recovery activation.
+    /// Returns its applied position once the durable receipt is confirmed.
+    /// A pending proposal returns None. Serving requires separate settlement.
+    pub fn activate_managed_recovery(
+        &self,
+        request: FleetRecoveryAttachRequest,
+        timeout: Duration,
+    ) -> impl Future<Output = Result<Option<LogPosition>, CellGroupControllerError>> + Send + 'static
+    {
+        use super::startup::{admission_error, catalog_error};
+        let admitted = self
+            .owner
+            .metadata_admission(timeout, 4096)
+            .map_err(admission_error);
+        let owner = self.owner.internal_observer();
+        let history = self.history;
+        async move {
+            let (deadline, _memory) = admitted?;
+            let host = owner
+                .handle
+                .core
+                .managed
+                .as_ref()
+                .ok_or_else(|| catalog_error(CatalogError::ManagedAdmissionRequired))?;
+            owner.startup_live(host, deadline)?;
+            let lease = owner
+                .register_control_service(ControlServiceKind::Recovery, 4096)
+                .map_err(CatalogError::from)
+                .map_err(catalog_error)?;
+            let (reply, result) = tokio::sync::oneshot::channel();
+            let domain = owner.handle.domain.clone();
+            domain
+                .spawn_cleanup(async move {
+                    let stop = lease.stop_receiver();
+                    let activated = Box::pin(
+                        owner.run_managed_recovery_activation(&request, history, deadline, &stop),
+                    )
+                    .await;
+                    drop(lease);
+                    let _ = reply.send(activated);
+                })
+                .map_err(|_| CellGroupControllerError::Closed)?
+                .detach();
+            domain
+                .run(crate::asyncrt::timeout_at(deadline, result))
+                .await
+                .map_err(|_| CellGroupControllerError::Closed)?
+                .map_err(|_| CellGroupControllerError::Runtime(RuntimeError::DeadlineExceeded))?
+                .map_err(|_| CellGroupControllerError::Closed)?
+        }
+    }
+}
 
 impl RaftCells {
     /// Open this boot's configured page and image stores and copy the exact
@@ -215,6 +270,45 @@ impl RaftCells {
                 .map_err(|_| CellGroupControllerError::Runtime(RuntimeError::DeadlineExceeded))?
                 .map_err(|_| CellGroupControllerError::Closed)?
         }
+    }
+
+    async fn run_managed_recovery_activation(
+        &self,
+        request: &FleetRecoveryAttachRequest,
+        history: GroupHistory,
+        deadline: u64,
+        stop: &tokio::sync::watch::Receiver<bool>,
+    ) -> Result<Option<LogPosition>, CellGroupControllerError> {
+        use super::startup::catalog_error;
+        let core = &self.handle.core;
+        let host = core
+            .managed
+            .as_ref()
+            .ok_or_else(|| catalog_error(CatalogError::ManagedAdmissionRequired))?;
+        let directory = core
+            .host
+            .namespace_directory(history.cluster, history.namespace)
+            .map_err(|_| CellGroupControllerError::Invalid("recovery activation namespace"))?;
+        let remaining = || self.recovery_seed_remaining(host, deadline, stop);
+        remaining()?;
+        let prepare = || {
+            directory
+                .prepare_managed_recovery_activation(request, history, &core.log, host, deadline)
+        };
+        let permit = prepare().await.map_err(catalog_error)?;
+        remaining()?;
+        let applied = match core.runtime.activate_recovery(permit).await? {
+            CellGroupRecoveryActivation::Accepted(_) => return Ok(None),
+            CellGroupRecoveryActivation::Applied(applied) => applied,
+        };
+        remaining()?;
+        let confirmed = prepare().await.map_err(catalog_error)?;
+        remaining()?;
+        directory
+            .record_managed_recovery_activation(&confirmed, &applied, &core.log)
+            .await
+            .map(Some)
+            .map_err(catalog_error)
     }
 
     async fn run_managed_recovery_seed(

@@ -4,7 +4,7 @@
 use super::{histories::catalog_error, *};
 use crate::raft::{
     catalog::{
-        CellGroupBirthRequest, DirectoryPublication, ManagedRecoveryPublicationInput,
+        CatalogError, CellGroupBirthRequest, DirectoryPublication, ManagedRecoveryPublicationInput,
         ManagedRecoverySeedQuorum, RangeDirectory,
     },
     cell_groups::CellGroupArchivePool,
@@ -13,7 +13,7 @@ use crate::raft::{
 };
 use cellar_logic::{
     cell_group::GroupHistory,
-    consensus::{NodeId, ProposalId},
+    consensus::{LogPosition, NodeId, ProposalId},
 };
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -62,6 +62,7 @@ pub struct FleetRecoveryAttachRequest {
 pub(crate) struct FleetPublishedRecoveryVoter {
     pub(crate) birth: CellGroupBirthRequest,
     pub(crate) seeds: ManagedRecoverySeedQuorum,
+    pub(crate) publication: DirectoryPublication,
     pub(crate) group: FleetGroupBinding,
     pub(crate) seeded_boot: BootBinding,
     pub(crate) current_boot: BootBinding,
@@ -117,7 +118,7 @@ impl FleetHostAuthorization {
                     return Err(FleetCatalogError::Conflict);
                 }
                 let input = publication_input(&intent, &plan, request.seed_digest)?;
-                catalog
+                let publication = catalog
                     .inner
                     .domain
                     .run(Box::pin(
@@ -133,6 +134,7 @@ impl FleetHostAuthorization {
                 Ok(FleetPublishedRecoveryVoter {
                     birth: birth.clone(),
                     seeds: record.ranges[index].clone(),
+                    publication,
                     group: catalog.binding(&history)?,
                     seeded_boot: seeded_boot.clone(),
                     current_boot,
@@ -284,6 +286,54 @@ impl FleetCatalog {
                 .run(Box::pin(
                     directory.observe_managed_recovery_publication(&input),
                 ))
+                .await
+                .map_err(|_| FleetCatalogError::Closed)?
+                .map_err(catalog_error)
+        })
+        .await
+    }
+
+    pub(crate) async fn reopen_managed_recovery_activation(
+        &self,
+        directory: &RangeDirectory,
+        request: &FleetRecoveryAttachRequest,
+        history: GroupHistory,
+        timeout: Duration,
+    ) -> Result<Option<LogPosition>> {
+        self.run(timeout, async {
+            let (intent, plan, record) = self
+                .read_managed_recovery_publication_inputs(
+                    directory,
+                    request.operation,
+                    &request.principal,
+                    (request.plan_digest, request.seed_digest),
+                )
+                .await?;
+            let snapshot = self.inner.current().await?;
+            self.managed_recovery_permit_at(&snapshot, directory, intent.basis())
+                .await?;
+            let index = plan
+                .births()
+                .iter()
+                .position(|birth| birth.route().history == history)
+                .ok_or(FleetCatalogError::Conflict)?;
+            let input = publication_input(&intent, &plan, request.seed_digest)?;
+            self.inner
+                .domain
+                .run(Box::pin(async {
+                    let publication = directory
+                        .observe_managed_recovery_publication(&input)
+                        .await?
+                        .ok_or(CatalogError::Fenced)?;
+                    directory
+                        .observe_managed_recovery_activation(
+                            plan.births()[index].route(),
+                            request.plan_digest,
+                            publication.journal_digest(),
+                            record.ranges[index].genesis_commitment(),
+                        )
+                        .await
+                }))
                 .await
                 .map_err(|_| FleetCatalogError::Closed)?
                 .map_err(catalog_error)

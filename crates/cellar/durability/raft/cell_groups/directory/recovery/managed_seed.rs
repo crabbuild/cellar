@@ -433,7 +433,7 @@ impl RangeDirectory {
             .ok_or(CatalogError::Corrupt("missing managed seed intent"))
     }
 
-    fn managed_seed_key(&self, route: &GroupRoute, leaf: &str) -> Path {
+    pub(super) fn managed_seed_key(&self, route: &GroupRoute, leaf: &str) -> Path {
         self.key(&format!(
             "managed-recovery-seeds/{}/{}/{leaf}",
             hex::encode(route.history.group.bytes()),

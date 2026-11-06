@@ -319,22 +319,26 @@ pub(super) async fn discover_retained_placements(
         let marker = retained.group_manifest()?;
         if let Some(marker) = marker
             .as_ref()
-            .filter(|marker| marker.recovery_request().is_some() && !marker.is_active())
+            .filter(|marker| marker.recovery_request().is_some())
         {
             let namespace = namespace()?;
             let directory = &prepared.namespaces[namespace].directory;
             let timeout = std::time::Duration::from_secs(5);
             let snapshot = fleet.read(timeout).await?;
             let birth = fleet.history(&snapshot, &history, timeout).await?;
-            Box::pin(directory.require_parked_managed_recovery(
-                &retained,
-                marker,
-                &birth,
-                log.storage_instance()?,
-            ))
-            .await?;
-            placements.parked.push((namespace, retained));
-            continue;
+            if !marker.is_active()
+                || birth.state() == &crate::raft::fleet_catalog::FleetHistoryState::Reserved
+            {
+                Box::pin(directory.require_parked_managed_recovery(
+                    &retained,
+                    marker,
+                    &birth,
+                    log.storage_instance()?,
+                ))
+                .await?;
+                placements.parked.push((namespace, retained));
+                continue;
+            }
         }
         if let Some(marker) = marker.as_ref().filter(|marker| {
             marker.transfer_origin().is_some() && marker.transfer_activation().is_none()

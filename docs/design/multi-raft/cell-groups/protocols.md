@@ -1519,8 +1519,11 @@ the recovery lock, reserved history, seed intent and pinned disk and engine.
 The parked owner keeps its images and capacity charge outside the transport
 roster. A new boot must qualify before its disk's seed can count for publication
 or attach after publication. The voter can then replicate a fresh-term barrier
-while application admission remains closed. Committed activation requires a
-separate fresh-quorum proof.
+while application admission remains closed. Each range's leader must commit
+activation after applying a fresh-term barrier. A voter records the exact
+committed position against the selected publication and seed commitment.
+A retry reconciles a lost receipt confirmation against the same position.
+Raft owners and application routing remain fenced through Fleet settlement.
 
 For an unpublished transition, choose complete archived parent cuts and reconstruct
 their non-overlapping domain under new groups. For a published transition, require

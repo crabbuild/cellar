@@ -278,6 +278,7 @@ pub struct CellGroupOwner {
     proposals: super::proposal_admission::ProposalAdmission,
     pub(super) proposal_budget: Arc<crate::raft::budget::Budget>,
     prepared_only: bool,
+    managed_recovery_fenced: bool,
     activation_proposal: Option<Box<(Term, CellGroupProposal)>>,
     retirement_proposal: Option<Box<(Term, CellGroupProposal)>>,
     pending_seal: Option<Box<(Term, [u8; 32], CellGroupProposal)>>,
@@ -394,6 +395,7 @@ impl CellGroupOwner {
             failed: None,
             proposals: Default::default(),
             prepared_only: false,
+            managed_recovery_fenced: permit.managed_recovery_fenced(),
             activation_proposal: None,
             retirement_proposal: None,
             pending_seal: None,
@@ -463,7 +465,8 @@ impl CellGroupOwner {
         {
             self.waking_after = None;
         }
-        let term = if !self.park_fenced()
+        let term = if !self.managed_recovery_fenced
+            && !self.park_fenced()
             && self.pending_seal.is_none()
             && self.current.marker().source_seal().is_none()
             && self.node.raft.state == StateRole::Leader
@@ -532,7 +535,11 @@ impl CellGroupOwner {
 
     pub(super) fn require_application_active(&self) -> Result<(), RuntimeError> {
         self.live()?;
-        if self.park_fenced() || self.pending_seal.is_some() || !self.current.marker().is_active() {
+        if self.managed_recovery_fenced
+            || self.park_fenced()
+            || self.pending_seal.is_some()
+            || !self.current.marker().is_active()
+        {
             return Err(RuntimeError::NotReady);
         }
         Ok(())
@@ -746,6 +753,9 @@ impl CellGroupOwner {
         cell: CellHistory,
     ) -> Result<super::CellEnrollmentState, RuntimeError> {
         self.live()?;
+        if self.managed_recovery_fenced {
+            return Err(RuntimeError::NotReady);
+        }
         super::CellEnrollmentState::new(self.group.clone(), &self.current, cell)
     }
 
@@ -768,6 +778,9 @@ impl CellGroupOwner {
         cell: &CellHistory,
     ) -> Result<super::CellReconciliationAuthority, RuntimeError> {
         self.live()?;
+        if self.managed_recovery_fenced {
+            return Err(RuntimeError::NotReady);
+        }
         super::CellReconciliationAuthority::new(self.group.clone(), &self.current, cell)
     }
 
@@ -790,7 +803,8 @@ impl CellGroupOwner {
             leader: (self.node.raft.leader_id != 0).then_some(self.node.raft.leader_id),
             applied: self.current.marker().position(),
             committed: LogIndex::new(cache.hard_state.commit),
-            ready: !self.park_fenced()
+            ready: !self.managed_recovery_fenced
+                && !self.park_fenced()
                 && self.pending_seal.is_none()
                 && self.current.marker().is_active()
                 && self.protocol_ready(cache),
@@ -881,7 +895,8 @@ impl CellGroupOwner {
             route: marker.route().clone(),
             membership,
             status,
-            stable_leader: marker.is_active()
+            stable_leader: !self.managed_recovery_fenced
+                && marker.is_active()
                 && !self.park_fenced()
                 && self.pending_seal.is_none()
                 && self.configuration_fence.is_none()

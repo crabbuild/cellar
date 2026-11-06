@@ -4,15 +4,23 @@
 //! produce an applied acknowledgement and release the topology recovery lock.
 use super::*;
 use crate::raft::{
-    cache::GroupLog, cell_groups::GroupManifest, completion::RuntimeError, storage::ReplicaLog,
+    cache::GroupLog,
+    cell_groups::GroupManifest,
+    completion::RuntimeError,
+    fleet_catalog::{FleetHostAuthorization, FleetRecoveryAttachRequest},
+    fleet_stop::BootBinding,
+    storage::ReplicaLog,
 };
 use cellar_logic::consensus::{EngineInstanceId, LogIndex, LogPosition, Term};
 use std::sync::atomic::Ordering;
 
 pub struct CellGroupRecoveryActivationPermit {
-    request: Arc<CellGroupRecoveryRequest>,
+    route: GroupRoute,
+    request: [u8; 32],
+    operation: ProposalId,
     group: GroupLog<GroupHistory>,
     engine: EngineInstanceId,
+    managed_boot: Option<BootBinding>,
     publication: [u8; 32],
     manifest: [u8; 32],
     deadline: u64,
@@ -39,13 +47,21 @@ impl CellGroupRecoveryActivationPermit {
         {
             return Err(RuntimeError::StaleCompletion);
         }
+        if let Some(boot) = &self.managed_boot {
+            if log
+                .lifecycle_guard()?
+                .is_none_or(|guard| !guard.admits_group_start(boot))
+            {
+                return Err(RuntimeError::StaleCompletion);
+            }
+        }
         drop(group.read()?);
         Ok(())
     }
 
     pub(crate) fn matches(&self, marker: &GroupManifest) -> Result<bool, RuntimeError> {
-        if marker.route() != self.request.replacement().route()
-            || marker.recovery_request() != Some(self.request.digest())
+        if marker.route() != &self.route
+            || marker.recovery_request() != Some(self.request)
             || marker
                 .recovery_commitment()
                 .map_err(|e| RuntimeError::Invalid(e.to_string()))?
@@ -68,17 +84,17 @@ impl CellGroupRecoveryActivationPermit {
         use crate::application::consensus::group_protocol::{
             CellGroupEntry, GroupCommand, GroupEntryBinding, GroupEntryLimits,
         };
-        let route = self.request.replacement().route();
+        let route = &self.route;
         CellGroupEntry {
             binding: GroupEntryBinding {
                 group: route.history,
                 route_epoch: route.epoch,
                 birth_digest: route.birth_digest,
                 schema_digest: route.schema_digest,
-                proposal: self.request.operation(),
+                proposal: self.operation,
             },
             command: GroupCommand::Activate {
-                transition: TransitionId::new(self.request.operation().bytes())
+                transition: TransitionId::new(self.operation.bytes())
                     .map_err(|e| RuntimeError::Invalid(e.to_string()))?,
                 publication: self.publication,
                 manifest: self.manifest,
@@ -107,7 +123,7 @@ impl CellGroupRecoveryActivationPermit {
         }
         Ok(CellGroupRecoveryActivationAck {
             group: group.clone(),
-            request: self.request.digest(),
+            request: self.request,
             publication: self.publication,
             manifest: self.manifest,
             position,
@@ -132,15 +148,16 @@ impl CellGroupRecoveryActivationAck {
 
     fn check(
         &self,
-        request: &CellGroupRecoveryRequest,
+        route: &GroupRoute,
+        request: [u8; 32],
         publication: [u8; 32],
         manifest: [u8; 32],
     ) -> Result<(), CatalogError> {
-        if self.request != request.digest()
+        if self.request != request
             || self.publication != publication
             || self.manifest != manifest
             || self.group.closed.load(Ordering::Acquire)
-            || self.group.identity().scope != request.replacement().route().history
+            || self.group.identity().scope != route.history
         {
             return Err(CatalogError::Fenced);
         }
@@ -149,7 +166,8 @@ impl CellGroupRecoveryActivationAck {
             .group_manifest
             .as_ref()
             .ok_or(CatalogError::LostStableState)?;
-        if root.recovery_request() != Some(self.request)
+        if root.route() != route
+            || root.recovery_request() != Some(self.request)
             || root.recovery_activation() != Some((self.publication, self.manifest, self.position))
             || cache.hard_state.commit < self.position.index.get()
         {
@@ -169,6 +187,30 @@ struct Activated {
     term: u64,
 }
 
+impl Activated {
+    fn position_for(
+        &self,
+        request: [u8; 32],
+        publication: [u8; 32],
+        manifest: [u8; 32],
+    ) -> Result<LogPosition, CatalogError> {
+        let position = LogPosition {
+            index: LogIndex::new(self.index),
+            term: Term::new(self.term),
+        };
+        if self.request != request
+            || self.publication != publication
+            || self.manifest != manifest
+            || self.index <= 1
+            || self.term <= 1
+            || position.validate().is_err()
+        {
+            return Err(CatalogError::Corrupt("recovery activation binding"));
+        }
+        Ok(position)
+    }
+}
+
 impl RangeDirectory {
     pub(super) async fn require_recovery_activation(
         &self,
@@ -185,20 +227,7 @@ impl RangeDirectory {
             .0;
         let activated: Activated =
             record::decode(wire::GROUP_RECOVERY_ACTIVATED, &bytes, wire::LIMIT)?;
-        if activated.request != request.digest()
-            || activated.publication != publication.journal_digest()
-            || activated.manifest != manifest
-            || activated.index <= 1
-            || activated.term <= 1
-            || (LogPosition {
-                index: LogIndex::new(activated.index),
-                term: Term::new(activated.term),
-            })
-            .validate()
-            .is_err()
-        {
-            return Err(CatalogError::Corrupt("recovery activation binding"));
-        }
+        activated.position_for(request.digest(), publication.journal_digest(), manifest)?;
         Ok(())
     }
 
@@ -212,7 +241,7 @@ impl RangeDirectory {
     ) -> futures_util::future::BoxFuture<'a, Result<CellGroupRecoveryActivationPermit, CatalogError>>
     {
         Box::pin(async move {
-            let request = Arc::new(self.decode_group_recovery(request.encode())?);
+            let request = self.decode_group_recovery(request.encode())?;
             self.bounded(async {
                 self.verify_recovery_fence(&request, authority).await?;
                 let group = self.recovered_member(&request, log).await?;
@@ -224,8 +253,11 @@ impl RangeDirectory {
                     .checked_add(self.limits.operation_timeout_ms)
                     .ok_or(CatalogError::Limit)?;
                 Ok(CellGroupRecoveryActivationPermit {
-                    request,
+                    route: request.replacement().route().clone(),
+                    request: request.digest(),
+                    operation: request.operation(),
                     group,
+                    managed_boot: None,
                     engine: log.storage_instance().map_err(CatalogError::Log)?,
                     publication: publication.journal_digest(),
                     manifest: binding.commitment,
@@ -234,6 +266,112 @@ impl RangeDirectory {
             })
             .await
         })
+    }
+
+    pub(crate) fn prepare_managed_recovery_activation<'a>(
+        &'a self,
+        request: &'a FleetRecoveryAttachRequest,
+        history: GroupHistory,
+        log: &'a ReplicaLog,
+        host: &'a FleetHostAuthorization,
+        deadline: u64,
+    ) -> futures_util::future::BoxFuture<'a, Result<CellGroupRecoveryActivationPermit, CatalogError>>
+    {
+        Box::pin(self.bounded(async move {
+            let (group, authority) = self
+                .verify_published_managed_recovery_member(request, history, log, host, deadline)
+                .await?;
+            Ok(CellGroupRecoveryActivationPermit {
+                route: authority.birth.route().clone(),
+                request: request.plan_digest,
+                operation: request.operation,
+                group,
+                engine: log.storage_instance().map_err(CatalogError::Log)?,
+                managed_boot: Some(authority.current_boot),
+                publication: authority.publication.journal_digest(),
+                manifest: authority.seeds.genesis_commitment(),
+                deadline,
+            })
+        }))
+    }
+
+    /// Record an applied activation under the exact selected range. The
+    /// recovery lock stays selected until the complete Fleet settlement.
+    pub(crate) async fn record_managed_recovery_activation(
+        &self,
+        permit: &CellGroupRecoveryActivationPermit,
+        acknowledgement: &CellGroupRecoveryActivationAck,
+        log: &ReplicaLog,
+    ) -> Result<LogPosition, CatalogError> {
+        if permit.managed_boot.is_none() {
+            return Err(CatalogError::Fenced);
+        }
+        self.bounded(async {
+            permit
+                .check(log, &acknowledgement.group)
+                .map_err(CatalogError::Runtime)?;
+            acknowledgement.check(
+                &permit.route,
+                permit.request,
+                permit.publication,
+                permit.manifest,
+            )?;
+            let position = acknowledgement.position();
+            if position.index.get() <= 1 || position.term.get() <= 1 {
+                return Err(CatalogError::Fenced);
+            }
+            let bytes = record::encode(
+                wire::GROUP_RECOVERY_ACTIVATED,
+                &Activated {
+                    request: permit.request,
+                    publication: permit.publication,
+                    manifest: permit.manifest,
+                    index: position.index.get(),
+                    term: position.term.get(),
+                },
+                wire::LIMIT,
+            )?;
+            let key = self.managed_seed_key(&permit.route, "activation");
+            if self
+                .namespace
+                .inner
+                .create_and_observe_bounded(&key, &bytes, wire::LIMIT)
+                .await?
+                != bytes
+            {
+                return Err(CatalogError::Conflict(
+                    "managed recovery activation receipt",
+                ));
+            }
+            Ok(position)
+        })
+        .await
+    }
+
+    pub(crate) async fn observe_managed_recovery_activation(
+        &self,
+        route: &GroupRoute,
+        request: [u8; 32],
+        publication: [u8; 32],
+        manifest: [u8; 32],
+    ) -> Result<Option<LogPosition>, CatalogError> {
+        self.bounded(async {
+            let key = self.managed_seed_key(route, "activation");
+            let Some((bytes, _)) = self
+                .namespace
+                .inner
+                .read_versioned_bounded(&key, wire::LIMIT)
+                .await?
+            else {
+                return Ok(None);
+            };
+            let observed: Activated =
+                record::decode(wire::GROUP_RECOVERY_ACTIVATED, &bytes, wire::LIMIT)?;
+            observed
+                .position_for(request, publication, manifest)
+                .map(Some)
+        })
+        .await
     }
 
     /// Release topology only after committed/applied activation. Unknown S3
@@ -250,7 +388,8 @@ impl RangeDirectory {
                 self.verify_recovery_fence(&request, authority).await?;
                 let (publication, binding, _) = self.published_recovery(&request).await?;
                 acknowledgement.check(
-                    &request,
+                    request.replacement().route(),
+                    request.digest(),
                     publication.journal_digest(),
                     binding.commitment,
                 )?;
@@ -303,7 +442,8 @@ impl RangeDirectory {
                     return Err(CatalogError::Fenced);
                 }
                 acknowledgement.check(
-                    &request,
+                    request.replacement().route(),
+                    request.digest(),
                     publication.journal_digest(),
                     binding.commitment,
                 )?;
