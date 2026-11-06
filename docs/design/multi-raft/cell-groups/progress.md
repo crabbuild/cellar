@@ -230,6 +230,29 @@ are `d27330fb8cb3ed0866106f5aa4f384097d22e660b4245490f52defdce2c555eb`
 and `b852971cfc0ea4aeff6d5fcbabdf700c478440091ede6a1ab5d0c048dab90118`.
 Targeted Clippy passed with warnings.
 
+## CG-07 public replica routing and read budgets
+
+At `310da5ac`, the public read target passed all 14 cases in 63.25 seconds
+on three embedded voters with separate disks and TLS TCP links. This adds
+bounded replica fallback, delayed-reply isolation, a pinned historical image,
+32 quorum writes during an entered follower read, typed peer saturation and
+expiry, and byte retention across 16 completed unpolled replies. The first
+saturation port observed deadlines because it polled replies sequentially.
+The passing run polls all callers within their original deadlines. It also
+waits for the former leader to apply the new term and write before testing the
+healed replica's linearizable read.
+
+A voter with the same cell schema and no local query callback can route an
+explicit read to a compatible replica. The recipient checks the exact query
+contract, and an origin with a locally known contract refuses a mismatched
+digest. The baseline reproduced the forwarding refusal. The read and contract
+suite log SHA-256 digests are
+`1519d95dc20c84db26383c5076792f71d3ab59aeb069c0c7b67c8f73e1760ad4`
+and `13cb85042eca2d0243ff396bee77b6d2563ef36709bf32f23578c5f00d7dd54f`.
+The contract suite passed all nine cases, including deadline bounds and
+tampering at every byte of a shared cell version token. Both existing
+controller replica-routing cases passed in 16.28 seconds.
+
 ## CG-09 rooted decisions and retained source sealing
 
 The unmanaged source seal consumes a permit bound to the selected directory

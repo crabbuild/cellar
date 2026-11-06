@@ -105,11 +105,11 @@ through the shared backend and preserve typed refusals for the rest.
    access available, plus explicit S3 refusal and recovery. The directory
    suite passed all 16 cases. The Fleet permit port passed all eight cases on
    its original source. A later full-suite rerun hit an S3 receipt deadline and
-   passed the case in isolation. Seven shared-group read ports pass, including
-   a lost follower ReadIndex reply followed by recovery within the original
-   term. Resolve the S3 deadline, finish the remaining read and native consumer
-   ports, and pass public CI before making shared groups the default for
-   supported SQL in new namespaces.
+   passed the case in isolation. Fourteen shared-group read ports pass,
+   including follower ReadIndex recovery, peer saturation and routing from a
+   voter without a query callback. Resolve the S3 deadline, finish the
+   multi-namespace router and readiness ports, and pass public CI before
+   making shared groups the default for supported SQL in new namespaces.
 3. **Finish CG-09/10 operator split and merge.** Connect admission, archive
    preparation, source sealing and destination publication. Prove restart
    reconciliation of partial reservations and seals.
