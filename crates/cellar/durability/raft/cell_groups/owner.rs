@@ -2082,6 +2082,7 @@ impl CellGroupOwner {
         let entry = self
             .apply
             .front()
+            .map(|pending| &pending.entry)
             .filter(|e| e.index == index)
             .ok_or_else(|| RuntimeError::Protocol("missing configuration apply".into()))?;
         let messages = self

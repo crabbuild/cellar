@@ -265,6 +265,7 @@ async fn exercise(cluster: &mut nodes::Cluster) -> Result<()> {
         }
     }
     let after_replays = group.observe_partition(TIMEOUT).await?;
+    drop(group);
     ensure!(after_replays.workload.admitted_writes == after_writes.workload.admitted_writes);
     ensure!(after_replays.workload.applied_writes == after_writes.workload.applied_writes);
     Box::pin(check_routed_authority(cluster.web()?, &client, retry, &one)).await?;
