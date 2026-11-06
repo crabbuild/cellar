@@ -13,13 +13,6 @@ use crate::raft::{
 };
 use std::time::Duration;
 
-#[derive(Clone)]
-pub(super) enum PendingTransferOwner {
-    Recovered(Arc<prepare::Prepared>),
-    Seeded(Arc<PreparedCellGroupTransferChild>),
-    Synced(Arc<CellGroupApplier>),
-}
-
 impl Config {
     async fn open_import_target(
         self: &Arc<Self>,
@@ -80,7 +73,7 @@ impl Config {
         self.parked
             .lock()
             .map_err(|_| CellGroupControllerError::Closed)?
-            .insert(history, PendingTransferOwner::Synced(Arc::new(applier)));
+            .insert(history, PendingGroupOwner::Synced(Arc::new(applier)));
         Ok(())
     }
 }
@@ -165,12 +158,12 @@ impl CellGroupController {
             .cloned()
             .ok_or_else(|| catalog_error(CatalogError::LostStableState))?;
         let prepared = match owner {
-            PendingTransferOwner::Recovered(owner) => owner.as_ref().clone(),
-            PendingTransferOwner::Synced(applier) => {
-                recover_transfer_owner(log, applier.as_ref().clone()).await?
+            PendingGroupOwner::Recovered(owner) => owner.as_ref().clone(),
+            PendingGroupOwner::Synced(applier) => {
+                recover_pending_owner(log, applier.as_ref().clone()).await?
             }
-            PendingTransferOwner::Seeded(child) => {
-                recover_transfer_owner(log, child.installed_applier(&permit)?).await?
+            PendingGroupOwner::Seeded(child) => {
+                recover_pending_owner(log, child.installed_applier(&permit)?).await?
             }
         };
         if *stop.borrow() || shared.closing.load(Ordering::Acquire) {
@@ -266,7 +259,7 @@ impl CellGroupController {
             .get(&route.history)
             .cloned();
         let recovered = match &previous {
-            Some(PendingTransferOwner::Recovered(owner)) => Some(&owner.current),
+            Some(PendingGroupOwner::Recovered(owner)) => Some(&owner.current),
             _ => None,
         };
         if let Some(receipt) = directory
@@ -274,16 +267,16 @@ impl CellGroupController {
             .await
             .map_err(catalog_error)?
         {
-            if let Some(PendingTransferOwner::Seeded(prepared)) = &previous {
+            if let Some(PendingGroupOwner::Seeded(prepared)) = &previous {
                 config.retain_synced_transfer(log, prepared)?;
             }
             return Ok(receipt);
         }
         match previous {
-            Some(PendingTransferOwner::Recovered(_) | PendingTransferOwner::Synced(_)) => {
+            Some(PendingGroupOwner::Recovered(_) | PendingGroupOwner::Synced(_)) => {
                 return Err(catalog_error(CatalogError::LostStableState))
             }
-            Some(PendingTransferOwner::Seeded(prepared)) => {
+            Some(PendingGroupOwner::Seeded(prepared)) => {
                 let result = directory
                     .install_managed_transfer_voter(transition, &prepared, log, host, remaining()?)
                     .await
@@ -321,10 +314,7 @@ impl CellGroupController {
             .parked
             .lock()
             .map_err(|_| CellGroupControllerError::Closed)?
-            .insert(
-                route.history,
-                PendingTransferOwner::Seeded(prepared.clone()),
-            );
+            .insert(route.history, PendingGroupOwner::Seeded(prepared.clone()));
         let result = directory
             .install_managed_transfer_voter(transition, &prepared, log, host, remaining)
             .await
@@ -336,19 +326,4 @@ impl CellGroupController {
         owner?;
         Ok(receipt)
     }
-}
-
-async fn recover_transfer_owner(
-    log: &crate::raft::storage::ReplicaLog,
-    applier: CellGroupApplier,
-) -> Result<prepare::Prepared, CellGroupControllerError> {
-    log.domain()
-        .blocking(move || {
-            let current = applier.recover_selected()?;
-            Ok(prepare::Prepared { applier, current })
-        })
-        .map_err(|_| CellGroupControllerError::Closed)?
-        .await
-        .map_err(|_| CellGroupControllerError::Closed)?
-        .map_err(apply_error)
 }

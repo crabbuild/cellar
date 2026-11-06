@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Node-owned managed recovery seed work. Shutdown joins the writer even if
+//! Node-owned managed recovery seeding and attachment. Shutdown joins work even if
 //! the operator stopped waiting for the exact durable receipt.
 use super::*;
 use crate::{
@@ -269,7 +269,7 @@ impl RaftCells {
         .map_err(CatalogError::from)
         .map_err(catalog_error)?;
         remaining()?;
-        let pending = Box::pin(directory.seed_managed_recovery_voter(
+        let (pending, applier) = Box::pin(directory.seed_managed_recovery_voter(
             &self.handle.domain,
             target,
             prepared.data().clone(),
@@ -282,6 +282,8 @@ impl RaftCells {
             CellGroupRecoveryError::Catalog(error) => catalog_error(error),
             CellGroupRecoveryError::Archive(error) => archive_error(error),
         })?;
+        core.controller
+            .retain_managed_recovery_seed_owner(applier)?;
         let (view, inventory) = self.capture_physical_node().map_err(admission_error)?;
         if inventory.group_history(&route.history).is_none() {
             return Err(catalog_error(CatalogError::LostStableState));

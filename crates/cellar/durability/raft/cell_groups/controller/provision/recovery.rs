@@ -6,6 +6,34 @@ use crate::raft::fleet_catalog::{FleetHostAuthorization, FleetRecoveryAttachRequ
 use cellar_logic::cell_group::GroupHistory;
 
 impl CellGroupController {
+    pub(crate) fn retain_managed_recovery_seed_owner(
+        &self,
+        applier: CellGroupApplier,
+    ) -> Result<(), CellGroupControllerError> {
+        let shared = &self.handle.0;
+        let config = shared
+            .provisioning
+            .lock()
+            .map_err(|_| CellGroupControllerError::Closed)?
+            .clone()
+            .ok_or(CellGroupControllerError::Invalid(
+                "recovery provisioning owner",
+            ))?;
+        let history = applier.history();
+        let mut parked = config
+            .parked
+            .lock()
+            .map_err(|_| CellGroupControllerError::Closed)?;
+        // The engine pins this page owner through attachment and any lost
+        // receipt confirmation. An attached runtime already owns it.
+        if !shared.groups.contains(&history)? {
+            parked
+                .entry(history)
+                .or_insert_with(|| PendingGroupOwner::Synced(Arc::new(applier)));
+        }
+        Ok(())
+    }
+
     pub(crate) async fn attach_managed_recovery_voter(
         &self,
         directory: &RangeDirectory,
@@ -63,14 +91,38 @@ impl CellGroupController {
             permit.initial_voters().iter(),
             true,
         )?;
-        let prepared = prepare::recover_pages(
-            &config,
-            &shared.runtime,
-            permit.group().clone(),
-            images,
-            None,
-        )
-        .await?;
+        let owner = config
+            .parked
+            .lock()
+            .map_err(|_| CellGroupControllerError::Closed)?
+            .get(&history)
+            .cloned();
+        let prepared = match owner {
+            Some(PendingGroupOwner::Synced(applier)) => {
+                recover_pending_owner(shared.runtime.log(), applier.as_ref().clone()).await?
+            }
+            Some(PendingGroupOwner::Recovered(owner)) => {
+                prepare::recover_pages(
+                    &config,
+                    &shared.runtime,
+                    permit.group().clone(),
+                    images,
+                    Some(owner.as_ref().clone()),
+                )
+                .await?
+            }
+            Some(PendingGroupOwner::Seeded(_)) => return Err(catalog_error(CatalogError::Fenced)),
+            None => {
+                prepare::recover_pages(
+                    &config,
+                    &shared.runtime,
+                    permit.group().clone(),
+                    images,
+                    None,
+                )
+                .await?
+            }
+        };
         check_live()?;
         self.register(CellGroupRegistration {
             permit,
@@ -82,6 +134,11 @@ impl CellGroupController {
         .response()
         .await
         .map_err(|error| error.as_ref().clone())?;
+        config
+            .parked
+            .lock()
+            .map_err(|_| CellGroupControllerError::Closed)?
+            .remove(&history);
         Ok(())
     }
 }

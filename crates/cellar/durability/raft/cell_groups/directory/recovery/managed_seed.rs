@@ -83,7 +83,7 @@ impl RangeDirectory {
         authority: ManagedRecoverySeedAuthority,
         log: &ReplicaLog,
         deadline: u64,
-    ) -> Result<PendingManagedRecoverySeed, CellGroupRecoveryError> {
+    ) -> Result<(PendingManagedRecoverySeed, CellGroupApplier), CellGroupRecoveryError> {
         let marker = prepared.manifest.marker();
         let plan = marker.recovery_request().ok_or(CatalogError::Fenced)?;
         if !marker.is_recovery_genesis()
@@ -173,13 +173,13 @@ impl RangeDirectory {
         let group = Box::pin(log.install_recovery_seed(seed))
             .await
             .map_err(CatalogError::Log)?;
-        domain
+        let (applier, _) = domain
             .blocking(move || CellGroupApplier::recover_seeded(group, &prepared.store, &genesis))
             .map_err(|_| CellGroupArchiveError::Stopped)?
             .await
             .map_err(CellGroupArchiveError::Worker)?
             .map_err(CellGroupArchiveError::Replay)?;
-        Ok(pending)
+        Ok((pending, applier))
     }
 
     pub(crate) async fn confirm_managed_recovery_voter(

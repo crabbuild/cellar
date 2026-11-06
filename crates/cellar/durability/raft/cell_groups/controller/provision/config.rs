@@ -76,7 +76,7 @@ pub(in super::super) struct Config {
     pub configuration_bytes: usize,
     // Startup verified these physical owners before enabling image collection.
     // They have no controller roster or transport registration.
-    pub(super) parked: Mutex<BTreeMap<GroupHistory, transfer::PendingTransferOwner>>,
+    pub(super) parked: Mutex<BTreeMap<GroupHistory, PendingGroupOwner>>,
 }
 
 impl Config {
@@ -242,9 +242,10 @@ impl Config {
                     .map(|(applier, current)| {
                         (
                             applier.history(),
-                            transfer::PendingTransferOwner::Recovered(Arc::new(
-                                prepare::Prepared { applier, current },
-                            )),
+                            PendingGroupOwner::Recovered(Arc::new(prepare::Prepared {
+                                applier,
+                                current,
+                            })),
                         )
                     })
                     .collect(),

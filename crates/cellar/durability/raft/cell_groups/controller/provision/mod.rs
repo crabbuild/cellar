@@ -15,7 +15,7 @@ use super::{calls::Delivery, *};
 use crate::raft::{
     budget::Permit,
     catalog::CatalogError,
-    cell_groups::{PreparedGroupManifest, RangeDirectory},
+    cell_groups::{PreparedCellGroupTransferChild, PreparedGroupManifest, RangeDirectory},
 };
 use cellar_logic::cell_group::GroupRoute;
 use tokio::sync::oneshot;
@@ -64,6 +64,28 @@ impl Waiter {
             _permit: self.permit,
         });
     }
+}
+
+#[derive(Clone)]
+enum PendingGroupOwner {
+    Recovered(Arc<prepare::Prepared>),
+    Seeded(Arc<PreparedCellGroupTransferChild>),
+    Synced(Arc<CellGroupApplier>),
+}
+
+async fn recover_pending_owner(
+    log: &crate::raft::storage::ReplicaLog,
+    applier: CellGroupApplier,
+) -> Result<prepare::Prepared, CellGroupControllerError> {
+    log.domain()
+        .blocking(move || {
+            let current = applier.recover_selected()?;
+            Ok(prepare::Prepared { applier, current })
+        })
+        .map_err(|_| CellGroupControllerError::Closed)?
+        .await
+        .map_err(|_| CellGroupControllerError::Closed)?
+        .map_err(apply_error)
 }
 
 fn check_delivery_deadline(
