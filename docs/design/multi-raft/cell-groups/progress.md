@@ -22,9 +22,45 @@ linearizable SQL reads, archived receipt lookup, old version-token refusal,
 a new quorum write and retry, and a new S3 acknowledgement. These results
 qualify the serving checkpoint. A later retirement candidate passed the native
 fence and Fleet-slot release case. Its extent-backed RustFS run stopped during
-replacement quorum setup when the group controller closed. Retirement,
-replacement archive setup across controller restarts, and the managed Docker
-disk-loss drill remain open.
+replacement quorum setup when the group controller closed.
+
+## CG-13 cold managed recovery and retirement
+
+At `13fb77e92e749d4b01a9c2c272ffd1ba601eb7fb`, the managed recovery case
+passed natively in 91.67 seconds and against RustFS in 245.01 seconds. The
+RustFS case exercised both materialized and extent-backed images. The test
+joins every source voter, checks the complete requested physical lineage,
+erases the owned voter directories and refuses an old boot on an empty disk.
+It then drops the pre-erasure verifier and reconstructs the selected archive
+cuts in an empty workspace. The replacement quorum serves restored SQL,
+original receipts, new quorum writes and explicit S3 writes. The case
+interrupts replacement archive setup at registry and identity creation, then
+resumes the same binding. It also verifies the permanent fence again before
+retiring old histories and releasing the Fleet disruption slot. The archive
+holds and physical inventory debt stay recorded.
+
+The ordinary managed split/merge regression also passed in both image modes in
+195.97 seconds. The complete RustFS suite record SHA-256 is
+`18ac3ebfb43f9484bf7eeca601abf0607ea103975be3d3b63b2c144abe1b30fa`.
+The native test log SHA-256 is
+`bd43761d841e306fc1d9eb66c1cb92677482cf3ae41dbcbdacf825521a8b5f92`.
+
+The source voters are host-native Nodes and the fence uses a fixture authority.
+The managed Docker drill still requires permanent launcher revocation,
+independent voter processes and deletion of all their disks.
+
+## CG-07 RustFS lifecycle follow-up
+
+The RustFS source-service failover case passed on the executable source of
+PR #160 at `6e6be12d`. The joined-voter maintenance case progressed through
+stop, return, resume and a successful leadership handoff. The resumed leader
+reported ready with its applied and committed indices both at 18. An exact
+receipt replay requesting S3 durability expired with one archive settlement
+outstanding. The retained journal reached index 18 by shutdown. This narrows
+the observed failure to the S3 acknowledgement path after resume. The failed
+RustFS lifecycle suite record SHA-256 is
+`dcd124b69d21bbc57f98801201b4141931cb674d2e41ad9026dd75c4b423c352`.
+The combined public quorum gate remains open.
 
 ## CG-09 rooted decisions and retained source sealing
 

@@ -69,6 +69,15 @@ release gate. Individual checkpoints cover operator-driven split and merge,
 placement recommendations, fenced parking and wake, managed recovery and
 parts of the qualification matrix. The task-level evidence remains open.
 
+The managed cold-recovery case now erases every owned source voter disk and
+reopens from RustFS in both image modes. It verifies restored SQL and receipts
+through a fresh quorum, resumes interrupted archive setup, and retires the old
+histories. Independent voter processes and permanent Docker launch revocation
+remain separate gates. In the public lifecycle work, the latest RustFS follow-up
+passed source-service failover and hit an S3 receipt replay deadline after the
+joined voter resumed as a ready leader. See [progress](progress.md) for both
+source boundaries.
+
 ## First delivery of quorum SQL through public ingress
 
 An explicitly configured Raft namespace defaults to three voters and a
