@@ -168,6 +168,12 @@ See the [departure workflow](../../docs/design/multi-raft/fleet-operations/opera
 for CLI syntax, restart behavior and retained reservation reporting. Removal
 retains volumes and archives.
 
+Operator split and merge preparation uses `RaftFleetControl::with_transition_preparer`.
+Configure a private `FleetGroupArchiveVerifier` and a shared `CellGroupRecoveryPool`
+on the embedding management server. The request identifies an admitted plan.
+The server selects its archive cuts and returns the preparation digest for the
+separate seal authorization request.
+
 The `fleet_cancel` grant also authorizes node `cancel-evacuation`. Before
 finalization this is a metadata operation. Afterwards the server owns an exact
 process-fence RPC and requires its synced acknowledgement before Ready and slot

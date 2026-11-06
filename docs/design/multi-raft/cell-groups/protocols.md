@@ -1177,9 +1177,18 @@ an acquired hold or consumes the pending revision before a delayed acquire
 can create one. A replacement controller can repeat that cleanup using the
 cancelled journal.
 
+Use `cellar raft fleet transition prepare NAMESPACE_HEX --plan REQUEST.json --catalog-id DIGEST`
+with the admitted operation ID and plan digest. The admitted principal needs the
+Fleet topology grant. A trusted management server supplies a private archive
+verifier and bounded restore pool through `RaftFleetControl::with_transition_preparer`.
+Preparation allocates or reopens the operation's held archive cuts, verifies them,
+and returns the durable preparation digest. Retain the exact request across
+timeouts. After preparation commits, an exact retry can return the selected
+digest from the journal. Physical replay does not authorize a source seal.
+
 Use `cellar raft fleet transition authorize-seal NAMESPACE_HEX --plan REQUEST.json --catalog-id DIGEST`
 after the transition reaches Prepared. The request binds the admitted plan and
-the preparation digest reported by transition status. The admitted principal
+the digest returned by preparation. The admitted principal
 needs the Fleet topology grant. Authorization and cancellation compete on the
 same directory head. An exact retry observes the selected seal decision after
 a lost reply. Each source still commits its own seal under its live voter

@@ -12,7 +12,7 @@ use cellar::application::consensus::verification::cell_groups::{
 use cellar::application::consensus::verification::FleetHistoryState;
 use cellar::sdk::fleet_operations::{
     RaftFleetControl, RaftFleetFailureCode, RaftFleetTransitionActivationRequest,
-    RaftFleetTransitionPublishRequest,
+    RaftFleetTransitionPrepareRequest, RaftFleetTransitionPublishRequest,
 };
 use cellar_ltx::{
     generation::{GenerationStore, ReadServices},
@@ -164,70 +164,108 @@ pub(super) async fn exercise(
     ensure!(after_denial.journal.as_ref() == Some(&staged));
     drop(verifier);
 
-    let mut selected = None;
-    for stage in ["first", "reopened"] {
-        let verifier = crate::managed_fixture::verifier::open(
-            fixture,
-            &scratch.path().join(stage),
-            rooted,
-            CellGroupArchiveTailLimits::default(),
+    let control = RaftFleetControl::new(domain, reopened.clone(), vec![directory.clone()])?;
+    let request = RaftFleetTransitionPrepareRequest {
+        catalog_id: control.catalog_id().into(),
+        namespace_id: hex::encode(cluster.history.namespace.bytes()),
+        operation_id: hex::encode(operation.bytes()),
+        request_id: hex::encode([176; 16]),
+        plan_digest: hex::encode(transition.plan.digest()),
+    };
+    let refused = control
+        .prepare_transition(
+            &transition.request.principal,
+            &request.namespace_id,
+            &request.operation_id,
+            &request,
+            TIMEOUT,
+        )
+        .await
+        .err()
+        .context("preparation without a configured verifier")?;
+    ensure!(refused.code == RaftFleetFailureCode::Unsupported);
+    let verifier = crate::managed_fixture::verifier::open(
+        fixture,
+        &scratch.path().join("operator"),
+        rooted,
+        CellGroupArchiveTailLimits::default(),
+    )
+    .await?;
+    let prepared = crate::managed_fixture::operator::prepare_transition(
+        fixture,
+        directory,
+        &transition.request.principal,
+        &request,
+        Some((verifier, recovery_pool()?)),
+    )
+    .await?;
+    ensure!(prepared.phase == TransitionPhase::Prepared);
+    // The selected cut survives a later quorum write to the active parent.
+    let next = handle
+        .command(
+            &handle.contract("Add")?,
+            1i64.to_be_bytes().to_vec(),
+            CommandOptions::new(CommandId::new(client, 3)?, seeded.retry),
         )
         .await?;
-        let reopened =
-            Fixture::open_catalog(domain, fixture.store.clone(), cluster.history.cluster)?;
-        let prepared = reopened
-            .resume_managed_preparation(directory, operation, &verifier, recovery_pool()?, TIMEOUT)
-            .await?;
-        ensure!(prepared
+    ensure!(next.result == 10i64.to_be_bytes() && next.version != archived.version);
+    let replay = crate::managed_fixture::operator::prepare_transition(
+        fixture,
+        directory,
+        &transition.request.principal,
+        &request,
+        None,
+    )
+    .await?;
+    ensure!(replay == prepared);
+
+    let verifier = crate::managed_fixture::verifier::open(
+        fixture,
+        &scratch.path().join("reopened"),
+        rooted,
+        CellGroupArchiveTailLimits::default(),
+    )
+    .await?;
+    let reopened = Fixture::open_catalog(domain, fixture.store.clone(), cluster.history.cluster)?;
+    let replay = reopened
+        .resume_managed_preparation(directory, operation, &verifier, recovery_pool()?, TIMEOUT)
+        .await?;
+    ensure!(replay
+        .children()
+        .iter()
+        .map(|child| child.route())
+        .eq(children));
+    ensure!(replay.journal().phase() == TransitionPhase::Prepared);
+    ensure!(replay
+        .children()
+        .iter()
+        .all(|child| child.genesis().is_none()));
+    let digest = replay
+        .journal()
+        .preparation()
+        .context("missing pre-copy digest")?;
+    ensure!(prepared.preparation_digest == hex::encode(digest));
+    ensure!(
+        replay
             .children()
             .iter()
-            .map(|child| child.route())
-            .eq(children));
-        ensure!(prepared.journal().phase() == TransitionPhase::Prepared);
-        ensure!(prepared
-            .children()
-            .iter()
-            .all(|child| child.genesis().is_none()));
-        let digest = prepared
-            .journal()
-            .preparation()
-            .context("missing pre-copy digest")?;
-        ensure!(selected.is_none_or(|original| original == digest));
-        selected = Some(digest);
-        ensure!(
-            prepared
-                .children()
-                .iter()
-                .map(|child| child.root().cells())
-                .sum::<u32>()
-                == 2
-        );
-        let mut staged = prepared
-            .children()
-            .iter()
-            .filter_map(|child| child.pin_cell(&cell.cell));
-        let (leaf, _) = staged.next().context("missing archived cell")?;
-        ensure!(leaf.version == archived.version && leaf.witness == archived.witness);
-        ensure!(staged.next().is_none());
-        ensure!(
-            domain
-                .run(directory.managed_preparation_holds(&transition.plan))
-                .await??
-                == vec![held.clone()]
-        );
-        if stage == "first" {
-            // The pre-copy must preserve its exact historical cut while the
-            // parent continues accepting subsequent quorum commands.
-            let next = handle
-                .command(
-                    &handle.contract("Add")?,
-                    1i64.to_be_bytes().to_vec(),
-                    CommandOptions::new(CommandId::new(client, 3)?, seeded.retry),
-                )
-                .await?;
-            ensure!(next.result == 10i64.to_be_bytes() && next.version != archived.version);
-        }
-    }
+            .map(|child| child.root().cells())
+            .sum::<u32>()
+            == 2
+    );
+    let mut staged = replay
+        .children()
+        .iter()
+        .filter_map(|child| child.pin_cell(&cell.cell));
+    let (leaf, _) = staged.next().context("missing archived cell")?;
+    ensure!(leaf.version == archived.version && leaf.witness == archived.witness);
+    ensure!(staged.next().is_none());
+    ensure!(
+        domain
+            .run(directory.managed_preparation_holds(&transition.plan))
+            .await??
+            == vec![held.clone()]
+    );
     Ok((registry, held, seeded))
 }
 

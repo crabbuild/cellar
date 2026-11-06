@@ -253,6 +253,26 @@ async fn execute(options: &options::Options) -> Result<Value> {
             }
             serde_json::to_value(view).map_err(|_| unavailable())
         }
+        Action::TransitionPrepare(request) => {
+            use crate::raft::cell_groups::TransitionPhase;
+            let path = format!(
+                "namespaces/{}/transitions/{}/prepare",
+                request.namespace_id, request.operation_id,
+            );
+            let prepared = client
+                .post::<RaftFleetTransitionPreparation>(&path, request.as_ref())
+                .await?;
+            if prepared.request != **request
+                || matches!(
+                    prepared.phase,
+                    TransitionPhase::Planned | TransitionPhase::Cancelled
+                )
+                || options::validate_catalog(&prepared.preparation_digest).is_err()
+            {
+                return Err(unavailable());
+            }
+            serde_json::to_value(prepared).map_err(|_| unavailable())
+        }
         Action::TransitionSeal(request) => {
             use crate::raft::cell_groups::TransitionPhase;
             let path = format!(

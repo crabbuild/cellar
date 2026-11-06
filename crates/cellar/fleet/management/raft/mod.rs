@@ -46,7 +46,8 @@ pub use records::{
 use std::{sync::Arc, time::Duration};
 pub use transition::{
     RaftFleetTransitionActivation, RaftFleetTransitionActivationPosition,
-    RaftFleetTransitionActivationRequest, RaftFleetTransitionPublication,
+    RaftFleetTransitionActivationRequest, RaftFleetTransitionPreparation,
+    RaftFleetTransitionPrepareRequest, RaftFleetTransitionPublication,
     RaftFleetTransitionPublishRequest, RaftFleetTransitionResume,
     RaftFleetTransitionResumeAcceptance, RaftFleetTransitionResumeStep,
     RaftFleetTransitionSealAuthorization, RaftFleetTransitionSealRequest,
@@ -66,6 +67,7 @@ pub struct RaftFleetControl {
     domain: DomainToken,
     node_observer: Option<RaftCells>,
     archive_pool: CellGroupArchivePool,
+    transition_preparation: Option<transition::Preparation>,
     removal_verification: Option<Arc<lifecycle::verification::Verification>>,
 }
 
@@ -91,6 +93,7 @@ impl RaftFleetControl {
             node_observer: None,
             archive_pool: CellGroupArchivePool::new(CellGroupArchiveLimits::default())
                 .map_err(FleetCatalogError::from)?,
+            transition_preparation: None,
             removal_verification: None,
         })
     }

@@ -41,6 +41,7 @@ pub use raft::{
     RaftFleetNodeStatus, RaftFleetNodeStop, RaftFleetOperation, RaftFleetOutcome,
     RaftFleetRegisterNode, RaftFleetStatus, RaftFleetTransitionActivation,
     RaftFleetTransitionActivationPosition, RaftFleetTransitionActivationRequest,
+    RaftFleetTransitionPreparation, RaftFleetTransitionPrepareRequest,
     RaftFleetTransitionPublication, RaftFleetTransitionPublishRequest, RaftFleetTransitionResume,
     RaftFleetTransitionResumeAcceptance, RaftFleetTransitionResumeStep,
     RaftFleetTransitionSealAuthorization, RaftFleetTransitionSealRequest,

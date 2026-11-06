@@ -3,6 +3,7 @@
 //! Real operator CLI and admin admission for the managed fixture.
 
 use super::*;
+use cellar::application::consensus::{CellGroupRecoveryPool, FleetGroupArchiveVerifier};
 use cellar::sdk::fleet_operations::*;
 use futures_util::TryStreamExt as _;
 use object_store::ObjectStore as _;
@@ -37,6 +38,14 @@ async fn open_cli(
     principal: &str,
     observer: Option<&RaftCells>,
 ) -> Result<OperatorCli> {
+    let (bucket, mut control) = control(fixture, directory)?;
+    if let Some(observer) = observer {
+        control = control.with_node_observer(observer.clone());
+    }
+    OperatorCli::start(&fixture.domain, bucket, control, root, principal).await
+}
+
+fn control(fixture: &Fixture, directory: &RangeDirectory) -> Result<(Bucket, RaftFleetControl)> {
     let bucket = Bucket::from_clients(
         fixture.store.clone(),
         fixture.store.clone(),
@@ -50,11 +59,44 @@ async fn open_cli(
         fixture.store.clone(),
         directory.namespace_config().cluster,
     )?;
-    let mut control = RaftFleetControl::new(&fixture.domain, catalog, vec![directory.clone()])?;
-    if let Some(observer) = observer {
-        control = control.with_node_observer(observer.clone());
+    Ok((
+        bucket,
+        RaftFleetControl::new(&fixture.domain, catalog, vec![directory.clone()])?,
+    ))
+}
+
+pub(crate) async fn prepare_transition(
+    fixture: &Fixture,
+    directory: &RangeDirectory,
+    principal: &str,
+    request: &RaftFleetTransitionPrepareRequest,
+    preparer: Option<(FleetGroupArchiveVerifier, CellGroupRecoveryPool)>,
+) -> Result<RaftFleetTransitionPreparation> {
+    let root = tempfile::tempdir()?;
+    let (bucket, mut control) = control(fixture, directory)?;
+    if let Some((verifier, recovery)) = preparer {
+        control = control.with_transition_preparer(verifier, recovery);
     }
-    OperatorCli::start(&fixture.domain, bucket, control, root, principal).await
+    let cli = OperatorCli::start(&fixture.domain, bucket, control, root.path(), principal).await?;
+    let result = async {
+        let plan = root.path().join("transition-prepare.json");
+        std::fs::write(&plan, serde_json::to_vec(request)?)?;
+        let command = [
+            "transition",
+            "prepare",
+            &request.namespace_id,
+            "--plan",
+            plan.to_str()
+                .context("UTF-8 transition preparation request path")?,
+        ];
+        ensure!(cli.call(&command, READER).await?.code == 4);
+        Ok::<_, anyhow::Error>(serde_json::from_value(
+            cli.call(&command, OWNER).await?.success()?,
+        )?)
+    }
+    .await;
+    cli.close().await?;
+    result
 }
 
 pub(crate) async fn transition_status(

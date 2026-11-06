@@ -189,6 +189,127 @@ impl RaftFleetControl {
     }
 }
 
+/// Select pre-copy for the exact admitted plan. Archive inputs and scratch
+/// resources come from the trusted operator server configuration.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RaftFleetTransitionPrepareRequest {
+    pub catalog_id: String,
+    pub namespace_id: String,
+    pub operation_id: String,
+    pub request_id: String,
+    pub plan_digest: String,
+}
+
+impl RaftFleetTransitionPrepareRequest {
+    pub fn validate(&self, namespace: &str, operation: &str) -> Result<()> {
+        records::catalog_id(&self.catalog_id)?;
+        records::catalog_id(&self.plan_digest)?;
+        for id in [namespace, operation, &self.request_id] {
+            records::id(id)?;
+        }
+        if self.namespace_id != namespace || self.operation_id != operation {
+            return Err(RaftFleetFailure::invalid("transition selector mismatch"));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RaftFleetTransitionPreparation {
+    pub request: RaftFleetTransitionPrepareRequest,
+    pub preparation_digest: String,
+    /// Exact retries can observe a later phase with the same preparation.
+    pub phase: TransitionPhase,
+}
+
+#[derive(Clone)]
+pub(super) struct Preparation {
+    verifier: crate::raft::fleet_catalog::FleetGroupArchiveVerifier,
+    recovery: crate::raft::cell_groups::CellGroupRecoveryPool,
+}
+
+impl RaftFleetControl {
+    /// Configure private physical replay resources and bounded restore
+    /// admission for operator split and merge preparation.
+    pub fn with_transition_preparer(
+        mut self,
+        verifier: crate::raft::fleet_catalog::FleetGroupArchiveVerifier,
+        recovery: crate::raft::cell_groups::CellGroupRecoveryPool,
+    ) -> Self {
+        self.transition_preparation = Some(Preparation { verifier, recovery });
+        self
+    }
+
+    /// Prepare the admitted plan from operation-owned archive cuts. Only
+    /// Planned work can enter physical replay. Later exact retries return the
+    /// rooted preparation digest, with no extra allocation or authority.
+    pub async fn prepare_transition(
+        &self,
+        principal: &str,
+        namespace: &str,
+        operation: &str,
+        request: &RaftFleetTransitionPrepareRequest,
+        timeout: Duration,
+    ) -> Result<RaftFleetTransitionPreparation> {
+        request.validate(namespace, operation)?;
+        self.check_catalog(&request.catalog_id)?;
+        let directory = self.managed_namespace(namespace)?;
+        let operation = ProposalId::new(records::id(operation)?)
+            .map_err(|_| RaftFleetFailure::invalid("operation ID"))?;
+        let turn = Turn::new(&self.domain, timeout)?;
+        let transition = self
+            .authorize_transition_operator(
+                directory,
+                operation,
+                principal,
+                &request.plan_digest,
+                turn.remaining()?,
+            )
+            .await?;
+        let journal = transition.journal.ok_or(FleetCatalogError::Conflict)?;
+        let journal = match journal.phase() {
+            TransitionPhase::Planned => {
+                let services = self.transition_preparation.as_ref().ok_or_else(|| {
+                    RaftFleetFailure {
+                        code: RaftFleetFailureCode::Unsupported,
+                        outcome: RaftFleetOutcome::NotSubmitted,
+                        message: "Transition preparation requires a trusted archive verifier on the management server.".into(),
+                    }
+                })?;
+                self.catalog
+                    .allocate_managed_preparation_holds(
+                        directory,
+                        operation,
+                        &self.archive_pool,
+                        turn.remaining()?,
+                    )
+                    .await?;
+                let prepared = self
+                    .catalog
+                    .resume_managed_preparation(
+                        directory,
+                        operation,
+                        &services.verifier,
+                        services.recovery.clone(),
+                        turn.remaining()?,
+                    )
+                    .await?;
+                prepared.journal().clone()
+            }
+            TransitionPhase::Cancelled => return Err(FleetCatalogError::Conflict.into()),
+            _ => journal,
+        };
+        let preparation_digest = journal.preparation().ok_or(FleetCatalogError::Conflict)?;
+        Ok(RaftFleetTransitionPreparation {
+            request: request.clone(),
+            preparation_digest: hex::encode(preparation_digest),
+            phase: journal.phase(),
+        })
+    }
+}
+
 /// Select the irreversible seal decision for the exact prepared transition.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
