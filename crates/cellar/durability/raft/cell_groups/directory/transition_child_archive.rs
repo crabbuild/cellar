@@ -224,7 +224,7 @@ impl RangeDirectory {
         plan: &DirectoryMutation,
         history: GroupHistory,
         permit: &ManagedTransitionPermit,
-    ) -> Result<CellGroupBirth, CatalogError> {
+    ) -> Result<(CellGroupBirth, bool), CatalogError> {
         permit.check(self, plan)?;
         self.bounded(async {
             let basis = self.child_archive_basis(plan, Some(permit)).await?;
@@ -237,7 +237,7 @@ impl RangeDirectory {
             if birth.route() != installed.route() {
                 return Err(CatalogError::Fenced);
             }
-            Ok(birth)
+            Ok((birth, basis.selected.is_some()))
         })
         .await
     }

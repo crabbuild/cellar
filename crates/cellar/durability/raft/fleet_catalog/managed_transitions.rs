@@ -592,7 +592,7 @@ impl FleetCatalog {
                 let domain = &self.inner.domain;
                 domain
                     .run(Box::pin(async {
-                        let birth = directory
+                        let (birth, coverage_selected) = directory
                             .managed_transfer_child_archive_birth(
                                 &transition.plan,
                                 history,
@@ -600,7 +600,8 @@ impl FleetCatalog {
                             )
                             .await
                             .map_err(catalog_error)?;
-                        if directory
+                        if coverage_selected
+                        || directory
                             .has_group_archive_binding(&birth)
                             .await
                             .map_err(transfer_archive_error)?
@@ -641,7 +642,7 @@ impl FleetCatalog {
                 let domain = &self.inner.domain;
                 domain
                     .run(Box::pin(async {
-                        let birth = directory
+                        let (birth, _) = directory
                             .managed_transfer_child_archive_birth(
                                 &transition.plan,
                                 history,
