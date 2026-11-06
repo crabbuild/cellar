@@ -49,6 +49,21 @@ async fn rustfs_managed_group_lifecycle() -> Result<()> {
     .await
 }
 
+#[test]
+fn harness_rejects_stale_binary() -> Result<()> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let output = Command::new("python3")
+        .args(["-m", "unittest", "test_raft_run.Freshness"])
+        .current_dir(root.join("tools/perf"))
+        .output()?;
+    ensure!(
+        output.status.success(),
+        "image refusal cases failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Ok(())
+}
+
 fn digest(path: &Path) -> Result<Vec<u8>> {
     Ok(Sha256::digest(std::fs::read(path)?).to_vec())
 }

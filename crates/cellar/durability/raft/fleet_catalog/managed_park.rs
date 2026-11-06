@@ -15,7 +15,7 @@ use crate::raft::{
 };
 use cellar_logic::{
     cell_group::{GroupHistory, MembershipRevision, ParkGeneration},
-    consensus::{LogIndex, LogPosition, MemberId, NodeId, ProposalId, Term},
+    consensus::{LogIndex, LogPosition, MemberId, ProposalId, Term},
 };
 use serde::Deserialize;
 
