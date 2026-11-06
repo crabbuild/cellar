@@ -132,6 +132,40 @@ pub(crate) async fn capture_transition_source(
     result
 }
 
+pub(crate) async fn verify_transition_archive(
+    fixture: &Fixture,
+    directory: &RangeDirectory,
+    principal: &str,
+    request: &RaftFleetTransitionPrepareRequest,
+    preparer: (FleetGroupArchiveVerifier, CellGroupRecoveryPool),
+) -> Result<RaftFleetTransitionArchiveVerification> {
+    let root = tempfile::tempdir()?;
+    let (bucket, mut control) = control(fixture, directory)?;
+    control = control.with_transition_preparer(preparer.0, preparer.1);
+    let cli = OperatorCli::start(&fixture.domain, bucket, control, root.path(), principal).await?;
+    let result = async {
+        let plan = root.path().join("transition-verify-archive.json");
+        std::fs::write(&plan, serde_json::to_vec(request)?)?;
+        let command = [
+            "transition",
+            "verify-archive",
+            &request.namespace_id,
+            "--plan",
+            plan.to_str()
+                .context("UTF-8 archive verification request path")?,
+        ];
+        ensure!(cli.call(&command, READER).await?.code == 4);
+        Ok::<_, anyhow::Error>(serde_json::from_value(
+            cli.call_with_timeout(&command, OWNER, Duration::from_secs(32))
+                .await?
+                .success()?,
+        )?)
+    }
+    .await;
+    cli.close().await?;
+    result
+}
+
 pub(crate) async fn setup_transition_child(
     fixture: &Fixture,
     directory: &RangeDirectory,

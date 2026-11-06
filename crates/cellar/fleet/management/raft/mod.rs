@@ -15,6 +15,7 @@ mod transition;
 mod transition_admission;
 mod transition_child;
 mod transition_seal;
+mod transition_verify;
 use crate::application::consensus::RaftCells;
 use crate::asyncrt::{DomainToken, ExecutionDomain};
 use crate::raft::catalog::RangeDirectory;
@@ -69,6 +70,8 @@ pub use transition_seal::{
     RaftFleetTransitionSourceArchive, RaftFleetTransitionSourceCut, RaftFleetTransitionSourceSeal,
     RaftFleetTransitionSourceSealRequest,
 };
+
+pub use transition_verify::RaftFleetTransitionArchiveVerification;
 
 type Result<T> = std::result::Result<T, RaftFleetFailure>;
 

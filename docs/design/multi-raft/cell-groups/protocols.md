@@ -1124,8 +1124,16 @@ against the management endpoint on each reserved destination voter. The
 server's configured verifier and syncs the pending child. Its receipt identifies
 the exact member, disk and engine. After a majority of durable install receipts,
 send a separate request with step `attach` to each voter. Attachment establishes
-the pending Raft roster. The Installed decision still requires a durable
-fresh-term quorum proof for every child.
+the pending Raft roster. Send step `quorum` to each child's current leader
+to select its durable fresh-term witness. A replacement controller can reopen
+selected witnesses by child. The directory advances to Installed only when the
+complete ordered set has been verified against current Fleet storage claims.
+
+After Installed, use
+`cellar raft fleet transition verify-archive NAMESPACE_HEX --plan REQUEST.json --catalog-id DIGEST`
+on a verifier-configured management endpoint. It independently rebuilds every
+child from the sealed parent cuts and compares them with the installed proofs.
+Use the resulting archive digest in a separate publication request.
 
 The final sealed-source partition builds a non-serving child genesis marker.
 It binds the exact transition, plan and sealed-source set. An active-source

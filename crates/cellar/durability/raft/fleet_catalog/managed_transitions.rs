@@ -1712,6 +1712,67 @@ impl FleetCatalog {
         Ok(proof)
     }
 
+    pub(crate) async fn resume_managed_transfer_child_quorum(
+        &self,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        history: GroupHistory,
+        proof: Option<TransferChildQuorum>,
+        timeout: Duration,
+    ) -> Result<Option<(LogPosition, TransitionJournal)>> {
+        validate_request(&transition.request)?;
+        let (_, children) = directory
+            .transition_routes(&transition.plan)
+            .map_err(catalog_error)?;
+        let route = children
+            .iter()
+            .find(|route| route.history == history)
+            .ok_or(FleetCatalogError::Conflict)?;
+        self.run(
+            timeout,
+            Box::pin(async {
+                let current = self.inner.current().await?;
+                let permit = self
+                    .managed_transition_permit_at(
+                        &current,
+                        &transition.request,
+                        directory,
+                        &transition.plan,
+                    )
+                    .await?;
+                self.managed_transfer_install_quorum_at(
+                    &current, transition, directory, route, &permit,
+                )
+                .await?
+                .ok_or(FleetCatalogError::Unconfirmed)?;
+                let all_current = match self
+                    .verify_managed_transfer_storage_at(&current, transition, directory, &permit)
+                    .await
+                {
+                    Ok(()) => true,
+                    Err(FleetCatalogError::Unconfirmed) => false,
+                    Err(error) => return Err(error),
+                };
+                if self.inner.current().await?.token != current.token {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                self.inner
+                    .domain
+                    .run(Box::pin(directory.resume_managed_transfer_child_quorum(
+                        &transition.plan,
+                        history,
+                        proof,
+                        &permit,
+                        all_current,
+                    )))
+                    .await
+                    .map_err(|_| FleetCatalogError::Closed)?
+                    .map_err(catalog_error)
+            }),
+        )
+        .await
+    }
+
     /// Select the exact ordered set of managed child fresh-term witnesses.
     /// The fleet reservation and physical storage claims must still match.
     /// The resulting Installed decision leaves routing and serving fenced.

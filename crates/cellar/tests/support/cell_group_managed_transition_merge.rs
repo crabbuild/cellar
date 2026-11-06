@@ -865,25 +865,60 @@ async fn run_inner(
             .await
             .context("attach merged child")?;
     }
-    let proof = preparation::wait_pending_child(voters, child.history).await?;
-    ensure!(
-        fleet
-            .record_managed_transfer_child_quorums(&transition, directory, vec![proof], TIMEOUT,)
-            .await?
-            .phase()
-            == TransitionPhase::Installed
-    );
+    let (leader, _) = preparation::wait_pending_child_witness(voters, child.history).await?;
+    let quorum_request = RaftFleetTransitionChildSetupRequest {
+        request_id: hex::encode([181; 16]),
+        step: RaftFleetTransitionChildStep::Quorum,
+        ..operator_attach
+    };
+    let quorum = Box::pin(crate::managed_fixture::operator::setup_transition_child(
+        fixture,
+        &reopened,
+        &request.principal,
+        &voters[leader],
+        &quorum_request,
+        None,
+    ))
+    .await?;
+    ensure!(quorum.request == quorum_request);
+    ensure!(matches!(
+        quorum.result,
+        RaftFleetTransitionChildSetupResult::Quorum {
+            phase: TransitionPhase::Installed,
+            ..
+        }
+    ));
     let archive_workspace = tempfile::tempdir()?;
     let verifier =
         crate::managed_fixture::verifier::open(fixture, archive_workspace.path(), rooted, limits)
             .await?;
+    let verify_request = RaftFleetTransitionPrepareRequest {
+        catalog_id: quorum_request.catalog_id.clone(),
+        namespace_id: quorum_request.namespace_id.clone(),
+        operation_id: quorum_request.operation_id.clone(),
+        request_id: hex::encode([182; 16]),
+        plan_digest: quorum_request.plan_digest.clone(),
+    };
+    let verified = Box::pin(crate::managed_fixture::operator::verify_transition_archive(
+        fixture,
+        &reopened,
+        &request.principal,
+        &verify_request,
+        (verifier, recovery),
+    ))
+    .await?;
+    ensure!(verified.request == verify_request && verified.phase == TransitionPhase::Archived);
     let archived = resumed
-        .resume_managed_transfer_archive(&reopened, operation, &verifier, recovery, TIMEOUT)
-        .await
-        .context("rebuild the installed child archive on a replacement controller")?;
+        .reopen_managed_transition(&reopened, operation, TIMEOUT)
+        .await?
+        .context("reopen verified merge")?
+        .journal
+        .context("archived merge journal")?;
     ensure!(
         archived.phase() == TransitionPhase::Archived
             && archived.sealed_sources() == Some(sealed_digest)
+            && archived.transfer_archive().map(hex::encode).as_deref()
+                == Some(verified.archive_digest.as_str())
     );
     let namespace = hex::encode(child.history.namespace.bytes());
     let operation_id = hex::encode(operation.bytes());

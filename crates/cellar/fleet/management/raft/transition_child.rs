@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 pub enum RaftFleetTransitionChildStep {
     Install,
     Attach,
+    Quorum,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,20 +60,26 @@ pub enum RaftFleetTransitionChildSetupResult {
         storage_instance: String,
     },
     Attached,
+    Quorum {
+        index: u64,
+        term: u64,
+        phase: TransitionPhase,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RaftFleetTransitionChildSetup {
     pub request: RaftFleetTransitionChildSetupRequest,
-    /// Local sync or Raft attachment. Neither proves a child quorum.
+    /// The exact local setup result or a selected historical quorum witness.
     pub result: RaftFleetTransitionChildSetupResult,
 }
 
 impl RaftFleetControl {
     /// Set up the exact pending child on a reserved local voter. Install
     /// independently replays the selected sealed archives. Attach requires
-    /// the local receipt and a durable install majority.
+    /// the local receipt and a durable install majority. Quorum selects a
+    /// fresh-term witness on the child leader or reopens its selected proof.
     pub async fn setup_transition_child(
         &self,
         principal: &str,
@@ -117,18 +124,10 @@ impl RaftFleetControl {
             .into_iter()
             .find(|route| route.history == history)
             .ok_or(FleetCatalogError::Conflict)?;
-        let observer = self
-            .node_observer
-            .as_ref()
-            .ok_or_else(|| RaftFleetFailure {
-                code: RaftFleetFailureCode::Unsupported,
-                outcome: RaftFleetOutcome::NotSubmitted,
-                message: "Use a managed endpoint on a reserved voter for the selected child."
-                    .into(),
-            })?;
         let transition = Arc::new(transition);
         let result = match request.step {
             RaftFleetTransitionChildStep::Install => {
+                let observer = self.child_setup_voter()?;
                 let services = self.transition_preparation.as_ref().ok_or_else(|| {
                     RaftFleetFailure {
                         code: RaftFleetFailureCode::Unsupported,
@@ -163,16 +162,62 @@ impl RaftFleetControl {
                 }
             }
             RaftFleetTransitionChildStep::Attach => {
-                observer
+                self.child_setup_voter()?
                     .attach_managed_transfer_child(transition, child, turn.remaining()?)
                     .await
                     .map_err(setup_failure)?;
                 RaftFleetTransitionChildSetupResult::Attached
             }
+            RaftFleetTransitionChildStep::Quorum => {
+                let selected = self
+                    .catalog
+                    .resume_managed_transfer_child_quorum(
+                        &transition,
+                        directory,
+                        history,
+                        None,
+                        turn.remaining()?,
+                    )
+                    .await?;
+                let (position, journal) = if let Some(selected) = selected {
+                    selected
+                } else {
+                    let proof = self
+                        .child_setup_voter()?
+                        .group(history)
+                        .map_err(|error| setup_failure(CellGroupControllerError::Runtime(error)))?
+                        .managed_pending_transfer_quorum(turn.remaining()?)
+                        .await
+                        .map_err(setup_failure)?;
+                    self.catalog
+                        .resume_managed_transfer_child_quorum(
+                            &transition,
+                            directory,
+                            history,
+                            Some(proof),
+                            turn.remaining()?,
+                        )
+                        .await?
+                        .ok_or(FleetCatalogError::Unconfirmed)?
+                };
+                RaftFleetTransitionChildSetupResult::Quorum {
+                    index: position.index.get(),
+                    term: position.term.get(),
+                    phase: journal.phase(),
+                }
+            }
         };
         Ok(RaftFleetTransitionChildSetup {
             request: request.clone(),
             result,
+        })
+    }
+
+    fn child_setup_voter(&self) -> Result<&RaftCells> {
+        self.node_observer.as_ref().ok_or_else(|| RaftFleetFailure {
+            code: RaftFleetFailureCode::Unsupported,
+            outcome: RaftFleetOutcome::NotSubmitted,
+            message: "Use a managed endpoint on a reserved voter for the selected child.".into(),
         })
     }
 }

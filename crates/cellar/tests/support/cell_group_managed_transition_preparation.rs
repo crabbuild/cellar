@@ -11,8 +11,10 @@ use cellar::application::consensus::verification::cell_groups::{
 };
 use cellar::application::consensus::verification::FleetHistoryState;
 use cellar::sdk::fleet_operations::{
-    RaftFleetControl, RaftFleetFailureCode, RaftFleetTransitionActivationRequest,
-    RaftFleetTransitionPrepareRequest, RaftFleetTransitionPublishRequest,
+    RaftFleetControl, RaftFleetFailureCode, RaftFleetOutcome, RaftFleetTransitionActivationRequest,
+    RaftFleetTransitionChildSetupRequest, RaftFleetTransitionChildSetupResult,
+    RaftFleetTransitionChildStep, RaftFleetTransitionGroup, RaftFleetTransitionPrepareRequest,
+    RaftFleetTransitionPublishRequest,
 };
 use cellar_ltx::{
     generation::{GenerationStore, ReadServices},
@@ -653,8 +655,16 @@ pub(super) async fn verify_sealed_cut(
         }
         proofs.push(wait_pending_child(voters, route.history).await?);
     }
-    verify_managed_installed_decision(cluster, fleet, directory, &transition, parent, proofs)
-        .await?;
+    verify_managed_installed_decision(
+        cluster,
+        fleet,
+        directory,
+        &transition,
+        parent,
+        replay.children(),
+        proofs,
+    )
+    .await?;
     let routes = replay.children().to_vec();
     drop(replay);
     ensure!(tails.usage().operations == 0);
@@ -1550,6 +1560,7 @@ async fn verify_managed_installed_decision(
     directory: &RangeDirectory,
     transition: &ReopenedManagedCellGroupTransition,
     parent: &CellGroupBirth,
+    children: &[GroupRoute],
     proofs: Vec<TransferChildQuorum>,
 ) -> Result<()> {
     let fixture = &cluster.fixtures[0];
@@ -1580,27 +1591,101 @@ async fn verify_managed_installed_decision(
         .await?
         .context("sealed plan")?;
     ensure!(prior.journal.context("sealed journal")?.phase() == TransitionPhase::Sealed);
-    let (result, delivered) = fault::lose_directory_confirmation(
-        fleet.record_managed_transfer_child_quorums(transition, directory, proofs.clone(), TIMEOUT),
-    )
-    .await;
+    let voters = &cluster.hosts[DESTINATION..];
+    let make_request = |index: usize, catalog: &str| RaftFleetTransitionChildSetupRequest {
+        catalog_id: catalog.into(),
+        namespace_id: hex::encode(children[index].history.namespace.bytes()),
+        operation_id: hex::encode(operation.bytes()),
+        request_id: hex::encode([180 + index as u8; 16]),
+        plan_digest: hex::encode(transition.plan.digest()),
+        child: RaftFleetTransitionGroup {
+            group_id: hex::encode(children[index].history.group.bytes()),
+            incarnation_id: hex::encode(children[index].history.incarnation.bytes()),
+        },
+        step: RaftFleetTransitionChildStep::Quorum,
+    };
+    let mut first = None;
+    for (index, route) in children.iter().enumerate() {
+        let (leader, _) = wait_pending_child_witness(voters, route.history).await?;
+        let controller =
+            Fixture::open_catalog(domain, fixture.store.clone(), cluster.history.cluster)?;
+        let control = RaftFleetControl::new(domain, controller, vec![directory.clone()])?
+            .with_node_observer(voters[leader].clone());
+        let request = make_request(index, control.catalog_id());
+        let work = control.setup_transition_child(
+            &transition.request.principal,
+            &request.namespace_id,
+            &request.operation_id,
+            &request,
+            TIMEOUT,
+        );
+        if index == 0 {
+            let observed = work.await?;
+            ensure!(matches!(
+                observed.result,
+                RaftFleetTransitionChildSetupResult::Quorum {
+                    phase: TransitionPhase::Sealed,
+                    ..
+                }
+            ));
+            first = Some(observed);
+        } else {
+            let (result, delivered) = fault::lose_directory_confirmation(work).await;
+            ensure!(
+                delivered
+                    && matches!(result, Err(ref failure)
+                    if failure.code == RaftFleetFailureCode::Unavailable && failure.outcome == RaftFleetOutcome::Unknown),
+                "lost install confirmation was not isolated to its directory CAS: {result:?}"
+            );
+        }
+    }
+    let controller = Fixture::open_catalog(domain, fixture.store.clone(), cluster.history.cluster)?;
+    let control = RaftFleetControl::new(domain, controller.clone(), vec![directory.clone()])?;
+    let first = first.context("first selected child witness")?;
+    let replay = control
+        .setup_transition_child(
+            &transition.request.principal,
+            &first.request.namespace_id,
+            &first.request.operation_id,
+            &first.request,
+            TIMEOUT,
+        )
+        .await?;
+    let RaftFleetTransitionChildSetupResult::Quorum { index, term, .. } = first.result else {
+        anyhow::bail!("missing first child quorum witness");
+    };
     ensure!(
-        delivered && matches!(result, Err(FleetCatalogError::Unconfirmed)),
-        "lost install confirmation was not isolated to its directory CAS: {result:?}"
+        replay.result
+            == RaftFleetTransitionChildSetupResult::Quorum {
+                index,
+                term,
+                phase: TransitionPhase::Installed,
+            }
     );
-    let reopened = fleet
+    let second = make_request(1, control.catalog_id());
+    let replay = control
+        .setup_transition_child(
+            &transition.request.principal,
+            &second.namespace_id,
+            &second.operation_id,
+            &second,
+            TIMEOUT,
+        )
+        .await?;
+    ensure!(matches!(
+        replay.result,
+        RaftFleetTransitionChildSetupResult::Quorum {
+            phase: TransitionPhase::Installed,
+            ..
+        }
+    ));
+    let reopened = controller
         .reopen_managed_transition(directory, operation, TIMEOUT)
         .await?
         .context("installed plan")?;
     let installed = reopened.journal.as_ref().context("installed journal")?;
     ensure!(
         installed.phase() == TransitionPhase::Installed && installed.installed_children().is_some()
-    );
-    ensure!(
-        fleet
-            .record_managed_transfer_child_quorums(&reopened, directory, proofs, TIMEOUT)
-            .await?
-            == *installed
     );
     let after = domain.run(directory.observe()).await??;
     ensure!(after.revision() == before.revision() && after.groups() == before.groups());
@@ -1781,6 +1866,15 @@ pub(super) async fn wait_pending_child(
     voters: &[RaftCells],
     child: GroupHistory,
 ) -> Result<TransferChildQuorum> {
+    wait_pending_child_witness(voters, child)
+        .await
+        .map(|(_, proof)| proof)
+}
+
+pub(super) async fn wait_pending_child_witness(
+    voters: &[RaftCells],
+    child: GroupHistory,
+) -> Result<(usize, TransferChildQuorum)> {
     let mut last = vec![None; voters.len()];
     tokio::time::timeout(TIMEOUT, async {
         loop {
@@ -1797,7 +1891,7 @@ pub(super) async fn wait_pending_child(
                         if let Some((_, observed)) = &mut last[index] {
                             *observed = true;
                         }
-                        witness = Some(proof);
+                        witness = Some((index, proof));
                     }
                     Err(CellGroupControllerError::Runtime(
                         RuntimeError::NotLeader | RuntimeError::NotReady,

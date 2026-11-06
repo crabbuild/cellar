@@ -392,12 +392,49 @@ async fn execute(options: &options::Options) -> Result<Value> {
                     RaftFleetTransitionChildStep::Attach,
                     RaftFleetTransitionChildSetupResult::Attached,
                 ) => true,
+                (
+                    RaftFleetTransitionChildStep::Quorum,
+                    RaftFleetTransitionChildSetupResult::Quorum { index, term, phase },
+                ) => {
+                    use crate::raft::cell_groups::TransitionPhase;
+                    *index > 1
+                        && *term > 1
+                        && matches!(
+                            phase,
+                            TransitionPhase::Sealed
+                                | TransitionPhase::Installed
+                                | TransitionPhase::Archived
+                        )
+                }
                 _ => false,
             };
             if setup.request != **request || !matches_step {
                 return Err(unavailable());
             }
             serde_json::to_value(setup).map_err(|_| unavailable())
+        }
+        Action::TransitionVerifyArchive(request) => {
+            use crate::raft::cell_groups::TransitionPhase;
+            let path = format!(
+                "namespaces/{}/transitions/{}/verify-archive",
+                request.namespace_id, request.operation_id,
+            );
+            let verified = client
+                .post::<RaftFleetTransitionArchiveVerification>(&path, request.as_ref())
+                .await?;
+            if verified.request != **request
+                || !matches!(
+                    verified.phase,
+                    TransitionPhase::Archived
+                        | TransitionPhase::Published
+                        | TransitionPhase::Active
+                        | TransitionPhase::Retired
+                )
+                || options::validate_catalog(&verified.archive_digest).is_err()
+            {
+                return Err(unavailable());
+            }
+            serde_json::to_value(verified).map_err(|_| unavailable())
         }
         Action::TransitionPublish(request) => {
             let path = format!(
