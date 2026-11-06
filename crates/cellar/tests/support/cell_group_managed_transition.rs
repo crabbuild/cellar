@@ -86,18 +86,22 @@ async fn run_plan(rooted: bool, store: Arc<fault::Store>, decision: Decision) ->
     let pending_quorums = if activated { expected_children } else { 0 };
     let spares = cluster.nodes.split_off(3);
     let joined = close_group_nodes(cluster.nodes, &cluster.hosts).await;
-    let joined_spares = async {
-        for (node, host) in spares.into_iter().zip(&cluster.hosts[3..]) {
-            stop_transfer_destination(node, host, expected_children, pending_quorums, activated)
-                .await?;
-        }
-        Ok::<_, anyhow::Error>(())
-    }
-    .await;
+    // Start all destination drains together. Serial shutdown can elect a
+    // successor while the next voter is already draining its local apply.
+    let joined_spares =
+        futures_util::future::join_all(spares.into_iter().zip(&cluster.hosts[3..]).map(
+            |(node, host)| {
+                stop_transfer_destination(node, host, expected_children, pending_quorums, activated)
+            },
+        ))
+        .await;
     cluster.fixtures[0].domain.shutdown().await;
     result?;
     joined?;
-    joined_spares
+    for result in joined_spares {
+        result?;
+    }
+    Ok(())
 }
 
 async fn stop_transfer_destination(

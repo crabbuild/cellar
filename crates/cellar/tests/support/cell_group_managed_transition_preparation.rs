@@ -491,7 +491,8 @@ pub(super) async fn verify_sealed_cut(
             for voter in voters {
                 voter
                     .attach_managed_transfer_child(transition.clone(), route.clone(), TIMEOUT)
-                    .await?;
+                    .await
+                    .context("attach second pending child")?;
             }
         }
         proofs.push(wait_pending_child(voters, route.history).await?);
@@ -1010,7 +1011,8 @@ async fn restart_destination(
     let voters = &cluster.hosts[DESTINATION..];
     voters[0]
         .attach_managed_transfer_child(transition.clone(), route.clone(), TIMEOUT)
-        .await?;
+        .await
+        .context("attach restarted pending voter before its peers")?;
     ensure!(matches!(
         voters[0]
             .group(child)?
@@ -1050,7 +1052,8 @@ async fn restart_destination(
             == expected
     );
     host.attach_managed_transfer_child(transition, route, TIMEOUT)
-        .await?;
+        .await
+        .context("reattach retained pending voter after the fresh term")?;
     wait_pending_child(&cluster.hosts[DESTINATION..], child).await?;
     Ok(())
 }
