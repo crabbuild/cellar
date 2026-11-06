@@ -1783,6 +1783,18 @@ impl FleetCatalog {
                 "managed recovery reservation authority",
             ));
         }
+        if authority != resources::Authority::ManagedRecoverySettlement
+            && mutation.changes.iter().any(|change| {
+                change.table == FleetTable::Policy
+                    && change
+                        .key
+                        .starts_with(super::managed_recovery_settlement::PREFIX)
+            })
+        {
+            return Err(FleetCatalogError::Invalid(
+                "managed recovery settlement authority",
+            ));
+        }
         for change in mutation
             .changes
             .iter()
@@ -1831,6 +1843,7 @@ impl FleetCatalog {
                     resources::Authority::ManagedTransferChildren
                         | resources::Authority::ManagedTransferCompletion
                         | resources::Authority::ManagedRecoveryReservation
+                        | resources::Authority::ManagedRecoverySettlement
                 ),
                 FleetTable::Admissions => true,
                 FleetTable::Policy => {

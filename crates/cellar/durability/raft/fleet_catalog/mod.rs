@@ -37,11 +37,13 @@ pub(crate) use managed_recovery_quorum::FleetPublishedRecoveryVoter;
 pub use managed_recovery_quorum::{FleetRecoveryAttachRequest, FleetRecoverySeedQuorums};
 mod managed_recovery_replacement;
 mod managed_recovery_reservation;
+mod managed_recovery_settlement;
 pub use managed_recovery_replacement::FleetTransitionRecoveryReplacement;
 pub use managed_recovery_reservation::FleetRecoveryRangeReservation;
 pub(crate) use managed_recovery_reservation::{
     ManagedRecoverySeedAuthority, ManagedRecoverySeedSelection,
 };
+pub use managed_recovery_settlement::FleetRecoverySettlement;
 mod managed_transition_replay;
 pub use managed_recovery_inventory::FleetRecoveryVoterLineage;
 mod managed_transitions;

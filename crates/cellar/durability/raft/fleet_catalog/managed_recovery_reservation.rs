@@ -57,6 +57,12 @@ impl FleetRecoveryRangeReservation {
     }
 }
 
+pub(super) struct ManagedRecoveryPlacement {
+    pub(super) reservation: FleetRecoveryRangeReservation,
+    pub(super) history: FleetHistory,
+    pub(super) key: String,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct ManagedRecoverySeedSelection<'a> {
     pub(crate) fenced: &'a FleetFencedTransitionRecovery,
@@ -266,6 +272,26 @@ impl FleetCatalog {
         plan: &FleetTransitionRecoveryReplacement,
         birth: &CellGroupBirthRequest,
     ) -> Result<Option<FleetRecoveryRangeReservation>> {
+        match self
+            .managed_recovery_placement_at(snapshot, directory, intent, plan, birth)
+            .await?
+        {
+            Some(placement) if placement.history.state == FleetHistoryState::Reserved => {
+                Ok(Some(placement.reservation))
+            }
+            Some(_) => Err(FleetCatalogError::Conflict),
+            None => Ok(None),
+        }
+    }
+
+    pub(super) async fn managed_recovery_placement_at(
+        &self,
+        snapshot: &FleetSnapshot,
+        directory: &RangeDirectory,
+        intent: &FleetTransitionRecoveryIntent,
+        plan: &FleetTransitionRecoveryReplacement,
+        birth: &CellGroupBirthRequest,
+    ) -> Result<Option<ManagedRecoveryPlacement>> {
         let binding = self.binding(&birth.route().history)?;
         let history_key = binding
             .key()
@@ -287,15 +313,28 @@ impl FleetCatalog {
         }
         check_boots(birth, &record, self.catalog_id()?)?;
         let history = self.history_inner(snapshot, &history_key).await?;
-        if history != FleetHistory::reserved_group(binding, directory, birth, &record.request)? {
+        let reserved = FleetHistory::reserved_group(binding, directory, birth, &record.request)?;
+        if !matches!(
+            history.state,
+            FleetHistoryState::Reserved | FleetHistoryState::Live
+        ) {
             return Err(FleetCatalogError::Conflict);
         }
-        let mutation = reservation_mutation(&record, &history, &history_key, key)?;
+        let mut expected = reserved.clone();
+        expected.state = history.state.clone();
+        if expected != history {
+            return Err(FleetCatalogError::Conflict);
+        }
+        let mutation = reservation_mutation(&record, &reserved, &history_key, key)?;
         let applied_revision = self.recovery_birth_commit(snapshot, &mutation).await?;
-        Ok(Some(FleetRecoveryRangeReservation {
-            record,
-            route: birth.route().clone(),
-            applied_revision,
+        Ok(Some(ManagedRecoveryPlacement {
+            reservation: FleetRecoveryRangeReservation {
+                record,
+                route: birth.route().clone(),
+                applied_revision,
+            },
+            history,
+            key: history_key,
         }))
     }
 

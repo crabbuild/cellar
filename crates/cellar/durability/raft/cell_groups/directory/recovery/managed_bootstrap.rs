@@ -61,8 +61,12 @@ impl RangeDirectory {
                 _ if activated => return Ok(false),
                 _ => return Err(CatalogError::Fenced),
             };
-            if history.state() != &FleetHistoryState::Reserved
-                || !history.allows_managed_genesis()
+            match history.state() {
+                FleetHistoryState::Reserved => (),
+                FleetHistoryState::Live if activated && publication.is_some() => (),
+                _ => return Err(CatalogError::Fenced),
+            }
+            if !history.allows_managed_genesis()
                 || history.birth_digest() != route.birth_digest
                 || !history.binding().matches_scope(&local.scope)
             {

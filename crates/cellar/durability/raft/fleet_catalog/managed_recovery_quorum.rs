@@ -23,10 +23,10 @@ const LIMIT: usize = 64 * 1024;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Record {
+pub(super) struct Record {
     plan: [u8; 32],
     receipt: [u8; 32],
-    ranges: Vec<ManagedRecoverySeedQuorum>,
+    pub(super) ranges: Vec<ManagedRecoverySeedQuorum>,
 }
 
 /// A verified durable seed set for every replacement range, in plan order.
@@ -102,11 +102,11 @@ impl FleetHostAuthorization {
                     .iter()
                     .position(|voter| voter.node == self.node())
                     .ok_or(FleetCatalogError::Conflict)?;
-                let reserved = catalog
-                    .managed_recovery_reservation_at(&snapshot, directory, &intent, &plan, birth)
+                let placement = catalog
+                    .managed_recovery_placement_at(&snapshot, directory, &intent, &plan, birth)
                     .await?
                     .ok_or(FleetCatalogError::Conflict)?;
-                let seeded_boot = &reserved.voter_boots()[voter];
+                let seeded_boot = &placement.reservation.voter_boots()[voter];
                 let current_boot = self.boot_binding()?;
                 if !seeded_boot.same_engine_owner(&current_boot)
                     || catalog
@@ -128,6 +128,17 @@ impl FleetHostAuthorization {
                     .map_err(|_| FleetCatalogError::Closed)?
                     .map_err(catalog_error)?
                     .ok_or(FleetCatalogError::Conflict)?;
+                if placement.history.state == FleetHistoryState::Live {
+                    catalog
+                        .require_managed_recovery_promotion(
+                            &snapshot,
+                            request,
+                            &intent,
+                            publication.journal_digest(),
+                            index,
+                        )
+                        .await?;
+                }
                 if catalog.inner.current().await?.token != snapshot.token {
                     return Err(FleetCatalogError::Conflict);
                 }
@@ -341,7 +352,7 @@ impl FleetCatalog {
         .await
     }
 
-    async fn read_managed_recovery_publication_inputs(
+    pub(super) async fn read_managed_recovery_publication_inputs(
         &self,
         directory: &RangeDirectory,
         operation: ProposalId,
@@ -456,7 +467,7 @@ impl FleetCatalog {
     }
 }
 
-fn publication_input<'a>(
+pub(super) fn publication_input<'a>(
     intent: &FleetTransitionRecoveryIntent,
     plan: &'a FleetTransitionRecoveryReplacement,
     seeds: [u8; 32],

@@ -1890,6 +1890,14 @@ async fn check_recovery_voter_reservations(
             )).await?;
             ensure!(reopened == Some(activated));
             activations.push((history, activated));
+            if activations.len() < plan.births().len() {
+                let before = fixture.catalog.read(TIMEOUT).await?;
+                let refused = Box::pin(fresh.advance_transition_recovery_settlement(
+                    namespace, &request, TIMEOUT,
+                )).await;
+                ensure!(matches!(refused, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
+                ensure!(fixture.catalog.read(TIMEOUT).await?.revision() == before.revision());
+            }
             let (cell, _) = routed.iter().find(|(cell, _)| {
                 archive.recovery().manifest().pin_cell(&cell.cell).is_some()
             }).context("recovered range cell")?;
@@ -1929,8 +1937,31 @@ async fn check_recovery_voter_reservations(
                 "pending recovery did not refuse the write before dispatch: {write:?}"
             );
         }
+        let before = fixture.catalog.read(TIMEOUT).await?;
+        fixture.store.fail_fleet_confirmation.store(true, Ordering::Release);
+        let unknown = Box::pin(fresh.advance_transition_recovery_settlement(
+            namespace, &request, TIMEOUT,
+        )).await;
+        ensure!(matches!(unknown, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
+        ensure!(!fixture.store.fail_fleet_confirmation.load(Ordering::Acquire));
+        let settled = Box::pin(fresh.advance_transition_recovery_settlement(
+            namespace, &request, TIMEOUT,
+        )).await?;
+        let cut = fixture.catalog.read(TIMEOUT).await?;
+        ensure!(settled.promoted_ranges == plan.births().len()
+            && settled.total_ranges == plan.births().len()
+            && settled.publication_digest == publication.journal_digest()
+            && settled.applied_revision == before.revision() + 1
+            && cut.revision() == settled.applied_revision);
+        for birth in plan.births() {
+            let history = birth.route().history;
+            let live = fixture.catalog.history(&cut, &history, TIMEOUT).await?;
+            ensure!(live.state() == &FleetHistoryState::Live);
+            let fenced = fixture.domain.run(directory.materialize_selected_history(history)).await?;
+            ensure!(matches!(fenced, Err(cellar::application::consensus::CatalogError::Fenced)));
+        }
         Box::pin(restart_recovery_voter(&mut standbys, 2, 199, reserved.len(), true))
-            .await.context("restart an activated recovery voter before settlement")?;
+            .await.context("restart an activated recovery voter after Fleet promotion")?;
         let (_, _, restarted, peer) = &standbys[2];
         Box::pin(admit_capacity(peer, restarted, &directory, 199)).await?;
         let revision = fixture.catalog.read(TIMEOUT).await?.revision();

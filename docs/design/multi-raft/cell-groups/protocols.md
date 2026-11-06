@@ -1523,7 +1523,11 @@ while application admission remains closed. Each range's leader must commit
 activation after applying a fresh-term barrier. A voter records the exact
 committed position against the selected publication and seed commitment.
 A retry reconciles a lost receipt confirmation against the same position.
-Raft owners and application routing remain fenced through Fleet settlement.
+Fleet verifies every selected range's activation receipt before promoting
+any replacement history. One CAS advances up to 15 histories and their
+protected cursor. A retry reconstructs the last batch from the rooted
+histories and its commit journal. The disruption slot, directory lock,
+and Raft owners' serving fences stay held during promotion.
 
 For an unpublished transition, choose complete archived parent cuts and reconstruct
 their non-overlapping domain under new groups. For a published transition, require

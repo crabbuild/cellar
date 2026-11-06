@@ -454,6 +454,22 @@ impl RaftFleetControl {
             .await?)
     }
 
+    /// Promote the next bounded batch of replacement histories after every
+    /// range has committed activation. Retries reopen the rooted cursor.
+    #[doc(hidden)]
+    pub async fn advance_transition_recovery_settlement(
+        &self,
+        namespace: &str,
+        request: &crate::raft::fleet_catalog::FleetRecoveryAttachRequest,
+        timeout: Duration,
+    ) -> Result<crate::raft::fleet_catalog::FleetRecoverySettlement> {
+        let directory = self.managed_namespace(namespace)?;
+        Ok(self
+            .catalog
+            .advance_managed_recovery_settlement(directory, request, timeout)
+            .await?)
+    }
+
     /// Copy one exact selected cut into dedicated fresh-history stores. This
     /// does not install Raft state or authorize placement or serving.
     #[doc(hidden)]
