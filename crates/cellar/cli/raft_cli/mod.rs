@@ -348,6 +348,30 @@ async fn execute(options: &options::Options) -> Result<Value> {
             }
             serde_json::to_value(sealed).map_err(|_| unavailable())
         }
+        Action::TransitionRetireSource(request) => {
+            use crate::raft::cell_groups::TransitionPhase;
+            let path = format!(
+                "namespaces/{}/transitions/{}/retire-source",
+                request.namespace_id, request.operation_id,
+            );
+            let retired = client
+                .post::<RaftFleetTransitionSourceRetirement>(&path, request.as_ref())
+                .await?;
+            if retired.request != **request
+                || !matches!(
+                    retired.phase,
+                    TransitionPhase::Active | TransitionPhase::Retired
+                )
+                || retired
+                    .applied
+                    .as_ref()
+                    .is_some_and(|position| position.index == 0 || position.term == 0)
+                || (retired.phase == TransitionPhase::Retired && retired.applied.is_none())
+            {
+                return Err(unavailable());
+            }
+            serde_json::to_value(retired).map_err(|_| unavailable())
+        }
         Action::TransitionCaptureSource(request) => {
             let path = format!(
                 "namespaces/{}/transitions/{}/capture-source",

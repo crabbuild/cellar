@@ -495,6 +495,8 @@ impl RangeDirectory {
 
 const RETIREMENTS: u8 = 211;
 const SETS: &str = "transfer-parent-retirement-sets";
+const PARENT_RECEIPT: u8 = 216;
+const STAGED: &str = "transfer-parent-retirement-progress";
 
 struct RetirementBasis {
     journal: TransitionJournal,
@@ -514,6 +516,14 @@ struct RetirementSet {
 }
 
 #[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StagedRetirement {
+    plan: [u8; 32],
+    publication: [u8; 32],
+    receipt: RetirementReceipt,
+}
+
+#[derive(PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct RetirementReceipt {
     group: [u8; 16],
@@ -581,13 +591,17 @@ impl RetirementReceipt {
         }
     }
 
+    fn position(&self) -> LogPosition {
+        LogPosition {
+            index: LogIndex::new(self.index),
+            term: Term::new(self.term),
+        }
+    }
+
     fn validate(&self, held: &GroupManifest) -> Result<(), CatalogError> {
         let history = held.route().history;
         let seal = held.source_seal().ok_or(CatalogError::Fenced)?.position();
-        let position = LogPosition {
-            index: LogIndex::new(self.index),
-            term: Term::new(self.term),
-        };
+        let position = self.position();
         if self.group != history.group.bytes()
             || self.incarnation != history.incarnation.bytes()
             || self.seal_index != seal.index.get()
@@ -642,6 +656,104 @@ impl RangeDirectory {
         .await
     }
 
+    /// Reopen or persist a parent voter acknowledgement. Settlement requires
+    /// every parent and the independently verified child holds.
+    pub(crate) async fn resume_managed_source_retirement(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        pool: &CellGroupArchivePool,
+        plan: &DirectoryMutation,
+        history: GroupHistory,
+        acknowledgement: Option<CellGroupSourceRetirementAck>,
+        permit: &ManagedTransitionPermit,
+    ) -> Result<Option<(LogPosition, TransitionJournal)>, CellGroupArchiveBindingError> {
+        permit.check(self, plan)?;
+        let basis = self.bounded(self.retirement_basis(plan)).await?;
+        let index = basis
+            .parents
+            .iter()
+            .position(|hold| hold.marker().route().history == history)
+            .ok_or(CatalogError::Fenced)?;
+        let receipt = acknowledgement
+            .map(|ack| Self::checked_retirement(&basis, index, ack))
+            .transpose()?;
+        if let Some(selected) = basis.journal.retired_parents() {
+            let set = self
+                .bounded(self.require_retirement_set(plan, &basis, selected))
+                .await?;
+            if receipt
+                .as_ref()
+                .is_some_and(|receipt| receipt != &set.parents[index])
+            {
+                return Err(CatalogError::Conflict("selected retirement receipt changed").into());
+            }
+            return Ok(Some((set.parents[index].position(), basis.journal)));
+        }
+        let (position, parents) = self
+            .bounded(async {
+                if let Some(receipt) = receipt {
+                    let staged = StagedRetirement {
+                        plan: plan.digest(),
+                        publication: basis.publication,
+                        receipt,
+                    };
+                    let bytes = record::encode(PARENT_RECEIPT, &staged, wire::LIMIT)?;
+                    let key = staged_retirement_key(plan, index);
+                    let selected = self
+                        .namespace
+                        .inner
+                        .create_and_observe_bounded(&self.key(&key), &bytes, wire::LIMIT)
+                        .await?;
+                    if selected != bytes {
+                        return Err(CatalogError::Conflict("staged retirement receipt changed"));
+                    }
+                }
+                let mut parents = Vec::with_capacity(basis.parents.len());
+                let mut position = None;
+                for (slot, hold) in basis.parents.iter().enumerate() {
+                    let Some(bytes) = self.read(&staged_retirement_key(plan, slot)).await? else {
+                        continue;
+                    };
+                    let staged: StagedRetirement =
+                        record::decode(PARENT_RECEIPT, &bytes, wire::LIMIT)?;
+                    if staged.plan != plan.digest() || staged.publication != basis.publication {
+                        return Err(CatalogError::Corrupt("staged retirement receipt binding"));
+                    }
+                    staged.receipt.validate(hold.marker())?;
+                    if slot == index {
+                        position = Some(staged.receipt.position());
+                    }
+                    parents.push(staged.receipt);
+                }
+                Ok((position, parents))
+            })
+            .await?;
+        let Some(position) = position else {
+            return Ok(None);
+        };
+        let journal = if parents.len() == basis.parents.len() {
+            self.select_retirement(domain, pool, plan, basis, parents, Some(permit))
+                .await?
+        } else {
+            basis.journal
+        };
+        Ok(Some((position, journal)))
+    }
+
+    fn checked_retirement(
+        basis: &RetirementBasis,
+        index: usize,
+        ack: CellGroupSourceRetirementAck,
+    ) -> Result<RetirementReceipt, CatalogError> {
+        let hold = &basis.parents[index];
+        if ack.tombstone.publication() != basis.publication || &ack.route != hold.marker().route() {
+            return Err(CatalogError::Fenced);
+        }
+        let receipt = RetirementReceipt::from_ack(ack);
+        receipt.validate(hold.marker())?;
+        Ok(receipt)
+    }
+
     /// Record the durable parent tombstones after confirming the selected
     /// child coverage is still held. Keep topology owned through hold release.
     pub async fn settle_transfer_retirement(
@@ -687,51 +799,56 @@ impl RangeDirectory {
                     self.namespace.require_cell_group_unmanaged().await?;
                 }
                 let basis = self.bounded(self.retirement_basis(plan)).await?;
-                let mut parents = Vec::with_capacity(basis.parents.len());
-                for (ack, hold) in acknowledgements.into_iter().zip(&basis.parents) {
-                    if ack.tombstone.publication() != basis.publication
-                        || &ack.route != hold.marker().route()
-                    {
-                        return Err(CatalogError::Fenced.into());
-                    }
-                    let receipt = RetirementReceipt::from_ack(ack);
-                    receipt.validate(hold.marker())?;
-                    parents.push(receipt);
-                }
-                let set = RetirementSet {
-                    namespace: self.namespace.root_digest,
-                    plan: plan.digest(),
-                    publication: basis.publication,
-                    child_archives: basis.child_archives,
-                    parents,
-                };
-                let bytes = record::encode(RETIREMENTS, &set, wire::LIMIT)?;
-                let digest = record::digest(&bytes);
-                if let Some(selected) = basis.journal.retired_parents() {
-                    if selected != digest {
-                        return Err(
-                            CatalogError::Conflict("transfer retirement set changed").into()
-                        );
-                    }
-                    self.bounded(self.require_retirement_set(plan, &basis, selected))
-                        .await?;
-                    return Ok(basis.journal);
-                }
-                self.require_live_retirement_archives(domain, pool, plan, permit)
-                    .await?;
-                self.bounded(self.immutable(SETS, digest, &bytes)).await?;
-                self.record_verified_retirement(
-                    plan,
-                    basis.publication,
-                    basis.child_archives,
-                    digest,
-                    permit,
-                )
-                .await
-                .map_err(Into::into)
+                let parents = acknowledgements
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, ack)| Self::checked_retirement(&basis, index, ack))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.select_retirement(domain, pool, plan, basis, parents, permit)
+                    .await
             }))
             .await
             .map_err(|_| CellGroupArchiveError::Stopped)?
+    }
+
+    async fn select_retirement(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        pool: &CellGroupArchivePool,
+        plan: &DirectoryMutation,
+        basis: RetirementBasis,
+        parents: Vec<RetirementReceipt>,
+        permit: Option<&ManagedTransitionPermit>,
+    ) -> Result<TransitionJournal, CellGroupArchiveBindingError> {
+        let set = RetirementSet {
+            namespace: self.namespace.root_digest,
+            plan: plan.digest(),
+            publication: basis.publication,
+            child_archives: basis.child_archives,
+            parents,
+        };
+        let bytes = record::encode(RETIREMENTS, &set, wire::LIMIT)?;
+        let digest = record::digest(&bytes);
+        if let Some(selected) = basis.journal.retired_parents() {
+            if selected != digest {
+                return Err(CatalogError::Conflict("transfer retirement set changed").into());
+            }
+            self.bounded(self.require_retirement_set(plan, &basis, selected))
+                .await?;
+            return Ok(basis.journal);
+        }
+        self.require_live_retirement_archives(domain, pool, plan, permit)
+            .await?;
+        self.bounded(self.immutable(SETS, digest, &bytes)).await?;
+        self.record_verified_retirement(
+            plan,
+            basis.publication,
+            basis.child_archives,
+            digest,
+            permit,
+        )
+        .await
+        .map_err(Into::into)
     }
 
     /// Release the exact transfer-owned parent holds after the Retired CAS.
@@ -906,4 +1023,8 @@ impl RangeDirectory {
         }
         Ok(())
     }
+}
+
+fn staged_retirement_key(plan: &DirectoryMutation, index: usize) -> String {
+    format!("{STAGED}/{}/{index}", hex::encode(plan.digest()))
 }

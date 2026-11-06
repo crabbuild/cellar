@@ -132,6 +132,35 @@ pub(crate) async fn capture_transition_source(
     result
 }
 
+pub(crate) async fn reopen_transition_retirement(
+    fixture: &Fixture,
+    directory: &RangeDirectory,
+    principal: &str,
+    request: &RaftFleetTransitionSourceSealRequest,
+) -> Result<RaftFleetTransitionSourceRetirement> {
+    let root = tempfile::tempdir()?;
+    let (bucket, control) = control(fixture, directory)?;
+    let cli = OperatorCli::start(&fixture.domain, bucket, control, root.path(), principal).await?;
+    let result = async {
+        let plan = root.path().join("transition-retire-source.json");
+        std::fs::write(&plan, serde_json::to_vec(request)?)?;
+        let command = [
+            "transition",
+            "retire-source",
+            &request.namespace_id,
+            "--plan",
+            plan.to_str().context("UTF-8 retirement request path")?,
+        ];
+        ensure!(cli.call(&command, READER).await?.code == 4);
+        Ok::<_, anyhow::Error>(serde_json::from_value(
+            cli.call(&command, OWNER).await?.success()?,
+        )?)
+    }
+    .await;
+    cli.close().await?;
+    result
+}
+
 pub(crate) async fn verify_transition_archive(
     fixture: &Fixture,
     directory: &RangeDirectory,

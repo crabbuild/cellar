@@ -836,6 +836,42 @@ impl FleetCatalog {
         .await
     }
 
+    pub(crate) async fn resume_managed_source_retirement(
+        &self,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        archives: &CellGroupArchivePool,
+        history: GroupHistory,
+        acknowledgement: Option<CellGroupSourceRetirementAck>,
+        timeout: Duration,
+    ) -> Result<Option<(LogPosition, TransitionJournal)>> {
+        validate_request(&transition.request)?;
+        let deadline = deadline::Deadline::new(self, timeout)?;
+        let permit = self
+            .run(
+                deadline.remaining()?,
+                Box::pin(self.verified_managed_transfer_permit(transition, directory)),
+            )
+            .await?;
+        let domain = &self.inner.domain;
+        domain
+            .run(Box::pin(crate::asyncrt::timeout(
+                deadline.remaining()?,
+                Box::pin(directory.resume_managed_source_retirement(
+                    domain,
+                    archives,
+                    &transition.plan,
+                    history,
+                    acknowledgement,
+                    &permit,
+                )),
+            )))
+            .await
+            .map_err(|_| FleetCatalogError::Closed)?
+            .map_err(|_| FleetCatalogError::Unconfirmed)?
+            .map_err(transfer_archive_error)
+    }
+
     /// Root the exact committed parent tombstones after verifying that every
     /// selected child archive hold is still live. Both topology and the parent
     /// archive holds remain owned pending cleanup.

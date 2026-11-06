@@ -67,7 +67,8 @@ pub use transition_child::{
     RaftFleetTransitionChildSetupResult, RaftFleetTransitionChildStep,
 };
 pub use transition_seal::{
-    RaftFleetTransitionSourceArchive, RaftFleetTransitionSourceCut, RaftFleetTransitionSourceSeal,
+    RaftFleetTransitionSourceArchive, RaftFleetTransitionSourceCut,
+    RaftFleetTransitionSourceRetirement, RaftFleetTransitionSourceSeal,
     RaftFleetTransitionSourceSealRequest,
 };
 

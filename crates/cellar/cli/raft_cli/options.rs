@@ -34,6 +34,7 @@ cellar raft fleet transition prepare NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet transition authorize-seal NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet transition seal-source NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet transition capture-source NAMESPACE_HEX --plan REQUEST.json
+cellar raft fleet transition retire-source NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet transition setup-child NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet transition verify-archive NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet transition verify-child-archives NAMESPACE_HEX --plan REQUEST.json
@@ -86,6 +87,7 @@ pub(super) enum Action {
     TransitionSeal(Box<RaftFleetTransitionSealRequest>),
     TransitionSealSource(Box<RaftFleetTransitionSourceSealRequest>),
     TransitionCaptureSource(Box<RaftFleetTransitionSourceSealRequest>),
+    TransitionRetireSource(Box<RaftFleetTransitionSourceSealRequest>),
     TransitionSetupChild(Box<RaftFleetTransitionChildSetupRequest>),
     TransitionVerifyArchive(Box<RaftFleetTransitionPrepareRequest>),
     TransitionVerifyChildArchives(Box<RaftFleetTransitionPrepareRequest>),
@@ -335,7 +337,9 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
             check_catalog(Some(catalog), &plan.catalog_id)?;
             Action::TransitionSealSource(Box::new(plan))
         }
-        ("transition_capture-source", Some(namespace)) if !wait && cursor.is_none() => {
+        (command @ ("transition_capture-source" | "transition_retire-source"), Some(namespace))
+            if !wait && cursor.is_none() =>
+        {
             let path = first_group_plan
                 .take()
                 .ok_or_else(|| invalid("--plan is required"))?;
@@ -345,7 +349,11 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
                 .as_deref()
                 .ok_or_else(|| invalid("--catalog-id from fleet status is required"))?;
             check_catalog(Some(catalog), &plan.catalog_id)?;
-            Action::TransitionCaptureSource(Box::new(plan))
+            if command == "transition_retire-source" {
+                Action::TransitionRetireSource(Box::new(plan))
+            } else {
+                Action::TransitionCaptureSource(Box::new(plan))
+            }
         }
         ("transition_setup-child", Some(namespace)) if !wait && cursor.is_none() => {
             let path = first_group_plan

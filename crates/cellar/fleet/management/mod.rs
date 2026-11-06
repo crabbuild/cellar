@@ -50,7 +50,8 @@ pub use raft::{
     RaftFleetTransitionPublishRequest, RaftFleetTransitionResume,
     RaftFleetTransitionResumeAcceptance, RaftFleetTransitionResumeStep,
     RaftFleetTransitionSealAuthorization, RaftFleetTransitionSealRequest,
-    RaftFleetTransitionSourceArchive, RaftFleetTransitionSourceCut, RaftFleetTransitionSourceSeal,
+    RaftFleetTransitionSourceArchive, RaftFleetTransitionSourceCut,
+    RaftFleetTransitionSourceRetirement, RaftFleetTransitionSourceSeal,
     RaftFleetTransitionSourceSealRequest, RaftFleetTransitionStatus, RaftFleetVerificationBlocker,
     RaftFleetVerificationReason, RaftFleetVerificationStage,
 };

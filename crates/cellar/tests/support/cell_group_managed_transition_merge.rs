@@ -1213,6 +1213,46 @@ async fn verify_durable_seal(
     Ok(())
 }
 
+async fn retire_merge_parent(
+    control: &RaftFleetControl,
+    voters: &[RaftCells],
+    principal: &str,
+    request: &RaftFleetTransitionSourceSealRequest,
+) -> Result<RaftFleetTransitionSourceRetirement> {
+    tokio::time::timeout(TIMEOUT, async {
+        loop {
+            for voter in voters {
+                let local = control.clone().with_node_observer(voter.clone());
+                match local
+                    .retire_transition_source(
+                        principal,
+                        &request.namespace_id,
+                        &request.operation_id,
+                        request,
+                        TIMEOUT,
+                    )
+                    .await
+                {
+                    Ok(retired) if retired.applied.is_some() => return Ok(retired),
+                    Ok(_) => (),
+                    Err(error)
+                        if matches!(
+                            error.code,
+                            RaftFleetFailureCode::Unavailable | RaftFleetFailureCode::Busy
+                        ) =>
+                    {
+                        ()
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("operator parent retirement")?
+}
+
 fn finish_merge<'a>(
     cluster: &'a mut ManagedCluster,
     directory: &'a RangeDirectory,
@@ -1242,13 +1282,6 @@ async fn finish_merge_inner(
         .run(directory.publication(&transition.plan))
         .await??
         .context("merge publication")?;
-    let mut tombstones = Vec::with_capacity(parents.len());
-    for parent in parents {
-        let ack =
-            retirement::commit_on_all(&cluster.hosts[3..], parent.history, transition).await?;
-        ensure!(ack.tombstone().publication() == publication.journal_digest());
-        tombstones.push(ack);
-    }
     let archive_request = RaftFleetTransitionChildSetupRequest {
         catalog_id: control.catalog_id().into(),
         namespace_id: hex::encode(child.namespace.bytes()),
@@ -1315,30 +1348,59 @@ async fn finish_merge_inner(
         .await?
         .context("selected child archive")?;
     ensure!(holds.len() == 1 && holds[0].marker().position().index >= applied);
-    ensure!(matches!(
-        fleet
-            .settle_managed_transfer_retirement(
-                transition,
+    let principal = &transition.request.principal;
+    for (index, parent) in parents.iter().enumerate() {
+        let retirement = RaftFleetTransitionSourceSealRequest {
+            catalog_id: control.catalog_id().into(),
+            namespace_id: hex::encode(child.namespace.bytes()),
+            operation_id: hex::encode(transition.request.operation),
+            request_id: hex::encode([187 + index as u8; 16]),
+            plan_digest: hex::encode(transition.plan.digest()),
+            source: RaftFleetTransitionGroup {
+                group_id: hex::encode(parent.history.group.bytes()),
+                incarnation_id: hex::encode(parent.history.incarnation.bytes()),
+            },
+        };
+        let completed = Box::pin(retire_merge_parent(
+            control,
+            &cluster.hosts[3..],
+            principal,
+            &retirement,
+        ))
+        .await?;
+        let expected_phase = if index == 0 {
+            TransitionPhase::Active
+        } else {
+            TransitionPhase::Retired
+        };
+        ensure!(completed.request == retirement && completed.phase == expected_phase);
+        let applied = completed
+            .applied
+            .as_ref()
+            .context("durable parent tombstone")?;
+        let replay = Box::pin(
+            crate::managed_fixture::operator::reopen_transition_retirement(
+                &cluster.fixtures[0],
                 directory,
-                &archives.pool,
-                tombstones[..1].to_vec(),
-                TIMEOUT,
-            )
-            .await,
-        Err(FleetCatalogError::Invalid(_))
-    ));
-    let retired = fleet
-        .settle_managed_transfer_retirement(
-            transition,
-            directory,
-            &archives.pool,
-            tombstones,
-            TIMEOUT,
+                principal,
+                &retirement,
+            ),
         )
         .await?;
+        ensure!(replay == completed);
+        let ack =
+            retirement::commit_on_all(&cluster.hosts[3..], parent.history, transition).await?;
+        ensure!(ack.tombstone().publication() == publication.journal_digest());
+        ensure!(ack.tombstone().position().index.get() == applied.index);
+        ensure!(ack.tombstone().position().term.get() == applied.term);
+    }
+    let retired = fleet
+        .reopen_managed_transition(directory, transition.plan.operation(), TIMEOUT)
+        .await?
+        .and_then(|reopened| reopened.journal)
+        .context("rooted merge retirement")?;
     ensure!(retired.phase() == TransitionPhase::Retired && !retired.parent_holds_released());
     let cut = fleet.read(TIMEOUT).await?;
-    let principal = &transition.request.principal;
     let confirmation = RaftFleetTransitionResume {
         catalog_id: control.catalog_id().into(),
         namespace_id: hex::encode(child.namespace.bytes()),

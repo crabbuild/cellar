@@ -1282,7 +1282,13 @@ acquire intent per child and independently replays each held cut. Each cut
 must retain the installed seed and the selected publication and activation
 position. The directory rechecks all holds before selecting the complete set.
 A retry can reopen the selected digest after a lost response. The parent holds
-and topology lane remain pinned for retirement settlement. The fleet
+and topology lane remain pinned for retirement settlement.
+Use `cellar raft fleet transition retire-source NAMESPACE_HEX --plan REQUEST.json`
+for each parent once child coverage is selected. A voter commits the tombstone
+against the selected replacement publication. The controller records each
+parent's position separately so a fresh controller can reopen a completed
+step. The directory selects the Retired decision only after every parent
+position and the live child holds are verified. The fleet
 owner can root the Retired decision only after rechecking the live child holds
 and binding every committed parent tombstone to the coverage and publication.
 During cleanup, previously activated child voters may still reopen on their

@@ -223,9 +223,10 @@ pub mod fleet_operations {
         RaftFleetTransitionResume, RaftFleetTransitionResumeAcceptance,
         RaftFleetTransitionResumeStep, RaftFleetTransitionSealAuthorization,
         RaftFleetTransitionSealRequest, RaftFleetTransitionSourceArchive,
-        RaftFleetTransitionSourceCut, RaftFleetTransitionSourceSeal,
-        RaftFleetTransitionSourceSealRequest, RaftFleetTransitionStatus,
-        RaftFleetVerificationBlocker, RaftFleetVerificationReason, RaftFleetVerificationStage,
+        RaftFleetTransitionSourceCut, RaftFleetTransitionSourceRetirement,
+        RaftFleetTransitionSourceSeal, RaftFleetTransitionSourceSealRequest,
+        RaftFleetTransitionStatus, RaftFleetVerificationBlocker, RaftFleetVerificationReason,
+        RaftFleetVerificationStage,
     };
     pub use crate::raft::fleet_catalog::FleetTopologyPolicy;
 }

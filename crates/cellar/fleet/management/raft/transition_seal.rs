@@ -5,7 +5,9 @@
 use super::*;
 use crate::raft::{
     catalog::RangeDirectory,
-    cell_groups::{CellGroupControllerError, CellGroupSealOutcome, TransitionPhase},
+    cell_groups::{
+        CellGroupControllerError, CellGroupSealOutcome, CellGroupSourceRetirement, TransitionPhase,
+    },
     completion::RuntimeError,
     fleet_catalog::ReopenedManagedCellGroupTransition,
 };
@@ -69,6 +71,20 @@ pub struct RaftFleetTransitionSourceArchive {
     pub sealed: RaftFleetTransitionSourceCut,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RaftFleetTransitionSourceRetirement {
+    pub request: RaftFleetTransitionSourceSealRequest,
+    pub phase: TransitionPhase,
+    /// Durable parent position, even while other parents remain unsettled.
+    pub applied: Option<RaftFleetTransitionActivationPosition>,
+}
+
+enum SourceAction {
+    Seal,
+    Retire,
+}
+
 impl RaftFleetControl {
     /// Submit or reconcile a seal on a locally hosted, authorized parent.
     /// The voter checks its current boot and applied membership before it can
@@ -83,7 +99,14 @@ impl RaftFleetControl {
     ) -> Result<RaftFleetTransitionSourceSeal> {
         let turn = Turn::new(&self.domain, timeout)?;
         let (_, history, transition) = self
-            .authorize_source_action(principal, namespace, operation, request, &turn)
+            .authorize_source_action(
+                principal,
+                namespace,
+                operation,
+                request,
+                &turn,
+                SourceAction::Seal,
+            )
             .await?;
         let observer = self
             .node_observer
@@ -95,11 +118,11 @@ impl RaftFleetControl {
             })?;
         let voter = observer
             .group(history)
-            .map_err(|error| seal_failure(CellGroupControllerError::Runtime(error)))?;
+            .map_err(|error| source_failure(CellGroupControllerError::Runtime(error)))?;
         let applied = match voter
             .seal_managed_source(&transition, turn.remaining()?)
             .await
-            .map_err(seal_failure)?
+            .map_err(source_failure)?
         {
             CellGroupSealOutcome::Accepted(_) => None,
             CellGroupSealOutcome::Applied(seal) => Some(source_cut(&seal)),
@@ -122,7 +145,14 @@ impl RaftFleetControl {
     ) -> Result<RaftFleetTransitionSourceArchive> {
         let turn = Turn::new(&self.domain, timeout)?;
         let (directory, history, transition) = self
-            .authorize_source_action(principal, namespace, operation, request, &turn)
+            .authorize_source_action(
+                principal,
+                namespace,
+                operation,
+                request,
+                &turn,
+                SourceAction::Seal,
+            )
             .await?;
         let services = self
             .transition_preparation
@@ -154,6 +184,86 @@ impl RaftFleetControl {
         })
     }
 
+    /// Submit the parent's tombstone after child archive coverage is selected,
+    /// or reopen the exact acknowledgement without a local voter.
+    pub async fn retire_transition_source(
+        &self,
+        principal: &str,
+        namespace: &str,
+        operation: &str,
+        request: &RaftFleetTransitionSourceSealRequest,
+        timeout: Duration,
+    ) -> Result<RaftFleetTransitionSourceRetirement> {
+        let turn = Turn::new(&self.domain, timeout)?;
+        let (directory, history, transition) = self
+            .authorize_source_action(
+                principal,
+                namespace,
+                operation,
+                request,
+                &turn,
+                SourceAction::Retire,
+            )
+            .await?;
+        let result = |phase, applied: Option<cellar_logic::consensus::LogPosition>| {
+            RaftFleetTransitionSourceRetirement {
+                request: request.clone(),
+                phase,
+                applied: applied.map(|position| RaftFleetTransitionActivationPosition {
+                    index: position.index.get(),
+                    term: position.term.get(),
+                }),
+            }
+        };
+        if let Some((position, journal)) = self
+            .catalog
+            .resume_managed_source_retirement(
+                &transition,
+                directory,
+                &self.archive_pool,
+                history,
+                None,
+                turn.remaining()?,
+            )
+            .await?
+        {
+            return Ok(result(journal.phase(), Some(position)));
+        }
+        let observer = self
+            .node_observer
+            .as_ref()
+            .ok_or_else(|| RaftFleetFailure {
+                code: RaftFleetFailureCode::Unsupported,
+                outcome: RaftFleetOutcome::NotSubmitted,
+                message: "Use a managed endpoint with a voter for the selected parent.".into(),
+            })?;
+        let voter = observer
+            .group(history)
+            .map_err(|error| source_failure(CellGroupControllerError::Runtime(error)))?;
+        match voter
+            .retire_managed_source(&transition, turn.remaining()?)
+            .await
+            .map_err(source_failure)?
+        {
+            CellGroupSourceRetirement::Accepted(_) => Ok(result(TransitionPhase::Active, None)),
+            CellGroupSourceRetirement::Applied(ack) => {
+                let (position, journal) = self
+                    .catalog
+                    .resume_managed_source_retirement(
+                        &transition,
+                        directory,
+                        &self.archive_pool,
+                        history,
+                        Some(*ack),
+                        turn.remaining()?,
+                    )
+                    .await?
+                    .ok_or(FleetCatalogError::Unconfirmed)?;
+                Ok(result(journal.phase(), Some(position)))
+            }
+        }
+    }
+
     async fn authorize_source_action<'a>(
         &'a self,
         principal: &str,
@@ -161,6 +271,7 @@ impl RaftFleetControl {
         operation: &str,
         request: &RaftFleetTransitionSourceSealRequest,
         turn: &Turn<'_>,
+        action: SourceAction,
     ) -> Result<(
         &'a RangeDirectory,
         GroupHistory,
@@ -185,15 +296,24 @@ impl RaftFleetControl {
             .transition_routes(&transition.plan)
             .map_err(FleetCatalogError::from)?;
         if !parents.iter().any(|route| route.history == history)
-            || !transition.journal.as_ref().is_some_and(|journal| {
-                matches!(
-                    journal.phase(),
-                    TransitionPhase::SealAuthorized
-                        | TransitionPhase::Sealed
-                        | TransitionPhase::Installed
-                        | TransitionPhase::Archived
-                )
-            })
+            || !transition
+                .journal
+                .as_ref()
+                .is_some_and(|journal| match action {
+                    SourceAction::Seal => matches!(
+                        journal.phase(),
+                        TransitionPhase::SealAuthorized
+                            | TransitionPhase::Sealed
+                            | TransitionPhase::Installed
+                            | TransitionPhase::Archived
+                    ),
+                    SourceAction::Retire => {
+                        matches!(
+                            journal.phase(),
+                            TransitionPhase::Active | TransitionPhase::Retired
+                        ) && journal.child_archives().is_some()
+                    }
+                })
         {
             return Err(FleetCatalogError::Conflict.into());
         }
@@ -209,7 +329,7 @@ fn source_cut(seal: &crate::raft::cell_groups::GroupSourceSeal) -> RaftFleetTran
     }
 }
 
-fn seal_failure(error: CellGroupControllerError) -> RaftFleetFailure {
+fn source_failure(error: CellGroupControllerError) -> RaftFleetFailure {
     let (code, message) = match error {
         CellGroupControllerError::Runtime(RuntimeError::NotFound) => (
             RaftFleetFailureCode::Blocked,
@@ -225,7 +345,7 @@ fn seal_failure(error: CellGroupControllerError) -> RaftFleetFailure {
         ),
         _ => (
             RaftFleetFailureCode::Unavailable,
-            "The parent seal could not be confirmed. Reconcile the exact request.",
+            "The parent operation could not be confirmed. Reconcile the exact request.",
         ),
     };
     RaftFleetFailure {
