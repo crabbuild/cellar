@@ -42,6 +42,11 @@ impl RangeDirectory {
             ManagedRecoveryPublication::new(input)
                 .check_published(self, &view, &publication)
                 .await?;
+            for birth in input.births {
+                // Fleet Live requires the immutable directory birth even
+                // while the recovery lock refuses ordinary startup.
+                self.open_historical_birth(birth.route()).await?;
+            }
             let (fleet, fleet_revision, fleet_settlement) =
                 proof.directory_binding(self, input, publication.journal_digest())?;
             let lock = view.head.recovery.as_deref().ok_or(CatalogError::Fenced)?;

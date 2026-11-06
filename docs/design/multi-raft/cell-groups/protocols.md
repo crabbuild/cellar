@@ -1524,7 +1524,8 @@ activation after applying a fresh-term barrier. A voter records the exact
 committed position against the selected publication and seed commitment.
 A retry reconciles a lost receipt confirmation against the same position.
 Fleet verifies every selected range's activation receipt before promoting
-any replacement history. One CAS advances up to 15 histories and their
+any replacement history. It materializes the exact directory births for
+each batch before one Fleet CAS advances up to 15 histories and their
 protected cursor. A retry reconstructs the last batch from the rooted
 histories and its commit journal. After the final batch, the directory
 checks the rooted Fleet settlement and every replacement history. One
