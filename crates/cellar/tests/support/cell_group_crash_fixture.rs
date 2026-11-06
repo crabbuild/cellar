@@ -3,9 +3,10 @@
 //! Owned crash children and bounded synthetic catalog snapshots for native tests.
 //! These objects are fixture inputs, never a production recovery protocol.
 use super::*;
+use anyhow::Context as _;
 use futures_util::TryStreamExt;
 use object_store::{path::Path as ObjectPath, ObjectStore};
-use std::{io::Write, path::Path};
+use std::{io::Write, path::Path, time::Duration};
 
 struct Child(std::process::Child);
 
