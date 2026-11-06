@@ -2483,8 +2483,13 @@ impl CellGroupOwner {
             next.marker().transfer_origin() == self.current.marker().transfer_origin();
         let same_recovery = next.marker().recovery == self.current.marker().recovery;
         let same_seal = next.marker().source_seal() == self.current.marker().source_seal();
+        let same_park = next.marker().park_cut() == self.current.marker().park_cut();
         if entry.get_entry_type() == EntryType::EntryConfChangeV2 {
-            if !self.current.marker().is_active() || !same_recovery || !same_seal || !same_transfer
+            if !self.current.marker().is_active()
+                || !same_recovery
+                || !same_seal
+                || !same_transfer
+                || !same_park
             {
                 return Err(invalid());
             }
@@ -2513,6 +2518,7 @@ impl CellGroupOwner {
                 && same_recovery
                 && same_seal
                 && same_transfer
+                && same_park
             {
                 Ok(())
             } else {
@@ -2526,6 +2532,9 @@ impl CellGroupOwner {
         )
         .map_err(|_| invalid())?;
         let retirement = matches!(&decoded.command, GroupCommand::Retire { .. });
+        if !matches!(&decoded.command, GroupCommand::PreparePark { .. }) && !same_park {
+            return Err(invalid());
+        }
         if !matches!(&decoded.command, GroupCommand::Activate { .. })
             && ((!self.current.marker().is_active() && !retirement)
                 || !same_recovery
@@ -2542,6 +2551,20 @@ impl CellGroupOwner {
             proposal: decoded.binding.proposal,
         };
         match decoded.command {
+            GroupCommand::PreparePark {
+                generation,
+                term,
+                membership,
+            } => {
+                let mut expected = self.current.marker().clone();
+                expected.position = entry_position(entry);
+                expected
+                    .prepare_park(generation, term, membership)
+                    .map_err(|_| invalid())?;
+                if next.marker() != &expected {
+                    return Err(invalid());
+                }
+            }
             GroupCommand::Activate {
                 transition,
                 publication,

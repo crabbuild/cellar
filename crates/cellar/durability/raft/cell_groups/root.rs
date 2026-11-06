@@ -22,6 +22,7 @@ pub struct GroupManifest {
     pub(super) recovery: Option<Box<super::recovery::RecoveryState>>,
     seal: Option<Box<GroupSourceSeal>>,
     transfer: Option<Box<GroupTransferOrigin>>,
+    park: Option<Box<super::GroupParkCut>>,
 }
 
 /// Exact sealed-source provenance for a child prepared before activation.
@@ -293,6 +294,49 @@ impl GroupManifest {
         self.check()
     }
 
+    /// The latest applied PreparePark cut. A later entry can make it
+    /// ineligible for a park acknowledgement without deleting its history.
+    pub fn park_cut(&self) -> Option<&super::GroupParkCut> {
+        self.park.as_deref()
+    }
+
+    pub(super) fn prepare_park(
+        &mut self,
+        generation: ParkGeneration,
+        term: Term,
+        membership: MembershipRevision,
+    ) -> Result<(), ManifestError> {
+        if !self.is_active()
+            || self
+                .park_cut()
+                .is_some_and(|cut| cut.generation() >= generation.get())
+        {
+            return Err(ManifestError::Conflict);
+        }
+        let cut = super::GroupParkCut::prepare(
+            generation,
+            term,
+            membership,
+            self.position,
+            self.membership_revision,
+        )?;
+        self.park = Some(Box::new(cut));
+        self.check()
+    }
+
+    pub(crate) fn preserves_park_cut(&self, previous: &Self) -> bool {
+        match (previous.park_cut(), self.park_cut()) {
+            (None, None) => true,
+            (Some(prior), Some(next)) if prior == next => true,
+            (_, Some(next)) => {
+                next.position().index > previous.position.index
+                    && next.position().term >= previous.position.term
+                    && next.membership_revision() >= previous.membership_revision
+            }
+            (Some(_), None) => false,
+        }
+    }
+
     pub fn source_seal(&self) -> Option<&GroupSourceSeal> {
         self.seal.as_deref()
     }
@@ -452,6 +496,31 @@ impl GroupManifest {
                 return Err(ManifestError::Invalid("source seal"));
             }
         }
+        if let Some(park) = self.park_cut() {
+            let at = park.position();
+            if !park.valid_at(self.position, self.membership_revision)
+                || self
+                    .source_seal()
+                    .is_some_and(|seal| seal.position().index <= at.index)
+                || self.transfer.as_ref().is_some_and(|transfer| {
+                    transfer
+                        .activation
+                        .as_ref()
+                        .is_none_or(|a| a.parts().2.index >= at.index)
+                })
+                || self.recovery.as_ref().is_some_and(|recovery| {
+                    recovery
+                        .activation()
+                        .is_none_or(|(_, _, activation)| activation.index >= at.index)
+                })
+                || self
+                    .root
+                    .last_mutation()
+                    .is_some_and(|mutation| mutation.index == at.index)
+            {
+                return Err(ManifestError::Invalid("historical park cut"));
+            }
+        }
         if let Some(root) = self.root.0 {
             if root.cells == 0
                 || root.cells > 1_000_000
@@ -492,6 +561,7 @@ impl GroupManifest {
             recovery: None,
             seal: None,
             transfer: None,
+            park: None,
         };
         marker.check()?;
         Ok(marker)
@@ -739,6 +809,7 @@ impl ManifestTree {
             recovery: None,
             seal: None,
             transfer: None,
+            park: None,
         };
         // Reopening must retain the selected recovery lifecycle, rather than
         // silently turning a pending imported root into an ordinary active one.
@@ -748,7 +819,8 @@ impl ManifestTree {
             if let Some(selected) = selected.map_err(|_| ManifestError::Invalid("closed engine"))? {
                 lifecycle_selected |= selected.recovery.is_some()
                     || selected.seal.is_some()
-                    || selected.transfer.is_some();
+                    || selected.transfer.is_some()
+                    || selected.park.is_some();
                 if selected.route == marker.route
                     && selected.position == marker.position
                     && selected.membership_revision == marker.membership_revision
@@ -935,6 +1007,7 @@ impl ManifestTree {
             recovery: previous.marker.recovery.clone(),
             seal: None,
             transfer: previous.marker.transfer.clone(),
+            park: previous.marker.park.clone(),
         };
         marker.check()?;
         Ok(PreparedGroupManifest {
@@ -973,6 +1046,8 @@ struct WireRoot {
     seal: Option<Box<GroupSourceSeal>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     transfer: Option<Box<GroupTransferOrigin>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    park: Option<Box<super::GroupParkCut>>,
 }
 
 fn required_recovery<'de, D: serde::Deserializer<'de>>(
@@ -1036,6 +1111,7 @@ impl From<GroupManifest> for WireRoot {
             recovery: m.recovery,
             seal: m.seal,
             transfer: m.transfer,
+            park: m.park,
         }
     }
 }
@@ -1072,6 +1148,7 @@ impl TryFrom<WireRoot> for GroupManifest {
             recovery: w.recovery,
             seal: w.seal,
             transfer: w.transfer,
+            park: w.park,
         };
         result.check()?;
         Ok(result)

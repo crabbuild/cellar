@@ -404,6 +404,7 @@ pub(crate) fn group_prefix(
         || !current.preserves_recovery(minimum)
         || !current.preserves_transfer(minimum)
         || !current.preserves_source_seal(minimum)
+        || !current.preserves_park_cut(minimum)
     {
         return Err(CommandFailure::CorruptState);
     }

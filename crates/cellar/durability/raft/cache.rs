@@ -732,6 +732,9 @@ impl CachedGroup {
                     if !marker.preserves_source_seal(previous) {
                         return Err(LogError::Invalid("snapshot source seal changed".into()));
                     }
+                    if !marker.preserves_park_cut(previous) {
+                        return Err(LogError::Invalid("snapshot park cut changed".into()));
+                    }
                     prepared.membership().succeeds(&self.membership)?;
                     next.entries.clear();
                     next.applied = DurableApply {
@@ -893,6 +896,9 @@ impl CachedGroup {
                 }
                 if !marker.preserves_source_seal(previous) {
                     return Err(LogError::Invalid("applied source seal changed".into()));
+                }
+                if !marker.preserves_park_cut(previous) {
+                    return Err(LogError::Invalid("applied park cut changed".into()));
                 }
                 if marker.route() != previous.route() {
                     return Err(LogError::Invalid(

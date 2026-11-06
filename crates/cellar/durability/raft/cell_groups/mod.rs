@@ -79,6 +79,8 @@ pub use enrollment_authority::{CellEnrollmentAuthority, CellEnrollmentState};
 
 mod enrollment;
 mod enrollment_apply;
+mod hibernate;
+pub use hibernate::GroupParkCut;
 mod image_pin;
 mod manifest;
 pub(crate) mod membership;

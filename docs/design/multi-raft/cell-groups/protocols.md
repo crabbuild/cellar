@@ -1395,7 +1395,9 @@ be abandoned merely to park.
    change, snapshot install or unsafe effect dispatch exists. Freeze new admission
    while negotiating. Publish a bounded next-due-effect summary to a node wake owner.
 2. Commit `PreparePark(generation, term, membership_revision)` and apply through it.
-   Every voter syncs a local acknowledgement for that exact generation and cut.
+   The committed entry index is the generation. The applied marker preserves the
+   cut across snapshots and archive replay. Every voter syncs a local acknowledgement
+   for the exact generation and cut before a park certificate can be selected.
 3. The leader assembles all acknowledgements, syncs its park certificate and sends
    authenticated park messages. Each recipient persists its parked generation
    before suppressing routine group ticks. Partial delivery is safe: an active

@@ -91,6 +91,18 @@ impl Storage {
                 .map_err(storage)?;
             return Ok(next);
         }
+        if let GroupCommand::PreparePark {
+            generation,
+            term,
+            membership,
+        } = decoded.command
+        {
+            let mut next = unchanged;
+            next.marker
+                .prepare_park(generation, term, membership)
+                .map_err(storage)?;
+            return Ok(next);
+        }
         if !base.marker().is_active() {
             return Err(ExecutionError::Invalid("group is not active"));
         }
