@@ -326,7 +326,7 @@ pub(super) async fn discover_retained_placements(
             let timeout = std::time::Duration::from_secs(5);
             let snapshot = fleet.read(timeout).await?;
             let birth = fleet.history(&snapshot, &history, timeout).await?;
-            if (!marker.is_active()
+            if (marker.recovery_activation().is_none()
                 || birth.state() == &crate::raft::fleet_catalog::FleetHistoryState::Reserved)
                 && Box::pin(directory.park_retained_managed_recovery(
                     &retained,

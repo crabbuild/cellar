@@ -34,6 +34,33 @@ impl RangeDirectory {
             let local = group.identity();
             let route = marker.route();
             let plan = marker.recovery_request().ok_or(CatalogError::Fenced)?;
+            let activated = marker.recovery_activation().is_some();
+            let (view, _) = self.current().await?;
+            let phase = view
+                .head
+                .recovery
+                .as_deref()
+                .map(|lock| (&lock.phase, lock));
+            let publication = match phase {
+                Some((RecoveryPhase::ManagedSource { .. }, lock))
+                    if !activated && !lock.blocks_startup(self, route)? =>
+                {
+                    None
+                }
+                Some((
+                    RecoveryPhase::ManagedPublished {
+                        replacement,
+                        publication,
+                        ..
+                    },
+                    lock,
+                )) if *replacement == plan && lock.blocks_startup(self, route)? => {
+                    self.selected_route_in(&view, route).await?;
+                    Some(*publication)
+                }
+                _ if activated => return Ok(false),
+                _ => return Err(CatalogError::Fenced),
+            };
             if history.state() != &FleetHistoryState::Reserved
                 || !history.allows_managed_genesis()
                 || history.birth_digest() != route.birth_digest
@@ -41,26 +68,6 @@ impl RangeDirectory {
             {
                 return Err(CatalogError::Fenced);
             }
-            let (view, _) = self.current().await?;
-            let publication = match view.head.recovery.as_deref() {
-                Some(lock) => match &lock.phase {
-                    RecoveryPhase::ManagedSource { .. } if !lock.blocks_startup(self, route)? => {
-                        None
-                    }
-                    RecoveryPhase::ManagedPublished {
-                        replacement,
-                        publication,
-                        ..
-                    } if *replacement == plan && lock.blocks_startup(self, route)? => {
-                        self.selected_route_in(&view, route).await?;
-                        Some(*publication)
-                    }
-                    _ if marker.is_active() => return Ok(false),
-                    _ => return Err(CatalogError::Fenced),
-                },
-                None if marker.is_active() => return Ok(false),
-                None => return Err(CatalogError::Fenced),
-            };
             let (birth, origin) = self.birth_reservation(route).await?;
             if origin != Some(plan)
                 || !birth
@@ -198,6 +205,7 @@ fn check_managed_recovery_member(
             .as_deref()
             != Some(genesis)
         || marker.route() != genesis.route()
+        || marker.source_seal().is_some()
         || marker.recovery_request() != genesis.recovery_request()
         || marker
             .recovery_activation()
