@@ -14,9 +14,6 @@ mod configuration;
 mod counter;
 #[path = "support/raft_daemon_docker.rs"]
 mod docker;
-#[path = "support/html.rs"]
-#[allow(dead_code)]
-mod graph;
 #[path = "support/raft_daemon_managed.rs"]
 mod managed;
 #[path = "support/cell_group_disaster_public_node.rs"]
@@ -28,6 +25,7 @@ mod recovery;
 mod retained_disk;
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{consensus::*, *};
+use public_node::graph;
 use serde_json::Value;
 use std::{
     fs::File,

@@ -480,7 +480,7 @@ pub(super) async fn run_worker(
     directory: RangeDirectory,
     mut stop: tokio::sync::watch::Receiver<bool>,
 ) -> Result<()> {
-    let request = tokio::select! {
+    let request = cellar::asyncrt::select! {
         _ = stop.changed() => return Ok(()),
         request = async {
             loop {
@@ -604,7 +604,7 @@ async fn recover_on_voter(
         )
         .await?;
 
-    let outcome = tokio::select! {
+    let outcome = cellar::asyncrt::select! {
         _ = stop.changed() => Ok(None),
         result = async {
             wait_for_recovery(&worker, |status| status.failure_detection.as_ref().is_some_and(|view|
