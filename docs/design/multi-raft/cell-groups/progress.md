@@ -109,6 +109,19 @@ The same runtime passed all 16 `native_raft_directory` cases in 33.80 seconds
 (command log SHA-256 `93a8643767ee4139061dfe41704b046e96bbbe1b5a857a0a1c5ffe2d755f5f60`).
 This covers local image collection and retained restart.
 
+## CG-07 shared-group Fleet permit CI port
+
+On `c0e6c74f`, all eight `native_raft_fleet_permits` cases passed in 119.18
+seconds. They use the public managed node and resource movement APIs with real
+TLS peers, retained engines and an in-memory object store. The cases preserve
+the exact permit after a lost reply and a controller reopen, fence delayed Begin
+requests, and refuse joint consensus progress and linearizable reads when the
+old majority is absent. A returning leader can apply its own removal before
+replying, so the fixture obtains the exact terminal proof from the next leader.
+It verifies peer and S3 learner installs, callback suppression, and retained
+capacity debt when a restarted voter cannot attest its former boot. The command
+log SHA-256 is `ddfecfc85d3125365d7c80a96246b00af94ff5d1c1065c725060b71b6aa1fc55`.
+
 ## CG-07 constrained Linux failed-voter repair attempt
 
 The separate repair candidate at `c97a5be76b3a05747a52d80d8442260438c900fd`
@@ -132,6 +145,15 @@ the qualified limit before injecting the voter failure. It still needs the
 real RustFS replacement and receipt checks in both image modes.
 The instrumented run record SHA-256 is
 `e2e20d29a7b961e24d91e9e70fd7ff261875b9570aba3c72c5a3e0b64e008b2f`.
+
+With that budget, `d95157a5` admitted one movement at Fleet revision 60.
+The materialized campaign recorded 108 execution attempts with no settled
+movement or verified replacement, and stopped after 154.992 seconds. The
+extent-backed campaign did not start. The controller is a Registered boot,
+while the movement receiver requires an exact origin whose rooted state
+permits execution. Move the test worker to an authorized boot and preserve
+the receiving guard. The corrected-budget run record SHA-256 is
+`daae13a6d902a335dd29b7ac8857ed57eed297e2b1c9e46a3c56ab5973c6ec0d`.
 
 ## CG-09 rooted decisions and retained source sealing
 

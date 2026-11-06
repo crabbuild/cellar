@@ -91,18 +91,19 @@ archive proof. The release should define which SQL capabilities are available
 through the shared backend and preserve typed refusals for the rest.
 
 1. **Close CG-07 failed-voter repair and managed lifecycle.** The constrained
-   Linux RustFS trace showed that the standby's advertised disk budget omitted
-   seed, overhead and reserve charges. Qualify the corrected receiving profile
-   through standby seeding, promotion, a fresh quorum, receipt replay and
-   capacity settlement. Exercise drain, maintenance stop/return/resume and
-   retained nonvoting inventory through the public operators.
+   Linux RustFS repair admits movement with the corrected standby disk budget.
+   Run the worker on an exact boot authorized to send movement actions, then
+   prove standby seeding, promotion, a fresh quorum, receipt replay and capacity
+   settlement. Exercise drain, maintenance stop/return/resume and retained
+   nonvoting inventory through the public operators.
 2. **Pass the combined CG-07 RF3 SQL gate.** Use one source revision for
    onboarding, enrollment, ingress-only SDK routing, native and Axum reads and
    writes, leader loss, exact retries, retained restart and quorum refusal.
    Verify continued quorum writes during archive-payload outage with catalog
    access available, plus explicit S3 refusal and recovery. The directory
-   suite passed all 16 cases after its shared-group port. Port the reads suite
-   and other remaining native consumers and close the public CI gates before
+   suite passed all 16 cases and the Fleet permit suite passed all eight after
+   their shared-group ports. Port the reads suite and other remaining native
+   consumers and close the public CI gates before
    defaulting supported SQL in fresh namespaces to shared groups.
 3. **Finish CG-09/10 operator split and merge.** Connect admission, archive
    preparation, source sealing and destination publication. Prove restart
