@@ -6,6 +6,7 @@ use super::*;
 use crate::raft::{
     catalog::{CatalogError, InitialMember},
     cell_groups::{CellGroupBirthSpec, TransitionPhase},
+    fleet_catalog::TransitionOperatorStep,
 };
 use cellar_logic::{
     cell_group::{CellId, GroupHistory, GroupRoute, RouteEpoch},
@@ -144,17 +145,7 @@ impl RaftFleetTransitionAdmissionRequest {
                 ));
             }
         }
-        self.plan_revision()?;
         Ok(())
-    }
-
-    fn plan_revision(&self) -> Result<u64> {
-        let revision = self
-            .expected_fleet_revision
-            .checked_add(self.children.len() as u64)
-            .ok_or_else(|| RaftFleetFailure::invalid("transition revision range"))?;
-        records::revision(revision)?;
-        Ok(revision)
     }
 
     fn child_proposals(
@@ -275,8 +266,8 @@ impl RaftFleetControl {
         })
     }
 
-    /// Stage the exact plan, reserve each child at its prescribed Fleet cut,
-    /// then admit the replacement with the existing disruption fence.
+    /// Stage the exact plan, reconcile prior child reservations, then admit
+    /// the replacement with the existing disruption fence.
     pub async fn admit_transition(
         &self,
         principal: &str,
@@ -290,15 +281,15 @@ impl RaftFleetControl {
         let directory = self.managed_namespace(namespace)?;
         let operation = ProposalId::new(records::id(operation)?)
             .map_err(|_| RaftFleetFailure::invalid("transition operation ID"))?;
-        let identity = FleetRequestIdentity {
-            id: records::id(&request.request_id)?,
-            operation: operation.bytes(),
-            principal: principal.into(),
-            expected_revision: request.plan_revision()?,
-        };
         let bytes = serde_json::to_vec(&(principal, request))
             .map_err(|_| RaftFleetFailure::invalid("transition admission payload"))?;
         let digest: [u8; 32] = Sha256::digest(bytes).into();
+        let step = TransitionOperatorStep {
+            operation,
+            principal: principal.into(),
+            request_digest: digest,
+            step: records::id(&request.request_id)?,
+        };
         let turn = Turn::new(&self.domain, timeout)?;
         let mut snapshot = self.catalog.read(turn.remaining()?).await?;
         let (plan, proposals) = if let Some(plan) = self
@@ -370,7 +361,7 @@ impl RaftFleetControl {
                 .stage_transition_operator_plan(
                     &snapshot,
                     directory,
-                    &identity,
+                    &step.identity(snapshot.revision()),
                     digest,
                     &plan,
                     turn.remaining()?,
@@ -379,12 +370,18 @@ impl RaftFleetControl {
             (plan, proposals)
         };
 
-        if self
+        let identity = if let Some(admitted) = self
             .catalog
             .reopen_managed_transition(directory, operation, turn.remaining()?)
             .await?
-            .is_none()
         {
+            if admitted.request != step.identity(admitted.request.expected_revision)
+                || admitted.plan.digest() != plan.digest()
+            {
+                return Err(FleetCatalogError::PayloadConflict.into());
+            }
+            admitted.request
+        } else {
             let (_, children) = directory
                 .transition_routes(&plan)
                 .map_err(directory_failure)?;
@@ -397,19 +394,27 @@ impl RaftFleetControl {
                 .map_err(|_| FleetCatalogError::Closed)?
                 .map_err(|_| FleetCatalogError::Unconfirmed)?
                 .map_err(directory_failure)?;
-            for (index, ((child, proposal), route)) in request
-                .children
-                .iter()
-                .zip(proposals)
-                .zip(children)
-                .enumerate()
-            {
-                let identity = FleetRequestIdentity {
-                    id: records::id(&child.request_id)?,
-                    operation: operation.bytes(),
+            for ((child, proposal), route) in request.children.iter().zip(proposals).zip(children) {
+                let child_step = TransitionOperatorStep {
+                    operation,
                     principal: principal.into(),
-                    expected_revision: request.expected_fleet_revision + index as u64,
+                    request_digest: digest,
+                    step: records::id(&child.request_id)?,
                 };
+                if self
+                    .catalog
+                    .reopen_transition_operator_child(
+                        &snapshot,
+                        directory,
+                        &route,
+                        &child_step,
+                        turn.remaining()?,
+                    )
+                    .await?
+                {
+                    continue;
+                }
+                let identity = child_step.identity(snapshot.revision());
                 let reserved = self
                     .catalog
                     .reserve_birth(
@@ -428,7 +433,8 @@ impl RaftFleetControl {
                 }
                 snapshot = reserved.commit.snapshot;
             }
-        }
+            step.identity(snapshot.revision())
+        };
         let journal = self
             .catalog
             .plan_managed_transition(&identity, directory, &plan, turn.remaining()?)

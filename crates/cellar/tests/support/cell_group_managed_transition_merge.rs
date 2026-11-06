@@ -7,13 +7,14 @@ use cellar::application::consensus::verification::{
         CellGroupArchiveHold, CellGroupArchiveTailLimits, CellGroupArchiveTailPool, CellGroupBirth,
         CellGroupCheckpointPool, CellGroupTransitionSource, GroupRoute,
     },
-    FleetHistoryState, FleetSnapshot,
+    FleetChange, FleetHistoryState, FleetMutation, FleetSnapshot, FleetTable,
 };
 use cellar::sdk::fleet_operations::{
     RaftFleetControl, RaftFleetFailureCode, RaftFleetFirstGroupVoter, RaftFleetOutcome,
     RaftFleetTransitionAdmissionRequest, RaftFleetTransitionChild, RaftFleetTransitionGroup,
-    RaftFleetTransitionPartition, RaftFleetTransitionPublishRequest, RaftFleetTransitionResume,
-    RaftFleetTransitionResumeStep,
+    RaftFleetTransitionPartition, RaftFleetTransitionPrepareRequest,
+    RaftFleetTransitionPublishRequest, RaftFleetTransitionResume, RaftFleetTransitionResumeStep,
+    RaftFleetTransitionSealRequest,
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -85,13 +86,64 @@ async fn check_operator_split_admission(cluster: &ManagedCluster) -> Result<()> 
         .await;
     ensure!(matches!(invalid, Err(failure) if failure.code == RaftFleetFailureCode::InvalidInput));
     ensure!(fixture.catalog.read(TIMEOUT).await?.revision() == basis.fleet_revision);
+    fixture
+        .store
+        .fail_fleet_confirmation
+        .store(true, Ordering::Release);
+    let lost = control
+        .admit_transition(
+            &principal,
+            &namespace,
+            &admission.operation_id,
+            &admission,
+            TIMEOUT,
+        )
+        .await;
+    ensure!(matches!(lost, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
+    let reserved = fixture.catalog.read(TIMEOUT).await?;
+    ensure!(reserved.revision() == basis.fleet_revision + 1);
+    ensure!(
+        *fixture
+            .catalog
+            .history(&reserved, &histories[0], TIMEOUT)
+            .await?
+            .state()
+            == FleetHistoryState::Reserved
+    );
+    ensure!(matches!(
+        fixture
+            .catalog
+            .history(&reserved, &histories[1], TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Conflict)
+    ));
+    let receipt = request(236, reserved.revision());
+    fixture
+        .catalog
+        .commit(
+            &reserved,
+            &FleetMutation {
+                id: receipt.id,
+                operation: receipt.operation,
+                principal: receipt.principal,
+                expected_revision: receipt.expected_revision,
+                changes: vec![FleetChange {
+                    table: FleetTable::Admissions,
+                    key: "qualification-advance-between-children".into(),
+                    value: None,
+                }],
+            },
+            TIMEOUT,
+        )
+        .await?;
+    // The CLI opens a fresh control against the changed Fleet revision.
     let admitted = crate::managed_fixture::operator::admit_transition(
         fixture, directory, &principal, &admission,
     )
     .await?;
     let cut = fixture.catalog.read(TIMEOUT).await?;
     ensure!(
-        admitted.phase == TransitionPhase::Planned && cut.revision() == basis.fleet_revision + 3
+        admitted.phase == TransitionPhase::Planned && cut.revision() == basis.fleet_revision + 4
     );
     for (history, range) in histories.iter().zip([left, right]) {
         ensure!(
@@ -325,26 +377,46 @@ async fn run_inner(
             .await?;
         registries.push(registry);
     }
-    let staged =
-        preparation::allocate_preparation_holds(&fleet, directory, operation, &archives.pool)
-            .await?;
-    ensure!(staged.phase() == TransitionPhase::Planned && staged.preparation().is_none());
     let (preparer, reopened_directory) = reopen_merge_controller(fixture).await?;
+    let workspace = tempfile::tempdir()?;
+    let tail_limits = CellGroupArchiveTailLimits {
+        max_operations: 2,
+        max_retained_bytes: 2 * CellGroupArchiveTailLimits::default().max_retained_bytes,
+        ..Default::default()
+    };
+    let verifier = crate::managed_fixture::verifier::open(
+        fixture,
+        &workspace.path().join("operator"),
+        rooted,
+        tail_limits,
+    )
+    .await?;
+    let prepare_request = RaftFleetTransitionPrepareRequest {
+        catalog_id: hex::encode(fleet.catalog_id()?),
+        namespace_id: hex::encode(cluster.history.namespace.bytes()),
+        operation_id: hex::encode(operation.bytes()),
+        request_id: hex::encode([240; 16]),
+        plan_digest: hex::encode(plan.digest()),
+    };
+    let preparation = crate::managed_fixture::operator::prepare_transition(
+        fixture,
+        &reopened_directory,
+        &request.principal,
+        &prepare_request,
+        Some((verifier, preparation::recovery_pool()?)),
+    )
+    .await?;
+    ensure!(preparation.phase == TransitionPhase::Prepared);
     let holds = preparer
         .staged_managed_preparation_holds(&reopened_directory, operation, TIMEOUT)
         .await?
         .context("selected merge preparation holds")?;
     ensure!(holds.iter().map(|hold| hold.marker().route()).eq(&parents));
-    let workspace = tempfile::tempdir()?;
     let verifier = crate::managed_fixture::verifier::open(
         fixture,
-        workspace.path(),
+        &workspace.path().join("replay"),
         rooted,
-        CellGroupArchiveTailLimits {
-            max_operations: 2,
-            max_retained_bytes: 2 * CellGroupArchiveTailLimits::default().max_retained_bytes,
-            ..Default::default()
-        },
+        tail_limits,
     )
     .await?;
     let prepared = preparer
@@ -359,12 +431,28 @@ async fn run_inner(
         .context("reopen both merge preparation archives")?;
     ensure!(prepared.journal().phase() == TransitionPhase::Prepared);
     ensure!(prepared.children().len() == 1 && prepared.children()[0].root().cells() == 2);
+    ensure!(
+        prepared.journal().preparation().map(hex::encode).as_deref()
+            == Some(preparation.preparation_digest.as_str())
+    );
     drop(prepared);
     drop(verifier);
     drop(workspace);
-    fleet
-        .authorize_managed_transition_seal(&request, directory, &plan, TIMEOUT)
-        .await?;
+    let authorization = crate::managed_fixture::operator::authorize_transition_seal(
+        fixture,
+        &reopened_directory,
+        &request.principal,
+        &RaftFleetTransitionSealRequest {
+            catalog_id: prepare_request.catalog_id,
+            namespace_id: prepare_request.namespace_id,
+            operation_id: prepare_request.operation_id,
+            request_id: hex::encode([239; 16]),
+            plan_digest: prepare_request.plan_digest,
+            preparation_digest: preparation.preparation_digest,
+        },
+    )
+    .await?;
+    ensure!(authorization.phase == TransitionPhase::SealAuthorized);
     let transition = Arc::new(
         fleet
             .reopen_managed_transition(directory, operation, TIMEOUT)

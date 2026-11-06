@@ -1063,7 +1063,12 @@ incarnations, creation IDs and ordered voters. A split names a pivot cell and
 two children in key order. A merge names two adjacent parents in key order and
 one child. The controller stages the exact request digest and plan before the
 first reservation. Retain the original request file to reconcile each child
-and the final admission after a lost response.
+and the final admission after a lost response. A replacement controller checks
+an existing child's exact route and committed reservation receipt. For a
+missing child, the attempt is bound to the current Fleet revision and original
+step. An intervening Fleet update fences an older uncommitted attempt. Admission
+still requires the original directory basis and rechecks live capacity,
+namespace authority and the disruption slot before committing.
 
 Managed planning stages the canonical directory request before the fleet selects
 its digest. A replacement controller can reopen the exact admitted plan by

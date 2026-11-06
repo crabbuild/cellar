@@ -336,10 +336,8 @@ impl FleetCatalog {
                         .map_err(catalog_error)?;
                     let mutation = record.mutation()?;
                     mutation.validate()?;
-                    let bytes = encode(KIND, record, RECORD_LIMIT)?;
-                    self.inner
-                        .create_exact(&record.key(), &bytes, RECORD_LIMIT)
-                        .await?;
+                    // The request journal persists this exact root-bound
+                    // attempt. An uncommitted candidate owns no operation key.
                     self.commit_with_disruption(
                         snapshot,
                         &mutation,
