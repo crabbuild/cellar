@@ -1,13 +1,13 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Real engine fences and conditional object-store registration. These adapter
-//! cases do not qualify controller RPCs or automatic membership repair.
+//! tests exercise physical group directory refresh and inspection.
 #![allow(clippy::disallowed_methods)]
 #[path = "support/raft_storage_fault.rs"]
 mod fault;
 #[path = "support/raft_directory_native.rs"]
 mod native;
-#[path = "support/raft_node.rs"]
+#[path = "support/cell_group_disaster_public_node.rs"]
 #[allow(dead_code)]
 mod public_node;
 #[path = "support/raft_catalog_fault.rs"]
