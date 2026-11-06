@@ -195,6 +195,25 @@ write reply, a lost confirmation read and a reopened namespace. The reopened
 catalog refuses to drop the unexpired verifier. The command log SHA-256 is
 `58dd3bb6b0ba959bc24b4ed210cc66ab07d53bc45d64d695bf1ea0fdc2a13deb`.
 
+## CG-07 forwarded ReadIndex over a lost reply
+
+At `310b0f4a`, all seven ported `native_cell_groups_reads` cases passed in
+20.28 seconds on three embedded voters with separate disks and real TLS TCP
+links. The directional cut holds both a local follower SQL read and a
+membership observation pending. Both finish after healing in the original
+term, with the same leader and invocation deadlines. The cases also verify
+minority refusals, the physical barrier after a new election, explicit
+historical reads, local minimum-version reads, catch-up while a remote read
+waits, SQLite authorization and an unpolled query's physical deadline.
+
+The initial port reproduced a lost ReadIndex response that expired after
+healing. The first retry-enabled suite at `9d7ffefc` passed that case and
+hit a five-second setup write deadline in the follower minimum-version case.
+The passing run verifies committed enrollment on all three voters before the
+baseline write. The passing and failed suite log SHA-256 digests are
+`f7c981efd4770c7721ab725f935ed6d71e04583476404d9bce2b4ef25b07c1dd`
+and `24a70fce419804efeb251b5558698c274fc4635814d8436cfd39f197f2e8bf1f`.
+
 ## CG-09 rooted decisions and retained source sealing
 
 The unmanaged source seal consumes a permit bound to the selected directory
