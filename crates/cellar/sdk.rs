@@ -216,6 +216,7 @@ pub mod fleet_operations {
         RaftFleetTransitionActivationRequest, RaftFleetTransitionPublication,
         RaftFleetTransitionPublishRequest, RaftFleetTransitionResume,
         RaftFleetTransitionResumeAcceptance, RaftFleetTransitionResumeStep,
+        RaftFleetTransitionSealAuthorization, RaftFleetTransitionSealRequest,
         RaftFleetTransitionStatus, RaftFleetVerificationBlocker, RaftFleetVerificationReason,
         RaftFleetVerificationStage,
     };

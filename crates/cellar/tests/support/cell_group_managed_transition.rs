@@ -7,6 +7,10 @@ use cellar::application::consensus::verification::{
     FleetChange, FleetMutation, FleetTable,
 };
 
+use cellar::sdk::fleet_operations::{
+    RaftFleetControl, RaftFleetFailureCode, RaftFleetTransitionSealRequest,
+};
+
 #[path = "cell_group_managed_transition_preparation.rs"]
 mod preparation;
 
@@ -293,6 +297,26 @@ async fn exercise(
         Err(FleetCatalogError::Conflict)
     ));
 
+    let control = RaftFleetControl::new(domain, reopened.clone(), vec![directory.clone()])?;
+    let mut seal_request = RaftFleetTransitionSealRequest {
+        catalog_id: hex::encode(reopened.catalog_id()?),
+        namespace_id: hex::encode(scope.namespace.bytes()),
+        operation_id: hex::encode(operation.bytes()),
+        request_id: hex::encode([237; 16]),
+        plan_digest: hex::encode(plan.digest()),
+        preparation_digest: hex::encode([88; 32]),
+    };
+    let unprepared = control
+        .authorize_transition_seal(
+            &original.principal,
+            &seal_request.namespace_id,
+            &seal_request.operation_id,
+            &seal_request,
+            TIMEOUT,
+        )
+        .await;
+    ensure!(matches!(unprepared, Err(error) if error.code == RaftFleetFailureCode::Conflict));
+
     let (registry, held, seeded) = Box::pin(preparation::exercise(
         cluster, &reopened, directory, &recovered, &parent, &children, rooted,
     ))
@@ -323,11 +347,62 @@ async fn exercise(
                 .await,
             Err(FleetCatalogError::PayloadConflict)
         ));
+        let prepared = control
+            .transition_status(
+                &seal_request.namespace_id,
+                &seal_request.operation_id,
+                TIMEOUT,
+            )
+            .await?;
+        ensure!(prepared.phase == Some(TransitionPhase::Prepared));
+        let mismatch = control
+            .authorize_transition_seal(
+                &original.principal,
+                &seal_request.namespace_id,
+                &seal_request.operation_id,
+                &seal_request,
+                TIMEOUT,
+            )
+            .await;
+        ensure!(matches!(mismatch, Err(error) if error.code == RaftFleetFailureCode::Conflict));
+        seal_request.preparation_digest =
+            prepared.preparation_digest.context("prepared archive")?;
+        let foreign = control
+            .authorize_transition_seal(
+                "different-operator",
+                &seal_request.namespace_id,
+                &seal_request.operation_id,
+                &seal_request,
+                TIMEOUT,
+            )
+            .await;
+        ensure!(matches!(foreign, Err(error) if error.code == RaftFleetFailureCode::Forbidden));
+        let reply = crate::managed_fixture::operator::authorize_transition_seal(
+            fixture,
+            directory,
+            &original.principal,
+            &seal_request,
+        )
+        .await?;
+        ensure!(reply.request == seal_request && reply.phase == TransitionPhase::SealAuthorized);
+        let replay = control
+            .authorize_transition_seal(
+                &original.principal,
+                &seal_request.namespace_id,
+                &seal_request.operation_id,
+                &seal_request,
+                TIMEOUT,
+            )
+            .await?;
+        ensure!(replay == reply);
         let authorized = reopened
             .authorize_managed_transition_seal(original, directory, plan, TIMEOUT)
             .await?;
         ensure!(authorized.phase() == TransitionPhase::SealAuthorized);
-        ensure!(authorized.preparation().is_some());
+        ensure!(
+            authorized.preparation().map(hex::encode).as_deref()
+                == Some(seal_request.preparation_digest.as_str())
+        );
         ensure!(
             fleet
                 .authorize_managed_transition_seal(original, directory, plan, TIMEOUT)

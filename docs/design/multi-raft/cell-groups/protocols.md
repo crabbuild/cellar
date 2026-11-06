@@ -1158,6 +1158,14 @@ for every child. Ordinary initial bootstrap refuses those children even when a
 separate install receipt is unavailable. Managed publication rechecks the
 active fleet plan and the exact storage of the reserved child voters.
 
+Use `cellar raft fleet transition authorize-seal NAMESPACE_HEX --plan REQUEST.json --catalog-id DIGEST`
+after the transition reaches Prepared. The request binds the admitted plan and
+the preparation digest reported by transition status. The admitted principal
+needs the Fleet topology grant. Authorization and cancellation compete on the
+same directory head. An exact retry observes the selected seal decision after
+a lost reply. Each source still commits its own seal under its live voter
+authority.
+
 Use `cellar raft fleet transition publish NAMESPACE_HEX --plan REQUEST.json --catalog-id DIGEST`
 after the transition reaches Archived. The request binds the admitted plan
 and the exact transfer archive digest reported by transition status. The

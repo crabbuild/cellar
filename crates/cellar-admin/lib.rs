@@ -135,6 +135,10 @@ pub fn router(console: Console) -> Result<Router> {
             post(raft::resume_transition).layer(DefaultBodyLimit::max(16 * 1024)),
         )
         .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/transitions/{operation}/authorize-seal",
+            post(raft::authorize_transition_seal).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
             "/fleets/{fleet}/raft/namespaces/{namespace}/transitions/{operation}/publish",
             post(raft::publish_transition).layer(DefaultBodyLimit::max(16 * 1024)),
         )

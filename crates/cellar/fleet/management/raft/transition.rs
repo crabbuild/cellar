@@ -25,6 +25,8 @@ pub struct RaftFleetTransitionStatus {
     pub plan_digest: String,
     /// Absent until the accepted Fleet intent has a directory journal.
     pub phase: Option<TransitionPhase>,
+    /// Exact active-source preparation selected by the journal.
+    pub preparation_digest: Option<String>,
     /// Exact independently verified transfer archive selected by the journal.
     pub transfer_archive_digest: Option<String>,
     pub child_archives_verified: bool,
@@ -58,6 +60,9 @@ impl RaftFleetControl {
             observed_fleet_revision: observation.fleet_revision,
             plan_digest: hex::encode(observation.transition.plan.digest()),
             phase: journal.map(|journal| journal.phase()),
+            preparation_digest: journal
+                .and_then(|journal| journal.preparation())
+                .map(hex::encode),
             transfer_archive_digest: journal
                 .and_then(|journal| journal.transfer_archive())
                 .map(hex::encode),
@@ -180,6 +185,103 @@ impl RaftFleetControl {
             request: request.clone(),
             applied_revision: commit.applied_revision,
             observed_fleet_revision: commit.snapshot.revision(),
+        })
+    }
+}
+
+/// Select the irreversible seal decision for the exact prepared transition.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RaftFleetTransitionSealRequest {
+    pub catalog_id: String,
+    pub namespace_id: String,
+    pub operation_id: String,
+    pub request_id: String,
+    pub plan_digest: String,
+    pub preparation_digest: String,
+}
+
+impl RaftFleetTransitionSealRequest {
+    pub fn validate(&self, namespace: &str, operation: &str) -> Result<()> {
+        for digest in [
+            &self.catalog_id,
+            &self.plan_digest,
+            &self.preparation_digest,
+        ] {
+            records::catalog_id(digest)?;
+        }
+        for id in [namespace, operation, &self.request_id] {
+            records::id(id)?;
+        }
+        if self.namespace_id != namespace || self.operation_id != operation {
+            return Err(RaftFleetFailure::invalid("transition selector mismatch"));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RaftFleetTransitionSealAuthorization {
+    pub request: RaftFleetTransitionSealRequest,
+    /// The observed phase can advance after the seal decision.
+    pub phase: TransitionPhase,
+}
+
+impl RaftFleetControl {
+    /// Authorize source sealing for the exact durable pre-copy. A retry can
+    /// observe the same authorization after the transition has advanced.
+    pub async fn authorize_transition_seal(
+        &self,
+        principal: &str,
+        namespace: &str,
+        operation: &str,
+        request: &RaftFleetTransitionSealRequest,
+        timeout: Duration,
+    ) -> Result<RaftFleetTransitionSealAuthorization> {
+        request.validate(namespace, operation)?;
+        self.check_catalog(&request.catalog_id)?;
+        let directory = self.managed_namespace(namespace)?;
+        let operation = ProposalId::new(records::id(operation)?)
+            .map_err(|_| RaftFleetFailure::invalid("operation ID"))?;
+        let turn = Turn::new(&self.domain, timeout)?;
+        let transition = self
+            .authorize_transition_operator(
+                directory,
+                operation,
+                principal,
+                &request.plan_digest,
+                turn.remaining()?,
+            )
+            .await?;
+        let journal = transition
+            .journal
+            .as_ref()
+            .ok_or(FleetCatalogError::Conflict)?;
+        if journal.preparation().map(hex::encode).as_deref()
+            != Some(request.preparation_digest.as_str())
+        {
+            return Err(FleetCatalogError::Conflict.into());
+        }
+        let phase = match journal.phase() {
+            TransitionPhase::Prepared => self
+                .catalog
+                .authorize_managed_transition_seal(
+                    &transition.request,
+                    directory,
+                    &transition.plan,
+                    turn.remaining()?,
+                )
+                .await?
+                .phase(),
+            TransitionPhase::Planned | TransitionPhase::Cancelled => {
+                return Err(FleetCatalogError::Conflict.into());
+            }
+            phase => phase,
+        };
+        Ok(RaftFleetTransitionSealAuthorization {
+            request: request.clone(),
+            phase,
         })
     }
 }

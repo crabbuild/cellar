@@ -253,6 +253,27 @@ async fn execute(options: &options::Options) -> Result<Value> {
             }
             serde_json::to_value(view).map_err(|_| unavailable())
         }
+        Action::TransitionSeal(request) => {
+            use crate::raft::cell_groups::TransitionPhase;
+            let path = format!(
+                "namespaces/{}/transitions/{}/authorize-seal",
+                request.namespace_id, request.operation_id,
+            );
+            let authorized = client
+                .post::<RaftFleetTransitionSealAuthorization>(&path, request.as_ref())
+                .await?;
+            if authorized.request != **request
+                || matches!(
+                    authorized.phase,
+                    TransitionPhase::Planned
+                        | TransitionPhase::Prepared
+                        | TransitionPhase::Cancelled
+                )
+            {
+                return Err(unavailable());
+            }
+            serde_json::to_value(authorized).map_err(|_| unavailable())
+        }
         Action::TransitionPublish(request) => {
             let path = format!(
                 "namespaces/{}/transitions/{}/publish",

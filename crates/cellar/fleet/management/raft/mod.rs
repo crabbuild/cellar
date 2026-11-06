@@ -48,7 +48,9 @@ pub use transition::{
     RaftFleetTransitionActivation, RaftFleetTransitionActivationPosition,
     RaftFleetTransitionActivationRequest, RaftFleetTransitionPublication,
     RaftFleetTransitionPublishRequest, RaftFleetTransitionResume,
-    RaftFleetTransitionResumeAcceptance, RaftFleetTransitionResumeStep, RaftFleetTransitionStatus,
+    RaftFleetTransitionResumeAcceptance, RaftFleetTransitionResumeStep,
+    RaftFleetTransitionSealAuthorization, RaftFleetTransitionSealRequest,
+    RaftFleetTransitionStatus,
 };
 
 type Result<T> = std::result::Result<T, RaftFleetFailure>;

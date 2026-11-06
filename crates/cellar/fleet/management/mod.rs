@@ -42,8 +42,10 @@ pub use raft::{
     RaftFleetRegisterNode, RaftFleetStatus, RaftFleetTransitionActivation,
     RaftFleetTransitionActivationPosition, RaftFleetTransitionActivationRequest,
     RaftFleetTransitionPublication, RaftFleetTransitionPublishRequest, RaftFleetTransitionResume,
-    RaftFleetTransitionResumeAcceptance, RaftFleetTransitionResumeStep, RaftFleetTransitionStatus,
-    RaftFleetVerificationBlocker, RaftFleetVerificationReason, RaftFleetVerificationStage,
+    RaftFleetTransitionResumeAcceptance, RaftFleetTransitionResumeStep,
+    RaftFleetTransitionSealAuthorization, RaftFleetTransitionSealRequest,
+    RaftFleetTransitionStatus, RaftFleetVerificationBlocker, RaftFleetVerificationReason,
+    RaftFleetVerificationStage,
 };
 pub use raft_stop::{RaftStopHandoff, RaftStopOwners, RaftStopProof};
 mod routing;
