@@ -2142,7 +2142,10 @@ async fn restart_voter(
     registered: u32,
 ) -> Result<()> {
     let previous = stop_voter(cluster, index, active).await?;
-    start_voter(cluster, index, generation, previous, registered).await
+    Box::pin(start_voter(
+        cluster, index, generation, previous, registered,
+    ))
+    .await
 }
 
 async fn stop_voter(

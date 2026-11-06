@@ -118,7 +118,9 @@ impl FleetHostAuthorization {
                     }],
                 };
                 mutation.validate()?;
-                let committed = self.catalog.commit_inner(&snapshot, &mutation).await?;
+                // The boot caller retains startup state while this commit
+                // traverses Fleet index pages and polls the object-store client.
+                let committed = Box::pin(self.catalog.commit_inner(&snapshot, &mutation)).await?;
                 let observed = self
                     .catalog
                     .host_from(&committed.snapshot, self.node())
