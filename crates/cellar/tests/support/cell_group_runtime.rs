@@ -135,6 +135,15 @@ impl RuntimeCluster {
         hold: &[GroupHistory],
         held: &mut BTreeMap<GroupHistory, CellGroupApply>,
     ) -> Result<()> {
+        self.pump_with_network(hold, held, |_, _| true).await
+    }
+
+    async fn pump_with_network(
+        &mut self,
+        hold: &[GroupHistory],
+        held: &mut BTreeMap<GroupHistory, CellGroupApply>,
+        mut forward: impl FnMut(GroupHistory, &Message) -> bool,
+    ) -> Result<()> {
         let primary = self.cluster.birth.route().history;
         for n in 0..3 {
             for _ in 0..64 {
@@ -184,7 +193,9 @@ impl RuntimeCluster {
                 }
             }
         }
-        let messages = std::mem::take(&mut self.network);
+        let messages = std::mem::take(&mut self.network)
+            .into_iter()
+            .filter(|(history, message)| forward(*history, message));
         if !self.transports.is_empty() {
             for (history, message) in messages {
                 let snapshot = message.get_msg_type() == MessageType::MsgSnapshot;
@@ -490,6 +501,15 @@ pub(super) async fn cancelled_close_joins_sync() -> Result<()> {
 
 impl RuntimeCluster {
     async fn add_group(&mut self, number: u8) -> Result<GroupHistory> {
+        self.add_group_with_filesystem(number, |_| Arc::new(DirectFileSystem))
+            .await
+    }
+
+    async fn add_group_with_filesystem(
+        &mut self,
+        number: u8,
+        filesystem: impl Fn(&Voter) -> Arc<dyn cellar_ltx::FileSystem>,
+    ) -> Result<GroupHistory> {
         let scope = GroupHistory {
             cluster: self.cluster.birth.route().history.cluster,
             namespace: NamespaceId::new([number; 16])?,
@@ -546,19 +566,17 @@ impl RuntimeCluster {
                 ._root
                 .path()
                 .join(format!("extra-{number}-node-{n}"));
+            let filesystem = filesystem(&self.cluster.voters[n]);
             let tree = ManifestTree::new(birth.route().clone(), ManifestLimits::default())?;
             let mut pages = ManifestPageStore::open(
                 &base.join("pages"),
-                Arc::new(DirectFileSystem),
+                filesystem.clone(),
                 1024,
                 16 * 1024 * 1024,
                 16,
             )?;
-            let images = GenerationStore::open(
-                base.join("images"),
-                Arc::new(DirectFileSystem),
-                Default::default(),
-            )?;
+            let images =
+                GenerationStore::open(base.join("images"), filesystem, Default::default())?;
             let marker = permit.group().group_manifest()?.context("genesis")?;
             applied.push(marker.position().index);
             let root = tree.prepare_complete(
@@ -947,6 +965,7 @@ pub(super) use sql::{
 
 pub(super) use sql::checkpoint_completion_pressure;
 pub(super) use sql::concurrent_checkpoints;
+pub(super) use sql::repair_budget_under_load;
 pub(super) use sql::{
     automatic_checkpoints, checkpoint_during_apply, controller_checkpoint_shutdown,
 };

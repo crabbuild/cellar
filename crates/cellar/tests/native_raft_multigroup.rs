@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Legacy multi-group SQL, repair and archive qualification during the cutover.
+//! Legacy multi-group SQL and archive qualification during the cutover.
 #![allow(clippy::disallowed_methods)]
 #[path = "support/raft_archive_reclaim.rs"]
 mod archive_reclaim;
@@ -14,14 +14,9 @@ mod bundle_faults;
 mod bundle_images;
 #[path = "support/raft_bundle_native.rs"]
 mod bundles;
-#[allow(dead_code)] // Shared native fixture also serves membership and snapshot drills.
-#[path = "support/raft_cluster.rs"]
-mod native_cluster;
 #[allow(dead_code)]
 #[path = "support/raft_node.rs"]
 mod public_node;
-#[path = "support/raft_repair_load.rs"]
-mod repair_load;
 
 use anyhow::{ensure, Result};
 use std::path::Path;
@@ -34,11 +29,6 @@ async fn background_sql_admits_one_pending_command() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn cancelled_command_waiting_for_background_sql_does_not_execute() -> Result<()> {
     background_admission::run(true).await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn repair_budget_under_load() -> Result<()> {
-    repair_load::run().await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

@@ -87,6 +87,15 @@ pub(super) async fn add_second(
     primary: GroupHistory,
 ) -> Result<GroupHistory> {
     let second = fixture.add_group(31).await?;
+    attach_group_appliers(fixture, primary, second).await?;
+    Ok(second)
+}
+
+pub(super) async fn attach_group_appliers(
+    fixture: &mut RuntimeCluster,
+    primary: GroupHistory,
+    second: GroupHistory,
+) -> Result<()> {
     for node in 0..3 {
         let pool = fixture.appliers[&(node, primary)].0.clone();
         let voter = &mut fixture.extra.get_mut(&second).context("extra")?[node];
@@ -106,7 +115,7 @@ pub(super) async fn add_second(
         )?;
         fixture.appliers.insert((node, second), (pool, applier));
     }
-    Ok(second)
+    Ok(())
 }
 
 pub(crate) async fn controller_replication(rooted: bool) -> Result<()> {

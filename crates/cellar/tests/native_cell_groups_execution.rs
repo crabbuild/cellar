@@ -19,6 +19,11 @@ mod runtime_fixture;
 #[path = "support/cell_group_checkpoint.rs"]
 mod checkpoint_fixture;
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn repair_budget_under_load() -> Result<()> {
+    Box::pin(runtime_fixture::repair_budget_under_load()).await
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn many_groups_mixed_roles() -> Result<()> {
     Box::pin(runtime_fixture::mixed_roles()).await

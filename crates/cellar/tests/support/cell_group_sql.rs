@@ -654,6 +654,10 @@ pub(crate) use controller_checkpoints::{
 mod completion_pressure;
 pub(crate) use completion_pressure::checkpoint_completion_pressure;
 
+#[path = "cell_group_repair_load.rs"]
+mod repair_load;
+pub(crate) use repair_load::repair_budget_under_load;
+
 #[path = "cell_group_checkpoint_fairness.rs"]
 mod checkpoint_fairness;
 pub(crate) use checkpoint_fairness::concurrent_checkpoints;

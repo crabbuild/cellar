@@ -740,11 +740,12 @@ registered cells establishes measured capacity.
 
 ## Remaining milestone gates
 
-The native `repair_budget_under_load` case holds real TLS snapshot transfers for
-two lagging cells while a third completes 24 commands and 24 AtLeast follower
-queries. It samples actual node-wide reservations, checks both distinct restored
-histories and waits for physical reservation release. This is bounded catch-up
-coverage on three embedded nodes, not replacement throughput or an SLO.
+The `repair_budget_under_load` case in `native_cell_groups_execution` holds a TLS
+checkpoint receive and submits a competing restore for another group. A third
+group completes 24 SQL commands and 24 receipt-backed follower queries while the
+receive reservation stays charged. Both restored groups must select their exact
+checkpoint and release the physical reservations. The test covers bounded
+catch-up on three embedded nodes.
 
 The native archive producer can coalesce snapshot/tail payloads for two cells in
 one bounded object. The bundle index binds each exact history; recovery verifies
