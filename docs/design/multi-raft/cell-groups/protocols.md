@@ -1526,8 +1526,11 @@ A retry reconciles a lost receipt confirmation against the same position.
 Fleet verifies every selected range's activation receipt before promoting
 any replacement history. One CAS advances up to 15 histories and their
 protected cursor. A retry reconstructs the last batch from the rooted
-histories and its commit journal. The disruption slot, directory lock,
-and Raft owners' serving fences stay held during promotion.
+histories and its commit journal. After the final batch, the directory
+checks the rooted Fleet settlement and every replacement history. One
+directory CAS records the completion receipt and supersedes the original
+transition. Operator status exposes that receipt alongside the held Fleet
+slot. Serving and archive cleanup require separate proofs.
 
 For an unpublished transition, choose complete archived parent cuts and reconstruct
 their non-overlapping domain under new groups. For a published transition, require

@@ -470,6 +470,22 @@ impl RaftFleetControl {
             .await?)
     }
 
+    /// Select the exact completed Fleet promotion in the directory and
+    /// supersede the original transition. Returns the rooted receipt digest.
+    #[doc(hidden)]
+    pub async fn record_transition_recovery_directory_completion(
+        &self,
+        namespace: &str,
+        request: &crate::raft::fleet_catalog::FleetRecoveryAttachRequest,
+        timeout: Duration,
+    ) -> Result<[u8; 32]> {
+        let directory = self.managed_namespace(namespace)?;
+        Ok(self
+            .catalog
+            .record_managed_recovery_directory_completion(directory, request, timeout)
+            .await?)
+    }
+
     /// Copy one exact selected cut into dedicated fresh-history stores. This
     /// does not install Raft state or authorize placement or serving.
     #[doc(hidden)]

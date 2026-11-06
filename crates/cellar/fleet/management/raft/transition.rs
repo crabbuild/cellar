@@ -31,6 +31,9 @@ pub struct RaftFleetTransitionStatus {
     pub transfer_archive_digest: Option<String>,
     pub child_archives_verified: bool,
     pub parent_holds_released: bool,
+    /// The exact directory receipt when recovery superseded this operation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_completion_digest: Option<String>,
     /// Sampled at the reported Fleet revision. Directory cleanup precedes
     /// Fleet completion and may already be visible while this is still true.
     pub fleet_slot_held: bool,
@@ -160,6 +163,9 @@ impl RaftFleetControl {
             child_archives_verified: journal
                 .is_some_and(|journal| journal.child_archives().is_some()),
             parent_holds_released: journal.is_some_and(|journal| journal.parent_holds_released()),
+            recovery_completion_digest: journal
+                .and_then(|journal| journal.recovery_settlement())
+                .map(hex::encode),
             fleet_slot_held: observation.fleet_slot_held,
         })
     }

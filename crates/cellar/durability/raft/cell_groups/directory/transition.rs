@@ -75,6 +75,8 @@ pub struct TransitionJournal {
     retirement_set: Option<[u8; 32]>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     parent_holds_released: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    recovery_settlement: Option<[u8; 32]>,
     phase: TransitionPhase,
 }
 
@@ -142,8 +144,14 @@ impl TransitionJournal {
         self.parent_holds_released
     }
 
+    pub fn recovery_settlement(&self) -> Option<[u8; 32]> {
+        self.recovery_settlement
+    }
+
     pub(crate) fn owns_topology(&self) -> bool {
-        self.phase != TransitionPhase::Cancelled && !self.parent_holds_released
+        self.phase != TransitionPhase::Cancelled
+            && !self.parent_holds_released
+            && self.recovery_settlement.is_none()
     }
 
     pub(super) fn seal_authorization(&self) -> Result<[u8; 32], CatalogError> {
@@ -169,6 +177,7 @@ impl TransitionJournal {
             child_archives: None,
             retirement_set: None,
             parent_holds_released: false,
+            recovery_settlement: None,
             ..self.clone()
         };
         Ok(record::digest(&record::encode(
@@ -300,6 +309,9 @@ enum Advance {
 
 impl Advance {
     fn apply(self, mut journal: TransitionJournal) -> Result<TransitionJournal, CatalogError> {
+        if journal.recovery_settlement.is_some() {
+            return Err(CatalogError::Fenced);
+        }
         use TransitionPhase::*;
         match (self, journal.phase) {
             (Self::ChoosePreparationAcquires { previous, next }, Planned)
@@ -500,6 +512,10 @@ impl RangeDirectory {
                     || (journal.phase == TransitionPhase::Retired
                         && journal.child_archives.is_none())
                     || (journal.parent_holds_released && journal.phase != TransitionPhase::Retired)
+                    || journal.recovery_settlement == Some([0; 32])
+                    || (journal.recovery_settlement.is_some()
+                        && (journal.parent_holds_released
+                            || journal.phase == TransitionPhase::Cancelled))
                     || matches!(
                         journal.phase,
                         TransitionPhase::Sealed
@@ -592,7 +608,14 @@ impl RangeDirectory {
         {
             return Err(CatalogError::Fenced);
         }
-        self.matching_transition_journal(head, mutation).await
+        let journal = self.matching_transition_journal(head, mutation).await?;
+        if journal
+            .as_ref()
+            .is_some_and(|journal| journal.recovery_settlement().is_some())
+        {
+            return Err(CatalogError::Fenced);
+        }
+        Ok(journal)
     }
 
     async fn matching_transition_journal(
@@ -738,7 +761,58 @@ impl RangeDirectory {
         Ok(())
     }
 
-    async fn commit_transition_head(
+    pub(super) async fn supersede_transition_for_recovery(
+        &self,
+        head: &mut wire::Head,
+        operation: ProposalId,
+        plan: [u8; 32],
+        completion: [u8; 32],
+    ) -> Result<(), CatalogError> {
+        if self.transition_active(head).await? != Some(operation) {
+            return Err(CatalogError::Fenced);
+        }
+        let mut journal = self
+            .transition_record(head, operation)
+            .await?
+            .ok_or(CatalogError::Corrupt("missing recovery transition"))?;
+        if journal.request != plan || !journal.owns_topology() {
+            return Err(CatalogError::Fenced);
+        }
+        journal.recovery_settlement = Some(completion);
+        let index = Index::new(self);
+        let operations = index
+            .update(
+                head.operations,
+                &key(operation),
+                Some(record::encode(JOURNAL, &journal, JOURNAL_LIMIT)?),
+                0,
+            )
+            .await?;
+        head.operations = index.update(operations, ACTIVE, None, 0).await?;
+        Ok(())
+    }
+
+    pub(super) async fn verify_recovered_transition(
+        &self,
+        head: &wire::Head,
+        operation: ProposalId,
+        plan: [u8; 32],
+        completion: [u8; 32],
+    ) -> Result<(), CatalogError> {
+        let journal = self
+            .transition_record(head, operation)
+            .await?
+            .ok_or(CatalogError::Corrupt("missing recovered transition"))?;
+        if journal.request != plan
+            || journal.recovery_settlement != Some(completion)
+            || self.transition_active(head).await? == Some(operation)
+        {
+            return Err(CatalogError::Corrupt("recovery transition completion"));
+        }
+        Ok(())
+    }
+
+    pub(super) async fn commit_transition_head(
         &self,
         head: &wire::Head,
         version: UpdateVersion,
@@ -814,6 +888,7 @@ impl RangeDirectory {
                 child_archives: None,
                 retirement_set: None,
                 parent_holds_released: false,
+                recovery_settlement: None,
                 phase: TransitionPhase::Planned,
             };
             for (key, value) in [
@@ -1713,6 +1788,7 @@ impl RangeDirectory {
             child_archives: None,
             retirement_set: None,
             parent_holds_released: false,
+            recovery_settlement: None,
             phase: TransitionPhase::Cancelled,
         };
         let count = self.available_transition_slot(&view.head).await?;

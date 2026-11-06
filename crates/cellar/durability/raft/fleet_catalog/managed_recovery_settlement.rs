@@ -6,7 +6,7 @@ use super::{
     managed_recovery_quorum::publication_input,
     *,
 };
-use crate::raft::catalog::{CatalogError, RangeDirectory};
+use crate::raft::catalog::{CatalogError, ManagedRecoveryPublicationInput, RangeDirectory};
 use cellar_logic::consensus::ProposalId;
 use serde::Deserialize;
 use std::ops::Range;
@@ -45,6 +45,39 @@ pub struct FleetRecoverySettlement {
     pub total_ranges: usize,
     pub applied_revision: u64,
     pub publication_digest: [u8; 32],
+}
+
+/// Opaque proof minted from the complete rooted Fleet settlement.
+pub(crate) struct FleetManagedRecoveryCompletion {
+    catalog: [u8; 32],
+    revision: u64,
+    digest: [u8; 32],
+    facts: Facts,
+}
+
+impl FleetManagedRecoveryCompletion {
+    pub(crate) fn directory_binding(
+        &self,
+        directory: &RangeDirectory,
+        input: &ManagedRecoveryPublicationInput<'_>,
+        publication: [u8; 32],
+    ) -> std::result::Result<([u8; 32], u64, [u8; 32]), CatalogError> {
+        if directory
+            .namespace_config()
+            .managed_fleet
+            .as_ref()
+            .map(|owner| owner.catalog)
+            != Some(self.catalog)
+            || self.facts.intent != input.intent
+            || self.facts.plan != input.plan
+            || self.facts.seeds != input.seeds
+            || self.facts.publication != publication
+            || self.facts.total != input.births.len()
+        {
+            return Err(CatalogError::Fenced);
+        }
+        Ok((self.catalog, self.revision, self.digest))
+    }
 }
 
 struct Selection<'a> {
@@ -139,50 +172,10 @@ impl FleetCatalog {
                 self.managed_recovery_permit_at(&snapshot, directory, intent.basis())
                     .await?;
                 let input = publication_input(&intent, &plan, request.seed_digest)?;
-                let (publication, activations) = self
-                    .inner
-                    .domain
-                    .run(Box::pin(async {
-                        let publication = directory
-                            .observe_managed_recovery_publication(&input)
-                            .await?
-                            .ok_or(CatalogError::Fenced)?
-                            .journal_digest();
-                        let mut positions = Vec::with_capacity(plan.births().len());
-                        for (birth, seed) in plan.births().iter().zip(&seeds.ranges) {
-                            if birth.route().birth_digest != seed.birth_digest() {
-                                return Err(CatalogError::Corrupt(
-                                    "managed recovery settlement birth",
-                                ));
-                            }
-                            let position = directory
-                                .observe_managed_recovery_activation(
-                                    birth.route(),
-                                    request.plan_digest,
-                                    publication,
-                                    seed.genesis_commitment(),
-                                )
-                                .await?
-                                .ok_or(CatalogError::Unconfirmed)?;
-                            positions.push((position.index.get(), position.term.get()));
-                        }
-                        Ok::<_, CatalogError>((publication, positions))
-                    }))
-                    .await
-                    .map_err(|_| FleetCatalogError::Closed)?
-                    .map_err(catalog_error)?;
-
-                let facts = Facts {
-                    intent: intent.digest(),
-                    plan: request.plan_digest,
-                    seeds: request.seed_digest,
-                    publication,
-                    activations: hash(&encode(KIND, &activations, LIMIT)?),
-                    total: plan.births().len(),
-                };
-                if !(1..=64).contains(&facts.total) {
-                    return Err(FleetCatalogError::Limit);
-                }
+                let facts = self
+                    .verify_recovery_settlement_facts(directory, &input, &seeds)
+                    .await?;
+                let publication = facts.publication;
                 let selection = Selection {
                     directory,
                     intent: &intent,
@@ -197,25 +190,9 @@ impl FleetCatalog {
                     if record.facts != facts {
                         return Err(FleetCatalogError::PayloadConflict);
                     }
-                    let previous = self
-                        .recovery_settlement_mutation(
-                            &snapshot,
-                            &selection,
-                            &record,
-                            FleetHistoryState::Live,
-                        )
-                        .await?;
-                    let digest = hash(&encode(REQUEST_KIND, &previous, REQUEST_LIMIT)?);
                     let applied_revision = self
-                        .inner
-                        .committed(&snapshot.head, &hex::encode(record.request.id), digest)
-                        .await?
-                        .filter(|applied| {
-                            Some(*applied) == record.request.expected_revision.checked_add(1)
-                        })
-                        .ok_or(FleetCatalogError::Corrupt(
-                            "managed recovery settlement journal",
-                        ))?;
+                        .verify_recovery_settlement_commit(&snapshot, &selection, &record)
+                        .await?;
                     start = record.promoted;
                     if start == facts.total {
                         return Ok(record.status(applied_revision));
@@ -249,6 +226,152 @@ impl FleetCatalog {
             }),
         )
         .await
+    }
+
+    pub(crate) async fn record_managed_recovery_directory_completion(
+        &self,
+        directory: &RangeDirectory,
+        request: &FleetRecoveryAttachRequest,
+        timeout: Duration,
+    ) -> Result<[u8; 32]> {
+        self.run(
+            timeout,
+            Box::pin(async {
+                let (intent, plan, seeds) = self
+                    .read_managed_recovery_publication_inputs(
+                        directory,
+                        request.operation,
+                        &request.principal,
+                        (request.plan_digest, request.seed_digest),
+                    )
+                    .await?;
+                let snapshot = self.inner.current().await?;
+                self.managed_recovery_permit_at(&snapshot, directory, intent.basis())
+                    .await?;
+                let input = publication_input(&intent, &plan, request.seed_digest)?;
+                let record = self
+                    .managed_recovery_settlement_at(&snapshot, request.operation)
+                    .await?
+                    .ok_or(FleetCatalogError::Unconfirmed)?;
+                if record.promoted != record.facts.total {
+                    return Err(FleetCatalogError::Unconfirmed);
+                }
+                let facts = self
+                    .verify_recovery_settlement_facts(directory, &input, &seeds)
+                    .await?;
+                record.check(request, &intent, facts.publication)?;
+                if record.facts != facts {
+                    return Err(FleetCatalogError::PayloadConflict);
+                }
+                let selection = Selection {
+                    directory,
+                    intent: &intent,
+                    plan: &plan,
+                };
+                let revision = self
+                    .verify_recovery_settlement_commit(&snapshot, &selection, &record)
+                    .await?;
+                for birth in &plan.births()[..record.last_batch().start] {
+                    let placement = self
+                        .managed_recovery_placement_at(&snapshot, directory, &intent, &plan, birth)
+                        .await?
+                        .ok_or(FleetCatalogError::Conflict)?;
+                    if placement.history.state != FleetHistoryState::Live {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                }
+                let proof = FleetManagedRecoveryCompletion {
+                    catalog: self.catalog_id()?,
+                    revision,
+                    digest: hash(&encode(KIND, &record, LIMIT)?),
+                    facts,
+                };
+                if self.inner.current().await?.token != snapshot.token {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                self.inner
+                    .domain
+                    .run(Box::pin(
+                        directory.record_managed_recovery_completion(&input, &proof),
+                    ))
+                    .await
+                    .map_err(|_| FleetCatalogError::Closed)?
+                    .map_err(catalog_error)
+            }),
+        )
+        .await
+    }
+
+    async fn verify_recovery_settlement_facts(
+        &self,
+        directory: &RangeDirectory,
+        input: &ManagedRecoveryPublicationInput<'_>,
+        seeds: &super::managed_recovery_quorum::Record,
+    ) -> Result<Facts> {
+        let (publication, activations) = self
+            .inner
+            .domain
+            .run(Box::pin(async {
+                let publication = directory
+                    .observe_managed_recovery_publication(input)
+                    .await?
+                    .ok_or(CatalogError::Fenced)?
+                    .journal_digest();
+                let mut positions = Vec::with_capacity(input.births.len());
+                for (birth, seed) in input.births.iter().zip(&seeds.ranges) {
+                    if birth.route().birth_digest != seed.birth_digest() {
+                        return Err(CatalogError::Corrupt("managed recovery settlement birth"));
+                    }
+                    let position = directory
+                        .observe_managed_recovery_activation(
+                            birth.route(),
+                            input.plan,
+                            publication,
+                            seed.genesis_commitment(),
+                        )
+                        .await?
+                        .ok_or(CatalogError::Unconfirmed)?;
+                    positions.push((position.index.get(), position.term.get()));
+                }
+                Ok::<_, CatalogError>((publication, positions))
+            }))
+            .await
+            .map_err(|_| FleetCatalogError::Closed)?
+            .map_err(catalog_error)?;
+
+        let facts = Facts {
+            intent: input.intent,
+            plan: input.plan,
+            seeds: input.seeds,
+            publication,
+            activations: hash(&encode(KIND, &activations, LIMIT)?),
+            total: input.births.len(),
+        };
+        if !(1..=64).contains(&facts.total) {
+            return Err(FleetCatalogError::Limit);
+        }
+        Ok(facts)
+    }
+
+    async fn verify_recovery_settlement_commit(
+        &self,
+        snapshot: &FleetSnapshot,
+        selection: &Selection<'_>,
+        record: &Record,
+    ) -> Result<u64> {
+        let previous = self
+            .recovery_settlement_mutation(snapshot, selection, record, FleetHistoryState::Live)
+            .await?;
+        let digest = hash(&encode(REQUEST_KIND, &previous, REQUEST_LIMIT)?);
+        let applied_revision = self
+            .inner
+            .committed(&snapshot.head, &hex::encode(record.request.id), digest)
+            .await?
+            .filter(|applied| Some(*applied) == record.request.expected_revision.checked_add(1))
+            .ok_or(FleetCatalogError::Corrupt(
+                "managed recovery settlement journal",
+            ))?;
+        Ok(applied_revision)
     }
 
     pub(super) async fn require_managed_recovery_promotion(

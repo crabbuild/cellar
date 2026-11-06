@@ -18,7 +18,11 @@ pub(in crate::raft::catalog::range_directory) struct ManagedRecoveryPublication<
     input: &'a ManagedRecoveryPublicationInput<'a>,
 }
 
-impl ManagedRecoveryPublication<'_> {
+impl<'a> ManagedRecoveryPublication<'a> {
+    pub(super) fn new(input: &'a ManagedRecoveryPublicationInput<'a>) -> Self {
+        Self { input }
+    }
+
     pub(in crate::raft::catalog::range_directory) fn check(
         &self,
         view: &DirectoryView,
@@ -123,7 +127,7 @@ impl RangeDirectory {
             let (view, _) = self.current().await?;
             let publication = self.confirmed(&view.head, input.mutation).await?;
             if let Some(publication) = &publication {
-                ManagedRecoveryPublication { input }
+                ManagedRecoveryPublication::new(input)
                     .check_published(self, &view, publication)
                     .await?;
             }
@@ -151,7 +155,7 @@ impl RangeDirectory {
         {
             return Err(CatalogError::Fenced);
         }
-        let permit = ManagedRecoveryPublication { input };
+        let permit = ManagedRecoveryPublication::new(input);
         self.bounded(Box::pin(self.publish_inner(
             input.mutation,
             PublicationAuthority::ManagedRecovery(&permit),

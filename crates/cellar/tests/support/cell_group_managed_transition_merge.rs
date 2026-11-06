@@ -1937,6 +1937,13 @@ async fn check_recovery_voter_reservations(
                 "pending recovery did not refuse the write before dispatch: {write:?}"
             );
         }
+        let before_directory = fixture.domain.run(directory.observe()).await??;
+        let premature = Box::pin(fresh.record_transition_recovery_directory_completion(
+            namespace, &request, TIMEOUT,
+        )).await;
+        ensure!(matches!(premature, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
+        let unchanged = fixture.domain.run(directory.observe()).await??;
+        ensure!(unchanged.digest() == before_directory.digest());
         let before = fixture.catalog.read(TIMEOUT).await?;
         fixture.store.fail_fleet_confirmation.store(true, Ordering::Release);
         let unknown = Box::pin(fresh.advance_transition_recovery_settlement(
@@ -1960,8 +1967,31 @@ async fn check_recovery_voter_reservations(
             let fenced = fixture.domain.run(directory.materialize_selected_history(history)).await?;
             ensure!(matches!(fenced, Err(cellar::application::consensus::CatalogError::Fenced)));
         }
+        let work = fresh.record_transition_recovery_directory_completion(namespace, &request, TIMEOUT);
+        let (lost, delivered) = Box::pin(fault::lose_directory_confirmation(work)).await;
+        ensure!(delivered && matches!(lost, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
+        let completion = Box::pin(control.record_transition_recovery_directory_completion(
+            namespace, &request, TIMEOUT,
+        )).await?;
+        ensure!(completion != [0; 32]);
+        let reopened = Box::pin(fresh.record_transition_recovery_directory_completion(
+            namespace, &request, TIMEOUT,
+        )).await?;
+        ensure!(reopened == completion);
+        ensure!(fixture.domain.run(directory.active_transition()).await??.is_none());
+        let old_operation = hex::encode(fenced.request().intent().transition());
+        let superseded = Box::pin(fresh.transition_status(namespace, &old_operation, TIMEOUT)).await?;
+        ensure!(superseded.recovery_completion_digest == Some(hex::encode(completion))
+            && superseded.fleet_slot_held && !superseded.parent_holds_released);
+        let after_completion = fixture.domain.run(directory.observe()).await??;
+        ensure!(after_completion.revision() == before_directory.revision()
+            && after_completion.digest() != before_directory.digest());
+        for birth in plan.births() {
+            let fenced = fixture.domain.run(directory.materialize_selected_history(birth.route().history)).await?;
+            ensure!(matches!(fenced, Err(cellar::application::consensus::CatalogError::Fenced)));
+        }
         Box::pin(restart_recovery_voter(&mut standbys, 2, 199, reserved.len(), true))
-            .await.context("restart an activated recovery voter after Fleet promotion")?;
+            .await.context("restart an activated recovery voter after directory completion")?;
         let (_, _, restarted, peer) = &standbys[2];
         Box::pin(admit_capacity(peer, restarted, &directory, 199)).await?;
         let revision = fixture.catalog.read(TIMEOUT).await?.revision();

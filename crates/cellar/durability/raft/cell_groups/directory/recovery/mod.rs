@@ -24,6 +24,7 @@ pub(in crate::raft::catalog::range_directory) use publication::RecoveryPublicati
 pub use request::{CellGroupDisasterFenceRequest, CellGroupRecoveryRequest};
 pub(crate) use seed::RecoverySeedPermit;
 mod managed_bootstrap;
+mod managed_completion;
 pub(super) use managed_bootstrap::ManagedRecoveryStartup;
 mod managed_publication;
 pub(in crate::raft::catalog::range_directory) use managed_publication::ManagedRecoveryPublication;

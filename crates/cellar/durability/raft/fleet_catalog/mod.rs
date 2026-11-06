@@ -43,6 +43,7 @@ pub use managed_recovery_reservation::FleetRecoveryRangeReservation;
 pub(crate) use managed_recovery_reservation::{
     ManagedRecoverySeedAuthority, ManagedRecoverySeedSelection,
 };
+pub(crate) use managed_recovery_settlement::FleetManagedRecoveryCompletion;
 pub use managed_recovery_settlement::FleetRecoverySettlement;
 mod managed_transition_replay;
 pub use managed_recovery_inventory::FleetRecoveryVoterLineage;
