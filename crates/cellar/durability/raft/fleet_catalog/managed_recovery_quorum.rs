@@ -168,7 +168,8 @@ impl FleetCatalog {
                 .await?;
             self.verify_managed_seed_quorums(&snapshot, directory, fenced, plan, Some(&record))
                 .await?;
-            self.require_confirmed_managed_fence(directory, fenced, archives).await?;
+            self.require_confirmed_managed_fence(directory, fenced, archives)
+                .await?;
             if self.inner.current().await?.token != snapshot.token {
                 return Err(FleetCatalogError::Conflict);
             }
