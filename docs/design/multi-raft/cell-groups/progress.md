@@ -440,8 +440,16 @@ once. The baseline failure and native pass log SHA-256 digests are
 and `24381fc9c70ab3897d48c86a3e7e370eda136f34cb337466af41191c0b83ffc8`.
 The focused RustFS record SHA-256 is
 `57794691e2cc6515c8e6bdad98f4aacbd702f20dedd711a6ee241c7590929d84`.
-CG-07 still requires the full public and constrained daemon gates at this
-executable revision.
+The full public suite at that revision finished in 550.64 seconds with five
+passes, one failure and one opt-in skip. The ingress case passed through
+explicit S3 replay after outage. Materialized lifecycle passed. The extent
+replacement exhausted eight turns at joint consensus, before the injected
+terminal CAS confirmation loss or receipt replay. The resource debit remained
+rooted. The command log SHA-256 is
+`81098b48132affa35864e6f91abc41fa85af8702ddccd51ef46a6eacb55ee975`.
+The pinned Linux build lost its Docker context before any voters ran. A
+replacement dedicated lab passed seven signed RustFS operations and the
+same-source build was restarted there.
 
 ## CG-07 shared cell version key rotation
 
