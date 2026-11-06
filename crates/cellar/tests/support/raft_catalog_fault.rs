@@ -99,6 +99,7 @@ pub struct Store {
     pub first_group_birth_after: RegistryGate,
     pub range_page_puts: AtomicUsize,
     pub fail_closure_after: AtomicBool,
+    pub fail_fleet_before: AtomicBool,
     pub fail_fleet_after: AtomicBool,
     pub fail_fleet_confirmation: AtomicBool,
     pub fail_fleet_read: AtomicBool,
@@ -451,6 +452,9 @@ impl ObjectStore for Store {
         }
         let fleet_cas =
             path.as_ref().ends_with("/fleet/head") && matches!(options.mode, PutMode::Update(_));
+        if fleet_cas && self.fail_fleet_before.swap(false, Ordering::AcqRel) {
+            return Err(failure());
+        }
         let range_genesis =
             path.as_ref().ends_with("/cell-groups/head") && matches!(options.mode, PutMode::Create);
         let group_birth = path.as_ref().contains("/cell-groups/births/")

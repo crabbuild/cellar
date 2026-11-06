@@ -100,6 +100,51 @@ pub(crate) async fn transition(
     })
 }
 
+pub(crate) async fn resume_transition(
+    State(console): State<Arc<Console>>,
+    Extension(principal): Extension<Principal>,
+    Path((fleet, namespace, operation)): Path<(String, String, String)>,
+    body: Result<Json<RaftFleetTransitionResume>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    principal.require(&fleet, Permission::FleetTopology)?;
+    let Ok(Json(request)) = body else {
+        return Ok(failure(RaftFleetFailure::invalid(
+            "invalid transition resume",
+        )));
+    };
+    if let Err(error) = request.validate(&namespace, &operation) {
+        return Ok(failure(error));
+    }
+    let fingerprint = match serde_json::to_vec(&request) {
+        Ok(bytes) => hex_digest(&bytes),
+        Err(_) => {
+            return Ok(failure(RaftFleetFailure::invalid(
+                "invalid transition resume",
+            )))
+        }
+    };
+    let mut audit = match console.audit.begin(
+        &format!("raft-{}-{}", request.catalog_id, request.request_id),
+        &fleet,
+        &principal.id,
+        &format!("raft/namespaces/{namespace}/transitions/{operation}"),
+        "raft_transition_resume",
+        &fingerprint,
+    ) {
+        Ok(value) => value,
+        Err(error) => return Ok(audit_failure(error)),
+    };
+    let result = match backend(&console, &fleet) {
+        Ok(control) => {
+            control
+                .resume_transition(&principal.id, &namespace, &operation, &request, TIMEOUT)
+                .await
+        }
+        Err(error) => Err(error),
+    };
+    finish_with_status(&console, &mut audit, result, "completed")
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Page {

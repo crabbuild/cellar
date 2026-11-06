@@ -10,7 +10,10 @@ use cellar::application::consensus::verification::{
     },
     FleetHistoryState,
 };
-use cellar::sdk::fleet_operations::{RaftFleetControl, RaftFleetFailureCode};
+use cellar::sdk::fleet_operations::{
+    RaftFleetControl, RaftFleetFailureCode, RaftFleetOutcome, RaftFleetTransitionResume,
+    RaftFleetTransitionResumeStep,
+};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn managed_split_then_merge_replays_late_writes() -> Result<()> {
@@ -649,27 +652,40 @@ async fn finish_merge(
         .await?;
     ensure!(retired.phase() == TransitionPhase::Retired && !retired.parent_holds_released());
     let cut = fleet.read(TIMEOUT).await?;
-    let confirmation = FleetRequestIdentity {
-        operation: transition.request.operation,
-        ..request(246, cut.revision())
+    let principal = &transition.request.principal;
+    let confirmation = RaftFleetTransitionResume {
+        catalog_id: control.catalog_id().into(),
+        namespace_id: hex::encode(child.namespace.bytes()),
+        operation_id: hex::encode(transition.request.operation),
+        request_id: hex::encode([246; 16]),
+        expected_revision: cut.revision(),
+        plan_digest: hex::encode(transition.plan.digest()),
+        step: RaftFleetTransitionResumeStep::ConfirmChildren,
     };
-    let confirmed = fleet
-        .confirm_managed_transfer_children(
-            &cut,
+    let namespace = &confirmation.namespace_id;
+    let operation = &confirmation.operation_id;
+    let foreign = control
+        .resume_transition(
+            "another-operator",
+            namespace,
+            operation,
             &confirmation,
-            transition,
-            directory,
-            &archives.pool,
             TIMEOUT,
         )
-        .await?;
+        .await;
     ensure!(
-        *fleet
-            .history(&confirmed.snapshot, &child, TIMEOUT)
-            .await?
-            .state()
-            == FleetHistoryState::Live
+        matches!(foreign, Err(failure) if failure.code == RaftFleetFailureCode::Forbidden
+        && failure.outcome == RaftFleetOutcome::NotSubmitted)
     );
+    let confirmed = control
+        .resume_transition(principal, namespace, operation, &confirmation, TIMEOUT)
+        .await?;
+    let cut = fleet.read(TIMEOUT).await?;
+    ensure!(
+        confirmed.applied_revision == cut.revision()
+            && *fleet.history(&cut, &child, TIMEOUT).await?.state() == FleetHistoryState::Live
+    );
+    let control = control.clone().with_node_observer(cluster.hosts[0].clone());
 
     Box::pin(restart_voter(cluster, 3, 122, None, 0)).await?;
     let cut = fleet.read(TIMEOUT).await?;
@@ -677,18 +693,23 @@ async fn finish_merge(
     for source in &cluster.hosts[3..] {
         inspect_current(observer, source.identity().node, cut.revision()).await?;
     }
-    ensure!(matches!(
-        fleet
-            .release_managed_transfer_parent_holds(
-                transition,
-                directory,
-                &archives.pool,
-                observer,
-                TIMEOUT,
-            )
-            .await,
-        Err(FleetCatalogError::Unconfirmed)
-    ));
+    let premature = RaftFleetTransitionResume {
+        request_id: hex::encode([248; 16]),
+        expected_revision: cut.revision(),
+        step: RaftFleetTransitionResumeStep::Complete,
+        ..confirmation.clone()
+    };
+    let attached = control
+        .resume_transition(principal, namespace, operation, &premature, TIMEOUT)
+        .await;
+    ensure!(
+        matches!(attached, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable
+            && failure.outcome == RaftFleetOutcome::Unknown)
+    );
+    let still_held = control
+        .transition_status(namespace, operation, TIMEOUT)
+        .await?;
+    ensure!(still_held.fleet_slot_held && !still_held.parent_holds_released);
     for index in 4..6 {
         Box::pin(restart_voter(cluster, index, 119 + index as u8, None, 0)).await?;
     }
@@ -712,23 +733,44 @@ async fn finish_merge(
                 .parked_retired_source());
         }
     }
-    let released = fleet
-        .release_managed_transfer_parent_holds(
-            transition,
-            directory,
-            &archives.pool,
-            observer,
-            TIMEOUT,
-        )
-        .await?;
+    let stale = control
+        .resume_transition(principal, namespace, operation, &premature, TIMEOUT)
+        .await;
+    ensure!(matches!(stale, Err(failure) if failure.code == RaftFleetFailureCode::Conflict));
+    let completion = RaftFleetTransitionResume {
+        request_id: hex::encode([247; 16]),
+        expected_revision: cut.revision(),
+        step: RaftFleetTransitionResumeStep::Complete,
+        ..confirmation.clone()
+    };
+    let collision = RaftFleetTransitionResume {
+        request_id: confirmation.request_id.clone(),
+        ..completion.clone()
+    };
+    let reused = control
+        .resume_transition(principal, namespace, operation, &collision, TIMEOUT)
+        .await;
     ensure!(
-        released.parent_holds_released()
-            && domain.run(directory.active_transition()).await??.is_none()
+        matches!(reused, Err(failure) if failure.code == RaftFleetFailureCode::PayloadConflict)
     );
-    let namespace = hex::encode(child.namespace.bytes());
-    let operation = hex::encode(transition.request.operation);
+    let still_held = control
+        .transition_status(namespace, operation, TIMEOUT)
+        .await?;
+    ensure!(still_held.fleet_slot_held && !still_held.parent_holds_released);
+
+    let store = &cluster.fixtures[0].store;
+    store.fail_fleet_before.store(true, Ordering::Release);
+    let interrupted = control
+        .resume_transition(principal, namespace, operation, &completion, TIMEOUT)
+        .await;
+    ensure!(
+        matches!(interrupted, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable
+            && failure.outcome == RaftFleetOutcome::Unknown)
+    );
+    ensure!(!store.fail_fleet_before.load(Ordering::Acquire));
+    ensure!(domain.run(directory.active_transition()).await??.is_none());
     let cleaning = control
-        .transition_status(&namespace, &operation, TIMEOUT)
+        .transition_status(namespace, operation, TIMEOUT)
         .await?;
     ensure!(
         cleaning.phase == Some(TransitionPhase::Retired)
@@ -737,16 +779,22 @@ async fn finish_merge(
             && cleaning.fleet_slot_held
             && cleaning.observed_fleet_revision == cut.revision()
     );
-    let completion = FleetRequestIdentity {
-        operation: transition.request.operation,
-        ..request(247, cut.revision())
-    };
-    let completed = fleet
-        .complete_managed_transfer(&cut, &completion, transition, directory, TIMEOUT)
+
+    let resumed = crate::managed_fixture::operator::resume_transition(
+        &cluster.fixtures[0],
+        directory,
+        principal,
+        observer,
+        &completion,
+    )
+    .await?;
+    let replayed = control
+        .resume_transition(principal, namespace, operation, &completion, TIMEOUT)
         .await?;
-    let settled = &completed.snapshot;
+    ensure!(resumed == replayed && resumed.applied_revision == cut.revision() + 1);
+    let settled = fleet.read(TIMEOUT).await?;
     let terminal = control
-        .transition_status(&namespace, &operation, TIMEOUT)
+        .transition_status(namespace, operation, TIMEOUT)
         .await?;
     ensure!(
         terminal.observed_fleet_revision == settled.revision()
@@ -758,17 +806,17 @@ async fn finish_merge(
     crate::managed_fixture::operator::transition_status(
         &cluster.fixtures[0],
         directory,
-        &transition.request.principal,
+        principal,
         &terminal,
     )
     .await?;
-    let retirement = released
+    let retirement = retired
         .retired_parents()
         .context("merge parent retirement digest")?;
     for parent in parents {
         ensure!(
             *fleet
-                .history(settled, &parent.history, TIMEOUT)
+                .history(&settled, &parent.history, TIMEOUT)
                 .await?
                 .state()
                 == FleetHistoryState::Retired {
@@ -778,7 +826,7 @@ async fn finish_merge(
         );
     }
     let inventory = fleet
-        .check_inventory(settled, std::slice::from_ref(directory), TIMEOUT)
+        .check_inventory(&settled, std::slice::from_ref(directory), TIMEOUT)
         .await?;
     ensure!(inventory.histories() == 4 && inventory.namespaces() == 1);
     Ok(())

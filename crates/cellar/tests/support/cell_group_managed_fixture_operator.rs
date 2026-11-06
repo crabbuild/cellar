@@ -17,7 +17,14 @@ pub(super) async fn provision(
     setup: RaftManagedFirstGroupRequest,
 ) -> Result<FleetGroupAuthorization> {
     let root = tempfile::tempdir()?;
-    let cli = open_cli(f, directory, root.path(), &setup.reservation.principal).await?;
+    let cli = open_cli(
+        f,
+        directory,
+        root.path(),
+        &setup.reservation.principal,
+        None,
+    )
+    .await?;
     let result = exercise(f, &cli, root.path(), voter, setup).await;
     cli.close().await?;
     result
@@ -28,6 +35,7 @@ async fn open_cli(
     directory: &RangeDirectory,
     root: &Path,
     principal: &str,
+    observer: Option<&RaftCells>,
 ) -> Result<OperatorCli> {
     let bucket = Bucket::from_clients(
         fixture.store.clone(),
@@ -37,11 +45,15 @@ async fn open_cli(
         "managed-component".into(),
         "tenant/".into(),
     )?;
-    let control = RaftFleetControl::new(
+    let catalog = Fixture::open_catalog(
         &fixture.domain,
-        fixture.catalog.clone(),
-        vec![directory.clone()],
+        fixture.store.clone(),
+        directory.namespace_config().cluster,
     )?;
+    let mut control = RaftFleetControl::new(&fixture.domain, catalog, vec![directory.clone()])?;
+    if let Some(observer) = observer {
+        control = control.with_node_observer(observer.clone());
+    }
     OperatorCli::start(&fixture.domain, bucket, control, root, principal).await
 }
 
@@ -52,7 +64,7 @@ pub(crate) async fn transition_status(
     expected: &RaftFleetTransitionStatus,
 ) -> Result<()> {
     let root = tempfile::tempdir()?;
-    let cli = open_cli(fixture, directory, root.path(), principal).await?;
+    let cli = open_cli(fixture, directory, root.path(), principal, None).await?;
     let result = cli
         .call(
             &[
@@ -69,6 +81,34 @@ pub(crate) async fn transition_status(
     let observed: RaftFleetTransitionStatus = serde_json::from_value(result?.success()?)?;
     ensure!(observed == *expected);
     Ok(())
+}
+
+pub(crate) async fn resume_transition(
+    fixture: &Fixture,
+    directory: &RangeDirectory,
+    principal: &str,
+    observer: &RaftCells,
+    request: &RaftFleetTransitionResume,
+) -> Result<RaftFleetTransitionResumeAcceptance> {
+    let root = tempfile::tempdir()?;
+    let cli = open_cli(fixture, directory, root.path(), principal, Some(observer)).await?;
+    let plan = root.path().join("transition-resume.json");
+    std::fs::write(&plan, serde_json::to_vec(request)?)?;
+    let path = plan.to_str().context("UTF-8 transition plan path")?;
+    let result = cli
+        .call(
+            &[
+                "transition",
+                "resume",
+                &request.namespace_id,
+                "--plan",
+                path,
+            ],
+            OWNER,
+        )
+        .await;
+    cli.close().await?;
+    Ok(serde_json::from_value(result?.success()?)?)
 }
 
 async fn exercise(

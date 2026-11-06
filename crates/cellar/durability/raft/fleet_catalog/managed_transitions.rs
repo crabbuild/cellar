@@ -146,6 +146,15 @@ pub struct ReopenedManagedCellGroupTransition {
     pub journal: Option<TransitionJournal>,
 }
 
+enum TransferCompletion {
+    Replayed(Box<FleetCommit>),
+    Pending {
+        mutation: FleetMutation,
+        disruption: [u8; 32],
+        release_holds: bool,
+    },
+}
+
 pub(crate) struct ManagedTransitionObservation {
     pub(crate) fleet_revision: u64,
     pub(crate) fleet_slot_held: bool,
@@ -894,6 +903,21 @@ impl FleetCatalog {
         observer: &RaftCells,
         timeout: Duration,
     ) -> Result<TransitionJournal> {
+        self.release_managed_transfer_parent_holds_at(
+            None, transition, directory, archives, observer, timeout,
+        )
+        .await
+    }
+
+    async fn release_managed_transfer_parent_holds_at(
+        &self,
+        expected: Option<&FleetSnapshot>,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        archives: &CellGroupArchivePool,
+        observer: &RaftCells,
+        timeout: Duration,
+    ) -> Result<TransitionJournal> {
         validate_request(&transition.request)?;
         let deadline = deadline::Deadline::new(self, timeout)?;
         let (_, children) = directory
@@ -904,6 +928,9 @@ impl FleetCatalog {
                 deadline.remaining()?,
                 Box::pin(async {
                     let current = self.inner.current().await?;
+                    if expected.is_some_and(|expected| expected.token != current.token) {
+                        return Err(FleetCatalogError::Conflict);
+                    }
                     let permit = self
                         .managed_transition_permit_at(
                             &current,
@@ -1017,6 +1044,21 @@ impl FleetCatalog {
         directory: &RangeDirectory,
         timeout: Duration,
     ) -> Result<FleetCommit> {
+        self.complete_managed_transfer_with_parent_release(
+            snapshot, request, transition, directory, None, timeout,
+        )
+        .await
+    }
+
+    pub(crate) async fn complete_managed_transfer_with_parent_release(
+        &self,
+        snapshot: &FleetSnapshot,
+        request: &FleetRequestIdentity,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        parent_release: Option<(&CellGroupArchivePool, &RaftCells)>,
+        timeout: Duration,
+    ) -> Result<FleetCommit> {
         self.check_snapshot(snapshot)?;
         validate_request(request)?;
         validate_request(&transition.request)?;
@@ -1030,110 +1072,151 @@ impl FleetCatalog {
         let (parents, children) = directory
             .transition_routes(&transition.plan)
             .map_err(catalog_error)?;
-        self.run(
-            timeout,
-            Box::pin(async {
-                let current = self.inner.current().await?;
-                let record = self
-                    .managed_transition_record(&current, request.operation)
-                    .await?
-                    .ok_or(FleetCatalogError::Conflict)?;
-                if record.request != transition.request {
-                    return Err(FleetCatalogError::PayloadConflict);
-                }
-                let permit = ManagedTransitionPermit(record);
-                permit
-                    .check(directory, &transition.plan)
-                    .map_err(catalog_error)?;
-                let (journal, _) = self
-                    .inner
-                    .domain
-                    .run(Box::pin(
-                        directory.managed_retired_sources(&transition.plan, &permit),
-                    ))
-                    .await
-                    .map_err(|_| FleetCatalogError::Closed)?
-                    .map_err(catalog_error)?;
-                let retirement = journal
-                    .retired_parents()
-                    .filter(|_| journal.parent_holds_released())
-                    .ok_or(FleetCatalogError::Conflict)?;
-                let retired = FleetHistoryState::Retired {
-                    operation: request.operation,
-                    retirement,
-                };
-                let mut changes = Vec::with_capacity(parents.len() + 1);
-                let mut all_live = true;
-                for route in &parents {
-                    let binding = self.binding(&route.history)?;
-                    let key = binding
-                        .key()
-                        .map_err(|_| FleetCatalogError::Corrupt("retired source binding"))?;
-                    let mut history = self.history_inner(snapshot, &key).await?;
-                    if history.binding != binding
-                        || history.origin != Origin::Managed
-                        || !history.check_route(directory, route)
-                        || (history.state != FleetHistoryState::Live && history.state != retired)
-                    {
-                        return Err(FleetCatalogError::Conflict);
-                    }
-                    all_live &= history.state == FleetHistoryState::Live;
-                    history.state = retired.clone();
-                    changes.push(FleetChange {
-                        table: FleetTable::Histories,
-                        key,
-                        value: Some(history.encode()?),
-                    });
-                }
-                changes.push(FleetChange {
-                    table: FleetTable::Policy,
-                    key: SLOT_KEY.into(),
-                    value: None,
-                });
-                let mutation = history_mutation(request, changes);
-                mutation.validate()?;
-                let digest = hash(&encode(REQUEST_KIND, &mutation, REQUEST_LIMIT)?);
-                if let Some(applied_revision) = self
-                    .inner
-                    .committed(&current.head, &hex::encode(request.id), digest)
-                    .await?
-                {
-                    return Ok(FleetCommit {
-                        snapshot: current,
-                        applied_revision,
-                    });
-                }
-                if !all_live
-                    || current.token != snapshot.token
-                    || request.expected_revision != snapshot.revision()
-                {
-                    return Err(FleetCatalogError::Conflict);
-                }
-                let Some(Disruption::Transition(active)) = self.active_disruption(&current).await?
-                else {
-                    return Err(FleetCatalogError::Conflict);
-                };
-                if active != permit.0 {
-                    return Err(FleetCatalogError::Conflict);
-                }
-                for route in &children {
-                    let (_, child) = self
-                        .transfer_child_history(&current, transition, directory, route)
-                        .await?;
-                    if child.state != FleetHistoryState::Live {
-                        return Err(FleetCatalogError::Conflict);
-                    }
-                }
-                let release = current.head.disruption.ok_or(FleetCatalogError::Conflict)?;
-                self.commit_with_disruption(
-                    snapshot,
-                    &mutation,
-                    Some(release),
-                    resources::Authority::ManagedTransferCompletion,
-                    || Ok(()),
-                )
+        let deadline = deadline::Deadline::new(self, timeout)?;
+        let prepare = Box::pin(async {
+            let current = self.inner.current().await?;
+            let record = self
+                .managed_transition_record(&current, request.operation)
+                .await?
+                .ok_or(FleetCatalogError::Conflict)?;
+            if record.request != transition.request {
+                return Err(FleetCatalogError::PayloadConflict);
+            }
+            let permit = ManagedTransitionPermit(record);
+            permit
+                .check(directory, &transition.plan)
+                .map_err(catalog_error)?;
+            let (journal, _) = self
+                .inner
+                .domain
+                .run(Box::pin(
+                    directory.managed_retired_sources(&transition.plan, &permit),
+                ))
                 .await
-            }),
+                .map_err(|_| FleetCatalogError::Closed)?
+                .map_err(catalog_error)?;
+            let retirement = journal
+                .retired_parents()
+                .ok_or(FleetCatalogError::Conflict)?;
+            let release_holds = !journal.parent_holds_released();
+            if release_holds && parent_release.is_none() {
+                return Err(FleetCatalogError::Conflict);
+            }
+            let retired = FleetHistoryState::Retired {
+                operation: request.operation,
+                retirement,
+            };
+            let mut changes = Vec::with_capacity(parents.len() + 1);
+            let mut all_live = true;
+            for route in &parents {
+                let binding = self.binding(&route.history)?;
+                let key = binding
+                    .key()
+                    .map_err(|_| FleetCatalogError::Corrupt("retired source binding"))?;
+                let mut history = self.history_inner(snapshot, &key).await?;
+                if history.binding != binding
+                    || history.origin != Origin::Managed
+                    || !history.check_route(directory, route)
+                    || (history.state != FleetHistoryState::Live && history.state != retired)
+                {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                all_live &= history.state == FleetHistoryState::Live;
+                history.state = retired.clone();
+                changes.push(FleetChange {
+                    table: FleetTable::Histories,
+                    key,
+                    value: Some(history.encode()?),
+                });
+            }
+            changes.push(FleetChange {
+                table: FleetTable::Policy,
+                key: SLOT_KEY.into(),
+                value: None,
+            });
+            let mutation = history_mutation(request, changes);
+            mutation.validate()?;
+            let bytes = encode(REQUEST_KIND, &mutation, REQUEST_LIMIT)?;
+            let key = hex::encode(request.id);
+            if let Some(applied_revision) = self
+                .inner
+                .committed(&current.head, &key, hash(&bytes))
+                .await?
+            {
+                return Ok(TransferCompletion::Replayed(Box::new(FleetCommit {
+                    snapshot: current,
+                    applied_revision,
+                })));
+            }
+            if !all_live
+                || current.token != snapshot.token
+                || request.expected_revision != snapshot.revision()
+            {
+                return Err(FleetCatalogError::Conflict);
+            }
+            let Some(Disruption::Transition(active)) = self.active_disruption(&current).await?
+            else {
+                return Err(FleetCatalogError::Conflict);
+            };
+            if active != permit.0 {
+                return Err(FleetCatalogError::Conflict);
+            }
+            for route in &children {
+                let (_, child) = self
+                    .transfer_child_history(&current, transition, directory, route)
+                    .await?;
+                if child.state != FleetHistoryState::Live {
+                    return Err(FleetCatalogError::Conflict);
+                }
+            }
+            let disruption = current.head.disruption.ok_or(FleetCatalogError::Conflict)?;
+            if release_holds {
+                // Claim the exact completion payload before releasing any
+                // remote hold. An interrupted call must use this same ID.
+                self.inner
+                    .create_exact(&format!("requests/{key}"), &bytes, REQUEST_LIMIT)
+                    .await?;
+            }
+            Ok(TransferCompletion::Pending {
+                mutation,
+                disruption,
+                release_holds,
+            })
+        });
+        let completion = self.run(deadline.remaining()?, prepare).await?;
+        let (mutation, disruption, release_holds) = match completion {
+            TransferCompletion::Replayed(commit) => return Ok(*commit),
+            TransferCompletion::Pending {
+                mutation,
+                disruption,
+                release_holds,
+            } => (mutation, disruption, release_holds),
+        };
+        if release_holds {
+            let (archives, observer) = parent_release.ok_or(FleetCatalogError::Conflict)?;
+            let journal = self
+                .release_managed_transfer_parent_holds_at(
+                    Some(snapshot),
+                    transition,
+                    directory,
+                    archives,
+                    observer,
+                    deadline.remaining()?,
+                )
+                .await?;
+            if !journal.parent_holds_released() {
+                return Err(FleetCatalogError::Unconfirmed);
+            }
+        }
+        self.run(
+            deadline.remaining()?,
+            Box::pin(self.commit_with_disruption(
+                snapshot,
+                &mutation,
+                Some(disruption),
+                resources::Authority::ManagedTransferCompletion,
+                || Ok(()),
+            )),
         )
         .await
     }

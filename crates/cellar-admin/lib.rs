@@ -130,6 +130,10 @@ pub fn router(console: Console) -> Result<Router> {
             "/fleets/{fleet}/raft/namespaces/{namespace}/transitions/{operation}",
             get(raft::transition),
         )
+        .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/transitions/{operation}/resume",
+            post(raft::resume_transition).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
         .route("/fleets/{fleet}/raft/nodes/{node}", get(raft_nodes::status))
         .route(
             "/fleets/{fleet}/raft/nodes/{node}/qualify",

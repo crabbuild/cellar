@@ -253,6 +253,22 @@ async fn execute(options: &options::Options) -> Result<Value> {
             }
             serde_json::to_value(view).map_err(|_| unavailable())
         }
+        Action::TransitionResume(request) => {
+            let path = format!(
+                "namespaces/{}/transitions/{}/resume",
+                request.namespace_id, request.operation_id,
+            );
+            let accepted = client
+                .post::<RaftFleetTransitionResumeAcceptance>(&path, request.as_ref())
+                .await?;
+            if accepted.request != **request
+                || Some(accepted.applied_revision) != request.expected_revision.checked_add(1)
+                || accepted.observed_fleet_revision < accepted.applied_revision
+            {
+                return Err(unavailable());
+            }
+            serde_json::to_value(accepted).map_err(|_| unavailable())
+        }
         Action::Operation(id) => {
             let view = client
                 .get::<RaftFleetOperation>(&format!("operations/{id}"), None, None, timeout)

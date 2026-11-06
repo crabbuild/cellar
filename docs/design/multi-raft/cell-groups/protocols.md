@@ -1218,6 +1218,16 @@ revision. Use the Fleet catalog ID from `cellar raft fleet status`. Directory
 cleanup can finish while the Fleet slot is still held, so the phase and slot
 are reported separately.
 
+For a retired transition, submit
+`cellar raft fleet transition resume NAMESPACE_HEX --plan REQUEST.json --catalog-id DIGEST`
+as the principal that admitted it. The request binds the catalog, namespace,
+operation, plan digest, expected Fleet revision and request ID to either
+`confirm_children` or `complete`. Confirmation promotes the verified children
+together. Completion claims the exact request, checks all parked parent replicas,
+releases the archived holds and commits Fleet retirement. Retain the request
+file and use the same request ID after an uncertain reply. An authenticated
+node observer supplies the parked proofs while the holds are outstanding.
+
 | Failure | Required behavior |
 | --- | --- |
 | Controller lost before seal authorization | Resume or CAS Prepared to Cancelled; seal authorization and cancellation compete on the same journal state. Revoke child activation permits before releasing reservations. |
