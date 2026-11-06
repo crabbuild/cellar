@@ -122,7 +122,7 @@ impl FleetHostAuthorization {
                     .inner
                     .domain
                     .run(Box::pin(
-                        directory.observe_managed_recovery_publication(&input),
+                        directory.observe_pending_managed_recovery_publication(&input),
                     ))
                     .await
                     .map_err(|_| FleetCatalogError::Closed)?
@@ -481,6 +481,7 @@ pub(super) fn publication_input<'a>(
     Ok(ManagedRecoveryPublicationInput {
         intent: intent.digest(),
         transition,
+        transition_plan: intent.basis().plan,
         barrier,
         plan: plan.digest(),
         seeds,

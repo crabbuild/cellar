@@ -95,6 +95,10 @@ impl RecoveryState {
         self.request
     }
 
+    pub(in crate::raft::cell_groups) fn operation(&self) -> [u8; 16] {
+        self.operation
+    }
+
     pub(in crate::raft::cell_groups) fn active(&self) -> bool {
         self.activation.is_some()
     }

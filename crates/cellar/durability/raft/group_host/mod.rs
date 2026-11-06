@@ -284,11 +284,7 @@ pub(crate) async fn start(
                                 &managed.authorization,
                             )
                             .await?
-                    } else if recovered {
-                        anyhow::ensure!(
-                            options.managed.is_none(),
-                            "managed disaster recovery requires its fleet recovery authority"
-                        );
+                    } else if recovered && options.managed.is_none() {
                         let authority = recovery_authority.clone().ok_or_else(|| {
                             anyhow::anyhow!(
                                 "recovered startup requires an infrastructure fencing authority"

@@ -417,6 +417,10 @@ impl GroupManifest {
         self.recovery.as_ref().map(|state| state.request())
     }
 
+    pub(crate) fn recovery_operation(&self) -> Option<[u8; 16]> {
+        self.recovery.as_ref().map(|state| state.operation())
+    }
+
     pub(crate) fn is_recovery_genesis(&self) -> bool {
         self.recovery.is_some()
             && !self.is_active()

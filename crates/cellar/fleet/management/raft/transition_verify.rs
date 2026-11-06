@@ -482,7 +482,29 @@ impl RaftFleetControl {
         let directory = self.managed_namespace(namespace)?;
         Ok(self
             .catalog
-            .record_managed_recovery_directory_completion(directory, request, timeout)
+            .record_managed_recovery_directory_completion(directory, request, None, timeout)
+            .await?)
+    }
+
+    /// Release the directory fence after the exact completion has been rooted.
+    /// Retained voters can then start under current Fleet and quorum authority.
+    #[doc(hidden)]
+    pub async fn release_transition_recovery_serving(
+        &self,
+        namespace: &str,
+        request: &crate::raft::fleet_catalog::FleetRecoveryAttachRequest,
+        completion: [u8; 32],
+        timeout: Duration,
+    ) -> Result<[u8; 32]> {
+        let directory = self.managed_namespace(namespace)?;
+        Ok(self
+            .catalog
+            .record_managed_recovery_directory_completion(
+                directory,
+                request,
+                Some((completion, &self.archive_pool)),
+                timeout,
+            )
             .await?)
     }
 

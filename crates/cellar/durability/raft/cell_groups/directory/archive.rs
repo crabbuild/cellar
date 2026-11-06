@@ -167,6 +167,57 @@ impl RangeDirectory {
             .map_err(|_| CellGroupArchiveError::Stopped)?
     }
 
+    // Called only while the exact managed recovery still fences this selected
+    // replacement. Reopen an existing registry without reinitializing it.
+    pub(super) async fn initialize_recovered_group_archive(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        pool: &CellGroupArchivePool,
+        birth: &CellGroupBirth,
+    ) -> Result<()> {
+        let archive = self.group_archive(pool, birth.route())?;
+        if let Some(binding) = self.read_archive_binding(birth, None).await? {
+            archive.open_registry(domain, &binding.creation).await?;
+            return Ok(());
+        }
+        let creation = archive
+            .prepare_registry_creation(domain, birth.route().clone())
+            .await?;
+        let bytes = record::encode(
+            wire::GROUP_ARCHIVE,
+            &Binding {
+                namespace: self.namespace.root_digest(),
+                creation: creation.intent().clone(),
+            },
+            wire::LIMIT,
+        )?;
+        let key = self.archive_binding_key(birth.route());
+        let observed = match self
+            .namespace
+            .inner
+            .create_and_observe_bounded(&key, &bytes, wire::LIMIT)
+            .await
+        {
+            Ok(observed) => observed,
+            Err(error @ (CatalogError::Storage(_) | CatalogError::Unconfirmed)) => {
+                self.namespace
+                    .inner
+                    .read_versioned_bounded(&key, wire::LIMIT)
+                    .await?
+                    .ok_or(error)?
+                    .0
+            }
+            Err(error) => return Err(error.into()),
+        };
+        if observed == bytes {
+            creation.commit(domain).await?;
+        } else {
+            self.open_archive_binding(domain, pool, birth, Some(&observed))
+                .await?;
+        }
+        Ok(())
+    }
+
     /// Reopen only the immutable expected identity. Missing binding, identity or
     /// counters fail closed, including after every voter disk has disappeared.
     /// This does not recreate metadata, fence old owners or authorize new voters.

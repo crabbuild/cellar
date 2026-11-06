@@ -57,7 +57,8 @@ pub(super) async fn exercise(
     let operation = transition.plan.operation();
     let before = controller
         .reopen_managed_transition(directory, operation, TIMEOUT)
-        .await?
+        .await
+        .context("read planned transition before hold acquire")?
         .context("planned transition before acquire")?;
     let denied_before = fixture.store.denied_registry_writes.load(Ordering::Acquire);
     fixture
@@ -78,12 +79,14 @@ pub(super) async fn exercise(
     let reopened = Fixture::open_catalog(domain, fixture.store.clone(), cluster.history.cluster)?;
     let after = reopened
         .reopen_managed_transition(directory, operation, TIMEOUT)
-        .await?
+        .await
+        .context("read hold acquisition after denied registry update")?
         .context("admitted acquire after denied registry update")?;
     ensure!(after.journal != before.journal);
     ensure!(reopened
         .staged_managed_preparation_holds(directory, operation, TIMEOUT)
-        .await?
+        .await
+        .context("read staging after denied registry update")?
         .is_none());
 
     let staged = allocate_preparation_holds(&reopened, directory, operation, &archives).await?;
@@ -97,7 +100,8 @@ pub(super) async fn exercise(
     ensure!(
         reopened
             .allocate_managed_preparation_holds(directory, operation, &archives, TIMEOUT)
-            .await?
+            .await
+            .context("reopen the exact staged hold allocation")?
             == staged
     );
     ensure!(matches!(
@@ -231,7 +235,8 @@ pub(super) async fn exercise(
     let reopened = Fixture::open_catalog(domain, fixture.store.clone(), cluster.history.cluster)?;
     let replay = reopened
         .resume_managed_preparation(directory, operation, &verifier, recovery_pool()?, TIMEOUT)
-        .await?;
+        .await
+        .context("reopen the selected split preparation")?;
     ensure!(replay
         .children()
         .iter()

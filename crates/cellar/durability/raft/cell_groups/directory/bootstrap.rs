@@ -357,7 +357,24 @@ impl RangeDirectory {
     ) -> Result<CellGroupBootstrapPermit, CatalogError> {
         self.bounded(async {
             match log.cell_group(&birth.route().history) {
-                Ok(_) => {
+                Ok(group) => {
+                    if let Some(marker) = group
+                        .group_manifest()
+                        .map_err(CatalogError::Log)?
+                        .filter(|marker| marker.recovery_request().is_some())
+                    {
+                        Box::pin(self.require_serving_managed_recovery_member(
+                            birth, &group, &marker, log, host,
+                        ))
+                        .await?;
+                        return Ok(CellGroupBootstrapPermit {
+                            group,
+                            birth: birth.clone(),
+                            directory: self.clone(),
+                            log: log.clone(),
+                            origin: BootstrapOrigin::Managed(Box::new(host.clone())),
+                        });
+                    }
                     self.require_managed_retained_group_boot(birth, log, host)
                         .await?;
                 }

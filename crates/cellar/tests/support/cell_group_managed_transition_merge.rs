@@ -1679,10 +1679,8 @@ async fn check_recovery_voter_reservations(
         for (id, capacity_request) in [(70, 190), (71, 192), (72, 194)] {
             let peer = peer_fixture(fixture, id).await?;
             let root = tempfile::tempdir()?;
-            let (node, host) = Box::pin(start_recovery_voter(
-                &peer, root.path(), LogOpenMode::Create, id + 100,
-            )).await?;
-            standbys.push((root, node, host, peer));
+            let voter = start_recovery_voter(peer, root, LogOpenMode::Create, id + 100).await?;
+            standbys.push(voter);
             let (_, _, host, peer) = standbys.last().context("started recovery voter")?;
             Box::pin(admit_capacity(peer, host, &directory, capacity_request)).await?;
             let view = host.observe_node(TIMEOUT).await?;
@@ -1820,7 +1818,7 @@ async fn check_recovery_voter_reservations(
             plan_digest: plan.digest(),
             seed_digest: reopened.digest(),
         };
-        Box::pin(restart_recovery_voter(&mut standbys, 1, 197, reserved.len(), false))
+        Box::pin(restart_recovery_voter(&mut standbys, 1, 197, reserved.len(), (false, false)))
             .await.context("restart a selected recovery voter before publication")?;
         let (_, _, host, peer) = &standbys[1];
         let view = host.observe_node(TIMEOUT).await?;
@@ -1992,7 +1990,7 @@ async fn check_recovery_voter_reservations(
             let fenced = fixture.domain.run(directory.materialize_selected_history(birth.route().history)).await?;
             ensure!(matches!(fenced, Err(cellar::application::consensus::CatalogError::Fenced)));
         }
-        Box::pin(restart_recovery_voter(&mut standbys, 2, 199, reserved.len(), true))
+        Box::pin(restart_recovery_voter(&mut standbys, 2, 199, reserved.len(), (true, false)))
             .await.context("restart an activated recovery voter after directory completion")?;
         let (_, _, restarted, peer) = &standbys[2];
         Box::pin(admit_capacity(peer, restarted, &directory, 199)).await?;
@@ -2001,7 +1999,7 @@ async fn check_recovery_voter_reservations(
             inspect_current(restarted, other.identity().node, revision).await?;
             inspect_current(other, restarted.identity().node, revision).await?;
         }
-        for (history, position) in activations {
+        for &(history, position) in &activations {
             Box::pin(restarted.attach_managed_recovery_voter(request.clone(), history, TIMEOUT)).await?;
             let group = restarted.group(history)?;
             let status = group.status().await?;
@@ -2009,6 +2007,46 @@ async fn check_recovery_voter_reservations(
             let reopened = Box::pin(group.activate_managed_recovery(request.clone(), TIMEOUT)).await?;
             ensure!(reopened == Some(position));
         }
+
+        let refused = Box::pin(fresh.release_transition_recovery_serving(
+            namespace, &request, [1; 32], TIMEOUT,
+        )).await;
+        ensure!(refused.is_err());
+        let still_fenced = fixture.domain.run(directory.observe()).await??;
+        ensure!(still_fenced.digest() == after_completion.digest());
+        let release = fresh.release_transition_recovery_serving(namespace, &request, completion, TIMEOUT);
+        let (unknown, delivered) = Box::pin(fault::lose_directory_confirmation(release)).await;
+        ensure!(delivered && matches!(unknown, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
+        let released = Box::pin(control.release_transition_recovery_serving(
+            namespace, &request, completion, TIMEOUT,
+        )).await?;
+        ensure!(released == completion);
+        let current = fixture.domain.run(directory.observe()).await??;
+        ensure!(current.revision() == after_completion.revision()
+            && current.digest() != after_completion.digest());
+        for &(history, position) in &activations {
+            let selected = fixture.domain.run(directory.materialize_selected_history(history)).await??;
+            ensure!(selected.route().history == history);
+            let reopened = Box::pin(fresh.reopen_transition_recovery_activation(
+                namespace, &request, history, TIMEOUT,
+            )).await?;
+            ensure!(reopened == Some(position));
+            // Existing owners require a new attachment under the serving decision.
+            ensure!(!standbys[0].2.group(history)?.status().await?.ready);
+        }
+
+        for (index, generation) in [201, 203, 205].into_iter().enumerate() {
+            Box::pin(restart_recovery_voter(&mut standbys, index, generation, reserved.len(), (true, true)))
+                .await.context("restart a released recovery voter")?;
+            let (_, _, restarted, peer) = &standbys[index];
+            Box::pin(admit_capacity(peer, restarted, &directory, generation)).await?;
+            let revision = fixture.catalog.read(TIMEOUT).await?.revision();
+            for (_, _, other, _) in &standbys {
+                inspect_current(restarted, other.identity().node, revision).await?;
+                inspect_current(other, restarted.identity().node, revision).await?;
+            }
+        }
+        Box::pin(check_recovered_sql(&standbys, plan, fenced, routed, &activations)).await?;
         Ok::<(), anyhow::Error>(())
     })
     .await;
@@ -2044,8 +2082,9 @@ async fn restart_recovery_voter(
     index: usize,
     generation: u8,
     ranges: usize,
-    activated: bool,
+    expected: (bool, bool),
 ) -> Result<()> {
+    let (activated, serving) = expected;
     let (root, node, host, peer) = voters.remove(index);
     let previous = host.identity();
     ensure!(matches!(
@@ -2066,41 +2105,133 @@ async fn restart_recovery_voter(
                 }),
         "closed recovery voter inventory: {report:?}"
     );
-    let (node, host) = Box::pin(start_recovery_voter(
-        &peer,
-        root.path(),
-        LogOpenMode::Resume,
-        generation,
-    ))
-    .await?;
-    voters.insert(index, (root, node, host, peer));
+    let voter = start_recovery_voter(peer, root, LogOpenMode::Resume, generation).await?;
+    voters.insert(index, voter);
     let host = &voters[index].2;
     ensure!(host.identity().disk == previous.disk && host.identity().process != previous.process);
     let view = host.observe_node(TIMEOUT).await?;
-    ensure!(view.node.groups == ranges as u32 && view.registered_histories == 0);
+    ensure!(view.node.groups == ranges as u32);
+    ensure!(view.registered_histories == if serving { ranges as u32 } else { 0 });
     Ok(())
 }
 
-async fn start_recovery_voter(
-    fixture: &Fixture,
-    root: &std::path::Path,
-    mode: LogOpenMode,
-    generation: u8,
-) -> Result<(Node, RaftCells)> {
-    let node = start_node(root, fixture.application.clone(), &fixture.spec.label).await?;
-    let result = Box::pin(async {
-        let (mut config, services) = fixture.config(&node, mode, generation).await?;
-        crate::managed_fixture::archives::configure(&mut config);
-        Box::pin(node.start_raft_cells(config, services)).await
-    })
-    .await;
-    match result {
-        Ok(host) => Ok((node, host)),
-        Err(error) => {
-            let stopped = node.shutdown(ShutdownMode::Preserve).await;
-            Err(error.context(format!("start recovery voter, shutdown={stopped:?}")))
+async fn check_recovered_sql(
+    voters: &[RecoveryVoter],
+    plan: &cellar::sdk::fleet_operations::FleetTransitionRecoveryReplacement,
+    fenced: &FleetFencedTransitionRecovery,
+    routed: &[(CellHistory, i64)],
+    activations: &[(GroupHistory, LogPosition)],
+) -> Result<()> {
+    let hosts: Vec<_> = voters.iter().map(|(_, _, host, _)| host.clone()).collect();
+    let retry = u64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_millis(),
+    )?
+    .checked_add(60_000)
+    .context("recovered SQL retry deadline")?;
+    let mut positions = Vec::new();
+    for ((birth, archive), &(history, activation)) in
+        plan.births().iter().zip(fenced.archives()).zip(activations)
+    {
+        ensure!(birth.route().history == history);
+        let host = tokio::time::timeout(TIMEOUT, async {
+            loop {
+                for (index, host) in hosts.iter().enumerate() {
+                    let status = host.group(history)?.status().await?;
+                    if status.ready
+                        && status.leader == Some(21 + index as u64)
+                        && status.term > activation.term
+                        && status.applied.term == status.term
+                    {
+                        return Ok::<_, anyhow::Error>(host);
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .context("released recovery did not establish a fresh serving quorum")??;
+        for (index, (old_cell, value)) in routed
+            .iter()
+            .enumerate()
+            .filter(|(_, (cell, _))| archive.recovery().manifest().pin_cell(&cell.cell).is_some())
+        {
+            let cell = CellHistory {
+                incarnation: history.incarnation,
+                ..old_cell.clone()
+            };
+            let handle = host.cell(cell)?;
+            let query = handle
+                .query(
+                    ProposalId::new([214; 16])?,
+                    &handle.contract("Get")?,
+                    vec![],
+                    QueryOptions {
+                        consistency: QueryConsistency::Linearizable,
+                        ..Default::default()
+                    },
+                )
+                .await?;
+            ensure!(query.result == (value + 1).to_be_bytes());
+            let id = CommandId::new(ClientId::new([212; 16])?, 1)?;
+            let options = CommandOptions::new(id, retry);
+            let add = handle.contract("Add")?;
+            let receipt = handle
+                .command(&add, 1i64.to_be_bytes().to_vec(), options)
+                .await?;
+            ensure!(
+                receipt.result == (value + 2).to_be_bytes() && receipt.witness.group == history
+            );
+            let duplicate = handle
+                .command(
+                    &add,
+                    1i64.to_be_bytes().to_vec(),
+                    CommandOptions::new(id, retry),
+                )
+                .await?;
+            ensure!(
+                duplicate == receipt,
+                "recovered cell {index} changed its retry receipt"
+            );
+            positions.push((history, receipt.witness.position.index));
         }
     }
+    ensure!(positions.len() == routed.len());
+    preparation::wait_transfer_applied(&hosts, &positions).await
+}
+
+async fn start_recovery_voter(
+    fixture: Fixture,
+    root: tempfile::TempDir,
+    mode: LogOpenMode,
+    generation: u8,
+) -> Result<RecoveryVoter> {
+    let domain = fixture.domain.clone();
+    // Run boot on its own polling stack. The split/merge scenario keeps
+    // substantial verification state live while RustFS boot binds a voter.
+    let boot = domain.spawn(Box::pin(async move {
+        let node = start_node(
+            root.path(),
+            fixture.application.clone(),
+            &fixture.spec.label,
+        )
+        .await?;
+        let result = Box::pin(async {
+            let (mut config, services) = fixture.config(&node, mode, generation).await?;
+            crate::managed_fixture::archives::configure(&mut config);
+            Box::pin(node.start_raft_cells(config, services)).await
+        })
+        .await;
+        match result {
+            Ok(host) => Ok((root, node, host, fixture)),
+            Err(error) => {
+                let stopped = node.shutdown(ShutdownMode::Preserve).await;
+                Err(error.context(format!("start recovery voter, shutdown={stopped:?}")))
+            }
+        }
+    }))?;
+    boot.await?
 }
 
 fn pending_recovery_route_fenced(error: &CellDispatchError) -> bool {

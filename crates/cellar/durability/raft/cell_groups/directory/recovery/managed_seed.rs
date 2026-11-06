@@ -313,13 +313,14 @@ impl RangeDirectory {
 
     /// A crash may leave a synced genesis with only its seed intent. Retain
     /// that owner, but require a complete receipt separately before voting.
-    pub(super) async fn require_retained_managed_seed_intent(
+    pub(super) async fn require_retained_managed_seed(
         &self,
         group: &GroupLog<GroupHistory>,
         route: &GroupRoute,
         plan: [u8; 32],
         fleet: &FleetGroupBinding,
         engine: EngineInstanceId,
+        require_complete: bool,
     ) -> Result<(GroupManifest, [u8; 32]), CatalogError> {
         let local = group.identity();
         let (binding, digest) = self.managed_seed_binding(route, plan).await?;
@@ -339,12 +340,12 @@ impl RangeDirectory {
             return Err(CatalogError::LostStableState);
         }
         let expected = record::encode(COMPLETE, &receipt, wire::LIMIT)?;
-        if self
-            .read_managed_seed_complete(route, member)
-            .await?
-            .is_some_and(|complete| complete != expected)
-        {
-            return Err(CatalogError::Corrupt("retained managed seed receipt"));
+        match self.read_managed_seed_complete(route, member).await? {
+            Some(complete) if complete != expected => {
+                return Err(CatalogError::Corrupt("retained managed seed receipt"));
+            }
+            None if require_complete => return Err(CatalogError::LostStableState),
+            _ => (),
         }
         self.namespace
             .verify_node_storage_identity(local.node, local.disk, engine)

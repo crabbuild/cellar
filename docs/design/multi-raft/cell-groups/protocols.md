@@ -1531,7 +1531,16 @@ histories and its commit journal. After the final batch, the directory
 checks the rooted Fleet settlement and every replacement history. One
 directory CAS records the completion receipt and supersedes the original
 transition. Operator status exposes that receipt alongside the held Fleet
-slot. Serving and archive cleanup require separate proofs.
+slot. The release step first creates or opens an archive registry for each
+replacement. A partially initialized registry keeps release fenced under the
+same archive authority rules as a new group. A separate CAS selects the
+exact completion receipt for serving and removes the directory recovery lock. A controller can reopen that decision
+after a lost response. Existing fenced owners remain parked for application
+work until they restart. Retained original voters recheck the current route
+and Fleet boot, the same disk and engine, their durable seed, and the exact
+committed activation before joining the serving runtime. Raft must still
+establish current-term quorum authority. The Fleet slot and archive holds
+stay charged until their independent retirement proofs are recorded.
 
 For an unpublished transition, choose complete archived parent cuts and reconstruct
 their non-overlapping domain under new groups. For a published transition, require

@@ -6,7 +6,10 @@ use super::{
     managed_recovery_quorum::publication_input,
     *,
 };
-use crate::raft::catalog::{CatalogError, ManagedRecoveryPublicationInput, RangeDirectory};
+use crate::raft::{
+    catalog::{CatalogError, ManagedRecoveryPublicationInput, RangeDirectory},
+    cell_groups::CellGroupArchivePool,
+};
 use cellar_logic::consensus::ProposalId;
 use serde::Deserialize;
 use std::ops::Range;
@@ -241,6 +244,7 @@ impl FleetCatalog {
         &self,
         directory: &RangeDirectory,
         request: &FleetRecoveryAttachRequest,
+        release: Option<([u8; 32], &CellGroupArchivePool)>,
         timeout: Duration,
     ) -> Result<[u8; 32]> {
         self.run(
@@ -300,9 +304,13 @@ impl FleetCatalog {
                 }
                 self.inner
                     .domain
-                    .run(Box::pin(
-                        directory.record_managed_recovery_completion(&input, &proof),
-                    ))
+                    .run(Box::pin(directory.record_managed_recovery_completion(
+                        &input,
+                        &proof,
+                        release.map(|(completion, archives)| {
+                            (completion, self.inner.domain.as_ref(), archives)
+                        }),
+                    )))
                     .await
                     .map_err(|_| FleetCatalogError::Closed)?
                     .map_err(catalog_error)

@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Attach the exact retained seed under the selected managed recovery lock.
+//! Attach retained recovery state under the pending or released directory decision.
 use super::*;
 use crate::raft::{
     cache::GroupLog,
@@ -82,7 +82,7 @@ impl RangeDirectory {
                 return Err(CatalogError::Fenced);
             }
             let (genesis, commitment) = self
-                .require_retained_managed_seed_intent(group, route, plan, history.binding(), engine)
+                .require_retained_managed_seed(group, route, plan, history.binding(), engine, false)
                 .await?;
             check_managed_recovery_member(
                 group,
@@ -95,6 +95,93 @@ impl RangeDirectory {
             Ok(true)
         })
         .await
+    }
+
+    pub(in crate::raft::catalog::range_directory) async fn require_serving_managed_recovery_member(
+        &self,
+        birth: &CellGroupBirth,
+        group: &GroupLog<GroupHistory>,
+        marker: &GroupManifest,
+        log: &ReplicaLog,
+        host: &FleetHostAuthorization,
+    ) -> Result<(), CatalogError> {
+        let boot = self
+            .require_managed_retained_group_boot(birth, log, host)
+            .await?;
+        let route = birth.route();
+        let (publication, commitment, position) =
+            marker.recovery_activation().ok_or(CatalogError::Fenced)?;
+        let plan = marker.recovery_request().ok_or(CatalogError::Fenced)?;
+        let operation = ProposalId::new(marker.recovery_operation().ok_or(CatalogError::Fenced)?)
+            .map_err(|_| CatalogError::Corrupt("managed recovery operation"))?;
+        let (view, _) = self.current().await?;
+        let (released, _) = self
+            .managed_recovery_serving_record(&view, operation)
+            .await?
+            .ok_or(CatalogError::Fenced)?;
+        if released.plan != plan || released.publication != publication {
+            return Err(CatalogError::Fenced);
+        }
+
+        let (reserved, origin) = self.birth_reservation(route).await?;
+        let local = group.identity();
+        if origin != Some(plan)
+            || marker.route() != route
+            || !reserved
+                .voters()
+                .iter()
+                .any(|voter| voter.node == local.node && voter.member == local.member)
+        {
+            return Err(CatalogError::Fenced);
+        }
+        let authorization = host
+            .group_authorization(
+                &route.history,
+                Duration::from_millis(self.limits.operation_timeout_ms),
+            )
+            .await
+            .map_err(CatalogError::from)?;
+        if !authorization.check_birth(self, birth)
+            || !authorization
+                .matches_replica(local, &group.membership().map_err(CatalogError::Log)?)
+        {
+            return Err(CatalogError::ManagedAdmissionRequired);
+        }
+        let (genesis, seeded) = self
+            .require_retained_managed_seed(
+                group,
+                route,
+                plan,
+                authorization.binding(),
+                log.storage_instance().map_err(CatalogError::Log)?,
+                true,
+            )
+            .await?;
+        if commitment != seeded
+            || self
+                .observe_managed_recovery_activation(route, plan, publication, commitment)
+                .await?
+                != Some(position)
+        {
+            return Err(CatalogError::LostStableState);
+        }
+        check_managed_recovery_member(
+            group,
+            marker,
+            &genesis,
+            (commitment, Some(publication)),
+            local.member,
+            authorization.binding(),
+        )?;
+        self.require_current_group_birth(birth).await?;
+        if self
+            .require_managed_retained_group_boot(birth, log, host)
+            .await?
+            != boot
+        {
+            return Err(CatalogError::Fenced);
+        }
+        Ok(())
     }
 
     pub(crate) fn bootstrap_managed_pending_recovery_voter<'a>(

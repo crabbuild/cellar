@@ -743,7 +743,7 @@ impl RangeDirectory {
                         return Err(CatalogError::Fenced);
                     }
                     if let Some(recovery) = managed_recovery {
-                        recovery.check_published(self, view, &publication).await?;
+                        recovery.check_selected(self, view, &publication).await?;
                     }
                     return Ok(publication);
                 }

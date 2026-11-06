@@ -7,6 +7,7 @@ use crate::raft::catalog::CellGroupBirthRequest;
 pub(crate) struct ManagedRecoveryPublicationInput<'a> {
     pub(crate) intent: [u8; 32],
     pub(crate) transition: ProposalId,
+    pub(crate) transition_plan: [u8; 32],
     pub(crate) barrier: [u8; 32],
     pub(crate) plan: [u8; 32],
     pub(crate) seeds: [u8; 32],
@@ -34,8 +35,8 @@ impl<'a> ManagedRecoveryPublication<'a> {
             || view.digest != input.barrier
             || !view.head.recovery.as_ref().is_some_and(|lock| {
                 lock.request == input.intent
-                    && matches!(&lock.phase, RecoveryPhase::ManagedSource { transition, .. }
-                        if *transition == input.transition.bytes())
+                    && matches!(&lock.phase, RecoveryPhase::ManagedSource { transition, plan, .. }
+                        if *transition == input.transition.bytes() && *plan == input.transition_plan)
             })
         {
             return Err(CatalogError::Fenced);
@@ -94,6 +95,25 @@ impl<'a> ManagedRecoveryPublication<'a> {
         }))
     }
 
+    pub(in crate::raft::catalog::range_directory) async fn check_selected(
+        &self,
+        directory: &RangeDirectory,
+        view: &DirectoryView,
+        publication: &DirectoryPublication,
+    ) -> Result<(), CatalogError> {
+        let input = self.input;
+        if let Some((released, _)) = directory
+            .managed_recovery_serving_record(view, input.mutation.operation())
+            .await?
+        {
+            if !released.matches_publication(input, publication.journal_digest()) {
+                return Err(CatalogError::Fenced);
+            }
+            return Ok(());
+        }
+        self.check_published(directory, view, publication).await
+    }
+
     pub(in crate::raft::catalog::range_directory) async fn check_published(
         &self,
         directory: &RangeDirectory,
@@ -104,8 +124,8 @@ impl<'a> ManagedRecoveryPublication<'a> {
         if !view.head.recovery.as_ref().is_some_and(|lock| {
             lock.request == input.intent
                 && matches!(&lock.phase, RecoveryPhase::ManagedPublished {
-                    transition, replacement, seeds, publication: published, ..
-                } if *transition == input.transition.bytes()
+                    transition, plan, replacement, seeds, publication: published, ..
+                } if *transition == input.transition.bytes() && *plan == input.transition_plan
                     && *replacement == input.plan && *seeds == input.seeds
                     && *published == publication.journal_digest())
         }) {
@@ -119,7 +139,7 @@ impl<'a> ManagedRecoveryPublication<'a> {
 }
 
 impl RangeDirectory {
-    pub(crate) async fn observe_managed_recovery_publication(
+    pub(crate) async fn observe_pending_managed_recovery_publication(
         &self,
         input: &ManagedRecoveryPublicationInput<'_>,
     ) -> Result<Option<DirectoryPublication>, CatalogError> {
@@ -129,6 +149,23 @@ impl RangeDirectory {
             if let Some(publication) = &publication {
                 ManagedRecoveryPublication::new(input)
                     .check_published(self, &view, publication)
+                    .await?;
+            }
+            Ok(publication)
+        })
+        .await
+    }
+
+    pub(crate) async fn observe_managed_recovery_publication(
+        &self,
+        input: &ManagedRecoveryPublicationInput<'_>,
+    ) -> Result<Option<DirectoryPublication>, CatalogError> {
+        self.bounded(async {
+            let (view, _) = self.current().await?;
+            let publication = self.confirmed(&view.head, input.mutation).await?;
+            if let Some(publication) = &publication {
+                ManagedRecoveryPublication::new(input)
+                    .check_selected(self, &view, publication)
                     .await?;
             }
             Ok(publication)
