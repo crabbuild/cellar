@@ -1280,15 +1280,11 @@ pub(super) async fn verify_child_archive_coverage(
         .reopen_managed_transfer_child_holds(transition, directory, TIMEOUT)
         .await?
         .is_none());
-    cluster.fixtures[0]
-        .store
-        .fail_head_confirmation
-        .store(true, Ordering::Release);
-    let recorded = fleet
-        .verify_managed_transfer_child_archives(transition, directory, &verifier, TIMEOUT)
-        .await;
+    let work =
+        fleet.verify_managed_transfer_child_archives(transition, directory, &verifier, TIMEOUT);
+    let (recorded, delivered) = Box::pin(fault::lose_directory_confirmation(work)).await;
     ensure!(
-        matches!(recorded, Err(FleetCatalogError::Unconfirmed)),
+        delivered && matches!(recorded, Err(FleetCatalogError::Unconfirmed)),
         "child archive CAS result: {recorded:?}"
     );
     let reopened = fleet
@@ -1336,21 +1332,16 @@ pub(super) async fn verify_child_archive_coverage(
             .await,
         Err(FleetCatalogError::Invalid(_))
     ));
-    cluster.fixtures[0]
-        .store
-        .fail_head_confirmation
-        .store(true, Ordering::Release);
-    let lost = fleet
-        .settle_managed_transfer_retirement(
-            &reopened,
-            directory,
-            &archives,
-            vec![tombstone.clone()],
-            TIMEOUT,
-        )
-        .await;
+    let work = fleet.settle_managed_transfer_retirement(
+        &reopened,
+        directory,
+        &archives,
+        vec![tombstone.clone()],
+        TIMEOUT,
+    );
+    let (lost, delivered) = Box::pin(fault::lose_directory_confirmation(work)).await;
     ensure!(
-        matches!(lost, Err(FleetCatalogError::Unconfirmed)),
+        delivered && matches!(lost, Err(FleetCatalogError::Unconfirmed)),
         "retirement CAS result: {lost:?}"
     );
     let retired = fleet
