@@ -31,6 +31,7 @@ pub struct Store {
     held_delete: Mutex<Option<(Path, Arc<Gate>)>>,
     publication: Mutex<Option<Arc<Gate>>>,
     pub publication_cuts: Mutex<Vec<u64>>,
+    pub deny_generation_writes: AtomicBool,
     pub outage: AtomicBool,
     pub lose_publication_and_reads: AtomicBool,
 }
@@ -55,6 +56,7 @@ impl Store {
             held_delete: Mutex::new(None),
             publication: Mutex::new(None),
             publication_cuts: Mutex::new(Vec::new()),
+            deny_generation_writes: AtomicBool::new(false),
             outage: AtomicBool::new(false),
             lose_publication_and_reads: AtomicBool::new(false),
         })
@@ -122,6 +124,14 @@ impl ObjectStore for Store {
         opts: PutOptions,
     ) -> Result<PutResult> {
         self.available()?;
+        if path.as_ref().contains("/generations/")
+            && self.deny_generation_writes.load(Ordering::Acquire)
+        {
+            return Err(Error::Generic {
+                store: "archive generation writes denied",
+                source: "injected".into(),
+            });
+        }
         self.puts.fetch_add(1, Ordering::AcqRel);
         let gate = self
             .held_put

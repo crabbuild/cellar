@@ -216,11 +216,13 @@ pub(super) async fn drive(
     }
     if matches!(record.pending, Pending::None) {
         let current = runtime
-            .status(registration.birth.route().history)
-            .await
-            .map_err(Error::Runtime)?;
+            .log()
+            .cell_group(&registration.birth.route().history)
+            .and_then(|group| group.group_manifest())
+            .map_err(|error| Error::Runtime(error.into()))?
+            .ok_or(Error::Runtime(RuntimeError::NotReady))?;
         if let Some(head) = &record.head {
-            if head.marker().position().index >= current.applied.index {
+            if head.marker().position().index >= current.position().index {
                 let coverage = context
                     .registry
                     .verify_hold(
@@ -233,9 +235,43 @@ pub(super) async fn drive(
                 return Ok(coverage);
             }
         }
-        let intent = context.registry.prepare_upload(execution).await?;
-        record.pending = Pending::Reserve(intent);
+        // Another voter may have published this exact applied manifest while
+        // our publication was in flight. Pin and independently verify its cut
+        // before settling any receipts or granting local reclamation.
+        record.pending = match context.registry.prepare_acquire(execution).await {
+            Ok(intent) if intent.acquire_marker()? == &current => Pending::Acquire(intent),
+            Ok(_) | Err(CellGroupArchiveError::Unconfirmed) => {
+                Pending::Reserve(context.registry.prepare_upload(execution).await?)
+            }
+            Err(error) => return Err(error.into()),
+        };
         store(context, execution, &record).await?;
+    }
+    if let Pending::Acquire(intent) = &record.pending {
+        let hold = match context.registry.acquire(execution, intent).await {
+            Ok(hold) => hold,
+            Err(error @ (CellGroupArchiveError::Expired | CellGroupArchiveError::Conflict)) => {
+                if matches!(
+                    context.registry.acquire_outcome(execution, intent).await?,
+                    CellGroupArchiveAcquireOutcome::Superseded
+                ) {
+                    record.pending = Pending::None;
+                    store(context, execution, &record).await?;
+                }
+                return Err(error.into());
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let coverage = context
+            .registry
+            .verify_hold(
+                execution,
+                &hold,
+                &registration.tails,
+                receiver(registration)?,
+            )
+            .await?;
+        return select(context, execution, &mut record, coverage).await;
     }
     if let Pending::Reserve(intent) = &record.pending {
         match context.registry.reserve(execution, intent).await {

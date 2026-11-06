@@ -335,6 +335,56 @@ impl Harness {
     }
 }
 
+pub(crate) async fn s3_replays_from_peer_archive(
+    rooted: bool,
+    store: Arc<dyn ObjectStore>,
+) -> Result<()> {
+    let h = Harness::new(rooted, store, 1).await?;
+    let gate = h.remote.hold_publication();
+    let written = h
+        .command(
+            1,
+            b"peer-archive",
+            Durability::Quorum,
+            Duration::from_secs(5),
+        )
+        .await?
+        .response()
+        .await?;
+    let at = written
+        .local_receipt()
+        .context("original receipt")?
+        .position;
+    drop(written);
+    tokio::time::timeout(Duration::from_secs(5), gate.entered.notified()).await?;
+    controller::applied(&h.fixture, h.route.history, at.index).await?;
+
+    let peer = CellGroupArchiveRegistration {
+        store: archive_controller::verifier(&h.fixture, &h.route, rooted, "peer-archive").await?,
+        ..h.archive.clone()
+    };
+    h.controllers[1].archive(peer)?.response().await?;
+    archive_controller::published(&h.controllers[1], h.route.history, at.index).await?;
+    // The peer's full cut is already durable. Disallow new data so the
+    // waiting voter has to verify that cut instead of uploading it again.
+    h.remote
+        .deny_generation_writes
+        .store(true, Ordering::Release);
+    gate.release.notify_one();
+    let replay = h
+        .command(1, b"peer-archive", Durability::S3, Duration::from_secs(5))
+        .await?
+        .response()
+        .await?;
+    let receipt = replay.local_receipt().context("S3 replay receipt")?;
+    assert_eq!(receipt.position, at);
+    assert_eq!(receipt.receipt.result(), b"peer-archive");
+    assert_eq!(replay.durability(), Durability::S3);
+    assert_eq!(h.calls.load(Ordering::Acquire), 1);
+    drop(replay);
+    h.close().await
+}
+
 pub(crate) async fn archive_progress_wakes_commands(rooted: bool) -> Result<()> {
     let h = Harness::configured_resources(
         rooted,

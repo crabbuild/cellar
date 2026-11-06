@@ -458,8 +458,8 @@ async fn retire(
             Err(CellGroupArchiveError::Conflict | CellGroupArchiveError::Expired) => None,
             Err(error) => return Err(error.into()),
         },
-        journal::Pending::Publish { .. } => {
-            return Err(Error::Invalid("archive seed publication intent"))
+        journal::Pending::Acquire(_) | journal::Pending::Publish { .. } => {
+            return Err(Error::Invalid("archive seed journal purpose"))
         }
     };
     if let Some(ticket) = ticket {

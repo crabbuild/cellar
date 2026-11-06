@@ -260,7 +260,10 @@ async fn reconcile(
             let record = journal.load()?;
             if record.head.is_some()
                 || record.retire.is_some()
-                || matches!(record.pending, journal::Pending::Publish { .. })
+                || matches!(
+                    record.pending,
+                    journal::Pending::Acquire(_) | journal::Pending::Publish { .. }
+                )
             {
                 return Err(Error::Invalid("seed cleanup journal purpose"));
             }

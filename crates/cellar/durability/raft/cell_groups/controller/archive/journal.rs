@@ -21,6 +21,7 @@ struct Identity {
 pub(super) enum Pending {
     #[default]
     None,
+    Acquire(CellGroupArchiveIntent),
     Reserve(CellGroupArchiveIntent),
     Upload(CellGroupArchiveUploadTicket),
     Publish {

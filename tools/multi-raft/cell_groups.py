@@ -38,6 +38,7 @@ CASES = (
     "rustfs_controller_archive_reconciles_exact_intent_and_joins_close",
     "rustfs_unproved_s3_responses_refuse",
     "rustfs_s3_commands_require_exact_archived_results",
+    "rustfs_s3_replays_from_peer_archive_without_new_upload",
     "rustfs_s3_command_deadlines_do_not_quarantine_committed_sql",
     "rustfs_s3_command_requires_the_sibling_archive_dependencies",
     "rustfs_s3_namespace_minimum_cannot_be_downgraded",
