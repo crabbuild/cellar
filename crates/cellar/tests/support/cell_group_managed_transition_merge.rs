@@ -5,20 +5,20 @@ use super::*;
 use cellar::application::consensus::verification::{
     cell_groups::{
         CellGroupArchiveHold, CellGroupArchiveTailLimits, CellGroupArchiveTailPool, CellGroupBirth,
-        CellGroupCheckpointPool, CellGroupTransitionSource, GroupRoute,
+        CellGroupCheckpointPool, CellGroupTransitionSource, CellImagePin, GroupRoute,
     },
     FleetChange, FleetHistoryState, FleetMutation, FleetSnapshot, FleetTable,
 };
 use cellar::application::consensus::{DisasterFenceAuthority, FleetNodeSpec};
 use cellar::sdk::fleet_operations::{
-    FleetTransitionRecoveryFenceRequest, RaftFleetControl, RaftFleetFailureCode,
-    RaftFleetFirstGroupVoter, RaftFleetOutcome, RaftFleetTransitionAdmissionRequest,
-    RaftFleetTransitionChild, RaftFleetTransitionChildSetupRequest,
-    RaftFleetTransitionChildSetupResult, RaftFleetTransitionChildStep, RaftFleetTransitionGroup,
-    RaftFleetTransitionPartition, RaftFleetTransitionPrepareRequest,
-    RaftFleetTransitionPublishRequest, RaftFleetTransitionResume, RaftFleetTransitionResumeStep,
-    RaftFleetTransitionSealRequest, RaftFleetTransitionSourceRetirement,
-    RaftFleetTransitionSourceSealRequest,
+    FleetFencedTransitionRecovery, FleetTransitionRecoveryFenceRequest, RaftFleetControl,
+    RaftFleetFailureCode, RaftFleetFirstGroupVoter, RaftFleetOutcome,
+    RaftFleetTransitionAdmissionRequest, RaftFleetTransitionChild,
+    RaftFleetTransitionChildSetupRequest, RaftFleetTransitionChildSetupResult,
+    RaftFleetTransitionChildStep, RaftFleetTransitionGroup, RaftFleetTransitionPartition,
+    RaftFleetTransitionPrepareRequest, RaftFleetTransitionPublishRequest,
+    RaftFleetTransitionResume, RaftFleetTransitionResumeStep, RaftFleetTransitionSealRequest,
+    RaftFleetTransitionSourceRetirement, RaftFleetTransitionSourceSealRequest,
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1268,6 +1268,16 @@ async fn run_inner(
             .eq(parent_holds.iter()));
         ensure!(authority.fences.load(Ordering::Acquire) == 1);
         ensure!(authority.verifications.load(Ordering::Acquire) == 2);
+        Box::pin(check_recovery_replacements(
+            fixture,
+            &recovery_control,
+            &fresh,
+            &namespace,
+            &fenced,
+            &routed,
+            rooted,
+        ))
+        .await?;
         drop(fenced);
         ensure!(matches!(
             domain
@@ -1507,6 +1517,158 @@ async fn run_inner(
         ensure!(query.result == (expected + 2).to_be_bytes());
     }
     Ok(Some(child.history))
+}
+
+async fn check_recovery_replacements(
+    fixture: &Fixture,
+    control: &RaftFleetControl,
+    fresh: &RaftFleetControl,
+    namespace: &str,
+    fenced: &FleetFencedTransitionRecovery,
+    routed: &[(CellHistory, i64)],
+    rooted: bool,
+) -> Result<()> {
+    let epoch = fenced
+        .archives()
+        .iter()
+        .map(|cut| cut.marker().route().epoch.get())
+        .max()
+        .context("recovery epoch")?;
+    let replacements = fenced
+        .archives()
+        .iter()
+        .enumerate()
+        .map(|(index, cut)| {
+            let route = cut.marker().route();
+            let id = 170 + index as u8;
+            Ok(CellGroupBirthSpec {
+                history: GroupHistory {
+                    group: GroupId::new([id; 16])?,
+                    incarnation: IncarnationId::new([id + 10; 16])?,
+                    ..route.history
+                },
+                range: route.range.clone(),
+                epoch: RouteEpoch::new(epoch + 1)?,
+                creation: ProposalId::new([id + 20; 16])?,
+                voters: (0..3)
+                    .map(|offset| {
+                        Ok(InitialMember {
+                            node: NodeId::new([199 + offset; 16])?,
+                            member: MemberId::new(21 + u64::from(offset))?,
+                        })
+                    })
+                    .collect::<Result<_>>()?,
+                learners: vec![],
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let mut unsafe_roster = replacements.clone();
+    unsafe_roster[0].voters[0].node = fenced.request().intent().required_voter_lineages()[0].node;
+    let refused = Box::pin(control.stage_transition_recovery_replacement(
+        namespace,
+        fenced,
+        unsafe_roster,
+        TIMEOUT,
+    ))
+    .await;
+    ensure!(matches!(refused, Err(failure) if failure.code == RaftFleetFailureCode::Conflict));
+    fixture
+        .store
+        .fail_recovery_record_confirmation
+        .store(true, Ordering::Release);
+    let unknown = Box::pin(control.stage_transition_recovery_replacement(
+        namespace,
+        fenced,
+        replacements.clone(),
+        TIMEOUT,
+    ))
+    .await;
+    ensure!(matches!(unknown, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
+    let plan = Box::pin(fresh.reopen_transition_recovery_replacement(namespace, fenced, TIMEOUT))
+        .await?
+        .context("reopen selected recovery replacements")?;
+    let repeated = Box::pin(control.stage_transition_recovery_replacement(
+        namespace,
+        fenced,
+        replacements.clone(),
+        TIMEOUT,
+    ))
+    .await?;
+    ensure!(plan.digest() == repeated.digest());
+    ensure!(plan.mutation().operation().bytes() == fenced.request().intent().operation());
+    let mut changed = replacements;
+    changed[0].creation = ProposalId::new([215; 16])?;
+    let conflict = Box::pin(
+        control.stage_transition_recovery_replacement(namespace, fenced, changed, TIMEOUT),
+    )
+    .await;
+    ensure!(
+        matches!(conflict, Err(failure) if failure.code == RaftFleetFailureCode::PayloadConflict)
+    );
+
+    let workspace = tempfile::tempdir()?;
+    let mut checked = 0;
+    for (index, (birth, cut)) in plan.births().iter().zip(fenced.archives()).enumerate() {
+        let base = workspace.path().join(index.to_string());
+        let route = birth.route().clone();
+        let target = fixture
+            .domain
+            .blocking(move || preparation::store(base, route, rooted))?
+            .await??;
+        let restored = Box::pin(
+            fresh.prepare_transition_recovery_range(namespace, fenced, &plan, target, TIMEOUT),
+        )
+        .await?;
+        ensure!(restored.plan_digest() == plan.digest() && restored.commitment() != [0; 32]);
+        let marker = restored.manifest().marker();
+        ensure!(
+            marker.route() == birth.route()
+                && marker.position().index.get() == 1
+                && !marker.is_active()
+        );
+        for (cell, _) in routed {
+            if let Some((old, before)) = cut.recovery().manifest().pin_cell(&cell.cell) {
+                let (new, after) = restored
+                    .manifest()
+                    .pin_cell(&cell.cell)
+                    .context("restored cell")?;
+                ensure!(new.version.history.incarnation == birth.route().history.incarnation);
+                ensure!(old.version.history.incarnation != new.version.history.incarnation);
+                ensure!(
+                    new.version.sequence.get() == 1 && new.witness.group == birth.route().history
+                );
+                ensure!(new.version.image.checksum == old.version.image.checksum);
+                check_restored_image(before, after)?;
+                checked += 1;
+            }
+        }
+    }
+    ensure!(checked == routed.len());
+    Ok(())
+}
+
+fn check_restored_image(before: CellImagePin, after: CellImagePin) -> Result<()> {
+    match (before, after) {
+        (CellImagePin::Materialized(before), CellImagePin::Materialized(after)) => {
+            let length = usize::try_from(before.state().length)?;
+            ensure!(before.state() == after.state());
+            ensure!(
+                before.open_reader()?.read_exact_at(0, length)?
+                    == after.open_reader()?.read_exact_at(0, length)?
+            );
+        }
+        (CellImagePin::Extents(before), CellImagePin::Extents(after)) => {
+            let count = before.manifest().geometry().extent_count();
+            ensure!(count == after.manifest().geometry().extent_count());
+            for index in 0..count {
+                let id = before.manifest().extent(index).context("source extent")?;
+                ensure!(after.manifest().extent(index) == Some(id));
+                ensure!(before.view().read_extent(id)? == after.view().read_extent(id)?);
+            }
+        }
+        _ => anyhow::bail!("expected matching nonempty image representations"),
+    }
+    Ok(())
 }
 
 async fn admit_merge(

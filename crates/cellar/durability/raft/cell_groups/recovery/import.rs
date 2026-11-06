@@ -24,9 +24,15 @@ type Result<T> = std::result::Result<T, CellGroupArchiveError>;
 #[derive(Clone)]
 pub struct PreparedCellGroupRecovery {
     fence: FencedCellGroupRecovery,
-    store: CellGroupArchiveStore,
-    manifest: PreparedGroupManifest,
-    commitment: [u8; 32],
+    data: PreparedRecoveryData,
+}
+
+#[derive(Clone)]
+pub(crate) struct PreparedRecoveryData {
+    pub(crate) store: CellGroupArchiveStore,
+    pub(crate) manifest: PreparedGroupManifest,
+    pub(crate) commitment: [u8; 32],
+    _source: CellGroupArchiveCoverage,
 }
 
 impl PreparedCellGroupRecovery {
@@ -39,15 +45,15 @@ impl PreparedCellGroupRecovery {
     }
 
     pub fn store(&self) -> &CellGroupArchiveStore {
-        &self.store
+        &self.data.store
     }
 
     pub fn manifest(&self) -> &PreparedGroupManifest {
-        &self.manifest
+        &self.data.manifest
     }
 
     pub fn commitment(&self) -> [u8; 32] {
-        self.commitment
+        self.data.commitment
     }
 }
 
@@ -72,6 +78,39 @@ impl CellGroupRecoveryPool {
         scratch: ScratchPool,
         directory: PathBuf,
     ) -> Result<PreparedCellGroupRecovery> {
+        if target.route() != fence.request().replacement().route() {
+            return Err(CellGroupArchiveError::Invalid(
+                "recovery destination binding",
+            ));
+        }
+        let data = Box::pin(self.prepare_cut(
+            domain,
+            fence.coverage().clone(),
+            CellGroupTransferTarget {
+                store: target,
+                scratch,
+                directory,
+            },
+            fence.request().digest(),
+            fence.request().operation(),
+        ))
+        .await?;
+        Ok(PreparedCellGroupRecovery { fence, data })
+    }
+
+    pub(crate) async fn prepare_cut(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        source_cut: CellGroupArchiveCoverage,
+        target: CellGroupTransferTarget,
+        binding: [u8; 32],
+        operation: ProposalId,
+    ) -> Result<PreparedRecoveryData> {
+        let CellGroupTransferTarget {
+            store: target,
+            scratch,
+            directory,
+        } = target;
         domain
             .run(async {
                 let admission = self.admit()?;
@@ -85,8 +124,7 @@ impl CellGroupRecoveryPool {
                                 return Err(CellGroupArchiveError::Stopped);
                             }
                             target.require_live()?;
-                            fence
-                                .coverage()
+                            source_cut
                                 .recovery()
                                 .checkpoint()
                                 .checkpoint()
@@ -95,14 +133,24 @@ impl CellGroupRecoveryPool {
                             Ok(())
                         };
                         check()?;
-                        if target.route() != fence.request().replacement().route()
-                            || !directory.is_absolute()
+                        let source = source_cut.recovery().manifest();
+                        let old = source.marker().route();
+                        let new = target.route();
+                        if !directory.is_absolute()
+                            || old.range != new.range
+                            || old.schema_digest != new.schema_digest
+                            || old.history.cluster != new.history.cluster
+                            || old.history.namespace != new.history.namespace
+                            || old.history.group == new.history.group
+                            || old.history.incarnation == new.history.incarnation
                         {
                             return Err(CellGroupArchiveError::Invalid(
                                 "recovery destination binding",
                             ));
                         }
-                        let source = fence.coverage().recovery().manifest();
+                        source_cut
+                            .recovery()
+                            .check_recovery_cell_incarnation(new.history.incarnation)?;
                         if source.pinned_images() > limits.max_cells as usize {
                             return Err(CellGroupArchiveError::Limit);
                         }
@@ -146,7 +194,7 @@ impl CellGroupRecoveryPool {
                                 )?;
                                 leaf.enrollment = EnrollmentRecord::new(
                                     leaf.version.history.clone(),
-                                    fence.request().operation(),
+                                    operation,
                                     target.route().schema_digest,
                                     leaf.version.image,
                                 )
@@ -158,7 +206,7 @@ impl CellGroupRecoveryPool {
                                 leaf.witness = CommitWitness {
                                     group: target.route().history,
                                     position: leaf.last_mutation,
-                                    proposal: fence.request().operation(),
+                                    proposal: operation,
                                 };
                                 root = tree
                                     .update(pages, root, leaf.clone(), None)
@@ -171,8 +219,8 @@ impl CellGroupRecoveryPool {
                         let marker = GroupManifest::recovery_genesis(
                             target.route().clone(),
                             root,
-                            fence.request().digest(),
-                            fence.request().operation(),
+                            binding,
+                            operation,
                         )
                         .map_err(manifest_error)?;
                         let commitment = marker
@@ -196,8 +244,8 @@ impl CellGroupRecoveryPool {
                         manifest.recovery_admission = Some(admission);
                         check()?;
                         drop(owner);
-                        Ok(PreparedCellGroupRecovery {
-                            fence,
+                        Ok(PreparedRecoveryData {
+                            _source: source_cut,
                             store: target,
                             manifest,
                             commitment,

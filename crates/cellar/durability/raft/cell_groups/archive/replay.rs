@@ -70,8 +70,15 @@ impl VerifiedCellGroupArchiveRecovery {
                 ));
             }
         }
+        self.check_recovery_cell_incarnation(target.route().history.incarnation)
+    }
+
+    pub(crate) fn check_recovery_cell_incarnation(
+        &self,
+        incarnation: cellar_logic::consensus::IncarnationId,
+    ) -> Result<()> {
         self.root.images.visit(&mut |_, leaf, _, _, _| {
-            if leaf.version.history.incarnation == target.route().history.incarnation {
+            if leaf.version.history.incarnation == incarnation {
                 return Err(CellGroupArchiveError::Invalid(
                     "reused recovery cell incarnation",
                 ));

@@ -1487,6 +1487,13 @@ A retry reopens that receipt and verifies it with the authority again.
 The controller checks the barrier and cuts again before returning proof.
 If a late archive write advanced a cut, the receipt survives but that
 selection cannot authorize restoration.
+The replacement plan retains a fresh birth and placement for each selected
+range, bound to that receipt and the exact directory mutation. A controller
+can reopen the plan after losing the write confirmation. Each source image
+is independently copied into its selected replacement store. The new cell
+history starts at sequence one, with the original SQLite bytes and fresh
+genesis witnesses. Prepared data still needs managed capacity admission and
+durable voter seeds before topology publication can proceed.
 
 For an unpublished transition, choose complete archived parent cuts and reconstruct
 their non-overlapping domain under new groups. For a published transition, require

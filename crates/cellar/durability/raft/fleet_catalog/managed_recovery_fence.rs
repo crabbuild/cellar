@@ -4,7 +4,7 @@
 use super::{histories::catalog_error, managed_transitions::transfer_archive_error, *};
 use crate::raft::{
     catalog::RangeDirectory,
-    cell_groups::{CellGroupArchiveCoverage, CellGroupArchiveRegistry},
+    cell_groups::{CellGroupArchiveCoverage, CellGroupArchivePool, CellGroupArchiveRegistry},
 };
 use cellar_logic::consensus::ProposalId;
 use serde::Deserialize;
@@ -203,6 +203,45 @@ impl FleetCatalog {
             })
         })
         .await
+    }
+
+    pub(super) async fn require_confirmed_managed_fence(
+        &self,
+        directory: &RangeDirectory,
+        fenced: &FleetFencedTransitionRecovery,
+        archives: &CellGroupArchivePool,
+    ) -> Result<()> {
+        let request = fenced.request();
+        self.require_managed_fence_barrier(directory, request)
+            .await?;
+        let (receipt, _) = self
+            .inner
+            .read::<Receipt>(&receipt_key(request.intent.operation()), KIND, LIMIT)
+            .await?
+            .ok_or(FleetCatalogError::Unconfirmed)?;
+        if receipt.request != request.digest
+            || hash(&encode(KIND, &receipt, LIMIT)?) != fenced.receipt_digest
+        {
+            return Err(FleetCatalogError::PayloadConflict);
+        }
+        let transition = ProposalId::new(request.intent.transition())
+            .map_err(|_| FleetCatalogError::Corrupt("recovery transition operation"))?;
+        let domain = &self.inner.domain;
+        for hold in request.intent.archive_holds() {
+            let registry = domain
+                .run(Box::pin(directory.open_managed_recovery_archive(
+                    domain,
+                    archives,
+                    hold.marker().route(),
+                    transition,
+                    request.barrier.directory_digest(),
+                )))
+                .await
+                .map_err(|_| FleetCatalogError::Closed)?
+                .map_err(transfer_archive_error)?;
+            registry.require_selected_hold(domain, hold).await?;
+        }
+        Ok(())
     }
 
     async fn require_managed_fence_barrier(

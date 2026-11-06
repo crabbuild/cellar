@@ -13,6 +13,7 @@ pub use admission::{CellGroupRecoveryLimits, CellGroupRecoveryPool};
 pub(crate) use genesis::RecoverySeed;
 pub use genesis::SeededCellGroupRecovery;
 pub use import::PreparedCellGroupRecovery;
+pub(crate) use import::PreparedRecoveryData;
 pub(crate) use partition::StagedCellGroupPartition;
 pub use partition::{
     CellGroupTransferTarget, PreparedCellGroupTransfer, PreparedCellGroupTransferChild,

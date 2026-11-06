@@ -117,7 +117,7 @@ pub use recovery::{
     PreparedCellGroupRecovery, PreparedCellGroupTransfer, PreparedCellGroupTransferChild,
     SeededCellGroupRecovery,
 };
-pub(crate) use recovery::{RecoverySeed, TransferSeed};
+pub(crate) use recovery::{PreparedRecoveryData, RecoverySeed, TransferSeed};
 pub(crate) mod reclaim;
 pub use read_authority::{CellReadAuthority, CellReadConsistency};
 pub use reclaim::{CellGroupReclaimError, CellGroupReclaimLimits, CellGroupReclaimReport};

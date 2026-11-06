@@ -4,12 +4,16 @@
 
 use super::*;
 use crate::raft::{
-    catalog::DisasterFenceAuthority,
-    cell_groups::{CellGroupArchiveCoverage, CellGroupArchiveHold, TransitionPhase},
+    catalog::{CellGroupBirthSpec, DisasterFenceAuthority},
+    cell_groups::{
+        CellGroupArchiveCoverage, CellGroupArchiveHold, CellGroupArchiveStore,
+        CellGroupTransferTarget, PreparedGroupManifest, PreparedRecoveryData, TransitionPhase,
+    },
     fleet_catalog::{
         FleetFencedTransitionRecovery, FleetRecoveryVoterLineage, FleetTransitionRecoveryBarrier,
         FleetTransitionRecoveryFenceRequest, FleetTransitionRecoveryIntent,
-        ManagedRecoveryIntentBasis, ManagedRecoveryIntentInput, PreparedManagedRecoveryFence,
+        FleetTransitionRecoveryReplacement, ManagedRecoveryIntentBasis, ManagedRecoveryIntentInput,
+        PreparedManagedRecoveryFence,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -46,6 +50,31 @@ impl RaftFleetVerifiedTransitionRecovery {
     /// platform's complete inventory of possible old writers.
     pub fn required_voter_lineages(&self) -> &[FleetRecoveryVoterLineage] {
         &self.lineages
+    }
+}
+
+/// A restored range bound to one durable replacement plan and recovery
+/// genesis commitment. Its data and source pins survive until this value drops.
+pub struct RaftFleetPreparedRecoveryRange {
+    plan: [u8; 32],
+    data: PreparedRecoveryData,
+}
+
+impl RaftFleetPreparedRecoveryRange {
+    pub fn plan_digest(&self) -> [u8; 32] {
+        self.plan
+    }
+
+    pub fn store(&self) -> &CellGroupArchiveStore {
+        &self.data.store
+    }
+
+    pub fn manifest(&self) -> &PreparedGroupManifest {
+        &self.data.manifest
+    }
+
+    pub fn commitment(&self) -> [u8; 32] {
+        self.data.commitment
     }
 }
 
@@ -253,6 +282,111 @@ impl RaftFleetControl {
             .catalog
             .confirm_managed_recovery_fence(directory, prepared, evidence, turn.remaining()?)
             .await?)
+    }
+
+    /// Freeze fresh placement and range identities against the permanent
+    /// fence. Repeat with the same births or reopen the immutable record.
+    #[doc(hidden)]
+    pub async fn stage_transition_recovery_replacement(
+        &self,
+        namespace: &str,
+        fenced: &FleetFencedTransitionRecovery,
+        replacements: Vec<CellGroupBirthSpec>,
+        timeout: Duration,
+    ) -> Result<FleetTransitionRecoveryReplacement> {
+        let directory = self.managed_namespace(namespace)?;
+        Ok(self
+            .catalog
+            .stage_managed_recovery_replacement(
+                directory,
+                fenced,
+                replacements,
+                &self.archive_pool,
+                timeout,
+            )
+            .await?)
+    }
+
+    #[doc(hidden)]
+    pub async fn reopen_transition_recovery_replacement(
+        &self,
+        namespace: &str,
+        fenced: &FleetFencedTransitionRecovery,
+        timeout: Duration,
+    ) -> Result<Option<FleetTransitionRecoveryReplacement>> {
+        let directory = self.managed_namespace(namespace)?;
+        Ok(self
+            .catalog
+            .reopen_managed_recovery_replacement(directory, fenced, &self.archive_pool, timeout)
+            .await?)
+    }
+
+    /// Copy one exact selected cut into dedicated fresh-history stores. This
+    /// does not install Raft state or authorize placement or serving.
+    #[doc(hidden)]
+    pub async fn prepare_transition_recovery_range(
+        &self,
+        namespace: &str,
+        fenced: &FleetFencedTransitionRecovery,
+        plan: &FleetTransitionRecoveryReplacement,
+        target: CellGroupTransferTarget,
+        timeout: Duration,
+    ) -> Result<RaftFleetPreparedRecoveryRange> {
+        let directory = self.managed_namespace(namespace)?;
+        let turn = Turn::new(&self.domain, timeout)?;
+        let services = self
+            .transition_preparation
+            .as_ref()
+            .ok_or_else(|| RaftFleetFailure {
+                code: RaftFleetFailureCode::Unsupported,
+                outcome: RaftFleetOutcome::NotSubmitted,
+                message: "Recovery data preparation requires a trusted recovery pool.".into(),
+            })?;
+        if !plan.matches_fence(fenced) {
+            return Err(FleetCatalogError::PayloadConflict.into());
+        }
+        let index = plan
+            .births()
+            .iter()
+            .position(|birth| birth.route() == target.store.route())
+            .ok_or(FleetCatalogError::Conflict)?;
+        let source = fenced
+            .archives()
+            .get(index)
+            .ok_or(FleetCatalogError::Conflict)?;
+        let operation = plan.mutation().operation();
+        let observe = || async {
+            let selected = self
+                .catalog
+                .reopen_managed_recovery_replacement(
+                    directory,
+                    fenced,
+                    &self.archive_pool,
+                    turn.remaining()?,
+                )
+                .await?
+                .ok_or(FleetCatalogError::Unconfirmed)?;
+            if selected.digest() != plan.digest() {
+                return Err(FleetCatalogError::PayloadConflict.into());
+            }
+            Ok::<_, RaftFleetFailure>(())
+        };
+        observe().await?;
+        let data = turn
+            .run(Box::pin(services.recovery.prepare_cut(
+                &self.domain,
+                source.clone(),
+                target,
+                plan.digest(),
+                operation,
+            )))
+            .await?
+            .map_err(FleetCatalogError::from)?;
+        observe().await?;
+        Ok(RaftFleetPreparedRecoveryRange {
+            plan: plan.digest(),
+            data,
+        })
     }
 
     /// Rebuild the installed children from the retained sealed parent cuts,
