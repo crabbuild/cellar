@@ -1580,16 +1580,14 @@ async fn verify_managed_installed_decision(
         .await?
         .context("sealed plan")?;
     ensure!(prior.journal.context("sealed journal")?.phase() == TransitionPhase::Sealed);
-    fixture
-        .store
-        .fail_head_confirmation
-        .store(true, Ordering::Release);
-    ensure!(matches!(
-        fleet
-            .record_managed_transfer_child_quorums(transition, directory, proofs.clone(), TIMEOUT)
-            .await,
-        Err(FleetCatalogError::Unconfirmed)
-    ));
+    let (result, delivered) = fault::lose_directory_confirmation(
+        fleet.record_managed_transfer_child_quorums(transition, directory, proofs.clone(), TIMEOUT),
+    )
+    .await;
+    ensure!(
+        delivered && matches!(result, Err(FleetCatalogError::Unconfirmed)),
+        "lost install confirmation was not isolated to its directory CAS: {result:?}"
+    );
     let reopened = fleet
         .reopen_managed_transition(directory, operation, TIMEOUT)
         .await?

@@ -13,6 +13,32 @@ tokio::task_local! {
     static MISSING_READ: String;
     static GATED_READ: (String, std::sync::Arc<RegistryGate>);
     static GATED_STORE_READ: (std::sync::Arc<()>, String, std::sync::Arc<RegistryGate>);
+    static DIRECTORY_CONFIRMATION: std::cell::Cell<DirectoryConfirmation>;
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DirectoryConfirmation {
+    WaitingForWrite,
+    WaitingForRead,
+    Delivered,
+}
+
+/// Lose only this operation's first directory confirmation after a real CAS.
+#[allow(dead_code)]
+pub async fn lose_directory_confirmation<T>(
+    work: impl std::future::Future<Output = T>,
+) -> (T, bool) {
+    DIRECTORY_CONFIRMATION
+        .scope(
+            std::cell::Cell::new(DirectoryConfirmation::WaitingForWrite),
+            async {
+                let result = work.await;
+                let delivered = DIRECTORY_CONFIRMATION
+                    .with(|state| state.get() == DirectoryConfirmation::Delivered);
+                (result, delivered)
+            },
+        )
+        .await
 }
 
 // Keep a lost observation on one foreground client's store, without delaying
@@ -303,9 +329,9 @@ impl ObjectStore for Store {
         if path.as_ref().contains("/cell-groups/ranges/") {
             self.range_page_puts.fetch_add(1, Ordering::AcqRel);
         }
-        if path.as_ref().ends_with("/cell-groups/head")
-            && matches!(options.mode, PutMode::Update(_))
-        {
+        let directory_cas = path.as_ref().ends_with("/cell-groups/head")
+            && matches!(options.mode, PutMode::Update(_));
+        if directory_cas {
             self.range_before.pause().await;
         }
         if path.as_ref().contains("/root-extents/") {
@@ -460,6 +486,13 @@ impl ObjectStore for Store {
         let group_birth = path.as_ref().contains("/cell-groups/births/")
             && matches!(options.mode, PutMode::Create);
         let result = self.backend().put_opts(path, payload, options).await?;
+        if directory_cas {
+            let _ = DIRECTORY_CONFIRMATION.try_with(|state| {
+                if state.get() == DirectoryConfirmation::WaitingForWrite {
+                    state.set(DirectoryConfirmation::WaitingForRead);
+                }
+            });
+        }
         if group_birth {
             self.first_group_birth_after.pause().await;
         }
@@ -625,6 +658,19 @@ impl ObjectStore for Store {
                     "scoped missing object",
                 )),
             });
+        }
+        if path.as_ref().ends_with("/cell-groups/head")
+            && DIRECTORY_CONFIRMATION
+                .try_with(|state| {
+                    if state.get() != DirectoryConfirmation::WaitingForRead {
+                        return false;
+                    }
+                    state.set(DirectoryConfirmation::Delivered);
+                    true
+                })
+                .unwrap_or(false)
+        {
+            return Err(failure());
         }
         if path.as_ref().ends_with("/fleet/head")
             && *self.fleet_confirmation_task.lock().unwrap() == tokio::task::try_id()
