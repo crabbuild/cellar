@@ -571,6 +571,113 @@ async fn minority_strong_read_refused() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_readiness_reports_voters_learners_and_empty_image() -> Result<()> {
+    use cellar::application::consensus::RaftReplicaRole;
+
+    let definition = Definition::new(Some(Arc::new(get)))?;
+    let definitions: [Definition; 4] = std::array::from_fn(|_| definition.clone());
+    let cluster = cluster::Cluster::start(
+        &definitions,
+        public_node::limits(),
+        RaftHostOptions::default(),
+    )
+    .await?;
+    let result = async {
+        let primary = cluster.leader(None).await?;
+        let cell = CellHistory {
+            cluster: cluster.history.cluster,
+            namespace: cluster.history.namespace,
+            cell: CellId::new("Counter:one")?,
+            incarnation: IncarnationId::new([7; 16])?,
+        };
+        let leader = cluster.services[primary].group(cluster.history)?;
+        let initial = leader.status().await?.applied.index;
+        let historical = QueryOptions {
+            consistency: QueryConsistency::Stale,
+            stale_policy: StaleReadPolicy::DisconnectedHistorical,
+            routing: QueryRouting::Local,
+            ..Default::default()
+        };
+        let role = |index| match index {
+            3 => RaftReplicaRole::Learner,
+            index if index == primary => RaftReplicaRole::Leader,
+            _ => RaftReplicaRole::Voter,
+        };
+        for (index, service) in cluster.services.iter().enumerate() {
+            let group = service.group(cluster.history)?;
+            let membership = group.quorum_membership_after(initial, TIMEOUT).await?;
+            assert_eq!(membership.configuration().voters, [1, 2, 3]);
+            assert_eq!(membership.configuration().learners, [4]);
+            let observed = group.observe(TIMEOUT).await?;
+            assert_eq!(observed.role, role(index));
+            if index != primary {
+                assert!(!observed.status.ready);
+            }
+            assert_eq!(observed.cells, 0);
+            assert_eq!(service.resource_usage().retained_manifest_cells, Some(0));
+            let error = service
+                .cell(cell.clone())?
+                .query(query_id(), &definition.get, vec![], historical.clone())
+                .await
+                .expect_err("the empty group must refuse a cell read");
+            assert!(
+                matches!(
+                    error.as_ref(),
+                    CellDispatchError::Runtime(RuntimeError::NotFound)
+                ),
+                "empty replica {index} returned {error:?}"
+            );
+        }
+        let handle = cluster.services[primary].cell(cell.clone())?;
+        handle
+            .enroll(
+                CellEnrollmentRequest {
+                    creation: ProposalId::new([8; 16])?,
+                    durability: Durability::Quorum,
+                },
+                TIMEOUT,
+            )
+            .await?;
+        let written = increment(&handle, &definition, 1, 7).await?;
+        for (index, service) in cluster.services.iter().enumerate() {
+            let handle = service.cell(cell.clone())?;
+            let minimum = handle
+                .query(query_id(), &definition.get, vec![], at_least(&written))
+                .await?;
+            let linearizable = handle
+                .query(
+                    query_id(),
+                    &definition.get,
+                    vec![],
+                    QueryOptions {
+                        routing: QueryRouting::Local,
+                        ..Default::default()
+                    },
+                )
+                .await?;
+            for read in [minimum, linearizable] {
+                assert_eq!(read.served_by, MemberId::new(index as u64 + 1)?);
+                assert_eq!(read.result, 7i64.to_be_bytes());
+                assert_eq!(read.version, written.version);
+                assert_eq!(read.witness, written.witness);
+            }
+            let observed = service.group(cluster.history)?.observe(TIMEOUT).await?;
+            assert_eq!(observed.role, role(index));
+            if index != primary {
+                assert!(!observed.status.ready);
+            }
+            assert_eq!(observed.cells, 1);
+            assert_eq!(service.resource_usage().retained_manifest_cells, Some(1));
+        }
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    let joined = cluster.close().await;
+    result?;
+    joined
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn native_readiness_distinguishes_historical_and_recent_source() -> Result<()> {
     let fixture = Fixture::start(Arc::new(get)).await?;
     let result = async {

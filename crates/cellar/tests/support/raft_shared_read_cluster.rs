@@ -44,10 +44,11 @@ pub(super) struct Cluster {
 
 impl Cluster {
     pub(super) async fn start(
-        definitions: &[Definition; VOTERS],
+        definitions: &[Definition],
         mut shared: CellGroupNodeLimits,
         mut host: RaftHostOptions,
     ) -> Result<Self> {
+        ensure!((VOTERS..=VOTERS + 1).contains(&definitions.len()));
         shared.controller.max_groups = 1;
         shared.controller.max_parallel_apply = 1;
         shared.directory.max_groups = 1;
@@ -63,7 +64,7 @@ impl Cluster {
             group: GroupId::new([3; 16])?,
             incarnation: IncarnationId::new([4; 16])?,
         };
-        let roots = (0..VOTERS)
+        let roots = (0..definitions.len())
             .map(|_| tempfile::tempdir())
             .collect::<Result<Vec<_>, _>>()?;
         let mut nodes = Vec::new();
@@ -97,22 +98,24 @@ impl Cluster {
             });
             listeners.push(bound);
         }
+        let mut voters = peers
+            .iter()
+            .enumerate()
+            .map(|(index, peer)| {
+                Ok(InitialMember {
+                    member: MemberId::new(index as u64 + 1)?,
+                    node: peer.node,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let learners = voters.split_off(VOTERS);
         let birth = CellGroupBirthSpec {
             history,
             range: CellRange::all(),
             epoch: RouteEpoch::new(1)?,
             creation: ProposalId::new([5; 16])?,
-            voters: peers
-                .iter()
-                .enumerate()
-                .map(|(index, peer)| {
-                    Ok(InitialMember {
-                        member: MemberId::new(index as u64 + 1)?,
-                        node: peer.node,
-                    })
-                })
-                .collect::<Result<_>>()?,
-            learners: vec![],
+            voters,
+            learners,
         };
         let store = Arc::new(object_store::memory::InMemory::new());
         let mut links = Vec::new();
