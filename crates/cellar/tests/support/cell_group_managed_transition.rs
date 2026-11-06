@@ -181,10 +181,6 @@ async fn exercise_inner(
     let directory = &cluster.directory;
     let domain = &fixture.domain;
     let scope = cluster.history;
-    let parent = domain
-        .run(directory.materialize_selected_history(scope))
-        .await??;
-    let view = domain.run(directory.observe()).await??;
     let merge = matches!(decision, Decision::SplitMerge { .. });
     let pivot = if merge {
         let left = cell_routing_key(scope.namespace, &CellId::new("Counter:cold-0")?);
@@ -193,72 +189,91 @@ async fn exercise_inner(
     } else {
         cell_routing_key(scope.namespace, &CellId::new("managed-split-pivot")?)
     };
-    let (left, right) = parent.route().range.split(pivot)?;
     let operation = ProposalId::new([231; 16])?;
     let identity = |id, revision| FleetRequestIdentity {
         operation: operation.bytes(),
         ..request(id, revision)
     };
-    let voters = cluster.fixtures[3..]
-        .iter()
-        .enumerate()
-        .map(|(index, fixture)| {
-            Ok(InitialMember {
-                member: MemberId::new(index as u64 + 1)?,
-                node: fixture.spec.node,
+    let (children, plan, original) = if merge {
+        let admitted = Box::pin(merge::admit_operator_split(
+            cluster,
+            pivot.cell().as_str(),
+            operation,
+        ))
+        .await?;
+        (
+            admitted.children,
+            admitted.selected.plan,
+            admitted.selected.request,
+        )
+    } else {
+        let parent = domain
+            .run(directory.materialize_selected_history(scope))
+            .await??;
+        let view = domain.run(directory.observe()).await??;
+        let (left, right) = parent.route().range.split(pivot)?;
+        let voters = cluster.fixtures[3..]
+            .iter()
+            .enumerate()
+            .map(|(index, fixture)| {
+                Ok(InitialMember {
+                    member: MemberId::new(index as u64 + 1)?,
+                    node: fixture.spec.node,
+                })
             })
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let mut children = Vec::new();
-    for (id, range) in [(232, left), (233, right)] {
-        let snapshot = fleet.read(TIMEOUT).await?;
-        let reserved = fleet
-            .reserve_birth(
-                &snapshot,
-                &identity(id, snapshot.revision()),
-                directory,
-                CellGroupBirthSpec {
-                    history: GroupHistory {
-                        group: GroupId::new([id; 16])?,
-                        incarnation: IncarnationId::new([id; 16])?,
-                        ..scope
+            .collect::<Result<Vec<_>>>()?;
+        let mut children = Vec::new();
+        for (id, range) in [(232, left), (233, right)] {
+            let snapshot = fleet.read(TIMEOUT).await?;
+            let reserved = fleet
+                .reserve_birth(
+                    &snapshot,
+                    &identity(id, snapshot.revision()),
+                    directory,
+                    CellGroupBirthSpec {
+                        history: GroupHistory {
+                            group: GroupId::new([id; 16])?,
+                            incarnation: IncarnationId::new([id; 16])?,
+                            ..scope
+                        },
+                        range,
+                        epoch: RouteEpoch::new(2)?,
+                        creation: ProposalId::new([id; 16])?,
+                        voters: voters.clone(),
+                        learners: vec![],
                     },
-                    range,
-                    epoch: RouteEpoch::new(2)?,
-                    creation: ProposalId::new([id; 16])?,
-                    voters: voters.clone(),
-                    learners: vec![],
-                },
-                "Counter",
-                TIMEOUT,
-            )
-            .await?;
-        children.push(reserved.authorization.route().clone());
-    }
-    let plan = directory.prepare_split(&view, operation, parent.route(), &children)?;
-    ensure!(fleet
-        .reopen_managed_transition(directory, operation, TIMEOUT)
-        .await?
-        .is_none());
-    let before = fleet.read(TIMEOUT).await?;
-    let original = identity(234, before.revision());
-    fixture
-        .store
-        .fail_fleet_confirmation
-        .store(true, Ordering::Release);
-    let lost = fleet
-        .plan_managed_transition(&original, directory, &plan, TIMEOUT)
-        .await;
-    ensure!(
-        matches!(lost, Err(FleetCatalogError::Storage(_))),
-        "lost plan confirmation: {lost:?}"
-    );
-    ensure!(!fixture
-        .store
-        .fail_fleet_confirmation
-        .load(Ordering::Acquire));
-    ensure!(fleet.read(TIMEOUT).await?.revision() == before.revision() + 1);
-    ensure!(domain.run(directory.active_transition()).await??.is_none());
+                    "Counter",
+                    TIMEOUT,
+                )
+                .await?;
+            children.push(reserved.authorization.route().clone());
+        }
+        let plan = directory.prepare_split(&view, operation, parent.route(), &children)?;
+        ensure!(fleet
+            .reopen_managed_transition(directory, operation, TIMEOUT)
+            .await?
+            .is_none());
+        let before = fleet.read(TIMEOUT).await?;
+        let original = identity(234, before.revision());
+        fixture
+            .store
+            .fail_fleet_confirmation
+            .store(true, Ordering::Release);
+        let lost = fleet
+            .plan_managed_transition(&original, directory, &plan, TIMEOUT)
+            .await;
+        ensure!(
+            matches!(lost, Err(FleetCatalogError::Storage(_))),
+            "lost plan confirmation: {lost:?}"
+        );
+        ensure!(!fixture
+            .store
+            .fail_fleet_confirmation
+            .load(Ordering::Acquire));
+        ensure!(fleet.read(TIMEOUT).await?.revision() == before.revision() + 1);
+        ensure!(domain.run(directory.active_transition()).await??.is_none());
+        (children, plan, original)
+    };
     let reopened = Fixture::open_catalog(domain, fixture.store.clone(), scope.cluster)?;
     let adapter = Catalog::new(
         fixture.store.clone(),
@@ -275,8 +290,11 @@ async fn exercise_inner(
     let recovered = reopened
         .reopen_managed_transition(directory, operation, TIMEOUT)
         .await?
-        .context("admitted fleet operation must reopen without a directory decision")?;
-    ensure!(recovered.journal.is_none());
+        .context("reopen the exact admitted split with a fresh controller")?;
+    ensure!(
+        recovered.journal.as_ref().map(|journal| journal.phase())
+            == merge.then_some(TransitionPhase::Planned)
+    );
     ensure!(recovered.request == original && recovered.plan.encode() == plan.encode());
     drop(plan);
     let plan = &recovered.plan;

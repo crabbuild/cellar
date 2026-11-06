@@ -14,7 +14,7 @@ use cellar::application::consensus::{DisasterFenceAuthority, FleetNodeSpec};
 use cellar::sdk::fleet_operations::{
     FleetFencedTransitionRecovery, FleetRecoveryAttachRequest, FleetTransitionRecoveryFenceRequest,
     RaftFleetControl, RaftFleetFailureCode, RaftFleetFirstGroupVoter, RaftFleetOutcome,
-    RaftFleetTransitionAdmissionRequest, RaftFleetTransitionChild,
+    RaftFleetTransitionAdmission, RaftFleetTransitionAdmissionRequest, RaftFleetTransitionChild,
     RaftFleetTransitionChildSetupRequest, RaftFleetTransitionChildSetupResult,
     RaftFleetTransitionChildStep, RaftFleetTransitionGroup, RaftFleetTransitionPartition,
     RaftFleetTransitionPrepareRequest, RaftFleetTransitionPublishRequest,
@@ -25,14 +25,25 @@ use cellar::sdk::fleet_operations::{
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn managed_operator_split_reserves_children_in_key_order() -> Result<()> {
     let cluster = Box::pin(ManagedCluster::start(false, &[7, 8, 9])).await?;
-    let result = Box::pin(check_operator_split_admission(&cluster)).await;
+    let result = Box::pin(check_operator_split_cancellation(&cluster)).await;
     let joined = close(cluster.nodes, &cluster.hosts, None).await;
     cluster.fixtures[0].domain.shutdown().await;
     result?;
     joined
 }
 
-async fn check_operator_split_admission(cluster: &ManagedCluster) -> Result<()> {
+pub(super) struct OperatorSplit {
+    pub(super) selected: ReopenedManagedCellGroupTransition,
+    pub(super) children: Vec<GroupRoute>,
+    request: RaftFleetTransitionAdmissionRequest,
+    receipt: RaftFleetTransitionAdmission,
+}
+
+pub(super) async fn admit_operator_split(
+    cluster: &ManagedCluster,
+    pivot_cell: &str,
+    operation: ProposalId,
+) -> Result<OperatorSplit> {
     let fixture = &cluster.fixtures[0];
     let directory = &cluster.directory;
     let control = RaftFleetControl::new(
@@ -42,15 +53,15 @@ async fn check_operator_split_admission(cluster: &ManagedCluster) -> Result<()> 
     )?;
     let namespace = hex::encode(cluster.history.namespace.bytes());
     let basis = control.transition_basis(&namespace, TIMEOUT).await?;
+    let view = fixture.domain.run(directory.observe()).await??;
+    ensure!(hex::encode(view.digest()) == basis.directory_digest);
     let principal = request(234, basis.fleet_revision).principal;
     let parent = fixture
         .domain
         .run(directory.materialize_selected_history(cluster.history))
         .await??;
-    let pivot_cell = "Counter:operator-split";
     let pivot = cell_routing_key(cluster.history.namespace, &CellId::new(pivot_cell)?);
     let (left, right) = parent.route().range.split(pivot.clone())?;
-    let operation = ProposalId::new([231; 16])?;
     let histories = [232, 233].map(|id| -> Result<_> {
         Ok(GroupHistory {
             group: GroupId::new([id; 16])?,
@@ -158,7 +169,9 @@ async fn check_operator_split_admission(cluster: &ManagedCluster) -> Result<()> 
             .await,
         Err(FleetCatalogError::Conflict)
     ));
-    let receipt = request(236, reserved.revision());
+    // This unrelated mutation keeps its own Fleet request ID. The serving
+    // case later submits a real cancellation against the split operation.
+    let receipt = request(254, reserved.revision());
     fixture
         .catalog
         .commit(
@@ -186,6 +199,7 @@ async fn check_operator_split_admission(cluster: &ManagedCluster) -> Result<()> 
     ensure!(
         admitted.phase == TransitionPhase::Planned && cut.revision() == basis.fleet_revision + 4
     );
+    let mut children = Vec::with_capacity(histories.len());
     for (history, range) in histories.iter().zip([left, right]) {
         ensure!(
             *fixture
@@ -200,23 +214,35 @@ async fn check_operator_split_admission(cluster: &ManagedCluster) -> Result<()> 
             .recover_birth_reservation(&cut, directory, history, TIMEOUT)
             .await?;
         ensure!(birth.route().range == range && birth.route().epoch == RouteEpoch::new(2)?);
+        children.push(birth.route().clone());
     }
-    let view = fixture.domain.run(directory.observe()).await??;
-    ensure!(view.revision() == basis.directory_revision && view.groups() == 1);
+    let planned_view = fixture.domain.run(directory.observe()).await??;
+    ensure!(planned_view.revision() == view.revision() && planned_view.groups() == 1);
     let selected = fixture
         .catalog
         .reopen_managed_transition(directory, operation, TIMEOUT)
         .await?
         .context("admitted split plan")?;
-    let cancellation = FleetRequestIdentity {
-        operation: operation.bytes(),
-        ..request(235, cut.revision())
-    };
-    fixture
-        .catalog
-        .cancel_managed_transition(&cut, &cancellation, directory, &selected.plan, TIMEOUT)
-        .await?;
-    let cancelled = control
+    let expected = directory.prepare_split(&view, operation, parent.route(), &children)?;
+    ensure!(
+        selected.plan.encode() == expected.encode(),
+        "admission changed split ranges"
+    );
+    ensure!(
+        selected.request.principal == principal
+            && selected.request.operation == operation.bytes()
+            && selected.request.expected_revision.checked_add(1) == Some(cut.revision())
+            && selected.journal.as_ref().map(|journal| journal.phase())
+                == Some(TransitionPhase::Planned),
+        "admission did not select the exact Fleet step"
+    );
+    ensure!(
+        admitted.operation_id == admission.operation_id
+            && admitted.request_id == admission.request_id
+            && admitted.plan_digest == hex::encode(selected.plan.digest()),
+        "CLI admission receipt differs from the rooted plan"
+    );
+    let replay = control
         .admit_transition(
             &principal,
             &namespace,
@@ -226,8 +252,58 @@ async fn check_operator_split_admission(cluster: &ManagedCluster) -> Result<()> 
         )
         .await?;
     ensure!(
+        replay == admitted && fixture.catalog.read(TIMEOUT).await?.revision() == cut.revision()
+    );
+    Ok(OperatorSplit {
+        selected,
+        children,
+        request: admission,
+        receipt: admitted,
+    })
+}
+
+async fn check_operator_split_cancellation(cluster: &ManagedCluster) -> Result<()> {
+    let operation = ProposalId::new([231; 16])?;
+    let split = Box::pin(admit_operator_split(
+        cluster,
+        "Counter:operator-split",
+        operation,
+    ))
+    .await?;
+    let fixture = &cluster.fixtures[0];
+    let directory = &cluster.directory;
+    let cut = fixture.catalog.read(TIMEOUT).await?;
+    let control = RaftFleetControl::new(
+        &fixture.domain,
+        fixture.catalog.clone(),
+        vec![directory.clone()],
+    )?;
+    let cancellation = FleetRequestIdentity {
+        operation: operation.bytes(),
+        ..request(235, cut.revision())
+    };
+    fixture
+        .catalog
+        .cancel_managed_transition(
+            &cut,
+            &cancellation,
+            directory,
+            &split.selected.plan,
+            TIMEOUT,
+        )
+        .await?;
+    let cancelled = control
+        .admit_transition(
+            &split.selected.request.principal,
+            &split.request.namespace_id,
+            &split.request.operation_id,
+            &split.request,
+            TIMEOUT,
+        )
+        .await?;
+    ensure!(
         cancelled.phase == TransitionPhase::Cancelled
-            && cancelled.plan_digest == admitted.plan_digest
+            && cancelled.plan_digest == split.receipt.plan_digest
     );
     Ok(())
 }
