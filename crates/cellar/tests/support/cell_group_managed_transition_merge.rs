@@ -2084,8 +2084,13 @@ async fn check_recovery_voter_reservations(
         let unknown = Box::pin(fresh.advance_transition_recovery_retirement(
             namespace, &request, completion, sql.authority, TIMEOUT,
         )).await;
-        ensure!(matches!(unknown, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
-        ensure!(!fixture.store.fail_fleet_confirmation.load(Ordering::Acquire));
+        let fault_delivered = !fixture.store.fail_fleet_confirmation.swap(false, Ordering::AcqRel);
+        let reverified = sql.authority.verifications.load(Ordering::Acquire) - verifications;
+        ensure!(
+            fault_delivered
+                && matches!(&unknown, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable),
+            "retirement lost CAS returned {unknown:?}, fault delivered={fault_delivered}, fence verifications={reverified}"
+        );
         let retired = Box::pin(control.advance_transition_recovery_retirement(
             namespace, &request, completion, sql.authority, TIMEOUT,
         )).await?;
