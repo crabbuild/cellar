@@ -249,13 +249,22 @@ impl RangeDirectory {
         let prepared = self
             .prepare_group_archive_binding(domain, pool, &birth)
             .await?;
-        let selected = self
+        let selected = match self
             .bounded(self.namespace.inner.create_and_observe_bounded(
                 &self.key(&key),
                 prepared.encode(),
                 wire::LIMIT,
             ))
-            .await?;
+            .await
+        {
+            Ok(selected) => selected,
+            Err(error @ (CatalogError::Storage(_) | CatalogError::Unconfirmed)) => {
+                // The create may have succeeded before its confirming read
+                // failed. Only the current owner still holds the initializer.
+                self.bounded(self.read(&key)).await?.ok_or(error)?
+            }
+            Err(error) => return Err(error.into()),
+        };
         if selected == prepared.encode() {
             prepared.commit(domain).await?;
         } else {
