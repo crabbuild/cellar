@@ -78,6 +78,8 @@ pub(crate) mod inspections;
 mod metrics;
 #[path = "node_inspection_transport.rs"]
 pub(crate) mod node_inspections;
+#[path = "park_transport.rs"]
+mod parks;
 #[path = "query_transport.rs"]
 mod queries;
 pub(crate) use cell_queries::CellQueryContext;
@@ -1380,6 +1382,19 @@ impl State {
                     .map_err(|error| TransportError::Tls(error.to_string()))?;
                 return self
                     .receive_fleet_action(&mut stream, &exporter, prefix, connected_at)
+                    .await;
+            }
+            if &prefix[..4] == parks::REQUEST_MAGIC {
+                if lane != Lane::Control || sequence != 0 {
+                    return Err(TransportError::Protocol);
+                }
+                let exporter = stream
+                    .get_ref()
+                    .1
+                    .export_keying_material([0; 32], parks::EXPORT_LABEL, None)
+                    .map_err(|error| TransportError::Tls(error.to_string()))?;
+                return self
+                    .receive_park_ack(&mut stream, &exporter, prefix, connected_at)
                     .await;
             }
             if &prefix[..4] == fleet_stops::REQUEST_MAGIC {

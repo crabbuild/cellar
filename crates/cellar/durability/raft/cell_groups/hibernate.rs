@@ -80,7 +80,7 @@ impl GroupParkCut {
     }
 }
 
-pub(super) const MAX_PARK_NEGOTIATION_MS: u64 = 5_000;
+pub(crate) const MAX_PARK_NEGOTIATION_MS: u64 = 5_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ParkPrepareRequest {
@@ -162,7 +162,7 @@ impl LocalParkRecord {
             .map_or(0, |certificate| certificate.reserved_bytes())
     }
 
-    pub(super) fn certificate(&self) -> Option<&ParkCertificate> {
+    pub(crate) fn certificate(&self) -> Option<&ParkCertificate> {
         self.certificate.as_deref()
     }
 
@@ -192,7 +192,7 @@ impl LocalParkRecord {
 }
 
 impl CachedGroup {
-    fn quiescent_park_cut(&self, cut: &GroupParkCut) -> bool {
+    pub(crate) fn quiescent_park_cut(&self, cut: &GroupParkCut) -> bool {
         let at = cut.position();
         self.group_manifest.as_ref().is_some_and(|marker| {
             marker.is_active() && marker.park_cut() == Some(cut) && marker.position() == at

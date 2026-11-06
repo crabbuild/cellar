@@ -81,7 +81,9 @@ mod enrollment;
 mod enrollment_apply;
 mod hibernate;
 pub use hibernate::GroupParkCut;
-pub(crate) use hibernate::{LocalParkChange, LocalParkRecord};
+pub(crate) use hibernate::{
+    LocalParkChange, LocalParkRecord, ParkAcknowledgement, MAX_PARK_NEGOTIATION_MS,
+};
 mod image_pin;
 mod manifest;
 pub(crate) mod membership;
@@ -160,6 +162,7 @@ pub use root::{
     PreparedGroupManifest,
 };
 
+pub(crate) use owner::SelectedParkCertificate;
 pub use owner::{
     CellGroupApply, CellGroupEffect, CellGroupOwner, CellGroupPersist, CellGroupPersisted,
     CellGroupProposal, CellGroupRecoveryActivation, CellGroupSealOutcome,

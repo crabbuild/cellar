@@ -154,6 +154,23 @@ impl ParkCertificate {
         Ok(())
     }
 
+    pub(crate) fn matches_roster(
+        &self,
+        route: &GroupRoute,
+        leader: &ReplicaIdentity<GroupHistory>,
+        roster: &[ReplicaIdentity<GroupHistory>],
+    ) -> bool {
+        leader.scope == route.history
+            && self.route == route_binding(route)
+            && self.matches_leader(leader.member, leader.node_identity())
+            && self.voters.len() == roster.len()
+            && self.voters.iter().all(|witness| {
+                witness
+                    .replica(route.history)
+                    .is_ok_and(|replica| roster.contains(&replica))
+            })
+    }
+
     pub(super) fn matches_leader(&self, member: MemberId, identity: NodeIdentity) -> bool {
         self.leader == member.get()
             && self.voters.iter().any(|voter| {
