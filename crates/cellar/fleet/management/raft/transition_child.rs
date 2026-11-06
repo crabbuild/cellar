@@ -16,6 +16,7 @@ pub enum RaftFleetTransitionChildStep {
     Install,
     Attach,
     Quorum,
+    InitializeArchive,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,6 +61,7 @@ pub enum RaftFleetTransitionChildSetupResult {
         storage_instance: String,
     },
     Attached,
+    ArchiveInitialized,
     Quorum {
         index: u64,
         term: u64,
@@ -80,6 +82,7 @@ impl RaftFleetControl {
     /// independently replays the selected sealed archives. Attach requires
     /// the local receipt and a durable install majority. Quorum selects a
     /// fresh-term witness on the child leader or reopens its selected proof.
+    /// InitializeArchive binds the activated child's first archive identity.
     pub async fn setup_transition_child(
         &self,
         principal: &str,
@@ -108,7 +111,13 @@ impl RaftFleetControl {
         match (request.step, phase) {
             (RaftFleetTransitionChildStep::Install, Some(TransitionPhase::SealAuthorized))
             | (
-                _,
+                RaftFleetTransitionChildStep::InitializeArchive,
+                Some(TransitionPhase::Active | TransitionPhase::Retired),
+            )
+            | (
+                RaftFleetTransitionChildStep::Install
+                | RaftFleetTransitionChildStep::Attach
+                | RaftFleetTransitionChildStep::Quorum,
                 Some(
                     TransitionPhase::Sealed
                     | TransitionPhase::Installed
@@ -167,6 +176,18 @@ impl RaftFleetControl {
                     .await
                     .map_err(setup_failure)?;
                 RaftFleetTransitionChildSetupResult::Attached
+            }
+            RaftFleetTransitionChildStep::InitializeArchive => {
+                self.catalog
+                    .initialize_managed_transfer_child_archive(
+                        &transition,
+                        directory,
+                        history,
+                        &self.archive_pool,
+                        turn.remaining()?,
+                    )
+                    .await?;
+                RaftFleetTransitionChildSetupResult::ArchiveInitialized
             }
             RaftFleetTransitionChildStep::Quorum => {
                 let selected = self

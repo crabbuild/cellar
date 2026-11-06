@@ -629,6 +629,40 @@ impl FleetCatalog {
         .await
     }
 
+    pub(crate) async fn initialize_managed_transfer_child_archive(
+        &self,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        history: GroupHistory,
+        archives: &CellGroupArchivePool,
+        timeout: Duration,
+    ) -> Result<()> {
+        validate_request(&transition.request)?;
+        let deadline = deadline::Deadline::new(self, timeout)?;
+        let permit = self
+            .run(
+                deadline.remaining()?,
+                Box::pin(self.verified_managed_transfer_permit(transition, directory)),
+            )
+            .await?;
+        let domain = &self.inner.domain;
+        domain
+            .run(Box::pin(crate::asyncrt::timeout(
+                deadline.remaining()?,
+                Box::pin(directory.initialize_managed_child_archive(
+                    domain,
+                    archives,
+                    &transition.plan,
+                    history,
+                    &permit,
+                )),
+            )))
+            .await
+            .map_err(|_| FleetCatalogError::Closed)?
+            .map_err(|_| FleetCatalogError::Unconfirmed)?
+            .map_err(transfer_archive_error)
+    }
+
     /// Prepare a one-use archive identity for a child of the active transfer.
     /// Persist the exact intent before committing it. Reopen or verify that
     /// binding after an uncertain outcome.

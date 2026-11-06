@@ -1248,16 +1248,33 @@ async fn finish_merge_inner(
         ensure!(ack.tombstone().publication() == publication.journal_digest());
         tombstones.push(ack);
     }
-    preparation::initialize_transfer_archive(
-        &fleet,
-        directory,
-        transition,
-        child,
-        &archives.pool,
-        &archives.scratch.path().join("merge.intent"),
-        domain,
-    )
-    .await?;
+    let archive_request = RaftFleetTransitionChildSetupRequest {
+        catalog_id: control.catalog_id().into(),
+        namespace_id: hex::encode(child.namespace.bytes()),
+        operation_id: hex::encode(transition.request.operation),
+        request_id: hex::encode([185; 16]),
+        plan_digest: hex::encode(transition.plan.digest()),
+        child: RaftFleetTransitionGroup {
+            group_id: hex::encode(child.group.bytes()),
+            incarnation_id: hex::encode(child.incarnation.bytes()),
+        },
+        step: RaftFleetTransitionChildStep::InitializeArchive,
+    };
+    for _ in 0..2 {
+        let initialized = Box::pin(crate::managed_fixture::operator::setup_transition_child(
+            &cluster.fixtures[0],
+            directory,
+            &transition.request.principal,
+            &cluster.hosts[0],
+            &archive_request,
+            None,
+        ))
+        .await?;
+        ensure!(
+            initialized.request == archive_request
+                && initialized.result == RaftFleetTransitionChildSetupResult::ArchiveInitialized
+        );
+    }
     Box::pin(restart_voter(cluster, 0, 121, Some(child), 1)).await?;
     let applied = preparation::wait_active_archive(&cluster.hosts[0], child).await?;
     let birth = domain

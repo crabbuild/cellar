@@ -393,6 +393,10 @@ async fn execute(options: &options::Options) -> Result<Value> {
                     RaftFleetTransitionChildSetupResult::Attached,
                 ) => true,
                 (
+                    RaftFleetTransitionChildStep::InitializeArchive,
+                    RaftFleetTransitionChildSetupResult::ArchiveInitialized,
+                ) => true,
+                (
                     RaftFleetTransitionChildStep::Quorum,
                     RaftFleetTransitionChildSetupResult::Quorum { index, term, phase },
                 ) => {

@@ -219,6 +219,52 @@ impl RangeDirectory {
         .await
     }
 
+    /// Root the selected archive identity before its one-use initializer
+    /// writes counters. A new controller can reopen a completed setup. An
+    /// incomplete registry still requires archive authority recovery.
+    pub(crate) async fn initialize_managed_child_archive(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        pool: &CellGroupArchivePool,
+        plan: &DirectoryMutation,
+        history: GroupHistory,
+        permit: &ManagedTransitionPermit,
+    ) -> Result<(), CellGroupArchiveBindingError> {
+        let (birth, coverage_selected) = self
+            .managed_transfer_child_archive_birth(plan, history, permit)
+            .await?;
+        let key = format!(
+            "transfer-child-archive-initialization/{}/{}",
+            hex::encode(plan.digest()),
+            hex::encode(history.group.bytes()),
+        );
+        if let Some(intent) = self.bounded(self.read(&key)).await? {
+            return self
+                .verify_group_archive_binding(domain, pool, &birth, &intent)
+                .await;
+        }
+        if coverage_selected || self.has_group_archive_binding(&birth).await? {
+            return Err(CatalogError::Conflict("transfer child archive initialization").into());
+        }
+        let prepared = self
+            .prepare_group_archive_binding(domain, pool, &birth)
+            .await?;
+        let selected = self
+            .bounded(self.namespace.inner.create_and_observe_bounded(
+                &self.key(&key),
+                prepared.encode(),
+                wire::LIMIT,
+            ))
+            .await?;
+        if selected == prepared.encode() {
+            prepared.commit(domain).await?;
+        } else {
+            self.verify_group_archive_binding(domain, pool, &birth, &selected)
+                .await?;
+        }
+        Ok(())
+    }
+
     pub(crate) async fn managed_transfer_child_archive_birth(
         &self,
         plan: &DirectoryMutation,
