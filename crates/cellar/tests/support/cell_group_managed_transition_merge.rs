@@ -2078,7 +2078,9 @@ async fn check_recovery_voter_reservations(
             namespace, &request, completion, &wrong_authority, TIMEOUT,
         )).await;
         ensure!(rejected.is_err()
-            && fixture.catalog.read(TIMEOUT).await?.revision() == before.revision());
+            && wrong_authority.verifications.load(Ordering::Acquire) == 1
+            && fixture.catalog.read(TIMEOUT).await?.revision() == before.revision(),
+            "retirement must reverify the external fence before a Fleet mutation: {rejected:?}");
         let verifications = sql.authority.verifications.load(Ordering::Acquire);
         fixture.store.fail_fleet_confirmation.store(true, Ordering::Release);
         let unknown = Box::pin(fresh.advance_transition_recovery_retirement(

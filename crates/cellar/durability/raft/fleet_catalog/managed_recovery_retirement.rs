@@ -156,10 +156,12 @@ impl FleetCatalog {
                     .await?;
                 let transition_id = ProposalId::new(intent.transition())
                     .map_err(|_| FleetCatalogError::Corrupt("recovery retirement transition"))?;
+                let snapshot = self.inner.current().await?;
                 let transition = self
-                    .reopen_managed_transition(directory, transition_id, timeout)
+                    .observe_managed_transition_at(&snapshot, directory, transition_id)
                     .await?
-                    .ok_or(FleetCatalogError::Conflict)?;
+                    .ok_or(FleetCatalogError::Conflict)?
+                    .transition;
                 if transition.plan.digest() != intent.basis().plan
                     || transition
                         .journal
@@ -185,7 +187,6 @@ impl FleetCatalog {
                     completion,
                     total: sources.routes.len(),
                 };
-                let snapshot = self.inner.current().await?;
                 let mut start = 0;
                 if let Some(record) = self
                     .recovery_retirement_at(&snapshot, facts.transition)
@@ -322,7 +323,9 @@ impl FleetCatalog {
                 value: None,
             });
         }
-        Ok(history_mutation(&record.request, changes))
+        let mutation = history_mutation(&record.request, changes);
+        mutation.validate()?;
+        Ok(mutation)
     }
 
     async fn recovery_retirement_at(
