@@ -166,6 +166,15 @@ impl RecoveryLock {
         })
     }
 
+    pub(in crate::raft::catalog::range_directory) fn blocks_application_route(
+        &self,
+        directory: &RangeDirectory,
+        route: &GroupRoute,
+    ) -> Result<bool, CatalogError> {
+        Ok(matches!(self.phase, RecoveryPhase::ManagedPublished { .. })
+            && self.blocks_startup(directory, route)?)
+    }
+
     pub(super) fn check(&self, directory: &RangeDirectory) -> Result<(), CatalogError> {
         if self.request == [0; 32] || self.base == [0; 32] {
             return Err(CatalogError::Corrupt("group recovery lock"));
