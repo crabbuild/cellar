@@ -571,6 +571,172 @@ async fn minority_strong_read_refused() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_readiness_distinguishes_historical_and_recent_source() -> Result<()> {
+    let fixture = Fixture::start(Arc::new(get)).await?;
+    let result = async {
+        let primary = fixture.cluster.leader(None).await?;
+        let follower = (primary + 1) % fixture.handles.len();
+        let handle = &fixture.handles[follower];
+        let member = MemberId::new(follower as u64 + 1)?;
+        let recent = QueryOptions {
+            consistency: QueryConsistency::Stale,
+            routing: QueryRouting::Local,
+            ..Default::default()
+        };
+        let before = handle
+            .query(query_id(), &fixture.definition.get, vec![], recent.clone())
+            .await?;
+        assert_eq!(before.served_by, member);
+
+        fixture.cluster.isolate_consensus(follower).await?;
+        tokio::time::sleep(cluster::STALE_SOURCE_TIMEOUT).await;
+        let historical = handle
+            .query(
+                query_id(),
+                &fixture.definition.get,
+                vec![],
+                QueryOptions {
+                    stale_policy: StaleReadPolicy::DisconnectedHistorical,
+                    ..recent.clone()
+                },
+            )
+            .await?;
+        assert_eq!(historical.served_by, member);
+        assert_eq!(historical.result, 1_i64.to_be_bytes());
+        assert_eq!(historical.witness, fixture.initial.witness);
+        assert_eq!(historical.version, fixture.initial.version);
+        for consistency in [QueryConsistency::Stale, QueryConsistency::Linearizable] {
+            assert_unavailable(
+                handle
+                    .query(
+                        query_id(),
+                        &fixture.definition.get,
+                        vec![],
+                        QueryOptions {
+                            consistency,
+                            timeout: Duration::from_millis(250),
+                            ..recent.clone()
+                        },
+                    )
+                    .await,
+            );
+        }
+        fixture.cluster.heal();
+        for consistency in [QueryConsistency::Stale, QueryConsistency::Linearizable] {
+            let read = handle
+                .query(
+                    query_id(),
+                    &fixture.definition.get,
+                    vec![],
+                    QueryOptions {
+                        consistency,
+                        ..recent.clone()
+                    },
+                )
+                .await?;
+            assert_eq!(read.served_by, member);
+            assert_eq!(read.result, historical.result);
+            assert_eq!(read.witness, historical.witness);
+            assert_eq!(read.version, historical.version);
+        }
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    let joined = fixture.close().await;
+    result?;
+    joined
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_readiness_survives_protocol_only_leadership_transfer() -> Result<()> {
+    use cellar::application::consensus::RaftReplicaRole;
+
+    let fixture = Fixture::start(Arc::new(get)).await?;
+    let result = async {
+        let primary = fixture.cluster.leader(None).await?;
+        let target = (primary + 1) % fixture.handles.len();
+        let member = MemberId::new(target as u64 + 1)?;
+        let leader = fixture.group(primary)?;
+        let before = leader.observe(TIMEOUT).await?;
+        fixture
+            .group(target)?
+            .quorum_membership_after(before.status.applied.index, TIMEOUT)
+            .await?;
+        leader
+            .transfer_leadership(
+                LeadershipTransfer {
+                    target: member,
+                    expected_term: before.status.term,
+                    expected_revision: before.membership_revision,
+                },
+                TIMEOUT,
+            )
+            .await?;
+
+        // The transfer changes the physical log without modifying the cell.
+        for (replica, handle) in fixture.handles.iter().enumerate() {
+            let role = if replica == target {
+                RaftReplicaRole::Leader
+            } else {
+                RaftReplicaRole::Voter
+            };
+            let group = fixture.group(replica)?;
+            let observation = tokio::time::timeout(TIMEOUT, async {
+                loop {
+                    let sample = group.observe(TIMEOUT).await?;
+                    if sample.role == role
+                        && sample.status.leader == Some(member.get())
+                        && sample.status.term > before.status.term
+                        && sample.status.applied.index > before.status.applied.index
+                        && sample.status.ready == (replica == target)
+                    {
+                        return Ok::<_, RuntimeError>(sample);
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .with_context(|| format!("voter {replica} did not apply the new term"))??;
+            assert_eq!(observation.cells, 1);
+            for (consistency, stale_policy) in [
+                (
+                    QueryConsistency::Linearizable,
+                    StaleReadPolicy::RecentSource,
+                ),
+                (QueryConsistency::Stale, StaleReadPolicy::RecentSource),
+                (
+                    QueryConsistency::Stale,
+                    StaleReadPolicy::DisconnectedHistorical,
+                ),
+            ] {
+                let read = handle
+                    .query(
+                        query_id(),
+                        &fixture.definition.get,
+                        vec![],
+                        QueryOptions {
+                            consistency,
+                            stale_policy,
+                            routing: QueryRouting::Local,
+                            ..Default::default()
+                        },
+                    )
+                    .await?;
+                assert_eq!(read.served_by, MemberId::new(replica as u64 + 1)?);
+                assert_eq!(read.result, 1_i64.to_be_bytes());
+                assert_eq!(read.witness, fixture.initial.witness);
+                assert_eq!(read.version, fixture.initial.version);
+            }
+        }
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    let joined = fixture.close().await;
+    result?;
+    joined
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn query_write_capability_denied() -> Result<()> {
     let query = Arc::new(|context: &QueryContext<'_>, input: &[u8]| {
         if input == b"attack" {

@@ -18,6 +18,7 @@ use tcp_fault::Proxy;
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 const VOTERS: usize = 3;
+pub(super) const STALE_SOURCE_TIMEOUT: Duration = Duration::from_millis(200);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Lane {
@@ -53,7 +54,7 @@ impl Cluster {
         shared.entries.envelope = host.execution.envelope;
         host.max_groups = 1;
         host.max_input_bytes = shared.dispatch.max_input_bytes;
-        host.stale_source_timeout_ms = 200;
+        host.stale_source_timeout_ms = u64::try_from(STALE_SOURCE_TIMEOUT.as_millis())?;
         let cluster = ClusterId::new([1; 16])?;
         let namespace = NamespaceId::new([2; 16])?;
         let history = GroupHistory {
