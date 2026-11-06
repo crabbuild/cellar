@@ -79,6 +79,43 @@ async fn replacement_with_store(
         store,
     ))
     .await?;
+    if from_s3 {
+        // Seed from retained startup, with the transport pool enabled and no
+        // periodic checkpoint policy. Fresh attachment uses a different path.
+        close(std::mem::take(&mut cluster.nodes), &cluster.hosts).await?;
+        cluster.hosts.clear();
+        for (index, fixture) in cluster.fixtures.iter().enumerate() {
+            let node = start_node(
+                cluster.roots[index].path(),
+                fixture.application.clone(),
+                &fixture.spec.label,
+            )
+            .await?;
+            let (mut config, services) = fixture
+                .config(&node, LogOpenMode::Resume, 34 + index as u8)
+                .await?;
+            archives::configure(&mut config);
+            ensure!(
+                config.shared.checkpoints.is_some()
+                    && config.shared.controller.checkpoints.is_none()
+            );
+            cluster.peers[index] = config.peers[0].clone();
+            cluster
+                .hosts
+                .push(node.start_raft_cells(config, services).await?);
+            cluster.nodes.push(node);
+        }
+        for (index, fixture) in cluster.fixtures.iter().enumerate() {
+            admit_capacity(
+                fixture,
+                &cluster.hosts[index],
+                &cluster.directory,
+                180 + 2 * index as u8,
+            )
+            .await
+            .context("requalify the retained boot for repair")?;
+        }
+    }
     let work = async {
         let (seed, obsolete) = replace_with_source(&cluster, from_s3).await?;
         drain_leader(&mut cluster, &seed, obsolete).await?;

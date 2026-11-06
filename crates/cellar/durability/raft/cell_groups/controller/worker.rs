@@ -61,8 +61,15 @@ impl Worker {
         requests: tokio::sync::mpsc::Receiver<requests::Request>,
         shared: Arc<Shared>,
     ) -> Result<Self, CellGroupControllerError> {
+        // Retained replicas serve peer and S3 seeds whenever the transport
+        // pool is configured, independently of periodic local checkpoints.
+        let serve_checkpoints = match transport.group_checkpoint_pool() {
+            Ok(_) => true,
+            Err(TransportError::Refused) => false,
+            Err(error) => return Err(CellGroupControllerError::Transport(error)),
+        };
         let mut checkpoint_routes = Vec::new();
-        if shared.checkpoints.is_some() {
+        if serve_checkpoints {
             for applier in roster.values() {
                 checkpoint_routes.push(
                     transport

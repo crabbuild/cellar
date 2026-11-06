@@ -841,7 +841,9 @@ receiving engine/member/disk/process, managed boot, transport shutdown, original
 deadline and fresh catalog bootstrap. A later source restart does not revoke that
 completed installation. Neither its receipt nor bootstrap establishes fresh
 quorum or serving authority; an expired completion is refused even when cold
-recovery later finds the installed root.
+recovery later finds the installed root. Retained replicas register seed
+endpoints when the checkpoint transport pool is configured. The periodic local
+checkpoint policy controls checkpoint publication separately.
 
 Shared linearizable cell reads may be selected on followers after their own safe
 ReadIndex round. Their private forwarded context binds the authenticated origin
