@@ -37,7 +37,11 @@ impl RaftCells {
                 loop {
                     let status = core.runtime.status(history).await?;
                     if status.leader != Some(local) {
-                        return Ok(());
+                        if status.applied.index == status.committed {
+                            return Ok(());
+                        }
+                        pause(domain, through).await?;
+                        continue;
                     }
                     turn.needed = true;
                     if status.ready && status.applied.index == status.committed {
@@ -74,19 +78,25 @@ impl RaftCells {
                             // Admission remains a separate observation if this
                             // deadline expires before a successor is visible.
                             turn.accepted = true;
-                            turn.released = within(domain, through, async {
+                            within(domain, through, async {
                                 loop {
                                     let status = core.runtime.status(history).await?;
                                     if status.term >= progress.term
                                         && status.leader.is_some_and(|id| id != local)
                                     {
-                                        return Ok(());
+                                        turn.released = true;
+                                        // Observing a successor can precede local
+                                        // commit and apply of its fresh-term entry.
+                                        if status.applied.term == status.term
+                                            && status.applied.index == status.committed
+                                        {
+                                            return Ok(());
+                                        }
                                     }
                                     pause(domain, through).await?;
                                 }
                             })
-                            .await
-                            .is_ok();
+                            .await?;
                             return Ok(());
                         }
                         Err(RuntimeError::NotReady) => (),
