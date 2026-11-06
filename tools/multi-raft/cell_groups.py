@@ -89,7 +89,7 @@ SUITES = {
     "managed-split-merge": (
         "native_cell_groups_managed",
         ("bootstrap::transition::merge::rustfs_managed_split_merge",),
-        "managed split and merge through retirement, with late writes and retained voter restarts",
+        "managed split and merge through retirement, with late writes, quorum loss and retained restart",
         "Host-native voters and fixture capacity. Process failure and sustained load are separate gates.",
     ),
     "managed-liveness": (

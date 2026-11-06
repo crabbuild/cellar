@@ -240,10 +240,12 @@ pub(super) async fn run(
     fleet
         .authorize_managed_transition_seal(&request, directory, &plan, TIMEOUT)
         .await?;
-    let transition = fleet
-        .reopen_managed_transition(directory, operation, TIMEOUT)
-        .await?
-        .context("reopened authorized merge")?;
+    let transition = Arc::new(
+        fleet
+            .reopen_managed_transition(directory, operation, TIMEOUT)
+            .await?
+            .context("reopened authorized merge")?,
+    );
     let retry = u64::try_from(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
@@ -277,6 +279,22 @@ pub(super) async fn run(
         ensure!(hold.marker().source_seal() == Some(&seal));
         sealed.push((precopy[index].0.clone(), hold));
         if index == 0 {
+            let active = Some(parents[1].history);
+            Box::pin(restart_voter(cluster, 3, 120, active, 2))
+                .await
+                .context("restart a voter with one sealed merge parent")?;
+            let fifth = Box::pin(stop_voter(cluster, 5, active)).await?;
+            let fourth = Box::pin(stop_voter(cluster, 4, active)).await?;
+            let survivor = &cluster.hosts[3];
+            Box::pin(verify_minority(
+                survivor,
+                &transition,
+                &seal,
+                &parents,
+                &routed,
+                retry,
+            ))
+            .await?;
             ensure!(matches!(
                 fleet
                     .verify_managed_sealed_sources(
@@ -299,16 +317,31 @@ pub(super) async fn run(
             );
             let unchanged = domain.run(directory.observe()).await??;
             ensure!(unchanged.revision() == view.revision() && unchanged.groups() == 2);
-            Box::pin(restart_voter(cluster, 3, 120, Some(parents[1].history), 2))
-                .await
-                .context("restart a voter with one sealed merge parent")?;
+            let candidate = &cluster.hosts[0];
+            let attached = candidate
+                .attach_managed_transfer_child(transition.clone(), child.clone(), TIMEOUT)
+                .await;
             ensure!(
-                !cluster.hosts[3]
-                    .group(parent.history)?
-                    .status()
-                    .await?
-                    .ready
+                matches!(attached, Err(CellGroupControllerError::Catalog(ref cause))
+                    if matches!(cause.as_ref(), CatalogError::Unconfirmed)),
+                "uninstalled merge child must refuse attachment: {attached:?}"
             );
+            ensure!(matches!(
+                candidate.group(child.history),
+                Err(RuntimeError::NotFound)
+            ));
+
+            for (index, generation, previous) in [(4, 125, fourth), (5, 126, fifth)] {
+                Box::pin(start_voter(cluster, index, generation, previous, 2)).await?;
+            }
+            let revision = fleet.read(TIMEOUT).await?.revision();
+            for host in &cluster.hosts[4..] {
+                inspect_current(&cluster.hosts[3], host.identity().node, revision).await?;
+            }
+            leader(&cluster.hosts[3..], parents[1].history)
+                .await
+                .context("unsealed merge parent did not regain quorum")?;
+            verify_durable_seal(&cluster.hosts[3], &transition, parent.history, &seal).await?;
         }
     }
     let sources = fleet
@@ -414,6 +447,108 @@ pub(super) async fn run(
         ensure!(query.result == (expected + 2).to_be_bytes());
     }
     Ok(child.history)
+}
+
+async fn verify_minority(
+    survivor: &RaftCells,
+    transition: &ReopenedManagedCellGroupTransition,
+    seal: &GroupSourceSeal,
+    parents: &[GroupRoute; 2],
+    cells: &[(CellHistory, i64)],
+    retry: u64,
+) -> Result<()> {
+    let unsealed = parents[1].history;
+    let group = survivor.group(unsealed)?;
+    let committed = tokio::time::timeout(TIMEOUT, async {
+        loop {
+            let status = group.status().await?;
+            if !status.ready && status.leader.is_none() {
+                return Ok::<_, anyhow::Error>(status.committed);
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("unsealed merge parent did not lose quorum")??;
+    let handle = survivor.cell(cells[1].0.clone())?;
+    let get = handle.contract("Get")?;
+    let historical = handle
+        .query(
+            ProposalId::new([220; 16])?,
+            &get,
+            vec![],
+            QueryOptions {
+                consistency: QueryConsistency::Stale,
+                stale_policy: StaleReadPolicy::DisconnectedHistorical,
+                routing: QueryRouting::Local,
+                ..Default::default()
+            },
+        )
+        .await?;
+    ensure!(
+        historical.result == cells[1].1.to_be_bytes()
+            && historical.witness.group == unsealed
+            && historical.served_by_node == survivor.identity()
+    );
+    let fresh = handle
+        .query(
+            ProposalId::new([221; 16])?,
+            &get,
+            vec![],
+            QueryOptions {
+                routing: QueryRouting::Local,
+                ..Default::default()
+            },
+        )
+        .await;
+    ensure!(
+        matches!(
+            fresh.as_ref().err().map(Arc::as_ref),
+            Some(CellDispatchError::Runtime(
+                RuntimeError::NotLeader | RuntimeError::NotReady | RuntimeError::DeadlineExceeded
+            ))
+        ),
+        "minority cannot serve a fresh read: {fresh:?}"
+    );
+    let refused = group.seal_managed_source(transition, TIMEOUT).await.err();
+    ensure!(
+        matches!(
+            refused,
+            Some(CellGroupControllerError::Runtime(RuntimeError::NotLeader))
+        ),
+        "minority cannot seal the other parent: {refused:?}"
+    );
+    ensure!(group.status().await?.committed == committed);
+
+    let sealed = parents[0].history;
+    verify_durable_seal(survivor, transition, sealed, seal).await?;
+    let handle = survivor.cell(cells[0].0.clone())?;
+    let id = CommandId::new(ClientId::new([222; 16])?, 1)?;
+    let refused = handle
+        .command(
+            &handle.contract("Add")?,
+            64i64.to_be_bytes().to_vec(),
+            CommandOptions::new(id, retry),
+        )
+        .await;
+    ensure!(
+        matches!(refused, Err(ref failure) if failure.command == id && !failure.ambiguous),
+        "sealed parent admitted a new command: {refused:?}"
+    );
+    verify_durable_seal(survivor, transition, sealed, seal).await
+}
+
+async fn verify_durable_seal(
+    host: &RaftCells,
+    transition: &ReopenedManagedCellGroupTransition,
+    history: GroupHistory,
+    seal: &GroupSourceSeal,
+) -> Result<()> {
+    let source = host.group(history)?;
+    let observed = source.seal_managed_source(transition, TIMEOUT).await?;
+    ensure!(matches!(observed, CellGroupSealOutcome::Applied(ref applied) if applied == seal));
+    ensure!(!source.status().await?.ready);
+    Ok(())
 }
 
 async fn finish_merge(
@@ -628,6 +763,15 @@ async fn restart_voter(
     active: Option<GroupHistory>,
     registered: u32,
 ) -> Result<()> {
+    let previous = stop_voter(cluster, index, active).await?;
+    start_voter(cluster, index, generation, previous, registered).await
+}
+
+async fn stop_voter(
+    cluster: &mut ManagedCluster,
+    index: usize,
+    active: Option<GroupHistory>,
+) -> Result<NodeIdentity> {
     let node = cluster.nodes.remove(index);
     let old = cluster.hosts.remove(index);
     let identity = old.identity();
@@ -648,6 +792,16 @@ async fn restart_voter(
                     && group.applied.index == group.committed),
         "merge voter shutdown inventory: {report:?}"
     );
+    Ok(identity)
+}
+
+async fn start_voter(
+    cluster: &mut ManagedCluster,
+    index: usize,
+    generation: u8,
+    previous: NodeIdentity,
+    registered: u32,
+) -> Result<()> {
     let fixture = &cluster.fixtures[index];
     let node = start_node(
         cluster.roots[index].path(),
@@ -673,7 +827,7 @@ async fn restart_voter(
     cluster.nodes.insert(index, node);
     cluster.hosts.insert(index, host);
     let host = &cluster.hosts[index];
-    ensure!(host.identity().disk == identity.disk && host.identity().process != identity.process);
+    ensure!(host.identity().disk == previous.disk && host.identity().process != previous.process);
     let view = host.observe_node(TIMEOUT).await?;
     ensure!(view.node.groups == 2 && view.registered_histories == registered);
     Ok(())
