@@ -18,7 +18,9 @@ mod index;
 mod isolation;
 mod maintenance;
 mod managed_park;
-pub(crate) use managed_park::{ManagedParkPermit, ManagedParkSettlement};
+pub(crate) use managed_park::{
+    ManagedParkOperation, ManagedParkPermit, ManagedParkPhase, ManagedParkSettlement,
+};
 mod managed_transition_admission;
 pub(crate) use managed_transition_admission::TransitionOperatorStep;
 mod managed_transition_replay;

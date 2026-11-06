@@ -671,8 +671,13 @@ async fn exercise_park(enter_park: bool) -> anyhow::Result<()> {
                     Err(RuntimeError::StaleCompletion)
                 ));
                 let prepared = runtime.prepare_park(history, request).await?;
-                let duplicate = runtime.prepare_park(history, request).await?;
+                let retry = ParkPrepareRequest {
+                    deadline_ms: request.deadline_ms - 1,
+                    ..request
+                };
+                let duplicate = runtime.prepare_park(history, retry).await?;
                 assert_eq!(prepared.proposal.position, duplicate.proposal.position);
+                assert_eq!(duplicate.deadline_ms, request.deadline_ms);
                 assert!(prepared.next_due_unix_millis.is_none());
                 assert!(!runtime.status(history).await?.ready);
                 cut = Some((request, prepared.proposal.position));

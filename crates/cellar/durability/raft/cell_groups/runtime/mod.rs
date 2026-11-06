@@ -628,8 +628,52 @@ impl CellGroupRuntime {
         minimum: cellar_logic::consensus::LogIndex,
         deadline: u64,
     ) -> Result<CellGroupQuorumMembership, RuntimeError> {
+        self.membership_for(history, minimum, reads::MembershipRead::Ordinary, deadline)
+            .await
+    }
+
+    pub(crate) async fn park_admission(
+        &self,
+        history: GroupHistory,
+        deadline: u64,
+    ) -> Result<CellGroupQuorumMembership, RuntimeError> {
+        self.membership_for(
+            history,
+            cellar_logic::consensus::LogIndex::new(0),
+            reads::MembershipRead::ParkAdmission,
+            deadline,
+        )
+        .await
+    }
+
+    pub(crate) async fn wake_park(
+        &self,
+        history: GroupHistory,
+        generation: cellar_logic::cell_group::ParkGeneration,
+        deadline: u64,
+    ) -> Result<CellGroupQuorumMembership, RuntimeError> {
+        self.membership_for(
+            history,
+            cellar_logic::consensus::LogIndex::new(generation.get()),
+            reads::MembershipRead::Wake(generation),
+            deadline,
+        )
+        .await
+    }
+
+    async fn membership_for(
+        &self,
+        history: GroupHistory,
+        minimum: cellar_logic::consensus::LogIndex,
+        mode: reads::MembershipRead,
+        deadline: u64,
+    ) -> Result<CellGroupQuorumMembership, RuntimeError> {
         let response = self
-            .select_authority(history, reads::ReadKind::Membership { minimum }, deadline)
+            .select_authority(
+                history,
+                reads::ReadKind::Membership { minimum, mode },
+                deadline,
+            )
             .await?;
         if self
             .inner

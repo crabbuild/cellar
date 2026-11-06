@@ -119,6 +119,15 @@ async fn managed_park_root_refuses_generic_writers_and_reopens_exact_owner() -> 
         .await?
         .expect("active rooted park");
     assert!(reopened.matches_owner(history, &record.boot, MemberId::new(1)?));
+    let observed = catalog
+        .observe_managed_park(operation, timeout)
+        .await?
+        .expect("rooted park history");
+    assert!(observed.phase == ManagedParkPhase::Negotiating);
+    assert_eq!(observed.revision, committed.snapshot.revision());
+    assert!(observed.permit.same_reservation(&reopened));
+    assert!(observed.permit.matches_request(history, &record.request));
+    assert_eq!(observed.permit.generation()?.get(), 11);
     let request = reopened.prepare_request(100)?;
     assert_eq!(request.proposal, operation);
     assert_eq!(request.expected_applied.index, LogIndex::new(10));

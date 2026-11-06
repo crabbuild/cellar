@@ -82,6 +82,7 @@ mod actions;
 mod close;
 mod drain;
 mod fleet;
+mod hibernation;
 mod learner;
 mod membership;
 mod node;

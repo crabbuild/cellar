@@ -51,10 +51,27 @@ pub(super) struct ReadRequest {
 pub(super) enum ReadKind {
     Cell(CellHistory, CellReadConsistency),
     Seed(cellar_logic::consensus::ReplicaIdentity<GroupHistory>),
-    Membership { minimum: LogIndex },
+    Membership {
+        minimum: LogIndex,
+        mode: MembershipRead,
+    },
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum MembershipRead {
+    Ordinary,
+    ParkAdmission,
+    Wake(cellar_logic::cell_group::ParkGeneration),
 }
 
 impl ReadKind {
+    pub(super) fn membership_mode(&self) -> MembershipRead {
+        match self {
+            Self::Membership { mode, .. } => *mode,
+            _ => MembershipRead::Ordinary,
+        }
+    }
+
     pub fn reservation_bytes(&self) -> usize {
         match self {
             Self::Membership { .. } => super::super::membership_observation::MEMBERSHIP_BYTES,
@@ -142,7 +159,11 @@ impl Reads {
             }
             // A pending recovery is an admission refusal, not a read barrier
             // that may occupy the ordinary wait queue until its deadline.
-            owner.require_application_active()?;
+            if let MembershipRead::Wake(generation) = request.kind.membership_mode() {
+                owner.check_park_wake(generation)?;
+            } else {
+                owner.require_application_active()?;
+            }
             self.groups.retain(|_, budget| budget.strong_count() != 0);
             let budget = self
                 .groups
@@ -178,7 +199,7 @@ impl Reads {
             context.extend_from_slice(&self.sequence.to_be_bytes());
             let term = if request.kind.linearizable() {
                 let status = owner.status()?;
-                if matches!(request.kind, ReadKind::Membership { minimum } if status.applied.index < minimum)
+                if matches!(request.kind, ReadKind::Membership { minimum, .. } if status.applied.index < minimum)
                 {
                     // The configuration proposal is only admitted. Start this
                     // invocation's quorum barrier after its durable apply floor.

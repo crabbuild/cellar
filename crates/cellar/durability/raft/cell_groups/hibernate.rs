@@ -96,6 +96,7 @@ pub(crate) struct ParkPrepareRequest {
 pub(crate) struct ParkPreparation {
     pub proposal: CellGroupProposal,
     pub next_due_unix_millis: Option<u64>,
+    pub deadline_ms: u64,
 }
 
 /// Physical evidence for one voter. Selection of a park certificate still

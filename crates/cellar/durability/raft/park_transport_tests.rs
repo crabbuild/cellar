@@ -152,7 +152,7 @@ async fn park_certificate_delivery_and_wake_over_three_tls_voters() -> anyhow::R
     };
     use anyhow::Context as _;
     use cellar_logic::{
-        cell_group::{CellRange, MembershipRevision, RouteEpoch},
+        cell_group::{CellRange, MembershipRevision, ParkGeneration, RouteEpoch},
         consensus::ProposalId,
     };
     use cellar_ltx::{
@@ -393,10 +393,33 @@ async fn park_certificate_delivery_and_wake_over_three_tls_voters() -> anyhow::R
         assert_eq!(parked.certificate(), Some(certificate.certificate()));
     }
     assert!(!runtime.status(history).await?.ready);
-    match runtime.read_index(history, vec![1]).await {
-        Ok(()) | Err(RuntimeError::NotReady) => (),
-        Err(error) => return Err(error.into()),
-    }
+    let deadline = log.domain().mono_ms()? + MAX_PARK_NEGOTIATION_MS;
+    assert!(matches!(
+        runtime.park_admission(history, deadline).await,
+        Err(RuntimeError::NotReady)
+    ));
+    assert!(matches!(
+        runtime
+            .wake_park(
+                history,
+                ParkGeneration::new(cut.generation() - 1)?,
+                deadline
+            )
+            .await,
+        Err(RuntimeError::StaleCompletion)
+    ));
+    let retry = transport
+        .collect_park_certificate(history, cut.clone(), deadline)
+        .await?;
+    assert_eq!(retry.certificate(), certificate.certificate());
+    transport
+        .deliver_park_certificate(history, &retry, deadline)
+        .await?;
+    let observed = runtime
+        .wake_park(history, ParkGeneration::new(cut.generation())?, deadline)
+        .await?;
+    assert!(observed.root().position().index > cut.position().index);
+    drop(observed);
     let resumed = wait_park_test(&domain, || async {
         let status = runtime.status(history).await?;
         Ok((status.ready && status.applied.index > cut.position().index).then_some(status))

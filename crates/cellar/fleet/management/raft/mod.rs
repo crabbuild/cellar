@@ -6,6 +6,7 @@
 mod connection;
 mod failure;
 mod first_group;
+mod hibernation;
 mod lifecycle;
 mod maintenance;
 pub use maintenance::*;
@@ -31,6 +32,9 @@ pub use first_group::{
     RaftFleetFirstGroupAcceptance, RaftFleetFirstGroupMutation, RaftFleetFirstGroupPlan,
     RaftFleetFirstGroupPublish, RaftFleetFirstGroupStage, RaftFleetFirstGroupStandby,
     RaftFleetFirstGroupVoter,
+};
+pub use hibernation::{
+    RaftFleetParkPhase, RaftFleetParkRequest, RaftFleetParkStatus, RaftFleetWakeStatus,
 };
 pub use lifecycle::{
     RaftFleetEvacuationAcceptance, RaftFleetEvacuationDebt, RaftFleetEvacuationPhase,

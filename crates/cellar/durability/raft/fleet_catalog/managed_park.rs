@@ -14,7 +14,7 @@ use crate::raft::{
     transport::ParkDeliveryReceipt,
 };
 use cellar_logic::{
-    cell_group::{GroupHistory, MembershipRevision},
+    cell_group::{GroupHistory, MembershipRevision, ParkGeneration},
     consensus::{LogIndex, LogPosition, MemberId, NodeId, ProposalId, Term},
 };
 use serde::Deserialize;
@@ -175,6 +175,34 @@ impl ManagedParkPermit {
         })
     }
 
+    pub(crate) fn operation(&self) -> Result<ProposalId> {
+        ProposalId::new(self.0.operation())
+            .map_err(|_| FleetCatalogError::Invalid("park operation"))
+    }
+
+    pub(crate) fn generation(&self) -> Result<ParkGeneration> {
+        ParkGeneration::new(self.0.base + 1)
+            .map_err(|_| FleetCatalogError::Invalid("park generation"))
+    }
+
+    pub(crate) fn matches_request(
+        &self,
+        history: GroupHistory,
+        request: &FleetRequestIdentity,
+    ) -> bool {
+        self.0.group.matches_scope(&history) && &self.0.request == request
+    }
+
+    pub(crate) fn same_reservation(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+
+    pub(crate) fn matches_fleet(&self, history: GroupHistory, boot: &BootBinding) -> bool {
+        self.0.group.matches_scope(&history)
+            && self.0.boot.fleet == boot.fleet
+            && self.0.boot.catalog == boot.catalog
+    }
+
     pub(crate) fn matches_owner(
         &self,
         history: GroupHistory,
@@ -185,6 +213,19 @@ impl ManagedParkPermit {
             && &self.0.boot == boot
             && self.0.member == member.get()
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ManagedParkPhase {
+    Negotiating,
+    Delivered,
+    Superseded,
+}
+
+pub(crate) struct ManagedParkOperation {
+    pub(crate) permit: ManagedParkPermit,
+    pub(crate) phase: ManagedParkPhase,
+    pub(crate) revision: u64,
 }
 
 pub(crate) enum ManagedParkSettlement<'a> {
@@ -205,6 +246,26 @@ struct Settlement {
     admission: [u8; 32],
     request: FleetRequestIdentity,
     evidence: SettlementEvidence,
+}
+
+impl Settlement {
+    fn mutation(&self) -> Result<FleetMutation> {
+        Ok(history_mutation(
+            &self.request,
+            vec![
+                FleetChange {
+                    table: FleetTable::Operations,
+                    key: key(SETTLEMENT_PREFIX, self.request.operation),
+                    value: Some(encode(SETTLEMENT_KIND, self, RECORD_LIMIT)?),
+                },
+                FleetChange {
+                    table: FleetTable::Policy,
+                    key: SLOT_KEY.into(),
+                    value: None,
+                },
+            ],
+        ))
+    }
 }
 
 impl FleetCatalog {
@@ -327,6 +388,58 @@ impl FleetCatalog {
         .await
     }
 
+    pub(crate) async fn observe_managed_park(
+        &self,
+        operation: ProposalId,
+        timeout: Duration,
+    ) -> Result<Option<ManagedParkOperation>> {
+        self.run(timeout, Box::pin(async {
+            let current = self.inner.current().await?;
+            let operations = current.head.tables[FleetTable::Operations.slot()];
+            let Some(bytes) = self.inner.lookup(operations, &key(OPERATION_PREFIX, operation.bytes())).await? else {
+                return Ok(None);
+            };
+            let record: Record = decode(KIND, &bytes, RECORD_LIMIT)?;
+            record.validate(self)?;
+            self.confirm_managed_park(&current, &record).await?;
+            if record.operation() != operation.bytes() {
+                return Err(FleetCatalogError::Corrupt("park operation index"));
+            }
+            let terminal = self.inner.lookup(operations, &key(SETTLEMENT_PREFIX, operation.bytes())).await?;
+            let phase = if let Some(terminal) = terminal {
+                let terminal: Settlement = decode(SETTLEMENT_KIND, &terminal, RECORD_LIMIT)?;
+                validate_request(&terminal.request)?;
+                let mutation = terminal.mutation()?;
+                let digest = hash(&encode(REQUEST_KIND, &mutation, REQUEST_LIMIT)?);
+                if terminal.admission != hash(&bytes)
+                    || terminal.request.operation != operation.bytes()
+                    || terminal.request.principal != record.request.principal
+                    || terminal.request.id == record.request.id
+                    || terminal.request.expected_revision <= record.request.expected_revision
+                    || self.inner.committed(&current.head, &hex::encode(terminal.request.id), digest).await?.is_none()
+                {
+                    return Err(FleetCatalogError::Corrupt("park settlement index"));
+                }
+                match terminal.evidence {
+                    SettlementEvidence::Delivered => ManagedParkPhase::Delivered,
+                    SettlementEvidence::Advanced { index, term } if fences_park(
+                        record.base, record.term,
+                        LogPosition { index: LogIndex::new(index), term: Term::new(term) },
+                    ) => ManagedParkPhase::Superseded,
+                    SettlementEvidence::Advanced { .. } => return Err(FleetCatalogError::Corrupt("park settlement cut")),
+                }
+            } else {
+                if current.head.disruption != Some(hash(&bytes))
+                    || !matches!(self.active_disruption(&current).await?, Some(Disruption::Park(ref active)) if *active == record)
+                {
+                    return Err(FleetCatalogError::Corrupt("unsettled park missing disruption"));
+                }
+                ManagedParkPhase::Negotiating
+            };
+            Ok(Some(ManagedParkOperation { permit: ManagedParkPermit(record), phase, revision: current.revision() }))
+        })).await
+    }
+
     pub(crate) async fn settle_managed_park(
         &self,
         snapshot: &FleetSnapshot,
@@ -351,21 +464,7 @@ impl FleetCatalog {
             request: request.clone(),
             evidence: record.settlement(proof)?,
         };
-        let mutation = history_mutation(
-            request,
-            vec![
-                FleetChange {
-                    table: FleetTable::Operations,
-                    key: key(SETTLEMENT_PREFIX, request.operation),
-                    value: Some(encode(SETTLEMENT_KIND, &settlement, RECORD_LIMIT)?),
-                },
-                FleetChange {
-                    table: FleetTable::Policy,
-                    key: SLOT_KEY.into(),
-                    value: None,
-                },
-            ],
-        );
+        let mutation = settlement.mutation()?;
         mutation.validate()?;
         self.run(timeout, Box::pin(async {
             let current = self.inner.current().await?;

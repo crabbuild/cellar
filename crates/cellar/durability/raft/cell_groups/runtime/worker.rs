@@ -300,6 +300,31 @@ impl Worker {
             reply(request, Err(error.clone()));
             return;
         }
+        if let Command::Read(read) = &request.command {
+            let check = match read.kind.membership_mode() {
+                reads::MembershipRead::Wake(generation) => group.owner.check_park_wake(generation),
+                reads::MembershipRead::ParkAdmission
+                    if group.owner.is_parked() || group.park_write.is_some() =>
+                {
+                    Err(RuntimeError::NotReady)
+                }
+                _ => Ok(()),
+            };
+            if let Err(error) = check {
+                reply(request, Err(error));
+                return;
+            }
+        }
+        if let Command::CertifyPark(certificate) = &request.command {
+            if group.owner.is_parked() {
+                let selected = group
+                    .owner
+                    .finish_park_certificate(certificate)
+                    .map(Response::ParkCertified);
+                reply(request, selected);
+                return;
+            }
+        }
         if matches!(
             &request.command,
             Command::AcknowledgePark { .. } | Command::CertifyPark(_) | Command::EnterPark(_)
@@ -1067,7 +1092,10 @@ impl Worker {
                             .owner
                             .select_seed(target, *term, *barrier)
                             .map(reads::Selection::Seed),
-                        reads::ReadKind::Membership { minimum } => {
+                        reads::ReadKind::Membership { minimum, mode } => {
+                            if let reads::MembershipRead::Wake(generation) = mode {
+                                group.owner.check_park_wake(*generation)?;
+                            }
                             let status = group.owner.status()?;
                             if term.is_some_and(|observed| observed != status.term) {
                                 return Err(RuntimeError::NotLeader);

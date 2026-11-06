@@ -1175,7 +1175,14 @@ impl CellGroupOwner {
             return Err(RuntimeError::Invalid("park negotiation deadline".into()));
         }
         if let Some(pending) = &self.pending_park {
-            return if pending.request == request && pending.abort.is_none() {
+            let same = ParkPrepareRequest {
+                deadline_ms: request.deadline_ms,
+                ..pending.request
+            };
+            return if same == request
+                && pending.abort.is_none()
+                && now < pending.request.deadline_ms
+            {
                 Ok(pending.preparation.clone())
             } else {
                 Err(RuntimeError::NotReady)
@@ -1240,6 +1247,7 @@ impl CellGroupOwner {
         let preparation = ParkPreparation {
             proposal,
             next_due_unix_millis,
+            deadline_ms: request.deadline_ms,
         };
         self.pending_park = Some(Box::new(PendingPark {
             request,
@@ -2024,6 +2032,23 @@ impl CellGroupOwner {
         self.pending_park.is_some() || self.parked.is_some() || self.waking_after.is_some()
     }
 
+    pub(super) fn check_park_wake(&self, generation: ParkGeneration) -> Result<(), RuntimeError> {
+        self.live()?;
+        let marker = self.current.marker();
+        if !marker.is_active()
+            || self.parked.is_some_and(|current| current != generation)
+            || marker
+                .park_cut()
+                .is_some_and(|cut| cut.generation() > generation.get())
+            || self.pending_park.as_ref().is_some_and(|pending| {
+                pending.preparation.proposal.position.index.get() > generation.get()
+            })
+        {
+            return Err(RuntimeError::StaleCompletion);
+        }
+        Ok(())
+    }
+
     pub(super) fn is_parked(&self) -> bool {
         self.parked.is_some()
     }
@@ -2220,7 +2245,14 @@ impl CellGroupOwner {
         &self,
         certificate: &ParkCertificate,
     ) -> Result<SelectedParkCertificate, RuntimeError> {
-        self.require_park_certificate(certificate)?;
+        if self.is_parked() {
+            self.live()?;
+            if self.last_sync == 0 {
+                return Err(RuntimeError::StaleCompletion);
+            }
+        } else {
+            self.require_park_certificate(certificate)?;
+        }
         if self
             .group
             .read()?
