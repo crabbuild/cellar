@@ -1799,7 +1799,7 @@ async fn check_recovery_voter_reservations(
                 report.groups.iter().all(|group| !group.active
                     && !group.failed
                     && group.applied.index.get() == 1
-                    && group.committed == group.applied),
+                    && group.committed == group.applied.index),
                 "managed recovery shutdown must preserve inactive genesis: {report:?}"
             );
             Ok::<(), anyhow::Error>(())
