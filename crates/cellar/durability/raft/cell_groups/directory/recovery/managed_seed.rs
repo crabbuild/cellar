@@ -12,7 +12,7 @@ use crate::raft::{
     fleet_stop::BootBinding,
     storage::{LogError, ReplicaLog},
 };
-use cellar_logic::consensus::MemberId;
+use cellar_logic::consensus::{DiskLineage, EngineInstanceId, MemberId};
 
 const BINDING: u8 = 226;
 const INTENT: u8 = 227;
@@ -43,6 +43,30 @@ pub struct ManagedRecoveryVoterSeed {
     pub genesis_commitment: [u8; 32],
     pub member: MemberId,
     pub boot: BootBinding,
+}
+
+/// The immutable genesis and completed voter set for one replacement range.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ManagedRecoverySeedQuorum {
+    birth: [u8; 32],
+    binding: [u8; 32],
+    commitment: [u8; 32],
+    members: Vec<u64>,
+}
+
+impl ManagedRecoverySeedQuorum {
+    pub fn birth_digest(&self) -> [u8; 32] {
+        self.birth
+    }
+
+    pub fn genesis_commitment(&self) -> [u8; 32] {
+        self.commitment
+    }
+
+    pub fn members(&self) -> &[u64] {
+        &self.members
+    }
 }
 
 pub(crate) struct PendingManagedRecoverySeed {
@@ -182,6 +206,122 @@ impl RangeDirectory {
         Ok(pending.proof)
     }
 
+    /// Read the immutable receipts for a quorum of the planned voters.
+    /// Reopening a selected set never silently includes a later completion.
+    pub(crate) async fn observe_managed_recovery_seed_quorum(
+        &self,
+        target: &crate::raft::catalog::CellGroupBirthRequest,
+        plan: [u8; 32],
+        boots: &[BootBinding],
+        selected: Option<&ManagedRecoverySeedQuorum>,
+    ) -> Result<ManagedRecoverySeedQuorum, CatalogError> {
+        self.bounded(async {
+            self.require_managed_recovery_identity(target, plan).await?;
+            let route = target.route();
+            let voters = target.voters();
+            if voters.len() != 3
+                || boots.len() != voters.len()
+                || !target.learners().is_empty()
+                || selected.is_some_and(|value| {
+                    value.birth != route.birth_digest
+                        || !(2..=voters.len()).contains(&value.members.len())
+                        || value.members.windows(2).any(|pair| pair[0] >= pair[1])
+                })
+            {
+                return Err(CatalogError::Fenced);
+            }
+            let binding_key = self.managed_seed_key(route, "binding");
+            let (bytes, _) = self
+                .namespace
+                .inner
+                .read_versioned_bounded(&binding_key, wire::LIMIT)
+                .await?
+                .ok_or(CatalogError::Unconfirmed)?;
+            let binding: Binding = record::decode(BINDING, &bytes, wire::LIMIT)?;
+            if binding.plan != plan
+                || !binding.genesis.is_recovery_genesis()
+                || binding.genesis.route() != route
+                || binding.genesis.recovery_request() != Some(plan)
+                || binding
+                    .genesis
+                    .recovery_commitment()
+                    .map_err(|_| CatalogError::Corrupt("managed seed genesis"))?
+                    != Some(binding.commitment)
+            {
+                return Err(CatalogError::Corrupt("managed seed genesis binding"));
+            }
+            let digest = record::digest(&bytes);
+            let mut disks = BTreeSet::new();
+            let mut engines = BTreeSet::new();
+            let mut members = Vec::with_capacity(voters.len());
+            for (voter, boot) in voters.iter().zip(boots) {
+                if boot.node != voter.node.bytes() {
+                    return Err(CatalogError::Corrupt("managed seed voter boot binding"));
+                }
+                let member = voter.member.get();
+                if selected.is_some_and(|value| value.members.binary_search(&member).is_err()) {
+                    continue;
+                }
+                let receipt = Receipt {
+                    binding: digest,
+                    member,
+                    boot: boot.clone(),
+                };
+                let complete_key =
+                    self.managed_seed_key(route, &seed_member_key(member, "complete"));
+                let Some((complete, _)) = self
+                    .namespace
+                    .inner
+                    .read_versioned_bounded(&complete_key, wire::LIMIT)
+                    .await?
+                else {
+                    if selected.is_some() {
+                        return Err(CatalogError::Unconfirmed);
+                    }
+                    continue;
+                };
+                let intent_key = self.managed_seed_key(route, &seed_member_key(member, "intent"));
+                let (intent, _) = self
+                    .namespace
+                    .inner
+                    .read_versioned_bounded(&intent_key, wire::LIMIT)
+                    .await?
+                    .ok_or(CatalogError::Corrupt("missing managed seed intent"))?;
+                if complete != record::encode(COMPLETE, &receipt, wire::LIMIT)?
+                    || intent != record::encode(INTENT, &receipt, wire::LIMIT)?
+                {
+                    return Err(CatalogError::Corrupt("managed seed receipt binding"));
+                }
+                boot.validate().map_err(CatalogError::Log)?;
+                let disk = DiskLineage::new(boot.disk)
+                    .map_err(|_| CatalogError::Corrupt("managed seed disk"))?;
+                let engine = EngineInstanceId::new(boot.engine)
+                    .map_err(|_| CatalogError::Corrupt("managed seed engine"))?;
+                if !disks.insert(disk) || !engines.insert(engine) {
+                    return Err(CatalogError::Conflict("duplicate managed seed storage"));
+                }
+                self.namespace
+                    .verify_node_storage_identity(voter.node, disk, engine)
+                    .await?;
+                members.push(member);
+            }
+            if members.len() <= voters.len() / 2 {
+                return Err(CatalogError::Unconfirmed);
+            }
+            let quorum = ManagedRecoverySeedQuorum {
+                birth: route.birth_digest,
+                binding: digest,
+                commitment: binding.commitment,
+                members,
+            };
+            if selected.is_some_and(|expected| expected != &quorum) {
+                return Err(CatalogError::Corrupt("managed seed quorum binding"));
+            }
+            Ok(quorum)
+        })
+        .await
+    }
+
     fn managed_seed_key(&self, route: &GroupRoute, leaf: &str) -> Path {
         self.key(&format!(
             "managed-recovery-seeds/{}/{}/{leaf}",
@@ -205,7 +345,7 @@ impl RangeDirectory {
 
 impl PendingManagedRecoverySeed {
     fn member_key(&self, leaf: &str) -> String {
-        format!("voters/{:016x}/{leaf}", self.proof.member.get())
+        seed_member_key(self.proof.member.get(), leaf)
     }
 
     fn receipts(&self) -> Result<(Vec<u8>, Vec<u8>), CatalogError> {
@@ -219,4 +359,8 @@ impl PendingManagedRecoverySeed {
             record::encode(COMPLETE, &receipt, wire::LIMIT)?,
         ))
     }
+}
+
+fn seed_member_key(member: u64, leaf: &str) -> String {
+    format!("voters/{member:016x}/{leaf}")
 }

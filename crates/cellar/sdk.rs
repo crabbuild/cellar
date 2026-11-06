@@ -231,11 +231,12 @@ pub mod fleet_operations {
         RaftFleetVerificationBlocker, RaftFleetVerificationReason, RaftFleetVerificationStage,
         RaftFleetVerifiedTransitionRecovery, RaftFleetWakeStatus,
     };
-    pub use crate::raft::catalog::ManagedRecoveryVoterSeed;
+    pub use crate::raft::catalog::{ManagedRecoverySeedQuorum, ManagedRecoveryVoterSeed};
     pub use crate::raft::fleet_catalog::{
-        FleetFencedTransitionRecovery, FleetRecoveryRangeReservation, FleetRecoveryVoterLineage,
-        FleetTopologyPolicy, FleetTransitionRecoveryBarrier, FleetTransitionRecoveryFenceRequest,
-        FleetTransitionRecoveryIntent, FleetTransitionRecoveryReplacement,
+        FleetFencedTransitionRecovery, FleetRecoveryRangeReservation, FleetRecoverySeedQuorums,
+        FleetRecoveryVoterLineage, FleetTopologyPolicy, FleetTransitionRecoveryBarrier,
+        FleetTransitionRecoveryFenceRequest, FleetTransitionRecoveryIntent,
+        FleetTransitionRecoveryReplacement,
     };
 }
 pub use crate::assets::{AssetCache, AssetCacheOptions, AssetResolver};

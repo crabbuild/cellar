@@ -26,12 +26,12 @@ pub use import::CellGroupBirthDisposition;
 mod inventory;
 pub use inventory::{CellGroupDirectoryCursor, CellGroupDirectoryPage};
 mod recovery;
-pub(crate) use recovery::RecoverySeedPermit;
 pub use recovery::{
     CellGroupDisasterFenceRequest, CellGroupRecoveryActivationAck,
     CellGroupRecoveryActivationPermit, CellGroupRecoveryError, CellGroupRecoveryRequest,
-    FencedCellGroupRecovery, ManagedRecoveryVoterSeed,
+    FencedCellGroupRecovery, ManagedRecoverySeedQuorum, ManagedRecoveryVoterSeed,
 };
+pub(crate) use recovery::{ManagedRecoveryPublicationInput, RecoverySeedPermit};
 mod route_cache;
 mod routing;
 pub use route_cache::CellRouteCacheUsage;
@@ -167,6 +167,7 @@ pub struct DirectoryPublication {
 enum PublicationAuthority<'a> {
     Ordinary,
     Recovery(&'a recovery::RecoveryPublication),
+    ManagedRecovery(&'a recovery::ManagedRecoveryPublication<'a>),
     Transfer([u8; 32]),
 }
 
@@ -702,10 +703,11 @@ impl RangeDirectory {
         authority: PublicationAuthority<'_>,
     ) -> Result<DirectoryPublication, CatalogError> {
         let request = &mutation.request;
-        let (recovery, transfer_archive) = match authority {
-            PublicationAuthority::Ordinary => (None, None),
-            PublicationAuthority::Recovery(recovery) => (Some(recovery), None),
-            PublicationAuthority::Transfer(archive) => (None, Some(archive)),
+        let (recovery, transfer_archive, managed_recovery) = match authority {
+            PublicationAuthority::Ordinary => (None, None, None),
+            PublicationAuthority::Recovery(recovery) => (Some(recovery), None, None),
+            PublicationAuthority::Transfer(archive) => (None, Some(archive), None),
+            PublicationAuthority::ManagedRecovery(recovery) => (None, None, Some(recovery)),
         };
         let mut transition = None;
         let current = if request.expected.is_some() {
@@ -736,6 +738,9 @@ impl RangeDirectory {
                     {
                         return Err(CatalogError::Fenced);
                     }
+                    if let Some(recovery) = managed_recovery {
+                        recovery.check_published(self, view, &publication).await?;
+                    }
                     return Ok(publication);
                 }
                 // An interrupted genesis resumes only its identical first head.
@@ -745,6 +750,15 @@ impl RangeDirectory {
                     self.check_transfer_publication(view, mutation, archive)
                         .await?,
                 );
+            } else if let Some(recovery) = managed_recovery {
+                recovery.check(view, mutation)?;
+                if self
+                    .transition_record(&view.head, mutation.operation)
+                    .await?
+                    .is_some()
+                {
+                    return Err(CatalogError::Conflict("transition operation reused"));
+                }
             } else {
                 if self.transition_active(&view.head).await?.is_some() {
                     return Err(CatalogError::Fenced);
@@ -795,6 +809,8 @@ impl RangeDirectory {
             let route = child.decode(self)?;
             if let Some(recovery) = recovery {
                 recovery.check_child(&route)?;
+            } else if let Some(recovery) = managed_recovery {
+                recovery.check_child(self, &route).await?;
             } else {
                 let birth = self.require_ordinary_birth_reservation(&route).await?;
                 if transition.is_some() {
@@ -854,7 +870,12 @@ impl RangeDirectory {
             operations,
             groups,
             journal: id,
-            recovery: recovery.map(|grant| grant.published_lock(id)).transpose()?,
+            recovery: match managed_recovery {
+                Some(grant) => Some(
+                    grant.published_lock(&current.as_ref().ok_or(CatalogError::Fenced)?.0, id)?,
+                ),
+                None => recovery.map(|grant| grant.published_lock(id)).transpose()?,
+            },
             import: None,
         };
         self.check_head(&head)?;
@@ -924,6 +945,9 @@ impl RangeDirectory {
                 if transfer_archive.is_none()
                     || publication.transfer_archive() == transfer_archive =>
             {
+                if let Some(recovery) = managed_recovery {
+                    recovery.check_published(self, &after, &publication).await?;
+                }
                 Ok(publication)
             }
             Ok(Some(_)) => Err(CatalogError::Fenced),

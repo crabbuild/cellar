@@ -1503,7 +1503,14 @@ in its configured page and image stores under that engine identity. The writer r
 boot guard, installs the fresh Raft genesis with managed membership, and
 verifies the synced image closure before creating a durable seed receipt.
 An exact retry reopens the same receipt and requires the same engine state.
-Publication and activation follow a separate quorum decision.
+Before publication, Fleet reopens the exact reservation for every range and
+verifies a majority of durable seed receipts against the genesis binding,
+storage pins, and current qualified voter boots. It retains the selected
+receipt set so a later voter completion cannot change a retried decision.
+The recovery publication replaces every selected range in one directory CAS.
+The new head binds the exact seed set and keeps the startup fence on the old
+and replacement groups. A lost response reopens that publication without
+selecting another archive cut. Committed activation requires a fresh Raft quorum.
 
 For an unpublished transition, choose complete archived parent cuts and reconstruct
 their non-overlapping domain under new groups. For a published transition, require

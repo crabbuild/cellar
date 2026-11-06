@@ -4,16 +4,17 @@
 
 use super::*;
 use crate::raft::{
-    catalog::{CellGroupBirthSpec, DisasterFenceAuthority},
+    catalog::{CellGroupBirthSpec, DirectoryPublication, DisasterFenceAuthority},
     cell_groups::{
         CellGroupArchiveCoverage, CellGroupArchiveHold, CellGroupArchiveStore,
         CellGroupTransferTarget, PreparedGroupManifest, PreparedRecoveryData, TransitionPhase,
     },
     fleet_catalog::{
-        FleetFencedTransitionRecovery, FleetRecoveryRangeReservation, FleetRecoveryVoterLineage,
-        FleetTransitionRecoveryBarrier, FleetTransitionRecoveryFenceRequest,
-        FleetTransitionRecoveryIntent, FleetTransitionRecoveryReplacement,
-        ManagedRecoveryIntentBasis, ManagedRecoveryIntentInput, PreparedManagedRecoveryFence,
+        FleetFencedTransitionRecovery, FleetRecoveryRangeReservation, FleetRecoverySeedQuorums,
+        FleetRecoveryVoterLineage, FleetTransitionRecoveryBarrier,
+        FleetTransitionRecoveryFenceRequest, FleetTransitionRecoveryIntent,
+        FleetTransitionRecoveryReplacement, ManagedRecoveryIntentBasis, ManagedRecoveryIntentInput,
+        PreparedManagedRecoveryFence,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -362,6 +363,54 @@ impl RaftFleetControl {
                 fenced,
                 plan,
                 history,
+                &self.archive_pool,
+                timeout,
+            )
+            .await?)
+    }
+
+    /// Verify a durable seed majority for every replacement. An exact retry
+    /// reopens the selected receipts even if more voters have completed.
+    #[doc(hidden)]
+    pub async fn select_transition_recovery_seed_quorums(
+        &self,
+        namespace: &str,
+        fenced: &FleetFencedTransitionRecovery,
+        plan: &FleetTransitionRecoveryReplacement,
+        timeout: Duration,
+    ) -> Result<FleetRecoverySeedQuorums> {
+        let directory = self.managed_namespace(namespace)?;
+        Ok(self
+            .catalog
+            .select_managed_recovery_seed_quorums(
+                directory,
+                fenced,
+                plan,
+                &self.archive_pool,
+                timeout,
+            )
+            .await?)
+    }
+
+    /// Atomically select the seeded replacements while retaining the startup
+    /// fence. Repeat with the exact selected receipt set after a lost response.
+    #[doc(hidden)]
+    pub async fn publish_transition_recovery(
+        &self,
+        namespace: &str,
+        fenced: &FleetFencedTransitionRecovery,
+        plan: &FleetTransitionRecoveryReplacement,
+        selected: &FleetRecoverySeedQuorums,
+        timeout: Duration,
+    ) -> Result<DirectoryPublication> {
+        let directory = self.managed_namespace(namespace)?;
+        Ok(self
+            .catalog
+            .publish_managed_recovery_replacement(
+                directory,
+                fenced,
+                plan,
+                selected,
                 &self.archive_pool,
                 timeout,
             )

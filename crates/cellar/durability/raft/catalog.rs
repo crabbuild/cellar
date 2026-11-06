@@ -37,11 +37,13 @@ pub use range_directory::{
     CellRouteCacheUsage, CellRouteOperation, CellRouteRequest, CellRoutingError,
     CellRoutingFailure, CellRoutingLimits, CellRoutingSession, DirectoryLimits, DirectoryMutation,
     DirectoryPublication, DirectoryView, FencedCellGroupRecovery, InstalledTransferVoter,
-    ManagedRecoveryVoterSeed, PreparedCellGroupArchiveBinding, PreparedManagedCellGroupTransition,
-    RangeDirectory, ResolvedCellRoute, TransferInstallQuorum, TransitionJournal, TransitionPhase,
-    VerifiedCellGroupTransitionSources,
+    ManagedRecoverySeedQuorum, ManagedRecoveryVoterSeed, PreparedCellGroupArchiveBinding,
+    PreparedManagedCellGroupTransition, RangeDirectory, ResolvedCellRoute, TransferInstallQuorum,
+    TransitionJournal, TransitionPhase, VerifiedCellGroupTransitionSources,
 };
-pub(crate) use range_directory::{RecoverySeedPermit, TransferSeedPermit};
+pub(crate) use range_directory::{
+    ManagedRecoveryPublicationInput, RecoverySeedPermit, TransferSeedPermit,
+};
 
 #[path = "catalog_inventory/mod.rs"]
 mod inventory;

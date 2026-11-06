@@ -1269,17 +1269,6 @@ async fn run_inner(
             .eq(parent_holds.iter()));
         ensure!(authority.fences.load(Ordering::Acquire) == 1);
         ensure!(authority.verifications.load(Ordering::Acquire) == 2);
-        Box::pin(check_recovery_replacements(
-            fixture,
-            &recovery_control,
-            &fresh,
-            &namespace,
-            &fenced,
-            &routed,
-            rooted,
-        ))
-        .await?;
-        drop(fenced);
         ensure!(matches!(
             domain
                 .run(directory.require_current_group_birth(&birth))
@@ -1301,6 +1290,17 @@ async fn run_inner(
         ensure!(observed.phase == Some(TransitionPhase::Archived) && observed.fleet_slot_held);
         let page = domain.run(directory.group_page(&locked, None, 2)).await??;
         ensure!(page.routes == parents && page.next.is_none());
+        Box::pin(check_recovery_replacements(
+            fixture,
+            &recovery_control,
+            &fresh,
+            &namespace,
+            &fenced,
+            &routed,
+            rooted,
+        ))
+        .await?;
+        drop(fenced);
         return Ok(None);
     }
     for (registry, hold) in registries.iter().zip(&parent_holds) {
@@ -1613,11 +1613,6 @@ async fn check_recovery_replacements(
         Box::pin(fresh.reserve_transition_recovery_range(namespace, fenced, &plan, first, TIMEOUT))
             .await;
     ensure!(matches!(absent, Err(failure) if failure.code == RaftFleetFailureCode::Conflict));
-    Box::pin(check_recovery_voter_reservations(
-        fixture, control, fresh, namespace, fenced, &plan,
-    ))
-    .await?;
-
     let workspace = tempfile::tempdir()?;
     let mut checked = 0;
     for (index, (birth, cut)) in plan.births().iter().zip(fenced.archives()).enumerate() {
@@ -1659,6 +1654,11 @@ async fn check_recovery_replacements(
         }
     }
     ensure!(checked == routed.len());
+    Box::pin(check_recovery_voter_reservations(
+        fixture, control, fresh, namespace, fenced, &plan,
+    ))
+    .await?;
+
     Ok(())
 }
 
@@ -1731,6 +1731,7 @@ async fn check_recovery_voter_reservations(
         );
         let revision = fixture.catalog.read(TIMEOUT).await?.revision();
         let recovery = preparation::recovery_pool()?;
+        let mut quorum_digest = None;
         for (voter_index, (_, _, host)) in standbys.iter().enumerate() {
             let node = NodeId::new(boots[voter_index].node)?;
             inspect_current(host, node, revision).await?;
@@ -1779,9 +1780,53 @@ async fn check_recovery_voter_reservations(
                     receipt.boot == boots[voter_index]
                         && receipt.member.get() == 21 + voter_index as u64
                 );
+                if voter_index == 1 && range_index == 0 {
+                    let incomplete = Box::pin(control.select_transition_recovery_seed_quorums(
+                        namespace, fenced, plan, TIMEOUT,
+                    )).await;
+                    ensure!(matches!(incomplete, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
+                }
+            }
+            if voter_index == 1 {
+                fixture.store.fail_recovery_record_confirmation.store(true, Ordering::Release);
+                let unknown = Box::pin(control.select_transition_recovery_seed_quorums(
+                    namespace, fenced, plan, TIMEOUT,
+                )).await;
+                ensure!(matches!(unknown, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
+                ensure!(!fixture.store.fail_recovery_record_confirmation.load(Ordering::Acquire));
+                let selected = Box::pin(fresh.select_transition_recovery_seed_quorums(
+                    namespace, fenced, plan, TIMEOUT,
+                )).await?;
+                ensure!(selected.plan_digest() == plan.digest() && selected.ranges().len() == reserved.len());
+                ensure!(selected.ranges().iter().zip(plan.births()).all(|(range, birth)| {
+                    range.birth_digest() == birth.route().birth_digest
+                        && range.members() == [21, 22]
+                        && range.genesis_commitment() != [0; 32]
+                }));
+                quorum_digest = Some(selected.digest());
             }
             let view = host.observe_node(TIMEOUT).await?;
             ensure!(view.node.groups == reserved.len() as u32 && view.registered_histories == 0);
+        }
+        let reopened = Box::pin(control.select_transition_recovery_seed_quorums(
+            namespace, fenced, plan, TIMEOUT,
+        )).await?;
+        ensure!(Some(reopened.digest()) == quorum_digest);
+        ensure!(reopened.ranges().iter().all(|range| range.members() == [21, 22]));
+        let locked = fixture.domain.run(directory.observe()).await??;
+        let work = control.publish_transition_recovery(namespace, fenced, plan, &reopened, TIMEOUT);
+        let (unknown, delivered) = Box::pin(fault::lose_directory_confirmation(work)).await;
+        ensure!(delivered && matches!(unknown, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
+        let publication = Box::pin(fresh.publish_transition_recovery(
+            namespace, fenced, plan, &reopened, TIMEOUT,
+        )).await?;
+        let after = fixture.domain.run(directory.observe()).await??;
+        ensure!(after.revision() == locked.revision() + 1 && publication.revision() == after.revision());
+        let page = fixture.domain.run(directory.group_page(&after, None, 2)).await??;
+        ensure!(page.next.is_none() && page.routes.iter().eq(plan.births().iter().map(|birth| birth.route())));
+        for birth in plan.births() {
+            let denied = fixture.domain.run(directory.materialize_selected_history(birth.route().history)).await?;
+            ensure!(matches!(denied, Err(cellar::application::consensus::CatalogError::Fenced)));
         }
         Ok::<(), anyhow::Error>(())
     })
@@ -1793,7 +1838,15 @@ async fn check_recovery_voter_reservations(
                 node.shutdown(ShutdownMode::Preserve).await?,
                 NodeOutcome::Stopped(_)
             ));
-            ensure!(host.close().await?.groups_total == 0);
+            let report = host.close().await?;
+            ensure!(report.groups_total == plan.births().len());
+            ensure!(
+                report.groups.iter().all(|group| !group.active
+                    && !group.failed
+                    && group.applied.index.get() == 1
+                    && group.committed == group.applied),
+                "managed recovery shutdown must preserve inactive genesis: {report:?}"
+            );
             Ok::<(), anyhow::Error>(())
         }
         .await;

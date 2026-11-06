@@ -23,8 +23,11 @@ pub(in crate::raft::catalog::range_directory) use bootstrap::RecoveryStartup;
 pub(in crate::raft::catalog::range_directory) use publication::RecoveryPublication;
 pub use request::{CellGroupDisasterFenceRequest, CellGroupRecoveryRequest};
 pub(crate) use seed::RecoverySeedPermit;
+mod managed_publication;
+pub(in crate::raft::catalog::range_directory) use managed_publication::ManagedRecoveryPublication;
+pub(crate) use managed_publication::ManagedRecoveryPublicationInput;
 mod managed_seed;
-pub use managed_seed::ManagedRecoveryVoterSeed;
+pub use managed_seed::{ManagedRecoverySeedQuorum, ManagedRecoveryVoterSeed};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug)]
@@ -89,6 +92,14 @@ enum RecoveryPhase {
         plan: [u8; 32],
         groups: Vec<([u8; 16], [u8; 16])>,
     },
+    ManagedPublished {
+        transition: [u8; 16],
+        plan: [u8; 32],
+        groups: Vec<([u8; 16], [u8; 16])>,
+        replacement: [u8; 32],
+        seeds: [u8; 32],
+        publication: [u8; 32],
+    },
     Published {
         publication: [u8; 32],
         manifest: [u8; 32],
@@ -125,7 +136,9 @@ impl RecoveryLock {
         &self,
         operation: ProposalId,
     ) -> bool {
-        matches!(&self.phase, RecoveryPhase::ManagedSource { transition, .. }
+        matches!(&self.phase,
+            RecoveryPhase::ManagedSource { transition, .. }
+            | RecoveryPhase::ManagedPublished { transition, .. }
             if *transition == operation.bytes())
     }
 
@@ -136,7 +149,8 @@ impl RecoveryLock {
     ) -> Result<bool, CatalogError> {
         let source = self.source_route(directory)?;
         Ok(match &self.phase {
-            RecoveryPhase::ManagedSource { groups, .. } => {
+            RecoveryPhase::ManagedSource { groups, .. }
+            | RecoveryPhase::ManagedPublished { groups, .. } => {
                 route.history.cluster == source.history.cluster
                     && route.history.namespace == source.history.namespace
                     && groups
@@ -164,15 +178,31 @@ impl RecoveryLock {
             }
         }
         let source = self.source_route(directory)?;
-        if let RecoveryPhase::ManagedSource {
-            transition,
-            plan,
-            groups,
-        } = &self.phase
-        {
+        let managed = match &self.phase {
+            RecoveryPhase::ManagedSource {
+                transition,
+                plan,
+                groups,
+            } => Some((transition, plan, groups, 3..=65)),
+            RecoveryPhase::ManagedPublished {
+                transition,
+                plan,
+                groups,
+                replacement,
+                seeds,
+                publication,
+            } => {
+                if [*replacement, *seeds, *publication].contains(&[0; 32]) {
+                    return Err(CatalogError::Corrupt("managed recovery publication"));
+                }
+                Some((transition, plan, groups, 4..=129))
+            }
+            _ => None,
+        };
+        if let Some((transition, plan, groups, limits)) = managed {
             if *transition == [0; 16]
                 || *plan == [0; 32]
-                || !(3..=65).contains(&groups.len())
+                || !limits.contains(&groups.len())
                 || groups
                     .iter()
                     .any(|(group, incarnation)| *group == [0; 16] || *incarnation == [0; 16])

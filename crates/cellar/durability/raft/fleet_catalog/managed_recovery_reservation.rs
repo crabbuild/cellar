@@ -22,7 +22,7 @@ pub(super) const PREFIX: &str = "managed-recovery-birth/";
 const KIND: u8 = 225;
 const LIMIT: usize = 4096;
 
-#[derive(Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Record {
     plan: [u8; 32],
@@ -107,41 +107,18 @@ impl FleetHostAuthorization {
                         fenced.request().intent().basis(),
                     )
                     .await?;
-                let group = catalog.binding(&birth.route().history)?;
-                let history_key = group
-                    .key()
-                    .map_err(|_| FleetCatalogError::Invalid("recovery history key"))?;
-                let key = format!("{PREFIX}{history_key}");
-                let record = &reservation.record;
-                let bytes = encode(KIND, record, LIMIT)?;
-                if catalog
-                    .inner
-                    .lookup(snapshot.head.tables[FleetTable::Policy.slot()], &key)
+                let rooted = catalog
+                    .managed_recovery_reservation_at(&snapshot, directory, fenced, plan, birth)
                     .await?
-                    .as_deref()
-                    != Some(bytes.as_slice())
+                    .ok_or(FleetCatalogError::Conflict)?;
+                if rooted.record != reservation.record
+                    || rooted.applied_revision != reservation.applied_revision
                 {
                     return Err(FleetCatalogError::Conflict);
                 }
-                let history = catalog.history_inner(&snapshot, &history_key).await?;
-                if history
-                    != FleetHistory::reserved_group(
-                        group.clone(),
-                        directory,
-                        birth,
-                        &record.request,
-                    )?
-                {
-                    return Err(FleetCatalogError::Conflict);
-                }
-                let mutation = reservation_mutation(record, &history, &history_key, key)?;
-                if catalog.recovery_birth_commit(&snapshot, &mutation).await?
-                    != reservation.applied_revision
-                {
-                    return Err(FleetCatalogError::Conflict);
-                }
+                let group = catalog.binding(&birth.route().history)?;
                 let boot = self.boot_binding()?;
-                if !record.voters.contains(&boot) {
+                if !rooted.voter_boots().contains(&boot) {
                     return Err(FleetCatalogError::Conflict);
                 }
                 let current = catalog.host_from(&snapshot, self.node()).await?;
@@ -212,12 +189,7 @@ impl FleetCatalog {
                 .find(|birth| birth.route().history == scope)
                 .ok_or(FleetCatalogError::Conflict)?;
             let intent = fenced.request().intent();
-            let step = TransitionOperatorStep {
-                operation: plan.mutation().operation(),
-                principal: intent.principal().into(),
-                request_digest: plan.digest(),
-                step: birth.creation().bytes(),
-            };
+            let step = recovery_reservation_step(fenced, plan, birth);
             let binding = self.binding(&scope)?;
             let history_key = binding
                 .key()
@@ -227,36 +199,16 @@ impl FleetCatalog {
             self.managed_recovery_permit_at(&snapshot, directory, intent.basis())
                 .await?;
             let domain = &self.inner.domain;
-            if let Some(bytes) = self
-                .inner
-                .lookup(snapshot.head.tables[FleetTable::Policy.slot()], &key)
+            if let Some(reserved) = self
+                .managed_recovery_reservation_at(&snapshot, directory, fenced, plan, birth)
                 .await?
             {
-                let record: Record = decode(KIND, &bytes, LIMIT)?;
-                if record.plan != plan.digest()
-                    || record.request != step.identity(record.request.expected_revision)
-                {
-                    return Err(FleetCatalogError::PayloadConflict);
-                }
-                check_boots(birth, &record, self.catalog_id()?)?;
-                let history = self.history_inner(&snapshot, &history_key).await?;
-                let expected =
-                    FleetHistory::reserved_group(binding, directory, birth, &record.request)?;
-                if history != expected {
-                    return Err(FleetCatalogError::Conflict);
-                }
-                let mutation = reservation_mutation(&record, &history, &history_key, key)?;
-                let applied_revision = self.recovery_birth_commit(&snapshot, &mutation).await?;
                 domain
                     .run(directory.require_managed_recovery_identity(birth, plan.digest()))
                     .await
                     .map_err(|_| FleetCatalogError::Closed)?
                     .map_err(catalog_error)?;
-                return Ok(FleetRecoveryRangeReservation {
-                    record,
-                    route: birth.route().clone(),
-                    applied_revision,
-                });
+                return Ok(reserved);
             }
             self.require_namespace_declaration(&snapshot, directory.namespace(), None)
                 .await?;
@@ -307,6 +259,47 @@ impl FleetCatalog {
             })
         })
         .await
+    }
+
+    pub(super) async fn managed_recovery_reservation_at(
+        &self,
+        snapshot: &FleetSnapshot,
+        directory: &RangeDirectory,
+        fenced: &FleetFencedTransitionRecovery,
+        plan: &FleetTransitionRecoveryReplacement,
+        birth: &CellGroupBirthRequest,
+    ) -> Result<Option<FleetRecoveryRangeReservation>> {
+        let binding = self.binding(&birth.route().history)?;
+        let history_key = binding
+            .key()
+            .map_err(|_| FleetCatalogError::Invalid("recovery history key"))?;
+        let key = format!("{PREFIX}{history_key}");
+        let Some(bytes) = self
+            .inner
+            .lookup(snapshot.head.tables[FleetTable::Policy.slot()], &key)
+            .await?
+        else {
+            return Ok(None);
+        };
+        let record: Record = decode(KIND, &bytes, LIMIT)?;
+        let step = recovery_reservation_step(fenced, plan, birth);
+        if record.plan != plan.digest()
+            || record.request != step.identity(record.request.expected_revision)
+        {
+            return Err(FleetCatalogError::PayloadConflict);
+        }
+        check_boots(birth, &record, self.catalog_id()?)?;
+        let history = self.history_inner(snapshot, &history_key).await?;
+        if history != FleetHistory::reserved_group(binding, directory, birth, &record.request)? {
+            return Err(FleetCatalogError::Conflict);
+        }
+        let mutation = reservation_mutation(&record, &history, &history_key, key)?;
+        let applied_revision = self.recovery_birth_commit(snapshot, &mutation).await?;
+        Ok(Some(FleetRecoveryRangeReservation {
+            record,
+            route: birth.route().clone(),
+            applied_revision,
+        }))
     }
 
     async fn recovery_birth_commit(
@@ -410,6 +403,19 @@ impl FleetCatalog {
             return Err(FleetCatalogError::Corrupt("recovery placement inventory"));
         }
         Ok(slots)
+    }
+}
+
+fn recovery_reservation_step(
+    fenced: &FleetFencedTransitionRecovery,
+    plan: &FleetTransitionRecoveryReplacement,
+    birth: &CellGroupBirthRequest,
+) -> TransitionOperatorStep {
+    TransitionOperatorStep {
+        operation: plan.mutation().operation(),
+        principal: fenced.request().intent().principal().into(),
+        request_digest: plan.digest(),
+        step: birth.creation().bytes(),
     }
 }
 
