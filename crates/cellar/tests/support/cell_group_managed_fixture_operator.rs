@@ -138,6 +138,7 @@ pub(crate) async fn verify_transition_archive(
     principal: &str,
     request: &RaftFleetTransitionPrepareRequest,
     preparer: (FleetGroupArchiveVerifier, CellGroupRecoveryPool),
+    command_name: &str,
 ) -> Result<RaftFleetTransitionArchiveVerification> {
     let root = tempfile::tempdir()?;
     let (bucket, mut control) = control(fixture, directory)?;
@@ -148,7 +149,7 @@ pub(crate) async fn verify_transition_archive(
         std::fs::write(&plan, serde_json::to_vec(request)?)?;
         let command = [
             "transition",
-            "verify-archive",
+            command_name,
             &request.namespace_id,
             "--plan",
             plan.to_str()

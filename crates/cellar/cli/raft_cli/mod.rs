@@ -417,23 +417,30 @@ async fn execute(options: &options::Options) -> Result<Value> {
             }
             serde_json::to_value(setup).map_err(|_| unavailable())
         }
-        Action::TransitionVerifyArchive(request) => {
+        Action::TransitionVerifyArchive(request)
+        | Action::TransitionVerifyChildArchives(request) => {
             use crate::raft::cell_groups::TransitionPhase;
+            let child_archives =
+                matches!(&options.action, Action::TransitionVerifyChildArchives(_));
+            let command = if child_archives {
+                "verify-child-archives"
+            } else {
+                "verify-archive"
+            };
             let path = format!(
-                "namespaces/{}/transitions/{}/verify-archive",
+                "namespaces/{}/transitions/{}/{command}",
                 request.namespace_id, request.operation_id,
             );
             let verified = client
                 .post::<RaftFleetTransitionArchiveVerification>(&path, request.as_ref())
                 .await?;
+            let valid_phase = match verified.phase {
+                TransitionPhase::Active | TransitionPhase::Retired => true,
+                TransitionPhase::Archived | TransitionPhase::Published => !child_archives,
+                _ => false,
+            };
             if verified.request != **request
-                || !matches!(
-                    verified.phase,
-                    TransitionPhase::Archived
-                        | TransitionPhase::Published
-                        | TransitionPhase::Active
-                        | TransitionPhase::Retired
-                )
+                || !valid_phase
                 || options::validate_catalog(&verified.archive_digest).is_err()
             {
                 return Err(unavailable());

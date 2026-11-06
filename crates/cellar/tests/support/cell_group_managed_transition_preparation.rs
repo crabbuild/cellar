@@ -1238,7 +1238,6 @@ pub(super) async fn verify_child_archive_coverage(
             .await,
         Err(FleetCatalogError::Conflict)
     ));
-    let tails = CellGroupArchiveTailPool::new(Default::default())?;
     let scratch = tempfile::tempdir()?;
     let rooted = directory.namespace_config().image_storage == RaftImageStorage::Extents;
     let view = domain.run(directory.observe()).await??;
@@ -1262,34 +1261,21 @@ pub(super) async fn verify_child_archive_coverage(
 
     reopen_transfer_destination(cluster, 113, 2, true).await?;
     let host = &cluster.hosts[DESTINATION];
-    let mut sources = Vec::with_capacity(children.len());
-    let mut holds = Vec::with_capacity(children.len());
-    for (index, route) in children.into_iter().enumerate() {
-        let applied = wait_active_archive(host, route.history).await?;
-        let birth = domain
-            .run(directory.materialize_selected_history(route.history))
-            .await??;
-        let registry = directory
-            .open_group_archive(domain.as_ref(), &archives, &birth)
-            .await?;
-        let hold = acquire_hold(&domain, &registry).await?;
-        ensure!(hold.marker().position().index >= applied);
-        let base = scratch.path().join(format!("child-verifier-{index}"));
-        let stored = domain
-            .blocking(move || store(base, route, rooted))?
-            .await??;
-        let receiver = CellGroupCheckpointPool::new(checkpoint_limits())?.receive_archive(
-            stored.store,
-            stored.scratch,
-            stored.directory,
-        )?;
-        holds.push(hold.clone());
-        sources.push(CellGroupTransitionSource {
-            birth,
-            hold,
-            receiver,
-        });
+    let mut applied = Vec::with_capacity(children.len());
+    for route in children {
+        applied.push((
+            route.history,
+            wait_active_archive(host, route.history).await?,
+        ));
     }
+    let verifier_root = tempfile::tempdir_in(scratch.path())?;
+    let verifier = crate::managed_fixture::verifier::open(
+        &cluster.fixtures[0],
+        verifier_root.path(),
+        rooted,
+        Default::default(),
+    )
+    .await?;
     ensure!(fleet
         .reopen_managed_transfer_child_holds(transition, directory, TIMEOUT)
         .await?
@@ -1299,9 +1285,7 @@ pub(super) async fn verify_child_archive_coverage(
         .fail_head_confirmation
         .store(true, Ordering::Release);
     let recorded = fleet
-        .verify_managed_transfer_child_archives(
-            transition, directory, &archives, &tails, sources, TIMEOUT,
-        )
+        .verify_managed_transfer_child_archives(transition, directory, &verifier, TIMEOUT)
         .await;
     ensure!(
         matches!(recorded, Err(FleetCatalogError::Unconfirmed)),
@@ -1317,13 +1301,16 @@ pub(super) async fn verify_child_archive_coverage(
             && journal.child_archives().is_some()
             && !journal.parent_holds_released()
     );
-    ensure!(
-        fleet
-            .reopen_managed_transfer_child_holds(&reopened, directory, TIMEOUT)
-            .await?
-            .as_deref()
-            == Some(holds.as_slice())
-    );
+    let holds = fleet
+        .reopen_managed_transfer_child_holds(&reopened, directory, TIMEOUT)
+        .await?
+        .context("selected child archive holds")?;
+    ensure!(holds.len() == applied.len());
+    for (hold, (history, index)) in holds.iter().zip(applied) {
+        ensure!(
+            hold.marker().route().history == history && hold.marker().position().index >= index
+        );
+    }
     let reserved = fleet.read(TIMEOUT).await?;
     let early = FleetRequestIdentity {
         operation: reopened.request.operation,

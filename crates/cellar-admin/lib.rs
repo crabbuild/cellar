@@ -167,6 +167,10 @@ pub fn router(console: Console) -> Result<Router> {
             post(raft::verify_transition_archive).layer(DefaultBodyLimit::max(16 * 1024)),
         )
         .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/transitions/{operation}/verify-child-archives",
+            post(raft::verify_transition_child_archives).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
             "/fleets/{fleet}/raft/namespaces/{namespace}/transitions/{operation}/publish",
             post(raft::publish_transition).layer(DefaultBodyLimit::max(16 * 1024)),
         )

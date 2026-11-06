@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-use super::*;
+use super::{transition_source_slots::ArchiveSlot, *};
 use crate::raft::cell_groups::{
     CellGroupArchiveError, CellGroupArchiveExecution, CellGroupArchiveHold, CellGroupArchivePool,
     CellGroupArchiveTailPool, GroupManifest,
@@ -165,6 +165,71 @@ impl RangeDirectory {
             .map_err(|_| CellGroupArchiveError::Stopped)?
     }
 
+    /// Acquire one restart-reconcilable hold per child in plan order. Only
+    /// the independent physical verifier can select the complete archive set.
+    pub(crate) async fn acquire_managed_child_archives(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        pool: &CellGroupArchivePool,
+        plan: &DirectoryMutation,
+        permit: &ManagedTransitionPermit,
+    ) -> Result<Vec<(CellGroupBirth, CellGroupArchiveHold)>, CellGroupArchiveBindingError> {
+        permit.check(self, plan)?;
+        let basis = self
+            .bounded(self.child_archive_basis(plan, Some(permit)))
+            .await?;
+        let selected = match basis.selected {
+            Some(digest) => Some(
+                self.bounded(self.load_child_archive_holds(plan, &basis, digest))
+                    .await?,
+            ),
+            None => None,
+        };
+        let mut sources = Vec::with_capacity(basis.installed.len());
+        for (index, marker) in basis.installed.iter().enumerate() {
+            let route = marker.route();
+            let birth = self.materialize_selected_history(route.history).await?;
+            if birth.route() != route {
+                return Err(CatalogError::Fenced.into());
+            }
+            let hold = if let Some(selected) = &selected {
+                selected[index].clone()
+            } else {
+                let key = format!(
+                    "transfer-child-archive-acquires/{}/{index}",
+                    hex::encode(plan.digest())
+                );
+                let staged = match self.bounded(self.read_archive_slot(&key)).await? {
+                    Some((ArchiveSlot::Acquiring(intent), version)) => Some((intent, version)),
+                    Some((ArchiveSlot::Verified(_), _)) => {
+                        return Err(CatalogError::Corrupt("transfer child acquire slot").into());
+                    }
+                    None => None,
+                };
+                let registry = self.open_group_archive(domain, pool, &birth).await?;
+                let (hold, _) = self
+                    .acquire_transition_archive_hold(domain, &registry, &key, staged, |marker| {
+                        basis
+                            .check_marker(index, marker)
+                            .map_err(|error| match error {
+                                CatalogError::Fenced
+                                    if marker.route() == route && !marker.is_active() =>
+                                {
+                                    CatalogError::Unconfirmed.into()
+                                }
+                                error => error.into(),
+                            })
+                    })
+                    .await?;
+                hold
+            };
+            hold.check_reference()?;
+            basis.check_marker(index, hold.marker())?;
+            sources.push((birth, hold));
+        }
+        Ok(sources)
+    }
+
     /// Reopen the exact selected child holds for recovery or retirement.
     /// Physical replay and registry liveness still require their own checks.
     pub async fn retirement_child_holds(
@@ -195,28 +260,39 @@ impl RangeDirectory {
             let Some(digest) = basis.selected else {
                 return Ok(None);
             };
-            let bytes = self.read_child_archive_record(SETS, digest).await?;
-            let set: ChildArchiveSet = record::decode(SET, &bytes, wire::LIMIT)?;
-            if set.namespace != self.namespace.root_digest
-                || set.plan != plan.digest()
-                || set.publication != basis.publication
-                || set.activations != basis.activations
-                || set.holds.len() != basis.installed.len()
-            {
-                return Err(CatalogError::Corrupt("transfer child archive set binding"));
-            }
-            let mut holds = Vec::with_capacity(set.holds.len());
-            for (index, id) in set.holds.into_iter().enumerate() {
-                let bytes = self.read_child_archive_record(HOLDS, id).await?;
-                let hold: CellGroupArchiveHold = record::decode(HOLD, &bytes, wire::LIMIT)?;
-                hold.check_reference()
-                    .map_err(|_| CatalogError::Corrupt("transfer child archive hold"))?;
-                basis.check_marker(index, hold.marker())?;
-                holds.push(hold);
-            }
-            Ok(Some(holds))
+            self.load_child_archive_holds(plan, &basis, digest)
+                .await
+                .map(Some)
         })
         .await
+    }
+
+    async fn load_child_archive_holds(
+        &self,
+        plan: &DirectoryMutation,
+        basis: &ChildArchiveBasis,
+        digest: [u8; 32],
+    ) -> Result<Vec<CellGroupArchiveHold>, CatalogError> {
+        let bytes = self.read_child_archive_record(SETS, digest).await?;
+        let set: ChildArchiveSet = record::decode(SET, &bytes, wire::LIMIT)?;
+        if set.namespace != self.namespace.root_digest
+            || set.plan != plan.digest()
+            || set.publication != basis.publication
+            || set.activations != basis.activations
+            || set.holds.len() != basis.installed.len()
+        {
+            return Err(CatalogError::Corrupt("transfer child archive set binding"));
+        }
+        let mut holds = Vec::with_capacity(set.holds.len());
+        for (index, id) in set.holds.into_iter().enumerate() {
+            let bytes = self.read_child_archive_record(HOLDS, id).await?;
+            let hold: CellGroupArchiveHold = record::decode(HOLD, &bytes, wire::LIMIT)?;
+            hold.check_reference()
+                .map_err(|_| CatalogError::Corrupt("transfer child archive hold"))?;
+            basis.check_marker(index, hold.marker())?;
+            holds.push(hold);
+        }
+        Ok(holds)
     }
 
     /// Root the selected archive identity before its one-use initializer

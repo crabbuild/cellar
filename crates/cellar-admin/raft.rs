@@ -208,8 +208,27 @@ pub(crate) async fn prepare_transition(
 pub(crate) async fn verify_transition_archive(
     State(console): State<Arc<Console>>,
     Extension(principal): Extension<Principal>,
-    Path((fleet, namespace, operation)): Path<(String, String, String)>,
+    Path(selector): Path<(String, String, String)>,
     body: Result<Json<RaftFleetTransitionPrepareRequest>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    verify_archive(&console, principal, selector, body, false).await
+}
+
+pub(crate) async fn verify_transition_child_archives(
+    State(console): State<Arc<Console>>,
+    Extension(principal): Extension<Principal>,
+    Path(selector): Path<(String, String, String)>,
+    body: Result<Json<RaftFleetTransitionPrepareRequest>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    verify_archive(&console, principal, selector, body, true).await
+}
+
+async fn verify_archive(
+    console: &Console,
+    principal: Principal,
+    (fleet, namespace, operation): (String, String, String),
+    body: Result<Json<RaftFleetTransitionPrepareRequest>, JsonRejection>,
+    child_archives: bool,
 ) -> Result<Response, ApiError> {
     principal.require(&fleet, Permission::FleetTopology)?;
     let Ok(Json(request)) = body else {
@@ -228,18 +247,37 @@ pub(crate) async fn verify_transition_archive(
             )))
         }
     };
+    let (path, action) = if child_archives {
+        (
+            "verify-child-archives",
+            "raft_transition_verify_child_archives",
+        )
+    } else {
+        ("verify-archive", "raft_transition_verify_archive")
+    };
     let mut audit = match console.audit.begin(
         &format!("raft-{}-{}", request.catalog_id, request.request_id),
         &fleet,
         &principal.id,
-        &format!("raft/namespaces/{namespace}/transitions/{operation}/verify-archive"),
-        "raft_transition_verify_archive",
+        &format!("raft/namespaces/{namespace}/transitions/{operation}/{path}"),
+        action,
         &fingerprint,
     ) {
         Ok(value) => value,
         Err(error) => return Ok(audit_failure(error)),
     };
-    let result = match backend(&console, &fleet) {
+    let result = match backend(console, &fleet) {
+        Ok(control) if child_archives => {
+            control
+                .verify_transition_child_archives(
+                    &principal.id,
+                    &namespace,
+                    &operation,
+                    &request,
+                    TIMEOUT,
+                )
+                .await
+        }
         Ok(control) => {
             control
                 .verify_transition_archive(&principal.id, &namespace, &operation, &request, TIMEOUT)
@@ -247,7 +285,7 @@ pub(crate) async fn verify_transition_archive(
         }
         Err(error) => Err(error),
     };
-    finish_with_status(&console, &mut audit, result, "archive_verified")
+    finish_with_status(console, &mut audit, result, "archive_verified")
 }
 
 pub(crate) async fn authorize_transition_seal(

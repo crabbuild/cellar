@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Independently replay each held parent closure before rooting the sealed set.
-use super::{transition_source_slots::SourceSlot, *};
+use super::{transition_source_slots::ArchiveSlot, *};
 use crate::raft::cell_groups::{
     CellGroupArchiveCheckpointReceiver, CellGroupArchiveCoverage, CellGroupArchiveExecution,
     CellGroupArchiveHold, CellGroupArchiveIntent, CellGroupArchivePool, CellGroupArchiveTailPool,
@@ -321,11 +321,11 @@ impl RangeDirectory {
             let mut holds = Vec::with_capacity(parents.len());
             for (index, route) in parents.into_iter().enumerate() {
                 let hold = match self.read_source_slot(plan, index).await? {
-                    Some((SourceSlot::Verified(hold), _)) => {
+                    Some((ArchiveSlot::Verified(hold), _)) => {
                         self.check_sealed_hold(plan, &journal, &route, &hold)?;
                         Some(hold)
                     }
-                    Some((SourceSlot::Acquiring(intent), _)) => {
+                    Some((ArchiveSlot::Acquiring(intent), _)) => {
                         self.check_sealed_intent(plan, &journal, &route, &intent)
                             .map_err(|_| CatalogError::Corrupt("staged source acquire"))?;
                         None

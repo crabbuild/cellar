@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! One conditional slot owns each irreversible parent archive acquisition.
+//! Conditional ownership of archive acquisitions during a range transition.
 
 use super::transition_sources::TransitionSourceCut;
 use super::*;
@@ -8,6 +8,7 @@ use crate::raft::{
     cell_groups::{
         CellGroupArchiveAcquireOutcome, CellGroupArchiveError, CellGroupArchiveExecution,
         CellGroupArchiveHold, CellGroupArchiveIntent, CellGroupArchivePool,
+        CellGroupArchiveRegistry, GroupManifest,
     },
     fleet_catalog::ManagedTransitionPermit,
 };
@@ -20,7 +21,7 @@ type Result<T> = std::result::Result<T, CellGroupArchiveBindingError>;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) enum SourceSlot {
+pub(super) enum ArchiveSlot {
     Acquiring(CellGroupArchiveIntent),
     Verified(CellGroupArchiveHold),
 }
@@ -57,11 +58,11 @@ impl RangeDirectory {
             })
             .await?;
         let staged = match staged {
-            Some((SourceSlot::Verified(hold), _)) => {
+            Some((ArchiveSlot::Verified(hold), _)) => {
                 self.check_sealed_hold(plan, &journal, route, &hold)?;
                 return Ok((hold, None));
             }
-            Some((SourceSlot::Acquiring(intent), version)) => Some((intent, version)),
+            Some((ArchiveSlot::Acquiring(intent), version)) => Some((intent, version)),
             None => None,
         };
         if journal.phase() != TransitionPhase::SealAuthorized {
@@ -73,23 +74,45 @@ impl RangeDirectory {
             return Err(CatalogError::Fenced.into());
         }
         let registry = self.open_group_archive(domain, archives, &birth).await?;
+        let (hold, intent) = self
+            .acquire_transition_archive_hold(
+                domain,
+                &registry,
+                &source_slot_key(plan, index),
+                staged,
+                |marker| self.check_sealed_marker(plan, &journal, route, marker),
+            )
+            .await?;
+        self.check_sealed_hold(plan, &journal, route, &hold)?;
+        Ok((hold, Some(intent)))
+    }
+
+    /// Root the exact acquire before issuing it. An expired intent can be
+    /// replaced only after the registry proves its nonce owns no hold.
+    pub(super) async fn acquire_transition_archive_hold(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        registry: &CellGroupArchiveRegistry,
+        key: &str,
+        staged: Option<(CellGroupArchiveIntent, UpdateVersion)>,
+        check: impl Fn(&GroupManifest) -> Result<()> + Send + Sync,
+    ) -> Result<(CellGroupArchiveHold, CellGroupArchiveIntent)> {
         let (intent, version) = match staged {
             Some(staged) => staged,
             None => {
                 let intent = registry.prepare_acquire(domain).await?;
-                self.check_sealed_intent(plan, &journal, route, &intent)?;
+                check(intent.acquire_marker()?)?;
                 let version = self
-                    .bounded(self.write_source_slot(
-                        plan,
-                        index,
+                    .bounded(self.write_archive_slot(
+                        key,
                         None,
-                        &SourceSlot::Acquiring(intent.clone()),
+                        &ArchiveSlot::Acquiring(intent.clone()),
                     ))
                     .await?;
                 (intent, version)
             }
         };
-        self.check_sealed_intent(plan, &journal, route, &intent)?;
+        check(intent.acquire_marker()?)?;
         let hold = match registry.acquire(domain, &intent).await {
             Ok(hold) => hold,
             Err(error @ (CellGroupArchiveError::Expired | CellGroupArchiveError::Conflict)) => {
@@ -98,12 +121,11 @@ impl RangeDirectory {
                     CellGroupArchiveAcquireOutcome::Pending => return Err(error.into()),
                     CellGroupArchiveAcquireOutcome::Superseded => {
                         let next = registry.prepare_acquire(domain).await?;
-                        self.check_sealed_intent(plan, &journal, route, &next)?;
-                        self.bounded(self.write_source_slot(
-                            plan,
-                            index,
+                        check(next.acquire_marker()?)?;
+                        self.bounded(self.write_archive_slot(
+                            key,
                             Some(version),
-                            &SourceSlot::Acquiring(next),
+                            &ArchiveSlot::Acquiring(next),
                         ))
                         .await?;
                         return Err(CatalogError::Unconfirmed.into());
@@ -112,8 +134,7 @@ impl RangeDirectory {
             }
             Err(error) => return Err(error.into()),
         };
-        self.check_sealed_hold(plan, &journal, route, &hold)?;
-        Ok((hold, Some(intent)))
+        Ok((hold, intent))
     }
 
     pub(super) fn check_sealed_hold(
@@ -141,7 +162,16 @@ impl RangeDirectory {
         route: &GroupRoute,
         intent: &CellGroupArchiveIntent,
     ) -> Result<()> {
-        let marker = intent.acquire_marker()?;
+        self.check_sealed_marker(plan, journal, route, intent.acquire_marker()?)
+    }
+
+    fn check_sealed_marker(
+        &self,
+        plan: &DirectoryMutation,
+        journal: &TransitionJournal,
+        route: &GroupRoute,
+        marker: &GroupManifest,
+    ) -> Result<()> {
         self.check_source_marker(plan, journal, route, marker, TransitionSourceCut::Sealed)
             .map_err(|error| match error {
                 // Archive publication can lag the already applied seal.
@@ -160,8 +190,8 @@ impl RangeDirectory {
         intent: Option<&CellGroupArchiveIntent>,
     ) -> std::result::Result<(), CatalogError> {
         let version = match (self.read_source_slot(plan, index).await?, intent) {
-            (Some((SourceSlot::Verified(selected), _)), _) if &selected == hold => return Ok(()),
-            (Some((SourceSlot::Acquiring(selected), version)), Some(intent))
+            (Some((ArchiveSlot::Verified(selected), _)), _) if &selected == hold => return Ok(()),
+            (Some((ArchiveSlot::Acquiring(selected), version)), Some(intent))
                 if &selected == intent =>
             {
                 Some(version)
@@ -169,8 +199,12 @@ impl RangeDirectory {
             (None, None) => None,
             _ => return Err(CatalogError::Conflict("staged source hold owner changed")),
         };
-        self.write_source_slot(plan, index, version, &SourceSlot::Verified(hold.clone()))
-            .await?;
+        self.write_archive_slot(
+            &source_slot_key(plan, index),
+            version,
+            &ArchiveSlot::Verified(hold.clone()),
+        )
+        .await?;
         Ok(())
     }
 
@@ -178,10 +212,17 @@ impl RangeDirectory {
         &self,
         plan: &DirectoryMutation,
         index: usize,
-    ) -> std::result::Result<Option<(SourceSlot, UpdateVersion)>, CatalogError> {
+    ) -> std::result::Result<Option<(ArchiveSlot, UpdateVersion)>, CatalogError> {
+        self.read_archive_slot(&source_slot_key(plan, index)).await
+    }
+
+    pub(super) async fn read_archive_slot(
+        &self,
+        key: &str,
+    ) -> std::result::Result<Option<(ArchiveSlot, UpdateVersion)>, CatalogError> {
         self.namespace
             .inner
-            .read_versioned_bounded(&self.key(&source_slot_key(plan, index)), wire::LIMIT)
+            .read_versioned_bounded(&self.key(key), wire::LIMIT)
             .await?
             .map(|(bytes, version)| {
                 if version.e_tag.is_none() && version.version.is_none() {
@@ -192,15 +233,14 @@ impl RangeDirectory {
             .transpose()
     }
 
-    async fn write_source_slot(
+    async fn write_archive_slot(
         &self,
-        plan: &DirectoryMutation,
-        index: usize,
+        suffix: &str,
         version: Option<UpdateVersion>,
-        slot: &SourceSlot,
+        slot: &ArchiveSlot,
     ) -> std::result::Result<UpdateVersion, CatalogError> {
         let bytes = record::encode(KIND, slot, wire::LIMIT)?;
-        let key = self.key(&source_slot_key(plan, index));
+        let key = self.key(suffix);
         let store = &self.namespace.inner;
         if let Some(version) = version {
             let _ = store
@@ -217,7 +257,7 @@ impl RangeDirectory {
                 .await?;
         }
         let (observed, version) = self
-            .read_source_slot(plan, index)
+            .read_archive_slot(suffix)
             .await?
             .ok_or(CatalogError::Unconfirmed)?;
         if &observed != slot {

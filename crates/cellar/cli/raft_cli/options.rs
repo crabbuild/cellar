@@ -36,6 +36,7 @@ cellar raft fleet transition seal-source NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet transition capture-source NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet transition setup-child NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet transition verify-archive NAMESPACE_HEX --plan REQUEST.json
+cellar raft fleet transition verify-child-archives NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet transition publish NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet transition activate NAMESPACE_HEX --plan REQUEST.json
 cellar raft fleet transition resume NAMESPACE_HEX --plan REQUEST.json
@@ -87,6 +88,7 @@ pub(super) enum Action {
     TransitionCaptureSource(Box<RaftFleetTransitionSourceSealRequest>),
     TransitionSetupChild(Box<RaftFleetTransitionChildSetupRequest>),
     TransitionVerifyArchive(Box<RaftFleetTransitionPrepareRequest>),
+    TransitionVerifyChildArchives(Box<RaftFleetTransitionPrepareRequest>),
     TransitionPublish(Box<RaftFleetTransitionPublishRequest>),
     Progress(String, Option<String>, usize),
     Wait(String),
@@ -290,7 +292,10 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
             check_catalog(Some(catalog), &plan.catalog_id)?;
             Action::TransitionPrepare(Box::new(plan))
         }
-        ("transition_verify-archive", Some(namespace)) if !wait && cursor.is_none() => {
+        (
+            command @ ("transition_verify-archive" | "transition_verify-child-archives"),
+            Some(namespace),
+        ) if !wait && cursor.is_none() => {
             let path = first_group_plan
                 .take()
                 .ok_or_else(|| invalid("--plan is required"))?;
@@ -300,7 +305,11 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
                 .as_deref()
                 .ok_or_else(|| invalid("--catalog-id from fleet status is required"))?;
             check_catalog(Some(catalog), &plan.catalog_id)?;
-            Action::TransitionVerifyArchive(Box::new(plan))
+            if command == "transition_verify-child-archives" {
+                Action::TransitionVerifyChildArchives(Box::new(plan))
+            } else {
+                Action::TransitionVerifyArchive(Box::new(plan))
+            }
         }
         ("transition_authorize-seal", Some(namespace)) if !wait && cursor.is_none() => {
             let path = first_group_plan

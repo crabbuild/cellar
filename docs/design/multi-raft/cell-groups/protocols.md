@@ -1276,11 +1276,13 @@ endpoint records one archive identity for that plan and child before creating
 the registry counters. A retry verifies the selected binding and counters.
 An incomplete registry requires archive authority recovery. A retained voter
 opens the initialized registry and publishes coverage from its applied state.
-The directory independently replays the exact held archive of every active
-child. Each cut must retain the installed seed and the selected publication
-and activation position. The directory rechecks all holds before rooting the complete set.
-It can reopen the selected references after a lost response, with the parent
-holds and topology lane still pinned for retirement settlement. The fleet
+Run `cellar raft fleet transition verify-child-archives NAMESPACE_HEX --plan REQUEST.json`
+after all active children publish archive cuts. The controller persists one
+acquire intent per child and independently replays each held cut. Each cut
+must retain the installed seed and the selected publication and activation
+position. The directory rechecks all holds before selecting the complete set.
+A retry can reopen the selected digest after a lost response. The parent holds
+and topology lane remain pinned for retirement settlement. The fleet
 owner can root the Retired decision only after rechecking the live child holds
 and binding every committed parent tombstone to the coverage and publication.
 During cleanup, previously activated child voters may still reopen on their

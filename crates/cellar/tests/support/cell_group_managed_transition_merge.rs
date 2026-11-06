@@ -905,6 +905,7 @@ async fn run_inner(
         &request.principal,
         &verify_request,
         (verifier, recovery),
+        "verify-archive",
     ))
     .await?;
     ensure!(verified.request == verify_request && verified.phase == TransitionPhase::Archived);
@@ -1277,25 +1278,43 @@ async fn finish_merge_inner(
     }
     Box::pin(restart_voter(cluster, 0, 121, Some(child), 1)).await?;
     let applied = preparation::wait_active_archive(&cluster.hosts[0], child).await?;
-    let birth = domain
-        .run(directory.materialize_selected_history(child))
-        .await??;
-    let registry = directory
-        .open_group_archive(domain.as_ref(), &archives.pool, &birth)
-        .await?;
-    let hold = preparation::acquire_hold(domain, &registry).await?;
-    ensure!(hold.marker().position().index >= applied);
-    let covered = fleet
-        .verify_managed_transfer_child_archives(
-            transition,
-            directory,
-            &archives.pool,
-            &archives.tails,
-            archives.sources("merge-baseline", &[(birth, hold)]).await?,
-            TIMEOUT,
+    let coverage_request = RaftFleetTransitionPrepareRequest {
+        catalog_id: archive_request.catalog_id,
+        namespace_id: archive_request.namespace_id,
+        operation_id: archive_request.operation_id,
+        request_id: hex::encode([186; 16]),
+        plan_digest: archive_request.plan_digest,
+    };
+    let mut digest = None;
+    for _ in 0..2 {
+        let verifier_root = tempfile::tempdir()?;
+        let verifier = crate::managed_fixture::verifier::open(
+            &cluster.fixtures[0],
+            verifier_root.path(),
+            archives.rooted,
+            Default::default(),
         )
         .await?;
-    ensure!(covered.phase() == TransitionPhase::Active && covered.child_archives().is_some());
+        let covered = Box::pin(crate::managed_fixture::operator::verify_transition_archive(
+            &cluster.fixtures[0],
+            directory,
+            &transition.request.principal,
+            &coverage_request,
+            (verifier, preparation::recovery_pool()?),
+            "verify-child-archives",
+        ))
+        .await?;
+        ensure!(covered.request == coverage_request && covered.phase == TransitionPhase::Active);
+        ensure!(digest
+            .as_ref()
+            .is_none_or(|old| old == &covered.archive_digest));
+        digest = Some(covered.archive_digest);
+    }
+    let holds = fleet
+        .reopen_managed_transfer_child_holds(transition, directory, TIMEOUT)
+        .await?
+        .context("selected child archive")?;
+    ensure!(holds.len() == 1 && holds[0].marker().position().index >= applied);
     ensure!(matches!(
         fleet
             .settle_managed_transfer_retirement(

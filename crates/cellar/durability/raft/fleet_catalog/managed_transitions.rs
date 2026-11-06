@@ -754,15 +754,13 @@ impl FleetCatalog {
         .await
     }
 
-    /// Replay the held archives in plan order and bind coverage to the
-    /// selected publication and all applied child activations.
+    /// Acquire the plan-owned child holds and replay each one into a private
+    /// receiver. A retry resumes the exact acquires selected before replay.
     pub async fn verify_managed_transfer_child_archives(
         &self,
         transition: &ReopenedManagedCellGroupTransition,
         directory: &RangeDirectory,
-        archives: &CellGroupArchivePool,
-        tails: &CellGroupArchiveTailPool,
-        children: Vec<CellGroupTransitionSource>,
+        verifier: &FleetGroupArchiveVerifier,
         timeout: Duration,
     ) -> Result<TransitionJournal> {
         validate_request(&transition.request)?;
@@ -777,19 +775,38 @@ impl FleetCatalog {
         domain
             .run(Box::pin(crate::asyncrt::timeout(
                 deadline.remaining()?,
-                Box::pin(directory.verify_and_record_managed_child_archives(
-                    domain,
-                    archives,
-                    tails,
-                    &transition.plan,
-                    children,
-                    &permit,
-                )),
+                Box::pin(async {
+                    let archives = verifier.archives();
+                    let held = directory
+                        .acquire_managed_child_archives(domain, archives, &transition.plan, &permit)
+                        .await
+                        .map_err(transfer_archive_error)?;
+                    let storage = directory.namespace_config().image_storage;
+                    let mut children = Vec::with_capacity(held.len());
+                    for (birth, hold) in held {
+                        let receiver = verifier.receiver(domain, birth.route(), storage).await?;
+                        children.push(CellGroupTransitionSource {
+                            birth,
+                            hold,
+                            receiver,
+                        });
+                    }
+                    directory
+                        .verify_and_record_managed_child_archives(
+                            domain,
+                            archives,
+                            verifier.tails(),
+                            &transition.plan,
+                            children,
+                            &permit,
+                        )
+                        .await
+                        .map_err(transfer_archive_error)
+                }),
             )))
             .await
             .map_err(|_| FleetCatalogError::Closed)?
             .map_err(|_| FleetCatalogError::Unconfirmed)?
-            .map_err(transfer_archive_error)
     }
 
     /// Reopen the selected references for retirement reconciliation.
