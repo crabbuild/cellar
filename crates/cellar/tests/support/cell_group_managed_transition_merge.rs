@@ -151,7 +151,10 @@ pub(super) async fn admit_operator_split(
         TIMEOUT,
     ))
     .await;
-    ensure!(matches!(lost, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
+    ensure!(
+        matches!(&lost, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable),
+        "split admission lost confirmation returned {lost:?}"
+    );
     let reserved = fixture.catalog.read(TIMEOUT).await?;
     ensure!(reserved.revision() == basis.fleet_revision + 1);
     ensure!(
@@ -2427,12 +2430,22 @@ async fn start_recovery_voter(
     mode: LogOpenMode,
     generation: u8,
 ) -> Result<RecoveryVoter> {
+    let (root, node, host) = boot_archived_voter(&fixture, root, mode, generation).await?;
+    Ok((root, node, host, fixture))
+}
+
+async fn boot_archived_voter<R: AsRef<std::path::Path> + Send + 'static>(
+    fixture: &Fixture,
+    root: R,
+    mode: LogOpenMode,
+    generation: u8,
+) -> Result<(R, Node, RaftCells)> {
+    let fixture = fixture.clone();
     let domain = fixture.domain.clone();
-    // Run boot on its own polling stack. The split/merge scenario keeps
-    // substantial verification state live while RustFS boot binds a voter.
+    // Keep retained boot off the transition scenario's polling stack.
     let boot = domain.spawn(Box::pin(async move {
         let node = start_node(
-            root.path(),
+            root.as_ref(),
             fixture.application.clone(),
             &fixture.spec.label,
         )
@@ -2442,15 +2455,15 @@ async fn start_recovery_voter(
             crate::managed_fixture::archives::configure(&mut config);
             Box::pin(node.start_raft_cells(config, services))
                 .await
-                .context("open the recovery voter Raft host")
+                .context("open the retained voter Raft host")
         })
         .await;
         match result {
-            Ok(host) => Ok((root, node, host, fixture)),
+            Ok(host) => Ok((root, node, host)),
             Err(error) => {
                 let stopped = node.shutdown(ShutdownMode::Preserve).await;
                 Err(error.context(format!(
-                    "start recovery voter {} at process generation {generation}, shutdown={stopped:?}",
+                    "start retained voter {} at process generation {generation}, shutdown={stopped:?}",
                     fixture.spec.label
                 )))
             }
@@ -3311,28 +3324,13 @@ async fn start_voter(
     previous: NodeIdentity,
     registered: u32,
 ) -> Result<()> {
-    let fixture = &cluster.fixtures[index];
-    let node = start_node(
-        cluster.roots[index].path(),
-        fixture.application.clone(),
-        &fixture.spec.label,
+    let (_, node, host) = boot_archived_voter(
+        &cluster.fixtures[index],
+        cluster.roots[index].path().to_owned(),
+        LogOpenMode::Resume,
+        generation,
     )
     .await?;
-    let startup = async {
-        let (mut config, services) = fixture
-            .config(&node, LogOpenMode::Resume, generation)
-            .await?;
-        crate::managed_fixture::archives::configure(&mut config);
-        node.start_raft_cells(config, services).await
-    }
-    .await;
-    let host = match startup {
-        Ok(host) => host,
-        Err(error) => {
-            let stopped = node.shutdown(ShutdownMode::Preserve).await;
-            return Err(error.context(format!("restart merge voter {index}, shutdown={stopped:?}")));
-        }
-    };
     cluster.nodes.insert(index, node);
     cluster.hosts.insert(index, host);
     let host = &cluster.hosts[index];
