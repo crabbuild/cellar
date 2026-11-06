@@ -46,6 +46,21 @@ case log SHA-256 is
 This is coverage of a split admission cut. The named transition acceptance
 target still needs the restart and single-writer oracles across all phases.
 
+The native CG-10 split-then-merge case passed in 96.74 seconds on the same
+runtime. It exercised reopened operator preparation, late-write preservation
+and merged SQL. The case log SHA-256 is
+`47f6c76aea5e8ee76cc66b3ea857ed5f2e5ca34586dd56c222162c2486f61e35`.
+
+The host-native public lifecycle at `1d571a411f873fde8d3b4c1cdfcabb65259f1970`
+passed the materialized mode against RustFS. The extent mode settled the
+replacement and recovered its lost terminal reply. It then hit the deadline
+replaying the original command with S3 durability. The leader had applied
+through index 9 and retained one archive settlement. This is a distinct
+failure from the constrained daemon fixture startup. The RustFS suite record
+SHA-256 is `152a321a7a3c90e0327d9bffe7f10e31ce303c3e32add4049a78a96ba10e2beb`.
+The diagnostic rerun adds each host's archive position, attempts and typed
+error to the existing retained failure report.
+
 ## CG-09/10 and CG-13 managed serving checkpoint
 
 At `6e6be12d403e1d7b3341531a0b664cbdb8299753`, the managed recovery

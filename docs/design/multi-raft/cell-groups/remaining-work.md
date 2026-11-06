@@ -125,7 +125,8 @@ through the shared backend and preserve typed refusals for the rest.
    its original source. A later full-suite rerun hit an S3 receipt deadline and
    passed the case in isolation. Sixteen shared-group read ports pass,
    including follower ReadIndex recovery, peer saturation and routing from a
-   voter without a query callback. Resolve the S3 deadline, finish the
+   voter without a query callback. Resolve the extent-backed RustFS S3
+   receipt deadline after repair, finish the
    remaining multi-namespace router and learner readiness ports, and pass public CI before
    making shared groups the default for supported SQL in new namespaces.
 3. **Finish CG-09/10 operator split and merge.** A fresh CLI controller
