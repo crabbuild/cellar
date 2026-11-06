@@ -60,6 +60,17 @@ fn prepare(root: &Path, log: &ReplicaLog, index: u64) -> Result<Vec<GroupWrite<G
             16,
         )?;
         let tree = ManifestTree::new(route, ManifestLimits::default())?;
+        // Restore the selected root's retention ownership in this process
+        // before preparing its successor, as the runtime does on attachment.
+        let recovered = tree.prepare_complete(
+            &group,
+            &mut pages,
+            previous.root(),
+            previous.position(),
+            previous.membership_revision(),
+            |_| unreachable!("empty storage fixture"),
+        )?;
+        assert_eq!(recovered.marker(), &previous);
         let prepared = tree.prepare_complete(
             &group,
             &mut pages,
