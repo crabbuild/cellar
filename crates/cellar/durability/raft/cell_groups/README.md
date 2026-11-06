@@ -846,8 +846,9 @@ recovery later finds the installed root.
 Shared linearizable cell reads may be selected on followers after their own safe
 ReadIndex round. Their private forwarded context binds the authenticated origin
 member, process-local nonce and sequence, separately from membership metadata and
-leader-local seed/execution contexts. Selection waits for complete local apply
-through the correlated barrier. SQL rechecks the selected history, live member,
+leader-local seed/execution contexts. A follower awaiting a cell or membership
+barrier can retransmit the same context within the original term and deadline.
+Selection waits for complete local apply through the correlated barrier. SQL rechecks the selected history, live member,
 term and source generation; a later term/leader change or shutdown revokes the
 retained proof. This changes read availability, not leader-only mutation or seed
 admission. SQL results describe the actual selecting replica.

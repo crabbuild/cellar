@@ -1085,7 +1085,7 @@ impl Worker {
             made |= self.cell_reads.progress(
                 now,
                 &self.domain,
-                |history, request, term, barrier, context| {
+                |history, request, term, barrier, context, retry| {
                     let group = self
                         .groups
                         .get_mut(&history)
@@ -1096,11 +1096,20 @@ impl Worker {
                     match &request.kind {
                         reads::ReadKind::Cell(cell, consistency) => {
                             if matches!(consistency, CellReadConsistency::Linearizable)
-                                && term.is_none()
+                                && (term.is_none() || retry)
                             {
-                                group.owner.read_forwarded_cell_index(context.to_vec())?;
-                                *term = Some(group.owner.status()?.term);
-                                *barrier = None;
+                                let status = group.owner.status()?;
+                                if term.is_some_and(|observed| observed != status.term) {
+                                    return Err(RuntimeError::NotLeader);
+                                }
+                                // Raft already retries a leader's heartbeat.
+                                // A follower must resend a lost forwarded request.
+                                if term.is_none()
+                                    || status.leader != Some(group.owner.membership_read_origin())
+                                {
+                                    group.owner.read_forwarded_cell_index(context.to_vec())?;
+                                    *term = Some(status.term);
+                                }
                             }
                             group
                                 .owner
@@ -1133,7 +1142,10 @@ impl Worker {
                                 *term = None;
                                 *barrier = None;
                             }
-                            if term.is_none() {
+                            if term.is_none()
+                                || retry
+                                    && status.leader != Some(group.owner.membership_read_origin())
+                            {
                                 group.owner.read_membership_index(context.to_vec())?;
                                 *term = Some(status.term);
                                 return Err(RuntimeError::NotReady);

@@ -14,6 +14,7 @@ use std::{collections::BTreeMap, sync::Weak};
 const PREFIX: &[u8] = b"cellar-cell-read-1\0";
 const CELL_FORWARD_PREFIX: &[u8] = b"cellar-cell-forward-read-1\0";
 const MEMBERSHIP_PREFIX: &[u8] = b"cellar-group-membership-read-1\0";
+const FORWARDED_RETRY_MS: u64 = 100;
 
 pub(in crate::raft::cell_groups) fn reserved_context(context: &[u8]) -> bool {
     context.starts_with(PREFIX)
@@ -80,11 +81,13 @@ impl ReadKind {
     }
 
     pub fn linearizable(&self) -> bool {
+        matches!(self, Self::Seed(_)) || self.forwards_read_index()
+    }
+
+    fn forwards_read_index(&self) -> bool {
         matches!(
             self,
-            Self::Seed(_)
-                | Self::Membership { .. }
-                | Self::Cell(_, CellReadConsistency::Linearizable)
+            Self::Membership { .. } | Self::Cell(_, CellReadConsistency::Linearizable)
         )
     }
 }
@@ -102,6 +105,7 @@ struct Pending {
     group: Permit,
     term: Option<Term>,
     barrier: Option<LogIndex>,
+    retry_at: Option<u64>,
 }
 
 pub(super) struct Reads {
@@ -232,6 +236,10 @@ impl Reads {
         })();
         match begin {
             Ok((context, group, term)) => {
+                let retry_at = request
+                    .kind
+                    .forwards_read_index()
+                    .then(|| now.saturating_add(FORWARDED_RETRY_MS));
                 self.pending.insert(
                     context,
                     Pending {
@@ -241,6 +249,7 @@ impl Reads {
                         group,
                         term,
                         barrier: None,
+                        retry_at,
                     },
                 );
             }
@@ -253,7 +262,7 @@ impl Reads {
     pub fn observe(&mut self, history: GroupHistory, term: Term, index: LogIndex, context: &[u8]) {
         if let Some(pending) = self.pending.get_mut(context) {
             if pending.history == history && pending.term == Some(term) {
-                pending.barrier = Some(index);
+                pending.barrier = Some(pending.barrier.map_or(index, |seen| seen.max(index)));
             }
         }
     }
@@ -266,7 +275,13 @@ impl Reads {
     }
 
     pub fn deadline(&self) -> Option<u64> {
-        self.pending.values().map(|p| p.request.deadline).min()
+        self.pending
+            .values()
+            .map(|pending| match (pending.barrier, pending.retry_at) {
+                (None, Some(retry)) => pending.request.deadline.min(retry),
+                _ => pending.request.deadline,
+            })
+            .min()
     }
 
     pub fn progress(
@@ -279,6 +294,7 @@ impl Reads {
             &mut Option<Term>,
             &mut Option<LogIndex>,
             &[u8],
+            bool,
         ) -> Result<Selection, RuntimeError>,
     ) -> bool {
         let mut made = false;
@@ -297,12 +313,20 @@ impl Reads {
             let result = if now >= pending.request.deadline {
                 Err(RuntimeError::DeadlineExceeded)
             } else {
+                let retry =
+                    pending.barrier.is_none() && pending.retry_at.is_some_and(|retry| now >= retry);
+                if retry {
+                    pending.retry_at = Some(now.saturating_add(FORWARDED_RETRY_MS));
+                    // A retransmitted context may have produced another Ready.
+                    made = true;
+                }
                 select(
                     pending.history,
                     &pending.request,
                     &mut pending.term,
                     &mut pending.barrier,
                     context,
+                    retry,
                 )
             };
             // A newly issued barrier must drive the owner's Ready work even
