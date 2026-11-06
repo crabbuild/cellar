@@ -8,7 +8,7 @@ pub(super) async fn reopen_and_retire(
     cluster: &mut ManagedCluster,
     directory: &RangeDirectory,
     transition: &ReopenedManagedCellGroupTransition,
-) -> Result<()> {
+) -> Result<CellGroupSourceRetirementAck> {
     let source = cluster.history;
     let fixture = &cluster.fixtures[0];
     let publication = fixture
@@ -96,7 +96,7 @@ pub(super) async fn reopen_and_retire(
         .context("managed retirement remains owned")?;
     let journal = retained.journal.context("active transition journal")?;
     ensure!(journal.phase() == TransitionPhase::Active && !journal.parent_holds_released());
-    Ok(())
+    Ok(tombstone)
 }
 
 async fn commit(

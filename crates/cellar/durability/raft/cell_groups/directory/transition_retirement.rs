@@ -475,13 +475,40 @@ impl RangeDirectory {
         acknowledgements: Vec<CellGroupSourceRetirementAck>,
     ) -> Result<TransitionJournal, CellGroupArchiveBindingError> {
         self.unmanaged_birth()?;
+        self.settle_transfer_retirement_inner(domain, pool, plan, acknowledgements, None)
+            .await
+    }
+
+    pub(crate) async fn settle_managed_transfer_retirement(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        pool: &CellGroupArchivePool,
+        plan: &DirectoryMutation,
+        acknowledgements: Vec<CellGroupSourceRetirementAck>,
+        permit: &ManagedTransitionPermit,
+    ) -> Result<TransitionJournal, CellGroupArchiveBindingError> {
+        permit.check(self, plan)?;
+        self.settle_transfer_retirement_inner(domain, pool, plan, acknowledgements, Some(permit))
+            .await
+    }
+
+    async fn settle_transfer_retirement_inner(
+        &self,
+        domain: &impl CellGroupArchiveExecution,
+        pool: &CellGroupArchivePool,
+        plan: &DirectoryMutation,
+        acknowledgements: Vec<CellGroupSourceRetirementAck>,
+        permit: Option<&ManagedTransitionPermit>,
+    ) -> Result<TransitionJournal, CellGroupArchiveBindingError> {
         self.check_transition_plan(plan)?;
         if acknowledgements.len() != plan.request.parents.len() {
             return Err(CatalogError::Invalid("incomplete transfer parent retirement").into());
         }
         domain
             .run(Box::pin(async {
-                self.namespace.require_cell_group_unmanaged().await?;
+                if permit.is_none() {
+                    self.namespace.require_cell_group_unmanaged().await?;
+                }
                 let basis = self.bounded(self.retirement_basis(plan)).await?;
                 let mut parents = Vec::with_capacity(basis.parents.len());
                 for (ack, hold) in acknowledgements.into_iter().zip(&basis.parents) {
@@ -513,7 +540,7 @@ impl RangeDirectory {
                         .await?;
                     return Ok(basis.journal);
                 }
-                self.require_live_retirement_archives(domain, pool, plan)
+                self.require_live_retirement_archives(domain, pool, plan, permit)
                     .await?;
                 self.bounded(self.immutable(SETS, digest, &bytes)).await?;
                 self.record_verified_retirement(
@@ -521,6 +548,7 @@ impl RangeDirectory {
                     basis.publication,
                     basis.child_archives,
                     digest,
+                    permit,
                 )
                 .await
                 .map_err(Into::into)
@@ -554,7 +582,7 @@ impl RangeDirectory {
                     return Ok(basis.journal);
                 }
                 let released = async {
-                    self.require_live_retirement_archives(domain, pool, plan)
+                    self.require_live_retirement_archives(domain, pool, plan, None)
                         .await?;
                     for hold in &basis.parents {
                         let registry = self
@@ -655,11 +683,13 @@ impl RangeDirectory {
         domain: &impl CellGroupArchiveExecution,
         pool: &CellGroupArchivePool,
         plan: &DirectoryMutation,
+        permit: Option<&ManagedTransitionPermit>,
     ) -> Result<(), CellGroupArchiveBindingError> {
-        let children = self
-            .retirement_child_holds(plan)
-            .await?
-            .ok_or(CatalogError::Fenced)?;
+        let children = match permit {
+            Some(permit) => self.managed_retirement_child_holds(plan, permit).await?,
+            None => self.retirement_child_holds(plan).await?,
+        }
+        .ok_or(CatalogError::Fenced)?;
         for hold in children {
             let birth = self
                 .materialize_selected_history(hold.marker().route().history)

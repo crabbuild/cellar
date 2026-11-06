@@ -1173,9 +1173,12 @@ The directory independently replays the exact held archive of every active
 child. Each cut must retain the installed seed and the selected publication
 and activation position. The directory rechecks all holds before rooting the complete set.
 It can reopen the selected references after a lost response, with the parent
-holds and topology lane still pinned for retirement settlement. The Retired
-decision binds every committed parent tombstone to that coverage and the exact
-publication. The owner releases only the original transfer holds and confirms
+holds and topology lane still pinned for retirement settlement. The fleet
+owner can root the Retired decision only after rechecking the live child holds
+and binding every committed parent tombstone to the coverage and publication.
+During cleanup, previously activated child voters may still reopen on their
+claimed engines. New install and activation remain fenced. The owner releases
+only the original transfer holds and confirms
 each release before clearing topology ownership in a separate CAS. An
 interrupted cleanup resumes the same immutable decision. Later transitions
 preserve historical publication certificates and reject stale child startup.

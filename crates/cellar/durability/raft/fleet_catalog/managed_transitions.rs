@@ -8,10 +8,10 @@ use crate::raft::{
     catalog::CatalogError,
     cell_groups::{
         CellGroupArchiveBindingError, CellGroupArchiveHold, CellGroupArchivePool,
-        CellGroupArchiveTailPool, CellGroupTransferActivationAck, CellGroupTransferArchive,
-        CellGroupTransitionPreparationInputs, CellGroupTransitionSource, DirectoryMutation,
-        DirectoryPublication, PreparedManagedCellGroupTransition, RangeDirectory,
-        TransferChildQuorum, TransferInstallQuorum, TransitionJournal,
+        CellGroupArchiveTailPool, CellGroupSourceRetirementAck, CellGroupTransferActivationAck,
+        CellGroupTransferArchive, CellGroupTransitionPreparationInputs, CellGroupTransitionSource,
+        DirectoryMutation, DirectoryPublication, PreparedManagedCellGroupTransition,
+        RangeDirectory, TransferChildQuorum, TransferInstallQuorum, TransitionJournal,
         VerifiedCellGroupTransitionSources,
     },
     fleet_stop::BootBinding,
@@ -601,10 +601,10 @@ impl FleetCatalog {
                             .await
                             .map_err(catalog_error)?;
                         if coverage_selected
-                        || directory
-                            .has_group_archive_binding(&birth)
-                            .await
-                            .map_err(transfer_archive_error)?
+                            || directory
+                                .has_group_archive_binding(&birth)
+                                .await
+                                .map_err(transfer_archive_error)?
                         {
                             return Err(FleetCatalogError::Conflict);
                         }
@@ -725,6 +725,43 @@ impl FleetCatalog {
             }),
         )
         .await
+    }
+
+    /// Root the exact committed parent tombstones after verifying that every
+    /// selected child archive hold is still live. Both topology and the parent
+    /// archive holds remain owned pending cleanup.
+    pub async fn settle_managed_transfer_retirement(
+        &self,
+        transition: &ReopenedManagedCellGroupTransition,
+        directory: &RangeDirectory,
+        archives: &CellGroupArchivePool,
+        acknowledgements: Vec<CellGroupSourceRetirementAck>,
+        timeout: Duration,
+    ) -> Result<TransitionJournal> {
+        validate_request(&transition.request)?;
+        let deadline = deadline::Deadline::new(self, timeout)?;
+        let permit = self
+            .run(
+                deadline.remaining()?,
+                Box::pin(self.verified_managed_transfer_permit(transition, directory)),
+            )
+            .await?;
+        let domain = &self.inner.domain;
+        domain
+            .run(Box::pin(crate::asyncrt::timeout(
+                deadline.remaining()?,
+                Box::pin(directory.settle_managed_transfer_retirement(
+                    domain,
+                    archives,
+                    &transition.plan,
+                    acknowledgements,
+                    &permit,
+                )),
+            )))
+            .await
+            .map_err(|_| FleetCatalogError::Closed)?
+            .map_err(|_| FleetCatalogError::Unconfirmed)?
+            .map_err(transfer_archive_error)
     }
 
     async fn verified_managed_transfer_permit(

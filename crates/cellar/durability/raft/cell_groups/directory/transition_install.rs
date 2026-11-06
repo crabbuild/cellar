@@ -605,12 +605,8 @@ impl RangeDirectory {
             {
                 return Err(CatalogError::Corrupt("transfer install genesis binding"));
             }
-            let phase = self
-                .require_transfer_install(plan, &selected.genesis)
+            self.require_transfer_install(plan, &selected.genesis)
                 .await?;
-            if managed && phase == TransitionPhase::Retired {
-                return Err(CatalogError::Fenced);
-            }
             let birth = self.require_ordinary_birth_reservation(route).await?;
             let digest = record::digest(&binding);
             let mut voters = Vec::with_capacity(birth.voters().len());
@@ -650,12 +646,8 @@ impl RangeDirectory {
                     engine,
                 });
             }
-            let phase = self
-                .require_transfer_install(plan, &selected.genesis)
+            self.require_transfer_install(plan, &selected.genesis)
                 .await?;
-            if managed && phase == TransitionPhase::Retired {
-                return Err(CatalogError::Fenced);
-            }
             Ok(
                 (voters.len() > birth.voters().len() / 2).then_some(TransferInstallQuorum {
                     genesis: selected.genesis,
@@ -818,6 +810,10 @@ impl RangeDirectory {
             .await
             .map_err(CatalogError::from)?
             .ok_or(CatalogError::Unconfirmed)?;
+        if admission == TransferVoterAdmission::Install {
+            self.require_open_transfer_install(&transition.plan, &proof.genesis)
+                .await?;
+        }
         let (group, birth) = self
             .pending_transfer_member(&transition.plan, &proof, log)
             .await?;

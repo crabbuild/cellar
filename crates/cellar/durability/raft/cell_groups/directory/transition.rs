@@ -1136,16 +1136,20 @@ impl RangeDirectory {
         publication: [u8; 32],
         child_archives: [u8; 32],
         digest: [u8; 32],
+        permit: Option<&ManagedTransitionPermit>,
     ) -> Result<TransitionJournal, CatalogError> {
-        self.advance_transition(
-            mutation,
-            Advance::RecordRetired {
-                publication,
-                child_archives,
-                digest,
-            },
-        )
-        .await
+        let advance = Advance::RecordRetired {
+            publication,
+            child_archives,
+            digest,
+        };
+        if let Some(permit) = permit {
+            permit.check(self, mutation)?;
+            self.advance_transition_inner(mutation, advance, false)
+                .await
+        } else {
+            self.advance_transition(mutation, advance).await
+        }
     }
 
     pub(super) async fn record_released_parent_holds(

@@ -891,12 +891,25 @@ pub(super) async fn verify_child_archive_coverage(
     cluster: &mut ManagedCluster,
     directory: &RangeDirectory,
     transition: &ReopenedManagedCellGroupTransition,
+    tombstone: CellGroupSourceRetirementAck,
 ) -> Result<()> {
     use std::io::Write as _;
 
     let domain = cluster.fixtures[0].domain.clone();
     let fleet = cluster.fixtures[0].catalog.clone();
     let archives = CellGroupArchivePool::new(Default::default())?;
+    ensure!(matches!(
+        fleet
+            .settle_managed_transfer_retirement(
+                transition,
+                directory,
+                &archives,
+                vec![tombstone.clone()],
+                TIMEOUT
+            )
+            .await,
+        Err(FleetCatalogError::Conflict)
+    ));
     let tails = CellGroupArchiveTailPool::new(Default::default())?;
     let scratch = tempfile::tempdir()?;
     let rooted = directory.namespace_config().image_storage == RaftImageStorage::Extents;
@@ -1023,8 +1036,71 @@ pub(super) async fn verify_child_archive_coverage(
         fleet
             .reopen_managed_transfer_child_holds(&reopened, directory, TIMEOUT)
             .await?
-            == Some(holds)
+            .as_deref()
+            == Some(holds.as_slice())
     );
+    ensure!(matches!(
+        fleet
+            .settle_managed_transfer_retirement(
+                &reopened,
+                directory,
+                &archives,
+                Vec::new(),
+                TIMEOUT
+            )
+            .await,
+        Err(FleetCatalogError::Invalid(_))
+    ));
+    cluster.fixtures[0]
+        .store
+        .fail_head_confirmation
+        .store(true, Ordering::Release);
+    let lost = fleet
+        .settle_managed_transfer_retirement(
+            &reopened,
+            directory,
+            &archives,
+            vec![tombstone.clone()],
+            TIMEOUT,
+        )
+        .await;
+    ensure!(
+        matches!(lost, Err(FleetCatalogError::Unconfirmed)),
+        "retirement CAS result: {lost:?}"
+    );
+    let retired = fleet
+        .settle_managed_transfer_retirement(
+            &reopened,
+            directory,
+            &archives,
+            vec![tombstone],
+            TIMEOUT,
+        )
+        .await?;
+    ensure!(
+        retired.phase() == TransitionPhase::Retired
+            && retired.retired_parents().is_some()
+            && retired.child_archives() == journal.child_archives()
+            && !retired.parent_holds_released()
+    );
+    ensure!(
+        domain
+            .run(directory.active_transition())
+            .await??
+            .context("retirement retains topology ownership")?
+            .1
+            == retired
+    );
+    ensure!(matches!(
+        cluster.hosts[DESTINATION]
+            .group(holds[0].marker().route().history)?
+            .activate_managed_transfer_child(&reopened, TIMEOUT)
+            .await,
+        Err(CellGroupControllerError::Catalog(_))
+    ));
+    reopen_transfer_destination(cluster, 114, 2, true)
+        .await
+        .context("reopen activated child voters during retirement cleanup")?;
     Ok(())
 }
 
