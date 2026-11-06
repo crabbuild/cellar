@@ -242,7 +242,9 @@ async fn managed_split_then_merge_replays_late_writes() -> Result<()> {
     Box::pin(run_plan(
         false,
         Arc::new(fault::Store::default()),
-        Decision::SplitMerge,
+        Decision::SplitMerge {
+            recovery_barrier: false,
+        },
     ))
     .await
 }
@@ -255,11 +257,29 @@ async fn rustfs_managed_split_merge() -> Result<()> {
             "managed-split-merge",
             rooted,
         )?));
-        Box::pin(run_plan(rooted, store, Decision::SplitMerge))
-            .await
-            .with_context(|| format!("managed split and merge, extent images={rooted}"))?;
+        Box::pin(run_plan(
+            rooted,
+            store,
+            Decision::SplitMerge {
+                recovery_barrier: false,
+            },
+        ))
+        .await
+        .with_context(|| format!("managed split and merge, extent images={rooted}"))?;
     }
     Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn managed_recovery_barrier_fences_transfer_and_reopens() -> Result<()> {
+    Box::pin(run_plan(
+        false,
+        Arc::new(fault::Store::default()),
+        Decision::SplitMerge {
+            recovery_barrier: true,
+        },
+    ))
+    .await
 }
 
 struct ArchiveInputs {
@@ -304,8 +324,15 @@ pub(super) fn run<'a>(
     directory: &'a RangeDirectory,
     cells: Vec<CellHistory>,
     rooted: bool,
-) -> impl std::future::Future<Output = Result<GroupHistory>> + 'a {
-    Box::pin(run_inner(cluster, directory, cells, rooted))
+    recovery_barrier: bool,
+) -> impl std::future::Future<Output = Result<Option<GroupHistory>>> + 'a {
+    Box::pin(run_inner(
+        cluster,
+        directory,
+        cells,
+        rooted,
+        recovery_barrier,
+    ))
 }
 
 async fn run_inner(
@@ -313,7 +340,8 @@ async fn run_inner(
     directory: &RangeDirectory,
     cells: Vec<CellHistory>,
     rooted: bool,
-) -> Result<GroupHistory> {
+    recovery_barrier: bool,
+) -> Result<Option<GroupHistory>> {
     let fixture = &cluster.fixtures[0];
     let fleet = fixture.catalog.clone();
     let control = RaftFleetControl::new(&fixture.domain, fleet.clone(), vec![directory.clone()])?;
@@ -1060,9 +1088,6 @@ async fn run_inner(
         ensure!(staged.required_voter_lineages() == restored.required_voter_lineages());
         staged
     };
-    for (registry, hold) in registries.iter().zip(&parent_holds) {
-        registry.release(domain.as_ref(), hold).await?;
-    }
     let status = control
         .transition_status(&namespace, &operation_id, TIMEOUT)
         .await?;
@@ -1081,6 +1106,72 @@ async fn run_inner(
             .context("archived merge cut")?,
     };
     ensure!(publish.archive_digest == hex::encode(archive));
+    if recovery_barrier {
+        let birth = domain
+            .run(directory.materialize_selected_history(parents[0].history))
+            .await??;
+        let wrong = Box::pin(control.select_transition_recovery_barrier(
+            principal,
+            &namespace,
+            &recovery_operation,
+            [99; 32],
+            TIMEOUT,
+        ))
+        .await;
+        ensure!(
+            matches!(wrong, Err(failure) if failure.code == RaftFleetFailureCode::PayloadConflict)
+        );
+        let work = control.select_transition_recovery_barrier(
+            principal,
+            &namespace,
+            &recovery_operation,
+            parent_intent.digest(),
+            TIMEOUT,
+        );
+        let (unknown, delivered) = Box::pin(fault::lose_directory_confirmation(work)).await;
+        ensure!(
+            delivered
+                && matches!(unknown, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable)
+        );
+        let (fresh_catalog, fresh_directory) = reopen_merge_controller(fixture).await?;
+        let fresh = RaftFleetControl::new(domain, fresh_catalog, vec![fresh_directory])?;
+        let confirmed = Box::pin(fresh.select_transition_recovery_barrier(
+            principal,
+            &namespace,
+            &recovery_operation,
+            parent_intent.digest(),
+            TIMEOUT,
+        ))
+        .await?;
+        ensure!(confirmed.intent_digest() == parent_intent.digest());
+        let locked = domain.run(directory.observe()).await??;
+        ensure!(locked.digest() == confirmed.directory_digest());
+        ensure!(matches!(
+            domain
+                .run(directory.require_current_group_birth(&birth))
+                .await?,
+            Err(cellar::application::consensus::CatalogError::Fenced)
+        ));
+        let refused = Box::pin(control.publish_transition(
+            principal,
+            &namespace,
+            &operation_id,
+            &publish,
+            TIMEOUT,
+        ))
+        .await;
+        ensure!(matches!(refused, Err(failure) if failure.code == RaftFleetFailureCode::Conflict));
+        let observed = control
+            .transition_status(&namespace, &operation_id, TIMEOUT)
+            .await?;
+        ensure!(observed.phase == Some(TransitionPhase::Archived) && observed.fleet_slot_held);
+        let page = domain.run(directory.group_page(&locked, None, 2)).await??;
+        ensure!(page.routes == parents && page.next.is_none());
+        return Ok(None);
+    }
+    for (registry, hold) in registries.iter().zip(&parent_holds) {
+        registry.release(domain.as_ref(), hold).await?;
+    }
     let work = control.publish_transition(principal, &namespace, &operation_id, &publish, TIMEOUT);
     let (attempt, delivered) = Box::pin(fault::lose_directory_confirmation(work)).await;
     ensure!(
@@ -1268,7 +1359,7 @@ async fn run_inner(
             .await?;
         ensure!(query.result == (expected + 2).to_be_bytes());
     }
-    Ok(child.history)
+    Ok(Some(child.history))
 }
 
 async fn admit_merge(

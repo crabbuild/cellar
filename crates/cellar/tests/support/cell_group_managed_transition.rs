@@ -72,7 +72,7 @@ async fn rustfs_managed_split_authorization() -> Result<()> {
 enum Decision {
     Authorize,
     Cancel,
-    SplitMerge,
+    SplitMerge { recovery_barrier: bool },
 }
 
 async fn run_plan(rooted: bool, store: Arc<fault::Store>, decision: Decision) -> Result<()> {
@@ -86,9 +86,9 @@ async fn run_plan(rooted: bool, store: Arc<fault::Store>, decision: Decision) ->
         FirstGroupSetup::Normal,
     ))
     .await?;
-    let merge = matches!(decision, Decision::SplitMerge);
+    let merge = matches!(decision, Decision::SplitMerge { .. });
     let expected_children = match decision {
-        Decision::Authorize | Decision::SplitMerge => 2,
+        Decision::Authorize | Decision::SplitMerge { .. } => 2,
         Decision::Cancel => 0,
     };
     let result = exercise(&mut cluster, rooted, decision).await;
@@ -185,7 +185,7 @@ async fn exercise_inner(
         .run(directory.materialize_selected_history(scope))
         .await??;
     let view = domain.run(directory.observe()).await??;
-    let merge = matches!(decision, Decision::SplitMerge);
+    let merge = matches!(decision, Decision::SplitMerge { .. });
     let pivot = if merge {
         let left = cell_routing_key(scope.namespace, &CellId::new("Counter:cold-0")?);
         let right = cell_routing_key(scope.namespace, &CellId::new("Counter:cold-1")?);
@@ -351,7 +351,7 @@ async fn exercise_inner(
         Err(FleetCatalogError::DisruptionInProgress { operation: actual }) if actual == operation.bytes()
     ));
     let cancel = identity(236, admitted.revision());
-    if matches!(decision, Decision::Authorize | Decision::SplitMerge) {
+    if matches!(decision, Decision::Authorize | Decision::SplitMerge { .. }) {
         ensure!(matches!(
             reopened
                 .authorize_managed_transition_seal(&cancel, directory, plan, TIMEOUT)
@@ -533,12 +533,11 @@ async fn exercise_inner(
             cluster, directory, plan, &registry, held,
         ))
         .await?;
-        return if merge {
-            merge::run(cluster, directory, cells, rooted)
-                .await
-                .map(Some)
-        } else {
-            Ok(None)
+        return match decision {
+            Decision::SplitMerge { recovery_barrier } => {
+                merge::run(cluster, directory, cells, rooted, recovery_barrier).await
+            }
+            _ => Ok(None),
         };
     }
     fixture

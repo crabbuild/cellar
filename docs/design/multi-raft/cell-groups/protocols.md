@@ -1475,8 +1475,10 @@ must revalidate the exact cuts and account for the platform's launch history
 before changing authority. `stage_transition_recovery_intent` saves the exact
 roots, holds and required lineages under a separate recovery operation ID.
 A restarted controller can reopen that selection even after a topology change.
-The subsequent fence admission owns the topology barrier and revalidates the
-selection before it can revoke any launch authority.
+The recovery barrier selects the intent in the same directory CAS that orders
+transfer publication. It closes startup for both sides of the transfer and
+retains the Fleet disruption slot. Infrastructure fencing still has to revoke
+launch authority and stop all old writers before replacement publication.
 
 For an unpublished transition, choose complete archived parent cuts and reconstruct
 their non-overlapping domain under new groups. For a published transition, require

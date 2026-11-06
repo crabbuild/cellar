@@ -6,8 +6,8 @@ use super::*;
 use crate::raft::{
     cell_groups::{CellGroupArchiveCoverage, CellGroupArchiveHold, TransitionPhase},
     fleet_catalog::{
-        FleetRecoveryVoterLineage, FleetTransitionRecoveryIntent, ManagedRecoveryIntentBasis,
-        ManagedRecoveryIntentInput,
+        FleetRecoveryVoterLineage, FleetTransitionRecoveryBarrier, FleetTransitionRecoveryIntent,
+        ManagedRecoveryIntentBasis, ManagedRecoveryIntentInput,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -168,6 +168,34 @@ impl RaftFleetControl {
         Ok(self
             .catalog
             .reopen_managed_transition_recovery_intent(directory, operation, principal, timeout)
+            .await?)
+    }
+
+    /// Select the exact recovery intent against its original directory root.
+    /// The barrier refuses old startup and transfer mutation for its component.
+    /// A deployment controller must still stop and permanently fence old writers.
+    #[doc(hidden)]
+    pub async fn select_transition_recovery_barrier(
+        &self,
+        principal: &str,
+        namespace: &str,
+        operation: &str,
+        expected_intent: [u8; 32],
+        timeout: Duration,
+    ) -> Result<FleetTransitionRecoveryBarrier> {
+        let directory = self.managed_namespace(namespace)?;
+        let operation = ProposalId::new(records::id(operation)?)
+            .map_err(|_| RaftFleetFailure::invalid("recovery operation ID"))?;
+        Ok(self
+            .catalog
+            .select_managed_transition_recovery_barrier(
+                directory,
+                operation,
+                principal,
+                expected_intent,
+                &self.archive_pool,
+                timeout,
+            )
             .await?)
     }
 

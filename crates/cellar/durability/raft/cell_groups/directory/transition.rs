@@ -12,7 +12,10 @@ use crate::raft::{
     storage::ReplicaLog,
 };
 use crate::raft::{
-    fleet_catalog::{FleetGroupAuthorization, FleetHostAuthorization, ManagedTransitionPermit},
+    fleet_catalog::{
+        FleetGroupAuthorization, FleetHostAuthorization, ManagedRecoveryIntentBasis,
+        ManagedTransitionPermit,
+    },
     fleet_stop::BootBinding,
 };
 use cellar_logic::consensus::EngineInstanceId;
@@ -582,6 +585,21 @@ impl RangeDirectory {
         head: &wire::Head,
         mutation: &DirectoryMutation,
     ) -> Result<Option<TransitionJournal>, CatalogError> {
+        if head
+            .recovery
+            .as_ref()
+            .is_some_and(|lock| lock.owns_transition(mutation.operation))
+        {
+            return Err(CatalogError::Fenced);
+        }
+        self.matching_transition_journal(head, mutation).await
+    }
+
+    async fn matching_transition_journal(
+        &self,
+        head: &wire::Head,
+        mutation: &DirectoryMutation,
+    ) -> Result<Option<TransitionJournal>, CatalogError> {
         let found = self.transition_record(head, mutation.operation).await?;
         if let Some(journal) = &found {
             if journal.request != mutation.digest {
@@ -853,7 +871,7 @@ impl RangeDirectory {
             let plan = self.load_transition_plan(operation, digest).await?;
             permit.check(self, &plan)?;
             let (view, _) = self.current().await?;
-            let journal = self.matching_transition(&view.head, &plan).await?;
+            let journal = self.matching_transition_journal(&view.head, &plan).await?;
             Ok((plan, journal))
         })
         .await
@@ -908,6 +926,97 @@ impl RangeDirectory {
                 parents,
                 children,
             })
+        })
+        .await
+    }
+
+    pub(crate) async fn observe_managed_recovery_barrier(
+        &self,
+        request: [u8; 32],
+        basis: &ManagedRecoveryIntentBasis,
+    ) -> Result<Option<[u8; 32]>, CatalogError> {
+        self.bounded(async {
+            let (view, _) = self.current().await?;
+            match view.head.recovery.as_ref() {
+                Some(lock) if lock.matches_managed(request, basis) => Ok(Some(view.digest)),
+                Some(_) => Err(CatalogError::Fenced),
+                None => Ok(None),
+            }
+        })
+        .await
+    }
+
+    /// Select recovery in the same directory CAS that orders transfer
+    /// publication, seal authorization and retirement. Fleet retains its
+    /// disruption slot while the managed recovery owns the directory.
+    pub(crate) async fn select_managed_recovery_barrier(
+        &self,
+        request: [u8; 32],
+        basis: &ManagedRecoveryIntentBasis,
+        holds: &[CellGroupArchiveHold],
+        permit: &ManagedTransitionPermit,
+    ) -> Result<[u8; 32], CatalogError> {
+        self.bounded(async {
+            let operation = ProposalId::new(basis.transition)
+                .map_err(|_| CatalogError::Corrupt("recovery transition operation"))?;
+            let plan = self.load_transition_plan(operation, basis.plan).await?;
+            permit.check(self, &plan)?;
+            let (mut view, version) = self.current().await?;
+            if let Some(lock) = &view.head.recovery {
+                return if lock.matches_managed(request, basis) {
+                    Ok(view.digest)
+                } else {
+                    Err(CatalogError::Fenced)
+                };
+            }
+            if view.digest != basis.directory_root || view.head.import.is_some() {
+                return Err(CatalogError::Conflict("stale managed recovery topology"));
+            }
+            let journal = self
+                .matching_transition_journal(&view.head, &plan)
+                .await?
+                .filter(TransitionJournal::owns_topology)
+                .ok_or(CatalogError::Fenced)?;
+            if journal.publication != basis.publication
+                || self
+                    .confirmed(&view.head, &plan)
+                    .await?
+                    .as_ref()
+                    .map(DirectoryPublication::journal_digest)
+                    != basis.publication
+            {
+                return Err(CatalogError::Conflict("managed recovery publication"));
+            }
+            let (parents, children) = self.transition_routes(&plan)?;
+            let sources = if basis.publication.is_some() {
+                &children
+            } else {
+                &parents
+            };
+            if holds.len() != sources.len() {
+                return Err(CatalogError::Conflict("managed recovery archive set"));
+            }
+            for (route, hold) in sources.iter().zip(holds) {
+                if hold.marker().route() != route {
+                    return Err(CatalogError::Conflict("managed recovery archive route"));
+                }
+                self.selected_route_in(&view, route).await?;
+            }
+            let gate = recovery::RecoveryLock::managed(
+                self,
+                request,
+                basis,
+                sources
+                    .first()
+                    .ok_or(CatalogError::Corrupt("managed recovery has no sources"))?,
+                parents.iter().chain(&children).map(|route| route.history),
+            )?;
+            view.head.recovery = Some(Box::new(gate.clone()));
+            let after = self.commit_transition_head(&view.head, version).await?;
+            if after.head.recovery.as_deref() != Some(&gate) {
+                return Err(CatalogError::Unconfirmed);
+            }
+            Ok(after.digest)
         })
         .await
     }
@@ -1517,6 +1626,9 @@ impl RangeDirectory {
         self.check_transition_plan(mutation)?;
         self.bounded(async {
             let (mut view, version) = self.current().await?;
+            if view.head.recovery.is_some() {
+                return Err(CatalogError::Fenced);
+            }
             let Some(before) = self.matching_transition(&view.head, mutation).await? else {
                 if !cancel_unplanned {
                     return Err(CatalogError::Conflict("unplanned transition"));

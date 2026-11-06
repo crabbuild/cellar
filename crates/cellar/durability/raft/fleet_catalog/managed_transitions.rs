@@ -1564,6 +1564,23 @@ impl FleetCatalog {
         Ok(())
     }
 
+    pub(super) async fn managed_recovery_permit_at(
+        &self,
+        snapshot: &FleetSnapshot,
+        directory: &RangeDirectory,
+        basis: &ManagedRecoveryIntentBasis,
+    ) -> Result<ManagedTransitionPermit> {
+        let Some(Disruption::Transition(active)) = self.active_disruption(snapshot).await? else {
+            return Err(FleetCatalogError::Conflict);
+        };
+        if active.operation() != basis.transition || active.plan != basis.plan {
+            return Err(FleetCatalogError::Conflict);
+        }
+        let permit = ManagedTransitionPermit(active);
+        permit.check_directory(directory).map_err(catalog_error)?;
+        Ok(permit)
+    }
+
     pub(super) async fn active_managed_transition_permit(
         &self,
         request: &FleetRequestIdentity,

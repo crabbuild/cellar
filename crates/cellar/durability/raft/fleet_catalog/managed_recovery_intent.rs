@@ -97,6 +97,23 @@ pub struct FleetTransitionRecoveryIntent {
     lineages: Vec<FleetRecoveryVoterLineage>,
 }
 
+/// Read-back proof of the exact recovery barrier selected in the directory.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FleetTransitionRecoveryBarrier {
+    intent_digest: [u8; 32],
+    directory_digest: [u8; 32],
+}
+
+impl FleetTransitionRecoveryBarrier {
+    pub fn intent_digest(&self) -> [u8; 32] {
+        self.intent_digest
+    }
+
+    pub fn directory_digest(&self) -> [u8; 32] {
+        self.directory_digest
+    }
+}
+
 impl FleetTransitionRecoveryIntent {
     pub fn operation(&self) -> [u8; 16] {
         self.record.operation
@@ -231,23 +248,100 @@ impl FleetCatalog {
                 {
                     return Err(FleetCatalogError::Conflict);
                 }
-                for hold in &intent.record.holds {
-                    let history = hold.marker().route().history;
-                    let birth = domain
-                        .run(directory.materialize_selected_history(history))
-                        .await
-                        .map_err(|_| FleetCatalogError::Closed)?
-                        .map_err(catalog_error)?;
-                    let registry = directory
-                        .open_group_archive(domain, archives, &birth)
-                        .await
-                        .map_err(super::managed_transitions::transfer_archive_error)?;
-                    registry.require_selected_hold(domain, hold).await?;
-                }
+                self.require_recovery_intent_holds(directory, archives, &intent)
+                    .await?;
                 self.inner
                     .create_exact(&key, &encode(KIND, &intent.record, LIMIT)?, LIMIT)
                     .await?;
                 Ok(intent)
+            }),
+        )
+        .await
+    }
+
+    async fn require_recovery_intent_holds(
+        &self,
+        directory: &RangeDirectory,
+        archives: &CellGroupArchivePool,
+        intent: &FleetTransitionRecoveryIntent,
+    ) -> Result<()> {
+        let domain = &self.inner.domain;
+        for hold in &intent.record.holds {
+            let history = hold.marker().route().history;
+            let birth = domain
+                .run(directory.materialize_selected_history(history))
+                .await
+                .map_err(|_| FleetCatalogError::Closed)?
+                .map_err(catalog_error)?;
+            let registry = directory
+                .open_group_archive(domain, archives, &birth)
+                .await
+                .map_err(super::managed_transitions::transfer_archive_error)?;
+            registry.require_selected_hold(domain, hold).await?;
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn select_managed_transition_recovery_barrier(
+        &self,
+        directory: &RangeDirectory,
+        operation: ProposalId,
+        principal: &str,
+        expected: [u8; 32],
+        archives: &CellGroupArchivePool,
+        timeout: Duration,
+    ) -> Result<FleetTransitionRecoveryBarrier> {
+        self.run(
+            timeout,
+            Box::pin(async {
+                let (record, _) = self
+                    .inner
+                    .read::<Record>(&intent_key(operation), KIND, LIMIT)
+                    .await?
+                    .ok_or(FleetCatalogError::Conflict)?;
+                let intent = record.validate(self, directory, operation, principal)?;
+                if intent.digest() != expected {
+                    return Err(FleetCatalogError::PayloadConflict);
+                }
+                let basis = &intent.record.basis;
+                let snapshot = self.inner.current().await?;
+                let permit = self
+                    .managed_recovery_permit_at(&snapshot, directory, basis)
+                    .await?;
+                let domain = &self.inner.domain;
+                let selected = domain
+                    .run(directory.observe_managed_recovery_barrier(expected, basis))
+                    .await
+                    .map_err(|_| FleetCatalogError::Closed)?
+                    .map_err(catalog_error)?;
+                let directory_digest = if let Some(selected) = selected {
+                    selected
+                } else {
+                    if snapshot.revision() != basis.fleet_revision
+                        || root_digest(&snapshot)? != basis.fleet_root
+                    {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                    self.require_recovery_intent_holds(directory, archives, &intent)
+                        .await?;
+                    if self.inner.current().await?.token != snapshot.token {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                    domain
+                        .run(Box::pin(directory.select_managed_recovery_barrier(
+                            expected,
+                            basis,
+                            intent.archive_holds(),
+                            &permit,
+                        )))
+                        .await
+                        .map_err(|_| FleetCatalogError::Closed)?
+                        .map_err(catalog_error)?
+                };
+                Ok(FleetTransitionRecoveryBarrier {
+                    intent_digest: expected,
+                    directory_digest,
+                })
             }),
         )
         .await

@@ -429,7 +429,7 @@ impl RangeDirectory {
     async fn selected_birth_route(&self, route: &GroupRoute) -> Result<(), CatalogError> {
         let (view, _) = self.current().await?;
         if let Some(lock) = &view.head.recovery {
-            if lock.source_route(self)? == *route {
+            if lock.blocks_startup(self, route)? {
                 return Err(CatalogError::Fenced);
             }
         }

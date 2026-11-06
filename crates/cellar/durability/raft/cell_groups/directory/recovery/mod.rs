@@ -82,6 +82,11 @@ pub(in crate::raft::catalog::range_directory) struct RecoveryLock {
 #[serde(deny_unknown_fields)]
 enum RecoveryPhase {
     Source,
+    ManagedSource {
+        transition: [u8; 16],
+        plan: [u8; 32],
+        groups: Vec<([u8; 16], [u8; 16])>,
+    },
     Published {
         publication: [u8; 32],
         manifest: [u8; 32],
@@ -89,6 +94,71 @@ enum RecoveryPhase {
 }
 
 impl RecoveryLock {
+    pub(in crate::raft::catalog::range_directory) fn managed(
+        directory: &RangeDirectory,
+        request: [u8; 32],
+        basis: &crate::raft::fleet_catalog::ManagedRecoveryIntentBasis,
+        source: &GroupRoute,
+        routes: impl Iterator<Item = GroupHistory>,
+    ) -> Result<Self, CatalogError> {
+        let mut groups: Vec<_> = routes
+            .map(|history| (history.group.bytes(), history.incarnation.bytes()))
+            .collect();
+        groups.sort_unstable();
+        let lock = Self {
+            request,
+            base: basis.directory_root,
+            source: wire::Route::encode(source, directory)?,
+            phase: RecoveryPhase::ManagedSource {
+                transition: basis.transition,
+                plan: basis.plan,
+                groups,
+            },
+        };
+        lock.check(directory)?;
+        Ok(lock)
+    }
+
+    pub(in crate::raft::catalog::range_directory) fn owns_transition(
+        &self,
+        operation: ProposalId,
+    ) -> bool {
+        matches!(&self.phase, RecoveryPhase::ManagedSource { transition, .. }
+            if *transition == operation.bytes())
+    }
+
+    pub(in crate::raft::catalog::range_directory) fn matches_managed(
+        &self,
+        request: [u8; 32],
+        basis: &crate::raft::fleet_catalog::ManagedRecoveryIntentBasis,
+    ) -> bool {
+        self.request == request
+            && self.base == basis.directory_root
+            && matches!(&self.phase, RecoveryPhase::ManagedSource { transition, plan, .. }
+                if *transition == basis.transition && *plan == basis.plan)
+    }
+
+    pub(in crate::raft::catalog::range_directory) fn blocks_startup(
+        &self,
+        directory: &RangeDirectory,
+        route: &GroupRoute,
+    ) -> Result<bool, CatalogError> {
+        let source = self.source_route(directory)?;
+        Ok(match &self.phase {
+            RecoveryPhase::ManagedSource { groups, .. } => {
+                route.history.cluster == source.history.cluster
+                    && route.history.namespace == source.history.namespace
+                    && groups
+                        .binary_search(&(
+                            route.history.group.bytes(),
+                            route.history.incarnation.bytes(),
+                        ))
+                        .is_ok()
+            }
+            _ => source == *route,
+        })
+    }
+
     pub(super) fn check(&self, directory: &RangeDirectory) -> Result<(), CatalogError> {
         if self.request == [0; 32] || self.base == [0; 32] {
             return Err(CatalogError::Corrupt("group recovery lock"));
@@ -102,7 +172,31 @@ impl RecoveryLock {
                 return Err(CatalogError::Corrupt("published recovery lock"));
             }
         }
-        self.source_route(directory).map(|_| ())
+        let source = self.source_route(directory)?;
+        if let RecoveryPhase::ManagedSource {
+            transition,
+            plan,
+            groups,
+        } = &self.phase
+        {
+            if *transition == [0; 16]
+                || *plan == [0; 32]
+                || !(3..=65).contains(&groups.len())
+                || groups
+                    .iter()
+                    .any(|(group, incarnation)| *group == [0; 16] || *incarnation == [0; 16])
+                || groups.windows(2).any(|pair| pair[0] >= pair[1])
+                || groups
+                    .binary_search(&(
+                        source.history.group.bytes(),
+                        source.history.incarnation.bytes(),
+                    ))
+                    .is_err()
+            {
+                return Err(CatalogError::Corrupt("managed recovery lock"));
+            }
+        }
+        Ok(())
     }
 
     pub(in crate::raft::catalog::range_directory) fn source_route(
