@@ -18,6 +18,7 @@ struct Group {
     snapshot_hints: BTreeMap<u64, (bool, Permit)>,
     inbound: Arc<Budget>,
     tick: bool,
+    wake_due: bool,
     write: Option<Box<CellGroupPersist>>,
     write_bytes: usize,
     pending: Option<Result<CellGroupEffect, RuntimeError>>,
@@ -58,6 +59,7 @@ impl Group {
         self.write = None;
         self.write_bytes = 0;
         self.tick = false;
+        self.wake_due = false;
         self.snapshot_hints.clear();
         for request in self.deferred.drain(..) {
             reply(request, Err(error.clone()));
@@ -232,6 +234,7 @@ impl Worker {
                     (self.options.max_requests / 8).clamp(1, 32),
                 ),
                 tick: false,
+                wake_due: false,
                 write: None,
                 write_bytes: 0,
                 pending: None,
@@ -266,7 +269,7 @@ impl Worker {
         }
         if matches!(
             &request.command,
-            Command::AcknowledgePark { .. } | Command::CertifyPark(_)
+            Command::AcknowledgePark { .. } | Command::CertifyPark(_) | Command::EnterPark(_)
         ) {
             // A metadata write can share the physical batch, but must never
             // overtake an already admitted Raft turn or application completion.
@@ -289,6 +292,7 @@ impl Worker {
                 Command::CertifyPark(certificate) => {
                     group.owner.begin_park_certificate(certificate)
                 }
+                Command::EnterPark(certificate) => group.owner.begin_park(certificate),
                 _ => Err(RuntimeError::Protocol("park write queue".into())),
             };
             match preparation {
@@ -403,6 +407,10 @@ impl Worker {
             request.command,
             Command::Apply(..) | Command::CheckpointBeforeApply(..)
         ) {
+            if group.owner.is_parked() {
+                reply(request, Err(RuntimeError::StaleCompletion));
+                return;
+            }
             if group.completion.is_some() {
                 reply(request, Err(RuntimeError::Overloaded));
                 return;
@@ -420,8 +428,18 @@ impl Worker {
     }
 
     fn tick(&mut self) {
+        let mut wall = None;
         for (history, group) in &mut self.groups {
-            if group.failed.is_none() {
+            if group.failed.is_some() {
+                continue;
+            }
+            if group.owner.is_parked() {
+                let now = *wall.get_or_insert_with(|| crate::asyncrt::wall_ms().max(0) as u64);
+                if group.owner.parked_due(now) {
+                    group.wake_due = true;
+                    group.wake(*history, &mut self.order);
+                }
+            } else {
                 group.tick = true;
                 group.wake(*history, &mut self.order);
             }
@@ -442,7 +460,23 @@ impl Worker {
                 .get_mut(&history)
                 .ok_or(RuntimeError::NotFound)?;
             group.queued = false;
-            if group.failed.is_none() {
+            if group.failed.is_none() && group.owner.is_parked() {
+                if !group.owner.waiting()
+                    && (group.wake_due
+                        || !group.deferred.is_empty()
+                        || !group.snapshot_hints.is_empty())
+                {
+                    match group.owner.begin_wake() {
+                        Ok((work, bytes)) => {
+                            group.write = Some(work);
+                            group.write_bytes = bytes;
+                            self.writes.push_back(history);
+                            made = true;
+                        }
+                        Err(error) => group.fail(error),
+                    }
+                }
+            } else if group.failed.is_none() {
                 if let Some(request) = group.completion.take() {
                     let result = match &request.command {
                         Command::Apply(ticket, next) => {
@@ -711,6 +745,7 @@ impl Worker {
                 || group.settled.is_some()
                 || (group.failed.is_none()
                     && (group.tick
+                        || group.wake_due
                         || !group.snapshot_hints.is_empty()
                         || !group.deferred.is_empty()
                         || group.completion.is_some()
@@ -818,6 +853,16 @@ impl Worker {
                         ticket: job.work.ticket,
                         sequence: receipt.sequence,
                     })?;
+                    if let Some(LocalParkChange::Close(generation)) = job.work.write.local_park {
+                        let campaign = std::mem::take(&mut group.wake_due)
+                            || group.deferred.front().is_some_and(|request| {
+                                !matches!(
+                                    request.command,
+                                    Command::Step(_) | Command::Checkpoint(..)
+                                )
+                            });
+                        group.owner.finish_wake(generation, campaign)?;
+                    }
                     if let Some(request) = group.park_write.take() {
                         let result = match &request.command {
                             Command::AcknowledgePark { leader, cut } => group
@@ -828,6 +873,18 @@ impl Worker {
                                 .owner
                                 .finish_park_certificate(certificate)
                                 .map(Response::ParkCertified),
+                            Command::EnterPark(certificate) => {
+                                match group.owner.finish_park(certificate) {
+                                    Ok(()) => {
+                                        group.tick = false;
+                                        Ok(Response::Unit)
+                                    }
+                                    Err(error) => {
+                                        group.fail(error.clone());
+                                        Err(error)
+                                    }
+                                }
+                            }
                             _ => Err(RuntimeError::Protocol("park write queue".into())),
                         };
                         reply(request, result);

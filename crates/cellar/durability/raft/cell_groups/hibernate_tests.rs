@@ -511,6 +511,15 @@ async fn park_acknowledgement_waits_for_sync_and_reopens_closed() -> anyhow::Res
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn leader_fences_park_preparation_through_timeout_apply() -> anyhow::Result<()> {
+    exercise_park(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn parked_voter_closes_before_wake_and_requires_fresh_apply() -> anyhow::Result<()> {
+    exercise_park(true).await
+}
+
+async fn exercise_park(enter_park: bool) -> anyhow::Result<()> {
     use crate::raft::{
         cell_groups::{
             CellGroupApplier, CellGroupApplyImages, CellGroupEffect, CellGroupRuntime,
@@ -601,7 +610,8 @@ async fn leader_fences_park_preparation_through_timeout_apply() -> anyhow::Resul
     runtime.campaign(history).await?;
 
     let mut cut = None;
-    for phase in ["election", "park", "timeout"] {
+    let mut parked_certificate = None;
+    for phase in ["election", "park", "resume"] {
         let event = domain
             .run(crate::asyncrt::timeout(
                 Duration::from_secs(10),
@@ -611,9 +621,18 @@ async fn leader_fences_park_preparation_through_timeout_apply() -> anyhow::Resul
             .context("expected committed apply")?;
         let work = event.retain_apply().context("apply effect")?;
         drop(event);
-        if phase == "timeout" {
+        if phase == "resume" {
             assert!(work.entry.data.is_empty());
             assert!(!runtime.status(history).await?.ready);
+            if enter_park {
+                let (_, position): (ParkPrepareRequest, LogPosition) = cut.context("park cut")?;
+                let group = log.cell_group(&history)?;
+                let cache = group.read()?;
+                let journal = cache.local_park.as_ref().context("durable wake closure")?;
+                assert_eq!(journal.wake_floor(), Some(position.index));
+                assert!(journal.certificate().is_none());
+                assert!(work.ticket.position().term > position.term);
+            }
         }
         let prepare = work.clone();
         let applier = applier.clone();
@@ -707,10 +726,34 @@ async fn leader_fences_park_preparation_through_timeout_apply() -> anyhow::Resul
                         .and_then(LocalParkRecord::certificate),
                     Some(&certificate)
                 );
+                if enter_park {
+                    runtime.enter_park(history, certificate.clone()).await?;
+                    assert!(group
+                        .read()?
+                        .local_park
+                        .as_ref()
+                        .is_some_and(LocalParkRecord::parked));
+                    assert!(!runtime.status(history).await?.ready);
+                    parked_certificate = Some(certificate);
+                }
                 domain
                     .run(async { crate::asyncrt::sleep_until(request.deadline_ms).await })
                     .await?;
                 runtime.tick().await?;
+                if enter_park {
+                    let quiet = domain
+                        .run(crate::asyncrt::timeout(
+                            Duration::from_millis(30),
+                            events.recv(),
+                        ))
+                        .await?;
+                    assert!(quiet.is_err(), "parked voter emitted tick work");
+                    assert_eq!(runtime.status(history).await?.applied, position);
+                    assert!(matches!(
+                        runtime.read_index(history, vec![2]).await,
+                        Err(RuntimeError::NotReady)
+                    ));
+                }
             }
             _ => {
                 let (_, position) = cut.context("park preparation")?;
@@ -718,6 +761,12 @@ async fn leader_fences_park_preparation_through_timeout_apply() -> anyhow::Resul
                 assert_eq!(selected.position(), position);
                 assert!(status.ready);
                 assert_eq!(status.applied.index.get(), position.index.get() + 1);
+                if let Some(certificate) = parked_certificate.take() {
+                    assert!(matches!(
+                        runtime.enter_park(history, certificate).await,
+                        Err(RuntimeError::NotReady)
+                    ));
+                }
                 assert!(matches!(
                     runtime.acknowledge_park(history, member, selected).await,
                     Err(RuntimeError::NotReady)

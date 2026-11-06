@@ -112,7 +112,9 @@ pub(crate) struct ParkAcknowledgement {
 enum LocalParkPhase {
     Acknowledged,
     Certified,
+    Parked,
     Closed,
+    WakeClosed,
 }
 
 /// Engine-local acknowledgement and irreversible close floor. Snapshots
@@ -131,12 +133,16 @@ pub(crate) struct LocalParkRecord {
 pub(crate) enum LocalParkChange {
     Acknowledge(GroupParkCut),
     Certify(Box<ParkCertificate>),
+    Park(Box<ParkCertificate>),
     Close(ParkGeneration),
 }
 
 impl LocalParkRecord {
     pub(crate) fn is_open(&self) -> bool {
-        self.phase != LocalParkPhase::Closed
+        matches!(
+            self.phase,
+            LocalParkPhase::Acknowledged | LocalParkPhase::Certified | LocalParkPhase::Parked
+        )
     }
 
     pub(super) fn matches_acknowledgement(
@@ -151,7 +157,13 @@ impl LocalParkRecord {
         Self {
             cut: self.cut.clone(),
             process: self.process,
-            phase: LocalParkPhase::Closed,
+            phase: if self.phase == LocalParkPhase::Parked
+                || self.phase == LocalParkPhase::WakeClosed
+            {
+                LocalParkPhase::WakeClosed
+            } else {
+                LocalParkPhase::Closed
+            },
             certificate: None,
         }
     }
@@ -168,10 +180,20 @@ impl LocalParkRecord {
 
     pub(crate) fn matches_member(&self, member: u64) -> bool {
         self.certificate.as_ref().is_none_or(|certificate| {
-            certificate
-                .leader()
-                .is_ok_and(|leader| leader.get() == member)
+            certificate.matches_journal(member, self.process)
+                && (self.phase == LocalParkPhase::Parked
+                    || certificate
+                        .leader()
+                        .is_ok_and(|leader| leader.get() == member))
         })
+    }
+
+    pub(super) fn parked(&self) -> bool {
+        self.phase == LocalParkPhase::Parked
+    }
+
+    pub(super) fn wake_floor(&self) -> Option<LogIndex> {
+        (self.phase == LocalParkPhase::WakeClosed).then(|| self.cut.position().index)
     }
 
     fn validate_history(&self, manifest: &GroupManifest) -> Result<(), LogError> {
@@ -241,18 +263,55 @@ impl CachedGroup {
             return Err(LogError::Corrupt("unclosed park acknowledgement".into()));
         }
         match (&record.phase, record.certificate()) {
-            (LocalParkPhase::Certified, Some(certificate))
-                if certificate.cut() == &record.cut
-                    && certificate.matches_journal(record.process) =>
+            (LocalParkPhase::Certified | LocalParkPhase::Parked, Some(certificate))
+                if certificate.cut() == &record.cut =>
             {
                 certificate.validate(manifest.route(), &self.conf_state, &self.membership)
             }
-            (LocalParkPhase::Acknowledged | LocalParkPhase::Closed, None) => Ok(()),
+            (
+                LocalParkPhase::Acknowledged | LocalParkPhase::Closed | LocalParkPhase::WakeClosed,
+                None,
+            ) => Ok(()),
             _ => Err(LogError::Corrupt("park certificate phase".into())),
         }
     }
 
     pub(super) fn admit_park_certificate(
+        &self,
+        certificate: &ParkCertificate,
+        member: MemberId,
+        identity: NodeIdentity,
+    ) -> Result<(), LogError> {
+        if !certificate.matches_leader(member, identity)
+            || self
+                .local_park
+                .as_ref()
+                .is_some_and(LocalParkRecord::parked)
+        {
+            return Err(LogError::WrongIdentity);
+        }
+        self.admit_park_selection(certificate, member, identity)
+    }
+
+    pub(super) fn admit_park(
+        &self,
+        certificate: &ParkCertificate,
+        member: MemberId,
+        identity: NodeIdentity,
+    ) -> Result<(), LogError> {
+        if certificate.leader()? == member
+            && self
+                .local_park
+                .as_ref()
+                .and_then(LocalParkRecord::certificate)
+                != Some(certificate)
+        {
+            return Err(LogError::WrongIdentity);
+        }
+        self.admit_park_selection(certificate, member, identity)
+    }
+
+    fn admit_park_selection(
         &self,
         certificate: &ParkCertificate,
         member: MemberId,
@@ -264,7 +323,7 @@ impl CachedGroup {
             .as_ref()
             .ok_or(LogError::WrongIdentity)?;
         if !self.quiescent_park_cut(cut)
-            || !certificate.matches_leader(member, identity)
+            || !certificate.matches_voter(member, identity)
             || !self.local_park.as_ref().is_some_and(|record| {
                 record.matches_acknowledgement(cut, identity.process)
                     && record
@@ -304,16 +363,23 @@ impl CachedGroup {
                     });
                 }
             }
-            Some(LocalParkChange::Certify(certificate)) => {
-                previous.admit_park_certificate(certificate, member, identity)?;
-                self.admit_park_certificate(certificate, member, identity)?;
+            Some(LocalParkChange::Certify(certificate) | LocalParkChange::Park(certificate)) => {
+                let phase = if matches!(change, Some(LocalParkChange::Park(_))) {
+                    previous.admit_park(certificate, member, identity)?;
+                    self.admit_park(certificate, member, identity)?;
+                    LocalParkPhase::Parked
+                } else {
+                    previous.admit_park_certificate(certificate, member, identity)?;
+                    self.admit_park_certificate(certificate, member, identity)?;
+                    LocalParkPhase::Certified
+                };
                 if self.hard_state.vote != previous.hard_state.vote {
                     return Err(LogError::WrongIdentity);
                 }
                 self.local_park = Some(LocalParkRecord {
                     cut: certificate.cut().clone(),
                     process: process.bytes(),
-                    phase: LocalParkPhase::Certified,
+                    phase,
                     certificate: Some(certificate.clone()),
                 });
             }

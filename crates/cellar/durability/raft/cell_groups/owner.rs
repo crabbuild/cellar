@@ -5,7 +5,7 @@
 
 use super::{
     hibernate::{
-        LocalParkChange, ParkAcknowledgement, ParkPreparation, ParkPrepareRequest,
+        LocalParkChange, LocalParkRecord, ParkAcknowledgement, ParkPreparation, ParkPrepareRequest,
         MAX_PARK_NEGOTIATION_MS,
     },
     CellGroupBootstrapPermit, GroupManifest, GroupParkCut, ParkCertificate,
@@ -282,6 +282,8 @@ pub struct CellGroupOwner {
     retirement_proposal: Option<Box<(Term, CellGroupProposal)>>,
     pending_seal: Option<Box<(Term, [u8; 32], CellGroupProposal)>>,
     pending_park: Option<Box<PendingPark>>,
+    parked: Option<ParkGeneration>,
+    waking_after: Option<LogIndex>,
 }
 
 impl CellGroupOwner {
@@ -319,6 +321,14 @@ impl CellGroupOwner {
                 "cell-group startup closure/member".into(),
             ));
         }
+        let waking_after = cache
+            .local_park
+            .as_ref()
+            .and_then(LocalParkRecord::wake_floor)
+            .filter(|floor| {
+                current.marker().position().index <= *floor
+                    || current.marker().position().term.get() != cache.hard_state.term
+            });
         drop(cache);
         current
             .require_checkpoint(&group)
@@ -388,6 +398,8 @@ impl CellGroupOwner {
             retirement_proposal: None,
             pending_seal: None,
             pending_park: None,
+            parked: None,
+            waking_after,
         })
     }
 
@@ -444,7 +456,14 @@ impl CellGroupOwner {
         }) {
             self.pending_park = None;
         }
-        let term = if self.pending_park.is_none()
+        let at = self.current.marker().position();
+        if self
+            .waking_after
+            .is_some_and(|floor| at.index > floor && at.term.get() == self.node.raft.term)
+        {
+            self.waking_after = None;
+        }
+        let term = if !self.park_fenced()
             && self.pending_seal.is_none()
             && self.current.marker().source_seal().is_none()
             && self.node.raft.state == StateRole::Leader
@@ -513,10 +532,7 @@ impl CellGroupOwner {
 
     pub(super) fn require_application_active(&self) -> Result<(), RuntimeError> {
         self.live()?;
-        if self.pending_park.is_some()
-            || self.pending_seal.is_some()
-            || !self.current.marker().is_active()
-        {
+        if self.park_fenced() || self.pending_seal.is_some() || !self.current.marker().is_active() {
             return Err(RuntimeError::NotReady);
         }
         Ok(())
@@ -774,7 +790,7 @@ impl CellGroupOwner {
             leader: (self.node.raft.leader_id != 0).then_some(self.node.raft.leader_id),
             applied: self.current.marker().position(),
             committed: LogIndex::new(cache.hard_state.commit),
-            ready: self.pending_park.is_none()
+            ready: !self.park_fenced()
                 && self.pending_seal.is_none()
                 && self.current.marker().is_active()
                 && self.protocol_ready(cache),
@@ -866,7 +882,7 @@ impl CellGroupOwner {
             membership,
             status,
             stable_leader: marker.is_active()
-                && self.pending_park.is_none()
+                && !self.park_fenced()
                 && self.pending_seal.is_none()
                 && self.configuration_fence.is_none()
                 && cache.conf_state.voters_outgoing.is_empty()
@@ -1075,7 +1091,7 @@ impl CellGroupOwner {
 
     fn require_control_prefix(&self) -> Result<(), RuntimeError> {
         let cache = self.group.read()?;
-        if self.pending_park.is_some()
+        if self.park_fenced()
             || !self.protocol_ready(&cache)
             || self.current.marker().position().index.get() != cache.hard_state.commit
             || !self.apply.is_empty()
@@ -1118,7 +1134,7 @@ impl CellGroupOwner {
         }
         let cache = self.group.read()?;
         let index = marker.position().index.get();
-        if self.pending_park.is_some()
+        if self.park_fenced()
             || !marker.is_active()
             || !self.protocol_ready(&cache)
             || index != cache.hard_state.commit
@@ -1322,7 +1338,11 @@ impl CellGroupOwner {
 
     pub fn campaign(&mut self) -> Result<(), RuntimeError> {
         self.live()?;
-        if self.pending_park.is_some() || self.phase.is_some() || self.checkpoint.is_some() {
+        if self.pending_park.is_some()
+            || self.parked.is_some()
+            || self.phase.is_some()
+            || self.checkpoint.is_some()
+        {
             return Err(RuntimeError::NotReady);
         }
         let admission = self
@@ -1416,6 +1436,9 @@ impl CellGroupOwner {
 
     pub fn tick(&mut self) -> Result<(), RuntimeError> {
         self.live()?;
+        if self.parked.is_some() {
+            return Ok(());
+        }
         // The scheduler coalesces a deferred tick until pending Ready work is
         // drained. In particular, an arbitrarily slow fsync must not accumulate
         // an unbounded vector of heartbeat/election messages inside RawNode.
@@ -1996,6 +2019,113 @@ impl CellGroupOwner {
         Ok(())
     }
 
+    fn park_fenced(&self) -> bool {
+        self.pending_park.is_some() || self.parked.is_some() || self.waking_after.is_some()
+    }
+
+    pub(super) fn is_parked(&self) -> bool {
+        self.parked.is_some()
+    }
+
+    pub(super) fn parked_due(&self, now: u64) -> bool {
+        self.parked.is_some()
+            && self
+                .current
+                .marker()
+                .root()
+                .next_due_unix_millis()
+                .is_some_and(|due| due <= now)
+    }
+
+    pub(super) fn begin_park(
+        &mut self,
+        certificate: &ParkCertificate,
+    ) -> Result<(Box<CellGroupPersist>, usize), RuntimeError> {
+        if self.parked.is_none() {
+            self.require_park_acknowledgement(certificate.leader()?, certificate.cut())?;
+            if Arc::strong_count(&self.leader_term) != 1
+                || self
+                    .deliveries
+                    .iter()
+                    .any(|delivery| delivery.strong_count() != 0)
+            {
+                return Err(RuntimeError::NotReady);
+            }
+        } else if !self.idle() {
+            return Err(RuntimeError::NotReady);
+        }
+        let voter = self.group.identity();
+        self.group
+            .read()?
+            .admit_park(certificate, voter.member, voter.node_identity())?;
+        self.persist_park_change(LocalParkChange::Park(Box::new(certificate.clone())))
+    }
+
+    pub(super) fn finish_park(
+        &mut self,
+        certificate: &ParkCertificate,
+    ) -> Result<(), RuntimeError> {
+        let cache = self.group.read()?;
+        if !cache
+            .local_park
+            .as_ref()
+            .is_some_and(|park| park.parked() && park.certificate() == Some(certificate))
+        {
+            return Err(RuntimeError::StaleCompletion);
+        }
+        drop(cache);
+        let generation = ParkGeneration::new(certificate.cut().generation())
+            .map_err(|_| RuntimeError::StaleCompletion)?;
+        self.parked = Some(generation);
+        self.pending_park = None;
+        self.leader_term.store(0, Ordering::Release);
+        self.leader_term = Arc::new(AtomicU64::new(0));
+        self.source_observed = None;
+        self.advance_source_epoch();
+        Ok(())
+    }
+
+    pub(super) fn begin_wake(&mut self) -> Result<(Box<CellGroupPersist>, usize), RuntimeError> {
+        self.live()?;
+        if !self.idle() {
+            return Err(RuntimeError::NotReady);
+        }
+        let generation = self.parked.ok_or(RuntimeError::NotReady)?;
+        self.persist_park_change(LocalParkChange::Close(generation))
+    }
+
+    pub(super) fn finish_wake(
+        &mut self,
+        generation: ParkGeneration,
+        campaign: bool,
+    ) -> Result<(), RuntimeError> {
+        let floor = LogIndex::new(generation.get());
+        if self.parked != Some(generation)
+            || self
+                .group
+                .read()?
+                .local_park
+                .as_ref()
+                .and_then(LocalParkRecord::wake_floor)
+                != Some(floor)
+        {
+            return Err(RuntimeError::StaleCompletion);
+        }
+        self.waking_after = Some(floor);
+        self.parked = None;
+        // Clear soft leadership without changing the retained term or vote.
+        // The next election, or a live leader's later entry, supplies authority.
+        self.node.raft.become_follower(self.node.raft.term, 0);
+        self.refresh_execution_fence();
+        if campaign {
+            match self.campaign() {
+                Ok(()) | Err(RuntimeError::NotReady | RuntimeError::Overloaded) => (),
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(())
+    }
+
     fn require_park_acknowledgement(
         &self,
         leader: MemberId,
@@ -2018,6 +2148,8 @@ impl CellGroupOwner {
             }
         }
         if !self.idle()
+            || self.parked.is_some()
+            || self.waking_after.is_some()
             || self.pending_seal.is_some()
             || self.node.raft.leader_id != leader.get()
             || self.node.raft.term != position.term.get()
@@ -2470,6 +2602,9 @@ impl CellGroupOwner {
                             .require_checkpoint(&self.group)
                             .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
                         self.current = checkpoint.manifest().clone();
+                        if self.waking_after.is_some() {
+                            self.refresh_execution_fence();
+                        }
                         self.configuration_fence = None;
                         Some(self.current.marker().position().index.get())
                     } else {
@@ -2643,6 +2778,8 @@ impl CellGroupOwner {
                         .is_some_and(|pending| pending.abort == Some(ticket.position))
                     {
                         self.pending_park = None;
+                        self.refresh_execution_fence();
+                    } else if self.waking_after.is_some() {
                         self.refresh_execution_fence();
                     }
                     self.proposals.applied(ticket.position);
@@ -3087,7 +3224,9 @@ impl CellGroupOwner {
                     }
                 }
                 if kind == MessageType::MsgReadIndex {
-                    self.require_application_active()?;
+                    if !self.is_parked() {
+                        self.require_application_active()?;
+                    }
                     if self.node.raft.read_only.pending_read_count()
                         >= self.options.max_pending_reads
                     {

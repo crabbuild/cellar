@@ -151,6 +151,7 @@ enum Command {
     SealSource(Box<CellGroupSealPermit>),
     PreparePark(ParkPrepareRequest),
     CertifyPark(Box<ParkCertificate>),
+    EnterPark(Box<ParkCertificate>),
     AcknowledgePark {
         leader: MemberId,
         cut: GroupParkCut,
@@ -825,6 +826,21 @@ impl CellGroupRuntime {
             Response::ParkCertified(certificate) => Ok(certificate),
             _ => Err(RuntimeError::Protocol("park certificate reply".into())),
         }
+    }
+
+    pub(crate) async fn enter_park(
+        &self,
+        history: GroupHistory,
+        certificate: ParkCertificate,
+    ) -> Result<(), RuntimeError> {
+        let bytes = certificate.reserved_bytes() + 4096;
+        self.call(
+            Some(history),
+            Command::EnterPark(Box::new(certificate)),
+            bytes,
+        )
+        .await
+        .map(|_| ())
     }
 
     /// Ask the local RawNode owner to sync its voter acknowledgement. The

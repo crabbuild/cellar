@@ -172,19 +172,22 @@ impl ParkCertificate {
     }
 
     pub(super) fn matches_leader(&self, member: MemberId, identity: NodeIdentity) -> bool {
-        self.leader == member.get()
-            && self.voters.iter().any(|voter| {
-                voter.member == self.leader
-                    && voter.node == identity.node.bytes()
-                    && voter.disk == identity.disk.bytes()
-                    && voter.process == identity.process.bytes()
-            })
+        self.leader == member.get() && self.matches_voter(member, identity)
     }
 
-    pub(super) fn matches_journal(&self, process: [u8; 16]) -> bool {
+    pub(super) fn matches_voter(&self, member: MemberId, identity: NodeIdentity) -> bool {
+        self.voters.iter().any(|voter| {
+            voter.member == member.get()
+                && voter.node == identity.node.bytes()
+                && voter.disk == identity.disk.bytes()
+                && voter.process == identity.process.bytes()
+        })
+    }
+
+    pub(super) fn matches_journal(&self, member: u64, process: [u8; 16]) -> bool {
         self.voters
             .iter()
-            .any(|voter| voter.member == self.leader && voter.process == process)
+            .any(|voter| voter.member == member && voter.process == process)
     }
 }
 

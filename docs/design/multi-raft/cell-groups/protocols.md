@@ -1408,11 +1408,12 @@ be abandoned merely to park.
    before suppressing routine group ticks. Partial delivery is safe: an active
    peer's messages wake parked peers. Node-level transport remains available.
 4. API request, peer message, due effect, topology operation or local restart
-   wakes the group. Persist closure of that park generation before new admission;
-   late park messages for a closed generation cannot re-park it.
-5. Resume ordinary Raft using retained term/vote/log. Send wake hints to peers and
-   obtain current-term commit/read authority before serving. Wake messages and
-   retained leadership are not quorum proofs. Missing a quorum refuses/waits.
+   wakes the group. Persist closure of that park generation before processing
+   queued protocol or application work. The closure retains a wake floor so
+   restart and delayed certificate delivery cannot bypass it.
+5. Resume ordinary Raft using retained term/vote/log. Clear soft leadership and
+   require a current-term applied position beyond the wake floor before serving.
+   Send wake hints to peers. Missing a quorum refuses or waits.
 
 Use execution-domain timers and a bounded node-level due index; do not allocate a
 thread per cell/group. A restart may conservatively wake all locally parked groups

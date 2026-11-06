@@ -192,7 +192,10 @@ impl<S: Clone> GroupWrite<S> {
                 .checked_add(16 * 1024 + manifest.reserved_bytes())
                 .ok_or(LogError::Overloaded)?;
         }
-        if let Some(super::cell_groups::LocalParkChange::Certify(certificate)) = &self.local_park {
+        use super::cell_groups::LocalParkChange;
+        if let Some(LocalParkChange::Certify(certificate) | LocalParkChange::Park(certificate)) =
+            &self.local_park
+        {
             bytes = bytes
                 .checked_add(certificate.reserved_bytes())
                 .ok_or(LogError::Overloaded)?;
