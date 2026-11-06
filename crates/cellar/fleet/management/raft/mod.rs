@@ -12,6 +12,7 @@ pub use maintenance::*;
 mod nodes;
 mod records;
 mod transition;
+mod transition_admission;
 use crate::application::consensus::RaftCells;
 use crate::asyncrt::{DomainToken, ExecutionDomain};
 use crate::raft::catalog::RangeDirectory;
@@ -52,6 +53,10 @@ pub use transition::{
     RaftFleetTransitionResumeAcceptance, RaftFleetTransitionResumeStep,
     RaftFleetTransitionSealAuthorization, RaftFleetTransitionSealRequest,
     RaftFleetTransitionStatus,
+};
+pub use transition_admission::{
+    RaftFleetTransitionAdmission, RaftFleetTransitionAdmissionRequest, RaftFleetTransitionBasis,
+    RaftFleetTransitionChild, RaftFleetTransitionGroup, RaftFleetTransitionPartition,
 };
 
 type Result<T> = std::result::Result<T, RaftFleetFailure>;

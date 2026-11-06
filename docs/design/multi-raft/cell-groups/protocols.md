@@ -1055,6 +1055,16 @@ admits a transition. A Live group created by an earlier transfer can reopen
 its selected range as a sealed source during a later merge. Its synced seal
 continues to fence application work across that restart.
 
+`cellar raft fleet transition basis NAMESPACE_HEX --catalog-id DIGEST` reports
+the Fleet revision and directory digest for operator admission. Submit
+`cellar raft fleet transition admit NAMESPACE_HEX --plan REQUEST.json --catalog-id DIGEST`
+with that basis, the exact parent histories and the child reservation IDs,
+incarnations, creation IDs and ordered voters. A split names a pivot cell and
+two children in key order. A merge names two adjacent parents in key order and
+one child. The controller stages the exact request digest and plan before the
+first reservation. Retain the original request file to reconcile each child
+and the final admission after a lost response.
+
 Managed planning stages the canonical directory request before the fleet selects
 its digest. A replacement controller can reopen the exact admitted plan by
 operation ID. If the fleet selected the plan before the directory CAS, the

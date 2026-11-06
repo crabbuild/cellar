@@ -153,6 +153,40 @@ pub(crate) async fn resume_transition(
     Ok(serde_json::from_value(result?.success()?)?)
 }
 
+pub(crate) async fn admit_transition(
+    fixture: &Fixture,
+    directory: &RangeDirectory,
+    principal: &str,
+    request: &RaftFleetTransitionAdmissionRequest,
+) -> Result<RaftFleetTransitionAdmission> {
+    let root = tempfile::tempdir()?;
+    let cli = open_cli(fixture, directory, root.path(), principal, None).await?;
+    let plan = root.path().join("transition-admission.json");
+    std::fs::write(&plan, serde_json::to_vec(request)?)?;
+    let path = plan
+        .to_str()
+        .context("UTF-8 transition admission plan path")?;
+    let command = ["transition", "admit", &request.namespace_id, "--plan", path];
+    let result = async {
+        let basis: RaftFleetTransitionBasis = serde_json::from_value(
+            cli.call(&["transition", "basis", &request.namespace_id], READER)
+                .await?
+                .success()?,
+        )?;
+        ensure!(
+            basis.directory_digest == request.expected_directory_digest
+                && basis.fleet_revision >= request.expected_fleet_revision
+        );
+        ensure!(cli.call(&command, READER).await?.code == 4);
+        Ok::<_, anyhow::Error>(serde_json::from_value(
+            cli.call(&command, OWNER).await?.success()?,
+        )?)
+    }
+    .await;
+    cli.close().await?;
+    result
+}
+
 pub(crate) async fn authorize_transition_seal(
     fixture: &Fixture,
     directory: &RangeDirectory,

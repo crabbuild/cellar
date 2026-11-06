@@ -17,6 +17,7 @@ mod imports;
 mod index;
 mod isolation;
 mod maintenance;
+mod managed_transition_admission;
 mod managed_transition_replay;
 mod managed_transitions;
 pub use managed_transitions::ReopenedManagedCellGroupTransition;

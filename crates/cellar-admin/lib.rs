@@ -135,6 +135,14 @@ pub fn router(console: Console) -> Result<Router> {
             post(raft::resume_transition).layer(DefaultBodyLimit::max(16 * 1024)),
         )
         .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/transition-basis",
+            get(raft::transition_basis),
+        )
+        .route(
+            "/fleets/{fleet}/raft/namespaces/{namespace}/transitions/{operation}/admit",
+            post(raft::admit_transition).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
             "/fleets/{fleet}/raft/namespaces/{namespace}/transitions/{operation}/prepare",
             post(raft::prepare_transition).layer(DefaultBodyLimit::max(16 * 1024)),
         )

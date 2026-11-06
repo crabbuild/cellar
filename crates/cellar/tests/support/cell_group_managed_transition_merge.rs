@@ -7,12 +7,144 @@ use cellar::application::consensus::verification::{
         CellGroupArchiveHold, CellGroupArchiveTailLimits, CellGroupArchiveTailPool, CellGroupBirth,
         CellGroupCheckpointPool, CellGroupTransitionSource, GroupRoute,
     },
-    FleetHistoryState,
+    FleetHistoryState, FleetSnapshot,
 };
 use cellar::sdk::fleet_operations::{
-    RaftFleetControl, RaftFleetFailureCode, RaftFleetOutcome, RaftFleetTransitionPublishRequest,
-    RaftFleetTransitionResume, RaftFleetTransitionResumeStep,
+    RaftFleetControl, RaftFleetFailureCode, RaftFleetFirstGroupVoter, RaftFleetOutcome,
+    RaftFleetTransitionAdmissionRequest, RaftFleetTransitionChild, RaftFleetTransitionGroup,
+    RaftFleetTransitionPartition, RaftFleetTransitionPublishRequest, RaftFleetTransitionResume,
+    RaftFleetTransitionResumeStep,
 };
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn managed_operator_split_reserves_children_in_key_order() -> Result<()> {
+    let cluster = Box::pin(ManagedCluster::start(false, &[7, 8, 9])).await?;
+    let result = Box::pin(check_operator_split_admission(&cluster)).await;
+    let joined = close(cluster.nodes, &cluster.hosts, None).await;
+    cluster.fixtures[0].domain.shutdown().await;
+    result?;
+    joined
+}
+
+async fn check_operator_split_admission(cluster: &ManagedCluster) -> Result<()> {
+    let fixture = &cluster.fixtures[0];
+    let directory = &cluster.directory;
+    let control = RaftFleetControl::new(
+        &fixture.domain,
+        fixture.catalog.clone(),
+        vec![directory.clone()],
+    )?;
+    let namespace = hex::encode(cluster.history.namespace.bytes());
+    let basis = control.transition_basis(&namespace, TIMEOUT).await?;
+    let principal = request(234, basis.fleet_revision).principal;
+    let parent = fixture
+        .domain
+        .run(directory.materialize_selected_history(cluster.history))
+        .await??;
+    let pivot_cell = "Counter:operator-split";
+    let pivot = cell_routing_key(cluster.history.namespace, &CellId::new(pivot_cell)?);
+    let (left, right) = parent.route().range.split(pivot)?;
+    let operation = ProposalId::new([231; 16])?;
+    let histories = [232, 233].map(|id| -> Result<_> {
+        Ok(GroupHistory {
+            group: GroupId::new([id; 16])?,
+            incarnation: IncarnationId::new([id; 16])?,
+            ..cluster.history
+        })
+    });
+    let [left_history, right_history] = histories;
+    let histories = [left_history?, right_history?];
+    let admission = RaftFleetTransitionAdmissionRequest {
+        catalog_id: basis.catalog_id,
+        namespace_id: namespace.clone(),
+        operation_id: hex::encode(operation.bytes()),
+        request_id: hex::encode([234; 16]),
+        expected_fleet_revision: basis.fleet_revision,
+        expected_directory_digest: basis.directory_digest,
+        class: "Counter".into(),
+        partition: RaftFleetTransitionPartition::Split {
+            parent: transition_group(cluster.history),
+            pivot_cell: pivot_cell.into(),
+        },
+        children: histories
+            .iter()
+            .enumerate()
+            .map(|(index, history)| RaftFleetTransitionChild {
+                group: transition_group(*history),
+                request_id: hex::encode([232 + index as u8; 16]),
+                creation_id: hex::encode([232 + index as u8; 16]),
+                voters: std::array::from_fn(|member| RaftFleetFirstGroupVoter {
+                    node_id: hex::encode(cluster.fixtures[3 + member].spec.node.bytes()),
+                    member_id: member as u64 + 1,
+                }),
+            })
+            .collect(),
+    };
+    let invalid = control
+        .admit_transition("", &namespace, &admission.operation_id, &admission, TIMEOUT)
+        .await;
+    ensure!(matches!(invalid, Err(failure) if failure.code == RaftFleetFailureCode::InvalidInput));
+    ensure!(fixture.catalog.read(TIMEOUT).await?.revision() == basis.fleet_revision);
+    let admitted = crate::managed_fixture::operator::admit_transition(
+        fixture, directory, &principal, &admission,
+    )
+    .await?;
+    let cut = fixture.catalog.read(TIMEOUT).await?;
+    ensure!(
+        admitted.phase == TransitionPhase::Planned && cut.revision() == basis.fleet_revision + 3
+    );
+    for (history, range) in histories.iter().zip([left, right]) {
+        ensure!(
+            *fixture
+                .catalog
+                .history(&cut, history, TIMEOUT)
+                .await?
+                .state()
+                == FleetHistoryState::Reserved
+        );
+        let birth = fixture
+            .catalog
+            .recover_birth_reservation(&cut, directory, history, TIMEOUT)
+            .await?;
+        ensure!(birth.route().range == range && birth.route().epoch == RouteEpoch::new(2)?);
+    }
+    let view = fixture.domain.run(directory.observe()).await??;
+    ensure!(view.revision() == basis.directory_revision && view.groups() == 1);
+    let selected = fixture
+        .catalog
+        .reopen_managed_transition(directory, operation, TIMEOUT)
+        .await?
+        .context("admitted split plan")?;
+    let cancellation = FleetRequestIdentity {
+        operation: operation.bytes(),
+        ..request(235, cut.revision())
+    };
+    fixture
+        .catalog
+        .cancel_managed_transition(&cut, &cancellation, directory, &selected.plan, TIMEOUT)
+        .await?;
+    let cancelled = control
+        .admit_transition(
+            &principal,
+            &namespace,
+            &admission.operation_id,
+            &admission,
+            TIMEOUT,
+        )
+        .await?;
+    ensure!(
+        cancelled.phase == TransitionPhase::Cancelled
+            && cancelled.plan_digest == admitted.plan_digest
+    );
+    Ok(())
+}
+
+fn transition_group(history: GroupHistory) -> RaftFleetTransitionGroup {
+    RaftFleetTransitionGroup {
+        group_id: hex::encode(history.group.bytes()),
+        incarnation_id: hex::encode(history.incarnation.bytes()),
+    }
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn managed_split_then_merge_replays_late_writes() -> Result<()> {
@@ -135,42 +267,31 @@ async fn run_inner(
         admit_capacity(fixture, host, directory, 130 + 2 * index as u8).await?;
     }
     let operation = ProposalId::new([244; 16])?;
-    let identity = |id, revision| FleetRequestIdentity {
-        operation: operation.bytes(),
-        ..request(id, revision)
+    let history = GroupHistory {
+        group: GroupId::new([243; 16])?,
+        incarnation: IncarnationId::new([243; 16])?,
+        ..cluster.history
     };
-    let snapshot = fleet.read(TIMEOUT).await?;
-    let reservation = fleet
-        .reserve_birth(
-            &snapshot,
-            &identity(243, snapshot.revision()),
-            directory,
-            CellGroupBirthSpec {
-                history: GroupHistory {
-                    group: GroupId::new([243; 16])?,
-                    incarnation: IncarnationId::new([243; 16])?,
-                    ..cluster.history
-                },
-                range: parents[0].range.merge(&parents[1].range)?,
-                epoch: RouteEpoch::new(3)?,
-                creation: ProposalId::new([243; 16])?,
-                voters: cluster.fixtures[..3]
-                    .iter()
-                    .enumerate()
-                    .map(|(index, fixture)| {
-                        Ok(InitialMember {
-                            member: MemberId::new(index as u64 + 1)?,
-                            node: fixture.spec.node,
-                        })
-                    })
-                    .collect::<Result<Vec<_>>>()?,
-                learners: vec![],
-            },
-            "Counter",
-            TIMEOUT,
-        )
-        .await?;
-    let child = reservation.authorization.route().clone();
+    let (admitted, cut) = Box::pin(admit_merge(
+        cluster, directory, &control, &parents, history, operation,
+    ))
+    .await?;
+    let planned = fleet
+        .reopen_managed_transition(directory, operation, TIMEOUT)
+        .await?
+        .context("operator admitted merge")?;
+    ensure!(
+        planned
+            .journal
+            .as_ref()
+            .is_some_and(|journal| journal.phase() == TransitionPhase::Planned)
+            && admitted.plan_digest == hex::encode(planned.plan.digest())
+    );
+    let child = fleet
+        .recover_birth_reservation(&cut, directory, &history, TIMEOUT)
+        .await?
+        .route()
+        .clone();
     let mut reused = child.clone();
     reused.history.group = parents[0].history.group;
     ensure!(directory
@@ -191,16 +312,8 @@ async fn run_inner(
     ensure!(directory
         .prepare_merge(&view, operation, &gap, &child)
         .is_err());
-    let plan = directory.prepare_merge(&view, operation, &parents, &child)?;
-    let cut = fleet.read(TIMEOUT).await?;
-    let request = identity(245, cut.revision());
-    ensure!(
-        fleet
-            .plan_managed_transition(&request, directory, &plan, TIMEOUT)
-            .await?
-            .phase()
-            == TransitionPhase::Planned
-    );
+    let plan = planned.plan;
+    let request = planned.request;
 
     let mut registries = Vec::with_capacity(2);
     for route in &parents {
@@ -643,6 +756,97 @@ async fn run_inner(
         ensure!(query.result == (expected + 2).to_be_bytes());
     }
     Ok(child.history)
+}
+
+async fn admit_merge(
+    cluster: &ManagedCluster,
+    directory: &RangeDirectory,
+    control: &RaftFleetControl,
+    parents: &[GroupRoute; 2],
+    child: GroupHistory,
+    operation: ProposalId,
+) -> Result<(
+    cellar::sdk::fleet_operations::RaftFleetTransitionAdmission,
+    FleetSnapshot,
+)> {
+    let fixture = &cluster.fixtures[0];
+    let fleet = &fixture.catalog;
+    let basis = control
+        .transition_basis(&hex::encode(child.namespace.bytes()), TIMEOUT)
+        .await?;
+    let principal = request(245, basis.fleet_revision).principal;
+    let admission = RaftFleetTransitionAdmissionRequest {
+        catalog_id: basis.catalog_id,
+        namespace_id: basis.namespace_id,
+        operation_id: hex::encode(operation.bytes()),
+        request_id: hex::encode([245; 16]),
+        expected_fleet_revision: basis.fleet_revision,
+        expected_directory_digest: basis.directory_digest,
+        class: "Counter".into(),
+        partition: RaftFleetTransitionPartition::Merge {
+            left: transition_group(parents[0].history),
+            right: transition_group(parents[1].history),
+        },
+        children: vec![RaftFleetTransitionChild {
+            group: transition_group(child),
+            request_id: hex::encode([243; 16]),
+            creation_id: hex::encode([243; 16]),
+            voters: std::array::from_fn(|index| RaftFleetFirstGroupVoter {
+                node_id: hex::encode(cluster.fixtures[index].spec.node.bytes()),
+                member_id: index as u64 + 1,
+            }),
+        }],
+    };
+    let namespace = &admission.namespace_id;
+    let id = &admission.operation_id;
+    let stale = RaftFleetTransitionAdmissionRequest {
+        expected_directory_digest: hex::encode([67; 32]),
+        ..admission.clone()
+    };
+    let refused = control
+        .admit_transition(&principal, namespace, id, &stale, TIMEOUT)
+        .await;
+    ensure!(matches!(refused, Err(failure) if failure.code == RaftFleetFailureCode::Conflict));
+    ensure!(fleet.read(TIMEOUT).await?.revision() == basis.fleet_revision);
+
+    fixture
+        .store
+        .fail_fleet_confirmation
+        .store(true, Ordering::Release);
+    let lost = control
+        .admit_transition(&principal, namespace, id, &admission, TIMEOUT)
+        .await;
+    ensure!(matches!(lost, Err(failure) if failure.code == RaftFleetFailureCode::Unavailable));
+    let reserved = fleet.read(TIMEOUT).await?;
+    ensure!(reserved.revision() == basis.fleet_revision + 1);
+    ensure!(
+        *fleet.history(&reserved, &child, TIMEOUT).await?.state() == FleetHistoryState::Reserved
+    );
+    ensure!(fleet
+        .reopen_managed_transition(directory, operation, TIMEOUT)
+        .await?
+        .is_none());
+    let mut conflicting = admission.clone();
+    conflicting.children[0].creation_id = hex::encode([242; 16]);
+    let refused = control
+        .admit_transition(&principal, namespace, id, &conflicting, TIMEOUT)
+        .await;
+    ensure!(
+        matches!(refused, Err(failure) if failure.code == RaftFleetFailureCode::PayloadConflict)
+    );
+
+    let admitted = crate::managed_fixture::operator::admit_transition(
+        fixture, directory, &principal, &admission,
+    )
+    .await?;
+    ensure!(admitted.phase == TransitionPhase::Planned);
+    let exact = control
+        .admit_transition(&principal, namespace, id, &admission, TIMEOUT)
+        .await?;
+    ensure!(admitted == exact);
+    let cut = fleet.read(TIMEOUT).await?;
+    ensure!(cut.revision() == basis.fleet_revision + 2);
+    Ok((admitted, cut))
 }
 
 async fn reopen_merge_controller(fixture: &Fixture) -> Result<(FleetCatalog, RangeDirectory)> {

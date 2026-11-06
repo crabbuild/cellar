@@ -253,6 +253,41 @@ async fn execute(options: &options::Options) -> Result<Value> {
             }
             serde_json::to_value(view).map_err(|_| unavailable())
         }
+        Action::TransitionBasis(namespace) => {
+            let basis = client
+                .get::<RaftFleetTransitionBasis>(
+                    &format!("namespaces/{namespace}/transition-basis"),
+                    None,
+                    None,
+                    timeout,
+                )
+                .await?;
+            check_catalog(options.catalog_id.as_deref(), &basis.catalog_id)?;
+            check_catalog(None, &basis.directory_digest)?;
+            if basis.namespace_id != *namespace
+                || basis.fleet_revision == 0
+                || basis.directory_revision == 0
+            {
+                return Err(unavailable());
+            }
+            serde_json::to_value(basis).map_err(|_| unavailable())
+        }
+        Action::TransitionAdmit(request) => {
+            let path = format!(
+                "namespaces/{}/transitions/{}/admit",
+                request.namespace_id, request.operation_id,
+            );
+            let admitted = client
+                .post::<RaftFleetTransitionAdmission>(&path, request.as_ref())
+                .await?;
+            check_catalog(None, &admitted.plan_digest)?;
+            if admitted.request_id != request.request_id
+                || admitted.operation_id != request.operation_id
+            {
+                return Err(unavailable());
+            }
+            serde_json::to_value(admitted).map_err(|_| unavailable())
+        }
         Action::TransitionPrepare(request) => {
             use crate::raft::cell_groups::TransitionPhase;
             let path = format!(

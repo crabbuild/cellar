@@ -856,6 +856,36 @@ impl RangeDirectory {
         view: &DirectoryView,
         mutation: &DirectoryMutation,
     ) -> Result<u64, CatalogError> {
+        let count = self
+            .check_transition_admission_input(view, mutation)
+            .await?;
+        for child in &mutation.request.children {
+            self.require_ordinary_birth_reservation(&child.decode(self)?)
+                .await?;
+        }
+        Ok(count)
+    }
+
+    /// Revalidate the exact directory cut before staging child reservations.
+    pub(crate) async fn validate_managed_transition_input(
+        &self,
+        mutation: &DirectoryMutation,
+    ) -> Result<(), CatalogError> {
+        self.check_transition_plan(mutation)?;
+        self.bounded(async {
+            let (view, _) = self.current().await?;
+            self.check_transition_admission_input(&view, mutation)
+                .await?;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn check_transition_admission_input(
+        &self,
+        view: &DirectoryView,
+        mutation: &DirectoryMutation,
+    ) -> Result<u64, CatalogError> {
         if view.head.import.is_some()
             || view.head.recovery.is_some()
             || self.transition_active(&view.head).await?.is_some()
@@ -879,8 +909,6 @@ impl RangeDirectory {
             self.selected_route_in(view, &parent.decode(self)?).await?;
         }
         for child in &mutation.request.children {
-            self.require_ordinary_birth_reservation(&child.decode(self)?)
-                .await?;
             if index
                 .lookup(view.head.groups, &hex::encode(child.group))
                 .await?
