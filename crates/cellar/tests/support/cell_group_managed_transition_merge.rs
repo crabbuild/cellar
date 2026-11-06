@@ -2034,6 +2034,15 @@ async fn check_recovery_voter_reservations(
         let current = fixture.domain.run(directory.observe()).await??;
         ensure!(current.revision() == after_completion.revision()
             && current.digest() != after_completion.digest());
+        let published = Box::pin(fresh.reopen_transition_recovery_publication(
+            namespace, &operation, &request.principal, expected, TIMEOUT,
+        )).await?;
+        ensure!(published.as_ref() == Some(&publication));
+        for archive in fenced.archives() {
+            let history = archive.marker().route().history;
+            let old = fixture.domain.run(directory.materialize_selected_history(history)).await?;
+            ensure!(matches!(old, Err(cellar::application::consensus::CatalogError::Fenced)));
+        }
         for &(history, position) in &activations {
             let selected = fixture.domain.run(directory.materialize_selected_history(history)).await??;
             ensure!(selected.route().history == history);
@@ -2134,6 +2143,7 @@ async fn check_recovered_sql(
 ) -> Result<()> {
     use cellar::application::consensus::{CellReceiptRequest, VersionError};
     ensure!(sql.routed.len() == sql.receipts.len());
+    let keys = Fixture::version_keys()?;
     let hosts: Vec<_> = voters.iter().map(|(_, _, host, _)| host.clone()).collect();
     let retry = u64::try_from(
         std::time::SystemTime::now()
@@ -2238,10 +2248,33 @@ async fn check_recovered_sql(
                 )
                 .await?;
             ensure!(
-                duplicate == receipt,
+                duplicate.id == receipt.id
+                    && duplicate.result == receipt.result
+                    && duplicate.version == receipt.version
+                    && duplicate.witness == receipt.witness
+                    && duplicate.durability == receipt.durability,
                 "recovered cell {:?} changed its retry receipt",
                 old_cell.cell
             );
+            // Issuance time is part of each signed token. Authenticate both
+            // responses against the same exact committed observation.
+            let now = u64::try_from(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)?
+                    .as_millis(),
+            )?;
+            for response in [&receipt, &duplicate] {
+                let observation = keys.verify_cell(
+                    &response.version_token,
+                    &receipt.version.history,
+                    birth.route().schema_digest,
+                    now,
+                )?;
+                ensure!(
+                    observation.version == receipt.version
+                        && observation.witness == receipt.witness
+                );
+            }
             let archived = handle
                 .command(
                     &add,

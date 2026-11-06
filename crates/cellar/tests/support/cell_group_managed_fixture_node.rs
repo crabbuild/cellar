@@ -30,6 +30,14 @@ pub struct Fixture {
 }
 
 impl Fixture {
+    pub fn version_keys() -> Result<VersionKeys> {
+        Ok(VersionKeys::new(
+            VersionSigningKey::new([31; 32], u64::MAX)?,
+            vec![],
+            Duration::from_secs(86400),
+        )?)
+    }
+
     pub async fn new(rooted: bool) -> Result<Self> {
         Box::pin(Self::with_class(
             rooted,
@@ -246,11 +254,7 @@ impl Fixture {
                 )?,
                 store: self.store.clone(),
                 application: self.application.clone(),
-                versions: VersionKeys::new(
-                    VersionSigningKey::new([31; 32], u64::MAX)?,
-                    vec![],
-                    Duration::from_secs(86400),
-                )?,
+                versions: Self::version_keys()?,
             },
         ))
     }
