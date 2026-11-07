@@ -32,6 +32,11 @@ async fn shared_runner_owns_rf3_enrollment_archives_and_follower_reads() -> Resu
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shared_runner_rooted128_enrollment_diagnostics() -> Result<()> {
+    Box::pin(run(129, 128, None, false)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shared_runner_rooted32_archive_diagnostics() -> Result<()> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::new(
@@ -245,6 +250,11 @@ async fn run(
                 .await?,
             );
         }
+        let enrollment_before = services
+            .iter()
+            .map(RaftCells::performance)
+            .collect::<Vec<_>>();
+        let enrollment_started = std::time::Instant::now();
         let enrollment = futures_util::future::try_join_all(services.iter().enumerate().map(
             |(node, service)| {
                 enroll(
@@ -257,6 +267,18 @@ async fn run(
             },
         ))
         .await;
+        let enrollment_after = services
+            .iter()
+            .map(RaftCells::performance)
+            .collect::<Vec<_>>();
+        std::fs::write(
+            root.join("enrollment-performance.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "elapsed_seconds": enrollment_started.elapsed().as_secs_f64(),
+                "before": enrollment_before,
+                "after": enrollment_after,
+            }))?,
+        )?;
         if let Err(error) = enrollment {
             let mut observations = String::new();
             for (node, service) in services.iter().enumerate() {

@@ -14,6 +14,7 @@ pub(in crate::raft::host_sql) struct ApplyRequest {
     work: CellGroupApply,
     reply: oneshot::Sender<Result<CellGroupPreparedApply, ExecutionError>>,
     _slot: tokio::sync::OwnedSemaphorePermit,
+    queued: crate::raft::performance::Timer,
 }
 
 /// Retains physical preparation and its admission through delivery, retries and
@@ -92,6 +93,9 @@ impl CellGroupSqlPool {
                 work,
                 reply,
                 _slot: slot,
+                queued: worker
+                    .performance
+                    .timer(crate::raft::performance::Operation::SqlQueue),
             })))
             .map_err(|_| unavailable())?;
         wait.await.map_err(|_| unavailable())?
@@ -99,17 +103,25 @@ impl CellGroupSqlPool {
 }
 
 impl ApplyRequest {
-    pub fn execute(self, domain: &crate::asyncrt::DomainToken, stopped: &AtomicBool) {
+    pub fn execute(
+        self,
+        domain: &crate::asyncrt::DomainToken,
+        stopped: &AtomicBool,
+        performance: &Arc<crate::raft::performance::Registry>,
+    ) {
         let Self {
             applier,
             work,
             reply,
             _slot,
+            queued,
             ..
         } = self;
+        let timer = performance.timer(crate::raft::performance::Operation::SqlPrepare);
         let result = if stopped.load(Ordering::Acquire) || domain.mono_ms().is_err() {
             Err(unavailable())
         } else {
+            queued.finish(true);
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| applier.prepare(&work)))
                 .unwrap_or_else(|panic| {
                     Err(crate::raft::execution::storage(
@@ -123,6 +135,7 @@ impl ApplyRequest {
                     Ok(CellGroupPreparedApply { work, prepared })
                 })
         };
+        timer.finish(result.is_ok());
         let _ = reply.send(result);
     }
 }

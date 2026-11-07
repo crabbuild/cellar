@@ -326,8 +326,10 @@ impl ManifestTree {
             }
             _ => return Err(ManifestError::Conflict),
         }
-        self.insert(store, root.0, leaf, &key, 0)
-            .map(|p| ManifestRoot(Some(p)))
+        store.with_directory_batch(|store| {
+            self.insert(store, root.0, leaf, &key, 0)
+                .map(|p| ManifestRoot(Some(p)))
+        })
     }
 
     /// Walk the entire authenticated closure before recovery admission. The

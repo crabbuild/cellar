@@ -171,6 +171,7 @@ impl CellGroupApplier {
             .reserved_bytes()
             .checked_add(work.entry.data.len())
             .and_then(|n| n.checked_add(owner.images.memory_bound()))
+            .and_then(|n| n.checked_add(super::page_store::DIRECTORY_BATCH_BYTES))
             .and_then(|n| n.checked_add(4096))
             .ok_or(ExecutionError::Invalid("apply reservation overflow"))
     }

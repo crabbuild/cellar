@@ -225,7 +225,7 @@ impl Pool {
                         };
                         match request {
                             Envelope::GroupApply(request) => {
-                                request.execute(&owner, &stopped);
+                                request.execute(&owner, &stopped, &performance);
                             }
                             Envelope::Shared(request) => {
                                 shared.execute(request, max_cells, &owner, &stopped, &performance);

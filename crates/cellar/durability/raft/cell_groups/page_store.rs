@@ -37,10 +37,34 @@ pub struct ManifestPageStore {
     max_bytes: u64,
     quarantined: bool,
     collection_cursor: Option<[u8; 32]>,
+    directory_batch: Option<Vec<[u8; 32]>>,
 }
 
 pub(super) struct PageOwner {
     _lock: HostFileLock,
+}
+
+// At most three page saves per level of the bounded (32-level) AVL update.
+const MAX_BATCH_PAGES: usize = 3 * 32;
+pub(crate) const DIRECTORY_BATCH_BYTES: usize = MAX_BATCH_PAGES * 32;
+
+// A prepared root cannot escape until its directory barrier completes. Any
+// early return or unwind after a file barrier leaves this owner quarantined.
+struct DirectoryBatch<'a> {
+    store: &'a mut ManifestPageStore,
+}
+
+impl Drop for DirectoryBatch<'_> {
+    fn drop(&mut self) {
+        if self
+            .store
+            .directory_batch
+            .take()
+            .is_some_and(|keys| !keys.is_empty())
+        {
+            self.store.quarantined = true;
+        }
+    }
 }
 
 struct PageEntry {
@@ -124,6 +148,7 @@ impl ManifestPageStore {
             max_bytes,
             quarantined: false,
             collection_cursor: None,
+            directory_batch: None,
         };
         for entry in store.filesystem.read_dir_iter(directory)? {
             let entry = entry?;
@@ -177,6 +202,56 @@ impl ManifestPageStore {
         }
         store.usage.pages = store.inventory.len();
         Ok(store)
+    }
+
+    /// File barriers remain per page; one final directory barrier covers the
+    /// whole immutable AVL update. Only the private insertion can use this scope.
+    pub(super) fn with_directory_batch<T>(
+        &mut self,
+        update: impl FnOnce(&mut Self) -> Result<T, ManifestError>,
+    ) -> Result<T, ManifestError> {
+        self.require_live()?;
+        if self.directory_batch.is_some() {
+            return Err(ManifestError::Invalid("nested page directory batch"));
+        }
+        self.directory_batch = Some(Vec::with_capacity(MAX_BATCH_PAGES));
+        let batch = DirectoryBatch { store: self };
+        let result = update(batch.store)?;
+        batch.store.finish_directory_batch()?;
+        Ok(result)
+    }
+
+    fn finish_directory_batch(&mut self) -> Result<(), ManifestError> {
+        self.require_live()?;
+        let keys = self
+            .directory_batch
+            .take()
+            .ok_or(ManifestError::Invalid("missing page directory batch"))?;
+        if keys.is_empty() {
+            return Ok(());
+        }
+        self.quarantined = true;
+        self.filesystem.sync_all(&self.directory)?;
+        for key in keys {
+            self.inventory
+                .get(&key)
+                .ok_or(ManifestError::Invalid("missing batched page"))?
+                .persisted
+                .store(true, Ordering::Release);
+        }
+        self.quarantined = false;
+        Ok(())
+    }
+
+    fn check_batch_capacity(&self) -> Result<(), ManifestError> {
+        if self
+            .directory_batch
+            .as_ref()
+            .is_some_and(|keys| keys.len() >= MAX_BATCH_PAGES)
+        {
+            return Err(ManifestError::Limit);
+        }
+        Ok(())
     }
 
     pub fn usage(&self) -> ManifestStoreUsage {
@@ -315,10 +390,23 @@ impl ManifestPageStore {
         {
             return Ok(());
         }
+        if self
+            .directory_batch
+            .as_ref()
+            .is_some_and(|keys| keys.contains(&key))
+        {
+            return Ok(());
+        }
+        self.check_batch_capacity()?;
         self.quarantined = true;
         self.filesystem
             .open(&self.directory.join(format!("{}.page", hex::encode(key))))?
             .sync_all()?;
+        if let Some(keys) = self.directory_batch.as_mut() {
+            keys.push(key);
+            self.quarantined = false;
+            return Ok(());
+        }
         self.filesystem.sync_all(&self.directory)?;
         self.inventory
             .get(&key)
@@ -361,19 +449,26 @@ impl ManifestPageStore {
         if self.inventory.len() >= self.max_pages || next_bytes > self.max_bytes {
             return Err(ManifestError::Limit);
         }
+        self.check_batch_capacity()?;
         // Any uncertain write/sync leaves the owner quarantined. No refunds or
         // deletion before a new owner reconstructs authoritative root references.
         self.quarantined = true;
         let mut file = self.filesystem.create_new(&path)?;
         file.write_all(bytes)?;
         file.sync_all()?;
-        self.filesystem.sync_all(&self.directory)?;
+        let persisted = if let Some(keys) = self.directory_batch.as_mut() {
+            keys.push(key);
+            false
+        } else {
+            self.filesystem.sync_all(&self.directory)?;
+            true
+        };
         self.inventory.insert(
             key,
             PageEntry {
                 length: bytes.len() as u64,
                 lease: Arc::new(()),
-                persisted: AtomicBool::new(true),
+                persisted: AtomicBool::new(persisted),
             },
         );
         self.usage.pages += 1;

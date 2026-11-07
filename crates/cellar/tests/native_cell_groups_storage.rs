@@ -152,13 +152,16 @@ fn manifest_updates_only_changed_path() -> Result<()> {
             ..Default::default()
         },
     )?;
-    let mut pages = ManifestPageStore::open(
-        &temp.path().join("pages"),
-        fs.clone(),
-        4096,
-        64 * 1024 * 1024,
-        64,
-    )?;
+    let directory = temp.path().join("pages");
+    let faults = faults::Faults::new(directory.clone(), None);
+    faults
+        .all_directory_files
+        .store(true, std::sync::atomic::Ordering::Release);
+    let pages_fs = Arc::new(faults::FaultFileSystem {
+        faults: faults.clone(),
+    });
+    let mut pages =
+        ManifestPageStore::open(&directory, pages_fs.clone(), 4096, 64 * 1024 * 1024, 64)?;
     let tree = ManifestTree::new(route(), ManifestLimits::default())?;
     let mut root = ManifestRoot::default();
     let mut cells = BTreeMap::new();
@@ -171,7 +174,27 @@ fn manifest_updates_only_changed_path() -> Result<()> {
         let pin = generations.prepare(images::id(id), None, &cut.update())?;
         assert_eq!(images::read(&pin)?, bytes);
         let value = leaf(id, &pin, 1, u64::from(id));
+        faults.events.lock().unwrap().clear();
+        let written = pages.usage().written_pages;
         root = tree.update(&mut pages, root, value.clone(), None)?;
+        let events = faults.events.lock().unwrap();
+        assert_eq!(events.last(), Some(&"directory-sync"));
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| **event == "directory-sync")
+                .count(),
+            1
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| **event == "image-sync")
+                .count() as u64,
+            pages.usage().written_pages - written,
+            "each new AVL page needs its own file barrier before the directory barrier"
+        );
+        drop(events);
         cells.insert(value.version.history.cell.clone(), (value, pin));
     }
     assert_eq!(root.cells(), 64);
@@ -209,8 +232,7 @@ fn manifest_updates_only_changed_path() -> Result<()> {
         Ok(())
     })?;
     drop(pages);
-    let reopened =
-        ManifestPageStore::open(&temp.path().join("pages"), fs, 4096, 64 * 1024 * 1024, 64)?;
+    let reopened = ManifestPageStore::open(&directory, pages_fs, 4096, 64 * 1024 * 1024, 64)?;
     assert_eq!(tree.get(&reopened, root, &target)?.unwrap(), value);
     tree.verify(&reopened, root, position(65), |_| Ok(()))?;
     Ok(())
@@ -409,6 +431,78 @@ fn root_write<S: Clone>(
     write.hard_state = Some(hard);
     write.group_manifest = Some(prepared);
     Ok(write)
+}
+
+#[test]
+fn manifest_update_batch_failures_quarantine_owner() -> Result<()> {
+    use std::sync::atomic::Ordering;
+    let temp = tempfile::tempdir()?;
+    let generations = GenerationStore::open(
+        temp.path().join("images"),
+        Arc::new(DirectFileSystem),
+        GenerationLimits::default(),
+    )?;
+    let bytes = images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES (7);")?;
+    let cut = images::Cut::new(&[], &bytes, 0, true, false);
+    let pin = generations.prepare(images::id(1), None, &cut.update())?;
+    let tree = ManifestTree::new(route(), ManifestLimits::default())?;
+    for failure in ["directory", "unwind", "quota"] {
+        let directory = temp.path().join(format!("pages-{failure}"));
+        let faults = faults::Faults::new(directory.clone(), None);
+        faults.all_directory_files.store(true, Ordering::Release);
+        let filesystem = Arc::new(faults::FaultFileSystem {
+            faults: faults.clone(),
+        });
+        let open = |max_pages| {
+            ManifestPageStore::open(&directory, filesystem.clone(), max_pages, 1024 * 1024, 16)
+        };
+        let mut pages = open(256)?;
+        let mut selected = ManifestRoot::default();
+        for id in 1..=8 {
+            selected = tree.update(&mut pages, selected, leaf(id, &pin, 1, u64::from(id)), None)?;
+        }
+        let sealed = faults.image_seals.lock().unwrap().len();
+        if failure == "unwind" {
+            *faults.before_directory_sync.lock().unwrap() = Some(Box::new(|| {
+                panic!("injected directory barrier unwind");
+            }));
+        } else if failure == "quota" {
+            let limit = pages.usage().pages + 1;
+            drop(pages);
+            pages = open(limit)?;
+        } else {
+            faults
+                .mode
+                .store(faults::FAIL_DIRECTORY_SYNC, Ordering::Release);
+        }
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            tree.update(&mut pages, selected, leaf(9, &pin, 1, 9), None)
+        }));
+        if failure == "unwind" {
+            assert!(result.is_err());
+        } else {
+            assert!(result.unwrap().is_err());
+        }
+        let sealed = faults.image_seals.lock().unwrap().len() - sealed;
+        if failure == "quota" {
+            assert_eq!(sealed, 1, "quota refusal must follow one pending page");
+        } else {
+            assert!(sealed > 1, "fault must follow multiple page-file barriers");
+        }
+        assert!(matches!(
+            tree.get(&pages, selected, &CellId::new("cell-1").unwrap()),
+            Err(ManifestError::Quarantined)
+        ));
+        drop(pages);
+        let mut pages = open(256)?;
+        assert!(tree
+            .get(&pages, selected, &CellId::new("cell-9").unwrap())?
+            .is_none());
+        let recovered = tree.update(&mut pages, selected, leaf(9, &pin, 1, 9), None)?;
+        assert_eq!(recovered.cells(), 9);
+        tree.verify(&pages, recovered, position(9), |_| Ok(()))?;
+    }
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
