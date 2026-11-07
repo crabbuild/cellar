@@ -12,6 +12,66 @@ CG-09 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## Manifest directory barriers and wide-group enrollment
+
+Runtime source `beeaa1b3025cd2f85d40214c61f77c827374b8fc` includes
+`f231dfc9`, which batches an immutable AVL update behind one directory
+barrier. Every page retains its file barrier. The bounded pending digest
+inventory is charged to apply admission. Partial-write errors, directory
+barrier failures and unwinds quarantine the page owner. Actual page reads
+still check length and digest; completed directory barriers establish the
+owner-local persistence observations. Shared SQL workers again measure queue
+and physical apply preparation time.
+
+All 18 non-fixture storage cases passed, including both image forms, rotated
+subtrees, parent-driven manifest and cross-group crash cuts, quota refusal,
+reclamation and quarantine recovery. Strict all-target Clippy passed for
+`cellar`, `cellar-logic` and `cellar-recovery-tests`. The recovery wrapper
+preserves the owning archive fixture's public visibility rather than hiding
+its shared helpers. Formatting checked 2,043 Rust files; module layout,
+native dependencies, documentation, all 37 plan tests and the historical
+acceptance/source-anchor preflight passed.
+
+The original three-occupancy RF3 matrix failed in 133.729 seconds. Enrollment
+at occupancies 1 and 32 took 2.448 and 12.553 seconds. Occupancy 128 reached
+66 cells before its unchanged 60-second enrollment deadline. The focused
+129-cell, occupancy-128 case passed in 150.69 seconds, including writes,
+original retry receipts, follower reads and explicit archive assertions.
+Its enrollment took 45.112 seconds. A macOS process sample covered the first
+15 seconds and placed substantial preparation time in blocking file
+synchronization. These native cases use the in-memory object-store fixture.
+The focused pass does not close the failed matrix or supply sustained-load
+qualification. Directory batching is a bounded persistence optimization,
+not evidence that the wide-group timeout is resolved.
+
+The focused record SHA-256 is
+`d9015841f611becebf109f794e5ebed1ec1e79822901d5449b7214db3c149e21`.
+The failed matrix record digest is
+`4e00b0d5bdd3abcbb7d6d5a4d571ac6ca819c6f0fa4cd147584ce8e78833a7d4`.
+Both retain the executable digest and source inputs; the focused record links
+the failed matrix and the process sample.
+
+The current-source managed RustFS suite also passed both exact cases in
+both materialized and extent modes. Recovery-barrier fencing and reopen took
+247.865 seconds; clean operator split and merge took 197.514 seconds.
+The suite exercises retirement and restored SQL after erasure of test-owned
+source disks. It uses host-native TLS voters, one RustFS VM and fixture
+capacity/fencing. Permanent Docker launch revocation, every transition crash
+phase and sustained load remain separate gates. Its record SHA-256 is
+`0d2118ac6c9400b06d1c963b3f3e41e42f5aaa876a1af9e963b1c40711daf17d`.
+
+The user-facing checkout was still at `6f8b62e1`, 176 commits behind the
+then-current PR head `9c7a02df`. Its plan still marked CG-07 in progress.
+The clean checkout can fast-forward to the PR head; copy the missing frozen
+CG-07 record alongside it so local acceptance validation uses the delivered
+record rather than the older checkout state.
+
+CG-01–08 remain accepted at their recorded sources. The next feature
+priority is the CG-09 transition target, followed by CG-10 partial
+reservations and movement under writes. The unresolved wide-group matrix
+and complete load profiles remain CG-14 gates. The current remaining-work
+and handoff sections no longer reopen accepted CG-07 SQL gates.
+
 ## CG-07 public SQL acceptance
 
 CG-07 is accepted at `84942c4e722e72f6d00e3264b22e2660c5eedbb8`. All ten required

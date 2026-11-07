@@ -95,7 +95,7 @@ specified by `plan.py show <task>`.
 | CG-11 | Placement observations and advisory recommendations exist. | Qualify hysteresis, hot-cell isolation, whole-group scale out and in, failure-domain reserve and bounded controller fanout. |
 | CG-12 | Two of five named cases passed in both native image modes. They cover alarm and peer wake without a client, and refusal of strong reads and quorum writes during minority wake. The constrained daemon also parks and wakes a group. | Qualify all-voter eligibility and pending-work refusal, partial/stale certificates, and the full parked restart and leader-loss case. Measure wake latency in the planned profiles. |
 | CG-13 | The clean host-native recovery case passed both RustFS image modes after all owned voter disks were erased, using a fixture fence. | Qualify interrupted transition closure selection, permanent revocation of every possible old writer, fresh histories and retry under independent Docker voter processes. Exercise the outbox ambiguity refusal. |
-| CG-14 | The daemon harness retains scoped evidence from real voters and RustFS. | Build the planned harness acceptance target for real occupancies, ownership, complete ledgers, evidence drift rejection and measured profiles. |
+| CG-14 | The daemon harness retains scoped real-voter/RustFS evidence. The focused native occupancy-128 case passes; the original three-occupancy matrix still times out at 128. | Build the planned harness acceptance target for real occupancies, ownership, complete ledgers, evidence drift rejection and measured profiles. |
 | CG-15 | Checkpoints cover individual public faults and archive recovery. | Run the history oracle, full crash and transition matrix, archive reclamation under load, wake profiles, soak and independent-domain loss. |
 | CG-16 | Public shared-group SQL has scoped coverage. The per-cell host and its seed, archive and inspection wire adapters are retired. | Audit the remaining low-level verification surface, prove full public operations and joined shutdown in all modes, and bind release evidence to one source. |
 
@@ -108,125 +108,57 @@ a committed command and its applied receipt. Explicit S3 durability waits for
 archive proof. The release should define which SQL capabilities are available
 through the shared backend and preserve typed refusals for the rest.
 
-1. **Resolve the wide-group setup failure.** Preserve the original setup
-   and per-call bounds. Profile physical apply preparation, image/page work
-   and sync costs at occupancy 128. Preserve the retained failure evidence.
-2. **Close CG-09 transition acceptance.** Add the planned target with its
+1. **Close CG-09 transition acceptance.** Add the planned target with its
    seven exact oracles. Exercise irreversible sealing, complete child install
    and publication, restart with one writer, receipt/effect continuity and
    retirement pins.
-3. **Close CG-10 split and merge acceptance.** Qualify exact partition union,
+2. **Close CG-10 split and merge acceptance.** Qualify exact partition union,
    adjacency and policy checks, partial reservations, writes during movement
    and bounded precopy with the existing operator.
-4. **Finish CG-11–13 managed operations.** Qualify adaptive placement,
+3. **Finish CG-11–13 managed operations.** Qualify adaptive placement,
    fenced hibernation and wakeup, and S3 recovery of interrupted transitions.
-   Run the managed Docker fencing and complete voter-disk-loss drill.
-5. **Qualify and ship through CG-14–16.** Run the mixed-load, reclamation,
-   crash, partition and disk-loss matrix. Include process crashes during Joint,
-   peer activation cancellation and multi-namespace ingress. Bind the supported
-   default backend and final cutover to the complete release evidence.
+   Run the managed Docker fencing and complete voter-disk-loss drill. CG-13
+   also requires the CG-14 infrastructure harness.
+4. **Qualify and ship through CG-14–16.** Resolve the occupancy-128 matrix
+   timeout without changing its original bounds. Run the mixed-load,
+   reclamation, crash, partition and disk-loss matrix, including process crashes
+   during Joint, peer activation cancellation and multi-namespace ingress.
+   Bind the final cutover to complete release evidence.
 
 ## P0: finish the MVP and its merge gates
 
-The public group-control prerequisite now has an implementation:
-`RaftGroupHandle::observe` samples actual physical log/owner metadata and cell
-occupancy; `archive_status` keeps publication separate from coverage; guarded
-`transfer_leadership` preserves the caller's term/revision and checks the original
-deadline at owner execution. The counter inventory consumes the observation API.
-The performance/fleet consumer port now uses shared layout, replicated enrollment,
-logical versions and physical witnesses locally; its full native RF3 gate remains
-failing. The owned-workspace checkpoint passes occupancy 32 in the matrix
-and isolated diagnostic case, including the original explicit S3 assertions.
-At `84942c4e`, the setup audit reached occupancy 128 and timed out after
-61 cells. The isolated replay, using the same executable after the other
-qualification workloads exited, reached 66–67 cells and also timed out.
-The earlier matrix reached 58 cells. All runs retained the original
-60-second setup budget and five-second per-call cap. The earlier performance suite
-recorded eighteen passes and one failure. Earlier 28/31/44-cell enrollment and explicit
-S3 failures remain preserved; this result establishes no fixed cell-count limit
-or cause for the remaining refusal. Workspace creation now syncs its child and
-owned parent rather than repeating the open store's ancestor barriers; rooted
-private opens retain that exact directory owner. Disposable read-cache directories
-use ordinary creation. Child/parent failures retain their charge and quarantine.
-Preserved probes place more time in physical apply preparation than publication
-or collection in that sample. Measure image/page preparation and sync costs next
-without raising bounds or weakening the applied-equals-committed enrollment fence.
-The node-owned live extent collector now has focused shutdown and RF3 pressure
-coverage, including the independent archive-verifier store. It keeps existing
-control admission through physical completion and preserves reader/manifest pins.
-That does not supply manifest-page collection or sustained-load qualification.
-Warm metadata barriers and a bounded verifier cache reduce repeated physical
-work without supplying archive proof; incoming extent bytes remain independently
-checked even when their destination is cached. Finish repeated physical
-preparation, checkpoint work and cross-group interference, live manifest-page
-ownership, then finish the whole-group disaster operator. Retain
-the original HTTP/read/retry options, workload ledger and independent oracles;
-report measured physical group counts separately from logical cell counts.
+CG-07 has passed its five named public cases and all required commands at
+`84942c4e`. Its native and constrained Linux RustFS results are recorded in
+[progress](progress.md). Those accepted SQL gates are complete at their
+recorded source and scope. Expanded fault, cancellation, load and combined
+release qualification belongs to CG-14–16.
 
-Public recovered-node startup now has its owned activation path: an explicit
-fencing authority plus exact retained seed/engine pins, actual fresh quorum
-activation, catalog completion and joined shutdown. The public Node drill restores original S3 receipts/state after all old voter
-directories are erased, then verifies new writes and retained restart in both
-image forms, including the recorded real-RustFS run. Its three embedded Nodes
-and contract fence do not qualify the Docker permanent launch-fencing drill,
-separate voter processes/hosts or multi-group load.
-Use this API in the executable whole-group recovery port next. Preserve complete
-archive cuts before fencing, use disjoint replacement member/node identities,
-and sequence each group against the current catalog root through activation;
-preplanning every group against one stale root is invalid. Keep partial recovered
-inventory explicit and fail closed for unseeded groups.
+The performance runner retains the original 60-second enrollment budget and
+five-second per-call cap. On `beeaa1b3`, the focused occupancy-128 case passed
+with 45.112 seconds for enrollment and 150.69 seconds for the full data checks.
+The original occupancy matrix still failed at occupancy 128 after 66 cells.
+The smaller occupancies enrolled in 2.448 and 12.553 seconds. A process sample
+places substantial time in blocking file synchronization. The manifest update
+now uses one directory barrier while retaining every page-file barrier and
+quarantining uncertain writes. These results establish scoped correctness and
+an unresolved matrix gap; they do not qualify the load profiles.
 
-| Order | Deliverable | Required result |
-| --- | --- | --- |
-| 1 | Managed S3 learner activation and archive holds (CG-06/07) | Expand the scoped native/RustFS results to the full failure/cancellation and fenced failed-voter lifecycle. Preserve complete manifest/image/receipt closure, destination boot/catalog checks, physical install, catch-up and fresh quorum before promotion. Retained-journal discovery and retirement now pass native/RustFS idle, outage, solo-restart and cancelled-close cases. Complete fenced handling of unknown/lost ownership and the remaining failure/cancellation lifecycle. A surviving original voter still needs a live physical-inventory proof for catalog settlement; its outage must retain the debit. Finish orchestration for that retained debt and qualify stop/offline ownership; a seed or remote object supplies no activation authority. |
-| 2 | Public SDK surface and executable consumers (CG-07) | Port the original daemon/native/Axum fixtures and performance/fleet runners to namespace capabilities, physical group assignment and replicated cell enrollment. The local all-binary check clears the original 27 compilation errors; qualify the final combined source. Clear the remaining 128-cell enrollment deadline, qualify S3 at every planned occupancy, finish live manifest-page ownership and qualify owned extent collection under the original workload bounds. Retain every original HTTP/read/retry option, exact term/revision transfer guard, actual responder metadata and all five original public gates. Incorporate the implemented cold birth, repair, maintenance stop/return/resume and physical debt into the complete public lifecycle case, including retained nonvoting inventory and failure/cancellation ownership. |
-| 3 | Public, build and backend qualification (CG-07 and MVP portions of CG-14/15/16) | Diagnose the original checkpoint TCP retry `Overloaded`, intermittent five-second successor-readiness timeout and earlier eight-turn maintenance failure; current passes cannot waive failed runs. Rerun all five public cases together after porting the remaining per-cell operations and membership callers and clearing strict lint failures. The shared read target already passed all 17 cases at its recorded revision. Keep the reviewed plan anchors and generated index current. Run affected SDK CI feature modes. Extend current-source real RustFS component recovery to constrained independent voters and replication/reclamation under bounded mixed load, retaining exact binaries, ledgers, failures and resource/latency measurements. |
+Proceed with the planned CG-09 and CG-10 targets while retaining that CG-14
+failure. A successful clean split and merge does not prove restart at every
+phase, partial reservation handling or all required retirement pins. Preserve
+the exact oracles in `tasks.json` and source-pinned acceptance records.
 
-The public counter and first SDK gate are qualified at their recorded local
-boundary. Managed boot/directory/stop ownership is implemented at its recorded
-component boundary. Cold inventory/capacity and nonempty initial-group startup
-pass the recorded local gate. Peer replacement, actual handoff and retained
-joined-member restart pass the focused managed case. Basic catalog maintenance
-stop/return/resume now passes its local role/image matrix. Original consumers and
-public acceptance, lifecycle failure/cancellation, complete S3 qualification and backend
-qualification still block the complete MVP. A successful metadata-only standby boot supplies no
-complete-inventory or capacity proof; an Active-node fixture cannot replace the
-original public lifecycle gate. The currently refused managed paths remain
-closed until actual authorization, permanent claims, resource accounting and joined service ownership
-are wired; removing guards or dropping consumer options is not a cutover.
+Local and remote request attempts must keep the same routing session,
+admission and original deadline. Incoming RPCs execute locally; leader hints
+and discovery supply destinations, never authority. Preserve typed refusal
+and ambiguity, original receipts and physical responder observations.
 
-Public replica routing belongs in one controller-owned invocation. Local and
-remote attempts must retain the same routing session and admission; a timed-out
-physical read remains owned while another permitted attempt runs. Incoming RPCs
-execute locally rather than recursively forwarding. Peer discovery and leader
-hints choose a destination but never supply authority. Do not implement retries
-by creating fresh independent deadlines or attempt banks.
-
-The public merge gate requires these five cases.
-
-- `sdk_many_cells_share_group`: public startup/handles, independent SQLite cells,
-  one configured group and all replicas; observe actual group/RawNode counts.
-- `managed_group_lifecycle`: repair, drain, stop/return/resume and capacity move
-  complete groups while preserving cell counts and physical debt.
-- `ingress_cannot_cross_cell_authority`: native/Axum/admin tenant, cell and group
-  binding refusals, with immutable command identity across retries.
-- `occupancy_one_uses_shared_path`: one-cell and multi-cell configurations use
-  the same host, manifest, snapshot and archive implementation.
-- `feature_off_fleet_contract_unchanged`: existing non-Raft ownership/durability
-  modes pass their actual regression matrix.
-
-Run the original counter process/restart drill after its port, including late
-startup failure, both HTTP hosts, remote minimum-version/linearizable reads,
-permission and cross-cell token refusal, exact retained receipts and joined close.
-Do not delete options or weaken assertions to make consumers compile.
-
-The RustFS recovery gate deletes every old voter disk behind the accepted
-fencing-authority/Docker contract, then restores a new incarnation from complete
-S3 evidence. Verify restored images/receipts/client floors, original S3 minima,
-permanent old-launch/process refusal, fresh quorum activation, new writes and
-retained restart in both image forms. Under load, verify archive coverage before
-local reclamation and account for accepted, refused and ambiguous outcomes.
-Local loopback qualification must remain labeled as such.
+The remaining RustFS disaster gate permanently fences every old writer,
+erases all voter disks, and restores a new incarnation from complete S3
+closure. Verify original receipts and client floors, old-process and launch
+refusal, fresh quorum, new writes and retained restart in both image forms.
+Local reclamation under load requires archive coverage and complete outcome
+accounting. Keep loopback, process and independent-host scopes explicit.
 
 ## Source-sealing implementation boundary
 
@@ -244,9 +176,9 @@ The child install, fresh-term quorum set and verified source archive closure
 pass their focused native and real RustFS gates. Atomic publication and
 replicated child activation have a focused native test that also checks
 retained cell values, original receipt replay and a new quorum write on each
-transferred cell. Complete activated-child and sealed-parent restart, the
-child archive and retirement gates, then run the whole transition on the
-same qualified source.
+transferred cell. Complete the planned CG-09 target, including restart at
+every phase, child archive closure and retirement pins, on one qualified
+source.
 
 The sealed-source journal accepts one explicit archive hold per planned parent.
 Each hold must belong to the namespace-bound archive and independently restore
@@ -256,14 +188,15 @@ retains those holds until retirement and re-verifies them after restart.
 
 ## Default backend, capabilities and deployment
 
-Quorum is already the command API default, and the namespace declaration
-already defaults to quorum minimum durability and three voters. Those defaults
-do not select the shared-group backend for newly created cells. Complete the
-namespace factory, SDK, CLI, daemon, native/Axum/admin ingress and examples as
-one public cutover. Missing quorum must refuse admission without selecting a
-weaker durability mode. The intended deployment contract is three-replica shared
-groups, quorum writes and asynchronous S3 archives, with measured archive lag/RPO.
-An explicit S3 write still requires its separate complete coverage proof.
+An explicitly configured Raft SQL namespace uses shared groups, defaults to
+quorum minimum durability and three voters, and defaults commands to quorum.
+CG-07 qualifies its namespace provisioning, SDK, CLI, daemon and public ingress
+at the recorded boundary. Broad default selection across all cell classes and
+the final deployment cutover remain CG-16 decisions after capability coverage.
+Missing quorum must refuse admission without selecting weaker durability.
+The intended contract is three-replica shared groups, quorum writes and
+asynchronous S3 archives, with measured archive lag/RPO. An explicit S3 write
+requires its separate complete coverage proof.
 
 Resolve the default backend's capability matrix before enabling it broadly.
 Workflow/Queue callbacks, WebSockets and mutable-container behavior need equivalent
@@ -275,8 +208,8 @@ old data as a new Raft history.
 
 The shared-group SDK and counter ingress default to linearizable reads.
 Callers can select a receipt-based version floor or explicitly permit stale
-reads. Qualify the default and explicit policies through the public request
-path independently of the storage backend cutover.
+reads. The recorded public request cases cover these policies; the combined
+release must retain their oracles independently of storage-backend selection.
 
 ## P1: complete the requested architecture
 
@@ -293,10 +226,3 @@ full hard cutover.
 | CG-14 | Reproducible process/RustFS harnesses with real independent cells/groups, source/binary/profile hashes, owned resources and complete outcome ledgers. |
 | CG-15 | Full load/crash, transition, wakeup and disaster-recovery matrix. Measure the documented profiles and failure schedules; no capacity or TiKV performance-parity claim follows from correctness tests. |
 | CG-16 | Delete remaining predecessor consumers/codecs, finish feature-off/full release checks, publish the unified API/runbooks and qualified operating envelope. No one-cell special path, compatibility reader or production mode toggle. |
-
-The next functional slices are the combined public SQL lifecycle and retained
-restart through an in-progress managed transfer. Preserve the existing bounds
-while diagnosing eight-turn replacement, successor readiness after source close
-and retained debt on surviving original voters. Complete the SQL capability
-scope and release gates, then topology, placement, wake and the managed
-recovery and release matrix.
