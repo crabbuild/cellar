@@ -19,8 +19,7 @@ mod bootstrap;
 mod catalog;
 #[path = "support/cell_group_managed_fixture.rs"]
 pub mod managed_fixture;
-#[path = "support/cell_group_rustfs.rs"]
-pub mod rustfs;
+pub use source_fixture::rustfs;
 #[path = "support/cell_group_host_context.rs"]
 mod source_fixture;
 

@@ -15,7 +15,8 @@ mod images;
 #[path = "cell_group_runtime.rs"]
 pub mod runtime_fixture;
 include!("cell_group_engine_fixture.rs");
-use crate::rustfs;
+#[path = "cell_group_rustfs.rs"]
+pub mod rustfs;
 
 pub(crate) async fn sealed_source_archives_require_exact_live_holds() -> Result<()> {
     for rooted in [false, true] {

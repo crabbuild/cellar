@@ -4,8 +4,7 @@
 #[path = "support/cell_group_host_context.rs"]
 mod fixture;
 
-#[path = "support/cell_group_rustfs.rs"]
-pub mod rustfs;
+pub use fixture::rustfs;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn sealed_source_archives_require_exact_live_holds() -> anyhow::Result<()> {
