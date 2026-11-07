@@ -6,39 +6,36 @@ Purpose: Current implementation checkpoint, evidence transfer and next executor 
 
 ## Current accepted boundary
 
-CG-01–09 have complete scoped task records. CG-07 passed all ten required
-commands at `84942c4e`, including strict all-target Clippy and all five
-public cases. Native and constrained Linux RustFS campaigns passed both
-image modes, including failed-voter replacement. Continue with the CG-10 split/merge target. Track the wide-group
-setup gap under CG-14.
-[Current priorities](remaining-work.md) and [source records](progress.md).
+CG-01–10 have complete scoped task records. CG-07's public SQL/native/Axum/
+daemon gates and CG-09's publication/source-fencing gates retain their recorded
+sources. CG-10 passes all five exact cases and ten required commands at
+`8b410f25bc4475f3520c2682625ead49e47ea385`. The three new RustFS movement,
+pre-copy and partial-merge suites pass both image modes on that source and native
+executable. The backend is stopped, objects retained. See [progress](progress.md)
+for full source, executable, CLI and artifact hashes.
 
-At `beeaa1b3`, bounded manifest updates use one directory barrier after
-all page-file barriers. Eighteen storage cases and strict all-target Clippy
-pass. The focused occupancy-128 case passes its full data checks, with
-45.112-second enrollment. The original matrix still fails its unchanged
-60-second window after 66 cells. Retain both results; the process sample
-identifies blocking file synchronization as substantial preparation cost.
+The new request-path fixes provide bounded successor-group discovery, automatic
+strong-read relocation and public remote receipt inspection. Read-only retries
+retain the original identity, catalog floor, deadline and attempt bank. Incoming
+RPCs execute locally; remote receipt metadata never becomes a local SQL/archive
+proof. Receipt replies retain their stored minimum separately from achieved
+durability at marker 1. Valid engine admission atomically replaces advisory
+routes. Keep concrete transport at the SDK invocation edge; storing it in Shared
+breaks default-limit application type checking.
 
-CG-09 passes all seven exact native cases and all 12 required commands at
-`f4d46d98676bda6c178dea462f51b2f121266a14`. The new publication-loss case passes
-both native image modes in 50.817 seconds and both real RustFS image modes in
-64.934 seconds. Missing closure/registry dependencies refuse publication.
-After publication, all six voter disks and both verifier inventories are erased
-before child activation. Fresh clients and private stores rebuild the exact
-child baseline, retaining business state, three S3 receipts, the pending signed
-outbox envelope and the original receiver proof. Replay does not rerun callbacks
-or change topology. The new data-only baseline API retains ordinary parent
-fences and grants no membership or live authority.
+Next deliver CG-11's bounded adaptive placement and hot-cell isolation, then
+CG-12's full fenced park/wake lifecycle. CG-13 requires CG-14 infrastructure for
+managed interrupted-transition recovery and permanent Docker fencing with all
+voter disks erased. Keep CG-15/16's combined-source load/crash, public cutover and
+legacy audit gates open. Full public capability coverage and existing Fleet data
+conversion are not implied by scoped SQL acceptance.
 
-Next implement the planned `native_cell_groups_split_merge` target and its five
-exact CG-10 cases. Start with exact union/whole-cell boundaries and adjacency,
-schema and durability compatibility. Then cover partial source failure, repeated
-movement under writes and stale routes, and bounded pre-copy resource ownership.
-Keep CG-13's live fenced recovery and child-tail recovery distinct from the
-CG-09 immutable baseline proof. Independent process/failure-domain and load
-qualification remain required. Source and artifact digests are in
-[progress](progress.md).
+Preserve the occupancy-128 gap under CG-14: the focused case passes, but the
+original matrix still fails its unchanged 60-second enrollment window. CG-10
+qualifies private staging, sealed replay and logical admission, with host-native
+voters and fixture capacity. Further movement cycles, incremental transfer
+performance, hard RSS, process/failure-domain qualification and release profiles
+remain open. Current [priorities](remaining-work.md) retain the full design.
 
 The following checkpoints preserve earlier source and qualification history.
 

@@ -7,10 +7,89 @@ Purpose: Source-pinned cell-group implementation checkpoints and qualification l
 The executable design and implementation plan is delivered. Remaining
 end-to-end implementation and hard cutover work is specified in the
 [executor handoff](handoff.md).
-CG-01 through CG-09 have passed their scoped native gates.
-CG-10 through CG-15 are in progress. CG-16 remains pending
+CG-01 through CG-10 have passed their scoped native gates.
+CG-11 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
+
+## CG-10 operator acceptance and real RustFS request paths
+
+CG-10 passes all ten required commands at `8b410f25bc4475f3520c2682625ead49e47ea385`: all-target
+compilation, inventory, all five exact cases, formatting, layout and strict
+all-target Clippy. Every case executes materialized and extent images on the
+same frozen native executable. CG-01 through CG-10 are accepted at their recorded
+scopes; CG-11 through CG-16 retain their remaining implementation/release gates.
+
+| Exact case | Command elapsed seconds |
+| --- | ---: |
+| `split_equal_union_whole_cells` | 18.989 |
+| `merge_requires_adjacent_compatible_ranges` | 164.943 |
+| `partial_merge_failure_no_double_writer` | 168.951 |
+| `split_merge_under_writes` | 178.480 |
+| `transition_precopy_resource_bounds` | 183.377 |
+
+The new coverage closes three previously unqualified oracles. During partial
+merge, a fresh controller probes all four child setup stages on all three
+reserved voters while one parent is sealed and the other lacks quorum. Every
+attempt refuses without creating an engine or releasing the original holds or
+disruption slot. The same install request succeeds after quorum returns.
+
+The movement ledger records each distinct acknowledged command with its cell,
+identity, operation, input and result across the initial group, both split
+children and the merged group. Cached SDK handles follow the successor before
+joined host restart, then correctly refuse `Closed`. Fresh former-parent ingress
+reconciles every receipt and version floor. The signed delivery loses its first
+S3 reply; receiver deduplication and outbox completion survive both moves and
+independent merged S3 image replay.
+
+Those probes exposed missing public paths. The joined directory worker now
+discovers bounded selected-group routes. Automatic reads refresh a stale
+verified directory and replan within the original invocation budget. Public SDK
+receipt inspection uses the existing authenticated remote protocol; incoming
+RPCs remain local. Remote values retain reply admission and their actual stored
+minimum separately from achieved durability. They supply no local SQL or archive
+settlement proof. The reply layout is a hard marker-1 cutover. A fully validated
+local engine can atomically replace advisory discovery during learner admission.
+Transport stays at the SDK invocation boundary, preserving default compiler
+limits and avoiding an auto-trait back-edge in the shared controller.
+
+The pre-copy case pauses an actual child-page directory sync. A live source
+quorum write and linearizable read finish within their original caps. Dropping
+the waiter retains physical worker debt and refuses a second operation until
+completion. A separate two-operation pool proves that the byte limit independently
+refuses another workspace. Preparation holds and child reservations remain owned.
+Final installation independently reconstructs the selected sealed archive closure
+and applies its LTX history. Incremental transfer performance, hard RSS, sustained
+load and additional movement cycles remain release/performance qualification.
+
+All three fixed RustFS suites pass on this source and executable, each in both
+image modes: movement ledger (251.918 seconds), pre-copy ownership (210.795
+seconds), and partial merge (205.468 seconds). The store runs with an observed
+one-CPU/2-GiB cgroup limit in the dedicated VM. Voters are host-native RF3 TLS
+owners with fixture capacity; loss/restart uses joined shutdown. The campaigns
+shared this host with compilation and native acceptance. These elapsed durations
+are correctness observations. Independent voter processes, permanent launch
+revocation, failure domains and deployment/load profiles remain CG-13–16 gates.
+The owned RustFS backend is stopped and its objects retained.
+
+During development, the fifteen shared wire-security unit checks and the managed
+router/voter-replacement regression also passed. No stack, type-recursion or
+operation deadline limits were raised. All current anchored source hashes still
+match the reviewed baseline. Earlier failed probes remain separate from acceptance.
+
+Retained acceptance artifacts:
+
+- `.cellar/cell-groups-evidence/CG-10-8b410f25-01/record.json`; SHA-256 `f14421de5bbcf6e2bb053446b0e58dd660325f2a5528cc230f7da98830786977`.
+- `.cellar/cell-groups-evidence/CG-10-rustfs-movement-8b410f25-01/record.json`; SHA-256 `0ed75d834750e52eb3c61ee00dd649bdf6788e21c818af2db89fc698107d7f11`.
+- `.cellar/cell-groups-evidence/CG-10-rustfs-partial-8b410f25-01/record.json`; SHA-256 `092704a8c75feace5076c18ae6cf05fd528b3bfa6628287aed42fe0baf1f427c`.
+- `.cellar/cell-groups-evidence/CG-10-rustfs-resources-8b410f25-01/record.json`; SHA-256 `df601ba15e9348b0e00ec7dffc1d7aa8a23ad28d89516264c0455cb03d04fdfc`.
+- Native/RustFS executable SHA-256 `35a8ad67d8edc4ba08322a395a601a6c0efc8564b4d15251f952149ac349a8c3`.
+- Operator CLI SHA-256 `6e735e85a436b94362129fb882565938b2bacc50468951ab2f01e6a08b7386fb`; frozen copies accompany all four records.
+
+Continue with CG-11's bounded placement controller and hot-cell isolation,
+then CG-12 wake/lifecycle completion and CG-13 managed recovery using the CG-14
+infrastructure gate. The final combined-source load/crash and public cutover gates
+remain CG-15 and CG-16. Existing Fleet data conversion remains outside this plan.
 
 ## CG-10 exact partition and compatibility cases
 

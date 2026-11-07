@@ -64,7 +64,7 @@ namespace and physical group requests through the admin API. Valid retries
 preserve the original receipt after those refusals. The named public authority
 and occupancy-one cases pass their recorded native scope.
 
-CG-10 through CG-15 are in progress. CG-16 is pending the combined
+CG-11 through CG-15 are in progress. CG-16 is pending the combined
 release gate. Individual checkpoints cover operator-driven split and merge,
 placement recommendations, fenced parking and wake, managed recovery and
 parts of the qualification matrix. The task-level evidence remains open.
@@ -82,18 +82,21 @@ their own qualification.
 
 ## Open case audit
 
-The [implementation index](implementation-plan.md) records nine accepted
-tasks and 127 of 163 required cases. CG-07 has a complete acceptance record
+The [implementation index](implementation-plan.md) records ten accepted
+tasks and 132 of 163 required cases. CG-07 has a complete acceptance record
 for its five public cases and all required commands at `84942c4e`.
 Each remaining task still needs the exact target, case oracles and evidence
 specified by `plan.py show <task>`.
 
 CG-09 has a complete seven-case, 12-command acceptance record at `f4d46d98`.
 The publication-erasure case also passes both real RustFS image modes.
+CG-10 has a complete five-case, ten-command record at `8b410f25`. Movement,
+pre-copy ownership and partial merge also pass real RustFS in both image modes.
+The public SDK now follows successor groups for strong reads and receipt
+inspection. See [progress](progress.md) for exact artifacts and limits.
 
 | Task | Checked-in coverage | Acceptance still required |
 | --- | --- | --- |
-| CG-10 | Two of five exact named cases pass at `938d7bf8`: whole-cell equal union and adjacent compatible merges. Clean split/merge and interrupted-transition recovery also pass real RustFS in both image modes on that source. | Qualify the explicit partial-merge failure case, repeated movement under foreground writes and effects, and bounded precopy with live-group progress and retained transfer debt. |
 | CG-11 | Placement observations and advisory recommendations exist. | Qualify hysteresis, hot-cell isolation, whole-group scale out and in, failure-domain reserve and bounded controller fanout. |
 | CG-12 | Two of five named cases passed in both native image modes. They cover alarm and peer wake without a client, and refusal of strong reads and quorum writes during minority wake. The constrained daemon also parks and wakes a group. | Qualify all-voter eligibility and pending-work refusal, partial/stale certificates, and the full parked restart and leader-loss case. Measure wake latency in the planned profiles. |
 | CG-13 | The clean host-native recovery case passed both RustFS image modes after all owned voter disks were erased, using a fixture fence. | Qualify interrupted transition closure selection, permanent revocation of every possible old writer, fresh histories and retry under independent Docker voter processes. Exercise the outbox ambiguity refusal. |
@@ -110,18 +113,18 @@ a committed command and its applied receipt. Explicit S3 durability waits for
 archive proof. The release should define which SQL capabilities are available
 through the shared backend and preserve typed refusals for the rest.
 
-1. **Close CG-10 split and merge acceptance.** Qualify exact partition union,
-   adjacency and policy checks, partial reservations, writes during movement
-   and bounded precopy with the existing operator.
-2. **Finish CG-11–13 managed operations.** Qualify adaptive placement,
-   fenced hibernation and wakeup, and S3 recovery of interrupted transitions.
-   Run the managed Docker fencing and complete voter-disk-loss drill. CG-13
-   also requires the CG-14 infrastructure harness.
+1. **Deliver CG-11 adaptive placement.** Connect admitted observations and
+   recommendations to bounded reconciliation for hot-cell isolation, whole-group
+   scale out/in, failure-domain reserves, hysteresis and controller fanout.
+2. **Finish CG-12 and CG-13 managed operations.** Complete fenced hibernation,
+   wake eligibility and retained lifecycle, then S3 recovery of interrupted
+   transitions. CG-13 requires the CG-14 infrastructure harness and the permanent
+   Docker fencing/all-voter-disk-loss drill.
 3. **Qualify and ship through CG-14–16.** Resolve the occupancy-128 matrix
-   timeout without changing its original bounds. Run the mixed-load,
-   reclamation, crash, partition and disk-loss matrix, including process crashes
-   during Joint, peer activation cancellation and multi-namespace ingress.
-   Bind the final cutover to complete release evidence.
+   timeout within its original bounds. Run mixed-load, reclamation, crash,
+   partition, wake and disk-loss profiles at one release source, including Joint
+   crashes, peer activation cancellation and multi-namespace ingress. Complete
+   the public cutover and remaining legacy audit only after those gates pass.
 
 ## P0: finish the MVP and its merge gates
 
@@ -141,11 +144,12 @@ now uses one directory barrier while retaining every page-file barrier and
 quarantining uncertain writes. These results establish scoped correctness and
 an unresolved matrix gap; they do not qualify the load profiles.
 
-Finish the three remaining CG-10 named cases while retaining that CG-14
-failure. CG-09's full native acceptance is recorded at `f4d46d98`. CG-10's
-exact union and compatibility cases now pass at `938d7bf8`; task acceptance
-still requires explicit partial failure, writes/effects during repeated movement
-and resource-bound oracles. Preserve the source-pinned acceptance records.
+CG-10's full operator correctness gate is accepted at `8b410f25`, including
+complete write/effect/receipt reconciliation and physical pre-copy admission.
+Its real RustFS drills pass both image modes. Continue with the CG-11 placement
+controller and preserve the open CG-14 performance failure. Preparation uses
+private staging and complete sealed-archive replay; incremental transfer
+performance and sustained load remain qualification work.
 
 The former per-cell host and wire paths are retired. The generic `Replica`
 still executes shared groups. Remaining legacy cleanup must audit cell-scoped
