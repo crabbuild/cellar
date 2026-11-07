@@ -104,6 +104,7 @@ mod park_certificate;
 pub(crate) use park_certificate::ParkCertificate;
 mod page_store;
 mod page_wire;
+pub(crate) mod partition;
 mod pins;
 mod proposal_admission;
 pub use log_retention::{

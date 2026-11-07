@@ -19,7 +19,7 @@ mod preparation;
 mod retirement;
 
 #[path = "cell_group_managed_transition_merge.rs"]
-mod merge;
+pub(crate) mod merge;
 
 #[path = "cell_group_transition_restart.rs"]
 pub(crate) mod restart;
@@ -726,4 +726,16 @@ async fn commit_source_seal(
     };
     ensure!(replayed == applied);
     Ok(applied)
+}
+
+pub(crate) fn qualify_split_merge(
+    rooted: bool,
+) -> futures_util::future::LocalBoxFuture<'static, Result<()>> {
+    Box::pin(run_plan(
+        rooted,
+        Arc::new(fault::Store::default()),
+        Decision::SplitMerge {
+            recovery_barrier: false,
+        },
+    ))
 }

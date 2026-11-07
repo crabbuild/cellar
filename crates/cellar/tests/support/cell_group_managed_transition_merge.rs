@@ -24,7 +24,11 @@ use cellar::sdk::fleet_operations::{
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn managed_operator_split_reserves_children_in_key_order() -> Result<()> {
-    let cluster = Box::pin(ManagedCluster::start(false, &[7, 8, 9])).await?;
+    qualify_operator_split(false).await
+}
+
+pub(crate) async fn qualify_operator_split(rooted: bool) -> Result<()> {
+    let cluster = Box::pin(ManagedCluster::start(rooted, &[7, 8, 9])).await?;
     let result = Box::pin(check_operator_split_cancellation(&cluster)).await;
     let joined = close(cluster.nodes, &cluster.hosts, None).await;
     cluster.fixtures[0].domain.shutdown().await;
@@ -119,6 +123,26 @@ pub(super) async fn admit_operator_split(
         placement_class: [1; 32],
     };
     let control = control.with_node_observer(leader.clone());
+    // A recommendation must carry the canonical whole CellKey, not only the
+    // same cell name. Refusal must precede immutable plans or reservations.
+    let forged_pivot = CellKey::from_digest([0; 32], pivot.cell().clone());
+    let forged = Box::pin(control.admit_recommended_partition(
+        &principal,
+        &admission,
+        PartitionDecision::Split {
+            basis: &selected,
+            pivot: &forged_pivot,
+            reason: SplitReason::GroupLoad,
+        },
+        TIMEOUT,
+    ))
+    .await;
+    ensure!(
+        matches!(&forged, Err(failure) if failure.code == RaftFleetFailureCode::InvalidInput),
+        "noncanonical split recommendation must refuse before allocation: {forged:?}"
+    );
+    ensure!(fixture.catalog.read(TIMEOUT).await?.revision() == basis.fleet_revision);
+    ensure!(fixture.domain.run(directory.observe()).await??.digest() == view.digest());
     let stale = PartitionBasis {
         term: Term::new(selected.term.get() + 1),
         ..selected.clone()
@@ -320,14 +344,7 @@ fn transition_group(history: GroupHistory) -> RaftFleetTransitionGroup {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn managed_split_then_merge_replays_late_writes() -> Result<()> {
-    Box::pin(run_plan(
-        false,
-        Arc::new(fault::Store::default()),
-        Decision::SplitMerge {
-            recovery_barrier: false,
-        },
-    ))
-    .await
+    qualify_split_merge(false).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -2692,6 +2709,7 @@ async fn admit_merge(
             }),
         }],
     };
+    check_merge_recommendations(cluster, control, parents, &admission).await?;
     let namespace = &admission.namespace_id;
     let id = &admission.operation_id;
     let stale = RaftFleetTransitionAdmissionRequest {
@@ -3436,6 +3454,111 @@ pub(super) async fn close(
                 "merged shutdown inventory: {report:?}"
             );
         }
+    }
+    Ok(())
+}
+
+// Reject each incompatible advisory basis before creating a plan, a child
+// reservation, a disruption owner or a source-seal authorization.
+async fn check_merge_recommendations(
+    cluster: &ManagedCluster,
+    control: &RaftFleetControl,
+    parents: &[GroupRoute; 2],
+    admission: &RaftFleetTransitionAdmissionRequest,
+) -> Result<()> {
+    let fixture = &cluster.fixtures[0];
+    let directory = &cluster.directory;
+    let digest: [u8; 32] = hex::decode(&admission.expected_directory_digest)?
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("directory digest length"))?;
+    let sources: Vec<_> = parents
+        .iter()
+        .map(|route| PartitionBasis {
+            route: route.clone(),
+            directory_digest: digest,
+            membership: MembershipRevision::new(1).unwrap(),
+            term: Term::new(1),
+            durability: directory.namespace_config().minimum_durability,
+            placement_class: [1; 32],
+        })
+        .collect();
+    for field in [
+        "namespace",
+        "cluster",
+        "schema",
+        "durability",
+        "placement",
+        "directory",
+        "same_group",
+        "gap",
+        "overlap",
+        "order",
+    ] {
+        let mut invalid = sources.clone();
+        match field {
+            "namespace" => invalid[1].route.history.namespace = NamespaceId::new([88; 16])?,
+            "cluster" => invalid[1].route.history.cluster = ClusterId::new([88; 16])?,
+            "schema" => invalid[1].route.schema_digest = [88; 32],
+            "durability" => {
+                invalid[1].durability = match invalid[0].durability {
+                    Durability::Quorum => Durability::S3,
+                    Durability::S3 => Durability::Quorum,
+                }
+            }
+            "placement" => invalid[1].placement_class = [88; 32],
+            "directory" => invalid[1].directory_digest = [88; 32],
+            "same_group" => invalid[1].route.history.group = invalid[0].route.history.group,
+            "gap" => {
+                let route = &invalid[1].route;
+                let pivot = (0..10_000)
+                    .map(|n| CellId::new(format!("gap-{n}")).unwrap())
+                    .map(|cell| cell_routing_key(route.history.namespace, &cell))
+                    .find(|key| {
+                        route.range.contains(key)
+                            && CellBound::Key(key.clone()) != *route.range.lower()
+                    })
+                    .context("interior gap pivot")?;
+                invalid[1].route.range = route.range.split(pivot)?.1;
+            }
+            "overlap" => invalid[1].route.range = CellRange::all(),
+            "order" => invalid.reverse(),
+            _ => unreachable!(),
+        }
+        let rejected = control
+            .admit_recommended_partition(
+                &request(245, admission.expected_fleet_revision).principal,
+                admission,
+                PartitionDecision::Merge {
+                    left: &invalid[0],
+                    right: &invalid[1],
+                },
+                TIMEOUT,
+            )
+            .await;
+        ensure!(
+            matches!(&rejected, Err(failure) if failure.code == RaftFleetFailureCode::InvalidInput),
+            "{field} merge recommendation must refuse before allocation: {rejected:?}"
+        );
+        let snapshot = fixture.catalog.read(TIMEOUT).await?;
+        ensure!(snapshot.revision() == admission.expected_fleet_revision);
+        ensure!(fixture.domain.run(directory.observe()).await??.digest() == digest);
+        let child = &admission.children[0].group;
+        let history = GroupHistory {
+            group: GroupId::new(hex::decode(&child.group_id)?.try_into().unwrap())?,
+            incarnation: IncarnationId::new(
+                hex::decode(&child.incarnation_id)?.try_into().unwrap(),
+            )?,
+            ..parents[0].history
+        };
+        ensure!(matches!(
+            fixture.catalog.history(&snapshot, &history, TIMEOUT).await,
+            Err(FleetCatalogError::Conflict)
+        ));
+        ensure!(fixture
+            .domain
+            .run(directory.active_transition())
+            .await??
+            .is_none());
     }
     Ok(())
 }

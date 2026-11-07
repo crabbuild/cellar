@@ -298,6 +298,8 @@ impl RaftFleetControl {
         recommendation: PartitionDecision<'_>,
         timeout: Duration,
     ) -> Result<RaftFleetTransitionAdmission> {
+        crate::raft::cell_groups::partition::validate_recommendation(&recommendation)
+            .map_err(directory_failure)?;
         let sources = match (&request.partition, recommendation) {
             (
                 RaftFleetTransitionPartition::Split { pivot_cell, .. },
@@ -306,7 +308,7 @@ impl RaftFleetControl {
             (
                 RaftFleetTransitionPartition::Merge { .. },
                 PartitionDecision::Merge { left, right },
-            ) if left.placement_class == right.placement_class => vec![left, right],
+            ) => vec![left, right],
             _ => {
                 return Err(RaftFleetFailure::invalid(
                     "partition recommendation mismatch",
