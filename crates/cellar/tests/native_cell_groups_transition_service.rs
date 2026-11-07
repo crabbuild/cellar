@@ -10,6 +10,8 @@ pub mod catalog_fault;
 pub mod managed_fixture;
 #[path = "support/cell_group_rustfs.rs"]
 pub mod rustfs;
+#[path = "support/cell_group_transition_selection.rs"]
+mod selection;
 
 use anyhow::{ensure, Context as _, Result};
 use cellar::application::consensus::verification::cell_groups::{
@@ -143,6 +145,23 @@ async fn qualify(
     live_retirement: bool,
     colocated: bool,
 ) -> Result<()> {
+    Box::pin(qualify_with_selection(
+        rooted,
+        store,
+        live_retirement,
+        colocated,
+        false,
+    ))
+    .await
+}
+
+async fn qualify_with_selection(
+    rooted: bool,
+    store: Arc<catalog_fault::Store>,
+    live_retirement: bool,
+    colocated: bool,
+    automatic: bool,
+) -> Result<()> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter("off,cellar::raft::transition_setup=debug")
         .with_test_writer()
@@ -164,6 +183,7 @@ async fn qualify(
         &mut roots,
         live_retirement,
         colocated,
+        automatic,
     ))
     .await;
     cluster.fixtures[0]
@@ -188,8 +208,6 @@ async fn admit_split(
     RaftFleetTransitionAdmissionRequest,
     RaftFleetTransitionAdmission,
 )> {
-    let namespace = hex::encode(cluster.history.namespace.bytes());
-    let basis = coordinator.transition_basis(&namespace, TIMEOUT).await?;
     let first = leader(&cluster.hosts[..3], cluster.history).await?;
     let observed = cluster.hosts[first]
         .group(cluster.history)?
@@ -198,6 +216,27 @@ async fn admit_split(
     let pivot = observed
         .balanced_pivot
         .context("occupied whole-cell split boundary")?;
+    let request = split_request(cluster, coordinator, destinations, pivot).await?;
+    let admitted = Box::pin(coordinator.admit_transition(
+        "automatic-test",
+        &request.namespace_id,
+        &request.operation_id,
+        &request,
+        TIMEOUT,
+    ))
+    .await?;
+    ensure!(admitted.phase == TransitionPhase::Planned);
+    Ok((request, admitted))
+}
+
+async fn split_request(
+    cluster: &ManagedCluster,
+    coordinator: &RaftFleetControl,
+    destinations: [usize; 2],
+    pivot: cellar::application::consensus::verification::cell_groups::CellKey,
+) -> Result<RaftFleetTransitionAdmissionRequest> {
+    let namespace = hex::encode(cluster.history.namespace.bytes());
+    let basis = coordinator.transition_basis(&namespace, TIMEOUT).await?;
     let request = RaftFleetTransitionAdmissionRequest {
         catalog_id: basis.catalog_id,
         namespace_id: namespace.clone(),
@@ -229,16 +268,7 @@ async fn admit_split(
             })
             .collect(),
     };
-    let admitted = Box::pin(coordinator.admit_transition(
-        "automatic-test",
-        &namespace,
-        &request.operation_id,
-        &request,
-        TIMEOUT,
-    ))
-    .await?;
-    ensure!(admitted.phase == TransitionPhase::Planned);
-    Ok((request, admitted))
+    Ok(request)
 }
 
 async fn exercise(
@@ -248,6 +278,7 @@ async fn exercise(
     roots: &mut Vec<tempfile::TempDir>,
     live_retirement: bool,
     colocated: bool,
+    automatic: bool,
 ) -> Result<()> {
     // Retained source storage stays charged. Place only one child beside its
     // parent so each node stays within the unchanged two-history bound.
@@ -256,7 +287,11 @@ async fn exercise(
     let seed = seed_cells(&cluster.hosts, cluster.history).await?;
     let coordinator = Box::pin(control(cluster, rooted, roots)).await?;
     let namespace = hex::encode(cluster.history.namespace.bytes());
-    let (request, admitted) = admit_split(cluster, &coordinator, destinations).await?;
+    let (request, admitted) = if automatic {
+        Box::pin(selection::admit(cluster, &coordinator, destinations)).await?
+    } else {
+        admit_split(cluster, &coordinator, destinations).await?
+    };
     let first = leader(&cluster.hosts[..3], cluster.history).await?;
     let mut controls = Vec::new();
     for (i, host) in cluster.hosts.iter().enumerate() {

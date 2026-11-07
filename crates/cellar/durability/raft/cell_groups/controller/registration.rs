@@ -23,6 +23,33 @@ pub(crate) struct GroupRoster {
 }
 
 impl GroupRoster {
+    fn partition_groups(
+        &self,
+        scopes: &[(
+            cellar_logic::consensus::ClusterId,
+            cellar_logic::consensus::NamespaceId,
+        )],
+        limit: usize,
+    ) -> Result<Vec<GroupHistory>, RuntimeError> {
+        if !(1..=128).contains(&limit) || scopes.len() > 64 {
+            return Err(RuntimeError::Overloaded);
+        }
+        let groups = self.groups.lock().map_err(|_| RuntimeError::Closed)?;
+        let mut selected = Vec::new();
+        for (history, state) in groups.iter() {
+            if !matches!(state, GroupState::Active)
+                || !scopes.contains(&(history.cluster, history.namespace))
+            {
+                continue;
+            }
+            if selected.len() == limit {
+                return Err(RuntimeError::Overloaded);
+            }
+            selected.push(*history);
+        }
+        Ok(selected)
+    }
+
     pub(super) fn producers_quiesced(&self) -> bool {
         self.groups.lock().is_ok_and(|groups| {
             groups
@@ -271,6 +298,19 @@ pub(crate) struct GroupRegistrationInventory {
 }
 
 impl CellGroupController {
+    /// A bounded advisory cut of active local owners in the configured scopes.
+    /// Refuse an incomplete cut rather than silently starving excess groups.
+    pub(crate) fn partition_groups(
+        &self,
+        scopes: &[(
+            cellar_logic::consensus::ClusterId,
+            cellar_logic::consensus::NamespaceId,
+        )],
+        limit: usize,
+    ) -> Result<Vec<GroupHistory>, RuntimeError> {
+        self.handle.0.groups.partition_groups(scopes, limit)
+    }
+
     pub(crate) fn retain_parked_retired_sources(
         &self,
         histories: Vec<GroupHistory>,
@@ -530,5 +570,59 @@ impl Completed {
             Err(_) if closing => Ok(None),
             Err(error) => Err(error),
         }
+    }
+}
+
+#[cfg(test)]
+mod partition_inventory_tests {
+    use super::*;
+    use cellar_logic::consensus::{ClusterId, GroupId, IncarnationId, NamespaceId};
+
+    fn history(id: u8, namespace: u8) -> GroupHistory {
+        GroupHistory {
+            cluster: ClusterId::new([1; 16]).unwrap(),
+            namespace: NamespaceId::new([namespace; 16]).unwrap(),
+            group: GroupId::new([id; 16]).unwrap(),
+            incarnation: IncarnationId::new([id; 16]).unwrap(),
+        }
+    }
+
+    #[test]
+    fn sizing_inventory_is_complete_scoped_and_excludes_unavailable_owners() {
+        let a = history(1, 2);
+        let b = history(2, 2);
+        let foreign = history(3, 3);
+        let retiring = history(4, 2);
+        let parked = history(5, 2);
+        let roster = GroupRoster::new([a, b, foreign, retiring, parked].into_iter(), 8);
+        roster.begin_retirement(retiring).unwrap();
+        roster.begin_retirement(parked).unwrap();
+        roster.finish_retirement(parked).unwrap();
+        let mut pending = roster.reserve(history(6, 2)).unwrap();
+        let quarantined = history(7, 2);
+        let mut installed = roster.reserve(quarantined).unwrap();
+        installed.activate().unwrap();
+        roster
+            .quarantine(
+                quarantined,
+                CellGroupControllerError::Invalid("qualification fault"),
+            )
+            .unwrap();
+        let scopes = [(a.cluster, a.namespace)];
+        assert_eq!(roster.partition_groups(&scopes, 2).unwrap(), vec![a, b]);
+        assert!(matches!(
+            roster.partition_groups(&scopes, 1),
+            Err(RuntimeError::Overloaded)
+        ));
+        assert!(roster.partition_groups(&[], 1).unwrap().is_empty());
+        pending.activate().unwrap();
+        assert!(matches!(
+            roster.partition_groups(&scopes, 2),
+            Err(RuntimeError::Overloaded)
+        ));
+        assert_eq!(
+            roster.partition_groups(&scopes, 3).unwrap(),
+            vec![a, b, history(6, 2)]
+        );
     }
 }

@@ -510,3 +510,22 @@ capacity are checked separately. The node's existing control budget pays for the
 bounded inventory workspace. Tests retain the original capacity and deadline
 limits. Physical source reclamation, temporary disk/RSS peaks, automatic placement,
 independent processes and load remain separate qualification work.
+
+## Automatic local sizing selection and admission recovery
+
+Use `--suite managed-automatic-selection` with an owned RustFS backend and a
+fresh output directory. Its exact case runs both image modes. The sampler
+finds the active local group without a caller-supplied history, waits for real
+owner samples and selects a whole-cell split. After a real child reservation
+loses its confirmation, a new sampler and catalog client resume the exact
+persisted plan. Missing and changed plans refuse, and pending sampling makes
+no catalog reads or replacement operation. The consented node-owned service
+then qualifies coordinator replacement, live source retirement, colocated
+children and original receipts/versions plus subsequent child S3 writes.
+
+The complete managed local inventory must fit the configured 1–128 tracker
+capacity. Overflow refuses; it never silently truncates to a preferred prefix.
+The existing control budget owns sample metadata and the frozen request. These
+host-native RF3 voters use fixture capacity; placement identities and execution
+consent remain explicit. Whole-group balancing/reserve/fanout, physical source
+reclamation, independent voter processes and load remain separate gates.

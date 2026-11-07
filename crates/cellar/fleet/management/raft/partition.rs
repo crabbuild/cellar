@@ -40,7 +40,7 @@ pub enum RaftFleetPartitionRecommendation {
 }
 
 impl RaftFleetPartitionRecommendation {
-    fn from_decision(decision: PartitionDecision<'_>) -> Self {
+    pub(super) fn from_decision(decision: PartitionDecision<'_>) -> Self {
         match decision {
             PartitionDecision::Wait(reason) => Self::Wait(reason),
             PartitionDecision::Split {
@@ -87,7 +87,15 @@ struct Tracked {
 struct Pending {
     principal: String,
     request: RaftFleetTransitionAdmissionRequest,
-    recommendation: RaftFleetPartitionRecommendation,
+    recommendation: Option<RaftFleetPartitionRecommendation>,
+}
+
+/// One bounded local sampling turn. A recommendation is advisory; the caller
+/// journals exact operation/placement identities before admission and consent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RaftFleetPartitionPoll {
+    pub sampled: Option<GroupHistory>,
+    pub recommendation: Option<RaftFleetPartitionRecommendation>,
 }
 
 /// One explicitly driven node-local scheduling owner. Each observation samples
@@ -110,6 +118,9 @@ pub struct RaftFleetPartitionScheduler {
     max_groups: usize,
     groups: BTreeMap<GroupHistory, Tracked>,
     pending: Option<Pending>,
+    inventory_cursor: Option<GroupHistory>,
+    selection_cursor: Option<GroupHistory>,
+    _memory: crate::raft::budget::Permit,
 }
 
 impl RaftFleetPartitionScheduler {
@@ -123,15 +134,102 @@ impl RaftFleetPartitionScheduler {
                 "partition tracker capacity must be 1–128",
             ));
         }
-        if control.node_observer.is_none() {
-            return Err(RaftFleetFailure::unsupported());
-        }
+        let observer = control
+            .node_observer
+            .as_ref()
+            .ok_or_else(RaftFleetFailure::unsupported)?;
+        // Previous observation and tracker each retain at most seven 1-KiB
+        // cell IDs plus fixed metadata. Include inventory, selected candidate,
+        // frozen request and transient clones in this existing control budget.
+        let memory = observer
+            .control_budget()
+            .acquire(max_groups * 32 * 1024 + 64 * 1024)
+            .ok_or(FleetCatalogError::Overloaded)?;
         Ok(Self {
             control,
             policy,
             max_groups,
             groups: BTreeMap::new(),
             pending: None,
+            inventory_cursor: None,
+            selection_cursor: None,
+            _memory: memory,
+        })
+    }
+
+    /// Discover active local groups in configured namespaces, sample one in
+    /// round-robin order and select a fresh split or compatible adjacent merge.
+    /// No cell enumeration, remote inventory broadcast or mutation occurs.
+    /// The complete local cut must fit the explicit tracker capacity; overflow
+    /// refuses rather than sampling only a favored prefix. Poll often enough
+    /// for the configured group's rate windows and hysteresis to remain fresh.
+    /// Pending work freezes discovery until its exact request is reconciled.
+    pub async fn poll(
+        &mut self,
+        pressure: RaftFleetPartitionPressure,
+        timeout: Duration,
+    ) -> Result<RaftFleetPartitionPoll> {
+        validate_pressure(pressure)?;
+        let domain = self.control.domain.clone();
+        let turn = Turn::new(&domain, timeout)?;
+        if self.pending.is_some() {
+            return Ok(RaftFleetPartitionPoll {
+                sampled: None,
+                recommendation: None,
+            });
+        }
+        let scopes: Vec<_> = self
+            .control
+            .namespaces
+            .iter()
+            .map(|directory| {
+                let config = directory.namespace_config();
+                (config.cluster, config.namespace)
+            })
+            .collect();
+        let groups = self
+            .control
+            .node_observer
+            .as_ref()
+            .ok_or_else(RaftFleetFailure::unsupported)?
+            .partition_groups(&scopes, self.max_groups)
+            .map_err(|error| match error {
+                crate::raft::completion::RuntimeError::Overloaded => {
+                    FleetCatalogError::Limit.into()
+                }
+                other => observation_failure(other),
+            })?;
+        self.groups
+            .retain(|history, _| groups.binary_search(history).is_ok());
+        let selected = groups
+            .iter()
+            .copied()
+            .find(|history| self.inventory_cursor.is_none_or(|cursor| *history > cursor))
+            .or_else(|| groups.first().copied());
+        if let Some(history) = selected {
+            // Advance even on a failed sample, so one stale/failing owner
+            // cannot monopolize later turns. Failed samples lose advisory state.
+            self.inventory_cursor = Some(history);
+            if let Err(error) = Box::pin(self.observe(history, pressure, turn.remaining()?)).await {
+                self.groups.remove(&history);
+                return Err(error);
+            }
+        }
+        let recommendation = super::partition_selection::select(
+            self.groups
+                .values()
+                .map(|tracked| (&tracked.previous.route, &tracked.tracker)),
+            self.policy,
+            self.now()?,
+            self.selection_cursor,
+        );
+        turn.remaining()?;
+        if let Some((history, _)) = &recommendation {
+            self.selection_cursor = Some(*history);
+        }
+        Ok(RaftFleetPartitionPoll {
+            sampled: selected,
+            recommendation: recommendation.map(|(_, candidate)| candidate),
         })
     }
 
@@ -160,12 +258,7 @@ impl RaftFleetPartitionScheduler {
         pressure: RaftFleetPartitionPressure,
         timeout: Duration,
     ) -> Result<Option<PartitionSample>> {
-        if pressure.placement_class == [0; 32]
-            || pressure.leader_cpu_bps > 10_000
-            || pressure.failure_domain_load_bps > 10_000
-        {
-            return Err(RaftFleetFailure::invalid("partition pressure observation"));
-        }
+        validate_pressure(pressure)?;
         if !self.groups.contains_key(&history) && self.groups.len() == self.max_groups {
             return Err(FleetCatalogError::Limit.into());
         }
@@ -349,17 +442,64 @@ impl RaftFleetPartitionScheduler {
             self.pending = Some(Pending {
                 principal: principal.into(),
                 request: request.clone(),
-                recommendation,
+                recommendation: Some(recommendation),
             });
         }
         let pending = self.pending.as_ref().ok_or(FleetCatalogError::Closed)?;
-        Box::pin(self.control.admit_recommended_partition(
-            &pending.principal,
-            &pending.request,
-            pending.recommendation.decision(),
-            turn.remaining()?,
-        ))
-        .await
+        match &pending.recommendation {
+            Some(recommendation) => {
+                Box::pin(self.control.admit_recommended_partition(
+                    &pending.principal,
+                    &pending.request,
+                    recommendation.decision(),
+                    turn.remaining()?,
+                ))
+                .await
+            }
+            None => {
+                Box::pin(self.control.resume_partition_admission(
+                    &pending.principal,
+                    &pending.request,
+                    turn.remaining()?,
+                ))
+                .await
+            }
+        }
+    }
+
+    /// Restore the exact operator-journal request after controller loss. Only
+    /// an already persisted operator plan may resume; absent or changed plans
+    /// refuse without falling back to fresh unsampled admission.
+    pub async fn resume(
+        &mut self,
+        principal: &str,
+        request: &RaftFleetTransitionAdmissionRequest,
+        timeout: Duration,
+    ) -> Result<RaftFleetTransitionAdmission> {
+        let turn = Turn::new(&self.control.domain, timeout)?;
+        if self.pending.is_none() {
+            request.validate(&request.namespace_id, &request.operation_id)?;
+            self.control.check_catalog(&request.catalog_id)?;
+            let directory = self.control.managed_namespace(&request.namespace_id)?;
+            let operation = ProposalId::new(records::id(&request.operation_id)?)
+                .map_err(|_| RaftFleetFailure::invalid("transition operation ID"))?;
+            let digest = sha2::Sha256::digest(
+                serde_json::to_vec(&(principal, request))
+                    .map_err(|_| RaftFleetFailure::invalid("transition admission payload"))?,
+            )
+            .into();
+            self.control
+                .catalog
+                .reopen_transition_operator_plan(directory, operation, digest, turn.remaining()?)
+                .await?
+                .ok_or(FleetCatalogError::Conflict)?;
+            self.pending = Some(Pending {
+                principal: principal.into(),
+                request: request.clone(),
+                recommendation: None,
+            });
+        }
+        Box::pin(self.admit(principal, request, turn.remaining()?)).await
     }
 
     /// Release the local operation slot only after observing its rooted terminal
@@ -422,6 +562,16 @@ impl RaftFleetPartitionScheduler {
             .mono_ms()
             .map_err(|_| FleetCatalogError::Closed.into())
     }
+}
+
+fn validate_pressure(pressure: RaftFleetPartitionPressure) -> Result<()> {
+    if pressure.placement_class == [0; 32]
+        || pressure.leader_cpu_bps > 10_000
+        || pressure.failure_domain_load_bps > 10_000
+    {
+        return Err(RaftFleetFailure::invalid("partition pressure observation"));
+    }
+    Ok(())
 }
 
 fn observation_failure(error: crate::raft::completion::RuntimeError) -> RaftFleetFailure {

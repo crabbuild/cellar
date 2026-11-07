@@ -12,8 +12,10 @@ mod maintenance;
 pub use maintenance::*;
 mod nodes;
 mod partition;
+mod partition_selection;
 pub use partition::{
-    RaftFleetPartitionPressure, RaftFleetPartitionRecommendation, RaftFleetPartitionScheduler,
+    RaftFleetPartitionPoll, RaftFleetPartitionPressure, RaftFleetPartitionRecommendation,
+    RaftFleetPartitionScheduler,
 };
 mod records;
 mod transition;

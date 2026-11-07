@@ -4,6 +4,22 @@
 use super::*;
 use crate::raft::completion::RuntimeError;
 
+impl RaftCells {
+    pub(crate) fn partition_groups(
+        &self,
+        scopes: &[(
+            cellar_logic::consensus::ClusterId,
+            cellar_logic::consensus::NamespaceId,
+        )],
+        limit: usize,
+    ) -> Result<Vec<cellar_logic::cell_group::GroupHistory>, RuntimeError> {
+        if self.is_closed() || self.handle.admission.is_draining() {
+            return Err(RuntimeError::Closed);
+        }
+        self.handle.core.controller.partition_groups(scopes, limit)
+    }
+}
+
 impl RaftGroupHandle {
     /// Request the existing bounded publisher-discovery owner. A true result
     /// means a local publisher is installed, not that any cut is archived.

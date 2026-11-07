@@ -17,6 +17,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
+enum Admission<'a> {
+    Fresh(&'a [&'a PartitionBasis]),
+    Rooted,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RaftFleetTransitionGroup {
@@ -282,7 +287,7 @@ impl RaftFleetControl {
             namespace,
             operation,
             request,
-            &[],
+            Admission::Fresh(&[]),
             timeout,
         ))
         .await
@@ -320,7 +325,26 @@ impl RaftFleetControl {
             &request.namespace_id,
             &request.operation_id,
             request,
-            &sources,
+            Admission::Fresh(&sources),
+            timeout,
+        ))
+        .await
+    }
+
+    /// Resume a verified operator plan without a new sizing observation. The
+    /// inner read must still find that plan; it may never fall back to Fresh.
+    pub(super) async fn resume_partition_admission(
+        &self,
+        principal: &str,
+        request: &RaftFleetTransitionAdmissionRequest,
+        timeout: Duration,
+    ) -> Result<RaftFleetTransitionAdmission> {
+        Box::pin(self.admit_transition_inner(
+            principal,
+            &request.namespace_id,
+            &request.operation_id,
+            request,
+            Admission::Rooted,
             timeout,
         ))
         .await
@@ -332,7 +356,7 @@ impl RaftFleetControl {
         namespace: &str,
         operation: &str,
         request: &RaftFleetTransitionAdmissionRequest,
-        sources: &[&PartitionBasis],
+        admission: Admission<'_>,
         timeout: Duration,
     ) -> Result<RaftFleetTransitionAdmission> {
         request.validate(namespace, operation)?;
@@ -376,6 +400,10 @@ impl RaftFleetControl {
             }
             (plan, proposals)
         } else {
+            let sources = match admission {
+                Admission::Fresh(sources) => sources,
+                Admission::Rooted => return Err(FleetCatalogError::Conflict.into()),
+            };
             if snapshot.revision() != request.expected_fleet_revision {
                 return Err(FleetCatalogError::Conflict.into());
             }

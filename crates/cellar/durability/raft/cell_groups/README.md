@@ -936,9 +936,31 @@ after controller restart. Sampling remains ephemeral; durable transition and
 physical resource ownership remain in their existing journals and node workers.
 Dropping the scheduler starts no cleanup and claims no physical release.
 
-This is an explicitly driven node-local sizing adapter. Automatic inventory
-selection, whole-group replica balancing, failure-domain reserve qualification
-and the combined autonomous placement loop remain CG-11 work.
+`poll` discovers active local groups from the node-owned registration roster in
+configured cluster/namespace scopes and samples one in round-robin order. Pending,
+quarantined, retiring and parked owners are excluded. The complete local cut must
+fit the configured tracker capacity (1–128); overflow refuses rather than
+silently selecting a prefix. Detached samples are evicted. Failed observations
+lose their advisory state and advance the cursor so another owner can progress.
+Selection rotates fresh split candidates before quiet adjacent merges; merge
+adjacency uses range order, independently of opaque group IDs. Existing pure
+policy still enforces freshness, hysteresis, cooldown, compatibility and archives.
+No cell enumeration, fleet-wide inventory broadcast or mutation occurs. Polling
+frequency must keep each group's rate windows fresh under the explicit profile.
+The existing node control budget retains bounded sampling metadata and requests.
+
+`resume` restores an exact operator-journal request after controller replacement.
+It requires the persisted operator plan with the original principal and payload
+digest. Both the initial proof and the actual admission read require that plan;
+absence never falls back to fresh unsampled admission. Rooted partial reservations
+resume with the same child and operation identities, without inventing a current
+sizing recommendation. A pending request freezes automatic discovery. Terminal
+settlement remains with the existing journal and resource owners.
+
+The caller still polls this adapter, supplies stable placement/operation identities
+and explicitly consents to irreversible execution. Whole-group replica balancing,
+failure-domain reserve qualification, large-inventory sampling and the combined
+autonomous placement loop remain CG-11 work.
 
 
 ## Consented transition execution

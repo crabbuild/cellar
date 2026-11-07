@@ -2458,7 +2458,10 @@
         "crates/cellar/application/consensus/group_client/directory.rs",
         "crates/cellar/durability/raft/group_host/router_refresh.rs",
         "crates/cellar/durability/raft/fleet_catalog/managed_transition_capacity.rs",
-        "crates/cellar/tests/support/cell_group_transition_capacity.rs"
+        "crates/cellar/tests/support/cell_group_transition_capacity.rs",
+        "crates/cellar/fleet/management/raft/partition_selection.rs",
+        "crates/cellar/fleet/management/raft/partition_selection_tests.rs",
+        "crates/cellar/tests/support/cell_group_transition_selection.rs"
       ],
       "test_target": "native_cell_groups_scheduler",
       "steps": [
