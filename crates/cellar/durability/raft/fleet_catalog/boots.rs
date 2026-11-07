@@ -93,6 +93,11 @@ impl FleetHostAuthorization {
                 {
                     return Err(FleetCatalogError::Conflict);
                 }
+                if current.record.boot.is_some() {
+                    self.catalog
+                        .preserve_movement_source_boot(&snapshot, &current.boot_binding()?)
+                        .await?;
+                }
                 current.record.storage_instance = Some(instance.bytes());
                 current.record.epoch = current
                     .record

@@ -112,7 +112,12 @@ impl FleetCatalog {
                 .as_ref()
                 .ok_or(FleetCatalogError::Unconfirmed)?;
             if !owner.matches(boot)? {
-                return Err(FleetCatalogError::Unconfirmed);
+                self.confirm_retained_movement_source(snapshot, owner, boot)
+                    .await
+                    .map_err(|error| match error {
+                        FleetCatalogError::Conflict => FleetCatalogError::Unconfirmed,
+                        other => other,
+                    })?;
             }
             bindings.push((sample, boot, owner.member));
         }

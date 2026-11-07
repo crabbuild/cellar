@@ -10,6 +10,9 @@ use cellar_logic::consensus::{DiskLineage, LogIndex, MemberId, ProposalId};
 use serde::Deserialize;
 use std::collections::BTreeSet;
 
+const SOURCE_BOOT_KIND: u8 = 104;
+const SOURCE_BOOT_LIMIT: usize = 1024;
+
 /// Explicit membership intent. Capacity and an exact group permit are committed
 /// together; this does not supply a complete fleet placement/feasibility plan.
 #[derive(Clone, Debug)]
@@ -111,6 +114,10 @@ pub(super) struct MovementOwner {
 }
 
 impl MovementOwner {
+    fn boot_key(digest: &[u8; 32]) -> String {
+        format!("movement-source-boots/{}", hex::encode(digest))
+    }
+
     fn new(boot: &BootBinding, member: MemberId) -> Result<Self> {
         Ok(Self {
             node: boot.node,
@@ -165,6 +172,64 @@ pub(super) struct Source {
 }
 
 impl FleetCatalog {
+    /// Preserve an original source boot while it is still current. A live
+    /// resource row pins the digest, so this witness can also serve admissions
+    /// written before source restart support without rewriting their charges.
+    pub(in super::super) async fn preserve_movement_source_boot(
+        &self,
+        snapshot: &FleetSnapshot,
+        boot: &BootBinding,
+    ) -> Result<()> {
+        let digest = MovementOwner::digest(boot)?;
+        let book = self.resource_book(snapshot).await?;
+        let rows = self.resource_rows(snapshot, &book).await?;
+        if rows.iter().any(|row| {
+            row.seed_owners.as_ref().is_some_and(|owners| {
+                owners
+                    .iter()
+                    .any(|owner| owner.node == boot.node && owner.boot == digest)
+            })
+        }) {
+            let bytes = encode(SOURCE_BOOT_KIND, boot, SOURCE_BOOT_LIMIT)?;
+            self.inner
+                .create_exact(&MovementOwner::boot_key(&digest), &bytes, SOURCE_BOOT_LIMIT)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Resolve only the exact boot pinned by the original admission. The
+    /// current rooted capacity record identifies the running engine successor.
+    /// The caller still owns the quorum and terminal physical observations.
+    pub(super) async fn confirm_retained_movement_source(
+        &self,
+        snapshot: &FleetSnapshot,
+        owner: &MovementOwner,
+        boot: &BootBinding,
+    ) -> Result<()> {
+        let (previous, _) = self
+            .inner
+            .read::<BootBinding>(
+                &MovementOwner::boot_key(&owner.boot),
+                SOURCE_BOOT_KIND,
+                SOURCE_BOOT_LIMIT,
+            )
+            .await?
+            .ok_or(FleetCatalogError::Conflict)?;
+        if !owner.matches(&previous)? {
+            return Err(FleetCatalogError::Corrupt("movement source boot witness"));
+        }
+        if !boot.is_retained_successor_of(&previous) {
+            return Err(FleetCatalogError::Conflict);
+        }
+        let node = NodeId::new(owner.node).map_err(|_| invalid())?;
+        let capacity = self.capacity_from(snapshot, node).await?;
+        if !capacity.receive_replicas() || capacity.attestation().boot != *boot {
+            return Err(FleetCatalogError::Conflict);
+        }
+        Ok(())
+    }
+
     /// A retained target must qualify its new rooted boot before finishing the
     /// old move. The immutable admission and its capacity charge remain bound
     /// to the original boot until the terminal inventory CAS.

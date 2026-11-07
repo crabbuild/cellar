@@ -66,6 +66,7 @@ impl FleetHostAuthorization {
                     || catalog
                         .movement_boot(&snapshot, &row, self.node(), false)
                         .await?
+                        .0
                         != current.boot_binding()?
                 {
                     return Err(FleetCatalogError::Conflict);
@@ -81,7 +82,7 @@ impl FleetHostAuthorization {
                     {
                         return Err(FleetCatalogError::Conflict);
                     }
-                    let boot = catalog
+                    let (boot, _) = catalog
                         .movement_boot(&snapshot, &row, source.node, false)
                         .await?;
                     if boot.disk != source.disk.bytes() || boot.process != source.process.bytes() {
@@ -141,6 +142,7 @@ impl FleetHostAuthorization {
                             command.action.finishes_joint(),
                         )
                         .await?
+                        .0
                         != command.target
                 {
                     return Err(FleetCatalogError::Conflict);

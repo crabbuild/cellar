@@ -40,6 +40,14 @@ impl BootBinding {
         Ok(())
     }
 
+    pub(crate) fn is_retained_successor_of(&self, previous: &Self) -> bool {
+        self.same_engine_owner(previous)
+            && self.epoch > previous.epoch
+            && self.boot != previous.boot
+            && self.process != previous.process
+            && self.join_key != previous.join_key
+    }
+
     pub(crate) fn same_engine_owner(&self, other: &Self) -> bool {
         self.catalog == other.catalog
             && self.fleet == other.fleet

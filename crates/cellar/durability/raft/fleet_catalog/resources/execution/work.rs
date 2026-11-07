@@ -102,34 +102,45 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         row: &Record,
         node: NodeId,
-        retained_target: bool,
-    ) -> Result<BootBinding> {
+        allow_retained: bool,
+    ) -> Result<(BootBinding, bool)> {
         let host = self.host_from(snapshot, node).await?;
         if !host.state().permits_admitted_movement() {
             return Err(FleetCatalogError::Conflict);
         }
         let boot = host.boot_binding()?;
-        if node == row.node {
-            if boot != row.request.attestation.boot {
-                if !retained_target {
-                    return Err(FleetCatalogError::Conflict);
-                }
-                self.confirm_retained_movement_target(snapshot, row, &boot)
-                    .await?;
-            }
+        let owner = if node == row.node {
+            None
         } else {
-            let owner = row
-                .seed_owners
-                .as_ref()
-                .ok_or_else(invalid)?
-                .iter()
-                .find(|owner| owner.node == node.bytes())
-                .ok_or_else(invalid)?;
-            if !owner.matches(&boot)? {
+            Some(
+                row.seed_owners
+                    .as_ref()
+                    .ok_or_else(invalid)?
+                    .iter()
+                    .find(|owner| owner.node == node.bytes())
+                    .ok_or_else(invalid)?,
+            )
+        };
+        let retained = match owner {
+            Some(owner) => !owner.matches(&boot)?,
+            None => boot != row.request.attestation.boot,
+        };
+        if retained {
+            if !allow_retained {
                 return Err(FleetCatalogError::Conflict);
             }
+            match owner {
+                Some(owner) => {
+                    self.confirm_retained_movement_source(snapshot, owner, &boot)
+                        .await?
+                }
+                None => {
+                    self.confirm_retained_movement_target(snapshot, row, &boot)
+                        .await?
+                }
+            }
         }
-        Ok(boot)
+        Ok((boot, retained))
     }
 
     pub(super) async fn movement_leader(
@@ -163,7 +174,7 @@ impl FleetCatalog {
         for _ in 0..2 {
             let mut retryable = false;
             for &node in &nodes {
-                let boot = match self
+                let (boot, retained) = match self
                     .run(
                         deadline.remaining()?,
                         self.movement_boot(snapshot, row, node, true),
@@ -198,8 +209,7 @@ impl FleetCatalog {
                     return Err(FleetCatalogError::Unconfirmed);
                 }
                 let status = sample.membership().status();
-                if node == row.node
-                    && boot != row.request.attestation.boot
+                if retained
                     && (status.permit.as_ref() != Some(permit)
                         || status.consumed_sequence != permit.sequence()
                         || !matches!(
@@ -246,7 +256,8 @@ impl FleetCatalog {
                     resource_digest: hash(&row.encode()?),
                     target: self
                         .movement_boot(snapshot, row, node, action.finishes_joint())
-                        .await?,
+                        .await?
+                        .0,
                     action,
                 };
                 command.validate()?;

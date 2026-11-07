@@ -114,9 +114,11 @@ SUITES = {
     ),
     "managed-joint-restart": (
         "native_cell_groups_managed",
-        ("bootstrap::lifecycle::joint_restart::rustfs_managed_joint_replacement_restart_settles_original_debit",),
-        "retained replacement boot finishes the original joint move and settles its resource debit",
-        "Fixture capacity and joined replacement shutdown. Original voters remain running.",
+        ("bootstrap::lifecycle::joint_restart::rustfs_managed_joint_replacement_restart_settles_original_debit",
+         "bootstrap::lifecycle::joint_restart::rustfs_managed_joint_seed_owner_restart_settles_original_debit"),
+        "retained replacement and original source boots finish and settle the exact joint move",
+        "Fixture capacity and joined shutdown of one voter at a time. "
+        "Independent process crashes and simultaneous reboots remain separate gates.",
     ),
     "managed-liveness": (
         "native_cell_groups_managed",

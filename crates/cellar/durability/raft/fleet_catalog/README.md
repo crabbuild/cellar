@@ -850,6 +850,14 @@ restart. Completion checks current target inventory and original seed-owner
 closure before it releases the active charge and advances the physical floor.
 Starting a move, seeding and promotion still require their original boot grants.
 
+An original voter can finish or attest closure after the same kind of retained
+restart. Before ordinary startup replaces its rooted boot, the catalog preserves
+the exact boot binding if an active move pins its digest. This immutable record
+lets execution match the current qualified engine against the admission.
+Settlement still requires the original membership sequence and an authenticated
+physical observation with seed work joined. Fenced and aborted settlement
+continues to require exact admitted boot evidence.
+
 The receiving process independently resolves the current active reservation,
 resource digest, live history and exact rooted membership permit. It validates
 both origin and target boots and invokes the existing guarded begin, seed or

@@ -99,12 +99,7 @@ pub(super) struct Record {
 
 impl Record {
     pub(super) fn is_retained_target_boot(&self, boot: &BootBinding) -> bool {
-        let original = &self.request.attestation.boot;
-        original.same_engine_owner(boot)
-            && boot.epoch > original.epoch
-            && boot.boot != original.boot
-            && boot.process != original.process
-            && boot.join_key != original.join_key
+        boot.is_retained_successor_of(&self.request.attestation.boot)
     }
 
     pub(super) fn matches_target_attestation(
