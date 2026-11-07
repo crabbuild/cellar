@@ -226,9 +226,10 @@ impl FleetCatalog {
                 if row.permit.is_none()
                     || row.seed_owners.is_none()
                     || row.request.identity.operation != request.identity.operation
-                    || row.request.attestation.boot != request.attestation.boot
-                    || row.request.attestation.profile_revision
-                        != request.attestation.profile_revision
+                    || !row.matches_target_attestation(
+                        &request.attestation,
+                        settlement == Settlement::Complete,
+                    )
                 {
                     return Err(FleetCatalogError::Conflict);
                 }
@@ -238,6 +239,14 @@ impl FleetCatalog {
                     digest: hash(&row.encode()?),
                 }) {
                     return Err(FleetCatalogError::Conflict);
+                }
+                if request.attestation.boot != row.request.attestation.boot {
+                    self.confirm_retained_movement_target(
+                        snapshot,
+                        &row,
+                        &request.attestation.boot,
+                    )
+                    .await?;
                 }
                 let scope = row
                     .permit
@@ -377,8 +386,15 @@ impl FleetCatalog {
             }
             match settlement {
                 Settlement::Complete => {
-                    self.check_movement_completion(snapshot, &row, &quorum, &target, &sources)
-                        .await?;
+                    self.check_movement_completion(
+                        snapshot,
+                        &row,
+                        &request.attestation.boot,
+                        &quorum,
+                        &target,
+                        &sources,
+                    )
+                    .await?;
                 }
                 Settlement::Fenced | Settlement::Aborted => {
                     self.check_cancelled_movement(

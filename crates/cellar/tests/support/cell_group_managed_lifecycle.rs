@@ -20,6 +20,9 @@ mod controls;
 #[path = "cell_group_managed_s3.rs"]
 mod s3;
 
+#[path = "cell_group_managed_joint_restart.rs"]
+mod joint_restart;
+
 #[path = "cell_group_managed_isolation.rs"]
 mod isolation;
 

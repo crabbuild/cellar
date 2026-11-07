@@ -840,8 +840,15 @@ origin, including an origin with no business groups. Each invocation obtains
 fresh safe-ReadIndex progress from a current leader and performs at most one
 learner activation and one configuration action, or one terminal settlement CAS.
 Leader discovery has at most four pinned candidates and a 500-ms budget per
-probe under the original operation deadline. Missing or changed boots never
-supply a replacement identity. A minority remains unconfirmed.
+probe under the original operation deadline. A minority remains unconfirmed.
+
+A replacement that reopens its retained disk and engine can finish a committed
+joint move under a newer rooted boot. It must qualify capacity again for the
+same profile revision. Fresh membership must prove the exact Joint or Complete
+permit. The original reservation, peak charge and permit stay rooted through
+restart. Completion checks current target inventory and original seed-owner
+closure before it releases the active charge and advances the physical floor.
+Starting a move, seeding and promotion still require their original boot grants.
 
 The receiving process independently resolves the current active reservation,
 resource digest, live history and exact rooted membership permit. It validates

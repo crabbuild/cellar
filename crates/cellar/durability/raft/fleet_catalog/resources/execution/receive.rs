@@ -63,7 +63,9 @@ impl FleetHostAuthorization {
                 if row.node != self.node()
                     || row.permit.as_ref() != Some(&permit)
                     || permit.binding() != &catalog.binding(scope)?
-                    || catalog.movement_boot(&snapshot, &row, self.node()).await?
+                    || catalog
+                        .movement_boot(&snapshot, &row, self.node(), false)
+                        .await?
                         != current.boot_binding()?
                 {
                     return Err(FleetCatalogError::Conflict);
@@ -79,7 +81,9 @@ impl FleetHostAuthorization {
                     {
                         return Err(FleetCatalogError::Conflict);
                     }
-                    let boot = catalog.movement_boot(&snapshot, &row, source.node).await?;
+                    let boot = catalog
+                        .movement_boot(&snapshot, &row, source.node, false)
+                        .await?;
                     if boot.disk != source.disk.bytes() || boot.process != source.process.bytes() {
                         return Err(FleetCatalogError::Conflict);
                     }
@@ -129,7 +133,15 @@ impl FleetHostAuthorization {
                     .await?;
                 catalog.check_executable_movement(&snapshot, &row).await?;
                 if hash(&row.encode()?) != command.resource_digest
-                    || catalog.movement_boot(&snapshot, &row, self.node()).await? != command.target
+                    || catalog
+                        .movement_boot(
+                            &snapshot,
+                            &row,
+                            self.node(),
+                            command.action.finishes_joint(),
+                        )
+                        .await?
+                        != command.target
                 {
                     return Err(FleetCatalogError::Conflict);
                 }
@@ -154,6 +166,7 @@ impl FleetHostAuthorization {
                             &snapshot,
                             &row,
                             NodeId::new(owner.node).map_err(|_| invalid())?,
+                            false,
                         )
                         .await?;
                 }

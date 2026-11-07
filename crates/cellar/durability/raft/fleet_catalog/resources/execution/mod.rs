@@ -26,8 +26,9 @@ pub use service::{
 pub(crate) use work::{MovementAction, MovementCommand};
 
 /// Caller-retained deployment occupancy evidence is required for settlement.
-/// The receiver separately measures current physical lower bounds. This value
-/// grants no reservation and cannot change an admitted move's plan.
+/// A requalified replacement on the same retained engine can provide its new
+/// boot after the exact Joint entry commits. The receiver separately measures
+/// physical lower bounds. This value grants no reservation or plan changes.
 #[derive(Clone, Debug)]
 pub struct FleetMovementExecutionRequest {
     pub reservation: [u8; 16],
@@ -193,10 +194,20 @@ impl FleetCatalog {
                     snapshot.revision(),
                 ));
             }
-            if request.attestation.boot != row.request.attestation.boot
-                || request.attestation.profile_revision != row.request.attestation.profile_revision
-            {
+            if !row.matches_target_attestation(&request.attestation, true) {
                 return Err(FleetCatalogError::Conflict);
+            }
+            let retained_target = request.attestation.boot != row.request.attestation.boot;
+            if retained_target {
+                self.run(
+                    deadline.remaining()?,
+                    self.confirm_retained_movement_target(
+                        snapshot,
+                        &row,
+                        &request.attestation.boot,
+                    ),
+                )
+                .await?;
             }
             let proof = self
                 .movement_leader(snapshot, &row, observer, &deadline)
@@ -222,6 +233,14 @@ impl FleetCatalog {
             } else {
                 return Err(FleetCatalogError::Conflict);
             };
+            if retained_target
+                && !matches!(
+                    phase,
+                    FleetMovementPhase::Joint | FleetMovementPhase::Complete
+                )
+            {
+                return Err(FleetCatalogError::Conflict);
+            }
             let leader = proof.membership().replica().node;
             let revision = proof.membership().membership_revision().get();
             let action = match phase {

@@ -98,6 +98,25 @@ pub(super) struct Record {
 }
 
 impl Record {
+    pub(super) fn is_retained_target_boot(&self, boot: &BootBinding) -> bool {
+        let original = &self.request.attestation.boot;
+        original.same_engine_owner(boot)
+            && boot.epoch > original.epoch
+            && boot.boot != original.boot
+            && boot.process != original.process
+            && boot.join_key != original.join_key
+    }
+
+    pub(super) fn matches_target_attestation(
+        &self,
+        attestation: &FleetResourceAttestation,
+        retained: bool,
+    ) -> bool {
+        attestation.profile_revision == self.request.attestation.profile_revision
+            && (attestation.boot == self.request.attestation.boot
+                || retained && self.is_retained_target_boot(&attestation.boot))
+    }
+
     pub fn new(
         catalog: &FleetCatalog,
         request: Request,

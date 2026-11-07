@@ -32,6 +32,12 @@ pub(crate) struct MovementCommand {
     pub action: MovementAction,
 }
 
+impl MovementAction {
+    pub(super) fn finishes_joint(&self) -> bool {
+        matches!(self, Self::Finish { .. })
+    }
+}
+
 impl MovementCommand {
     pub(crate) fn validate(&self) -> Result<()> {
         ProposalId::new(self.reservation).map_err(|_| invalid())?;
@@ -96,6 +102,7 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         row: &Record,
         node: NodeId,
+        retained_target: bool,
     ) -> Result<BootBinding> {
         let host = self.host_from(snapshot, node).await?;
         if !host.state().permits_admitted_movement() {
@@ -104,7 +111,11 @@ impl FleetCatalog {
         let boot = host.boot_binding()?;
         if node == row.node {
             if boot != row.request.attestation.boot {
-                return Err(FleetCatalogError::Conflict);
+                if !retained_target {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                self.confirm_retained_movement_target(snapshot, row, &boot)
+                    .await?;
             }
         } else {
             let owner = row
@@ -155,7 +166,7 @@ impl FleetCatalog {
                 let boot = match self
                     .run(
                         deadline.remaining()?,
-                        self.movement_boot(snapshot, row, node),
+                        self.movement_boot(snapshot, row, node, true),
                     )
                     .await
                 {
@@ -185,6 +196,18 @@ impl FleetCatalog {
                     || sample.membership().status().binding != *permit.binding()
                 {
                     return Err(FleetCatalogError::Unconfirmed);
+                }
+                let status = sample.membership().status();
+                if node == row.node
+                    && boot != row.request.attestation.boot
+                    && (status.permit.as_ref() != Some(permit)
+                        || status.consumed_sequence != permit.sequence()
+                        || !matches!(
+                            status.phase,
+                            Some(FleetPermitPhase::Joint | FleetPermitPhase::Complete)
+                        ))
+                {
+                    continue;
                 }
                 if sample
                     .progress()
@@ -221,7 +244,9 @@ impl FleetCatalog {
                 let command = MovementCommand {
                     reservation: row.request.identity.id,
                     resource_digest: hash(&row.encode()?),
-                    target: self.movement_boot(snapshot, row, node).await?,
+                    target: self
+                        .movement_boot(snapshot, row, node, action.finishes_joint())
+                        .await?,
                     action,
                 };
                 command.validate()?;

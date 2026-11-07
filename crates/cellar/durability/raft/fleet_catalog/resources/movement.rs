@@ -165,6 +165,28 @@ pub(super) struct Source {
 }
 
 impl FleetCatalog {
+    /// A retained target must qualify its new rooted boot before finishing the
+    /// old move. The immutable admission and its capacity charge remain bound
+    /// to the original boot until the terminal inventory CAS.
+    pub(super) async fn confirm_retained_movement_target(
+        &self,
+        snapshot: &FleetSnapshot,
+        row: &records::Record,
+        boot: &BootBinding,
+    ) -> Result<()> {
+        if !row.is_retained_target_boot(boot) {
+            return Err(FleetCatalogError::Conflict);
+        }
+        let capacity = self.capacity_from(snapshot, row.node).await?;
+        if !capacity.receive_replicas()
+            || capacity.attestation().boot != *boot
+            || capacity.attestation().profile_revision != row.request.attestation.profile_revision
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        Ok(())
+    }
+
     /// Own fresh target occupancy and source ReadIndex under one original
     /// deadline. Exact admitted retries are resolved before these prerequisites.
     pub async fn reserve_movement(

@@ -112,6 +112,12 @@ SUITES = {
         "Fixture capacity and joined voter shutdown. Active joint-reservation recovery, "
         "independent voter processes and sustained load remain separate gates.",
     ),
+    "managed-joint-restart": (
+        "native_cell_groups_managed",
+        ("bootstrap::lifecycle::joint_restart::rustfs_managed_joint_replacement_restart_settles_original_debit",),
+        "retained replacement boot finishes the original joint move and settles its resource debit",
+        "Fixture capacity and joined replacement shutdown. Original voters remain running.",
+    ),
     "managed-liveness": (
         "native_cell_groups_managed",
         ("bootstrap::lifecycle::s3::rustfs_managed_s3_seed_refusal_and_source_failover",
