@@ -552,6 +552,37 @@ Their log SHA-256 values are
 `3ab880f5635d5b9e6ca5118c82adfce67611c57839cbc58d449ec91686a79e03` and
 `36da340843c09c5cab5ca5cde8a59f8197426d4ec286f6d99567b782d37449b4`.
 
+## CG-07 shared membership authority
+
+At `a288aaaee84b423409ff89a84c6dc9c8b822ca15`, the native SDK handoff case
+partitions a voter and commits a newer SQL receipt on the majority. The
+leader observes the target below the committed index and returns NotReady.
+Wrong term, wrong membership revision, self and unknown targets all return
+typed invalid-input errors. After healing, the caught-up voter serves the
+exact receipt and becomes leader. The old leader then serves a local
+minimum-version read of the successor's quorum write and refuses handoff.
+The full native shared read target passed all 18 cases in 42.28 seconds.
+Its log SHA-256 is
+`d94dd509d5ed1f2fc9e29172b6cba5d4f61727ea340879293ec0fc349a36b9af`.
+
+The `managed-minority` suite passed against real RustFS in both image modes.
+It reserves a whole-group move while the original quorum is live and
+verifies an exact S3 receipt, then joins two voter services. The survivor's
+reconciliation returns Unconfirmed. The durable member claims, committed
+index, membership revision and catalog root stay at their original values.
+The spare owns zero groups and the pending reservation retains its debit.
+The exact test finished in 18.46 seconds. This run used host-native TLS
+voters and fixture capacity. The native fixture-store version also passed
+both image modes in 18.98 seconds. Its log SHA-256 is
+`670016bc4fd794b46c38d7fa302a1cc321bf4d9636f06225ccd40942e6a7cc78`.
+The RustFS record SHA-256 is
+`85b693c8506b4608b58b74044222a275b09a24cbac6c0b0a0ff30f1a5e23b53c`.
+
+The locked `native_raft_membership` check still failed with 170 errors, down
+from 190 after moving both cases. The remaining test helpers still call
+per-cell registration, activation and repair APIs. Its log SHA-256 is
+`c705d18f28cfe7fdc6f30ea345c1ce0c5f74af07c449d23b2c8c814f3804d7bc`.
+
 ## CG-07 voter and learner read readiness
 
 The public shared-group read target at `9ab1334894c6e6d0ce41c2a5421fc3ba56448951`
