@@ -1482,6 +1482,7 @@ async fn run_inner(
         retry,
     ))
     .await?;
+    Box::pin(effects::after_merge_activation(cluster, child.history)).await?;
     Box::pin(initialize_merge_child_archive(
         cluster,
         directory,

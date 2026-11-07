@@ -48,6 +48,7 @@ struct Scene {
     finished: bool,
     movement: bool,
     cached: Vec<ledger::Cached>,
+    cached_finished: bool,
     merged_finished: bool,
 }
 
@@ -196,7 +197,9 @@ pub(crate) async fn qualify(rooted: bool, store: Arc<fault::Store>, movement: bo
                     "effect audit was not reached"
                 );
                 ensure!(
-                    !movement || SCENE.with(|scene| scene.borrow().merged_finished),
+                    !movement
+                        || SCENE.with(|scene| scene.borrow().cached_finished
+                            && scene.borrow().merged_finished),
                     "merged receipt/effect ledger audit was not reached"
                 );
                 Ok(())
@@ -724,6 +727,26 @@ pub(super) async fn before_merge(cluster: &ManagedCluster) -> Result<()> {
     Ok(())
 }
 
+pub(super) async fn after_merge_activation(
+    cluster: &ManagedCluster,
+    merged: GroupHistory,
+) -> Result<()> {
+    let Some(state) = state() else {
+        return Ok(());
+    };
+    if !SCENE.with(|scene| scene.borrow().movement) {
+        return Ok(());
+    }
+    let cached = SCENE.with(|scene| std::mem::take(&mut scene.borrow_mut().cached));
+    let checked = Box::pin(ledger::cached(&state.ledger, &cached, merged)).await;
+    SCENE.with(|scene| scene.borrow_mut().cached = cached);
+    checked
+        .context("cached native handles must follow the merged route before their host stops")?;
+    ensure!(!cluster.hosts[0].is_closed());
+    SCENE.with(|scene| scene.borrow_mut().cached_finished = true);
+    Ok(())
+}
+
 pub(super) async fn after_merge(
     cluster: &ManagedCluster,
     directory: &RangeDirectory,
@@ -777,7 +800,8 @@ pub(super) async fn after_merge(
             && !state.changed.load(Ordering::Acquire)
     );
     let cached = SCENE.with(|scene| std::mem::take(&mut scene.borrow_mut().cached));
-    Box::pin(ledger::audit(&state.ledger, &endpoint, cached, merged)).await?;
+    Box::pin(ledger::closed(&cached)).await?;
+    Box::pin(ledger::audit(&state.ledger, &endpoint, merged)).await?;
     Box::pin(archive::verify(
         cluster,
         directory,

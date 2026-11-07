@@ -133,17 +133,63 @@ pub(super) async fn prime(cluster: &ManagedCluster) -> Result<Vec<Cached>> {
     Ok(cached)
 }
 
+async fn values(entries: &[Entry], handles: &[RaftCellHandle], merged: GroupHistory) -> Result<()> {
+    for (index, handle) in handles.iter().enumerate() {
+        let history = cell(index as u8)?;
+        let expected = entries
+            .iter()
+            .filter(|entry| entry.operation == "Add" && entry.receipt.version.history == history)
+            .try_fold(0i64, |value, entry| -> Result<_> {
+                value
+                    .checked_add(i64::from_be_bytes(entry.input.as_slice().try_into()?))
+                    .context("acknowledged counter sum overflow")
+            })?;
+        let query = read(handle, 164 + index as u8, QueryConsistency::Linearizable).await?;
+        ensure!(
+            query.result == expected.to_be_bytes() && query.witness.group == merged,
+            "lost or duplicated an acknowledged mutation"
+        );
+    }
+    Ok(())
+}
+
+pub(super) async fn cached(ledger: &Ledger, cached: &[Cached], merged: GroupHistory) -> Result<()> {
+    ensure!(cached.len() == 2 && cached.iter().all(|cache| cache.previous != merged));
+    let entries = ledger.0.lock().unwrap().clone();
+    let handles = cached
+        .iter()
+        .map(|cache| cache.handle.clone())
+        .collect::<Vec<_>>();
+    values(&entries, &handles, merged).await
+}
+
+pub(super) async fn closed(cached: &[Cached]) -> Result<()> {
+    ensure!(cached.len() == 2);
+    for cache in cached {
+        let response = cache
+            .handle
+            .query(
+                ProposalId::new([163; 16])?,
+                &cache.handle.contract("Get")?,
+                vec![],
+                QueryOptions::default(),
+            )
+            .await;
+        ensure!(
+            matches!(response, Err(error) if matches!(error.as_ref(), CellDispatchError::Runtime(RuntimeError::Closed))),
+            "a stopped native handle reopened application admission"
+        );
+    }
+    Ok(())
+}
+
 pub(super) async fn audit(
     ledger: &Ledger,
     endpoint: &Endpoint,
-    cached: Vec<Cached>,
     merged: GroupHistory,
 ) -> Result<()> {
     let entries = ledger.0.lock().unwrap().clone();
-    ensure!(
-        entries.len() >= 12 && cached.len() == 2,
-        "incomplete movement ledger"
-    );
+    ensure!(entries.len() >= 12, "incomplete movement ledger");
     let mut groups = Vec::new();
     for entry in &entries {
         if !groups.contains(&entry.receipt.witness.group) {
@@ -154,33 +200,13 @@ pub(super) async fn audit(
         groups.len() >= 4,
         "ledger must span the initial group, both split children and merged group"
     );
-    for (index, cache) in cached.into_iter().enumerate() {
-        ensure!(cache.previous != merged);
-        let history = cell(index as u8)?;
-        let expected = entries
-            .iter()
-            .filter(|entry| entry.operation == "Add" && entry.receipt.version.history == history)
-            .try_fold(0i64, |value, entry| -> Result<_> {
-                value
-                    .checked_add(i64::from_be_bytes(entry.input.as_slice().try_into()?))
-                    .context("acknowledged counter sum overflow")
-            })?;
-        let query = read(
-            &cache.handle,
-            164 + index as u8,
-            QueryConsistency::Linearizable,
-        )
-        .await?;
-        ensure!(
-            query.result == expected.to_be_bytes() && query.witness.group == merged,
-            "cached handle lost or duplicated an acknowledged mutation"
-        );
-    }
     let origin = endpoint
         .hosts
         .iter()
         .find(|host| !host.is_closed())
         .context("live former-parent ingress")?;
+    let handles = [origin.cell(cell(0)?)?, origin.cell(cell(1)?)?];
+    values(&entries, &handles, merged).await?;
     for (index, entry) in entries.iter().enumerate() {
         let handle = origin.cell(entry.receipt.version.history.clone())?;
         let found = handle
