@@ -17,7 +17,7 @@ impl State {
             .map_err(|_| TransportError::Overloaded)?;
         let _metadata = Arc::new(
             self.seed_metadata
-                .acquire(seeds::META_BYTES)
+                .acquire(GRANT_RESERVATION_BYTES)
                 .ok_or(TransportError::Overloaded)?,
         );
         let wire = snapshots::Wire {

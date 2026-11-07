@@ -174,7 +174,6 @@ pub(crate) struct Worker {
     sender: mpsc::SyncSender<Envelope>,
     completion_slots: Arc<Semaphore>,
     slots: Arc<Semaphore>,
-    stopped: Arc<AtomicBool>,
 }
 
 impl Pool {
@@ -265,7 +264,6 @@ impl Pool {
             sender,
             completion_slots: self.completion_slots[worker].clone(),
             slots: self.slots[worker].clone(),
-            stopped: self.stopped.clone(),
         })
     }
 

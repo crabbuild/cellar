@@ -2,7 +2,7 @@
 
 //! Read-only inspection values. None of these observations grants membership,
 //! fresh-quorum seeding, read visibility or an acknowledgement proof.
-use super::member_state::{GroupMembership, RepairStatus};
+use super::member_state::RepairStatus;
 use cellar_logic::consensus::{
     EngineInstanceId, GroupScope, LogIndex, LogPosition, MemberId, NodeIdentity, Term,
 };
@@ -146,100 +146,4 @@ pub struct GroupInspection {
     pub leader_load: Option<LeaderLoad>,
 }
 
-// The transport uses the validated ledger/configuration pair to encode a strict
-// bounded response. The public SDK returns only the observation above.
-#[derive(Clone, Debug)]
-pub(crate) struct InspectionSnapshot {
-    pub view: CellInspection,
-    pub membership: Option<GroupMembership>,
-    pub configuration: Option<::raft::prelude::ConfState>,
-    pub publication: Option<super::host::Publication>,
-}
-
 pub(crate) const RESPONSE_RESERVATION: usize = 64 * 1024;
-
-impl InspectionSnapshot {
-    pub(crate) fn validate(&self) -> Result<(), cellar_logic::consensus::CommandFailure> {
-        use cellar_logic::consensus::CommandFailure;
-        let invalid = CommandFailure::CorruptState;
-        let view = &self.view;
-        if view.scope.validate().is_err()
-            || view.schema_digest == [0; 32]
-            || view.birth_digest == [0; 32]
-            || view.node.profile.validate(4096, 1).is_err()
-            || view.node.groups > 32_769
-            || view
-                .node
-                .profile
-                .bytes_per_group
-                .checked_mul(u64::from(view.node.groups))
-                != Some(view.node.reserved_bytes)
-        {
-            return Err(invalid);
-        }
-        match (
-            &view.occupancy,
-            &view.member,
-            &self.membership,
-            &self.configuration,
-        ) {
-            (
-                ReplicaOccupancy::Member(member),
-                Some(sample),
-                Some(membership),
-                Some(configuration),
-            ) => {
-                membership
-                    .validate(configuration, sample.applied.index.get())
-                    .map_err(|_| CommandFailure::CorruptState)?;
-                membership
-                    .validate_scope(&view.scope)
-                    .map_err(|_| CommandFailure::CorruptState)?;
-                if *member != sample.member
-                    || view.node.groups == 0
-                    || sample.term.get() == 0
-                    || sample.committed < sample.applied.index
-                    || sample.applied.term > sample.term
-                    || sample.membership_revision != membership.revision()
-                    || sample.member_high_water != membership.high_water()
-                    || sample.repair
-                        != membership
-                            .repair_status()
-                            .map_err(|_| CommandFailure::CorruptState)?
-                    || !super::member_state::members(configuration).contains(&member.get())
-                    || sample.leader.is_some_and(|leader| {
-                        !super::member_state::members(configuration).contains(&leader.get())
-                    })
-                    || (sample.is_leader && sample.leader != Some(*member))
-                    || sample.published.is_some_and(|cut| {
-                        cut.index.get() == 0
-                            || cut.term.get() == 0
-                            || cut.index > sample.applied.index
-                            || cut.term > sample.applied.term
-                            || (cut.index == sample.applied.index
-                                && cut.term != sample.applied.term)
-                    })
-                {
-                    return Err(invalid);
-                }
-            }
-            (ReplicaOccupancy::Member(_), ..) => return Err(invalid),
-            (ReplicaOccupancy::Retired(_) | ReplicaOccupancy::Occupied(_), ..)
-                if view.node.groups == 0 =>
-            {
-                return Err(invalid)
-            }
-            (_, None, None, None) => (),
-            _ => return Err(invalid),
-        }
-        if view.leader_load.as_ref().is_some_and(|load| {
-            load.capacity != view.node.profile.leader_capacity || load.leaders > view.node.groups
-        }) {
-            return Err(invalid);
-        }
-        if let Some(publication) = &self.publication {
-            publication.validate(view.member.as_ref().ok_or(invalid)?)?;
-        }
-        Ok(())
-    }
-}

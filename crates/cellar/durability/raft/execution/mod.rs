@@ -361,10 +361,8 @@ pub struct CommandAttempt {
 #[derive(Clone)]
 pub struct PreparedCommand {
     bytes: Vec<u8>,
-    pub(crate) ltx_bytes: u64,
     proposal: ProposalId,
     command: Option<CommandId>,
-    archive_bytes: u64,
 }
 
 impl PreparedCommand {
@@ -382,12 +380,6 @@ impl PreparedCommand {
 
     pub fn context(&self) -> Vec<u8> {
         self.proposal.bytes().to_vec()
-    }
-
-    /// Retention bound after the physical preview has verified the image size.
-    /// Includes the encoded log entry and room for its protobuf/context framing.
-    pub(crate) fn archive_bytes(&self) -> u64 {
-        self.archive_bytes
     }
 }
 
@@ -595,27 +587,6 @@ impl PrivateExecutor {
         input: &[u8],
         allow_new: bool,
     ) -> Result<StageOutcome, ExecutionError> {
-        self.stage_registered_kind(attempt, class, input, allow_new, false)
-    }
-
-    pub(crate) fn stage_system_admitted(
-        &mut self,
-        attempt: CommandAttempt,
-        class: &RaftClass,
-        input: &[u8],
-        allow_new: bool,
-    ) -> Result<StageOutcome, ExecutionError> {
-        self.stage_registered_kind(attempt, class, input, allow_new, true)
-    }
-
-    fn stage_registered_kind(
-        &mut self,
-        attempt: CommandAttempt,
-        class: &RaftClass,
-        input: &[u8],
-        allow_new: bool,
-        system: bool,
-    ) -> Result<StageOutcome, ExecutionError> {
         let scope = cellar_logic::cell_group::CellHistory::try_from(&self.authority.replica.scope)
             .map_err(storage)?;
         let contract = registered::validate(
@@ -625,23 +596,12 @@ impl PrivateExecutor {
             &attempt.request,
             class,
             input,
-            system,
+            false,
         )?;
         let command = attempt.request.id;
         let durability = attempt.request.durability;
         self.stage_admitted(attempt, allow_new, |transaction| {
-            if system {
-                class.invoke_system_command(
-                    &contract,
-                    &scope,
-                    command,
-                    durability,
-                    transaction,
-                    input,
-                )
-            } else {
-                class.invoke_command(&contract, &scope, command, durability, transaction, input)
-            }
+            class.invoke_command(&contract, &scope, command, durability, transaction, input)
         })
     }
 
@@ -708,10 +668,6 @@ impl PrivateExecutor {
         } else {
             ExecutionStatus::Ready
         }
-    }
-
-    pub(crate) fn has_pending_proposal(&self) -> bool {
-        self.pending.is_some()
     }
 
     /// Logical bytes hashed by the last extent observation. This excludes
@@ -909,10 +865,6 @@ impl PrivateExecutor {
             .retired_preview
             .take()
             .ok_or(ExecutionError::RebuildRequired)?;
-        let archive_bytes = preview
-            .length()
-            .saturating_add(bytes.len() as u64)
-            .saturating_add(1024);
         self.pending = Some(Pending {
             proposal,
             result: preview.state(),
@@ -924,15 +876,9 @@ impl PrivateExecutor {
         });
         self.rebuild_required = false;
         Ok(PreparedCommand {
-            ltx_bytes: update
-                .files
-                .iter()
-                .map(|file| file.bytes.len() as u64)
-                .sum(),
             bytes,
             proposal,
             command,
-            archive_bytes,
         })
     }
 

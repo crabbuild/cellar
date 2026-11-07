@@ -179,17 +179,6 @@ impl NodeLifecycle {
         self.maintenance.seal_raft(selector)
     }
 
-    pub(crate) fn bind_startup_admission(
-        &self,
-        admission: &crate::application::consensus::admission::Admission,
-    ) -> Result<(), CommandFailure> {
-        admission.bind_maintenance(self.maintenance.clone())
-    }
-
-    pub(crate) fn hold_startup_maintenance(&self) {
-        self.maintenance.hold_startup();
-    }
-
     pub(crate) fn maintenance_matches(
         &self,
         selector: &crate::raft::fleet_stop::StopSelector,

@@ -37,6 +37,7 @@ pub(crate) enum GroupAction {
     Campaign,
     ReplicationStatus,
     TransferLeadership(LeadershipTransfer),
+    #[cfg(test)]
     RestartLeadership(Box<RestartLeadershipCheck>),
     Checkpoint(Box<SnapshotCheckpoint>),
     Step(Message),
@@ -206,10 +207,6 @@ impl RuntimeEvents {
 }
 
 impl RaftRuntime {
-    pub(crate) fn limits(&self) -> &RaftRuntimeOptions {
-        &self.inner.options
-    }
-
     pub(crate) fn claim_transport(&self) -> Result<TransportClaim, RuntimeError> {
         self.admit()?;
         self.inner
@@ -660,16 +657,6 @@ impl RaftRuntime {
         transfer: LeadershipTransfer,
     ) -> Result<(), RuntimeError> {
         self.group(scope, GroupAction::TransferLeadership(transfer), 4096)
-            .await
-            .map(|_| ())
-    }
-
-    pub(crate) async fn restart_leadership(
-        &self,
-        scope: &GroupScope,
-        check: Box<RestartLeadershipCheck>,
-    ) -> Result<(), RuntimeError> {
-        self.group(scope, GroupAction::RestartLeadership(check), 4096)
             .await
             .map(|_| ())
     }
@@ -1158,6 +1145,7 @@ impl Worker {
                     // catalog cancellation CAS was lost. Read-only observation
                     // on a surviving leader needs no local quiescence.
                     let gate = match &action {
+                        #[cfg(test)]
                         GroupAction::RestartLeadership(check) => self
                             .domain
                             .mono_ms()

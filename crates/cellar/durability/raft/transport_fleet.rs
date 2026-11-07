@@ -52,23 +52,6 @@ impl RaftTransport {
         Ok(view.peer().clone())
     }
 
-    /// Routing may omit a permanently quarantined member. Its Raft vote and
-    /// physical placement still belong to the durable configuration until a
-    /// quorum commits removal. Missing discovery alone is never sufficient.
-    pub(crate) fn node_isolated(&self, node: NodeId) -> Result<bool, TransportError> {
-        let registry = self
-            .handle
-            .0
-            .registry
-            .lock()
-            .map_err(|_| TransportError::Closed)?;
-        Ok(registry
-            .fleet_trust
-            .as_ref()
-            .and_then(|trust| trust.node(node))
-            .is_some_and(|node| node.is_isolated()))
-    }
-
     /// Check a rooted admission against current trust and actual durable
     /// configuration. Exclusion may continue the exact reserved destination
     /// boot; it cannot substitute another process or admit fresh placement.
@@ -233,7 +216,6 @@ impl RaftTransport {
             state.control_connections.add_permits(inspections::SLOTS);
         }
         drop(registry);
-        state.invalidate_snapshot_routes();
         Ok(())
     }
 }

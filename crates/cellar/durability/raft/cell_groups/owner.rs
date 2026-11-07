@@ -223,6 +223,7 @@ struct ConfigurationFence {
 /// Local evidence that the leader synced its exact certificate selection.
 pub(crate) struct SelectedParkCertificate {
     certificate: Box<ParkCertificate>,
+    #[cfg(test)]
     sync_sequence: u64,
 }
 
@@ -231,6 +232,7 @@ impl SelectedParkCertificate {
         &self.certificate
     }
 
+    #[cfg(test)]
     pub(crate) fn sync_sequence(&self) -> u64 {
         self.sync_sequence
     }
@@ -1261,6 +1263,7 @@ impl CellGroupOwner {
         let proposal = self.append_control(entry, "park preparation")?;
         let preparation = ParkPreparation {
             proposal,
+            #[cfg(test)]
             next_due_unix_millis,
             deadline_ms: request.deadline_ms,
         };
@@ -2334,6 +2337,7 @@ impl CellGroupOwner {
         }
         Ok(SelectedParkCertificate {
             certificate: Box::new(certificate.clone()),
+            #[cfg(test)]
             sync_sequence: self.last_sync,
         })
     }

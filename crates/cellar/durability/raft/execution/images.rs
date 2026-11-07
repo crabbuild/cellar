@@ -422,13 +422,6 @@ impl Preview {
             Self::Rooted(root) => State::Rooted(RootState::of(root)),
         }
     }
-
-    pub fn length(&self) -> u64 {
-        match self.state() {
-            State::Materialized(state) => state.length,
-            State::Rooted(state) => state.geometry.length(),
-        }
-    }
 }
 
 impl Images {

@@ -222,10 +222,6 @@ impl RaftTransport {
         }
         registry.node_views.insert(peer.node, view.clone());
         drop(registry);
-        // A retained source is host-owned. Mark an old route finished so its
-        // owner can release it; an active socket still retains its reservation
-        // until its cancelled physical I/O exits.
-        state.invalidate_snapshot_routes();
         state.start_pools(starts)
     }
 }

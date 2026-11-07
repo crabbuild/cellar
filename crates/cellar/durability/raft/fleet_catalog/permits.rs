@@ -143,16 +143,6 @@ impl FleetGroupAuthorization {
                 .is_none_or(|owner| owner == &self.owner)
     }
 
-    pub(crate) fn matches_birth(
-        &self,
-        birth: &crate::raft::cell_groups::CellGroupBirth,
-        schema: [u8; 32],
-    ) -> bool {
-        self.matches_scope(&birth.route().history)
-            && self.history.birth_digest() == birth.route().birth_digest
-            && self.history.schema_digest() == schema
-    }
-
     pub(crate) fn binding(&self) -> &FleetGroupBinding {
         &self.binding
     }

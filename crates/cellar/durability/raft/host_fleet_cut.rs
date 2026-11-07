@@ -2,9 +2,10 @@
 //! Authenticated mutation summaries distinguish data from protocol-only apply.
 use super::*;
 use crate::application::consensus::ImageCommitment;
-use crate::raft::cache::{CommittedImage, DurableApply};
-use crate::raft::inspection::MemberInspection;
+use crate::raft::cache::CommittedImage;
 use crate::raft::member_state::FleetGroupBinding;
+#[cfg(test)]
+use crate::raft::{cache::DurableApply, inspection::MemberInspection};
 use cellar_ltx::{apply::ImageState, TXID};
 use serde::{Deserialize, Serialize};
 
@@ -35,26 +36,6 @@ impl FleetImageState {
             page_size: image.page_size,
             length: image.length,
             commitment: image.commitment,
-        };
-        state.validate()?;
-        Ok(state)
-    }
-
-    pub(crate) fn new(
-        epoch: u64,
-        txid: u64,
-        checksum: u64,
-        page_size: u32,
-        length: u64,
-        commitment: ImageCommitment,
-    ) -> Result<Self, CommandFailure> {
-        let state = Self {
-            epoch,
-            txid,
-            checksum,
-            page_size,
-            length,
-            commitment,
         };
         state.validate()?;
         Ok(state)
@@ -127,7 +108,8 @@ impl FleetImageState {
         })
     }
 
-    pub(crate) fn same_representation(&self, other: &Self) -> bool {
+    #[cfg(test)]
+    fn same_representation(&self, other: &Self) -> bool {
         matches!(
             (self.commitment, other.commitment),
             (ImageCommitment::Sha256(_), ImageCommitment::Sha256(_))
@@ -219,13 +201,15 @@ impl FleetPublishedImage {
 
 /// Captured under the same cache read as the membership inspection. Ordinary
 /// status inspection does not transport this stronger publication statement.
+#[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum Publication {
+enum Publication {
     Empty,
     Pending,
     Image(FleetPublishedImage),
 }
 
+#[cfg(test)]
 impl Publication {
     pub(crate) fn capture(
         applied: &DurableApply,
@@ -283,6 +267,7 @@ impl Publication {
     }
 }
 
+#[cfg(test)]
 fn marker_state(image: &CommittedImage) -> Result<FleetImageState, CommandFailure> {
     FleetImageState::from_marker(image)
 }
@@ -420,6 +405,7 @@ pub(crate) fn group_prefix(
     Ok(true)
 }
 
+#[cfg(test)]
 fn consistent_positions(a: LogPosition, b: LogPosition) -> bool {
     match a.index.cmp(&b.index) {
         std::cmp::Ordering::Equal => a.term == b.term,

@@ -50,7 +50,6 @@ const LIFECYCLE_KEY: &[u8] = b"cellar-node-lifecycle";
 #[derive(Clone)]
 struct EngineCaches {
     log_retention: Arc<super::cell_groups::log_retention::NodeLogRetention>,
-    usage: Arc<AtomicUsize>,
     lifecycle: Arc<Mutex<LifecycleRecord>>,
 }
 
@@ -192,7 +191,6 @@ struct LogHandle {
     domain: crate::asyncrt::DomainToken,
     groups: Catalog,
     pending: Arc<AtomicUsize>,
-    cache_usage: Arc<AtomicUsize>,
     lifecycle_cache: Arc<Mutex<LifecycleRecord>>,
     options: ReplicaLogOptions,
     closing: Arc<AtomicBool>,
@@ -308,7 +306,6 @@ enum Work {
         Reply<GroupLog<GroupHistory>>,
     ),
     ImportCells(ImportedGenesis, Reply<GroupLog<GroupHistory>>),
-    Seeded(Box<super::snapshot::PreparedSeed>, Reply<GroupLog>),
     Persist(OperationId, Vec<GroupWrite>, Reply<SyncReceipt>),
     PersistCells(
         OperationId,
@@ -438,12 +435,6 @@ impl ReplicaLog {
         &self.inner.options
     }
 
-    /// Advisory maintenance signal. The writer still enforces the hard bound
-    /// against the complete candidate batch before crossing its sync boundary.
-    pub(crate) fn cache_under_pressure(&self) -> bool {
-        self.inner.cache_usage.load(Ordering::Acquire) >= self.inner.options.max_cache_bytes / 2
-    }
-
     pub async fn open(
         options: ReplicaLogOptions,
         filesystem: Arc<dyn FileSystem>,
@@ -487,7 +478,6 @@ impl ReplicaLog {
         });
         let closing = Arc::new(AtomicBool::new(false));
         let owner = Arc::new(());
-        let cache_usage = Arc::new(AtomicUsize::new(0));
         let lifecycle_cache = Arc::new(Mutex::new(LifecycleRecord::empty()));
         let handle = Self {
             inner: Arc::new(LogHandle {
@@ -500,7 +490,6 @@ impl ReplicaLog {
                 domain: domain.clone(),
                 groups: groups.clone(),
                 pending: Arc::new(AtomicUsize::new(0)),
-                cache_usage: cache_usage.clone(),
                 lifecycle_cache: lifecycle_cache.clone(),
                 options: options.clone(),
                 closing: closing.clone(),
@@ -545,7 +534,6 @@ impl ReplicaLog {
                     closed.clone(),
                     EngineCaches {
                         log_retention,
-                        usage: cache_usage,
                         lifecycle: lifecycle_cache,
                     },
                     performance,
@@ -804,6 +792,7 @@ impl ReplicaLog {
     /// Read occupied identities and locally durable completed membership under
     /// the engine catalog lock and short per-group cache reads. This catalog is
     /// append-only for an engine instance; retired bindings remain.
+    #[cfg(test)]
     pub(crate) fn physical_inventory(
         &self,
         pending: Option<&GroupScope>,
@@ -859,17 +848,6 @@ impl ReplicaLog {
             Work::Create(bootstrap, Some(Box::new(binding)), reply)
         })
         .await
-    }
-
-    pub(crate) async fn create_seeded(
-        &self,
-        seed: super::snapshot::PreparedSeed,
-    ) -> Result<GroupLog, LogError> {
-        if !seed.authorized(&self.inner.owner, seed.local()) {
-            return Err(LogError::WrongIdentity);
-        }
-        self.request(96 * 1024, |reply| Work::Seeded(Box::new(seed), reply))
-            .await
     }
 
     pub async fn persist_cells(
@@ -1016,7 +994,6 @@ struct Worker {
     owner: Arc<()>,
     closed: Arc<AtomicBool>,
     cache_bytes: usize,
-    cache_usage: Arc<AtomicUsize>,
     lifecycle: LifecycleRecord,
     lifecycle_cache: Arc<Mutex<LifecycleRecord>>,
     purge_pending: bool,
@@ -1176,16 +1153,12 @@ impl Worker {
             owner,
             closed,
             cache_bytes: 0,
-            cache_usage: caches.usage,
             lifecycle,
             lifecycle_cache: caches.lifecycle,
             // A previous process may have synced compaction without purging.
             purge_pending: true,
         };
         worker.recover()?;
-        worker
-            .cache_usage
-            .store(worker.cache_bytes, Ordering::Release);
         Ok(worker)
     }
 
@@ -1466,36 +1439,7 @@ impl Worker {
             cache.membership =
                 super::member_state::GroupMembership::managed_initial(&conf, binding)?;
         }
-        self.create_cache(bootstrap, conf, cache, None)
-    }
-
-    fn seeded(&mut self, seed: super::snapshot::PreparedSeed) -> Result<GroupLog, LogError> {
-        let identity = ReplicaIdentity {
-            scope: seed.local().scope.clone(),
-            member: seed.local().member,
-            node: self.options.node,
-            disk: self.options.disk,
-            process: self.options.process,
-        };
-        if !seed.authorized(&self.owner, &identity) {
-            return Err(LogError::WrongIdentity);
-        }
-        if let Some(group) = self
-            .groups
-            .read()
-            .map_err(|_| LogError::Closed)?
-            .get(&GroupHistory::from(&identity.scope))
-        {
-            return Err(if group.as_cell()?.identity.scope == identity.scope {
-                LogError::AlreadyExists
-            } else {
-                LogError::WrongIdentity
-            });
-        }
-        let bootstrap = seed.bootstrap()?;
-        let conf = seed.initial().clone();
-        let cache = seed.cache().map_err(|e| LogError::Invalid(e.to_string()))?;
-        self.create_cache(bootstrap, conf, cache, Some(&seed))
+        self.create_cache(bootstrap, conf, cache)
     }
 
     fn create_cache(
@@ -1503,10 +1447,9 @@ impl Worker {
         bootstrap: GroupBootstrap,
         conf: ConfState,
         cache: CachedGroup,
-        seed: Option<&super::snapshot::PreparedSeed>,
     ) -> Result<GroupLog, LogError> {
         let mapping = MappingRecord::new(self.root.next_key, &bootstrap, &conf)?;
-        self.insert_mapping(mapping, cache, seed, None)?
+        self.insert_mapping(mapping, cache, None)?
             .as_cell()
             .cloned()
     }
@@ -1608,7 +1551,7 @@ impl Worker {
             super::cell_groups::GroupManifest::genesis(bootstrap.route)
                 .map_err(|error| LogError::Invalid(error.to_string()))?,
         );
-        self.insert_mapping(mapping, cache, None, None)?
+        self.insert_mapping(mapping, cache, None)?
             .as_cells()
             .cloned()
     }
@@ -1670,7 +1613,7 @@ impl Worker {
         if marker.is_recovery_genesis() {
             cache.recovery_genesis = Some(Arc::new(marker.clone()));
         }
-        self.insert_mapping(mapping, cache, None, Some(seed))?
+        self.insert_mapping(mapping, cache, Some(seed))?
             .as_cells()
             .cloned()
     }
@@ -1679,7 +1622,6 @@ impl Worker {
         &mut self,
         mapping: MappingRecord,
         mut cache: CachedGroup,
-        seed: Option<&super::snapshot::PreparedSeed>,
         imported: Option<&ImportedGenesis>,
     ) -> Result<StoredGroup, LogError> {
         if self.mappings.len() >= self.options.max_groups {
@@ -1710,9 +1652,6 @@ impl Worker {
         {
             return Err(LogError::Overloaded);
         }
-        if seed.is_some() && imported.is_some() {
-            return Err(LogError::WrongIdentity);
-        }
         let prepared = match imported {
             Some(ImportedGenesis::Recovery(seed)) => Some(seed.prepare(&self.closed)?),
             Some(ImportedGenesis::Transfer(seed)) => Some(seed.prepare(&self.closed)?),
@@ -1733,10 +1672,6 @@ impl Worker {
                 records::encode(&GroupRecord::from_cache(mapping.clone(), &cache)?)?,
             )
             .map_err(engine_error)?;
-        if let Some(seed) = seed {
-            seed.retain_pending()
-                .map_err(|e| LogError::Io(e.to_string()))?;
-        }
         let previous_key = self.root.next_key;
         self.root.next_key = next_key;
         if let Some(publication) = &mut publication {
@@ -1745,9 +1680,6 @@ impl Worker {
         if let Err(error) = self.fence(&mut batch) {
             self.root.next_key = previous_key;
             return Err(error);
-        }
-        if let Some(seed) = seed {
-            seed.retain().map_err(|e| LogError::Io(e.to_string()))?;
         }
         if let Some(publication) = publication {
             publication
@@ -1761,7 +1693,6 @@ impl Worker {
             .insert(history, handle.clone());
         self.mappings.insert(key, mapping);
         self.cache_bytes += bytes;
-        self.cache_usage.store(self.cache_bytes, Ordering::Release);
         Ok(handle)
     }
 
@@ -1958,7 +1889,6 @@ impl Worker {
             }
         }
         self.cache_bytes = next_bytes;
-        self.cache_usage.store(self.cache_bytes, Ordering::Release);
         self.performance
             .increment(MeasuredCounter::PersistGroups, writes.len() as u64);
         for write in &writes {
@@ -2113,15 +2043,6 @@ impl Worker {
                     drop(lease);
                     let _ = reply.send(result);
                     None
-                }
-                Work::Seeded(seed, reply) => {
-                    let result = self.seeded(*seed);
-                    let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
-                    if fatal.is_some() {
-                        self.closed.store(true, Ordering::Release);
-                    }
-                    let _ = reply.send(result);
-                    fatal
                 }
                 Work::Persist(operation, writes, reply) => {
                     let timer = self.performance.timer(Measured::EnginePersist);

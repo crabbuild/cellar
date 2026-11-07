@@ -90,8 +90,6 @@ mod resources;
 #[path = "transport_send.rs"]
 mod sender;
 pub(crate) use resources::ResourceObserver;
-#[path = "seed_transport.rs"]
-pub(crate) mod seeds;
 #[path = "snapshot_transport.rs"]
 pub(crate) mod snapshots;
 
@@ -395,8 +393,6 @@ struct State {
     refused: AtomicU64,
     failed: AtomicU64,
     claim: Mutex<Option<Box<dyn Send + Sync>>>,
-    snapshot_source: Mutex<Option<std::sync::Weak<snapshots::Source>>>,
-    prepared_snapshot: super::snapshot::prepared::Cache,
     snapshot_source_budget: Arc<Budget>,
     snapshot_receive_budget: Arc<Budget>,
     snapshot_connections: Arc<Semaphore>,
@@ -531,8 +527,6 @@ impl RaftTransport {
         let snapshot_memory = snapshots::memory_bound(&options);
         let seed_recovery_memory = options.max_seed_recovery_bytes;
         let performance = runtime.log().performance();
-        let (prepared_snapshot, prepared_owner) =
-            super::snapshot::prepared::channel(performance.clone());
         let state = Arc::new(State {
             performance,
             domain,
@@ -595,17 +589,14 @@ impl RaftTransport {
             inspection_enabled: AtomicBool::new(false),
             options,
             claim: Mutex::new(Some(claim)),
-            snapshot_source: Mutex::new(None),
-            prepared_snapshot,
             snapshot_source_budget: Budget::new(snapshot_memory, 1),
             snapshot_receive_budget: Budget::new(snapshot_memory + seed_recovery_memory, 1),
             snapshot_connections: Arc::new(Semaphore::new(1)),
-            seed_metadata: Budget::new(seeds::META_BYTES, 1),
+            seed_metadata: Budget::new(group_snapshots::seed::GRANT_RESERVATION_BYTES, 1),
         });
         let service = Self {
             handle: Arc::new(Handle(state.clone())),
         };
-        snapshots::start_prepared(&state, prepared_owner)?;
         for (listener, lane) in [(control, Lane::Control), (data, Lane::Data)] {
             let worker = state.clone();
             state.spawn(async move {
@@ -755,10 +746,6 @@ impl RaftTransport {
         registry.groups.insert(route.scope.clone(), Arc::new(route));
         registry.prune_pools();
         drop(registry);
-        // Replacing the route invalidates source leases captured under the old
-        // configuration. Mark them finished now; active I/O retains its own
-        // source and reservation until physical exit.
-        state.invalidate_snapshot_routes();
         state.start_pools(starts)?;
         Ok(())
     }
@@ -770,7 +757,6 @@ impl RaftTransport {
         registry.groups.remove(scope);
         registry.prune_pools();
         drop(registry);
-        state.invalidate_snapshot_routes();
         Ok(())
     }
 
@@ -921,6 +907,23 @@ impl RaftTransport {
         })
     }
 
+    pub(crate) async fn seed_control_until<T>(
+        &self,
+        deadline: u64,
+        future: impl Future<Output = Result<T, TransportError>>,
+    ) -> Result<T, TransportError> {
+        self.handle.0.seed_until(deadline, future).await
+    }
+
+    pub(crate) fn seed_deadline(&self) -> Result<u64, TransportError> {
+        let state = &self.handle.0;
+        Ok(state
+            .domain
+            .mono_ms()
+            .map_err(|_| TransportError::Closed)?
+            .saturating_add(state.options.snapshot_timeout_ms))
+    }
+
     /// Release sockets, queued permits and worker resources. Domain shutdown
     /// additionally joins the owning execution-domain task registry.
     pub async fn close(&self) {
@@ -946,6 +949,49 @@ fn lane_index(lane: Lane) -> usize {
 }
 
 impl State {
+    async fn seed_until<T>(
+        &self,
+        deadline: u64,
+        future: impl Future<Output = Result<T, TransportError>>,
+    ) -> Result<T, TransportError> {
+        let now = self.domain.mono_ms().map_err(|_| TransportError::Closed)?;
+        let mut stopped = self.stop.subscribe();
+        if now >= deadline {
+            return Err(TransportError::Timeout);
+        }
+        if *stopped.borrow() {
+            return Err(TransportError::Closed);
+        }
+        let timer = self
+            .domain
+            .sleep_until(deadline)
+            .map_err(|_| TransportError::Closed)?;
+        crate::asyncrt::select! {
+            _ = timer => Err(TransportError::Timeout),
+            _ = stopped.changed() => Err(TransportError::Closed),
+            result = future => result,
+        }
+    }
+
+    async fn seed_io<T>(
+        &self,
+        deadline: u64,
+        future: impl Future<Output = Result<T, TransportError>>,
+    ) -> Result<T, TransportError> {
+        let now = self.domain.mono_ms().map_err(|_| TransportError::Closed)?;
+        if now >= deadline {
+            return Err(TransportError::Timeout);
+        }
+        let timer = self
+            .domain
+            .sleep_until(deadline)
+            .map_err(|_| TransportError::Closed)?;
+        crate::asyncrt::select! {
+            _ = timer => Err(TransportError::Timeout),
+            result = self.bounded(None, future) => result,
+        }
+    }
+
     /// Reserve every worker before mutating a view. Callers perform all other
     /// fallible validation first, release the registry lock, then start workers.
     fn prepare_pools(
@@ -1445,12 +1491,6 @@ impl State {
                 return self
                     .receive_group_checkpoint(&mut stream, &exporter, prefix)
                     .await;
-            }
-            if &prefix[..4] == snapshots::REQUEST_MAGIC {
-                if lane != Lane::Data || sequence != 0 {
-                    return Err(TransportError::Protocol);
-                }
-                return self.receive_snapshot(&mut stream, &exporter, prefix).await;
             }
             if lane == Lane::Control && control_slot.is_none() {
                 control_slot = Some(

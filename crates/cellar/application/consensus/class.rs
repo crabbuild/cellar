@@ -441,10 +441,6 @@ impl RaftClass {
         Ok(self)
     }
 
-    pub(crate) fn blob_limits(&self) -> Option<super::RaftBlobLimits> {
-        self.blobs
-    }
-
     pub fn alarms(mut self, limits: super::RaftAlarmLimits) -> Result<Self, RegistrationError> {
         limits
             .validate()

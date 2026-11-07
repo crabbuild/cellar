@@ -2,8 +2,10 @@
 
 //! Physical host configuration and observations shared by the cell-group runtime.
 //! The only production dispatcher/startup is group_host and its node controller.
+#[cfg(test)]
+use super::completion::*;
 pub use super::host_archive::RaftArchiveOptions;
-use super::{catalog::*, completion::*, execution::*};
+use super::{catalog::*, execution::*};
 use crate::application::consensus::RaftClass;
 use cellar_logic::consensus::*;
 use cellar_ltx::generation::GenerationLimits;
@@ -34,7 +36,7 @@ pub use fleet_observation::{FleetMembershipConfiguration, FleetMembershipObserva
 #[path = "host_fleet_cut.rs"]
 mod fleet_cut;
 pub use super::fleet_inspection_wire::RaftPeerFleetMembershipObservation;
-pub(crate) use fleet_cut::{group_prefix, Publication};
+pub(crate) use fleet_cut::group_prefix;
 pub use fleet_cut::{FleetImageState, FleetPublishedCut, FleetPublishedImage};
 #[path = "host_node.rs"]
 mod node;

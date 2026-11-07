@@ -95,6 +95,7 @@ pub(crate) struct ParkPrepareRequest {
 #[derive(Clone, Debug)]
 pub(crate) struct ParkPreparation {
     pub proposal: CellGroupProposal,
+    #[cfg(test)]
     pub next_due_unix_millis: Option<u64>,
     pub deadline_ms: u64,
 }

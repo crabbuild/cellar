@@ -431,10 +431,6 @@ pub struct FleetBirthAuthorization {
 }
 
 impl FleetBirthAuthorization {
-    pub(crate) fn check_birth(&self, directory: &RangeDirectory, birth: &CellGroupBirth) -> bool {
-        self.history.check_birth(directory, birth)
-    }
-
     pub(super) fn matches_active_reservation(&self, history: &FleetHistory) -> bool {
         match history.state() {
             FleetHistoryState::Reserved => history == &self.history,

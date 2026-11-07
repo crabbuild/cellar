@@ -414,6 +414,7 @@ impl Registry {
 
     /// The timer follows the future's lifetime. Errors count as failures;
     /// cancellation drops the timer as abandoned rather than inventing success.
+    #[cfg(test)]
     pub(crate) async fn measure<T, E>(
         self: &Arc<Self>,
         operation: Operation,

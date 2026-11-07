@@ -479,7 +479,6 @@ pub(super) fn run(
         } => crate::raft::effects::scan::scan_connection_fair(
             database.connection(),
             &observation.version.history,
-            query.authority.cell().last_mutation,
             &class,
             now,
             reservation,

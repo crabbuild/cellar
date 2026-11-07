@@ -31,13 +31,11 @@ fn archive(id: u8) -> CellArchive {
         ),
         limits: ArchiveLimits::default(),
         host: LtxHost::default(),
-        cancellation: None,
         io_domain: None,
         read_retention: None,
         bundle_client: None,
         verification_deadline: None,
         root_store: None,
-        root_verification: None,
         image_storage: super::super::super::catalog::RaftImageStorage::Materialized,
     }
 }

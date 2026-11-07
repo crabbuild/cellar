@@ -244,14 +244,10 @@ Root archive heads retain the exact producer image position independently of
 configuration-only snapshot progress. Canonical empty archives contain no image
 commitment; a missing or pending image cannot become empty coverage.
 
-`verify_published_at` requires `ArchiveVerifier::with_extent_store` for nonempty
-extent archives. Its exclusively owned, initially empty scratch inventory freshly
-downloads every selected extent and independently seals the complete SQLite image.
-No flat snapshot, full-file SHA or live producer inventory substitutes for that
-proof. Entered physical work retains the scratch lease after waiter cancellation.
-After it exits, retries reconcile only this scratch inventory under the original
-deadline; physical quarantine refuses. Successful replay releases scratch before
-proof delivery. This historical coverage still grants no quorum, activation,
+Managed archive verification uses `FleetGroupArchiveVerifier` to replay the
+exact selected group history into an independently admitted receiver. The
+receiver verifies the complete root and its cell images in the configured
+representation. This historical coverage grants no quorum, activation,
 current health or node-removal authority.
 
 The verification archive interface can store an exact committed extent snapshot
@@ -1543,130 +1539,37 @@ It uses the in-memory object-store adapter; it does not qualify physical S3 or
 authorize replacement membership.
 
 
-## Explicit fresh-learner peer seeding
+## Fresh-learner seeding and retained restart
 
-`RaftCellHandle::add_learner` commits a revision-bound `JoiningMember` containing a
-fresh member ID, node ID and disk lineage. The node endpoint must already exist
-in the trusted peer configuration. This administrative API cannot introduce an
-arbitrary endpoint or invoke a business callback. Repeating the same identity
-reconciles a lost receipt; an error or cancellation may follow commitment, so
-reuse the identity and expected revision. The receipt supplies no seeding proof.
-Routes refresh from the synced membership; removed members stop local admission.
+A shared-group membership change commits the learner's member ID, node ID and
+disk lineage. The seed service authenticates the exact source and target
+processes over TLS and selects a complete group checkpoint at a safe
+ReadIndex cut. The grant binds the checkpoint, learner, engine owner and
+deadline. Bounded transfer admission and the checkpoint lease remain held
+through entered physical I/O.
 
-Start the target with `RaftCellPlacement::Joining { member, source, source_node }`.
-The existing namespace and immutable birth must match. `seed_transport.rs` uses a
-purpose-separated TLS exporter, a fresh request tag/nonce and exact physical
-routes. `host_seed.rs` waits for an actual safe ReadIndex result and a published
-cut covering it before capturing a source snapshot. A cached configuration or
-available S3 objects cannot replace this live-quorum proof.
+A managed S3 seed uses an authenticated grant for the exact immutable group
+archive. Missing or corrupt objects refuse startup. The target restores and
+verifies the complete root before syncing its native checkpoint with vote
+zero. The permanent member claim must confirm before runtime attachment.
+Retained startup reopens the synced local state and reconciles the same claim.
+A claim with missing local stable state refuses startup.
 
-The target grant is opaque, bound to its exact local engine owner, process and
-original deadline. One bounded metadata reservation and one receiver body may
-exist per node. Ordered chunks bind the snapshot digest and source lease; transient
-transport failures obtain a fresh grant under the same deadline. A new request
-supersedes the earlier source lease to that learner, whose outstanding stream
-retains its pins until bounded I/O exits. Identity/authentication failures remain
-refusals.
-
-The single source slot distinguishes an offered snapshot from an authenticated
-pull that has started. An authorized fresh seed request may retire an unclaimed
-offer to another voter, which might have ignored an obsolete announcement.
-Retiring an offer and claiming its first pull are mutually exclusive atomic
-transitions. Active transfers to other peers stay protected, and every retained
-physical owner keeps its source reservation through cancellation and I/O exit.
-
-`snapshot_seed.rs` validates the original birth, exact learner binding, included
-configuration and barrier before sealing the physical image. The engine creates
-the mapping, snapshot, current configuration, bindings and applied marker in one
-synced batch, retaining the original birth ConfState. Its HardState starts with
-vote zero; no source vote, leadership or process state is restored. The image
-stays retained across an uncertain engine write.
-
-Only then does the catalog conditionally create and read back the permanent
-member claim, followed by owner-bound runtime attachment. An existing claim with
-missing stable group state refuses startup. Stable joined state can reconcile a
-lost claim response without resetting its log or votes. Normal follower proofs
-still govern queries after attachment.
-
-The internal namespace protocol identity is
-`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/images-1/config-tails-1`; format markers remain 1. Use a fresh
-experimental namespace/prefix and local state after this hard cutover.
-
-
-## Exact-reference S3 learner seeding and restart
-
-`RaftCellPlacement::JoiningFromS3` obtains an authenticated grant from a live peer
-under a fresh safe ReadIndex. The source selects bounded archive metadata for an
-exact immutable `ArchiveReference`, covering the barrier and the target learner
-binding. Metadata selection does not download image/tail/Blob payloads or wait
-for a private business callback. The target downloads only that selected set;
-missing or corrupt bytes refuse startup even if a newer complete head exists.
-
-`seed_archive.rs` retains receiver reservations through object hash/decode work
-and physical replay on the SQL owner. `snapshot_seed.rs` verifies birth, schema,
-cut and exact learner binding, replays snapshot/tails, seals a local generation
-and constructs its actual snapshot descriptor. The shared atomic seed/claim path
-then attaches with vote zero. S3 supplies cell state and committed history; it
-supplies no old votes, process identity, leadership or replacement quorum.
-
-The receiver shares one body slot with peer snapshots, charged for configured
-snapshot working memory plus `max_set_bytes` (at most 256 MiB). Default capacity
-is 640 MiB. Seed metadata holds one 4-MiB reservation per node, sufficient for a
-configured 1-MiB manifest and verification copies. Reservations are accounting
-bounds and are not eager allocations.
-
-Public Node restart resumes verified local joined state and reconciles an exact
-permanent claim without reseeding or resetting votes. Tests start the learner
-before voters, permit retained causal reads and refuse strong reads until quorum
-returns. Three claim cuts cover failure before PUT, a lost successful response
-and a lost confirmation. Fresh-learner process-kill matrices cover image fsync,
-rename, directory fsync, atomic engine sync, engine reply, claim and attachment,
-then verify recovered reads and subsequent replication without callback replay.
-The process fixtures preserve successful conditional in-memory object mutations
-across child exit; they qualify no physical S3 or power-loss behavior.
-
+See [shared-group snapshots and recovery](../../../../docs/design/multi-raft/cell-groups/protocols.md).
 
 ## Zero-quorum disaster recovery
 
-`sdk::consensus::S3DisasterRecovery` opens an existing namespace, observes an
-archive reference for operator review, binds a `DisasterRecoveryRequest`, and
-calls an explicit `DisasterFenceAuthority` before publishing a replacement birth.
-The request preserves the logical cell, namespace and schema while selecting
-fresh group, incarnation and node identities. There is no permissive authority
-implementation or force flag. An S3 intent alone cannot stop a running quorum.
-This path supports materialized and extent-backed images. Before intent or
-fencing, extent preflight verifies the exact remote closure using bounded reads
-without requiring a local full-image inventory.
+Whole-group recovery uses the range directory to prepare and fence an exact
+`CellGroupRecoveryRequest`. An external `DisasterFenceAuthority` must permanently
+stop the old deployment and revoke its ability to restart. The authority binds
+its evidence to the recovery request before publication can select a fresh
+history. A persisted intent closes old admission during retries.
 
-The authority must permanently stop the entire old deployment, including members
-absent from the selected archive, routers and effect workers, and revoke restart
-or replacement-launch capability. Its independently verified evidence binds the
-exact plan digest. Keep this authority outside the voter trust/deployment domain.
-An append-only intent closes old startup; a separately confirmed completion makes
-the new birth discoverable. Conditional writes reconcile exact bytes after lost
-responses. Incompatible retries refuse; completed retries reverify the evidence.
-
-Start the returned birth as ordinary `RaftCellPlacement::Replica` on fresh nodes
-and disks. Before attachment, the host downloads the exact old archive set,
-replays its snapshot/LTX tail or hydrates and seals its extent root, and installs
-a checkpoint at new index 2, term 1, vote 0 with the new initial configuration.
-For extents, only the manifest's history binding changes; the complete local
-closure is verified before attachment, without flattening the database.
-The original application image, receipts, client floors and Blob bytes remain
-unchanged. No command callback is replayed. The new quorum elects its own leader;
-old incarnation tokens and stale old-birth startup refuse. Initial-member claims
-are scoped to the new incarnation, and later lost-disk startup still refuses.
-
-Pending old-origin outbox rows refuse admission. This path neither rewrites them
-nor provides an outbox reconciliation command. Ordinary retained-disk restart
-does not download or reseed from the old archive. Quorum acknowledgements beyond
-the selected archive cut can be lost; per-cell cuts do not assert a globally
-consistent fleet snapshot. Quorum writes still acknowledge independently of
-background publication. `CellStatus.archive` exposes local coverage readiness,
-entry lag, observed backlog duration, retained bytes and publication failures;
-these advisory observations reset on process restart and do not change admission.
-See the [protocol and qualification](../../../../docs/design/multi-raft/disaster-recovery.md).
-
+Recovery replays the selected complete checkpoint and log tail into fresh
+member storage. The destination restores cell images, receipts and client
+floors before it can form a quorum and activate. Quorum acknowledgements beyond
+the selected archive cut are outside that recovery point. See the
+[cell-group recovery protocol](../../../../docs/design/multi-raft/cell-groups/protocols.md).
 
 ## Committed repair plans
 

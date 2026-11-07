@@ -208,6 +208,7 @@ pub(crate) fn capture_cells(
     capture_histories(groups, pending.map(group_digest))
 }
 
+#[cfg(test)]
 pub(crate) fn capture(
     groups: &BTreeMap<GroupHistory, StoredGroup>,
     pending: Option<&GroupScope>,

@@ -4,7 +4,7 @@
 //! a trusted infrastructure authority must additionally fence running processes.
 
 use super::*;
-use crate::raft::archive::{ArchiveLimits, ArchiveRecoverySet, ArchiveReference};
+use crate::raft::archive::{ArchiveLimits, ArchiveReference};
 use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 
@@ -76,37 +76,6 @@ struct Complete {
 #[derive(Clone, Debug)]
 pub(super) struct Recovery {
     pub source: GroupBirth,
-    pub archive: ArchiveReference,
-}
-
-/// Process-local seed authority bound to the exact empty destination engine.
-pub(crate) struct DisasterSeedPermit {
-    pub(crate) local: ReplicaIdentity,
-    pub(crate) birth: GroupBirth,
-    owner: Arc<()>,
-}
-
-impl DisasterSeedPermit {
-    pub(crate) fn authorized(&self, owner: &Arc<()>, local: &ReplicaIdentity) -> bool {
-        Arc::ptr_eq(&self.owner, owner) && local == &self.local
-    }
-
-    pub(crate) fn validate_set(&self, set: &ArchiveRecoverySet) -> Result<(), CatalogError> {
-        let recovery = self.birth.recovery.as_ref().ok_or(CatalogError::Fenced)?;
-        if set.scope() != recovery.source.scope()
-            || set.birth_digest() != recovery.source.digest()
-            || set.reference() != recovery.archive
-        {
-            return Err(CatalogError::Conflict("disaster archive binding"));
-        }
-        Ok(())
-    }
-}
-
-impl GroupBirth {
-    pub(crate) fn disaster_source(&self) -> Option<(&GroupBirth, &ArchiveReference)> {
-        self.recovery.as_ref().map(|r| (&r.source, &r.archive))
-    }
 }
 
 impl NamespaceCatalog {
@@ -392,7 +361,6 @@ impl NamespaceCatalog {
         let mut next = self.decode_birth(&source.scope.cell, &bytes).await?;
         next.recovery = Some(Arc::new(Recovery {
             source: source.clone(),
-            archive: intent.archive,
         }));
         Ok(next)
     }
@@ -441,47 +409,5 @@ impl NamespaceCatalog {
             birth = self.successor(&birth, next).await?;
         }
         Err(CatalogError::Limit)
-    }
-
-    pub(crate) async fn disaster_seed_permit(
-        &self,
-        birth: &GroupBirth,
-        log: &ReplicaLog,
-    ) -> Result<Option<DisasterSeedPermit>, CatalogError> {
-        self.require_current(birth).await?;
-        if birth.recovery.is_none() {
-            return Ok(None);
-        }
-        let member = birth
-            .voters
-            .iter()
-            .chain(&birth.learners)
-            .find(|m| m.node == log.limits().node)
-            .ok_or(CatalogError::NotInitialMember)?;
-        self.require_node_storage(log).await?;
-        match log.group(&birth.scope) {
-            Ok(_) => return Ok(None),
-            Err(LogError::NotFound) => (),
-            Err(error) => return Err(CatalogError::Log(error)),
-        }
-        if self
-            .read_claim(&self.claim_key(birth, member.member), birth)
-            .await?
-            .is_some()
-        {
-            return Err(CatalogError::LostStableState);
-        }
-        let local = log.limits();
-        Ok(Some(DisasterSeedPermit {
-            local: ReplicaIdentity {
-                scope: birth.scope.clone(),
-                member: member.member,
-                node: local.node,
-                disk: local.disk,
-                process: local.process,
-            },
-            birth: birth.clone(),
-            owner: log.owner(),
-        }))
     }
 }

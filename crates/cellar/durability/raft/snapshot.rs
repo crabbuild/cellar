@@ -24,9 +24,6 @@ use sha2::{Digest, Sha256};
 mod capture;
 pub(crate) use capture::SnapshotCapture;
 
-#[path = "snapshot_prepared.rs"]
-pub(crate) mod prepared;
-
 #[path = "snapshot_root.rs"]
 mod rooted;
 pub use rooted::{RootSnapshotSet, RootSnapshotSource};
@@ -296,50 +293,11 @@ impl Descriptor {
 pub struct SnapshotPackage {
     group: GroupLog,
     snapshot: Snapshot,
-    bytes: Option<SourcePayload>,
+    bytes: Option<stream_snapshot::SnapshotFile>,
     root: Option<rooted::RootPayload>,
     pin: Option<SnapshotPin>,
     limits: SnapshotLimits,
     membership: super::member_state::GroupMembership,
-}
-
-enum SourcePayload {
-    Local(stream_snapshot::SnapshotFile),
-    Shared(prepared::Shared),
-}
-
-impl SourcePayload {
-    fn metadata(&self) -> stream_snapshot::Metadata {
-        match self {
-            Self::Local(file) => file.metadata(),
-            Self::Shared(shared) => shared.metadata(),
-        }
-    }
-
-    fn chunk(&self, offset: usize, length: usize) -> Result<Vec<u8>, SnapshotError> {
-        match self {
-            Self::Local(file) => {
-                let mut bytes = vec![0; length];
-                file.read_into(offset as u64, &mut bytes)?;
-                Ok(bytes)
-            }
-            Self::Shared(shared) => shared.chunk(offset, length),
-        }
-    }
-
-    fn invalidate(&self) {
-        if let Self::Shared(shared) = self {
-            shared.invalidate();
-        }
-    }
-
-    fn validate_digest(&self, digest: [u8; 32]) -> Result<(), SnapshotError> {
-        if digest != self.metadata().encoded_digest {
-            self.invalidate();
-            return Err(SnapshotError::Physical(stream_snapshot::Error::Integrity));
-        }
-        Ok(())
-    }
 }
 
 impl SnapshotPackage {
@@ -389,25 +347,6 @@ impl SnapshotPackage {
             .map_or(0, |bytes| bytes.metadata().encoded_length as usize)
     }
 
-    pub(crate) fn encoded_file_bytes(&self) -> usize {
-        self.bytes
-            .as_ref()
-            .map_or(0, |bytes| bytes.metadata().encoded_length as usize)
-    }
-
-    pub(crate) fn validate_encoded_hash(&self, digest: [u8; 32]) -> Result<(), SnapshotError> {
-        if let Some(root) = &self.root {
-            // Root streams have manifest/extent commitments, never a fabricated
-            // whole-SQLite digest. The ordered source has verified every object.
-            return root.complete();
-        }
-        match &self.bytes {
-            Some(bytes) => bytes.validate_digest(digest),
-            None if digest == <[u8; 32]>::from(Sha256::digest([])) => Ok(()),
-            None => Err(SnapshotError::Physical(stream_snapshot::Error::Integrity)),
-        }
-    }
-
     /// Bounded file I/O; call on the owning blocking domain. The returned chunk
     /// is independent of the full image size and never exceeds the wire bound.
     pub fn chunk(&self, offset: usize, length: usize) -> Result<Vec<u8>, SnapshotError> {
@@ -426,7 +365,9 @@ impl SnapshotPackage {
         // The source reservation already covers this complete wire window.
         // Native providers fill it directly; injected providers retain their
         // bounded fallback. A failed read never exposes a partial response.
-        source.chunk(offset, length)
+        let mut bytes = vec![0; length];
+        source.read_into(offset as u64, &mut bytes)?;
+        Ok(bytes)
     }
 
     /// Mechanical fixture write with data publication quiesced. A live runtime
@@ -536,13 +477,6 @@ pub struct SnapshotDownload {
     payload: SnapshotPayload,
 }
 
-pub(crate) struct DownloadStorage<'a> {
-    pub filesystem: &'a dyn cellar_ltx::FileSystem,
-    pub directory: &'a std::path::Path,
-    pub scratch: &'a stream_snapshot::ScratchPool,
-    pub extents: Option<cellar_ltx::internal::NodeExtentStore>,
-}
-
 /// A download owns anonymous scratch storage from its execution domain. Empty
 /// snapshots carry no body; their descriptor still binds the empty digest.
 enum SnapshotPayload {
@@ -585,12 +519,6 @@ impl SnapshotPayload {
         match self {
             Self::Flat(payload) => payload.append(offset, bytes),
             Self::Rooted(payload) => payload.append(offset, bytes),
-        }
-    }
-
-    fn set_io_profile(&mut self, profile: stream_snapshot::IoProfile) {
-        if let Self::Flat(payload) = self {
-            payload.set_io_profile(profile);
         }
     }
 
@@ -675,13 +603,6 @@ impl FlatPayload {
         Ok(())
     }
 
-    fn set_io_profile(&mut self, profile: stream_snapshot::IoProfile) {
-        self.download = self
-            .download
-            .take()
-            .map(|download| download.with_io_profile(profile));
-    }
-
     fn finish(self) -> Result<Option<stream_snapshot::SnapshotFile>, SnapshotError> {
         if self.received != self.length {
             return Err(SnapshotError::Invalid("short download"));
@@ -694,16 +615,6 @@ impl FlatPayload {
 }
 
 impl SnapshotDownload {
-    /// Transport admission covers codec buffers until sealing or discard.
-    pub(crate) fn with_io_profile(mut self, profile: stream_snapshot::IoProfile) -> Self {
-        self.payload.set_io_profile(profile);
-        self
-    }
-
-    pub(crate) fn transfer_length(&self) -> usize {
-        self.descriptor.transfer_length
-    }
-
     pub fn new(
         group: &GroupLog,
         schema: [u8; 32],
@@ -922,17 +833,6 @@ impl PreparedSnapshot {
         applier.publish_empty_snapshot(&self.group, &self.snapshot)?;
         Ok(())
     }
-
-    pub(crate) fn publish_empty_root(
-        self,
-        applier: &mut super::rooted::RootImageApplier,
-    ) -> Result<(), SnapshotError> {
-        if self.pin.is_some() {
-            return Err(SnapshotError::Invalid("snapshot has a data image"));
-        }
-        applier.publish_empty_snapshot(&self.group, &self.snapshot)?;
-        Ok(())
-    }
 }
 
 pub(crate) fn snapshot_image(
@@ -951,40 +851,6 @@ pub(crate) fn snapshot_image(
         ));
     }
     Ok(descriptor.image)
-}
-
-/// Recover retention for every durable local group, including groups absent
-/// from this process's application registrations. The schema comes from the
-/// canonical native descriptor solely to preserve bytes, never to serve them.
-pub(crate) fn retained_image(group: &GroupLog) -> Result<Option<CommittedImage>, SnapshotError> {
-    let (snapshot, applied) = {
-        let cache = group.read()?;
-        (cache.snapshot.clone(), cache.applied.clone())
-    };
-    if snapshot.get_metadata().index == 1 && snapshot.data.is_empty() {
-        return Ok(None);
-    }
-    if snapshot.compute_size() > 64 * 1024 {
-        return Err(SnapshotError::Limit);
-    }
-    let declared: Descriptor = serde_json::from_slice(&snapshot.data)
-        .map_err(|_| SnapshotError::Invalid("retained snapshot descriptor"))?;
-    let image = snapshot_image(
-        group,
-        declared.schema,
-        &snapshot,
-        SnapshotLimits {
-            max_image_bytes: stream_snapshot::MAX_IMAGE_BYTES,
-            max_encoded_bytes: stream_snapshot::MAX_ENCODED_BYTES as usize,
-            ..Default::default()
-        },
-    )?;
-    if applied.position.index.get() == snapshot.get_metadata().index && applied.image != image {
-        return Err(SnapshotError::Invalid(
-            "retained snapshot/applied image binding",
-        ));
-    }
-    Ok(image)
 }
 
 fn encode_image(
@@ -1035,7 +901,3 @@ fn seal_image(
     };
     Ok(Some(pin))
 }
-
-#[path = "snapshot_seed.rs"]
-mod seed;
-pub(crate) use seed::{PreparedSeed, SeedDownload};

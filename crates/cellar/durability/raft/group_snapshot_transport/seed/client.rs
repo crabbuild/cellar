@@ -98,7 +98,7 @@ impl RaftTransport {
         let process = state.seed_peer_epoch(&RaftPeerNode::from(&source))?;
         let metadata = state
             .seed_metadata
-            .acquire(seeds::META_BYTES)
+            .acquire(GRANT_RESERVATION_BYTES)
             .ok_or(TransportError::Overloaded)?;
         let admission = Arc::new(ReceiveAdmission {
             _wire: state

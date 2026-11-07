@@ -11,6 +11,7 @@ use std::sync::{
 
 pub(crate) enum Access {
     Application,
+    #[cfg(test)]
     Control,
     Cleanup,
 }

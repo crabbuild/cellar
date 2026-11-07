@@ -27,40 +27,6 @@ pub struct RootSnapshotSource {
 }
 
 impl RootSnapshotSource {
-    pub(super) fn retained(
-        group: &GroupLog,
-        image: Arc<SealedImageRoot>,
-        schema: [u8; 32],
-        expected: &Snapshot,
-        limits: SnapshotLimits,
-    ) -> Result<Self, SnapshotError> {
-        let descriptor = Descriptor::decode(group, schema, expected, limits)?;
-        if group.read()?.snapshot != *expected
-            || descriptor.image.as_ref() != Some(&super::super::rooted::marker::encode(&image))
-        {
-            return Err(SnapshotError::Invalid("retained root checkpoint binding"));
-        }
-        let manifest = image
-            .manifest()
-            .encode()
-            .map_err(cellar_ltx::internal::StoreError::from)?;
-        // Source membership may have advanced beyond this exact retained cut.
-        // The receiver separately requires the incoming configuration to
-        // succeed its own state; a sender must not substitute a newer cut.
-        RootSnapshotSet::bound(expected, descriptor, &manifest)?;
-        Ok(Self {
-            group: group.clone(),
-            image,
-            snapshot: expected.clone(),
-            manifest,
-            limits,
-        })
-    }
-
-    pub(super) fn schema(&self) -> [u8; 32] {
-        self.image.manifest().binding().schema
-    }
-
     pub fn capture(
         group: &GroupLog,
         image: RootPublishedImage,

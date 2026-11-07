@@ -559,12 +559,6 @@ impl FleetHostAuthorization {
         self.record.capability_digest
     }
 
-    pub(crate) fn instance_matches(&self, instance: EngineInstanceId) -> bool {
-        self.record
-            .storage_instance
-            .is_none_or(|expected| expected == instance.bytes())
-    }
-
     pub(crate) async fn group_authorization(
         &self,
         scope: &cellar_logic::cell_group::GroupHistory,

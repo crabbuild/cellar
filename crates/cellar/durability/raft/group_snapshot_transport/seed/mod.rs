@@ -27,6 +27,7 @@ const REPLY: &[u8] = b"cellar-group-seed-grant-1";
 const READY: &[u8] = b"cellar-group-seed-ready-1";
 const CHUNK: &[u8] = b"cellar-group-seed-chunk-1";
 const META_BYTES: usize = 64 * 1024;
+pub(in crate::raft::transport) const GRANT_RESERVATION_BYTES: usize = 4 * 1024 * 1024;
 
 type Stream = tokio_rustls::client::TlsStream<metrics::Socket<TcpStream>>;
 type Installed = (CellGroupBootstrapPermit, PreparedGroupManifest);

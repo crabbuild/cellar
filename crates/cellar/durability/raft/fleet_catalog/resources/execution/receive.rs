@@ -2,33 +2,11 @@
 
 //! The receiving process independently resolves its current canonical permit.
 use super::*;
-use crate::application::consensus::{CommandFailure, LearnerActivation};
+use crate::application::consensus::LearnerActivation;
 use crate::raft::member_state::RepairStep;
 use cellar_logic::consensus::{LogIndex, MemberId};
 
-pub(crate) fn command_failure(error: CommandFailure) -> FleetCatalogError {
-    match error {
-        CommandFailure::Overloaded => FleetCatalogError::Overloaded,
-        CommandFailure::CommandConflict => FleetCatalogError::Conflict,
-        CommandFailure::CorruptState => FleetCatalogError::Corrupt("movement host state"),
-        CommandFailure::UnsupportedCapability => {
-            FleetCatalogError::Invalid("movement host capability")
-        }
-        _ => FleetCatalogError::Unconfirmed,
-    }
-}
-
 impl FleetHostAuthorization {
-    /// Only an active exact reservation may initialize a learner after placement
-    /// exclusion. A history descriptor or old member permit alone is insufficient.
-    pub(crate) async fn admitted_learner(
-        &self,
-        scope: &GroupHistory,
-        timeout: Duration,
-    ) -> Result<FleetPermitAuthorization> {
-        self.admitted_seed(scope, None, timeout).await
-    }
-
     pub(crate) async fn admitted_learner_from(
         &self,
         scope: &GroupHistory,

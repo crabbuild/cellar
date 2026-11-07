@@ -31,10 +31,6 @@ fn scan_operation(operation: Value) -> Result<()> {
     let result = scan_connection_fair(
         &database,
         &history,
-        LogPosition {
-            index: LogIndex::new(1),
-            term: Term::new(1),
-        },
         &RaftClass::new("Counter", 1, [4; 32])?,
         1,
         memory.acquire(64 * 1024).unwrap(),

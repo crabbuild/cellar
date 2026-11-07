@@ -38,6 +38,7 @@ impl Replica {
         })
     }
 
+    #[cfg(test)]
     pub(super) fn restart_leadership(
         &mut self,
         check: RestartLeadershipCheck,

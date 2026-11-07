@@ -295,33 +295,14 @@ archive, settle permits and fence or join physical work. Cold canonical-empty
 histories use explicit empty archives; the terminal verifier must select and
 verify their exact history-bound set rather than waive the archive gate.
 
-`CellArchive::verify_published_at(reference, minimum, verifier, timeout)` now
-provides that archive sub-proof. It downloads the exact selected immutable set,
-checks complete coverage of the fixed `FleetPublishedCut`, physically replays the
-SQL image or verifies canonical-empty state, and reclaims the exclusive scratch
-generations before returning an opaque `VerifiedArchiveCoverage`. Metadata-only
-reads cannot mint it. Missing/corrupt selected material never falls back to a
-newer mutable head. Failed replay quarantines the verifier until its storage
-owner recovers it.
-
-The proof binds the fleet/catalog/history, birth/schema, membership revision,
-archive reference, applied position, original image-publication position and image state. It handles protocol-only
-progress and intact-restore aliases, while a changed configuration requires a
-new attempt. The manifest requires `image_position`: populated state has a
-bounded non-null publication origin, canonical-empty state has explicit null,
-and tail replay refuses an origin preceding its last data entry. A full snapshot
-does not manufacture a later SQL publication position. An old archive cannot cover later data, and a later no-op cannot
-make a conflicting earlier SQL image appear current. One original deadline
-covers object reads, workspace waiting, replay and delivery; completed work
-cannot issue a proof after expiry. Blocking work retains its inputs until its
-execution owner joins it. The caller owns scratch storage and admission for the
-configured recovery-memory bound.
-
-This is historical archive coverage. Candidate preparation consumes this proof
-with complete inventory, quorum publications and exact permit settlement as
-described below. The terminal removal API combines that coverage with renewed
-survivor proofs and exact signed closure before its atomic receipt/node/slot CAS.
-Business-write acknowledgement calls none of this metadata work.
+Managed evacuation uses `FleetGroupArchiveVerifier` to reopen the exact
+history's archive and replay its selected checkpoint and tail into independent
+scratch storage. The resulting complete root covers the fixed
+`FleetPublishedCut`. A missing or corrupt object prevents proof delivery.
+Candidate preparation also needs complete inventory, quorum publications and
+exact permit settlement. Terminal removal combines archive coverage with
+renewed survivor proofs and signed closure before the atomic receipt, node and
+slot update. Business-write acknowledgement runs independently of this work.
 
 The opaque response includes the installed node enrollment and whole invocation
 age through SDK delivery. Per-node and per-peer 1 MiB transport reservations cover

@@ -3,12 +3,9 @@
 //! Discover work only from the published committed image. Both adapters share
 //! one client allocator, one metadata reservation and one owned scheduler turn.
 use super::{alarm, outbox, RaftOutbox};
-use crate::{
-    application::consensus::RaftClass,
-    raft::{apply::PublishedImage, budget::Permit},
-};
+use crate::{application::consensus::RaftClass, raft::budget::Permit};
 use anyhow::{ensure, Result};
-use cellar_logic::consensus::{CommandFailure, CommandId, Durability, LogPosition};
+use cellar_logic::consensus::{CommandFailure, CommandId, Durability};
 use rusqlite::OptionalExtension;
 use std::sync::Arc;
 
@@ -44,42 +41,14 @@ impl DueEffect {
 }
 
 pub(crate) struct EffectScan {
-    pub position: LogPosition,
     pub next: CommandId,
     pub due: Option<DueEffect>,
     pub _reservation: Permit,
 }
 
-pub(crate) fn scan(
-    image: PublishedImage,
-    class: &RaftClass,
-    services: cellar_ltx::generation::ReadServices,
-    now: u64,
-    prefer_delivery: bool,
-    reservation: Permit,
-) -> Result<EffectScan> {
-    let database = crate::storage::open_immutable_generation(
-        image.pin(),
-        crate::storage::ImmutableQueryOptions {
-            services,
-            sqlite_vec: false,
-        },
-    )?;
-    scan_connection(
-        database.connection(),
-        &cellar_logic::cell_group::CellHistory::try_from(image.scope())?,
-        image.position(),
-        class,
-        now,
-        prefer_delivery,
-        reservation,
-    )
-}
-
-pub(crate) fn scan_connection(
+fn scan_connection(
     connection: &rusqlite::Connection,
     scope: &cellar_logic::cell_group::CellHistory,
-    position: LogPosition,
     class: &RaftClass,
     now: u64,
     prefer_delivery: bool,
@@ -127,7 +96,6 @@ pub(crate) fn scan_connection(
         CommandFailure::CorruptState
     );
     Ok(EffectScan {
-        position,
         next,
         due,
         _reservation: reservation,
@@ -139,7 +107,6 @@ pub(crate) fn scan_connection(
 pub(crate) fn scan_connection_fair(
     connection: &rusqlite::Connection,
     scope: &cellar_logic::cell_group::CellHistory,
-    position: LogPosition,
     class: &RaftClass,
     now: u64,
     reservation: Permit,
@@ -151,13 +118,5 @@ pub(crate) fn scan_connection_fair(
     ).optional()?;
     let prefer_delivery =
         previous.is_some_and(|operation| operation.starts_with("__sys_raft_alarm_"));
-    scan_connection(
-        connection,
-        scope,
-        position,
-        class,
-        now,
-        prefer_delivery,
-        reservation,
-    )
+    scan_connection(connection, scope, class, now, prefer_delivery, reservation)
 }
