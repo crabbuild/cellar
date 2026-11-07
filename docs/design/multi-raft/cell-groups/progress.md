@@ -12,6 +12,59 @@ CG-09 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-09 nine-phase controller loss and single-writer qualification
+
+At `d7c3329b3b7a0eae00de4e9853cf1eb91b598519`, five of seven named
+CG-09 cases pass individually on one frozen executable. The new
+`transition_restart_retains_single_writer` case passes both image modes in
+109.02 seconds. Authorization/cancellation, delayed source work, child
+install/publication and retirement dependency pins also pass on this source.
+
+The new schedule covers Planned, Prepared, SealAuthorized, Sealed, Installed,
+Archived, Published, Active and Retired. At each phase it cancels a foreground
+controller operation only after an object-store read reaches its injected
+adapter boundary. It drops that controller and directory, opens independent
+metadata clients, discovers the original operation and resubmits its exact
+request and plan. Replay must preserve the complete journal, Fleet revision
+and active range revision. An assertion requires all nine checkpoints to run
+in order.
+
+For both seeded cells, the case samples physical source and destination
+leaders. Only the source history can serve before the committed seal; neither
+history serves between sealing and activation; only the child serves after
+activation. Local quorum queries verify the responder. Fresh replicated
+zero-delta commands verify the serving history while preserving the fixture's
+business values. Duplicate commands keep identity, result and durability, and
+strong reads before and after the duplicate require an unchanged cell version.
+Receipt versions are covering observations and may advance. Probe command
+sequences remain consecutive across the non-serving phases.
+
+The fixture includes lost directory CAS responses, fresh child quorum,
+retained voter restart, source retirement and physical capacity accounting.
+Controller loss here is modeled by caller cancellation at a store-adapter
+read boundary. It does not claim an OS process kill at every phase. Those
+process and independent-host schedules remain in CG-15.
+
+Real RustFS passes the exact `rustfs_transition_restart_retains_single_writer`
+case in 133.371 seconds across both image modes. The fixed runner suite is
+`managed-phase-restart`. Initial and resumed metadata operations use the real
+S3 client; only the selected foreground read is interrupted. Voters are
+host-native TLS tasks with fixture capacity. RustFS runs in one owned local VM
+container. That backend was stopped after qualification; objects, logs and the
+frozen executable remain retained. Record digests are:
+
+- Native five-case checkpoint: `57a733d7ef915315381e8f543b3cae48db322b1b8d0f3dc6ab33202745471b56`.
+- RustFS phase restart: `ffd08b624380a44e9cd70ce219de5ab22084a2afb252a61402b8ab1a1cdb4f39`.
+
+Strict all-target Clippy passes for `cellar`, `cellar-logic` and
+`cellar-recovery-tests`. Formatting, module layout, native dependencies and
+documentation checks pass, as do all 37 plan tests. CG-09 remains in progress
+for full effect/receiver-dedupe continuity and remote closure after erasing
+every local copy immediately after publication, followed by the full task
+acceptance batch. The accepted index remains eight tasks and 120 of 163
+required cases; the [open audit](remaining-work.md#open-case-audit) records
+partial passes separately.
+
 ## CG-09 retirement pins and Live child reconciliation
 
 At `384837eb5bc62567c2f2eb57b40b44c6f1923b8b`, four of seven required
