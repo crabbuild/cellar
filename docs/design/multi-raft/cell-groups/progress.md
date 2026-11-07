@@ -583,6 +583,46 @@ from 190 after moving both cases. The remaining test helpers still call
 per-cell registration, activation and repair APIs. Its log SHA-256 is
 `c705d18f28cfe7fdc6f30ea345c1ce0c5f74af07c449d23b2c8c814f3804d7bc`.
 
+## CG-07 standby admission and retained restart
+
+The `managed-standby` suite on `cad524e8630aff2e6e34fd09e2cedf52901463b4`
+passed two exact cases against real RustFS, each in materialized and extent
+image modes. The host-native TLS fixture uses three voters and one spare
+with fixture capacity evidence. The standby refusal case commits Seeding
+while quorum is live and obtains the exact catalog grant. After joining two
+voter services, direct S3 activation is unconfirmed and leaves no claim,
+group attachment or archive payload read on the spare. Both seed callbacks
+run exactly once. The case finished in 26.20 seconds.
+
+The second case installs the spare from S3, promotes it, settles the move
+and restarts the joined voter before its peers on the same engine and disk.
+It verifies both local minimum-version reads and strong-read refusal while
+alone. After the other voters return, it checks new S3 writes and
+linearizable reads on the joined voter, with the original SQL callback count
+and stale boot refusal. The case finished in 59.45 seconds.
+The RustFS record SHA-256 is
+`0334db306257e46e37f565a2b1769253dbf0f113e3098bb18feb04624d220c6e`.
+
+The peer-seeded version passed both image modes in 60.52 seconds using the
+fixture store. Its log SHA-256 is
+`8acdca55e67bd02e7d784fbe64876db433b904a2836644425ed972e1b5a6b9a3`.
+The two execution-level joint crash cases passed in 8.45 seconds total.
+They kill a child process at persisted joint and post-joint cuts, reopen
+the original engines and complete consensus. Their native log SHA-256 is
+`651eb11d8391847ae484c4dd0aca371942ce26e9dc3000f72792ad1bcb15040d`.
+
+The locked legacy membership check reported 154 errors after the two ports.
+Its log SHA-256 is
+`99a92b19e0f36a6ccf9a8f3dc52473f7df2255210bc4a2705f0a5ea23ba0f791`.
+Strict Clippy for the managed target failed at the library with 202 errors,
+starting with unused predecessor code. Its log SHA-256 is
+`6b7af8ebfac106ca404f5a4a86bf8ae53b7355021e901d8abc060e86bf96997d`.
+The active managed move still binds execution to its original process
+identities. Completion also requires proof from the reserved target boot.
+Restart during an active joint configuration needs a managed continuation
+oracle that checks same-disk ownership, fresh quorum and retention of the
+original capacity debit.
+
 ## CG-07 voter and learner read readiness
 
 The public shared-group read target at `9ab1334894c6e6d0ce41c2a5421fc3ba56448951`
