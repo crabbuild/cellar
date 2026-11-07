@@ -147,6 +147,16 @@ SUITES = {
         "Voter loss uses joined shutdown; capacity is a fixture attestation. "
         "Independent process crashes and permanent launch revocation remain separate gates.",
     ),
+    "managed-precopy-resources": (
+        "native_cell_groups_split_merge",
+        ("rustfs_transition_precopy_resource_bounds",),
+        "bounded managed pre-copy keeps entered worker debt while live quorum requests progress",
+        "Both image modes with a real child-page directory-sync barrier. Logical restore operation "
+        "and byte admission stay charged through cancellation and physical worker completion. "
+        "A live source quorum write and read progress while copy is paused. "
+        "Host-native voters and fixture capacity; hard RSS, sustained load and process crashes "
+        "remain separate gates.",
+    ),
     "managed-minority": (
         "native_cell_groups_managed",
         ("bootstrap::lifecycle::s3::rustfs_managed_minority_cannot_reconfigure_from_s3",),
@@ -215,7 +225,7 @@ def sources(suite):
         for name in result.decode().split("\0")
         if name and (not name.startswith(("docs/", "plans/", "packages/", "examples/"))
                      or (suite in ("managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition",
-                                   "managed-split-merge", "managed-partial-merge", "managed-retirement", "managed-phase-restart", "managed-effect-transfer", "managed-publication-loss")
+                                   "managed-split-merge", "managed-partial-merge", "managed-precopy-resources", "managed-retirement", "managed-phase-restart", "managed-effect-transfer", "managed-publication-loss")
                          and name == "examples/raft-counter/counter.rs"))
         and (ROOT / name).is_file()
     ]

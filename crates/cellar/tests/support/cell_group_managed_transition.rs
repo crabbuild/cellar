@@ -89,6 +89,7 @@ enum Decision {
     SplitMerge {
         recovery_barrier: bool,
         check_child_fence: bool,
+        check_resource_bounds: bool,
     },
 }
 
@@ -379,8 +380,24 @@ async fn exercise_inner(
         .await;
     ensure!(matches!(unprepared, Err(error) if error.code == RaftFleetFailureCode::Conflict));
 
+    let check_resources = matches!(
+        decision,
+        Decision::SplitMerge {
+            check_resource_bounds: true,
+            ..
+        }
+    );
     let (registry, held, seeded, archived) = Box::pin(preparation::exercise(
-        cluster, &reopened, directory, &recovered, &parent, &children, rooted,
+        cluster,
+        &reopened,
+        directory,
+        &recovered,
+        &parent,
+        &children,
+        preparation::PreparationOptions {
+            rooted,
+            check_resources,
+        },
     ))
     .await?;
 
@@ -617,6 +634,7 @@ async fn exercise_inner(
             Decision::SplitMerge {
                 recovery_barrier,
                 check_child_fence,
+                ..
             } => {
                 merge::run(
                     cluster,
@@ -746,6 +764,7 @@ pub(crate) fn qualify_split_merge(
     rooted: bool,
     store: Arc<fault::Store>,
     check_child_fence: bool,
+    check_resource_bounds: bool,
 ) -> futures_util::future::LocalBoxFuture<'static, Result<()>> {
     Box::pin(run_plan(
         rooted,
@@ -753,6 +772,7 @@ pub(crate) fn qualify_split_merge(
         Decision::SplitMerge {
             recovery_barrier: false,
             check_child_fence,
+            check_resource_bounds,
         },
     ))
 }

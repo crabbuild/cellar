@@ -34,6 +34,14 @@ pub(super) fn retry_deadline() -> Result<u64> {
     .context("retry deadline")
 }
 
+pub(super) struct PreparationOptions {
+    pub rooted: bool,
+    pub check_resources: bool,
+}
+
+#[path = "cell_group_precopy_resources.rs"]
+mod resources;
+
 pub(super) async fn exercise(
     cluster: &ManagedCluster,
     controller: &FleetCatalog,
@@ -41,13 +49,14 @@ pub(super) async fn exercise(
     transition: &ReopenedManagedCellGroupTransition,
     parent: &CellGroupBirth,
     children: &[GroupRoute],
-    rooted: bool,
+    settings: PreparationOptions,
 ) -> Result<(
     CellGroupArchiveRegistry,
     CellGroupArchiveHold,
     SeededCells,
     CommandReceipt,
 )> {
+    let rooted = settings.rooted;
     let seeded = seed_cells(&cluster.hosts, cluster.history).await?;
     restart::checkpoint(cluster, directory, transition, TransitionPhase::Planned).await?;
     let fixture = &cluster.fixtures[0];
@@ -207,6 +216,24 @@ pub(super) async fn exercise(
         .err()
         .context("preparation without a configured verifier")?;
     ensure!(refused.code == RaftFleetFailureCode::Unsupported);
+    let concurrent = if settings.check_resources {
+        Some(
+            Box::pin(resources::exercise(resources::Context {
+                cluster,
+                directory,
+                transition,
+                parent,
+                children,
+                held: &held,
+                controller: &reopened,
+                archived: &archived,
+                rooted,
+            }))
+            .await?,
+        )
+    } else {
+        None
+    };
     let verifier = crate::managed_fixture::verifier::open(
         fixture,
         &scratch.path().join("operator"),
@@ -224,14 +251,18 @@ pub(super) async fn exercise(
     .await?;
     ensure!(prepared.phase == TransitionPhase::Prepared);
     restart::checkpoint(cluster, directory, transition, TransitionPhase::Prepared).await?;
-    // The selected cut survives a later quorum write to the active parent.
-    let next = handle
-        .command(
-            &handle.contract("Add")?,
-            1i64.to_be_bytes().to_vec(),
-            CommandOptions::new(CommandId::new(client, 3)?, retry_deadline()?),
-        )
-        .await?;
+    // The selected cut survives a concurrent or later quorum write to the active parent.
+    let next = if let Some(receipt) = concurrent {
+        receipt
+    } else {
+        handle
+            .command(
+                &handle.contract("Add")?,
+                1i64.to_be_bytes().to_vec(),
+                CommandOptions::new(CommandId::new(client, 3)?, retry_deadline()?),
+            )
+            .await?
+    };
     ensure!(next.result == 10i64.to_be_bytes() && next.version != archived.version);
     let replay = crate::managed_fixture::operator::prepare_transition(
         fixture,
@@ -332,7 +363,15 @@ pub(super) fn store(
     route: GroupRoute,
     rooted: bool,
 ) -> Result<CellGroupTransferTarget> {
-    let filesystem = Arc::new(DirectFileSystem);
+    store_with_filesystem(base, route, rooted, Arc::new(DirectFileSystem))
+}
+
+pub(super) fn store_with_filesystem(
+    base: std::path::PathBuf,
+    route: GroupRoute,
+    rooted: bool,
+    filesystem: Arc<dyn cellar_ltx::FileSystem>,
+) -> Result<CellGroupTransferTarget> {
     let scratch = ScratchPool::new(ScratchLimits {
         max_bytes: 32 * 1024 * 1024,
         max_files: 1,

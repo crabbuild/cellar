@@ -344,7 +344,7 @@ fn transition_group(history: GroupHistory) -> RaftFleetTransitionGroup {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn managed_split_then_merge_replays_late_writes() -> Result<()> {
-    qualify_split_merge(false, Arc::new(fault::Store::default()), false).await
+    qualify_split_merge(false, Arc::new(fault::Store::default()), false, false).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -361,6 +361,7 @@ async fn rustfs_managed_split_merge() -> Result<()> {
             Decision::SplitMerge {
                 recovery_barrier: false,
                 check_child_fence: false,
+                check_resource_bounds: false,
             },
         ))
         .await
@@ -377,6 +378,7 @@ async fn managed_recovery_barrier_fences_transfer_and_reopens() -> Result<()> {
         Decision::SplitMerge {
             recovery_barrier: true,
             check_child_fence: false,
+            check_resource_bounds: false,
         },
     ))
     .await
@@ -396,6 +398,7 @@ async fn rustfs_managed_recovery_barrier_fences_transfer_and_reopens() -> Result
             Decision::SplitMerge {
                 recovery_barrier: true,
                 check_child_fence: false,
+                check_resource_bounds: false,
             },
         ))
         .await

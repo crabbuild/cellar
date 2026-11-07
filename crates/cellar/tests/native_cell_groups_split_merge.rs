@@ -47,6 +47,7 @@ async fn merge_requires_adjacent_compatible_ranges() -> Result<()> {
             rooted,
             Arc::new(fault::Store::default()),
             false,
+            false,
         )
         .await?;
     }
@@ -56,9 +57,14 @@ async fn merge_requires_adjacent_compatible_ranges() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn partial_merge_failure_no_double_writer() -> Result<()> {
     for rooted in [false, true] {
-        bootstrap::transition::qualify_split_merge(rooted, Arc::new(fault::Store::default()), true)
-            .await
-            .with_context(|| format!("partial merge child fence, extents={rooted}"))?;
+        bootstrap::transition::qualify_split_merge(
+            rooted,
+            Arc::new(fault::Store::default()),
+            true,
+            false,
+        )
+        .await
+        .with_context(|| format!("partial merge child fence, extents={rooted}"))?;
     }
     Ok(())
 }
@@ -71,9 +77,39 @@ async fn rustfs_partial_merge_failure_no_double_writer() -> Result<()> {
             "partial-merge",
             rooted,
         )?));
-        bootstrap::transition::qualify_split_merge(rooted, store, true)
+        bootstrap::transition::qualify_split_merge(rooted, store, true, false)
             .await
             .with_context(|| format!("RustFS partial merge child fence, extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn transition_precopy_resource_bounds() -> Result<()> {
+    for rooted in [false, true] {
+        bootstrap::transition::qualify_split_merge(
+            rooted,
+            Arc::new(fault::Store::default()),
+            false,
+            true,
+        )
+        .await
+        .with_context(|| format!("precopy resource ownership, extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_transition_precopy_resource_bounds() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(fault::Store::around(rustfs::store(
+            "precopy-resources",
+            rooted,
+        )?));
+        bootstrap::transition::qualify_split_merge(rooted, store, false, true)
+            .await
+            .with_context(|| format!("RustFS precopy resource ownership, extents={rooted}"))?;
     }
     Ok(())
 }
