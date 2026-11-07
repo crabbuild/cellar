@@ -526,6 +526,32 @@ in `native_raft_operations` and its support files, beginning with legacy
 cell registration and placement types. The log SHA-256 is
 `8fed26b31b593ce59cff1f16dad0b2ea02b6622cd03fdf7ac54521fa9cd8a81a`.
 
+## CG-07 shared-group shutdown operations
+
+At `abd2d5f72e6377bf340d6b6564923df15d224c5b`, both ported operations
+cases passed in 30.55 seconds. Each uses three managed voters with retained
+Raft Engine disks and covers materialized and extent-backed images. The
+archive-lag case denies archive payload writes in the fixture store, confirms
+a newer quorum receipt than the archived cut, and checks the joined shutdown
+report. A new process on the same disk serves a linearizable read and replays
+the exact receipt with S3 durability after the outage clears. The pending
+proposal case holds a SQL callback while shutdown refuses new reads and writes,
+then releases the callback and verifies its receipt and joined shutdown.
+
+The native command was
+`cargo test --locked -p cellar --test native_cell_groups_managed -- shutdown:: --nocapture --test-threads=1`.
+The log SHA-256 is
+`b2a0e830752fbb37f666898265a16e2390ec88f8d8f2191814a137aadaf67c81`.
+This run used a fixture object store. The separate constrained RustFS
+results retain their executable revisions.
+
+The locked operations compile check on this source still reported 162 errors.
+The locked all-target build stopped in `native_raft_membership` with 190 errors.
+Both targets still use predecessor per-cell registration and placement.
+Their log SHA-256 values are
+`3ab880f5635d5b9e6ca5118c82adfce67611c57839cbc58d449ec91686a79e03` and
+`36da340843c09c5cab5ca5cde8a59f8197426d4ec286f6d99567b782d37449b4`.
+
 ## CG-07 voter and learner read readiness
 
 The public shared-group read target at `9ab1334894c6e6d0ce41c2a5421fc3ba56448951`

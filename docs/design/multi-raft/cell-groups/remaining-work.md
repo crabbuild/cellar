@@ -84,13 +84,15 @@ combines these paths with managed repair, drain and maintenance.
 ## Open case audit
 
 The [implementation index](implementation-plan.md) counts accepted cases from
-completed task records. Component and process checkpoints retain their recorded
-source revisions. Each open task still needs the exact target, case oracles
-and evidence specified by `plan.py show <task>`.
+completed task records. For example, CG-07 has recorded passes for all five
+required cases and its task acceptance is pending because the build and lint
+gates failed. Component and process checkpoints retain their recorded source
+revisions. Each open task still needs the exact target, case oracles and
+evidence specified by `plan.py show <task>`.
 
 | Task | Checked-in coverage | Acceptance still required |
 | --- | --- | --- |
-| CG-07 | The isolated constrained RustFS daemon passed both image modes at `393bffe4`. All five named public cases passed in individual runs on that revision, with an ingress repeat after a standby timeout. | Port the legacy operations callers and clear the all-target build and strict lint gates. Investigate any repeated standby, joint-consensus or maintenance timeout. |
+| CG-07 | The isolated constrained RustFS daemon passed both image modes at `393bffe4`. All five named public cases passed in individual runs on that revision, with an ingress repeat after a standby timeout. Both shared-group shutdown ports passed in both image modes with a fixture store. | Port the remaining legacy operations and membership callers and clear the all-target build and strict lint gates. Investigate any repeated standby, joint-consensus or maintenance timeout. |
 | CG-09 | `seal_authorization_cancel_race` and `source_seal_blocks_delayed_work` run in the catalog and host targets. Component checkpoints also cover rooted archive holds and managed serving after transfer. | Build the planned transition target. Exercise publication only after destination quorum install and remote closure, restart with one writer, receipt/token/effect continuity, and archive pins through retirement. |
 | CG-10 | The clean operator split-and-merge case passed both RustFS image modes after retained startup moved onto a separate task and fresh commands received their own retry windows. | Qualify the named cases for exact union and adjacency, incompatible placement/durability, partial reservations across restart, writes during movement and bounded precopy. |
 | CG-11 | Placement observations and advisory recommendations exist. | Qualify hysteresis, hot-cell isolation, whole-group scale out and in, failure-domain reserve and bounded controller fanout. |
@@ -199,7 +201,7 @@ inventory explicit and fail closed for unseeded groups.
 | --- | --- | --- |
 | 1 | Managed S3 learner activation and archive holds (CG-06/07) | Expand the scoped native/RustFS results to the full failure/cancellation and fenced failed-voter lifecycle. Preserve complete manifest/image/receipt closure, destination boot/catalog checks, physical install, catch-up and fresh quorum before promotion. Retained-journal discovery and retirement now pass native/RustFS idle, outage, solo-restart and cancelled-close cases. Complete fenced handling of unknown/lost ownership and the remaining failure/cancellation lifecycle. A surviving original voter still needs a live physical-inventory proof for catalog settlement; its outage must retain the debit. Finish orchestration for that retained debt and qualify stop/offline ownership; a seed or remote object supplies no activation authority. |
 | 2 | Public SDK surface and executable consumers (CG-07) | Port the original daemon/native/Axum fixtures and performance/fleet runners to namespace capabilities, physical group assignment and replicated cell enrollment. The local all-binary check clears the original 27 compilation errors; qualify the final combined source. Clear the remaining 128-cell enrollment deadline, qualify S3 at every planned occupancy, finish live manifest-page ownership and qualify owned extent collection under the original workload bounds. Retain every original HTTP/read/retry option, exact term/revision transfer guard, actual responder metadata and all five original public gates. Incorporate the implemented cold birth, repair, maintenance stop/return/resume and physical debt into the complete public lifecycle case, including retained nonvoting inventory and failure/cancellation ownership. |
-| 3 | Public, build and backend qualification (CG-07 and MVP portions of CG-14/15/16) | Diagnose the original checkpoint TCP retry `Overloaded`, intermittent five-second successor-readiness timeout and earlier eight-turn maintenance failure; current passes cannot waive failed runs. Deliver the four remaining public cases below while retaining the SDK case; port `native_raft_reads` and the remaining per-cell test callers, and clear strict lint failures without suppressions. Keep the reviewed plan anchors and generated index current. Run affected SDK CI feature modes. Extend current-source real RustFS component recovery to constrained independent voters and replication/reclamation under bounded mixed load, retaining exact binaries, ledgers, failures and resource/latency measurements. |
+| 3 | Public, build and backend qualification (CG-07 and MVP portions of CG-14/15/16) | Diagnose the original checkpoint TCP retry `Overloaded`, intermittent five-second successor-readiness timeout and earlier eight-turn maintenance failure; current passes cannot waive failed runs. Rerun all five public cases together after porting the remaining per-cell operations and membership callers and clearing strict lint failures. The shared read target already passed all 17 cases at its recorded revision. Keep the reviewed plan anchors and generated index current. Run affected SDK CI feature modes. Extend current-source real RustFS component recovery to constrained independent voters and replication/reclamation under bounded mixed load, retaining exact binaries, ledgers, failures and resource/latency measurements. |
 
 The public counter and first SDK gate are qualified at their recorded local
 boundary. Managed boot/directory/stop ownership is implemented at its recorded
@@ -221,7 +223,7 @@ execute locally rather than recursively forwarding. Peer discovery and leader
 hints choose a destination but never supply authority. Do not implement retries
 by creating fresh independent deadlines or attempt banks.
 
-The original public merge gates are:
+The public merge gate requires these five cases.
 
 - `sdk_many_cells_share_group`: public startup/handles, independent SQLite cells,
   one configured group and all replicas; observe actual group/RawNode counts.

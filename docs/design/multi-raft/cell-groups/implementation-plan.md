@@ -5,10 +5,10 @@
 Purpose: Dependency order and status of the sixteen cell-group implementation tasks.
 
 Generated from `tasks.json`. Regenerate with `plan.py index` after status changes.
-**115 of 163 named cases** have task-level acceptance evidence.
-Task acceptance covers all required cases for a DONE task. Pending tasks can have
-passing cases. See the [open case audit](remaining-work.md#open-case-audit) for
-recorded passes, failures and remaining gates.
+**7 of 16 tasks are accepted**, covering **115 of 163 required cases**.
+The acceptance count includes only DONE tasks. A task closes after its dependencies
+and complete source-pinned evidence pass. The [open case audit](remaining-work.md#open-case-audit)
+tracks individual passes and remaining gates for pending tasks.
 The full release requires a combined run on one source revision.
 CG-07 gates the default shared-group backend for new SQL namespaces.
 CG-15 and CG-16 gate the full release.
