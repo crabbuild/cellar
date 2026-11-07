@@ -97,7 +97,7 @@ inspection. See [progress](progress.md) for exact artifacts and limits.
 
 | Task | Checked-in coverage | Acceptance still required |
 | --- | --- | --- |
-| CG-11 | Placement observations and advisory recommendations exist. | Qualify hysteresis, hot-cell isolation, whole-group scale out and in, failure-domain reserve and bounded controller fanout. |
+| CG-11 | A bounded SDK scheduler now samples live local groups and admits recommendations through current quorum/capacity owners. Hot-cell admission, lost reservation confirmation, quorum refusal and retained-command reconciliation pass native and real RustFS checks in both image modes at `d0ef46ec`. | Connect bounded automatic inventory and durable operation execution; qualify whole-group scale out/in, failure-domain repair/reserve and control-plane fanout. The complete task gate remains open. |
 | CG-12 | Two of five named cases passed in both native image modes. They cover alarm and peer wake without a client, and refusal of strong reads and quorum writes during minority wake. The constrained daemon also parks and wakes a group. | Qualify all-voter eligibility and pending-work refusal, partial/stale certificates, and the full parked restart and leader-loss case. Measure wake latency in the planned profiles. |
 | CG-13 | The clean host-native recovery case passed both RustFS image modes after all owned voter disks were erased, using a fixture fence. | Qualify interrupted transition closure selection, permanent revocation of every possible old writer, fresh histories and retry under independent Docker voter processes. Exercise the outbox ambiguity refusal. |
 | CG-14 | The daemon harness retains scoped real-voter/RustFS evidence. The focused native occupancy-128 case passes; the original three-occupancy matrix still times out at 128. | Build the planned harness acceptance target for real occupancies, ownership, complete ledgers, evidence drift rejection and measured profiles. |
@@ -113,9 +113,10 @@ a committed command and its applied receipt. Explicit S3 durability waits for
 archive proof. The release should define which SQL capabilities are available
 through the shared backend and preserve typed refusals for the rest.
 
-1. **Deliver CG-11 adaptive placement.** Connect admitted observations and
-   recommendations to bounded reconciliation for hot-cell isolation, whole-group
-   scale out/in, failure-domain reserves, hysteresis and controller fanout.
+1. **Finish CG-11 adaptive placement.** The explicit sizing/admission owner now
+   passes native and RustFS checks. Connect bounded automatic inventory and durable
+   operation execution to whole-group scale out/in, failure-domain reserves and
+   targeted controller fanout; retain exact pending identities through uncertainty.
 2. **Finish CG-12 and CG-13 managed operations.** Complete fenced hibernation,
    wake eligibility and retained lifecycle, then S3 recovery of interrupted
    transitions. CG-13 requires the CG-14 infrastructure harness and the permanent

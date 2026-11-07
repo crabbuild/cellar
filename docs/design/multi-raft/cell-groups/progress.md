@@ -12,6 +12,62 @@ CG-11 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-11 live sizing and managed admission checkpoint
+
+At `d0ef46ec20f630da5156928c45ce88fe2fb8c898`, the SDK exposes an explicitly driven
+`RaftFleetPartitionScheduler`. It tracks at most 128 selected local groups,
+converts actual Raft-owner counters and SQLite geometry into policy samples,
+and connects split/merge recommendations to canonical managed admission.
+Owner, route, directory, term, membership or placement-class changes reset
+sampling. Fresh samples, archive-lag limits, hysteresis and cooldown remain
+mandatory. Scheduling cannot supply quorum, capacity or failure-domain authority.
+
+Before dispatch, the scheduler freezes one exact principal, operator request and
+recommendation. A lost confirmation, cancelled waiter or advisory-cache eviction
+cannot choose new IDs or release the pending slot. Exact retries resume the
+original partial reservations. Settlement verifies the canonical operator-plan
+binding, terminal journal and Fleet disruption-slot release. Preparation, seal,
+installation, activation and physical resource settlement keep their existing
+owners. The caller must persist its operator request before dispatch.
+
+The two named native checks pass in both image modes: hot-cell sizing selects a
+canonical occupied boundary, bounds the tracker cache, resumes the first child
+reservation after lost confirmation, and reconciles terminal cancellation.
+The quorum case joins and stops both followers, then refuses both new child
+reservations and quorum writes. It restores the same disks and reconciles the
+uncertain write with its original command identity. The counter increments once;
+both response tokens authenticate the same receipt observation. Shutdown joins
+with no unresolved producers. Only typed Busy contention retries inside the
+original five-second reconciliation budget; busy observations remain in the
+native log. The earlier fixture attempts remain recorded as failed, rather than
+weakening the shutdown assertion or treating timeout as a failed mutation.
+
+The fixed `managed-partition-scheduler` RustFS suite passes both exact cases in
+both image modes on the same executable. Its case command durations are 24.517
+and 42.430 seconds. The native pair takes 59.23 seconds of test execution. These
+are correctness observations alongside compilation on the same host, not a
+benchmark. Five pure placement-policy tests, strict all-target Clippy, formatting,
+module layout, native dependencies and 37 plan tests pass. The owned RustFS backend
+is stopped with its objects retained. Voters run on the host with fixture capacity;
+RustFS has observed limits of one CPU, 2 GiB memory and no additional swap.
+
+Local records:
+
+- `.cellar/cell-groups-evidence/CG-11-admission-d0ef46ec-01/record.json`,
+  SHA-256 `66b38f81626969af5c22a5460e731e9b385adf73daa5fa16145b6fcce1b5f093`.
+  This is a CHECKPOINT with 3,333 Git-blob source inputs, not complete task acceptance.
+- `.cellar/cell-groups-evidence/CG-11-rustfs-scheduler-retained-02/record.json`,
+  SHA-256 `4d5153449c5f106b18a6a20b48fc9829427468371564debf7ce161e0e28d5263`.
+- Frozen native executable SHA-256
+  `4158dff13a9cabe85e550dccceac03755baccb4a4f5cfa9b9d0e5b6cadd77ce5`.
+
+CG-11 remains IN_PROGRESS. Next connect bounded inventory selection and durable
+operation ownership to autonomous execution, then qualify whole-group scale-out/in,
+failure-domain repair/reserve and control-plane fanout. The complete five-case task
+gate, placement load and independent-host profiles remain open. CG-12/13 lifecycle
+and recovery, CG-14's occupancy matrix gap, and CG-15/16's full release gates remain
+mandatory.
+
 ## CG-10 operator acceptance and real RustFS request paths
 
 CG-10 passes all ten required commands at `8b410f25bc4475f3520c2682625ead49e47ea385`: all-target

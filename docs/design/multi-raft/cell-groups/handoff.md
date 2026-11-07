@@ -14,6 +14,13 @@ pre-copy and partial-merge suites pass both image modes on that source and nativ
 executable. The backend is stopped, objects retained. See [progress](progress.md)
 for full source, executable, CLI and artifact hashes.
 
+CG-11 now has a bounded node-local sizing/admission scheduler at `d0ef46ec`.
+Its two native checks and fixed real RustFS suite pass both image modes, including
+lost reservation confirmation, actual quorum loss, retained follower return and
+exact minority-command reconciliation before joined shutdown. The checkpoint is
+not full CG-11 acceptance. Its frozen source, executable, logs and remaining case
+oracles are recorded in [progress](progress.md).
+
 The new request-path fixes provide bounded successor-group discovery, automatic
 strong-read relocation and public remote receipt inspection. Read-only retries
 retain the original identity, catalog floor, deadline and attempt bank. Incoming
@@ -23,8 +30,9 @@ durability at marker 1. Valid engine admission atomically replaces advisory
 routes. Keep concrete transport at the SDK invocation edge; storing it in Shared
 breaks default-limit application type checking.
 
-Next deliver CG-11's bounded adaptive placement and hot-cell isolation, then
-CG-12's full fenced park/wake lifecycle. CG-13 requires CG-14 infrastructure for
+Next connect CG-11's explicit scheduler to bounded automatic inventory and durable
+operation execution, then qualify whole-group movement, reserve and fanout.
+Continue with CG-12's full fenced park/wake lifecycle. CG-13 requires CG-14 infrastructure for
 managed interrupted-transition recovery and permanent Docker fencing with all
 voter disks erased. Keep CG-15/16's combined-source load/crash, public cutover and
 legacy audit gates open. Full public capability coverage and existing Fleet data
