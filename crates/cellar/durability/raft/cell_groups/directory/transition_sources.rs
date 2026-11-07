@@ -38,6 +38,20 @@ pub struct VerifiedCellGroupTransitionSources {
 }
 
 impl VerifiedCellGroupTransitionSources {
+    // Called only after complete archive replay and exact selected-set checks.
+    pub(super) fn from_replay(
+        plan: &DirectoryMutation,
+        verified: VerifiedTransitionSourceSet,
+    ) -> Self {
+        Self {
+            operation: plan.operation(),
+            plan: plan.digest(),
+            journal: verified.journal,
+            sources: verified.sources,
+            children: verified.children,
+        }
+    }
+
     pub(crate) fn transition_plan(&self) -> (ProposalId, [u8; 32]) {
         (self.operation, self.plan)
     }
@@ -59,6 +73,7 @@ impl VerifiedCellGroupTransitionSources {
 pub(super) enum TransitionSourceCut {
     Active,
     Sealed,
+    PublishedBaseline,
 }
 
 pub(super) struct VerifiedTransitionSourceSet {
@@ -457,15 +472,32 @@ impl RangeDirectory {
                     {
                         return Err(CatalogError::Fenced)
                     }
-                    TransitionSourceCut::Sealed => {
+                    TransitionSourceCut::Sealed | TransitionSourceCut::PublishedBaseline => {
                         journal.seal_authorization()?;
+                        if matches!(cut, TransitionSourceCut::PublishedBaseline) {
+                            let publication = self
+                                .confirmed_transfer_publication(mutation)
+                                .await?
+                                .ok_or(CatalogError::Fenced)?;
+                            if journal.phase() != TransitionPhase::Published
+                                || journal.parent_holds_released()
+                                || publication.transfer_archive() != journal.transfer_archive()
+                            {
+                                return Err(CatalogError::Fenced);
+                            }
+                        }
                     }
                     TransitionSourceCut::Active => (),
                 }
                 Ok((view, journal))
             })
             .await?;
-        for route in &parents {
+        let selected_routes = if matches!(cut, TransitionSourceCut::PublishedBaseline) {
+            &children
+        } else {
+            &parents
+        };
+        for route in selected_routes {
             self.bounded(self.selected_route_in(&view, route)).await?;
         }
         for (route, source) in parents.iter().zip(&sources) {
@@ -479,17 +511,26 @@ impl RangeDirectory {
         let digest = record::digest(&set.bytes);
         let selected = match cut {
             TransitionSourceCut::Active => journal.preparation_sources(),
-            TransitionSourceCut::Sealed => journal.sealed_sources(),
+            TransitionSourceCut::Sealed | TransitionSourceCut::PublishedBaseline => {
+                journal.sealed_sources()
+            }
         };
+        if matches!(cut, TransitionSourceCut::PublishedBaseline) && selected.is_none() {
+            return Err(CatalogError::Fenced.into());
+        }
         if selected.is_some_and(|selected| selected != digest) {
             return Err(CatalogError::Conflict("transition source set changed").into());
         }
         let mut verified = Vec::with_capacity(sources.len());
         let mut registries = Vec::with_capacity(sources.len());
         for source in sources {
-            let registry = self
-                .open_group_archive(domain, archives, &source.birth)
-                .await?;
+            let registry = if matches!(cut, TransitionSourceCut::PublishedBaseline) {
+                self.open_retired_source_archive(domain, archives, source.birth.route())
+                    .await?
+            } else {
+                self.open_group_archive(domain, archives, &source.birth)
+                    .await?
+            };
             let coverage = registry
                 .verify_hold(domain, &source.hold, tails, source.receiver)
                 .await?;
@@ -503,7 +544,9 @@ impl RangeDirectory {
             verified.push(coverage);
             registries.push(registry);
         }
-        self.persist_transition_source_set(digest, set).await?;
+        if !matches!(cut, TransitionSourceCut::PublishedBaseline) {
+            self.persist_transition_source_set(digest, set).await?;
+        }
         for (registry, coverage) in registries.iter().zip(&verified) {
             registry
                 .require_retained_hold(domain, coverage.hold())

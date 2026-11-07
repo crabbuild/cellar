@@ -1214,6 +1214,16 @@ for every child. Ordinary initial bootstrap refuses those children even when a
 separate install receipt is unavailable. Managed publication rechecks the
 active fleet plan and the exact storage of the reserved child voters.
 
+`FleetCatalog::replay_managed_transfer_baseline` rebuilds the exact immutable
+baseline of a still-owned Published transfer in a fresh private verifier.
+It reads the journal-pinned closure, opens historical parent metadata only under
+that publication, verifies every retained archive hold, and reconstructs the
+installed child roots. It rechecks directory and Fleet snapshots before returning.
+Ordinary selected-birth and archive admission remain fenced for the parents.
+The result owns data pins without an engine or serving authority. An activated
+child's subsequent writes require its archived tail in addition to this baseline;
+live disaster recovery still requires permanent fencing and fresh incarnations.
+
 A managed pre-copy controller stages its exact active source holds before
 opening physical replay receivers. The directory selects their digest on the
 same head used for preparation and cancellation. A replacement controller

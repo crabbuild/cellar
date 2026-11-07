@@ -47,6 +47,7 @@ pub(crate) use managed_recovery_reservation::{
 };
 pub(crate) use managed_recovery_settlement::FleetManagedRecoveryCompletion;
 pub use managed_recovery_settlement::FleetRecoverySettlement;
+mod managed_transfer_baseline;
 mod managed_transition_replay;
 pub use managed_recovery_inventory::FleetRecoveryVoterLineage;
 mod managed_transitions;

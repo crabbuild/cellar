@@ -143,6 +143,7 @@ pub(super) async fn exercise(
     registry.release(domain.as_ref(), &alternate).await?;
 
     let scratch = tempfile::tempdir()?;
+    closure::inventory(scratch.path());
     ensure!(
         reopened
             .staged_managed_preparation_holds(directory, operation, TIMEOUT)
@@ -428,6 +429,7 @@ pub(super) async fn verify_sealed_cut(
         .open_group_archive(domain.as_ref(), &archives, parent)
         .await?;
     let scratch = tempfile::tempdir()?;
+    closure::inventory(scratch.path());
     let rooted = directory.namespace_config().image_storage == RaftImageStorage::Extents;
     let source = |label: &str, hold: CellGroupArchiveHold| {
         let base = scratch.path().join(label);
@@ -856,6 +858,7 @@ async fn verify_managed_publication(
     ensure!(matches!(refused, Err(failure) if failure.code == RaftFleetFailureCode::Conflict));
     ensure!(domain.run(directory.observe()).await??.revision() == before.revision());
 
+    closure::before_publication(cluster, fleet, directory, transition, archives).await?;
     fixture
         .store
         .fail_head_confirmation
@@ -906,6 +909,9 @@ async fn verify_managed_publication(
             == publication
     );
     restart::checkpoint(cluster, directory, &reopened, TransitionPhase::Published).await?;
+    if closure::published(cluster, directory, &reopened).await? {
+        return Ok(());
+    }
     ensure!(matches!(
         cluster.hosts[0]
             .group(cluster.history)?

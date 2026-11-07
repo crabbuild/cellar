@@ -27,6 +27,9 @@ pub(crate) mod restart;
 #[path = "cell_group_transition_effects.rs"]
 pub(crate) mod effects;
 
+#[path = "cell_group_transition_closure.rs"]
+pub(crate) mod closure;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn managed_split_plan_fences_membership_and_replays_cancellation() -> Result<()> {
     Box::pin(run_plan(
@@ -81,6 +84,7 @@ pub(crate) async fn qualify_retirement(rooted: bool, store: Arc<fault::Store>) -
 enum Decision {
     Authorize,
     Retirement,
+    Publication,
     Cancel,
     SplitMerge { recovery_barrier: bool },
 }
@@ -104,8 +108,12 @@ async fn run_plan(rooted: bool, store: Arc<fault::Store>, decision: Decision) ->
     ))
     .await?;
     let merge = matches!(decision, Decision::SplitMerge { .. });
+    let publication_only = matches!(decision, Decision::Publication);
     let expected_children = match decision {
-        Decision::Authorize | Decision::Retirement | Decision::SplitMerge { .. } => 2,
+        Decision::Authorize
+        | Decision::Retirement
+        | Decision::Publication
+        | Decision::SplitMerge { .. } => 2,
         Decision::Cancel => 0,
     };
     let result = exercise(&mut cluster, rooted, decision).await;
@@ -120,10 +128,11 @@ async fn run_plan(rooted: bool, store: Arc<fault::Store>, decision: Decision) ->
         result?;
         return shutdown;
     }
-    let activated = result.is_ok() && expected_children > 0;
-    let pending_quorums = if activated { expected_children } else { 0 };
-    let spares = cluster.nodes.split_off(3);
-    let joined = close_group_nodes(cluster.nodes, &cluster.hosts).await;
+    let activated = result.is_ok() && expected_children > 0 && !publication_only;
+    let pending_quorums = if result.is_ok() { expected_children } else { 0 };
+    let mut nodes = std::mem::take(&mut cluster.nodes);
+    let spares = nodes.split_off(3);
+    let joined = close_group_nodes(nodes, &cluster.hosts).await;
     // Start all destination drains together. Serial shutdown can elect a
     // successor while the next voter is already draining its local apply.
     let joined_spares =
@@ -138,6 +147,9 @@ async fn run_plan(rooted: bool, store: Arc<fault::Store>, decision: Decision) ->
     joined?;
     for result in joined_spares {
         result?;
+    }
+    if publication_only {
+        closure::erase_and_restore(cluster).await?;
     }
     Ok(())
 }
@@ -369,6 +381,7 @@ async fn exercise_inner(
     ))
     .await?;
 
+    closure::acknowledged(&archived);
     effects::before_seal(cluster, &seeded.cells).await?;
     let admitted = fleet.read(TIMEOUT).await?;
     let other = identity(235, admitted.revision());
@@ -390,7 +403,10 @@ async fn exercise_inner(
     let cancel = identity(236, admitted.revision());
     if matches!(
         decision,
-        Decision::Authorize | Decision::Retirement | Decision::SplitMerge { .. }
+        Decision::Authorize
+            | Decision::Retirement
+            | Decision::Publication
+            | Decision::SplitMerge { .. }
     ) {
         ensure!(matches!(
             reopened
@@ -555,6 +571,9 @@ async fn exercise_inner(
             &seal,
         ))
         .await?;
+        if matches!(decision, Decision::Publication) {
+            return Ok(None);
+        }
         let cells = seeded.cells.clone();
         Box::pin(preparation::verify_transferred_sql(
             cluster, directory, seeded,

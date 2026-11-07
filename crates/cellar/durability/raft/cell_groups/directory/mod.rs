@@ -45,6 +45,7 @@ pub use transition_activation::{
     CellGroupTransferActivationAck, CellGroupTransferActivationPermit,
 };
 mod transition_archive;
+mod transition_baseline;
 pub use transition_archive::CellGroupTransferArchive;
 mod transition_child_archive;
 mod transition_child_quorum;

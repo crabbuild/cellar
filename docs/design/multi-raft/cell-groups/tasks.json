@@ -2161,7 +2161,10 @@
       ],
       "scope": [
         "crates/cellar/durability/raft/",
-        "crates/cellar-logic/"
+        "crates/cellar-logic/",
+        "crates/cellar/tests/native_cell_groups_transitions.rs",
+        "crates/cellar/tests/support/",
+        "tools/multi-raft/"
       ],
       "creates": [
         "crates/cellar/durability/raft/cell_groups/transition.rs",

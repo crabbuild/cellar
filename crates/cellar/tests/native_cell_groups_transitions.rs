@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! CG-09 source fencing and managed child installation/publication contracts.
-//! Phase-crash, effect continuity and complete retirement acceptance remain explicit gates.
+//! Sealed sources, complete publication closures and retained per-cell effects.
 #![allow(clippy::disallowed_methods)]
 
 use anyhow::{ensure, Context as _, Result};
@@ -123,6 +123,34 @@ async fn rustfs_transfer_preserves_tokens_receipts_effects() -> Result<()> {
         Box::pin(bootstrap::transition::effects::qualify(rooted, store))
             .await
             .with_context(|| format!("RustFS effect transfer, extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn publication_requires_remote_transfer_closure() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(bootstrap::transition::closure::qualify(
+            rooted,
+            Arc::new(fault::Store::default()),
+        ))
+        .await
+        .with_context(|| format!("published closure disk loss, extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_publication_requires_remote_transfer_closure() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(fault::Store::around(rustfs::store(
+            "publication-loss",
+            rooted,
+        )?));
+        Box::pin(bootstrap::transition::closure::qualify(rooted, store))
+            .await
+            .with_context(|| format!("RustFS published closure disk loss, extents={rooted}"))?;
     }
     Ok(())
 }

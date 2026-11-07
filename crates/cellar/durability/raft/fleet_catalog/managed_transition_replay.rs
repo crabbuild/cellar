@@ -555,7 +555,7 @@ async fn open_sources_for_holds(
     Ok(sources)
 }
 
-async fn transfer_inputs(
+pub(super) async fn transfer_inputs(
     domain: &DomainToken,
     directory: &RangeDirectory,
     transition: &ReopenedManagedCellGroupTransition,

@@ -1591,7 +1591,7 @@ impl FleetCatalog {
         Ok(permit)
     }
 
-    async fn verify_managed_transfer_storage_at(
+    pub(super) async fn verify_managed_transfer_storage_at(
         &self,
         current: &FleetSnapshot,
         transition: &ReopenedManagedCellGroupTransition,
@@ -1637,7 +1637,7 @@ impl FleetCatalog {
             .await
     }
 
-    async fn managed_transition_permit_at(
+    pub(super) async fn managed_transition_permit_at(
         &self,
         current: &FleetSnapshot,
         request: &FleetRequestIdentity,

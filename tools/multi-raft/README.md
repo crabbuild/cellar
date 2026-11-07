@@ -98,6 +98,22 @@ signed inbox protocol. The ordinary SQL fixture keeps its 1 KiB profile. These
 checks do not establish independent voter processes, permanent host fencing,
 or all-local-copy erasure immediately after publication.
 
+## Published transfer closure after complete local erasure
+
+Use `--suite managed-publication-loss` with an owned RustFS backend and a fresh
+output directory. Missing closure metadata or its retained source registry must
+refuse publication. After the exact publication, the fixture joins every voter
+before child activation, deletes all six voter disks and both verifier inventories,
+and drops the former clients. Fresh clients and stores reconstruct both children
+from the pinned remote closure. The case checks business state, three original S3
+receipts, the exact pending outbox envelope and the receiver's deduplication proof.
+A payload outage must refuse fresh replay, and replay leaves topology unchanged.
+
+Both image modes run with host-native RF3 voters and fixture capacity. This data
+reconstruction gate does not install a live replacement quorum. Permanent platform
+fencing, new-incarnation disaster activation and independent process crashes remain
+in the managed recovery and release qualification gates.
+
 ## Constrained Linux managed daemon
 
 The daemon fixture runs from the dedicated Colima guest. It launches each voter

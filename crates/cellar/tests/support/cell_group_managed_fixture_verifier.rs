@@ -20,3 +20,12 @@ pub async fn open(
     )
     .await
 }
+
+pub async fn open_for_domain(
+    domain: &ExecutionDomain,
+    root: &Path,
+    rooted: bool,
+    tails: CellGroupArchiveTailLimits,
+) -> Result<FleetGroupArchiveVerifier> {
+    super::archive_verifier::open(domain, root, rooted, tails, limits(), checkpoint_limits()).await
+}

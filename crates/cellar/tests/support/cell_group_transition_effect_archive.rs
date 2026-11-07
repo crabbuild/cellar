@@ -70,7 +70,7 @@ pub(super) async fn verify(
         );
         let proof = received.result.clone();
         f.domain
-            .blocking(move || check_image(image, scratch.join("query"), index, proof))?
+            .blocking(move || check_image(image, scratch.join("query"), index, proof, None))?
             .await??;
         drop(coverage);
         registry.release(f.domain.as_ref(), &hold).await?;
@@ -83,6 +83,7 @@ fn check_image(
     cache: std::path::PathBuf,
     index: u8,
     proof: Vec<u8>,
+    baseline: Option<(Vec<CommandReceipt>, Vec<u8>)>,
 ) -> Result<()> {
     let options = cellar::storage::ImmutableQueryOptions {
         sqlite_vec: false,
@@ -122,10 +123,25 @@ fn check_image(
             [],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )?;
+        let expected_pending = i64::from(baseline.is_some());
+        let expected_settled = u64::from(baseline.is_none());
         ensure!(
-            pending == 0 && emitted == 1u64.to_be_bytes() && settled == 1u64.to_be_bytes(),
-            "S3 child recovery lost source completion"
+            pending == expected_pending
+                && emitted == 1u64.to_be_bytes()
+                && settled == expected_settled.to_be_bytes(),
+            "S3 child recovery lost source effect state"
         );
+        if let Some((_, request)) = &baseline {
+            let (sequence, actual, minimum): (Vec<u8>, Vec<u8>, i64) = db.connection().query_row(
+                "SELECT sequence,request,minimum FROM __sys_raft_outbox WHERE lane='Events'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )?;
+            ensure!(
+                sequence == 1u64.to_be_bytes() && &actual == request && minimum == 1,
+                "published closure lost or changed the pending S3 envelope"
+            );
+        }
     } else {
         let (count, total): (i64, i64) =
             db.query_row("SELECT count,total FROM effect_deliveries", [], |row| {
@@ -147,5 +163,76 @@ fn check_image(
             "S3 child recovery lost the exact receiver dedupe proof"
         );
     }
+    if let Some((receipts, _)) = baseline {
+        let value: i64 = db.query_row("SELECT value FROM counter", [], |row| row.get(0))?;
+        ensure!(value == [10i64, 11][usize::from(index)]);
+        for receipt in receipts {
+            ensure!(receipt.durability == Durability::S3);
+            let (result, minimum): (Vec<u8>, i64) = db.connection().query_row(
+                "SELECT result,minimum_durability FROM __sys_raft_receipts WHERE client_id=?1 AND sequence=?2",
+                rusqlite::params![receipt.id.client.bytes().as_slice(), receipt.id.sequence().to_be_bytes().as_slice()],
+                |row| Ok((row.get(0)?, row.get(1)?)))?;
+            ensure!(
+                result == receipt.result && minimum == 1,
+                "published closure lost an S3 receipt"
+            );
+        }
+    }
+    Ok(())
+}
+
+pub(super) async fn verify_publication_baseline(
+    domain: &ExecutionDomain,
+    restored: &PreparedCellGroupTransfer,
+    root: &std::path::Path,
+    receipts: Vec<CommandReceipt>,
+    proof: Vec<u8>,
+    request: Vec<u8>,
+) -> Result<()> {
+    ensure!(restored.children().len() == 2 && receipts.len() == 3);
+    let mut checked = 0;
+    for index in 0..2 {
+        let history = cell(index)?;
+        let mut matches = restored
+            .children()
+            .iter()
+            .filter_map(|child| child.pin_cell(&history.cell).map(|pin| (child, pin)));
+        let (child, (leaf, image)) = matches.next().context("missing published cell")?;
+        ensure!(
+            matches.next().is_none()
+                && child.root().cells() == 1
+                && leaf.version.history == history
+        );
+        ensure!(child
+            .genesis()
+            .is_some_and(|genesis| !genesis.marker().is_active()));
+        let acknowledgements = receipts
+            .iter()
+            .filter(|r| r.version.history == history)
+            .cloned()
+            .collect::<Vec<_>>();
+        ensure!(
+            !acknowledgements.is_empty()
+                && acknowledgements
+                    .iter()
+                    .all(|r| leaf.version.sequence >= r.version.sequence)
+        );
+        checked += acknowledgements.len();
+        let cache = root.join(format!("query-{index}"));
+        let proof = proof.clone();
+        let request = request.clone();
+        domain
+            .blocking(move || {
+                check_image(
+                    image,
+                    cache,
+                    index,
+                    proof,
+                    Some((acknowledgements, request)),
+                )
+            })?
+            .await??;
+    }
+    ensure!(checked == receipts.len());
     Ok(())
 }

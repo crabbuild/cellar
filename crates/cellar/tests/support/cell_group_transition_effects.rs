@@ -170,6 +170,60 @@ pub(crate) async fn qualify(rooted: bool, store: Arc<fault::Store>) -> Result<()
         .await
 }
 
+pub(super) async fn qualify_publication(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
+    SCENE
+        .scope(RefCell::new(Scene::default()), async {
+            Box::pin(run_plan(rooted, store, Decision::Publication)).await
+        })
+        .await
+}
+
+pub(super) fn discard_endpoint() {
+    SCENE.with(|scene| {
+        let mut scene = scene.borrow_mut();
+        scene.endpoint = None;
+        *scene.state.endpoint.lock().unwrap() = Weak::new();
+    });
+}
+
+pub(super) async fn verify_publication_baseline(
+    domain: &ExecutionDomain,
+    restored: &PreparedCellGroupTransfer,
+    root: &std::path::Path,
+    archived: CommandReceipt,
+) -> Result<()> {
+    let state = state().context("publication effect oracle")?;
+    let original = SCENE
+        .with(|scene| scene.borrow().emitted.clone())
+        .context("S3 emission")?;
+    let received = state
+        .first
+        .lock()
+        .unwrap()
+        .clone()
+        .context("S3 receiver receipt")?;
+    let request = state
+        .request
+        .lock()
+        .unwrap()
+        .clone()
+        .context("original delivery envelope")?;
+    ensure!(
+        state.received.load(Ordering::Acquire) == 1 && state.delivered.load(Ordering::Acquire) == 0
+    );
+    archive::verify_publication_baseline(
+        domain,
+        restored,
+        root,
+        vec![archived, original, received.clone()],
+        received.result,
+        request.encoded().to_vec(),
+    )
+    .await?;
+    ensure!(state.received.load(Ordering::Acquire) == 1 && !state.changed.load(Ordering::Acquire));
+    Ok(())
+}
+
 pub(super) fn class() -> Result<Option<RaftClass>> {
     let Some(state) = state() else {
         return Ok(None);
