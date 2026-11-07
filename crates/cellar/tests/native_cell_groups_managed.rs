@@ -5,12 +5,15 @@
 #![allow(clippy::disallowed_methods)]
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{consensus::*, *};
-use managed_fixture::{fault, limits, request, start_node, Fixture, TIMEOUT};
+use managed_fixture::{fault, request, start_node, Fixture, TIMEOUT};
 use std::{
     path::Path,
     sync::{atomic::Ordering, Arc},
     time::Duration,
 };
+
+#[path = "support/raft_catalog_fault.rs"]
+pub mod catalog_fault;
 
 #[path = "support/cell_group_managed_fixture.rs"]
 pub mod managed_fixture;

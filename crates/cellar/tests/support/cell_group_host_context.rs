@@ -13,10 +13,9 @@ mod fault;
 #[path = "raft_ltx_fixture.rs"]
 mod images;
 #[path = "cell_group_runtime.rs"]
-mod runtime_fixture;
+pub mod runtime_fixture;
 include!("cell_group_engine_fixture.rs");
-#[path = "cell_group_rustfs.rs"]
-mod rustfs;
+use crate::rustfs;
 
 pub(crate) async fn sealed_source_archives_require_exact_live_holds() -> Result<()> {
     for rooted in [false, true] {

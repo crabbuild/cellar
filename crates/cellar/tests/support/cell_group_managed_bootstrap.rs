@@ -3,8 +3,8 @@
 //! Cold managed bootstrap must obtain inventory before reserving its first group.
 use super::*;
 use crate::managed_fixture::{
-    admit_capacity, checkpoint_limits, close_group_nodes, counter_class, inspect_current, leader,
-    peer_fixture, seed_cells, ArchiveSetup, FirstGroupSetup, ManagedCluster, SeededCells,
+    admit_capacity, close_group_nodes, counter_class, inspect_current, leader, peer_fixture,
+    seed_cells, ArchiveSetup, FirstGroupSetup, ManagedCluster, SeededCells,
 };
 use cellar::application::consensus::verification::cell_groups::{
     CellGroupArchivePool, RangeDirectory,

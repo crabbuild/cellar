@@ -24,6 +24,8 @@ pub mod rustfs;
 #[path = "support/cell_group_host_context.rs"]
 mod source_fixture;
 
+pub use source_fixture::runtime_fixture::catalog_fault;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn seal_authorization_cancel_race() -> Result<()> {
     catalog::seal_authorization_cancel_race().await

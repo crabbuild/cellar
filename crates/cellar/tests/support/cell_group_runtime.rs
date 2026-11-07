@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 #[path = "raft_catalog_fault.rs"]
 #[allow(dead_code)]
-mod catalog_fault;
+pub mod catalog_fault;
 
 #[path = "cell_group_multigroup.rs"]
 mod multigroup;

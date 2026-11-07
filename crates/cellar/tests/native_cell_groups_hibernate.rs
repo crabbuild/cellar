@@ -3,6 +3,9 @@
 //! Managed RF3 park and wake over real Raft Engine disks and TLS peers.
 #![allow(clippy::disallowed_methods)]
 
+#[path = "support/raft_catalog_fault.rs"]
+pub mod catalog_fault;
+
 #[path = "support/cell_group_managed_fixture.rs"]
 pub mod managed_fixture;
 
