@@ -36,8 +36,12 @@ The public batch passed shared SDK serving, ingress isolation and feature-off
 Fleet behavior. Materialized managed lifecycle passed. Extent replacement
 stayed in Joint after repeated `Unconfirmed` responses. The voters reported
 `Archive(Expired)` while their archive coverage stayed at index 7 and their
-commit advanced to index 9. The initial occupancy-one test completed both
-serving phases but its executable hash changed during a concurrent build.
+commit advanced to index 9. After the retry window, the retained journals
+for voters 3 and 4 recorded coverage at index 10 in term 3. This narrows the
+failure to progress within the settlement window. The initial occupancy-one
+test completed both serving phases but its executable hash changed during a
+concurrent build. The isolated rerun passed in 171.29 seconds and verified
+both executable digests.
 
 Strict Clippy stopped at 167 library errors, down from 202 on the prior source.
 Most come from unused predecessor archive, snapshot and inspection adapters.
