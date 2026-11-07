@@ -191,10 +191,10 @@ pub(super) async fn prepare(
     let routers = reader.as_ref().and_then(|_| {
         super::router_directory::RouterDirectory::new(
             prepared
-                .groups
+                .namespaces
                 .iter()
-                .filter(|assignment| assignment.placement == RaftGroupPlacement::QueryRouter)
-                .map(|assignment| assignment.birth.route().history),
+                .map(|namespace| namespace.directory.clone()),
+            transport.cell_query_route_limit(),
         )
     });
     prepared.peers = peers.into_values().collect();
@@ -366,11 +366,20 @@ impl Directory {
         if let (Some(routers), Some(reader), Some(trust)) =
             (&mut self.routers, &self.reader, &self.rooted)
         {
-            if let Err(error) = routers
-                .refresh(log, transport, observer, reader, trust, deadline)
+            match transport
+                .seed_control_until(deadline, async {
+                    Ok(
+                        Box::pin(
+                            routers.refresh(log, transport, observer, reader, trust, deadline),
+                        )
+                        .await,
+                    )
+                })
                 .await
             {
-                tracing::debug!(%error, "router membership refresh unavailable");
+                Ok(Ok(())) => (),
+                Ok(Err(error)) => tracing::debug!(%error, "router membership refresh unavailable"),
+                Err(error) => tracing::debug!(%error, "router discovery refused"),
             }
         }
         Ok(())

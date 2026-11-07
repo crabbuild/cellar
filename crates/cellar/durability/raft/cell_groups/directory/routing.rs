@@ -309,6 +309,16 @@ impl CellRoutingSession {
         self.next(None, true).await
     }
 
+    /// Refresh an advisory route after a read-only readiness or transport
+    /// failure. Keep the previous catalog floor, identity, deadline and bank.
+    pub(crate) async fn refresh(
+        &mut self,
+        previous: &CellRouteAttempt,
+    ) -> Result<CellRouteAttempt, CellRoutingError> {
+        self.check_attempt(previous)?;
+        self.next(None, false).await
+    }
+
     /// A relocation hint is untrusted until an exact lookup in the configured
     /// catalog confirms its namespace, range, epoch, schema, birth and history.
     /// No arbitrary URL or caller-supplied catalog is followed.
@@ -364,7 +374,7 @@ impl CellRoutingSession {
                 }
             }
         }
-        if self.cached.is_none() || hint.is_some() {
+        if !use_cache || self.cached.is_none() || hint.is_some() {
             let minimum = self.cached.as_ref().map_or(0, |route| route.revision);
             let work = async {
                 let view = self.directory.observe().await?;

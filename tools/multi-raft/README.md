@@ -415,3 +415,19 @@ python3 tools/multi-raft/cell_groups.py --suite managed-transition \
 
 The RustFS transition and split/merge suites select this target and retain their
 exact case names. They refuse zero-test selections and source/binary drift.
+
+
+## Split/merge completion probes
+
+The fixed `managed-partial-merge`, `managed-precopy-resources` and
+`managed-movement-ledger` suites select `native_cell_groups_split_merge`.
+Use the owned RustFS backend and a separate output directory for each suite.
+Each case runs materialized and extent images and records source and executable
+hashes. They cover all child setup steps during partial parent quorum loss,
+physical pre-copy cancellation debt and live request progress, and the complete
+command/effect receipt ledger through a split followed by a merge. Cached SDK
+handles and former-parent ingress must discover the selected successor groups.
+
+These suites use host-native RF3 TLS voters and fixture capacity. Independent
+process crashes, further movement cycles, hard RSS and sustained load remain
+release qualification work.

@@ -5,6 +5,10 @@ use super::*;
 use std::sync::mpsc::{sync_channel, SyncSender};
 
 #[path = "raft_ltx_fault.rs"]
+#[expect(
+    dead_code,
+    reason = "pre-copy uses the directory hook, not the separate marker hook"
+)]
 mod filesystem;
 
 pub(super) struct Context<'a> {

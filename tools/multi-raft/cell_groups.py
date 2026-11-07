@@ -157,6 +157,15 @@ SUITES = {
         "Host-native voters and fixture capacity; hard RSS, sustained load and process crashes "
         "remain separate gates.",
     ),
+    "managed-movement-ledger": (
+        "native_cell_groups_split_merge",
+        ("rustfs_split_merge_under_writes",),
+        "reconcile acknowledged writes, signed delivery and every receipt through split and merge",
+        "Both image modes and host-native voters. The signed delivery loses its first S3 reply. "
+        "Cached SDK handles and former-parent ingress verify the complete command ledger, "
+        "receiver deduplication, source version floors and independent merged S3 image replay. "
+        "Sustained load, additional split/merge cycles and process-crash schedules remain separate gates.",
+    ),
     "managed-minority": (
         "native_cell_groups_managed",
         ("bootstrap::lifecycle::s3::rustfs_managed_minority_cannot_reconfigure_from_s3",),
@@ -225,7 +234,7 @@ def sources(suite):
         for name in result.decode().split("\0")
         if name and (not name.startswith(("docs/", "plans/", "packages/", "examples/"))
                      or (suite in ("managed-ingress", "managed-lifecycle", "managed-liveness", "managed-transition",
-                                   "managed-split-merge", "managed-partial-merge", "managed-precopy-resources", "managed-retirement", "managed-phase-restart", "managed-effect-transfer", "managed-publication-loss")
+                                   "managed-split-merge", "managed-partial-merge", "managed-precopy-resources", "managed-movement-ledger", "managed-retirement", "managed-phase-restart", "managed-effect-transfer", "managed-publication-loss")
                          and name == "examples/raft-counter/counter.rs"))
         and (ROOT / name).is_file()
     ]

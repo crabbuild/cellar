@@ -40,22 +40,7 @@ pub(super) async fn execute(
     let (members, attempt_timeout, leader_fallback) = match invocation.routing() {
         CellQueryRouting::Local => return destination.local(invocation, options, permit).await,
         CellQueryRouting::Automatic => {
-            let route = invocation
-                .attempt()
-                .ok_or(Error::Invalid("missing route"))?
-                .route();
-            match runtime.log().cell_group(&route.history) {
-                Ok(_) => return destination.local(invocation, options, permit).await,
-                Err(LogError::NotFound) => (),
-                Err(error) => return Err(Error::Runtime(RuntimeError::Storage(error))),
-            }
-            let members = transport
-                .cell_query_router_members(route, invocation.maximum_attempts())
-                .map_err(|error| match error {
-                    TransportError::UnknownGroup => Error::Runtime(RuntimeError::NotFound),
-                    other => Error::Transport(other),
-                })?;
-            (members, None, false)
+            return destination.automatic(invocation, options, permit).await;
         }
         CellQueryRouting::Replicas {
             members,
@@ -124,6 +109,73 @@ pub(super) async fn execute(
 }
 
 impl Destination<'_> {
+    async fn automatic(
+        &self,
+        invocation: &mut CellQueryInvocation,
+        options: CellSqlOptions,
+        permit: Arc<admission::Retention>,
+    ) -> Result<CellQueryResponse, Error> {
+        let mut previous = None;
+        let mut next_member = 0;
+        loop {
+            let attempt = invocation
+                .attempt()
+                .ok_or(Error::Invalid("missing route"))?;
+            let route = attempt.route();
+            let history = route.history;
+            let ordinal = usize::from(attempt.ordinal());
+            if previous != Some(history) {
+                next_member = 0;
+                previous = Some(history);
+            }
+            let result = match self.runtime.log().cell_group(&history) {
+                Ok(_) => {
+                    self.local(invocation, options.clone(), permit.clone())
+                        .await
+                }
+                Err(LogError::NotFound) => {
+                    match self
+                        .transport
+                        .cell_query_router_members(route, invocation.maximum_attempts())
+                    {
+                        Ok(members) if !members.is_empty() => {
+                            let member = members[next_member % members.len()];
+                            next_member += 1;
+                            let now = self
+                                .shared
+                                .domain
+                                .mono_ms()
+                                .map_err(|_| Error::Runtime(RuntimeError::Closed))?;
+                            let remaining = invocation.deadline_ms().saturating_sub(now);
+                            let tickets = invocation.maximum_attempts().saturating_sub(ordinal) + 1;
+                            invocation.limit_attempt(Duration::from_millis(
+                                (remaining / tickets as u64).max(1),
+                            ))?;
+                            self.attempt(invocation, member, options.clone(), permit.clone())
+                                .await
+                        }
+                        Ok(_) | Err(TransportError::UnknownGroup) => {
+                            Err(Error::Runtime(RuntimeError::NotFound))
+                        }
+                        Err(error) => Err(Error::Transport(error)),
+                    }
+                }
+                Err(error) => Err(Error::Runtime(RuntimeError::Storage(error))),
+            };
+            match result {
+                Ok(response) => return Ok(response),
+                Err(error) if retryable(&error) && ordinal < invocation.maximum_attempts() => {
+                    // A selected successor can have completely different members.
+                    // Replan against a verified root, never an old member list or
+                    // a new session with a replenished deadline/attempt budget.
+                    invocation.refresh().await?;
+                    invocation.validate_minimum().await?;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
     async fn attempt(
         &self,
         invocation: &mut CellQueryInvocation,

@@ -114,6 +114,37 @@ async fn rustfs_transition_precopy_resource_bounds() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn split_merge_under_writes() -> Result<()> {
+    for rooted in [false, true] {
+        Box::pin(bootstrap::transition::effects::qualify(
+            rooted,
+            Arc::new(fault::Store::default()),
+            true,
+        ))
+        .await
+        .with_context(|| format!("split/merge write and effect ledger, extents={rooted}"))?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires explicit owned RustFS endpoint, bucket and isolated prefix"]
+async fn rustfs_split_merge_under_writes() -> Result<()> {
+    for rooted in [false, true] {
+        let store = Arc::new(fault::Store::around(rustfs::store(
+            "movement-ledger",
+            rooted,
+        )?));
+        Box::pin(bootstrap::transition::effects::qualify(rooted, store, true))
+            .await
+            .with_context(|| {
+                format!("RustFS split/merge write and effect ledger, extents={rooted}")
+            })?;
+    }
+    Ok(())
+}
+
 fn route() -> GroupRoute {
     GroupRoute {
         history: GroupHistory {

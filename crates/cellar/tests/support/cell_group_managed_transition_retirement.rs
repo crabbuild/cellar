@@ -398,11 +398,14 @@ async fn restart_source(cluster: &mut ManagedCluster, index: usize, generation: 
             .config(&node, LogOpenMode::Resume, generation)
             .await?;
         crate::managed_fixture::archives::configure(&mut config);
-        node.start_raft_cells(config, services).await
+        let peer = config.peers[0].clone();
+        node.start_raft_cells(config, services)
+            .await
+            .map(|host| (host, peer))
     }
     .await;
-    let host = match startup {
-        Ok(host) => host,
+    let (host, peer) = match startup {
+        Ok(started) => started,
         Err(error) => {
             let stopped = node.shutdown(ShutdownMode::Preserve).await;
             return Err(error.context(format!("retained source startup, shutdown={stopped:?}")));
@@ -410,6 +413,7 @@ async fn restart_source(cluster: &mut ManagedCluster, index: usize, generation: 
     };
     ensure!(host.identity().process != identity.process);
     cluster.nodes.insert(index, node);
+    cluster.peers[index] = peer;
     cluster.hosts.insert(index, host);
     Ok(())
 }

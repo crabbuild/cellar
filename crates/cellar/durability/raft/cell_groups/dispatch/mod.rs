@@ -452,6 +452,22 @@ impl CellQueryInvocation {
         Ok(())
     }
 
+    pub(crate) async fn refresh(&mut self) -> Result<(), CellDispatchError> {
+        let previous = self
+            .attempt
+            .as_ref()
+            .ok_or(CellDispatchError::Invalid("missing route"))?;
+        self.dispatched = true;
+        let attempt = self
+            .session
+            .refresh(previous)
+            .await
+            .map_err(CellDispatchError::Routing)?;
+        self.attempt = Some(attempt);
+        self.dispatched = false;
+        Ok(())
+    }
+
     pub async fn redirect(&mut self, hint: &GroupRoute) -> Result<(), CellDispatchError> {
         let previous = self
             .attempt

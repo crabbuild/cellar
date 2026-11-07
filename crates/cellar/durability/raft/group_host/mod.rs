@@ -83,7 +83,9 @@ pub struct RaftCellsConfig {
     pub catalog: super::catalog::CatalogOptions,
     pub namespaces: Vec<RaftNamespaceConfig>,
     /// Explicit routes and placements. A managed host discovers retained local
-    /// replicas within its declared namespaces from the opened engine.
+    /// replicas within its declared namespaces from the opened engine. Its joined
+    /// directory worker also discovers bounded read-only routes for selected
+    /// remote groups; those routes grant no namespace application permission.
     pub groups: Vec<RaftGroupAssignment>,
     pub peers: Vec<super::transport_options::RaftPeerNode>,
     pub query_origins: Vec<super::transport_options::NamespaceQueryOrigin>,

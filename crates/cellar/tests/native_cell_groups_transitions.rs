@@ -105,6 +105,7 @@ async fn transfer_preserves_tokens_receipts_effects() -> Result<()> {
         Box::pin(bootstrap::transition::effects::qualify(
             rooted,
             Arc::new(fault::Store::default()),
+            false,
         ))
         .await
         .with_context(|| format!("effect transfer, extents={rooted}"))?;
@@ -120,9 +121,11 @@ async fn rustfs_transfer_preserves_tokens_receipts_effects() -> Result<()> {
             "effect-transfer",
             rooted,
         )?));
-        Box::pin(bootstrap::transition::effects::qualify(rooted, store))
-            .await
-            .with_context(|| format!("RustFS effect transfer, extents={rooted}"))?;
+        Box::pin(bootstrap::transition::effects::qualify(
+            rooted, store, false,
+        ))
+        .await
+        .with_context(|| format!("RustFS effect transfer, extents={rooted}"))?;
     }
     Ok(())
 }

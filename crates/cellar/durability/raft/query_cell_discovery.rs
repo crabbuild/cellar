@@ -6,6 +6,10 @@ use crate::raft::storage::LogError;
 use cellar_logic::consensus::MemberId;
 
 impl RaftTransport {
+    pub(crate) fn cell_query_route_limit(&self) -> usize {
+        self.handle.0.options.max_groups
+    }
+
     pub(crate) fn cell_query_router_members(
         &self,
         route: &cellar_logic::cell_group::GroupRoute,

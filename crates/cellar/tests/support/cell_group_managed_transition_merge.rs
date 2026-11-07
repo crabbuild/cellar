@@ -474,6 +474,7 @@ async fn run_inner(
     recovery_barrier: bool,
     check_child_fence: bool,
 ) -> Result<Option<GroupHistory>> {
+    Box::pin(effects::before_merge(cluster)).await?;
     let fixture = &cluster.fixtures[0];
     let fleet = fixture.catalog.clone();
     let control = RaftFleetControl::new(&fixture.domain, fleet.clone(), vec![directory.clone()])?;
@@ -698,6 +699,7 @@ async fn run_inner(
             receipt.result == (expected + 1).to_be_bytes()
                 && receipt.witness.group == parent.history
         );
+        effects::acknowledge("Add", &1i64.to_be_bytes(), &receipt)?;
         receipts.push(receipt);
         let seal = Box::pin(commit_source_seal(voters, &transition, parent.history)).await?;
         preparation::wait_transfer_applied(voters, &[(parent.history, seal.position().index)])
@@ -1522,6 +1524,7 @@ async fn run_inner(
             },
         )
         .await?;
+    effects::acknowledge("Add", &0i64.to_be_bytes(), &s3_receipt)?;
     ensure!(
         s3_receipt.result == (expected + 2).to_be_bytes()
             && s3_receipt.durability == cellar_logic::consensus::Durability::S3
@@ -1644,6 +1647,13 @@ async fn run_inner(
             .await?;
         ensure!(query.result == (expected + 2).to_be_bytes());
     }
+    Box::pin(effects::after_merge(
+        cluster,
+        directory,
+        child.history,
+        &s3_receipt,
+    ))
+    .await?;
     Ok(Some(child.history))
 }
 
@@ -2488,7 +2498,7 @@ async fn start_recovery_voter(
     mode: LogOpenMode,
     generation: u8,
 ) -> Result<RecoveryVoter> {
-    let (root, node, host) = boot_archived_voter(&fixture, root, mode, generation).await?;
+    let (root, node, host, _) = boot_archived_voter(&fixture, root, mode, generation).await?;
     Ok((root, node, host, fixture))
 }
 
@@ -2497,7 +2507,7 @@ async fn boot_archived_voter<R: AsRef<std::path::Path> + Send + 'static>(
     root: R,
     mode: LogOpenMode,
     generation: u8,
-) -> Result<(R, Node, RaftCells)> {
+) -> Result<(R, Node, RaftCells, RaftPeerNode)> {
     let fixture = fixture.clone();
     let domain = fixture.domain.clone();
     // Keep retained boot off the transition scenario's polling stack.
@@ -2511,13 +2521,15 @@ async fn boot_archived_voter<R: AsRef<std::path::Path> + Send + 'static>(
         let result = Box::pin(async {
             let (mut config, services) = fixture.config(&node, mode, generation).await?;
             crate::managed_fixture::archives::configure(&mut config);
+            let peer = config.peers[0].clone();
             Box::pin(node.start_raft_cells(config, services))
                 .await
+                .map(|host| (host, peer))
                 .context("open the retained voter Raft host")
         })
         .await;
         match result {
-            Ok(host) => Ok((root, node, host)),
+            Ok((host, peer)) => Ok((root, node, host, peer)),
             Err(error) => {
                 let stopped = node.shutdown(ShutdownMode::Preserve).await;
                 Err(error.context(format!(
@@ -3383,7 +3395,7 @@ async fn start_voter(
     previous: NodeIdentity,
     registered: u32,
 ) -> Result<()> {
-    let (_, node, host) = boot_archived_voter(
+    let (_, node, host, peer) = boot_archived_voter(
         &cluster.fixtures[index],
         cluster.roots[index].path().to_owned(),
         LogOpenMode::Resume,
@@ -3391,6 +3403,7 @@ async fn start_voter(
     )
     .await?;
     cluster.nodes.insert(index, node);
+    cluster.peers[index] = peer;
     cluster.hosts.insert(index, host);
     let host = &cluster.hosts[index];
     ensure!(host.identity().disk == previous.disk && host.identity().process != previous.process);
@@ -3445,6 +3458,7 @@ async fn verify_merged_sql(
                 CommandOptions::new(receipt.id, retry),
             )
             .await?;
+        effects::acknowledge("Add", &1i64.to_be_bytes(), &retry_receipt)?;
         ensure!(
             retry_receipt.id == receipt.id
                 && retry_receipt.result == receipt.result
@@ -3460,6 +3474,7 @@ async fn verify_merged_sql(
                 ),
             )
             .await?;
+        effects::acknowledge("Add", &1i64.to_be_bytes(), &write)?;
         ensure!(write.result == (expected + 2).to_be_bytes() && write.witness.group == history);
         positions.push((history, write.witness.position.index));
     }

@@ -11,14 +11,25 @@ use cellar_ltx::{
     stream_snapshot::{ScratchLimits, ScratchPool},
 };
 
+pub(super) enum Layout {
+    Split,
+    Merged,
+}
+
 pub(super) async fn verify(
     cluster: &ManagedCluster,
     directory: &RangeDirectory,
     received: &CommandReceipt,
     completed: &CommandReceipt,
+    layout: Layout,
 ) -> Result<()> {
     let f = &cluster.fixtures[0];
     let view = f.domain.run(directory.observe()).await??;
+    let (groups, cells) = match layout {
+        Layout::Split => (2, 1),
+        Layout::Merged => (1, 2),
+    };
+    ensure!(view.groups() == groups);
     let pool = CellGroupArchivePool::new(Default::default())?;
     for index in 0..2 {
         let cell = cell(index)?;
@@ -65,8 +76,8 @@ pub(super) async fn verify(
             .pin_cell(&cell.cell)
             .context("missing effect cell after archive replay")?;
         ensure!(
-            leaf.version.history == cell && coverage.marker().root().cells() == 1,
-            "sender and receiver must have distinct complete child archives"
+            leaf.version.history == cell && coverage.marker().root().cells() == cells,
+            "effect archive partition shape changed"
         );
         let proof = received.result.clone();
         f.domain

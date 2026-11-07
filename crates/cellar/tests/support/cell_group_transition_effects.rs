@@ -18,6 +18,9 @@ use std::{
 #[path = "cell_group_transition_effect_archive.rs"]
 mod archive;
 
+#[path = "cell_group_transition_ledger.rs"]
+mod ledger;
+
 tokio::task_local! { static SCENE: RefCell<Scene>; }
 
 #[derive(Default)]
@@ -32,6 +35,7 @@ struct State {
     first: Mutex<Option<CommandReceipt>>,
     endpoint: Mutex<Weak<Endpoint>>,
     committed: tokio::sync::Notify,
+    ledger: ledger::Ledger,
 }
 
 #[derive(Default)]
@@ -42,6 +46,9 @@ struct Scene {
     emitted: Option<CommandReceipt>,
     fence: Option<CommandReceipt>,
     finished: bool,
+    movement: bool,
+    cached: Vec<ledger::Cached>,
+    merged_finished: bool,
 }
 
 struct Endpoint {
@@ -80,7 +87,7 @@ impl RaftEffectSink for Routing {
                 .unwrap()
                 .upgrade()
                 .ok_or(CommandFailure::Unavailable)?;
-            let receipt = match send(&endpoint, &request, &state.failure).await {
+            let receipt = match send(&endpoint, &request, &state).await {
                 Ok(receipt) => receipt,
                 Err(error) => {
                     return Err(error);
@@ -110,7 +117,7 @@ impl RaftEffectSink for Routing {
 async fn send(
     endpoint: &Endpoint,
     request: &RaftDeliveryRequest,
-    failure: &Mutex<Option<String>>,
+    state: &State,
 ) -> std::result::Result<CommandReceipt, CommandFailure> {
     let host = endpoint
         .hosts
@@ -133,7 +140,7 @@ async fn send(
         )
         .await
         .map_err(|error| {
-            *failure.lock().unwrap() = Some(format!("{error:?}"));
+            *state.failure.lock().unwrap() = Some(format!("{error:?}"));
             error
                 .cause
                 .refusal()
@@ -146,6 +153,15 @@ async fn send(
     request
         .verify_receipt(&receipt.result)
         .map_err(|_| CommandFailure::CommandConflict)?;
+    if let Err(error) = state.ledger.record(
+        &request.target().contract().operation,
+        request.encoded(),
+        &receipt,
+    ) {
+        state.changed.store(true, Ordering::Release);
+        *state.failure.lock().unwrap() = Some(error.to_string());
+        return Err(CommandFailure::CommandConflict);
+    }
     Ok(receipt)
 }
 
@@ -157,16 +173,35 @@ pub(super) fn enabled() -> bool {
     state().is_some()
 }
 
-pub(crate) async fn qualify(rooted: bool, store: Arc<fault::Store>) -> Result<()> {
+pub(crate) async fn qualify(rooted: bool, store: Arc<fault::Store>, movement: bool) -> Result<()> {
     SCENE
-        .scope(RefCell::new(Scene::default()), async {
-            Box::pin(run_plan(rooted, store, Decision::Authorize)).await?;
-            ensure!(
-                SCENE.with(|scene| scene.borrow().finished),
-                "effect audit was not reached"
-            );
-            Ok(())
-        })
+        .scope(
+            RefCell::new(Scene {
+                movement,
+                ..Default::default()
+            }),
+            async {
+                let decision = if movement {
+                    Decision::SplitMerge {
+                        recovery_barrier: false,
+                        check_child_fence: false,
+                        check_resource_bounds: false,
+                    }
+                } else {
+                    Decision::Authorize
+                };
+                Box::pin(run_plan(rooted, store, decision)).await?;
+                ensure!(
+                    SCENE.with(|scene| scene.borrow().finished),
+                    "effect audit was not reached"
+                );
+                ensure!(
+                    !movement || SCENE.with(|scene| scene.borrow().merged_finished),
+                    "merged receipt/effect ledger audit was not reached"
+                );
+                Ok(())
+            },
+        )
         .await
 }
 
@@ -369,7 +404,7 @@ pub(super) async fn command_with_pending_effects(
         return Ok(handle.command(contract, input, options).await?);
     }
     let deadline = tokio::time::Instant::now() + options.timeout;
-    tokio::time::timeout_at(deadline, async {
+    let receipt = tokio::time::timeout_at(deadline, async {
         loop {
             let mut attempt = options.clone();
             attempt.timeout = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -381,7 +416,9 @@ pub(super) async fn command_with_pending_effects(
             }
         }
     })
-    .await?
+    .await??;
+    acknowledge(&contract.operation, &input, &receipt)?;
+    Ok(receipt)
 }
 
 fn retryable_probe(error: &CellDispatchError) -> bool {
@@ -404,26 +441,35 @@ fn retryable_probe(error: &CellDispatchError) -> bool {
 
 async fn lead_on_unrestarted_voter(cluster: &ManagedCluster, history: GroupHistory) -> Result<()> {
     let voters = &cluster.hosts[3..];
-    let current = crate::managed_fixture::leader(voters, history).await?;
-    if current != 1 {
-        let group = voters[current].group(history)?;
-        let progress = group.replication_status(TIMEOUT).await?;
-        group
-            .transfer_leadership(
-                LeadershipTransfer {
-                    target: MemberId::new(2)?,
-                    expected_term: progress.term,
-                    expected_revision: progress.membership_revision,
-                },
-                TIMEOUT,
-            )
-            .await?;
-    }
-    tokio::time::timeout(TIMEOUT, async {
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    tokio::time::timeout_at(deadline, async {
         loop {
             let status = voters[1].group(history)?.status().await?;
             if status.ready && status.leader == Some(2) {
                 return Ok::<_, anyhow::Error>(());
+            }
+            let current = crate::managed_fixture::leader(voters, history).await?;
+            if current != 1 {
+                let group = voters[current].group(history)?;
+                let progress = group
+                    .replication_status(
+                        deadline.saturating_duration_since(tokio::time::Instant::now()),
+                    )
+                    .await?;
+                match group
+                    .transfer_leadership(
+                        LeadershipTransfer {
+                            target: MemberId::new(2)?,
+                            expected_term: progress.term,
+                            expected_revision: progress.membership_revision,
+                        },
+                        deadline.saturating_duration_since(tokio::time::Instant::now()),
+                    )
+                    .await
+                {
+                    Ok(()) | Err(RuntimeError::NotReady | RuntimeError::NotLeader) => (),
+                    Err(error) => return Err(error.into()),
+                }
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
@@ -628,7 +674,7 @@ pub(super) async fn after_cleanup(
         .unwrap()
         .clone()
         .context("original S3 receiver receipt")?;
-    let duplicate = send(&endpoint, &request, &state.failure)
+    let duplicate = send(&endpoint, &request, &state)
         .await
         .map_err(|error| anyhow::anyhow!("retained receiver duplicate: {error:?}"))?;
     ensure!(duplicate.result == first.result && duplicate.durability == Durability::S3);
@@ -654,7 +700,92 @@ pub(super) async fn after_cleanup(
     let fence = SCENE
         .with(|scene| scene.borrow().fence.clone())
         .context("child completion archive fence")?;
-    archive::verify(cluster, directory, &first, &fence).await?;
+    archive::verify(cluster, directory, &first, &fence, archive::Layout::Split).await?;
     SCENE.with(|scene| scene.borrow_mut().finished = true);
+    Ok(())
+}
+
+pub(super) fn acknowledge(operation: &str, input: &[u8], receipt: &CommandReceipt) -> Result<()> {
+    if let Some(state) = state() {
+        state.ledger.record(operation, input, receipt)?;
+    }
+    Ok(())
+}
+
+pub(super) async fn before_merge(cluster: &ManagedCluster) -> Result<()> {
+    if !SCENE
+        .try_with(|scene| scene.borrow().movement)
+        .unwrap_or(false)
+    {
+        return Ok(());
+    }
+    let cached = Box::pin(ledger::prime(cluster)).await?;
+    SCENE.with(|scene| scene.borrow_mut().cached = cached);
+    Ok(())
+}
+
+pub(super) async fn after_merge(
+    cluster: &ManagedCluster,
+    directory: &RangeDirectory,
+    merged: GroupHistory,
+    fence: &CommandReceipt,
+) -> Result<()> {
+    let Some(state) = state() else {
+        return Ok(());
+    };
+    if !SCENE.with(|scene| scene.borrow().movement) {
+        return Ok(());
+    }
+    Box::pin(ledger::authorize(cluster, 0..3, 3..6)).await?;
+    let endpoint = endpoint(&cluster.hosts[3..]);
+    let request = state
+        .request
+        .lock()
+        .unwrap()
+        .clone()
+        .context("original signed effect envelope")?;
+    let received = state
+        .first
+        .lock()
+        .unwrap()
+        .clone()
+        .context("original S3 receiver proof")?;
+    let duplicate = Box::pin(send(&endpoint, &request, &state))
+        .await
+        .map_err(|error| anyhow::anyhow!("merged receiver duplicate: {error:?}"))?;
+    ensure!(duplicate.result == received.result && duplicate.durability == Durability::S3);
+    let stats = query(
+        &endpoint,
+        1,
+        "EffectStats",
+        168,
+        QueryConsistency::Linearizable,
+    )
+    .await?;
+    let progress = query(
+        &endpoint,
+        0,
+        "EffectProgress",
+        169,
+        QueryConsistency::Linearizable,
+    )
+    .await?;
+    ensure!(
+        stats.result == [1i64.to_be_bytes(), 17i64.to_be_bytes()].concat()
+            && progress.result == [1u64.to_be_bytes(), 1u64.to_be_bytes()].concat()
+            && state.received.load(Ordering::Acquire) == 1
+            && !state.changed.load(Ordering::Acquire)
+    );
+    let cached = SCENE.with(|scene| std::mem::take(&mut scene.borrow_mut().cached));
+    Box::pin(ledger::audit(&state.ledger, &endpoint, cached, merged)).await?;
+    Box::pin(archive::verify(
+        cluster,
+        directory,
+        &received,
+        fence,
+        archive::Layout::Merged,
+    ))
+    .await?;
+    SCENE.with(|scene| scene.borrow_mut().merged_finished = true);
     Ok(())
 }

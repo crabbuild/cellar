@@ -58,6 +58,9 @@ pub(super) async fn exercise(
 )> {
     let rooted = settings.rooted;
     let seeded = seed_cells(&cluster.hosts, cluster.history).await?;
+    for receipt in &seeded.receipts {
+        effects::acknowledge("Add", &receipt.result, receipt)?;
+    }
     restart::checkpoint(cluster, directory, transition, TransitionPhase::Planned).await?;
     let fixture = &cluster.fixtures[0];
     let domain = &fixture.domain;
@@ -74,6 +77,7 @@ pub(super) async fn exercise(
             options,
         )
         .await?;
+    effects::acknowledge("Add", &2i64.to_be_bytes(), &archived)?;
     ensure!(archived.durability == Durability::S3 && archived.result == 9i64.to_be_bytes());
     let archives = CellGroupArchivePool::new(Default::default())?;
     let registry = directory
@@ -263,6 +267,7 @@ pub(super) async fn exercise(
             )
             .await?
     };
+    effects::acknowledge("Add", &1i64.to_be_bytes(), &next)?;
     ensure!(next.result == 10i64.to_be_bytes() && next.version != archived.version);
     let replay = crate::managed_fixture::operator::prepare_transition(
         fixture,
@@ -1214,6 +1219,7 @@ pub(super) async fn verify_transferred_sql(
                 CommandOptions::new(original.id, seeded.retry),
             )
             .await?;
+        effects::acknowledge("Add", &original.result, &replay)?;
         ensure!(
             replay.id == original.id
                 && replay.result == original.result
@@ -1230,6 +1236,7 @@ pub(super) async fn verify_transferred_sql(
                 ),
             )
             .await?;
+        effects::acknowledge("Add", &1i64.to_be_bytes(), &next)?;
         ensure!(next.result == (expected + 1).to_be_bytes() && next.witness.group == route.history);
         positions.push((route.history, next.witness.position.index));
     }

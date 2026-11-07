@@ -1055,6 +1055,15 @@ serving, process-kill recovery, independent hosts or load performance.
 
 ## Split and merge
 
+The joined managed directory worker scans declared namespaces one selected group
+per turn. It independently verifies current Fleet membership and physical boots
+before caching remote read/command destinations. The immutable directory cursor
+restarts after topology changes. The cache shares the transport's route limit;
+only worker-owned advisory entries are evicted. This permits cached cell handles
+on former voters to follow new split/merge histories. Discovery grants no
+namespace permission, engine ownership, activation or quorum authority.
+
+
 Use the same transition state machine for one parent to multiple child ranges
 (split) and compatible adjacent parents to one child (merge). Create fresh child
 group IDs and retire every parent; this avoids reusing a partially changed parent
