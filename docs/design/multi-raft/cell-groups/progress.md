@@ -12,6 +12,54 @@ CG-09 through CG-15 are in progress. CG-16 remains pending
 the combined release gate. Follow the [quorum SQL priorities](remaining-work.md#first-delivery-of-quorum-sql-through-public-ingress)
 for the next delivery.
 
+## CG-09 transition target and source token continuity
+
+At `5331fc4ada3334564fff3c2342c63faefe65da2d`, the planned
+`native_cell_groups_transitions` target contains and passes three of the
+seven required native cases:
+
+- `seal_authorization_cancel_race`: competing authorization/cancellation
+  and independently reopened unknown authorization, 0.382 seconds.
+- `source_seal_blocks_delayed_work`: accepted enrollment drains before
+  sealing; late proposals and strong reads refuse, including after a
+  checkpoint and retained voter restart, 1.156 seconds.
+- `child_requires_install_and_publication`: physical install and publication
+  refusals, fresh child quorum/activation and retained restart in both image
+  modes, 71.106 seconds.
+
+The child case now uses the original source version token for local AtLeast
+reads after transfer and after retained child restart. Original receipt IDs
+and result bytes remain unchanged. A receipt's version is a covering image
+observation and may advance; replay must preserve the selected source cut's
+version/witness, and subsequent child writes receive child-group witnesses.
+
+The managed topology fixtures now belong to this target. The RustFS transition
+and split/merge runners select it with their original exact case names.
+The host/catalog regressions passed after fixture extraction. Shared fault
+and RustFS modules load once per target; relative helper visibility preserves
+the fixture's owning boundaries. Strict all-target Clippy passed for `cellar`,
+`cellar-logic` and `cellar-recovery-tests`. Module layout and native dependency
+checks passed. All reviewed source anchors retain their earlier bytes.
+
+Real RustFS also passed cancellation/reconciliation in 27.979 seconds and
+authorization through child activation, source token/receipt continuity and
+retained restart in 96.362 seconds. Each exact case ran materialized and extent
+images. Voters were host-native tasks; RustFS ran in one owned local VM.
+Capacity and fencing attestations remain fixture inputs. The native checkpoint
+uses an in-memory object store and retains the frozen executable copied by the
+RustFS run. Record digests are:
+
+- Native case checkpoint: `b97247e368cb029442dc0c8ca4203f6ec99fe90aaf3ce8803b769c7a599d01e2`.
+- RustFS transition suite: `377da4f7c3f499a0547e6346d311a984bb43670605293f789c071da29b9937d9`.
+
+CG-09 remains in progress. The remaining required oracles are restart at every
+transition phase with one writer, full token/receipt/effect and receiver-dedupe
+continuity, retirement dependency retention, and independent remote closure
+replay after erasing every local copy immediately after publication.
+This case checkpoint is not a complete task acceptance record. The accepted
+index remains eight tasks and 120 of 163 required cases; its count includes
+only DONE tasks.
+
 ## Manifest directory barriers and wide-group enrollment
 
 Runtime source `beeaa1b3025cd2f85d40214c61f77c827374b8fc` includes

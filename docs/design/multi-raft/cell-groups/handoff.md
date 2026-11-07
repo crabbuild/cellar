@@ -20,11 +20,19 @@ pass. The focused occupancy-128 case passes its full data checks, with
 60-second window after 66 cells. Retain both results; the process sample
 identifies blocking file synchronization as substantial preparation cost.
 
-Next deliver the planned CG-09 transition target and its seven exact oracles,
-then CG-10 partial reservations and movement under writes. Keep the wide
-matrix and full load profiles in CG-14; do not reopen the accepted CG-07
-SQL gates as unfinished tasks. Source and artifact digests are in
-[progress](progress.md).
+The planned CG-09 target now passes three of seven required cases at
+`5331fc4a`: authorization/cancellation, source-seal admission, and child
+install/publication. The child case checks original source version floors after transfer and
+retained restart, and receipt replay against the transferred source cut in
+both image modes.
+Real RustFS cancellation and authorization also pass both modes.
+
+Next deliver the four remaining CG-09 oracles: every-phase restart with one
+writer, full effect/receiver-dedupe continuity, retirement dependencies, and
+remote closure after erasing all local copies immediately after publication.
+Then finish CG-10 partial reservations and movement under writes. Keep the
+wide matrix and load profiles in CG-14; retain the accepted CG-07 boundary.
+Source and artifact digests are in [progress](progress.md).
 
 The following checkpoints preserve earlier source and qualification history.
 
