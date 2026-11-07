@@ -756,6 +756,133 @@ async fn native_readiness_distinguishes_historical_and_recent_source() -> Result
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_leadership_transfer_checks_progress() -> Result<()> {
+    let fixture = Fixture::start(Arc::new(get)).await?;
+    let result = check_leadership_transfer(&fixture).await;
+    fixture.cluster.heal();
+    let joined = fixture.close().await;
+    result?;
+    joined
+}
+
+async fn check_leadership_transfer(fixture: &Fixture) -> Result<()> {
+    let primary = fixture.cluster.leader(None).await?;
+    let target = (primary + 1) % fixture.handles.len();
+    let member = MemberId::new(target as u64 + 1)?;
+    let leader = fixture.group(primary)?;
+    let successor = fixture.group(target)?;
+    let handoff_timeout = Duration::from_secs(2);
+    fixture.cluster.isolate_consensus(target).await?;
+    let newer = fixture.write(primary, 2, 5).await?;
+    let before = leader.observe(TIMEOUT).await?;
+    let progress = leader.replication_status(TIMEOUT).await?;
+    assert!(progress.committed >= newer.witness.position.index);
+    assert!(progress
+        .members
+        .iter()
+        .any(|p| p.member == member && p.matched < progress.committed));
+    let transfer = LeadershipTransfer {
+        target: member,
+        expected_term: before.status.term,
+        expected_revision: before.membership_revision,
+    };
+    let refused = leader.transfer_leadership(transfer, handoff_timeout).await;
+    assert_eq!(refused, Err(RuntimeError::NotReady));
+    for invalid in [
+        LeadershipTransfer {
+            expected_term: Term::new(transfer.expected_term.get() + 1),
+            ..transfer
+        },
+        LeadershipTransfer {
+            expected_revision: LogIndex::new(transfer.expected_revision.get() + 1),
+            ..transfer
+        },
+        LeadershipTransfer {
+            target: MemberId::new(primary as u64 + 1)?,
+            ..transfer
+        },
+        LeadershipTransfer {
+            target: MemberId::new(999)?,
+            ..transfer
+        },
+    ] {
+        let refused = leader.transfer_leadership(invalid, handoff_timeout).await;
+        assert!(
+            matches!(refused, Err(RuntimeError::Invalid(_))),
+            "{refused:?}"
+        );
+    }
+    let after = leader.observe(TIMEOUT).await?;
+    assert!(after.status.ready);
+    assert_eq!(after.status.term, transfer.expected_term);
+    assert_eq!(after.membership_revision, transfer.expected_revision);
+
+    fixture.cluster.heal();
+    tokio::time::timeout(TIMEOUT, async {
+        loop {
+            let progress = leader.replication_status(TIMEOUT).await?;
+            if progress
+                .members
+                .iter()
+                .any(|p| p.member == member && p.recent_active && p.matched >= progress.committed)
+            {
+                return Ok::<_, RuntimeError>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("handoff target did not catch up")??;
+    let caught_up = fixture.handles[target]
+        .query(
+            query_id(),
+            &fixture.definition.get,
+            vec![],
+            at_least(&newer),
+        )
+        .await?;
+    assert_eq!(caught_up.served_by, member);
+    assert_eq!(caught_up.result, 6_i64.to_be_bytes());
+    assert_eq!(caught_up.witness, newer.witness);
+    leader
+        .transfer_leadership(transfer, handoff_timeout)
+        .await?;
+    tokio::time::timeout(TIMEOUT, async {
+        loop {
+            let status = successor.status().await?;
+            if status.ready
+                && status.leader == Some(member.get())
+                && status.term > before.status.term
+            {
+                return Ok::<_, RuntimeError>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("handoff target did not become a ready leader")??;
+    assert!(!leader.status().await?.ready);
+    let final_receipt = fixture.write(target, 3, 2).await?;
+    assert_eq!(final_receipt.result, 8_i64.to_be_bytes());
+    let previous_leader = fixture.handles[primary]
+        .query(
+            query_id(),
+            &fixture.definition.get,
+            vec![],
+            at_least(&final_receipt),
+        )
+        .await?;
+    assert_eq!(previous_leader.result, final_receipt.result);
+    assert_eq!(previous_leader.version, final_receipt.version);
+    assert_eq!(previous_leader.witness, final_receipt.witness);
+    assert_eq!(
+        leader.transfer_leadership(transfer, handoff_timeout).await,
+        Err(RuntimeError::NotLeader)
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn native_readiness_survives_protocol_only_leadership_transfer() -> Result<()> {
     use cellar::application::consensus::RaftReplicaRole;
 

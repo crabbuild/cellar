@@ -97,6 +97,13 @@ SUITES = {
         "Fixture capacity and fencing authority. Permanent Docker launch revocation "
         "and sustained load remain separate gates.",
     ),
+    "managed-minority": (
+        "native_cell_groups_managed",
+        ("bootstrap::lifecycle::s3::rustfs_managed_minority_cannot_reconfigure_from_s3",),
+        "a committed archive and rooted reservation cannot authorize a minority replacement",
+        "Fixture capacity and joined closure of two voter services. "
+        "Separate process faults and sustained load remain separate gates.",
+    ),
     "managed-liveness": (
         "native_cell_groups_managed",
         ("bootstrap::lifecycle::s3::rustfs_managed_s3_seed_refusal_and_source_failover",

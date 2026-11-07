@@ -46,11 +46,6 @@ async fn registered_standby_activation_shutdown_joins() -> anyhow::Result<()> {
     native_repairs::registered_standby_activation_shutdown_joins().await
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn native_leadership_transfer_checks_progress() -> anyhow::Result<()> {
-    native_repairs::leadership_transfer_checks_progress().await
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn automatic_no_traffic_repair() -> anyhow::Result<()> {
     automatic::no_traffic_repair().await
@@ -318,11 +313,6 @@ async fn learner_before_promotion() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn stale_plan_idempotence() -> anyhow::Result<()> {
     native_repairs::stale_plan_idempotence().await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn minority_cannot_reconfigure() -> anyhow::Result<()> {
-    native_repairs::minority_cannot_reconfigure().await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
